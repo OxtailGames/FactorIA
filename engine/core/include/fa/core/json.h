@@ -16,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <functional>
 #include <span>
 #include <string>
@@ -28,8 +29,21 @@ namespace fa {
 
 using Json = nlohmann::ordered_json;
 
-// Parse text; errors include line/column and the source name.
+// How many arrays and objects may be open inside each other in a document parse_json accepts. Copying, comparing and
+// printing a Json recurse once per level, so a few tens of thousands of '[' (a 64 KB file) would overflow the stack of the
+// thread that touches it. Real files nest a dozen levels.
+inline constexpr int kMaxJsonDepth = 256;
+
+// Where `text` first opens an array or object deeper than `limit` levels (a 0-based byte offset), or -1 when it never
+// does. Brackets inside strings are not counted; the text is not otherwise checked. Cheap (one pass, no allocation), so
+// code that reads untrusted text with Json::parse directly can call it first, or call parse_json_lenient.
+std::ptrdiff_t json_nesting_overflow(std::string_view text, int limit = kMaxJsonDepth);
+
+// Parse text; errors include line/column and the source name. Nesting deeper than kMaxJsonDepth levels is an error.
 Result<Json> parse_json(std::string_view text, std::string_view sourceName = "<memory>");
+// parse_json for untrusted text that is read leniently: the same limits, but any failure gives a discarded value
+// (`is_discarded()`), like Json::parse(text, nullptr, false), and nothing is thrown.
+Json parse_json_lenient(std::string_view text);
 // Read and parse a project-relative or absolute file through fa::fs.
 Result<Json> load_json_file(std::string_view path);
 // Pretty-print with 2-space indent and a trailing newline (canonical on-disk format).

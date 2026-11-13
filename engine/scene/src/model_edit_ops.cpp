@@ -20,13 +20,15 @@ namespace fa {
 
 using mm::Attr;
 using mm::Edges;
-using mm::Soup;
 using mm::EdgeUse;
+using mm::Soup;
 using sel::Selector;
 
 namespace {
 
-Result<ModelEditResult> fail_edit(const std::string& message, const std::string& hint) { return make_error(message, hint); }
+Result<ModelEditResult> fail_edit(const std::string& message, const std::string& hint) {
+    return make_error(message, hint);
+}
 
 // The soup being edited with the normals its triangles keep (zero = compute).
 struct Work {
@@ -44,7 +46,8 @@ Work make_work(const ModelMesh& m) {
     return w;
 }
 
-void add_tri(Work& w, std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac, std::uint32_t part) {
+void add_tri(Work& w, std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac,
+             std::uint32_t part) {
     w.s.add_tri(a, b, c, aa, ab, ac, part);
     w.nrm.push_back({Vec3{0, 0, 0}, Vec3{0, 0, 0}, Vec3{0, 0, 0}});
 }
@@ -55,7 +58,8 @@ ModelMesh finish(const Work& w) {
     const std::vector<Vec3> computed = mm::corner_normals(w.s, kCrease);
     std::vector<Vec3> normals(w.s.tris.size() * 3);
     for (std::size_t t = 0; t < w.s.tris.size(); ++t)
-        for (std::size_t k = 0; k < 3; ++k) normals[t * 3 + k] = length_sq(w.nrm[t][k]) > 0.25f ? w.nrm[t][k] : computed[t * 3 + k];
+        for (std::size_t k = 0; k < 3; ++k)
+            normals[t * 3 + k] = length_sq(w.nrm[t][k]) > 0.25f ? w.nrm[t][k] : computed[t * 3 + k];
     return mm::from_soup_normals(w.s, normals);
 }
 
@@ -114,16 +118,21 @@ std::optional<std::string> opt_string(const Json& p, const char* key) {
 }
 
 // A material named by an edit op must be one of the document's.
-std::optional<std::string> check_material(const std::optional<std::string>& material, const ModelEditContext& ctx, const char* field) {
-    if (!material || std::find(ctx.materialNames.begin(), ctx.materialNames.end(), *material) != ctx.materialNames.end()) return std::nullopt;
+std::optional<std::string> check_material(const std::optional<std::string>& material, const ModelEditContext& ctx,
+                                          const char* field) {
+    if (!material ||
+        std::find(ctx.materialNames.begin(), ctx.materialNames.end(), *material) != ctx.materialNames.end())
+        return std::nullopt;
     return std::format("{} \"{}\" is not in the document's `materials`. {}", field, *material,
-                       ctx.materialNames.empty() ? "The document has no materials yet: add {\"materials\": {\"" + *material + "\": {\"color\": [0.6, 0.4, 0.2, 1]}}}."
+                       ctx.materialNames.empty() ? "The document has no materials yet: add {\"materials\": {\"" +
+                                                       *material + "\": {\"color\": [0.6, 0.4, 0.2, 1]}}}."
                                                  : did_you_mean(*material, ctx.materialNames));
 }
 
 std::string rounded(float v) { return std::format("{:g}", std::round(v * 10000.0) / 10000.0); }
 
-std::uint32_t new_group(const ModelEditContext& ctx, std::uint32_t source, const std::optional<std::string>& part, const std::optional<std::string>& material) {
+std::uint32_t new_group(const ModelEditContext& ctx, std::uint32_t source, const std::optional<std::string>& part,
+                        const std::optional<std::string>& material) {
     return part || material ? ctx.group_with(source, part, material) : source;
 }
 
@@ -135,20 +144,22 @@ std::optional<std::string> too_big(std::size_t triangles, const char* what) {
 
 // ---- extrude_faces and inset_faces ---------------------------------------------------------------------------------------------
 
-Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh& input, const ModelEditContext& ctx, Selector& selector, const std::vector<char>& sel,
-                                         ModelEditResult& result) {
+Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh& input, const ModelEditContext& ctx,
+                                         Selector& selector, const std::vector<char>& sel, ModelEditResult& result) {
     const Json& p = node.params;
     const bool extrude = node.op == "extrude_faces";
     const Soup& soup = selector.soup();
     const std::optional<std::string> newPart = opt_string(p, "newPart"), newMaterial = opt_string(p, "newMaterial");
-    if (auto bad = check_material(newMaterial, ctx, "newMaterial")) return fail_edit(*bad, "Use a key of the document's `materials`.");
+    if (auto bad = check_material(newMaterial, ctx, "newMaterial"))
+        return fail_edit(*bad, "Use a key of the document's `materials`.");
 
     Work w;
     w.s = soup;
     w.nrm.assign(soup.tris.size(), {Vec3{0, 0, 0}, Vec3{0, 0, 0}, Vec3{0, 0, 0}});
     if (input.normals.size() == input.positions.size())
         for (std::size_t t = 0; t < soup.tris.size(); ++t)
-            for (std::size_t k = 0; k < 3; ++k) w.nrm[t][k] = input.normals[input.indices[std::size_t(soup.src[t]) * 3 + k]];
+            for (std::size_t k = 0; k < 3; ++k)
+                w.nrm[t][k] = input.normals[input.indices[std::size_t(soup.src[t]) * 3 + k]];
 
     const Region region = make_region(soup, selector.edge_table(), sel);
     const std::vector<Vec3> vnormal = vertex_normals(soup, sel);
@@ -166,7 +177,8 @@ Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh&
         }() : Vec3{p["direction"][0].get<float>(), p["direction"][1].get<float>(), p["direction"][2].get<float>()})
                                 : Vec3{0, 0, 0};
         if (std::fabs(distance) < 1e-7f) {
-            result.warnings.push_back("distance is 0, so nothing was extruded: give a distance such as 0.2 (negative pushes the faces into the model)");
+            result.warnings.push_back("distance is 0, so nothing was extruded: give a distance such as 0.2 (negative "
+                                      "pushes the faces into the model)");
             result.mesh = input;
             return result;
         }
@@ -175,7 +187,8 @@ Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh&
     } else {
         const float thickness = p["thickness"].get<float>(), depth = p["depth"].get<float>();
         if (region.border.empty()) {
-            result.warnings.push_back("the selected faces have no border to inset from (they are every face of a closed mesh): select a part of the surface, e.g. one side");
+            result.warnings.push_back("the selected faces have no border to inset from (they are every face of a "
+                                      "closed mesh): select a part of the surface, e.g. one side");
             result.mesh = input;
             return result;
         }
@@ -209,7 +222,8 @@ Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh&
             for (std::size_t tr = 0; tr < soup.tris.size(); ++tr) {
                 if (!sel[tr]) continue;
                 const auto& ids = soup.tris[tr];
-                const Vec3 c = cross(soup.pos[ids[1]] + d[ids[1]] - soup.pos[ids[0]] - d[ids[0]], soup.pos[ids[2]] + d[ids[2]] - soup.pos[ids[0]] - d[ids[0]]);
+                const Vec3 c = cross(soup.pos[ids[1]] + d[ids[1]] - soup.pos[ids[0]] - d[ids[0]],
+                                     soup.pos[ids[2]] + d[ids[2]] - soup.pos[ids[0]] - d[ids[0]]);
                 const Vec3 o = soup.face_cross(tr);
                 if (dot(c, o) <= 1e-4f * dot(o, o)) return false;
             }
@@ -221,9 +235,14 @@ Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh&
                 const float mid = 0.5f * (lo + hi);
                 (fits(mid) ? lo : hi) = mid;
             }
-            return fail_edit(std::format("thickness {} is more than the selected faces can give: they would turn inside out", rounded(thickness)),
-                             lo > 1e-4f ? std::format("The most these faces allow is about {}: use {} or less, or select larger faces.", rounded(lo), rounded(lo * 0.9f))
-                                        : "The border is too close to the faces' interior: select larger faces, or a region with more faces in it.");
+            return fail_edit(
+                std::format("thickness {} is more than the selected faces can give: they would turn inside out",
+                            rounded(thickness)),
+                lo > 1e-4f
+                    ? std::format("The most these faces allow is about {}: use {} or less, or select larger faces.",
+                                  rounded(lo), rounded(lo * 0.9f))
+                    : "The border is too close to the faces' interior: select larger faces, or a region with more "
+                      "faces in it.");
         }
         const std::vector<Vec3> d = offsets(thickness);
         for (std::size_t v = 0; v < soup.pos.size(); ++v)
@@ -239,21 +258,26 @@ Result<ModelEditResult> extrude_or_inset(const ModelNode& node, const ModelMesh&
     std::vector<std::uint32_t> copy(soup.pos.size(), UINT32_MAX);
     for (std::size_t v = 0; v < soup.pos.size(); ++v) {
         if (!region.inRegion[v]) continue;
-        if (region.onBorder[v]) copy[v] = w.s.add_vertex(soup.pos[v] + move[v]);
-        else w.s.pos[v] = soup.pos[v] + move[v];
+        if (region.onBorder[v])
+            copy[v] = w.s.add_vertex(soup.pos[v] + move[v]);
+        else
+            w.s.pos[v] = soup.pos[v] + move[v];
     }
     for (std::size_t t = 0; t < before.tris.size(); ++t) {
         if (!sel[t]) continue;
         for (std::size_t k = 0; k < 3; ++k)
             if (copy[w.s.tris[t][k]] != UINT32_MAX) w.s.tris[t][k] = copy[before.tris[t][k]];
         w.nrm[t] = {Vec3{0, 0, 0}, Vec3{0, 0, 0}, Vec3{0, 0, 0}};
-        if (extrude) w.s.part[t] = new_group(ctx, w.s.part[t], newPart, newMaterial);  // the cap is part of what was pushed out
+        if (extrude)
+            w.s.part[t] = new_group(ctx, w.s.part[t], newPart, newMaterial);  // the cap is part of what was pushed out
     }
     for (const Side& side : region.border) {
         const std::uint32_t part = new_group(ctx, before.part[side.tri], newPart, newMaterial);
         const std::uint32_t a = side.a, b = side.b, a2 = copy[side.a], b2 = copy[side.b];
         bool flip = false;
-        if (extrude) flip = dot(move[side.a] + move[side.b], side.cross) < 0;  // pushed into the model: the walls face the other way
+        if (extrude)
+            flip = dot(move[side.a] + move[side.b], side.cross) <
+                   0;  // pushed into the model: the walls face the other way
         if (!flip) {
             add_tri(w, a, b, b2, side.attr[0], side.attr[1], side.attr[1], part);
             add_tri(w, a, b2, a2, side.attr[0], side.attr[1], side.attr[0], part);
@@ -298,8 +322,8 @@ std::size_t cut_plane(Work& w, int axis, float h, float eps) {
         }
         return it->second;
     };
-    auto push = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac, const Vec3& na, const Vec3& nb, const Vec3& nc,
-                    std::uint32_t part) {
+    auto push = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac,
+                    const Vec3& na, const Vec3& nb, const Vec3& nc, std::uint32_t part) {
         out.add_tri(a, b, c, aa, ab, ac, part);
         nrm.push_back({na, nb, nc});
     };
@@ -309,14 +333,16 @@ std::size_t cut_plane(Work& w, int axis, float h, float eps) {
         const int sg[3] = {side[ids[0]], side[ids[1]], side[ids[2]]};
         const bool crosses = (sg[0] > 0 || sg[1] > 0 || sg[2] > 0) && (sg[0] < 0 || sg[1] < 0 || sg[2] < 0);
         if (!crosses) {
-            push(ids[0], ids[1], ids[2], s.attr[t][0], s.attr[t][1], s.attr[t][2], w.nrm[t][0], w.nrm[t][1], w.nrm[t][2], s.part[t]);
+            push(ids[0], ids[1], ids[2], s.attr[t][0], s.attr[t][1], s.attr[t][2], w.nrm[t][0], w.nrm[t][1],
+                 w.nrm[t][2], s.part[t]);
             continue;
         }
         ++cuts;
         // rotate so corner 0 is the lone vertex on its side (or the vertex on the plane)
         int k0 = 0;
         const int zeros = (sg[0] == 0) + (sg[1] == 0) + (sg[2] == 0);
-        if (zeros == 1) k0 = sg[0] == 0 ? 0 : sg[1] == 0 ? 1 : 2;
+        if (zeros == 1)
+            k0 = sg[0] == 0 ? 0 : sg[1] == 0 ? 1 : 2;
         else {
             const int pos = (sg[0] > 0) + (sg[1] > 0) + (sg[2] > 0);
             const int loneSide = pos == 1 ? 1 : -1;
@@ -353,7 +379,8 @@ std::size_t cut_plane(Work& w, int axis, float h, float eps) {
     return cuts;
 }
 
-Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, ModelEditResult& result, const ModelEditContext& ctx) {
+Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, ModelEditResult& result,
+                                 const ModelEditContext& ctx) {
     const Json& p = node.params;
     const int axis = axis_of(p["axis"].get<std::string>());
     Work w = make_work(input);
@@ -369,8 +396,10 @@ Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, 
             hi = std::max(hi, comp(w.s.pos[v], axis));
         }
     std::vector<float> planes;
-    if (p.contains("at")) planes.push_back(p["at"].get<float>());
-    else if (p.contains("ratio")) planes.push_back(lo + p["ratio"].get<float>() * (hi - lo));
+    if (p.contains("at"))
+        planes.push_back(p["at"].get<float>());
+    else if (p.contains("ratio"))
+        planes.push_back(lo + p["ratio"].get<float>() * (hi - lo));
     else {
         const int n = p.contains("count") ? p["count"].get<int>() : 1;
         for (int i = 1; i <= n; ++i) planes.push_back(lo + (hi - lo) * (float(i) / float(n + 1)));
@@ -383,22 +412,31 @@ Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, 
     std::size_t crossing = 0;
     for (float h : planes)
         for (const auto& tri : w.s.tris) {
-            const float c0 = comp(w.s.pos[tri[0]], axis), c1 = comp(w.s.pos[tri[1]], axis), c2 = comp(w.s.pos[tri[2]], axis);
+            const float c0 = comp(w.s.pos[tri[0]], axis), c1 = comp(w.s.pos[tri[1]], axis),
+                        c2 = comp(w.s.pos[tri[2]], axis);
             if (std::min({c0, c1, c2}) < h && std::max({c0, c1, c2}) > h) ++crossing;
         }
-    if (auto big = too_big(w.s.tris.size() + crossing * 2, "the loop cut")) return fail_edit(*big, "Lower `count`, or cut a mesh with fewer faces.");
+    if (auto big = too_big(w.s.tris.size() + crossing * 2, "the loop cut"))
+        return fail_edit(*big, "Lower `count`, or cut a mesh with fewer faces.");
 
     std::size_t cuts = 0;
     std::vector<float> done;
     for (float h : planes) {
         if (h <= lo + eps || h >= hi - eps) {
-            result.warnings.push_back(std::format("the plane {} = {} is {} the mesh, which spans {} to {} along {}: nothing was cut there", axisLetter, rounded(h),
-                                                  h < lo ? "below" : h > hi ? "above" : "on the edge of", rounded(lo), rounded(hi), axisLetter));
+            result.warnings.push_back(
+                std::format("the plane {} = {} is {} the mesh, which spans {} to {} along {}: nothing was cut there",
+                            axisLetter, rounded(h),
+                            h < lo   ? "below"
+                            : h > hi ? "above"
+                                     : "on the edge of",
+                            rounded(lo), rounded(hi), axisLetter));
             continue;
         }
         const std::size_t n = cut_plane(w, axis, h, eps);
         if (n == 0)
-            result.warnings.push_back(std::format("no face crosses the plane {} = {}: the mesh has a gap there, so nothing was cut", axisLetter, rounded(h)));
+            result.warnings.push_back(
+                std::format("no face crosses the plane {} = {}: the mesh has a gap there, so nothing was cut",
+                            axisLetter, rounded(h)));
         cuts += n;
         done.push_back(h);
     }
@@ -411,7 +449,8 @@ Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, 
     Json q = done.size() == 1 ? Json::object({{"by", "loop"}, {"axis", std::string(1, axisLetter)}, {"at", done[0]}})
                               : Json::object({{"by", "or"}, {"of", Json::array()}});
     if (done.size() > 1)
-        for (float h : done) q["of"].push_back(Json::object({{"by", "loop"}, {"axis", std::string(1, axisLetter)}, {"at", h}}));
+        for (float h : done)
+            q["of"].push_back(Json::object({{"by", "loop"}, {"axis", std::string(1, axisLetter)}, {"at", h}}));
     ModelSelectionReport report = model_select_report(result.mesh, q, ModelSelectKind::Edges, ctx);
     report.warnings.clear();
     result.report = report;
@@ -420,7 +459,8 @@ Result<ModelEditResult> loop_cut(const ModelNode& node, const ModelMesh& input, 
 
 // ---- bevel_edges --------------------------------------------------------------------------------------------------------------
 
-Result<ModelEditResult> bevel_edges(const ModelNode& node, const ModelMesh& input, ModelEditResult& result, Selector& selector, const std::vector<char>& mask) {
+Result<ModelEditResult> bevel_edges(const ModelNode& node, const ModelMesh& input, ModelEditResult& result,
+                                    Selector& selector, const std::vector<char>& mask) {
     const Json& p = node.params;
     const Soup& soup = selector.soup();
     const Edges& edges = selector.edge_table();
@@ -439,13 +479,18 @@ Result<ModelEditResult> bevel_edges(const ModelNode& node, const ModelMesh& inpu
     std::size_t bevelled = 0;
     auto made = model_bevel(input, q, &bevelled);
     if (!made) return fail_edit(made.error().message, made.error().hint);
-    if (auto big = too_big(made->triangle_count(), "the bevel")) return fail_edit(*big, "Lower `segments`, or select fewer edges.");
+    if (auto big = too_big(made->triangle_count(), "the bevel"))
+        return fail_edit(*big, "Lower `segments`, or select fewer edges.");
     if (bevelled == 0)
-        result.warnings.push_back(std::format("none of the {} selected edge(s) could be bevelled: an edge that is flat (the faces on its two sides turn by less than 1 degree), open or shared by "
-                                              "more than two faces is left alone. Select the corner edges, e.g. {{\"by\": \"sharp\", \"angle\": 30}}",
-                                              result.report.matched));
+        result.warnings.push_back(std::format(
+            "none of the {} selected edge(s) could be bevelled: an edge that is flat (the faces on its two sides turn "
+            "by less than 1 degree), open or shared by "
+            "more than two faces is left alone. Select the corner edges, e.g. {{\"by\": \"sharp\", \"angle\": 30}}",
+            result.report.matched));
     else if (bevelled < result.report.matched)
-        result.warnings.push_back(std::format("{} of the {} selected edges were bevelled; the others are flat, open or shared by more than two faces", bevelled, result.report.matched));
+        result.warnings.push_back(std::format(
+            "{} of the {} selected edges were bevelled; the others are flat, open or shared by more than two faces",
+            bevelled, result.report.matched));
     result.mesh = std::move(*made);
     return result;
 }
@@ -453,10 +498,12 @@ Result<ModelEditResult> bevel_edges(const ModelNode& node, const ModelMesh& inpu
 }  // namespace
 
 bool model_is_edit_op(const std::string& op) {
-    return op == "extrude_faces" || op == "inset_faces" || op == "loop_cut" || op == "bevel_edges" || op == "delete_faces" || op == "assign_faces";
+    return op == "extrude_faces" || op == "inset_faces" || op == "loop_cut" || op == "bevel_edges" ||
+           op == "delete_faces" || op == "assign_faces";
 }
 
-Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh& input, const ModelEditContext& context) {
+Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh& input,
+                                         const ModelEditContext& context) {
     ModelEditResult result;
     result.mesh = input;
     const Json& p = node.params;
@@ -471,7 +518,8 @@ Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh&
     result.report.op = node.op;
     result.report.pointer = node.pointer;
     if (result.report.matched == 0) {
-        result.report.warnings.push_back(sel::empty_warning(edgeOp ? "edges" : "faces", selector.notes) + "; the model is unchanged by " + node.op);
+        result.report.warnings.push_back(sel::empty_warning(edgeOp ? "edges" : "faces", selector.notes) +
+                                         "; the model is unchanged by " + node.op);
         result.warnings = result.report.warnings;
         return result;
     }
@@ -502,7 +550,8 @@ Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh&
         }
         if (node.op == "assign_faces") {
             const std::optional<std::string> part = opt_string(p, "toPart"), material = opt_string(p, "toMaterial");
-            if (auto bad = check_material(material, context, "toMaterial")) return fail_edit(*bad, "Use a key of the document's `materials`.");
+            if (auto bad = check_material(material, context, "toMaterial"))
+                return fail_edit(*bad, "Use a key of the document's `materials`.");
             for (std::size_t t = 0; t < soup.tris.size(); ++t)
                 if (mask[t]) result.mesh.triParts[soup.src[t]] = new_group(context, soup.part[t], part, material);
             return result;
@@ -513,7 +562,8 @@ Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh&
     if (!done) return done;
     // keep the warnings the selection raised (a partial match is not an error)
     for (const std::string& w : result.report.warnings)
-        if (std::find(done->warnings.begin(), done->warnings.end(), w) == done->warnings.end()) done->warnings.push_back(w);
+        if (std::find(done->warnings.begin(), done->warnings.end(), w) == done->warnings.end())
+            done->warnings.push_back(w);
     return done;
 }
 

@@ -153,7 +153,7 @@ TEST_CASE("export settings: the Android versionCode is derived from the version"
     CHECK(android_version_code_from("1.2.3") == 10203);
     CHECK(android_version_code_from("0.1.0") == 100);
     CHECK(android_version_code_from("2.0") == 20000);
-    CHECK(android_version_code_from("0.0.0") == 1);       // never below 1
+    CHECK(android_version_code_from("0.0.0") == 1);  // never below 1
     CHECK(android_version_code_from("") == 1);
     CHECK(android_version_code_from("1.2.300") == 10299);  // each part is capped at 99
     CHECK(android_version_code_from("1.2.3-beta") == 10203);
@@ -169,11 +169,12 @@ TEST_CASE("export settings: wrong types and values are errors that name the poin
                     "adaptiveIcon": {"background": "#12345"}, "signing": []},
         "ios": {"teamId": "abcde12345", "iconBackground": "white", "buildNumber": "v1"}
       }})"));
-    for (const char* ptr : {"/icon", "/export/macos/minimumSystemVersion", "/export/macos/category", "/export/linux/categories/1",
-                            "/export/linux/categories/2", "/export/android/format", "/export/android/versionCode",
-                            "/export/android/minSdk", "/export/android/targetSdk", "/export/android/permissions/0",
-                            "/export/android/adaptiveIcon/background", "/export/android/signing", "/export/ios/teamId",
-                            "/export/ios/iconBackground", "/export/ios/buildNumber"}) {
+    for (const char* ptr :
+         {"/icon", "/export/macos/minimumSystemVersion", "/export/macos/category", "/export/linux/categories/1",
+          "/export/linux/categories/2", "/export/android/format", "/export/android/versionCode",
+          "/export/android/minSdk", "/export/android/targetSdk", "/export/android/permissions/0",
+          "/export/android/adaptiveIcon/background", "/export/android/signing", "/export/ios/teamId",
+          "/export/ios/iconBackground", "/export/ios/buildNumber"}) {
         const ExportSettingsIssue* e = find_issue(r.errors, ptr);
         INFO("pointer ", ptr);
         REQUIRE(e != nullptr);
@@ -182,7 +183,8 @@ TEST_CASE("export settings: wrong types and values are errors that name the poin
     }
     CHECK(r.errors.size() == 15);
     CHECK(find_issue(r.errors, "/export/android/format")->hint.find("apk") != std::string::npos);
-    CHECK(find_issue(r.errors, "/export/macos/minimumSystemVersion")->message.find("older than macOS 11.0") != std::string::npos);
+    CHECK(find_issue(r.errors, "/export/macos/minimumSystemVersion")->message.find("older than macOS 11.0") !=
+          std::string::npos);
     // invalid fields keep their defaults
     CHECK(r.settings.android.format == "apk");
     CHECK(r.settings.macos.minimumSystemVersion == "11.0");
@@ -211,7 +213,8 @@ TEST_CASE("export settings: the SDK levels are checked against each other") {
 }
 
 TEST_CASE("export settings: icon paths must stay inside the project") {
-    auto abs = parse_export_settings(parse(R"({"icon": "/Users/me/icon.png", "export": {"ios": {"icon": "C:\\icons\\a.png"}}})"));
+    auto abs = parse_export_settings(
+        parse(R"({"icon": "/Users/me/icon.png", "export": {"ios": {"icon": "C:\\icons\\a.png"}}})"));
     CHECK(find_issue(abs.errors, "/icon") != nullptr);
     CHECK(find_issue(abs.errors, "/export/ios/icon") != nullptr);
     auto up = parse_export_settings(parse(R"({"icon": "../icon.png"})"));
@@ -221,7 +224,8 @@ TEST_CASE("export settings: icon paths must stay inside the project") {
     CHECK(back.errors.empty());
     CHECK(back.settings.icon == "assets/icon.png");  // backslashes become forward slashes
     // a keystore may live outside the project
-    auto ks = parse_export_settings(parse(R"({"export": {"android": {"signing": {"keystore": "/keys/up.jks", "alias": "up"}}}})"));
+    auto ks = parse_export_settings(
+        parse(R"({"export": {"android": {"signing": {"keystore": "/keys/up.jks", "alias": "up"}}}})"));
     CHECK(ks.errors.empty());
     CHECK(ks.settings.android.signing.keystore == "/keys/up.jks");
 }
@@ -241,8 +245,10 @@ TEST_CASE("export settings: unknown keys are warnings with a did-you-mean") {
     CHECK(key->hint.find("Did you mean 'category'?") != std::string::npos);
     CHECK(key->hint.find("Valid: icon, category, minimumSystemVersion, copyright") != std::string::npos);
     CHECK(find_issue(r.warnings, "/export/android/fromat")->hint.find("Did you mean 'format'?") != std::string::npos);
-    CHECK(find_issue(r.warnings, "/export/android/signing/keystor")->hint.find("Did you mean 'keystore'?") != std::string::npos);
-    CHECK(find_issue(r.warnings, "/export/android/adaptiveIcon/foregound")->hint.find("Did you mean 'foreground'?") != std::string::npos);
+    CHECK(find_issue(r.warnings, "/export/android/signing/keystor")->hint.find("Did you mean 'keystore'?") !=
+          std::string::npos);
+    CHECK(find_issue(r.warnings, "/export/android/adaptiveIcon/foregound")->hint.find("Did you mean 'foreground'?") !=
+          std::string::npos);
     CHECK(r.settings.android.format == "apk");  // an unknown key never changes a setting
 }
 
@@ -389,7 +395,8 @@ TEST_CASE("export settings: save keeps the indentation, array style and line end
     b->android.format = "aab";
     REQUIRE(save_export_settings(tmp.str(), *b).ok());
     text = testing::read_all(project_file(tmp));
-    CHECK(text == "{\n    \"name\": \"G\",\n    \"platforms\": [\"linux\"],\n    \"export\": {\n        \"android\": {\n            \"format\": \"aab\"\n        }\n    }\n}\n");
+    CHECK(text == "{\n    \"name\": \"G\",\n    \"platforms\": [\"linux\"],\n    \"export\": {\n        \"android\": "
+                  "{\n            \"format\": \"aab\"\n        }\n    }\n}\n");
 
     // 3. tabs
     testing::write_all(project_file(tmp), "{\n\t\"name\": \"G\"\n}\n");
@@ -406,7 +413,8 @@ TEST_CASE("export settings: save keeps the indentation, array style and line end
     c->ios.teamId = "ABCDE12345";
     REQUIRE(save_export_settings(tmp.str(), *c).ok());
     text = testing::read_all(project_file(tmp));
-    CHECK(text == "{\r\n  \"name\": \"G\",\r\n  \"export\": {\r\n    \"ios\": {\r\n      \"teamId\": \"ABCDE12345\"\r\n    }\r\n  }\r\n}\r\n");
+    CHECK(text == "{\r\n  \"name\": \"G\",\r\n  \"export\": {\r\n    \"ios\": {\r\n      \"teamId\": "
+                  "\"ABCDE12345\"\r\n    }\r\n  }\r\n}\r\n");
 
     // 5. an empty object and a one-line file
     testing::write_all(project_file(tmp), "{}");
@@ -446,10 +454,10 @@ TEST_CASE("export settings: save replaces and removes members wherever they sit 
     CHECK(j["icon"] == "new.png");
     CHECK(j["name"] == "A {tricky} \"name\"");
     CHECK(j["version"] == "1.0.0");
-    CHECK_FALSE(j["export"].contains("android"));         // its only field went back to the default
+    CHECK_FALSE(j["export"].contains("android"));  // its only field went back to the default
     CHECK(j["export"]["macos"]["copyright"] == "(c)");
     CHECK(j["export"]["unknownPlatform"]["x"].size() == 2);  // unknown keys are kept
-    CHECK(j.items().begin().key() == "icon");              // key order kept
+    CHECK(j.items().begin().key() == "icon");                // key order kept
 
     // remove icon (first member) and export (middle member)
     s = load_export_settings(tmp.str());
@@ -494,11 +502,13 @@ TEST_CASE("export settings: save refuses a missing or broken factoria.json and n
 // ---------------------------------------------------------------------------------------------------- machine config
 
 TEST_CASE("machine export config: the path follows HOME, with an override") {
-    CHECK(machine_export_config_path(env_of({{"FACTORIA_EXPORT_CONFIG", "/x/y.json"}, {"HOME", "/home/me"}})) == "/x/y.json");
+    CHECK(machine_export_config_path(env_of({{"FACTORIA_EXPORT_CONFIG", "/x/y.json"}, {"HOME", "/home/me"}})) ==
+          "/x/y.json");
 #ifndef _WIN32
     CHECK(machine_export_config_path(env_of({{"HOME", "/home/me"}})) == "/home/me/.factoria/export.json");
 #else
-    CHECK(machine_export_config_path(env_of({{"USERPROFILE", "C:\\Users\\me"}})) == "C:\\Users\\me\\.factoria\\export.json");
+    CHECK(machine_export_config_path(env_of({{"USERPROFILE", "C:\\Users\\me"}})) ==
+          "C:\\Users\\me\\.factoria\\export.json");
 #endif
     CHECK(machine_export_config_path(env_of({})) == ".factoria/export.json");
 }
@@ -532,7 +542,7 @@ TEST_CASE("machine export config: load, save and round trip") {
     CHECK(back->warnings.empty());
 
 #ifndef _WIN32
-    struct stat st {};
+    struct stat st{};
     REQUIRE(stat(path.c_str(), &st) == 0);
     CHECK((st.st_mode & 0777) == 0600);  // it holds passwords
     chmod(path.c_str(), 0644);
@@ -543,7 +553,9 @@ TEST_CASE("machine export config: load, save and round trip") {
 #endif
 
     // Empty values are removed; keys of other versions are kept.
-    testing::write_all(path, R"({"format": "factoria.export-config/1", "future": {"a": 1}, "android": {"sdk": "/old", "other": true}})");
+    testing::write_all(
+        path,
+        R"({"format": "factoria.export-config/1", "future": {"a": 1}, "android": {"sdk": "/old", "other": true}})");
     MachineExportConfig update;
     update.androidJdk = "/jdk2";
     REQUIRE(save_machine_export_config(update, path).ok());
@@ -607,11 +619,14 @@ TEST_CASE("machine export config: environment variables win over the file for th
 namespace {
 
 // A folder that looks like a JDK. `version` goes into <jdk>/release as JAVA_VERSION (empty = no release file).
-std::string make_jdk(const testing::TempDir& tmp, const std::string& rel, const std::string& version, bool javac = true) {
+std::string make_jdk(const testing::TempDir& tmp, const std::string& rel, const std::string& version,
+                     bool javac = true) {
     const stdfs::path root = stdfs::path(tmp.str()) / rel;
     testing::write_all(root / "bin" / "java", "");
     if (javac) testing::write_all(root / "bin" / "javac", "");
-    if (!version.empty()) testing::write_all(root / "release", "IMPLEMENTOR=\"Test\"\nJAVA_VERSION=\"" + version + "\"\nOS_NAME=\"Linux\"\n");
+    if (!version.empty())
+        testing::write_all(root / "release",
+                           "IMPLEMENTOR=\"Test\"\nJAVA_VERSION=\"" + version + "\"\nOS_NAME=\"Linux\"\n");
     return root.string();
 }
 
@@ -628,7 +643,8 @@ bool any_contains(const std::vector<std::string>& list, const std::string& text)
     return false;
 }
 
-AndroidToolchainSearch search_with(std::map<std::string, std::string> vars, std::vector<AndroidToolchainCandidate> jdk = {},
+AndroidToolchainSearch search_with(std::map<std::string, std::string> vars,
+                                   std::vector<AndroidToolchainCandidate> jdk = {},
                                    std::vector<AndroidToolchainCandidate> sdk = {}) {
     AndroidToolchainSearch s;
     s.env = env_of(std::move(vars));
@@ -663,7 +679,9 @@ TEST_CASE("android toolchain: configured folders win, then the environment, then
     MachineExportConfig cfg;
     cfg.androidJdk = cfgJdk;
     cfg.androidSdk = cfgSdk;
-    auto all = find_android_toolchain(cfg, search_with({{"JAVA_HOME", envJdk}, {"ANDROID_HOME", homeSdk}, {"ANDROID_SDK_ROOT", rootSdk}}, jdks, sdks));
+    auto all = find_android_toolchain(
+        cfg,
+        search_with({{"JAVA_HOME", envJdk}, {"ANDROID_HOME", homeSdk}, {"ANDROID_SDK_ROOT", rootSdk}}, jdks, sdks));
     CHECK(all.ok());
     CHECK(all.jdk == cfgJdk);
     CHECK(all.jdkFrom == "config");
@@ -672,7 +690,9 @@ TEST_CASE("android toolchain: configured folders win, then the environment, then
     CHECK(all.sdkFrom == "config");
 
     MachineExportConfig none;
-    auto env = find_android_toolchain(none, search_with({{"JAVA_HOME", envJdk}, {"ANDROID_HOME", homeSdk}, {"ANDROID_SDK_ROOT", rootSdk}}, jdks, sdks));
+    auto env = find_android_toolchain(
+        none,
+        search_with({{"JAVA_HOME", envJdk}, {"ANDROID_HOME", homeSdk}, {"ANDROID_SDK_ROOT", rootSdk}}, jdks, sdks));
     CHECK(env.ok());
     CHECK(env.jdk == envJdk);
     CHECK(env.jdkFrom == "JAVA_HOME");
@@ -702,7 +722,8 @@ TEST_CASE("android toolchain: version patterns try the newest Unity Hub editor f
     make_sdk(tmp, "Hub/Editor/2022.3.10f1/PlaybackEngines/AndroidPlayer/SDK");
     const std::string pattern = (stdfs::path(tmp.str()) / "Hub/Editor/*/PlaybackEngines/AndroidPlayer").string();
 
-    auto tc = find_android_toolchain({}, search_with({}, {{pattern + "/OpenJDK", "Unity Hub"}}, {{pattern + "/SDK", "Unity Hub"}}));
+    auto tc = find_android_toolchain(
+        {}, search_with({}, {{pattern + "/OpenJDK", "Unity Hub"}}, {{pattern + "/SDK", "Unity Hub"}}));
     CHECK(tc.ok());
     CHECK(stdfs::path(tc.jdk) == stdfs::path(newest));  // 6000 > 2022 > 2021 numerically, not as text
     CHECK(tc.jdkFrom == "Unity Hub");
@@ -712,7 +733,9 @@ TEST_CASE("android toolchain: version patterns try the newest Unity Hub editor f
     testing::TempDir old;
     make_jdk(old, "Hub/Editor/9999.0.0f1/PlaybackEngines/AndroidPlayer/OpenJDK", "11.0.14");
     const std::string good = make_jdk(old, "Hub/Editor/2022.3.10f1/PlaybackEngines/AndroidPlayer/OpenJDK", "17.0.9");
-    auto skip = find_android_toolchain({}, search_with({}, {{(stdfs::path(old.str()) / "Hub/Editor/*/PlaybackEngines/AndroidPlayer/OpenJDK").string(), "Unity Hub"}}));
+    auto skip = find_android_toolchain(
+        {}, search_with({}, {{(stdfs::path(old.str()) / "Hub/Editor/*/PlaybackEngines/AndroidPlayer/OpenJDK").string(),
+                              "Unity Hub"}}));
     CHECK(stdfs::path(skip.jdk) == stdfs::path(good));
 }
 
@@ -888,9 +911,12 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
     testing::TempDir t;
     testing::write_all(t.path / "tools" / "ffmpeg", "x");
     testing::write_all(t.path / "other" / "ffmpeg.exe", "x");
-    testing::write_all(t.path / "export.json", R"({"publish": {"ffmpeg": ")" + (t.path / "other" / "ffmpeg.exe").generic_string() + R"("}})");
+    testing::write_all(t.path / "export.json",
+                       R"({"publish": {"ffmpeg": ")" + (t.path / "other" / "ffmpeg.exe").generic_string() + R"("}})");
     const std::string config = (t.path / "export.json").string();
-    const auto env = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "tools").generic_string() : ""; };
+    const auto env = [&](const std::string& name) -> std::string {
+        return name == "FACTORIA_FFMPEG" ? (t.path / "tools").generic_string() : "";
+    };
     auto found = find_ffmpeg(env, config);
     REQUIRE(found.ok());
     CHECK(found->path == (t.path / "tools" / "ffmpeg").generic_string());  // a folder: the executable inside
@@ -901,7 +927,9 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
     CHECK(found->path == (t.path / "other" / "ffmpeg.exe").generic_string());
     CHECK(found->from == "export.json");
     // A variable that points at nothing is an error, not a silent fall-through to PATH.
-    const auto wrong = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "nowhere").generic_string() : ""; };
+    const auto wrong = [&](const std::string& name) -> std::string {
+        return name == "FACTORIA_FFMPEG" ? (t.path / "nowhere").generic_string() : "";
+    };
     const auto bad = find_ffmpeg(wrong, config);
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("FACTORIA_FFMPEG") != std::string::npos);
@@ -911,7 +939,8 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
 }
 
 TEST_CASE("export settings: export.macos buildNumber, usesNonExemptEncryption and entitlements (Mac App Store)") {
-    auto r = parse_export_settings(parse(R"({"version": "1.2.3", "export": {"macos": {"buildNumber": 42, "usesNonExemptEncryption": true,
+    auto r = parse_export_settings(
+        parse(R"({"version": "1.2.3", "export": {"macos": {"buildNumber": 42, "usesNonExemptEncryption": true,
         "entitlements": {"com.apple.security.network.client": true, "com.apple.security.files.user-selected.read-write": true,
                          "com.apple.security.application-groups": ["TEAMID.group.x"]}}}})"));
     CHECK(r.errors.empty());
@@ -928,18 +957,22 @@ TEST_CASE("export settings: export.macos buildNumber, usesNonExemptEncryption an
     CHECK_FALSE(d.settings.macos.usesNonExemptEncryption);
     CHECK(d.settings.macos.entitlements.empty());
 
-    auto bad = parse_export_settings(parse(R"({"export": {"macos": {"buildNumber": "v2", "usesNonExemptEncryption": "yes",
+    auto bad =
+        parse_export_settings(parse(R"({"export": {"macos": {"buildNumber": "v2", "usesNonExemptEncryption": "yes",
         "entitlements": {"com.apple.security.app-sandbox": false, "com.apple.application-identifier": "x", "bad key": true,
                          "com.apple.security.network.cient": true, "com.apple.security.print": {"a": 1}}}}})"));
-    for (const char* ptr : {"/export/macos/buildNumber", "/export/macos/usesNonExemptEncryption", "/export/macos/entitlements/com.apple.security.app-sandbox",
-                            "/export/macos/entitlements/com.apple.application-identifier", "/export/macos/entitlements/bad key",
-                            "/export/macos/entitlements/com.apple.security.print"}) {
+    for (const char* ptr :
+         {"/export/macos/buildNumber", "/export/macos/usesNonExemptEncryption",
+          "/export/macos/entitlements/com.apple.security.app-sandbox",
+          "/export/macos/entitlements/com.apple.application-identifier", "/export/macos/entitlements/bad key",
+          "/export/macos/entitlements/com.apple.security.print"}) {
         const ExportSettingsIssue* i = find_issue(bad.errors, ptr);
         INFO(ptr);
         REQUIRE(i != nullptr);
         CHECK_FALSE(i->hint.empty());
     }
-    const ExportSettingsIssue* typo = find_issue(bad.warnings, "/export/macos/entitlements/com.apple.security.network.cient");
+    const ExportSettingsIssue* typo =
+        find_issue(bad.warnings, "/export/macos/entitlements/com.apple.security.network.cient");
     REQUIRE(typo != nullptr);
     CHECK(typo->hint.find("com.apple.security.network.client") != std::string::npos);
 
@@ -949,7 +982,8 @@ TEST_CASE("export settings: export.macos buildNumber, usesNonExemptEncryption an
 
 TEST_CASE("export settings: the macOS App Store fields are saved only when they differ from the defaults") {
     testing::TempDir tmp;
-    testing::write_all(tmp.sub("factoria.json"), R"({"name": "Save Game", "id": "com.example.savegame", "version": "1.0.0"})");
+    testing::write_all(tmp.sub("factoria.json"),
+                       R"({"name": "Save Game", "id": "com.example.savegame", "version": "1.0.0"})");
     auto s = load_export_settings(tmp.str());
     REQUIRE(s.ok());
     s->macos.buildNumber = "9";
@@ -969,22 +1003,26 @@ TEST_CASE("export settings: the macOS App Store fields are saved only when they 
     CHECK_FALSE(j2.contains("export"));
 }
 
-TEST_CASE("export settings: export.pack codecs and useLoadOrder are read, checked with their pointer, and kept by save") {
+TEST_CASE(
+    "export settings: export.pack codecs and useLoadOrder are read, checked with their pointer, and kept by save") {
     auto none = parse_export_settings(parse(R"({"name": "G"})"));
     CHECK(none.settings.pack.codecs.empty());
     CHECK(none.settings.pack.useLoadOrder);
 
-    auto good = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {".JSON": "zstd", ".bin": "store", ".mesh": "lz4"},
+    auto good = parse_export_settings(
+        parse(R"({"export": {"pack": {"codecs": {".JSON": "zstd", ".bin": "store", ".mesh": "lz4"},
                                                                      "useLoadOrder": false}}})"));
     CHECK(good.errors.empty());
     CHECK(good.warnings.empty());
     REQUIRE(good.settings.pack.codecs.size() == 3);
-    CHECK(good.settings.pack.codecs.at(".json") == Codec::Zstd);  // the extension is lowercased, as fs::extension gives it
+    CHECK(good.settings.pack.codecs.at(".json") ==
+          Codec::Zstd);  // the extension is lowercased, as fs::extension gives it
     CHECK(good.settings.pack.codecs.at(".bin") == Codec::Store);
     CHECK(good.settings.pack.codecs.at(".mesh") == Codec::Lz4);
     CHECK_FALSE(good.settings.pack.useLoadOrder);
 
-    auto bad = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {"json": "zstd", ".a.b": "lz4", ".png": "zip",
+    auto bad =
+        parse_export_settings(parse(R"({"export": {"pack": {"codecs": {"json": "zstd", ".a.b": "lz4", ".png": "zip",
                                                                     ".ogg": 3}, "useLoadOrder": "yes", "useLoadOrdr": true}}})"));
     CHECK(find_issue(bad.errors, "/export/pack/codecs/json") != nullptr);
     CHECK(find_issue(bad.errors, "/export/pack/codecs/.a.b") != nullptr);
@@ -995,8 +1033,8 @@ TEST_CASE("export settings: export.pack codecs and useLoadOrder are read, checke
     const ExportSettingsIssue* flag = find_issue(bad.errors, "/export/pack/useLoadOrder");
     REQUIRE(flag != nullptr);
     CHECK(flag->message.find("expected true or false") != std::string::npos);
-    CHECK(bad.settings.pack.codecs.empty());     // nothing invalid is taken
-    CHECK(bad.settings.pack.useLoadOrder);       // an invalid value keeps the default
+    CHECK(bad.settings.pack.codecs.empty());  // nothing invalid is taken
+    CHECK(bad.settings.pack.useLoadOrder);    // an invalid value keeps the default
     const ExportSettingsIssue* typo = find_issue(bad.warnings, "/export/pack/useLoadOrdr");
     REQUIRE(typo != nullptr);
     CHECK(typo->hint.find("useLoadOrder") != std::string::npos);

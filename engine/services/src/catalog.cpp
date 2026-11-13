@@ -17,12 +17,14 @@ const std::vector<std::string>& platform_names_list() {
 
 bool valid_id(const std::string& s) {
     if (s.empty() || s.size() > 64) return false;
-    return std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '.' || c == '-'; });
+    return std::all_of(s.begin(), s.end(),
+                       [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '.' || c == '-'; });
 }
 
 bool valid_backend_name(const std::string& s) {
-    return !s.empty() && s.size() <= 64 && s[0] >= 'a' && s[0] <= 'z' &&
-           std::all_of(s.begin(), s.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+    return !s.empty() && s.size() <= 64 && s[0] >= 'a' && s[0] <= 'z' && std::all_of(s.begin(), s.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+    });
 }
 
 // ca-app-pub-<16 digits><separator><10 digits>: an AdMob app id has a '~', an ad unit id a '/'.
@@ -62,16 +64,19 @@ struct Parser {
     void unknown_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& known) {
         for (auto it = obj.begin(); it != obj.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
-                issue(pointer + "/" + it.key(), "unknown key " + in_quotes(it.key()) + "; the keys here are " + in_quotes_list(known) +
-                                                    suggestion(it.key(), known),
+                issue(pointer + "/" + it.key(),
+                      "unknown key " + in_quotes(it.key()) + "; the keys here are " + in_quotes_list(known) +
+                          suggestion(it.key(), known),
                       "Remove it, or fix the spelling (docs/PLATFORM.md, \"The catalog\").", true);
     }
 
     // A required, non-empty string.
-    bool need_string(const Json& obj, const std::string& pointer, const char* key, std::string& dst, const std::string& example) {
+    bool need_string(const Json& obj, const std::string& pointer, const char* key, std::string& dst,
+                     const std::string& example) {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) {
-            issue(pointer + "/" + key, std::string("missing ") + in_quotes(key), "Add it, e.g. \"" + std::string(key) + "\": " + example + ".");
+            issue(pointer + "/" + key, std::string("missing ") + in_quotes(key),
+                  "Add it, e.g. \"" + std::string(key) + "\": " + example + ".");
             return false;
         }
         if (!it->is_string() || it->get<std::string>().empty()) {
@@ -95,21 +100,25 @@ struct Parser {
 
     // A text that is either written in factoria.json (`key`) or names a locale key (`keyKey`, e.g. "name" / "nameKey"). The
     // text is required unless `required` is false; one of the two must be there when it is required.
-    void text_or_key(const Json& obj, const std::string& pointer, const char* key, const char* keyKey, std::string& text,
-                     std::string& locKey, bool required, const std::string& example) {
+    void text_or_key(const Json& obj, const std::string& pointer, const char* key, const char* keyKey,
+                     std::string& text, std::string& locKey, bool required, const std::string& example) {
         const bool hasKey = obj.contains(keyKey) && !obj[keyKey].is_null();
         if (hasKey) {
             const Json& v = obj[keyKey];
             if (!v.is_string() || v.get<std::string>().empty()) {
-                issue(pointer + "/" + keyKey, "expected a locale key (a non-empty string), got " + describe_json_value(v),
-                      "Write the key of locales/<language>.json, e.g. \"" + std::string(keyKey) + "\": \"store.first_win.name\".");
+                issue(pointer + "/" + keyKey,
+                      "expected a locale key (a non-empty string), got " + describe_json_value(v),
+                      "Write the key of locales/<language>.json, e.g. \"" + std::string(keyKey) +
+                          "\": \"store.first_win.name\".");
                 return;
             }
             locKey = v.get<std::string>();
             out.catalog.textKeyRefs.push_back({pointer + "/" + keyKey, locKey});
         }
-        if (required && !hasKey) need_string(obj, pointer, key, text, example);
-        else opt_string(obj, pointer, key, text);
+        if (required && !hasKey)
+            need_string(obj, pointer, key, text, example);
+        else
+            opt_string(obj, pointer, key, text);
     }
 
     void opt_bool(const Json& obj, const std::string& pointer, const char* key, bool& dst) {
@@ -128,15 +137,17 @@ struct Parser {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) {
             if (required)
-                issue(pointer + "/" + key, std::string("missing ") + in_quotes(key) + "; use one of " + in_quotes_list(values),
+                issue(pointer + "/" + key,
+                      std::string("missing ") + in_quotes(key) + "; use one of " + in_quotes_list(values),
                       "Add it, e.g. \"" + std::string(key) + "\": " + in_quotes(values[0]) + ".");
             return !required;
         }
         const std::string got = it->is_string() ? it->get<std::string>() : std::string();
         if (!it->is_string() || std::find(values.begin(), values.end(), got) == values.end()) {
             const std::string shown = it->is_string() ? in_quotes(got) : describe_json_value(*it);
-            issue(pointer + "/" + key, shown + " is not " + what + "; use one of " + in_quotes_list(values) +
-                                           (it->is_string() ? suggestion(got, values) : std::string()),
+            issue(pointer + "/" + key,
+                  shown + " is not " + what + "; use one of " + in_quotes_list(values) +
+                      (it->is_string() ? suggestion(got, values) : std::string()),
                   "Fix the value in factoria.json (docs/PLATFORM.md, \"The catalog\").");
             return false;
         }
@@ -149,15 +160,18 @@ struct Parser {
         auto it = obj.find("ids");
         if (it == obj.end() || it->is_null()) return;
         if (!it->is_object()) {
-            issue(pointer + "/ids", "expected an object mapping backend names to store ids, got " + describe_json_value(*it),
+            issue(pointer + "/ids",
+                  "expected an object mapping backend names to store ids, got " + describe_json_value(*it),
                   "Example: \"ids\": {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}.");
             return;
         }
         for (auto ii = it->begin(); ii != it->end(); ++ii) {
             const std::string p = pointer + "/ids/" + ii.key();
             if (!valid_backend_name(ii.key())) {
-                issue(p, in_quotes(ii.key()) + " is not a backend name; use the name the backend registers, lower-case letters, digits and "
-                                            "underscores (\"steam\", \"apple\")",
+                issue(p,
+                      in_quotes(ii.key()) +
+                          " is not a backend name; use the name the backend registers, lower-case letters, digits and "
+                          "underscores (\"steam\", \"apple\")",
                       "The keys of \"ids\" are backend names; the value is the id that store uses.");
                 continue;
             }
@@ -180,8 +194,10 @@ struct Parser {
             return false;
         }
         if (!it->is_string() || !valid_id(it->get<std::string>())) {
-            issue(pointer + "/id", describe_json_value(*it) + " is not a valid id; use 1-64 letters, digits, '_', '.' or '-'",
-                  "Example: \"id\": \"first_win\". The id is what scripts pass to platform.*; the store's own id goes in \"ids\".");
+            issue(pointer + "/id",
+                  describe_json_value(*it) + " is not a valid id; use 1-64 letters, digits, '_', '.' or '-'",
+                  "Example: \"id\": \"first_win\". The id is what scripts pass to platform.*; the store's own id goes "
+                  "in \"ids\".");
             return false;
         }
         e.id = it->get<std::string>();
@@ -229,20 +245,26 @@ struct Parser {
     void read_ads_settings(const Json& ads) {
         const std::string base = "/platform/ads";
         read_app_ids(ads, base);
-        read_enum(ads, base, "audience", {"general", "children", "mixed"}, "an audience", out.catalog.adsAudience, false);
+        read_enum(ads, base, "audience", {"general", "children", "mixed"}, "an audience", out.catalog.adsAudience,
+                  false);
         opt_bool(ads, base, "trackingPrompt", out.catalog.adsTrackingPrompt);
         text_or_key(ads, base, "trackingDescription", "trackingDescriptionKey", out.catalog.adsTrackingDescription,
-                    out.catalog.adsTrackingDescriptionKey, false, "\"Your data is used to show you ads that fit you.\"");
+                    out.catalog.adsTrackingDescriptionKey, false,
+                    "\"Your data is used to show you ads that fit you.\"");
         if (out.catalog.adsTrackingPrompt && out.catalog.adsAudience == "children")
             issue(base + "/trackingPrompt",
-                  "trackingPrompt is true but the audience is \"children\": a game for children must not ask to track the player",
-                  "Remove trackingPrompt (the App Store rules for the Kids category forbid the tracking sheet and third-party "
-                  "advertising), or set \"audience\" to \"mixed\" so that only an adult is asked (docs/PLATFORM.md, \"Children and consent\").");
+                  "trackingPrompt is true but the audience is \"children\": a game for children must not ask to track "
+                  "the player",
+                  "Remove trackingPrompt (the App Store rules for the Kids category forbid the tracking sheet and "
+                  "third-party "
+                  "advertising), or set \"audience\" to \"mixed\" so that only an adult is asked (docs/PLATFORM.md, "
+                  "\"Children and consent\").");
         if (auto it = ads.find("backend"); it != ads.end() && !it->is_null()) {
             const std::string pointer = base + "/backend";
             if (!it->is_string() || !valid_backend_name(it->get<std::string>())) {
                 issue(pointer, "expected \"auto\" or the name of an ads plugin, got " + describe_json_value(*it),
-                      "Use \"auto\" (the default) or the name of a plugin declared in \"plugins\" that offers only ads, e.g. \"admob\".");
+                      "Use \"auto\" (the default) or the name of a plugin declared in \"plugins\" that offers only "
+                      "ads, e.g. \"admob\".");
             } else if (it->get<std::string>() != "auto") {
                 out.catalog.adsBackend = it->get<std::string>();
                 out.catalog.adsBackendPointer = pointer;
@@ -256,7 +278,9 @@ struct Parser {
         if (it == ads.end() || it->is_null()) return;
         const std::string pointer = base + "/appIds";
         if (!it->is_object()) {
-            issue(pointer, "expected an object like {\"android\": \"ca-app-pub-1234567890123456~1234567890\"}, got " + describe_json_value(*it),
+            issue(pointer,
+                  "expected an object like {\"android\": \"ca-app-pub-1234567890123456~1234567890\"}, got " +
+                      describe_json_value(*it),
                   "Copy the app id from the AdMob console (Apps > App settings), one per platform.");
             return;
         }
@@ -264,19 +288,26 @@ struct Parser {
         for (auto ai = it->begin(); ai != it->end(); ++ai) {
             const std::string p = pointer + "/" + ai.key();
             if (std::find(known.begin(), known.end(), ai.key()) == known.end()) {
-                issue(p, in_quotes(ai.key()) + " is not a platform with an ad network; use " + in_quotes_list(known) + suggestion(ai.key(), known),
+                issue(p,
+                      in_quotes(ai.key()) + " is not a platform with an ad network; use " + in_quotes_list(known) +
+                          suggestion(ai.key(), known),
                       "Example: \"appIds\": {\"android\": \"ca-app-pub-1234567890123456~1234567890\"}.");
                 continue;
             }
             if (!ai->is_string() || ai->get<std::string>().empty()) {
                 issue(p, "expected the app id as a non-empty string, got " + describe_json_value(*ai),
-                      "AdMob app ids look like ca-app-pub-1234567890123456~1234567890 (a tilde, not a slash: the slash form is an ad unit).");
+                      "AdMob app ids look like ca-app-pub-1234567890123456~1234567890 (a tilde, not a slash: the slash "
+                      "form is an ad unit).");
                 continue;
             }
             if (!admob_id_shape(ai->get<std::string>(), '~')) {
-                issue(p, in_quotes(ai->get<std::string>()) + " is not an AdMob app id: they look like ca-app-pub-1234567890123456~1234567890",
-                      "Copy it from the AdMob console (Apps > App settings > App ID). An id with a slash (ca-app-pub-.../...) is an ad unit: it goes in "
-                      "a placement's \"ids\": {\"admob\": \"...\"} (Android) or {\"admob_ios\": \"...\"} (iOS). The wrong id in the manifest "
+                issue(p,
+                      in_quotes(ai->get<std::string>()) +
+                          " is not an AdMob app id: they look like ca-app-pub-1234567890123456~1234567890",
+                      "Copy it from the AdMob console (Apps > App settings > App ID). An id with a slash "
+                      "(ca-app-pub-.../...) is an ad unit: it goes in "
+                      "a placement's \"ids\": {\"admob\": \"...\"} (Android) or {\"admob_ios\": \"...\"} (iOS). The "
+                      "wrong id in the manifest "
                       "stops the app at start.");
                 continue;
             }
@@ -288,8 +319,9 @@ struct Parser {
         auto it = root.find("backend");
         if (it == root.end() || it->is_null()) return;
         const std::string pointer = "/platform/backend";
-        const std::string hint = "Use \"auto\" (the default), the name of a plugin declared in \"plugins\" (\"steam\"), or an object per "
-                                 "platform: {\"windows\": \"steam\", \"macos\": \"steam\", \"ios\": \"apple\"}.";
+        const std::string hint =
+            "Use \"auto\" (the default), the name of a plugin declared in \"plugins\" (\"steam\"), or an object per "
+            "platform: {\"windows\": \"steam\", \"macos\": \"steam\", \"ios\": \"apple\"}.";
         auto name = [&](const Json& v, const std::string& p) -> std::optional<std::string> {
             if (!v.is_string() || !valid_backend_name(v.get<std::string>())) {
                 issue(p, "expected \"auto\" or a plugin name, got " + describe_json_value(v), hint);
@@ -302,7 +334,10 @@ struct Parser {
                 const std::string p = pointer + "/" + pi.key();
                 const auto& all = platform_names_list();
                 if (std::find(all.begin(), all.end(), pi.key()) == all.end()) {
-                    issue(p, in_quotes(pi.key()) + " is not a platform; use " + in_quotes_list(all) + suggestion(pi.key(), all), hint);
+                    issue(p,
+                          in_quotes(pi.key()) + " is not a platform; use " + in_quotes_list(all) +
+                              suggestion(pi.key(), all),
+                          hint);
                     continue;
                 }
                 if (auto n = name(*pi, p)) {
@@ -343,20 +378,27 @@ Json ids_of(const std::vector<T>& v) {
 }
 }  // namespace
 
-const PlatformAchievement* PlatformCatalog::find_achievement(const std::string& id) const { return find_by_id(achievements, id); }
+const PlatformAchievement* PlatformCatalog::find_achievement(const std::string& id) const {
+    return find_by_id(achievements, id);
+}
 const PlatformStat* PlatformCatalog::find_stat(const std::string& id) const { return find_by_id(stats, id); }
-const PlatformLeaderboard* PlatformCatalog::find_leaderboard(const std::string& id) const { return find_by_id(leaderboards, id); }
+const PlatformLeaderboard* PlatformCatalog::find_leaderboard(const std::string& id) const {
+    return find_by_id(leaderboards, id);
+}
 const PlatformProduct* PlatformCatalog::find_product(const std::string& id) const { return find_by_id(products, id); }
-const PlatformPlacement* PlatformCatalog::find_placement(const std::string& id) const { return find_by_id(placements, id); }
+const PlatformPlacement* PlatformCatalog::find_placement(const std::string& id) const {
+    return find_by_id(placements, id);
+}
 
 Json PlatformCatalog::ids_json() const {
-    return Json::object({{"achievements", ids_of(achievements)}, {"stats", ids_of(stats)}, {"leaderboards", ids_of(leaderboards)},
-                         {"products", ids_of(products)}, {"placements", ids_of(placements)}});
+    return Json::object({{"achievements", ids_of(achievements)},
+                         {"stats", ids_of(stats)},
+                         {"leaderboards", ids_of(leaderboards)},
+                         {"products", ids_of(products)},
+                         {"placements", ids_of(placements)}});
 }
 
-Error PlatformIssue::to_error() const {
-    return make_error("factoria.json#" + pointer + ": " + message, hint);
-}
+Error PlatformIssue::to_error() const { return make_error("factoria.json#" + pointer + ": " + message, hint); }
 
 bool PlatformCatalogParse::ok() const {
     return std::none_of(issues.begin(), issues.end(), [](const PlatformIssue& i) { return !i.warning; });
@@ -367,7 +409,8 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     if (section.is_null()) return p.out;
     if (!section.is_object()) {
         p.issue("/platform", "expected an object like {\"achievements\": [...]}, got " + describe_json_value(section),
-                "The section holds optional lists: achievements, stats, leaderboards, products, and \"backend\" (docs/PLATFORM.md).");
+                "The section holds optional lists: achievements, stats, leaderboards, products, and \"backend\" "
+                "(docs/PLATFORM.md).");
         return std::move(p.out);
     }
     p.unknown_keys(section, "/platform", {"backend", "achievements", "stats", "leaderboards", "products", "ads"});
@@ -377,7 +420,8 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
         section, "achievements", "achievement",
         [&](const Json& e, const std::string& ptr, PlatformAchievement& a) {
             p.unknown_keys(e, ptr, {"id", "name", "nameKey", "description", "descriptionKey", "hidden", "ids"});
-            p.text_or_key(e, ptr, "name", "nameKey", a.name, a.nameKey, true, "\"First win\" (or \"nameKey\": a locale key)");
+            p.text_or_key(e, ptr, "name", "nameKey", a.name, a.nameKey, true,
+                          "\"First win\" (or \"nameKey\": a locale key)");
             p.text_or_key(e, ptr, "description", "descriptionKey", a.description, a.descriptionKey, false, "");
             p.opt_bool(e, ptr, "hidden", a.hidden);
             p.read_ids(e, ptr, a);
@@ -397,7 +441,8 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
         section, "leaderboards", "leaderboard",
         [&](const Json& e, const std::string& ptr, PlatformLeaderboard& l) {
             p.unknown_keys(e, ptr, {"id", "name", "nameKey", "order", "period", "ids"});
-            p.text_or_key(e, ptr, "name", "nameKey", l.name, l.nameKey, true, "\"High score\" (or \"nameKey\": a locale key)");
+            p.text_or_key(e, ptr, "name", "nameKey", l.name, l.nameKey, true,
+                          "\"High score\" (or \"nameKey\": a locale key)");
             p.read_enum(e, ptr, "order", {"descending", "ascending"}, "a leaderboard order", l.order, false);
             p.read_enum(e, ptr, "period", {"allTime", "daily", "weekly"}, "a leaderboard period", l.period, false);
             p.read_ids(e, ptr, l);
@@ -407,20 +452,26 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     p.read_section<PlatformProduct>(
         section, "products", "product",
         [&](const Json& e, const std::string& ptr, PlatformProduct& pr) {
-            p.unknown_keys(e, ptr, {"id", "type", "title", "titleKey", "description", "descriptionKey", "price", "currency", "ids"});
-            p.read_enum(e, ptr, "type", {"consumable", "nonConsumable", "subscription"}, "a product type", pr.type, true);
-            p.text_or_key(e, ptr, "title", "titleKey", pr.title, pr.titleKey, true, "\"100 gems\" (or \"titleKey\": a locale key)");
+            p.unknown_keys(
+                e, ptr,
+                {"id", "type", "title", "titleKey", "description", "descriptionKey", "price", "currency", "ids"});
+            p.read_enum(e, ptr, "type", {"consumable", "nonConsumable", "subscription"}, "a product type", pr.type,
+                        true);
+            p.text_or_key(e, ptr, "title", "titleKey", pr.title, pr.titleKey, true,
+                          "\"100 gems\" (or \"titleKey\": a locale key)");
             p.text_or_key(e, ptr, "description", "descriptionKey", pr.description, pr.descriptionKey, false, "");
             if (auto it = e.find("price"); it != e.end() && !it->is_null()) {
                 if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() < 0)
                     p.issue(ptr + "/price", "expected a number of at least 0, got " + describe_json_value(*it),
-                            "The price is only used by the fake backend (real stores give their own), e.g. \"price\": 0.99.");
+                            "The price is only used by the fake backend (real stores give their own), e.g. \"price\": "
+                            "0.99.");
                 else
                     pr.price = it->get<double>();
             }
             if (auto it = e.find("currency"); it != e.end() && !it->is_null()) {
                 if (!it->is_string() || it->get<std::string>().empty())
-                    p.issue(ptr + "/currency", "expected a currency code such as \"USD\", got " + describe_json_value(*it),
+                    p.issue(ptr + "/currency",
+                            "expected a currency code such as \"USD\", got " + describe_json_value(*it),
                             "Example: \"currency\": \"EUR\". The default is \"USD\".");
                 else
                     pr.currency = it->get<std::string>();
@@ -435,7 +486,9 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
             p.issue("/platform/ads", "expected an object like {\"placements\": [...]}, got " + describe_json_value(*it),
                     "Example: \"ads\": {\"placements\": [{\"id\": \"more_time\"}]} (docs/PLATFORM.md, \"Ads\").");
         } else {
-            p.unknown_keys(*it, "/platform/ads", {"placements", "appIds", "audience", "backend", "trackingPrompt", "trackingDescription", "trackingDescriptionKey"});
+            p.unknown_keys(*it, "/platform/ads",
+                           {"placements", "appIds", "audience", "backend", "trackingPrompt", "trackingDescription",
+                            "trackingDescriptionKey"});
             p.read_ads_settings(*it);
             p.read_section<PlatformPlacement>(
                 *it, "placements", "ad placement",

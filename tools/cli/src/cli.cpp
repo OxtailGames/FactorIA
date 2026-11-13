@@ -14,7 +14,6 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
-
 namespace fa::cli {
 
 namespace {
@@ -31,7 +30,10 @@ Command make_version_command() {
         editor = true;
 #endif
         if (ctx.args.has("json")) {
-            print_json(ctx.out, Json::object({{"name", "factoria"}, {"version", FA_ENGINE_VERSION}, {"build", fa::build_fingerprint()}, {"editor", editor}}));
+            print_json(ctx.out, Json::object({{"name", "factoria"},
+                                              {"version", FA_ENGINE_VERSION},
+                                              {"build", fa::build_fingerprint()},
+                                              {"editor", editor}}));
             return 0;
         }
         ctx.out << "factoria " << FA_ENGINE_VERSION << " (build " << fa::build_fingerprint() << ")\n";
@@ -67,10 +69,10 @@ std::vector<Command> build_commands() {
 
 std::string top_help(const std::vector<Command>& cmds) {
     std::ostringstream o;
-    o << "factoria " << FA_ENGINE_VERSION << " - the FactorIA developer tool (create, run, test, MCP server, AI agent)\n\n"
+    o << "factoria " << FA_ENGINE_VERSION
+      << " - the FactorIA developer tool (create, run, test, MCP server, AI agent)\n\n"
       << "Usage:\n  factoria <command> [options]\n\nCommands:\n"
-      << format_command_list(cmds)
-      << "  help       Show help for a command (factoria help run)\n"
+      << format_command_list(cmds) << "  help       Show help for a command (factoria help run)\n"
       << "\nTypical AI workflow:\n"
       << "  factoria new my-game && cd my-game\n"
       << "  factoria validate && factoria test\n"
@@ -128,7 +130,8 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
     for (const auto& c : commands)
         if (c.name == wanted) cmd = &c;
     if (!cmd) {
-        err << "error: unknown command '" << wanted << "'.\n  hint: " << did_you_mean(wanted, names_of(commands)) << "\nRun 'factoria help' for the list.\n";
+        err << "error: unknown command '" << wanted << "'.\n  hint: " << did_you_mean(wanted, names_of(commands))
+            << "\nRun 'factoria help' for the list.\n";
         return 2;
     }
     std::string path = cmd->name;
@@ -142,7 +145,8 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
             if (cmd->run && !isHelp) break;  // group with a default action (docs <name>)
             std::vector<std::string> names;
             for (const auto& s : cmd->subs) names.push_back(s.name);
-            err << "error: unknown subcommand '" << rest[0] << "' for 'factoria " << path << "'.\n  hint: " << did_you_mean(rest[0], names) << "\n";
+            err << "error: unknown subcommand '" << rest[0] << "' for 'factoria " << path
+                << "'.\n  hint: " << did_you_mean(rest[0], names) << "\n";
             return 2;
         }
         cmd = sub;
@@ -172,7 +176,8 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
         }
         LogLevel level = LogLevel::Warn;
         if (parsed.has("log-level") && !parse_log_level(parsed.str("log-level"), level))
-            throw UsageError("Unknown log level '" + parsed.str("log-level") + "'.", "Valid: trace, debug, info, warn, error.");
+            throw UsageError("Unknown log level '" + parsed.str("log-level") + "'.",
+                             "Valid: trace, debug, info, warn, error.");
         set_log_level(level);
         Context ctx{out, err, in, std::move(parsed), cmd, path};
         // Started by an AI agent (FACTORIA_CALLER, set on the CLI agents factoria launches): every command this process runs
@@ -200,8 +205,9 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
         if (json) print_json_error(out, "failed", e.what(), e.hint);
         return report_failure(err, e.what(), e.hint);
     } catch (const std::exception& e) {
-        const std::string message = std::string("internal error: ") + e.what(),
-                          hint = "This is a bug in factoria; please report it with 'factoria feedback add --category tooling ...'.";
+        const std::string
+            message = std::string("internal error: ") + e.what(),
+            hint = "This is a bug in factoria; please report it with 'factoria feedback add --category tooling ...'.";
         if (json) print_json_error(out, "internal", message, hint);
         return report_failure(err, message, hint);
     }

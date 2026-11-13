@@ -88,7 +88,7 @@ TEST_CASE("2d: setTile opens a hole a body falls through on the next step, in bo
         CHECK(tile_box_count(s) == 2);  // the floor box was split around the hole: only that box was rebuilt
         s.run(120);
         CHECK(s.world.world_position(box).y < -60.0f);  // fell through the hole
-        CHECK(tm.edits.empty());                         // physics consumed the edits
+        CHECK(tm.edits.empty());                        // physics consumed the edits
         // Closing it again puts a floor back (the box lies below it now, so look with a ray).
         REQUIRE(set_tilemap_tile(tm, 5, 2, 1));
         s.run(1);

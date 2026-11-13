@@ -25,9 +25,12 @@ std::string show_folder_label() { return std::string("Show in ") + file_manager_
 
 std::string seconds_text(double s) {
     char buf[32];
-    if (s < 1.0) std::snprintf(buf, sizeof buf, "%.0f ms", s * 1000.0);
-    else if (s < 60.0) std::snprintf(buf, sizeof buf, "%.1f s", s);
-    else std::snprintf(buf, sizeof buf, "%dm %02ds", int(s / 60.0), int(std::fmod(s, 60.0)));
+    if (s < 1.0)
+        std::snprintf(buf, sizeof buf, "%.0f ms", s * 1000.0);
+    else if (s < 60.0)
+        std::snprintf(buf, sizeof buf, "%.1f s", s);
+    else
+        std::snprintf(buf, sizeof buf, "%dm %02ds", int(s / 60.0), int(std::fmod(s, 60.0)));
     return buf;
 }
 
@@ -79,8 +82,8 @@ void Editor::draw_export_window() {
     if (!showExport_ || !engine_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(900, 720)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (exportFocus_) {
         ImGui::SetNextWindowFocus();
         exportFocus_ = false;
@@ -96,10 +99,12 @@ void Editor::draw_export_window() {
     ImGui::PushTextWrapPos(0);
 
     ImGui::TextDisabled("Packages \"%s\" with the same export as `factoria export` and the project.export command. "
-                        "It reads the project's files on disk.", projectName_.c_str());
+                        "It reads the project's files on disk.",
+                        projectName_.c_str());
     if (ImGui::Button("Platform settings...")) open_platform_settings(SettingsTab::General);
     at_track("export:settings");
-    ImGui::SetItemTooltip("The game icon and what each platform needs: Android version and signing key, macOS category, iOS team... (File > Platform Settings...)");
+    ImGui::SetItemTooltip("The game icon and what each platform needs: Android version and signing key, macOS "
+                          "category, iOS team... (File > Platform Settings...)");
     if (platformSettings_.loaded() && platformSettings_.dirty()) {
         ImGui::SameLine();
         ImGui::TextColored(kWarn, "Platform settings have unsaved changes: an export uses the saved ones.");
@@ -123,10 +128,12 @@ void Editor::draw_export_window() {
     const std::string showLabel = show_folder_label();
     const ImGuiStyle& style = ImGui::GetStyle();
     const float buttonsW = ImGui::CalcTextSize("Choose...").x + ImGui::CalcTextSize("Default").x +
-                           ImGui::CalcTextSize(showLabel.c_str()).x + style.FramePadding.x * 6 + style.ItemSpacing.x * 3;
+                           ImGui::CalcTextSize(showLabel.c_str()).x + style.FramePadding.x * 6 +
+                           style.ItemSpacing.x * 3;
     ImGui::SetNextItemWidth(std::max(160.0f, ImGui::GetContentRegionAvail().x - buttonsW));
     if (ImGui::InputTextWithHint("##exportout", parent.c_str(), &exportSettings_.outDir)) exportChecked_ = -100;
-    ImGui::SetItemTooltip("Parent folder of the exports (relative paths are relative to the project). Empty: %s", parent.c_str());
+    ImGui::SetItemTooltip("Parent folder of the exports (relative paths are relative to the project). Empty: %s",
+                          parent.c_str());
     ImGui::SameLine();
     if (ImGui::Button("Choose...")) {
         const std::string picked = pick_folder("Export the game into", parentExists ? parent : projectDir_);
@@ -149,21 +156,27 @@ void Editor::draw_export_window() {
         if (std::string why = open_in_file_manager(parent); !why.empty()) notify(why, 1);
     ImGui::EndDisabled();
     if (!parentExists) ImGui::SetItemTooltip("The first export creates it");
-    ImGui::TextDisabled("Each export replaces the folder <output folder>/<game>-<platform> it writes, and nothing else.");
-    ImGui::SetItemTooltip("Only a folder an earlier export wrote (it holds %s) or an empty one is replaced: if a folder of "
-                          "that name with other files is there, the rows say so and nothing is deleted.",
-                          kExportMarkerFile);
+    ImGui::TextDisabled(
+        "Each export replaces the folder <output folder>/<game>-<platform> it writes, and nothing else.");
+    ImGui::SetItemTooltip(
+        "Only a folder an earlier export wrote (it holds %s) or an empty one is replaced: if a folder of "
+        "that name with other files is there, the rows say so and nothing is deleted.",
+        kExportMarkerFile);
     ImGui::Checkbox("Release", &exportSettings_.release);
-    ImGui::SetItemTooltip("Android: builds a release APK or AAB, signed with the keystore of Platform settings > Android (without one the export fails with a "
-                          "message that says how to create a keystore). Windows, macOS and Linux: the whole game goes into one file, "
-                          "game.pak, next to the executable (no game folder, no loose scripts: they are compiled to bytecode unless "
-                          "export.scriptBytecode is false in factoria.json). iOS: only the build commands of the build script change.");
+    ImGui::SetItemTooltip(
+        "Android: builds a release APK or AAB, signed with the keystore of Platform settings > Android (without one "
+        "the export fails with a "
+        "message that says how to create a keystore). Windows, macOS and Linux: the whole game goes into one file, "
+        "game.pak, next to the executable (no game folder, no loose scripts: they are compiled to bytecode unless "
+        "export.scriptBytecode is false in factoria.json). iOS: only the build commands of the build script change.");
     ImGui::Separator();
 
     // ---- one row per platform
     const auto& targets = export_targets();
-    if (ImGui::BeginTable("##exporttargets", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_PadOuterX)) {
-        ImGui::TableSetupColumn("platform", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("Export Android").x + 24);
+    if (ImGui::BeginTable("##exporttargets", 2,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_PadOuterX)) {
+        ImGui::TableSetupColumn("platform", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("Export Android").x + 24);
         ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthStretch);
         for (size_t i = 0; i < targets.size(); ++i) {
             const ExportTarget& t = targets[i];
@@ -183,7 +196,9 @@ void Editor::draw_export_window() {
             ImGui::TableSetColumnIndex(1);
             const bool android = std::string(t.platform) == "android";
             const bool windows = std::string(t.platform) == "windows";
-            const std::string format = android ? exportSaved_.android.format : windows ? exportSaved_.windows.format : std::string();
+            const std::string format = android   ? exportSaved_.android.format
+                                       : windows ? exportSaved_.windows.format
+                                                 : std::string();
             if (!st) {
                 ImGui::TextDisabled("Checking...");
             } else if (st->ready) {
@@ -195,8 +210,9 @@ void Editor::draw_export_window() {
                 ImGui::SameLine();
                 ImGui::TextUnformatted(export_target_note(t, format).c_str());
                 if (st->plan.mode == "prebuilt")
-                    ImGui::TextDisabled("Mode prebuilt: the ready-made player of the FactorIA download (no engine source%s).",
-                                        std::string(t.platform) == "android" ? ", NDK or CMake" : "");
+                    ImGui::TextDisabled(
+                        "Mode prebuilt: the ready-made player of the FactorIA download (no engine source%s).",
+                        std::string(t.platform) == "android" ? ", NDK or CMake" : "");
                 else if (st->plan.mode == "source")
                     ImGui::TextDisabled("Mode source: the build compiles the engine from the FactorIA checkout.");
                 for (const std::string& w : st->plan.warnings) ImGui::TextColored(kWarn, "%s", w.c_str());
@@ -204,7 +220,8 @@ void Editor::draw_export_window() {
                 ImGui::TextColored(kFailed, "Not available here: %s", export_error_text(st->error).c_str());
                 if (!st->hint.empty()) ImGui::TextDisabled("How to fix it: %s", st->hint.c_str());
             }
-            if (st) draw_setup_buttons(t.platform, "export");  // what setup can install to fix the row (or the iOS tools)
+            if (st)
+                draw_setup_buttons(t.platform, "export");  // what setup can install to fix the row (or the iOS tools)
             if (windows) {  // folder or also an MSIX: the project's export.windows.format, saved when changed here
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Format");
@@ -214,16 +231,20 @@ void Editor::draw_export_window() {
                 ImGui::SetNextItemWidth(ImGui::GetFontSize() * 17.0f);
                 if (ImGui::BeginCombo("##windowsformat", cur ? cur->label : exportSaved_.windows.format.c_str())) {
                     for (const SettingsChoice& c : windows_formats()) {
-                        if (ImGui::Selectable(c.label, exportSaved_.windows.format == c.value)) set_windows_format(c.value);
+                        if (ImGui::Selectable(c.label, exportSaved_.windows.format == c.value))
+                            set_windows_format(c.value);
                         ImGui::SetItemTooltip("%s", c.note);
                     }
                     ImGui::EndCombo();
                 }
                 ImGui::EndDisabled();
                 at_track("export:windows-format");
-                ImGui::SetItemTooltip("What the Windows export produces: the folder, or also an MSIX for the Microsoft Store. This is the project's "
-                                      "export.windows.format: changing it saves it in factoria.json (the same setting as Platform settings > Windows).");
-                if (!exportSavedError_.empty()) ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
+                ImGui::SetItemTooltip("What the Windows export produces: the folder, or also an MSIX for the Microsoft "
+                                      "Store. This is the project's "
+                                      "export.windows.format: changing it saves it in factoria.json (the same setting "
+                                      "as Platform settings > Windows).");
+                if (!exportSavedError_.empty())
+                    ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
             }
             if (android) {  // what the Android export produces: the project's export.android.format, saved when changed here
                 ImGui::AlignTextToFramePadding();
@@ -234,16 +255,20 @@ void Editor::draw_export_window() {
                 ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
                 if (ImGui::BeginCombo("##androidformat", cur ? cur->label : exportSaved_.android.format.c_str())) {
                     for (const SettingsChoice& c : android_formats()) {
-                        if (ImGui::Selectable(c.label, exportSaved_.android.format == c.value)) set_android_format(c.value);
+                        if (ImGui::Selectable(c.label, exportSaved_.android.format == c.value))
+                            set_android_format(c.value);
                         ImGui::SetItemTooltip("%s", c.note);
                     }
                     ImGui::EndCombo();
                 }
                 ImGui::EndDisabled();
                 at_track("export:android-format");
-                ImGui::SetItemTooltip("What the Android export produces: an APK, an AAB for Google Play, or only the Gradle project. This is the project's "
-                                      "export.android.format: changing it saves it in factoria.json (the same setting as Platform settings > Android).");
-                if (!exportSavedError_.empty()) ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
+                ImGui::SetItemTooltip("What the Android export produces: an APK, an AAB for Google Play, or only the "
+                                      "Gradle project. This is the project's "
+                                      "export.android.format: changing it saves it in factoria.json (the same setting "
+                                      "as Platform settings > Android).");
+                if (!exportSavedError_.empty())
+                    ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
             }
             const std::optional<SettingsTab> settingsTab = settings_tab_for_platform(t.platform);  // the web has none
             if (settingsTab) {
@@ -256,12 +281,15 @@ void Editor::draw_export_window() {
                 if (ImGui::Checkbox("One HTML file", &exportSettings_.webSingleFile)) exportChecked_ = -100;
                 ImGui::EndDisabled();
                 at_track("export:web-single-file");
-                ImGui::SetItemTooltip("Write ONE page, <name>.html, with the player, the wasm and the game inlined: it opens from a double click and runs offline, "
-                                      "with no server and no zip. Refused over 64 MB, or when the web player needs threads (a file cannot have the headers they need).");
+                ImGui::SetItemTooltip("Write ONE page, <name>.html, with the player, the wasm and the game inlined: it "
+                                      "opens from a double click and runs offline, "
+                                      "with no server and no zip. Refused over 64 MB, or when the web player needs "
+                                      "threads (a file cannot have the headers they need).");
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Play on phone...")) open_phone_window();
                 at_track("export:play-phone");
-                ImGui::SetItemTooltip("Try the web build on a phone on the same Wi-Fi: a QR code of its address (File > Play on Phone...).");
+                ImGui::SetItemTooltip("Try the web build on a phone on the same Wi-Fi: a QR code of its address (File "
+                                      "> Play on Phone...).");
             }
             if (export_needs_player(t.platform)) {
                 ImGui::SameLine();
@@ -276,9 +304,10 @@ void Editor::draw_export_window() {
                         exportChecked_ = -100;
                     }
                 }
-                ImGui::SetItemTooltip("The factoria_player%s built for %s that this export copies, e.g. the one next to factoria%s "
-                                      "in the FactorIA download for %s.",
-                                      win ? ".exe" : "", t.label, win ? ".exe" : "", t.label);
+                ImGui::SetItemTooltip(
+                    "The factoria_player%s built for %s that this export copies, e.g. the one next to factoria%s "
+                    "in the FactorIA download for %s.",
+                    win ? ".exe" : "", t.label, win ? ".exe" : "", t.label);
                 if (it != exportSettings_.players.end()) {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Clear player")) {
@@ -303,8 +332,10 @@ void Editor::draw_export_window() {
         if (exportJob_.cancelling()) {
             ImGui::Text("Cancelling the %s export%.*s", label_of(exportJob_.platform()), dots, "...");
         } else {
-            const std::string line = exportJob_.progress_line();  // the Gradle build of an Android APK reports its lines
-            ImGui::TextWrapped("Exporting for %s%.*s%s%s", label_of(exportJob_.platform()), dots, "...", line.empty() ? "" : "  ", line.c_str());
+            const std::string line =
+                exportJob_.progress_line();  // the Gradle build of an Android APK reports its lines
+            ImGui::TextWrapped("Exporting for %s%.*s%s%s", label_of(exportJob_.platform()), dots, "...",
+                               line.empty() ? "" : "  ", line.c_str());
         }
         ImGui::BeginDisabled(exportJob_.cancelling());
         if (ImGui::Button("Cancel")) exportJob_.cancel();
@@ -350,8 +381,9 @@ void Editor::draw_export_window() {
             if (ImGui::Button("Copy report")) ImGui::SetClipboardText(export_report_text(o).c_str());
             if (!r.format.empty()) ImGui::TextDisabled("Format: %s", export_format_label(r.format).c_str());
             if (!r.mode.empty()) ImGui::TextDisabled("Mode: %s", r.mode.c_str());
-            ImGui::TextDisabled("%zu files. %s holds the licenses of the engine inside the game: keep it in what you ship.",
-                                r.files.size(), r.notices.c_str());
+            ImGui::TextDisabled(
+                "%zu files. %s holds the licenses of the engine inside the game: keep it in what you ship.",
+                r.files.size(), r.notices.c_str());
             if (!r.warnings.empty()) {
                 ImGui::Spacing();
                 ImGui::TextColored(kWarn, "Warnings");
@@ -363,10 +395,12 @@ void Editor::draw_export_window() {
                 for (size_t i = 0; i < r.nextSteps.size(); ++i) ImGui::Text("%zu. %s", i + 1, r.nextSteps[i].c_str());
             }
         } else if (o.cancelled) {
-            ImGui::TextColored(kWarn, "Export for %s cancelled after %s.", label_of(o.platform), seconds_text(o.seconds).c_str());
+            ImGui::TextColored(kWarn, "Export for %s cancelled after %s.", label_of(o.platform),
+                               seconds_text(o.seconds).c_str());
             ImGui::TextDisabled("The export was stopped before it finished: press the platform's button to try again.");
         } else {
-            ImGui::TextColored(kFailed, "Export for %s failed: %s", label_of(o.platform), export_error_text(o.error).c_str());
+            ImGui::TextColored(kFailed, "Export for %s failed: %s", label_of(o.platform),
+                               export_error_text(o.error).c_str());
             if (!o.hint.empty()) ImGui::Text("How to fix it: %s", o.hint.c_str());
             if (ImGui::Button("Copy report")) ImGui::SetClipboardText(export_report_text(o).c_str());
         }

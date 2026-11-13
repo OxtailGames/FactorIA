@@ -38,12 +38,15 @@ Weld build_weld(const MeshData& mesh, const std::vector<char>& triOn, float eps)
     std::vector<Key> keys;
     for (std::size_t v = 0; v < n; ++v)
         if (used[v])
-            keys.push_back({std::llround(double(mesh.positions[v * 3]) * inv), std::llround(double(mesh.positions[v * 3 + 1]) * inv),
+            keys.push_back({std::llround(double(mesh.positions[v * 3]) * inv),
+                            std::llround(double(mesh.positions[v * 3 + 1]) * inv),
                             std::llround(double(mesh.positions[v * 3 + 2]) * inv), std::uint32_t(v)});
-    std::sort(keys.begin(), keys.end(), [](const Key& a, const Key& b) { return std::tie(a.x, a.y, a.z, a.v) < std::tie(b.x, b.y, b.z, b.v); });
+    std::sort(keys.begin(), keys.end(),
+              [](const Key& a, const Key& b) { return std::tie(a.x, a.y, a.z, a.v) < std::tie(b.x, b.y, b.z, b.v); });
     for (std::size_t i = 0; i < keys.size(); ++i) {
         if (i == 0 || keys[i].x != keys[i - 1].x || keys[i].y != keys[i - 1].y || keys[i].z != keys[i - 1].z) {
-            w.pos.push_back({mesh.positions[keys[i].v * 3], mesh.positions[keys[i].v * 3 + 1], mesh.positions[keys[i].v * 3 + 2]});
+            w.pos.push_back(
+                {mesh.positions[keys[i].v * 3], mesh.positions[keys[i].v * 3 + 1], mesh.positions[keys[i].v * 3 + 2]});
         }
         w.nodeOf[keys[i].v] = std::uint32_t(w.pos.size() - 1);
     }
@@ -87,14 +90,17 @@ Weld build_weld(const MeshData& mesh, const std::vector<char>& triOn, float eps)
             w.mass[i] += area / 3.0;
         }
     }
-    std::sort(halves.begin(), halves.end(), [](const Half& a, const Half& b) { return std::tie(a.i, a.j) < std::tie(b.i, b.j); });
+    std::sort(halves.begin(), halves.end(),
+              [](const Half& a, const Half& b) { return std::tie(a.i, a.j) < std::tie(b.i, b.j); });
     w.rowStart.assign(nn + 1, 0);
     for (std::size_t h = 0; h < halves.size();) {
         std::size_t e = h;
         float sum = 0;
         while (e < halves.size() && halves[e].i == halves[h].i && halves[e].j == halves[h].j) sum += halves[e++].c;
         w.col.push_back(halves[h].j);
-        w.cot.push_back(std::max(sum, 0.0f));  // a negative weight (two obtuse angles) is dropped: the Laplacian stays positive semi-definite
+        w.cot.push_back(std::max(
+            sum,
+            0.0f));  // a negative weight (two obtuse angles) is dropped: the Laplacian stays positive semi-definite
         ++w.rowStart[halves[h].i + 1];
         h = e;
     }
@@ -151,7 +157,9 @@ void normalize_infl(Infl& w, float cut) {
 void limit_infl(Infl& w, int k) {
     if (int(w.size()) > k) {
         std::vector<std::pair<std::uint16_t, float>> order = w;
-        std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.second > b.second || (a.second == b.second && a.first < b.first); });
+        std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+            return a.second > b.second || (a.second == b.second && a.first < b.first);
+        });
         order.resize(std::size_t(k));
         std::sort(order.begin(), order.end());
         w = std::move(order);

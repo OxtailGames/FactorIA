@@ -18,7 +18,7 @@ std::vector<LoadTrace*>& traces() {
 }
 
 thread_local LoadTrace::Owner t_owner = LoadTrace::kNoOwner;
-thread_local std::uint64_t t_aheadTag = 0;                   // ReadingFor(owner, tag): reading ahead for that load
+thread_local std::uint64_t t_aheadTag = 0;                     // ReadingFor(owner, tag): reading ahead for that load
 thread_local std::vector<std::string>* t_collector = nullptr;  // FileCollector
 
 void collect(std::string_view path) {
@@ -38,7 +38,8 @@ double round_ms(std::int64_t ns) { return std::round(double(ns) / 1e5) / 10.0; }
 std::atomic<int> LoadTrace::activeCount_{0};
 
 std::int64_t LoadTrace::now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 
 std::int64_t LoadTrace::thread_read_ns() { return t_readNs; }
@@ -74,7 +75,8 @@ LoadTrace::~LoadTrace() {
     activeCount_.fetch_sub(1, std::memory_order_relaxed);
 }
 
-void LoadTrace::file_read(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::int64_t readNs) {
+void LoadTrace::file_read(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack,
+                          std::int64_t readNs) {
     if (!any()) return;
     t_readNs += readNs;
     t_readBytes += bytes;
@@ -93,7 +95,8 @@ void LoadTrace::file_used(std::string_view path) {
         if (t->records(t_owner)) t->record_use(path);
 }
 
-void LoadTrace::asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs) {
+void LoadTrace::asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs,
+                             std::int64_t readNs) {
     std::lock_guard<std::mutex> lock(traces_mutex());
     for (LoadTrace* t : traces())
         if (t->records(t_owner)) t->record_asset(kind, path, bytes, totalNs, readNs);
@@ -152,7 +155,8 @@ void LoadTrace::frame_ended() {
         if (l.endNs < 0 && l.started) l.endNs = now;
 }
 
-void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::uint64_t aheadTag) {
+void LoadTrace::record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack,
+                            std::uint64_t aheadTag) {
     std::lock_guard<std::mutex> lock(mutex_);
     ++reads_;
     bytes_ += bytes;
@@ -191,12 +195,15 @@ void LoadTrace::record_use_locked(std::string_view path) {
     order_[current_].files.push_back(std::move(p));
 }
 
-void LoadTrace::record_asset(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs) {
+void LoadTrace::record_asset(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs,
+                             std::int64_t readNs) {
     const std::int64_t decodeNs = std::max<std::int64_t>(0, totalNs - readNs);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (slowest_.size() >= kMaxSlowest && decodeNs + readNs <= slowest_.back().decodeNs + slowest_.back().readNs) return;
+    if (slowest_.size() >= kMaxSlowest && decodeNs + readNs <= slowest_.back().decodeNs + slowest_.back().readNs)
+        return;
     Asset a{std::string(kind), std::string(path), bytes, std::max<std::int64_t>(0, readNs), decodeNs};
-    auto at = std::find_if(slowest_.begin(), slowest_.end(), [&](const Asset& s) { return s.decodeNs + s.readNs < a.decodeNs + a.readNs; });
+    auto at = std::find_if(slowest_.begin(), slowest_.end(),
+                           [&](const Asset& s) { return s.decodeNs + s.readNs < a.decodeNs + a.readNs; });
     slowest_.insert(at, std::move(a));
     if (slowest_.size() > kMaxSlowest) slowest_.pop_back();
 }
@@ -229,10 +236,16 @@ Json LoadTrace::report() const {
     j["scenes"] = std::move(scenes);
     Json slow = Json::array();
     for (const Asset& a : slowest_)
-        slow.push_back(Json::object({{"kind", a.kind}, {"path", a.path}, {"bytes", a.bytes}, {"readMs", round_ms(a.readNs)}, {"decodeMs", round_ms(a.decodeNs)}}));
+        slow.push_back(Json::object({{"kind", a.kind},
+                                     {"path", a.path},
+                                     {"bytes", a.bytes},
+                                     {"readMs", round_ms(a.readNs)},
+                                     {"decodeMs", round_ms(a.decodeNs)}}));
     j["slowestAssets"] = std::move(slow);
-    j["reads"] = Json::object({{"count", reads_}, {"bytes", bytes_}, {"fromPack", packReads_}, {"packStoredBytes", packStored_}});
-    j["note"] = "Times are this machine's, rounded to 0.1 ms: compare runs on one machine, never pass or fail on them. A scene's "
+    j["reads"] = Json::object(
+        {{"count", reads_}, {"bytes", bytes_}, {"fromPack", packReads_}, {"packStoredBytes", packStored_}});
+    j["note"] = "Times are this machine's, rounded to 0.1 ms: compare runs on one machine, never pass or fail on them. "
+                "A scene's "
                 "loadMs runs from the start of its load to the end of the first frame after it; for a background load "
                 "(async) from the request, and its readyMs to the frame the scene started.";
     return j;

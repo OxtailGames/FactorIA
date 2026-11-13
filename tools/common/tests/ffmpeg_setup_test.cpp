@@ -23,7 +23,9 @@ SetupResult ffmpeg_install_binary(const SetupContext& ctx, const SetupInstallOpt
 
 namespace {
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 std::uint32_t crc32(const std::string& data) {
     std::uint32_t crc = 0xFFFFFFFFu;
@@ -89,7 +91,8 @@ struct Lab {
 };
 
 std::string url_of(const FfmpegBinary& b) {
-    return std::string("https://github.com/eugeneware/ffmpeg-static/releases/download/") + kSetupFfmpegRelease + "/ffmpeg-" + b.asset + ".gz";
+    return std::string("https://github.com/eugeneware/ffmpeg-static/releases/download/") + kSetupFfmpegRelease +
+           "/ffmpeg-" + b.asset + ".gz";
 }
 
 SetupInstallOptions options(bool force = false) {
@@ -106,7 +109,9 @@ SetupComponent ffmpeg_status(const SetupContext& c) {
 }
 
 // The status and install tests expect "missing": an ffmpeg on this computer's PATH (the lookup uses the real PATH) would hide it.
-bool machine_has_ffmpeg() { return fa::find_ffmpeg([](const std::string&) { return std::string(); }, "/nonexistent/export.json").ok(); }
+bool machine_has_ffmpeg() {
+    return fa::find_ffmpeg([](const std::string&) { return std::string(); }, "/nonexistent/export.json").ok();
+}
 
 }  // namespace
 
@@ -117,8 +122,9 @@ TEST_CASE("setup ffmpeg: setup.status lists the component, every desktop host ha
     for (const Json& comp : status["components"]) listed = listed || comp.value("id", "") == "ffmpeg";
     CHECK(listed);
 
-    const std::pair<const char*, const char*> hosts[] = {{"windows", "x64"}, {"windows", "aarch64"}, {"linux", "x64"},
-                                                         {"linux", "aarch64"}, {"macos", "x64"},     {"macos", "aarch64"}};
+    const std::pair<const char*, const char*> hosts[] = {{"windows", "x64"}, {"windows", "aarch64"},
+                                                         {"linux", "x64"},   {"linux", "aarch64"},
+                                                         {"macos", "x64"},   {"macos", "aarch64"}};
     for (const auto& [host, arch] : hosts) {
         CAPTURE(host);
         CAPTURE(arch);
@@ -161,7 +167,8 @@ TEST_CASE("setup ffmpeg: found by FACTORIA_FFMPEG, export.json or the installed 
     CHECK(has_text(ffmpeg_status(c).problems.back(), "factoria setup ffmpeg"));
 
     const std::string installed = ffmpeg_install_path(c);
-    CHECK(has_text(stdfs::path(installed).generic_string(), std::string("ffmpeg") + "/" + kSetupFfmpegRelease + "/ffmpeg"));
+    CHECK(has_text(stdfs::path(installed).generic_string(),
+                   std::string("ffmpeg") + "/" + kSetupFfmpegRelease + "/ffmpeg"));
     testing::write_all(installed, "installed");
     auto found = find_ffmpeg(c.env, c.config_path(), ffmpeg_install_path(c));
     REQUIRE(found.ok());
@@ -184,7 +191,8 @@ TEST_CASE("setup ffmpeg: the file for this computer is downloaded, checked, unpa
     Lab lab;
     if (machine_has_ffmpeg()) return;
     SetupContext c = lab.ctx();
-    const std::string program = "\x7f" "ELF pretend this is ffmpeg";
+    const std::string program = "\x7f"
+                                "ELF pretend this is ffmpeg";
     const std::string gz = gzip_of(program);
     const std::string sum = sha256_hex(gz);
     const FfmpegBinary bin{"linux", "x64", "linux-x64", sum.c_str(), 1};  // a table entry whose hash is the fake file's
@@ -227,7 +235,8 @@ TEST_CASE("setup ffmpeg: a download that is not the pinned file, or not a gzip f
     CHECK_FALSE(stdfs::exists(ffmpeg_install_path(c)));
 
     // Right hash, wrong content: a text file is not gzip; a gzip with a wrong CRC does not unpack either.
-    for (const std::string& body : {std::string("this is plain text, long enough to pass the header size check"), gzip_of("some bytes", true)}) {
+    for (const std::string& body :
+         {std::string("this is plain text, long enough to pass the header size check"), gzip_of("some bytes", true)}) {
         const std::string sum = sha256_hex(body);
         const FfmpegBinary pinned{"linux", "x64", "linux-x64", sum.c_str(), 1};
         lab.served[url_of(pinned)] = body;

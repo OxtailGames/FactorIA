@@ -18,7 +18,9 @@ using namespace fa::testing;
 
 namespace {
 
-Json recipe_of_entry(const AssetsProject& p, const std::string& rel) { return p.manifest()["assets"][rel]["provenance"]["recipe"]; }
+Json recipe_of_entry(const AssetsProject& p, const std::string& rel) {
+    return p.manifest()["assets"][rel]["provenance"]["recipe"];
+}
 
 const char* kDoor = R"({"format": "factoria.model/1", "doc": "test door",
     "materials": {"wood": {"color": [0.55, 0.35, 0.2, 1]}, "brass": {"color": [0.8, 0.65, 0.3, 1], "metallic": 1}},
@@ -30,10 +32,13 @@ bool contains(const Json& j, const std::string& needle) { return j.dump().find(n
 
 }  // namespace
 
-TEST_CASE("model.create: writes the document, bakes the .glb, records provenance and a recipe, and gives every node an id") {
+TEST_CASE(
+    "model.create: writes the document, bakes the .glb, records provenance and a recipe, and gives every node an id") {
     AssetsProject p;
-    const Json r = p.ok("model.create", {{"path", "assets/models/crate.model.json"},
-                                         {"nodes", Json::array({{{"op", "box"}}, {{"op", "box"}, {"position", {0, 1, 0}}}, {{"op", "cylinder"}}})}});
+    const Json r = p.ok(
+        "model.create",
+        {{"path", "assets/models/crate.model.json"},
+         {"nodes", Json::array({{{"op", "box"}}, {{"op", "box"}, {"position", {0, 1, 0}}}, {{"op", "cylinder"}}})}});
     CHECK(r["output"] == "assets/models/crate.glb");
     CHECK(r["nodeCount"] == 3);
     CHECK(r["tree"][0]["id"] == "box_1");
@@ -73,7 +78,9 @@ TEST_CASE("model.create: writes the document, bakes the .glb, records provenance
 TEST_CASE("model.create: a document with mistakes lists every issue with its pointer and writes nothing") {
     AssetsProject p;
     auto bad = p.call("model.create", {{"path", "assets/models/bad.model.json"},
-                                       {"nodes", Json::array({{{"op", "cilinder"}}, {{"op", "box"}, {"sise", {1, 1, 1}}}, {{"op", "sphere"}, {"radius", -1}}})}});
+                                       {"nodes", Json::array({{{"op", "cilinder"}},
+                                                              {{"op", "box"}, {"sise", {1, 1, 1}}},
+                                                              {{"op", "sphere"}, {"radius", -1}}})}});
     REQUIRE_FALSE(bad.ok);
     const std::string text = bad.error.dump();
     CHECK(text.find("cylinder") != std::string::npos);  // did you mean
@@ -90,7 +97,8 @@ TEST_CASE("model.create: a document with mistakes lists every issue with its poi
     CHECK_FALSE(typo.ok);
 }
 
-TEST_CASE("model.bake: bakes missing documents, skips fresh ones, dryRun writes nothing, the same bytes come out again") {
+TEST_CASE(
+    "model.bake: bakes missing documents, skips fresh ones, dryRun writes nothing, the same bytes come out again") {
     AssetsProject p;
     write_all(p.file("assets/models/door.model.json"), kDoor);
     const Json plan = p.ok("model.bake", {{"dryRun", true}});
@@ -123,8 +131,9 @@ TEST_CASE("model.bake: bakes missing documents, skips fresh ones, dryRun writes 
 
 TEST_CASE("model.bake: output.path moves the .glb; a file nothing baked is never replaced unless overwrite") {
     AssetsProject p;
-    write_all(p.file("assets/models/door.model.json"),
-              R"({"format": "factoria.model/1", "output": {"path": "assets/baked/door.glb"}, "nodes": [{"op": "box"}]})");
+    write_all(
+        p.file("assets/models/door.model.json"),
+        R"({"format": "factoria.model/1", "output": {"path": "assets/baked/door.glb"}, "nodes": [{"op": "box"}]})");
     p.ok("model.bake", {});
     CHECK(p.exists("assets/baked/door.glb"));
     CHECK_FALSE(p.exists("assets/models/door.glb"));
@@ -156,7 +165,8 @@ TEST_CASE("model.bake: a changed document makes the .glb stale; validate warns, 
     write_all(p.file("assets/models/door.model.json"), changed);
     CHECK(p.ok("model.info", {{"path", "assets/models/door.model.json"}})["bake"]["state"] == "stale");
     bool warned = false;
-    for (const ValidationIssue& w : validate_project(p.dir).warnings) warned = warned || w.message.find("'assets/models/door.glb' is stale") != std::string::npos;
+    for (const ValidationIssue& w : validate_project(p.dir).warnings)
+        warned = warned || w.message.find("'assets/models/door.glb' is stale") != std::string::npos;
     CHECK(warned);
     const Json plan = p.ok("model.bake", {{"dryRun", true}});
     REQUIRE(plan["wouldBake"].size() == 1);
@@ -177,21 +187,26 @@ TEST_CASE("model.bake: a changed document makes the .glb stale; validate warns, 
     CHECK(read_all(p.file("assets/models/door.glb")) == second);
 }
 
-TEST_CASE("project.validate: a model document with mistakes is an error per issue; a document not baked yet is a warning") {
+TEST_CASE(
+    "project.validate: a model document with mistakes is an error per issue; a document not baked yet is a warning") {
     AssetsProject p;
     write_all(p.file("assets/models/a.model.json"), R"({"format": "factoria.model/1", "nodes": [{"op": "box"}]})");
-    write_all(p.file("assets/models/bad.model.json"), R"({"format": "factoria.model/1", "nodes": [{"op": "box", "size": -1}, {"op": "ball"}]})");
+    write_all(p.file("assets/models/bad.model.json"),
+              R"({"format": "factoria.model/1", "nodes": [{"op": "box", "size": -1}, {"op": "ball"}]})");
     const ValidationReport v = validate_project(p.dir);
     int pointers = 0;
     for (const ValidationIssue& e : v.errors)
         if (e.file == "assets/models/bad.model.json" && !e.pointer.empty()) ++pointers;
     CHECK(pointers >= 2);
     bool notBaked = false;
-    for (const ValidationIssue& w : v.warnings) notBaked = notBaked || (w.file == "assets/models/a.model.json" && w.message.find("Not baked") != std::string::npos);
+    for (const ValidationIssue& w : v.warnings)
+        notBaked =
+            notBaked || (w.file == "assets/models/a.model.json" && w.message.find("Not baked") != std::string::npos);
     CHECK(notBaked);
 }
 
-TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports every issue of a broken one") {
+TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports "
+          "every issue of a broken one") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
     REQUIRE(catalog["operations"].size() == 46);
@@ -216,7 +231,8 @@ TEST_CASE("model.info: with no arguments lists the operations; with a document c
     CHECK((*lathe)["kind"] == "primitive");
     bool profileOk = false;
     for (const Json& f : (*lathe)["fields"])
-        if (f["key"] == "profile") profileOk = f["type"] == "points2" && f["minItems"] == 2 && f["maxItems"] == 256 && f["required"] == true;
+        if (f["key"] == "profile")
+            profileOk = f["type"] == "points2" && f["minItems"] == 2 && f["maxItems"] == 256 && f["required"] == true;
     CHECK(profileOk);
     CHECK(catalog["operations"][0]["fields"][0].contains("doc"));
     CHECK(catalog["commonFields"].size() > 8);
@@ -229,13 +245,15 @@ TEST_CASE("model.info: with no arguments lists the operations; with a document c
     CHECK(info["bake"]["state"] == "missing");
     CHECK(info["measurements"]["triangles"].get<int>() > 100);
     CHECK_FALSE(p.exists("assets/models/door.glb"));
-    CHECK_FALSE(p.ok("model.info", {{"path", "assets/models/door.model.json"}, {"evaluate", false}}).contains("measurements"));
+    CHECK_FALSE(
+        p.ok("model.info", {{"path", "assets/models/door.model.json"}, {"evaluate", false}}).contains("measurements"));
 
     const Json inlineDoc = p.ok("model.info", {{"document", {{"nodes", Json::array({{{"op", "torus"}}})}}}});
     CHECK(inlineDoc["valid"] == true);
     CHECK(inlineDoc["measurements"]["closed"] == true);
 
-    write_all(p.file("assets/models/bad.model.json"), R"({"format": "factoria.model/1", "nodes": [{"op": "box", "sise": [1, 1, 1]}, {"op": "capsul"}]})");
+    write_all(p.file("assets/models/bad.model.json"),
+              R"({"format": "factoria.model/1", "nodes": [{"op": "box", "sise": [1, 1, 1]}, {"op": "capsul"}]})");
     const Json bad = p.ok("model.info", {{"path", "assets/models/bad.model.json"}});
     CHECK(bad["valid"] == false);
     REQUIRE(bad["issues"].size() == 2);
@@ -252,7 +270,8 @@ TEST_CASE("model.info: with no arguments lists the operations; with a document c
     CHECK_FALSE(typo.ok);
 }
 
-TEST_CASE("model.edit: add, set, remove, move and document change one node by id, check the whole document and rebuild the .glb") {
+TEST_CASE("model.edit: add, set, remove, move and document change one node by id, check the whole document and rebuild "
+          "the .glb") {
     AssetsProject p;
     write_all(p.file("assets/models/door.model.json"), kDoor);
     p.ok("model.bake", {});
@@ -260,7 +279,8 @@ TEST_CASE("model.edit: add, set, remove, move and document change one node by id
     const std::string path = "assets/models/door.model.json";
 
     // set: a field by id, and a null value removes it
-    const Json set = p.ok("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"radius", 0.09}}}});
+    const Json set =
+        p.ok("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"radius", 0.09}}}});
     CHECK(set["edit"]["op"] == "set");
     CHECK(parse_json(read_all(p.file(path)), "d").value()["nodes"][1]["radius"] == 0.09);
     CHECK(read_all(p.file("assets/models/door.glb")) != first);
@@ -268,8 +288,11 @@ TEST_CASE("model.edit: add, set, remove, move and document change one node by id
     CHECK_FALSE(parse_json(read_all(p.file(path)), "d").value()["nodes"][1].contains("radius"));
 
     // add: into a group, with an auto id; then by index
-    p.ok("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "group"}, {"id", "hinges"}, {"children", Json::array()}}}});
-    const Json add = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "hinges"}, {"node", {{"op", "cylinder"}, {"radius", 0.03}}}});
+    p.ok("model.edit",
+         {{"path", path}, {"op", "add"}, {"node", {{"op", "group"}, {"id", "hinges"}, {"children", Json::array()}}}});
+    const Json add =
+        p.ok("model.edit",
+             {{"path", path}, {"op", "add"}, {"parent", "hinges"}, {"node", {{"op", "cylinder"}, {"radius", 0.03}}}});
     CHECK(add["edit"]["id"] == "cylinder_1");
     CHECK(add["edit"]["pointer"] == "/nodes/2/children/0");
     CHECK(add["nodeCount"] == 4);
@@ -291,7 +314,10 @@ TEST_CASE("model.edit: add, set, remove, move and document change one node by id
     CHECK(doc["nodes"][0]["id"] == "cylinder_1");
 
     // document: materials
-    p.ok("model.edit", {{"path", path}, {"op", "document"}, {"doc", "a door"}, {"materials", {{"wood", {{"color", {1, 0, 0, 1}}}}, {"brass", Json::object()}}}});
+    p.ok("model.edit", {{"path", path},
+                        {"op", "document"},
+                        {"doc", "a door"},
+                        {"materials", {{"wood", {{"color", {1, 0, 0, 1}}}}, {"brass", Json::object()}}}});
     doc = parse_json(read_all(p.file(path)), "d").value();
     CHECK(doc["doc"] == "a door");
     CHECK(doc["materials"]["wood"]["color"][0] == 1);
@@ -300,10 +326,16 @@ TEST_CASE("model.edit: add, set, remove, move and document change one node by id
 TEST_CASE("model.create, model.edit and model.bake: modifiers wrap children, take edits by id and bake a closed .glb") {
     AssetsProject p;
     const std::string path = "assets/models/gear.model.json";
-    const Json created = p.ok("model.create", {{"path", path},
-                                               {"nodes", Json::array({{{"op", "boolean"}, {"id", "cut"}, {"mode", "difference"},
-                                                                       {"children", Json::array({{{"op", "cylinder"}, {"id", "disc"}, {"radius", 1}, {"height", 0.3}},
-                                                                                                 {{"op", "cylinder"}, {"id", "bore"}, {"radius", 0.3}, {"height", 1}}})}}})}});
+    const Json created = p.ok(
+        "model.create",
+        {{"path", path},
+         {"nodes",
+          Json::array(
+              {{{"op", "boolean"},
+                {"id", "cut"},
+                {"mode", "difference"},
+                {"children", Json::array({{{"op", "cylinder"}, {"id", "disc"}, {"radius", 1}, {"height", 0.3}},
+                                          {{"op", "cylinder"}, {"id", "bore"}, {"radius", 0.3}, {"height", 1}}})}}})}});
     CHECK(created["nodeCount"] == 3);
     CHECK(created["tree"][0]["op"] == "boolean");
     CHECK(created["measurements"]["closed"] == true);
@@ -316,30 +348,43 @@ TEST_CASE("model.create, model.edit and model.bake: modifiers wrap children, tak
     CHECK(after["measurements"]["closed"] == true);
 
     // add into a modifier, and wrap an existing node by adding a modifier on top
-    const Json add = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "cut"}, {"node", {{"op", "box"}, {"size", {0.1, 0.1, 1}}, {"position", {0.8, 0, 0}}}}});
+    const Json add =
+        p.ok("model.edit", {{"path", path},
+                            {"op", "add"},
+                            {"parent", "cut"},
+                            {"node", {{"op", "box"}, {"size", {0.1, 0.1, 1}}, {"position", {0.8, 0, 0}}}}});
     CHECK(add["edit"]["pointer"] == "/nodes/0/children/2");
-    p.ok("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "radial_array"}, {"id", "ring"}, {"count", 3}, {"children", Json::array({{{"op", "sphere"}, {"position", {2, 0, 0}}}})}}}});
+    p.ok("model.edit", {{"path", path},
+                        {"op", "add"},
+                        {"node",
+                         {{"op", "radial_array"},
+                          {"id", "ring"},
+                          {"count", 3},
+                          {"children", Json::array({{{"op", "sphere"}, {"position", {2, 0, 0}}}})}}}});
     const Json built = p.ok("model.info", {{"path", path}});
     CHECK(built["valid"] == true);
     CHECK(built["measurements"]["closed"] == true);
 
     // mistakes in a modifier come back with the pointer and did-you-mean, and nothing is written
     const std::string before = read_all(p.file(path));
-    auto bad = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "ring"}, {"values", {{"count", 0}, {"axiss", "y"}}}});
+    auto bad = p.call("model.edit",
+                      {{"path", path}, {"op", "set"}, {"target", "ring"}, {"values", {{"count", 0}, {"axiss", "y"}}}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("/nodes/1/count") != std::string::npos);
     CHECK(bad.error.dump().find("axis") != std::string::npos);
     CHECK(read_all(p.file(path)) == before);
 
     // a boolean of something that is not a solid: the document is valid and kept, the bake says which operand and why
-    const Json open = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "cut"}, {"node", {{"op", "grid"}, {"id", "sheet"}}}});
+    const Json open = p.ok(
+        "model.edit", {{"path", path}, {"op", "add"}, {"parent", "cut"}, {"node", {{"op", "grid"}, {"id", "sheet"}}}});
     CHECK(open["bake"]["state"] == "failed");
     CHECK(open["bake"]["message"].get<std::string>().find("not a closed solid") != std::string::npos);
     CHECK(open["bake"]["message"].get<std::string>().find("/nodes/0/children/3") != std::string::npos);
     p.ok("model.edit", {{"path", path}, {"op", "remove"}, {"target", "sheet"}});
 
     // a primitive is not a place to add children
-    auto notParent = p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "disc"}, {"node", {{"op", "box"}}}});
+    auto notParent =
+        p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "disc"}, {"node", {{"op", "box"}}}});
     CHECK_FALSE(notParent.ok);
 
     // the bake is the same twice
@@ -355,13 +400,15 @@ TEST_CASE("model.edit: a bad edit writes nothing and teaches; an unknown id sugg
     const std::string path = "assets/models/door.model.json";
     const std::string before = read_all(p.file(path));
 
-    auto bad = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"radius", -2}, {"raduis", 1}}}});
+    auto bad = p.call("model.edit",
+                      {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"radius", -2}, {"raduis", 1}}}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("/nodes/1/radius") != std::string::npos);
     CHECK(bad.error.dump().find("radius") != std::string::npos);
     CHECK(read_all(p.file(path)) == before);
 
-    auto unknown = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knb"}, {"values", {{"radius", 1}}}});
+    auto unknown =
+        p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knb"}, {"values", {{"radius", 1}}}});
     REQUIRE_FALSE(unknown.ok);
     CHECK(unknown.error.dump().find("knob") != std::string::npos);
     CHECK(read_all(p.file(path)) == before);
@@ -369,24 +416,29 @@ TEST_CASE("model.edit: a bad edit writes nothing and teaches; an unknown id sugg
     auto op = p.call("model.edit", {{"path", path}, {"op", "ad"}, {"node", {{"op", "box"}}}});
     REQUIRE_FALSE(op.ok);
     CHECK(op.error.dump().find("add") != std::string::npos);
-    auto matt = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"material", "gold"}}}});
+    auto matt =
+        p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"material", "gold"}}}});
     REQUIRE_FALSE(matt.ok);
     CHECK(matt.error.dump().find("brass") != std::string::npos);
     auto range = p.call("model.edit", {{"path", path}, {"op", "add"}, {"index", 9}, {"node", {{"op", "box"}}}});
     CHECK_FALSE(range.ok);
-    auto notGroup = p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "knob"}, {"node", {{"op", "box"}}}});
+    auto notGroup =
+        p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "knob"}, {"node", {{"op", "box"}}}});
     CHECK_FALSE(notGroup.ok);
-    auto opChange = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"op", "box"}}}});
+    auto opChange =
+        p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "knob"}, {"values", {{"op", "box"}}}});
     CHECK_FALSE(opChange.ok);
     auto missing = p.call("model.edit", {{"path", "assets/models/nope.model.json"}, {"op", "remove"}, {"target", "x"}});
     CHECK_FALSE(missing.ok);
     CHECK(read_all(p.file(path)) == before);
 }
 
-TEST_CASE("model.bake: a text node reads the engine's own font; the bake is deterministic and the document stays a plain recipe") {
+TEST_CASE("model.bake: a text node reads the engine's own font; the bake is deterministic and the document stays a "
+          "plain recipe") {
     AssetsProject p;
-    write_all(p.file("assets/models/sign.model.json"),
-              R"({"format": "factoria.model/1", "nodes": [{"op": "text", "id": "label", "text": "Hi", "size": 0.5, "depth": 0.1}]})");
+    write_all(
+        p.file("assets/models/sign.model.json"),
+        R"({"format": "factoria.model/1", "nodes": [{"op": "text", "id": "label", "text": "Hi", "size": 0.5, "depth": 0.1}]})");
     const Json r = p.ok("model.bake", {});
     REQUIRE(r["count"] == 1);
     CHECK(r["baked"][0]["measurements"]["triangles"].get<int>() > 20);
@@ -397,14 +449,31 @@ TEST_CASE("model.bake: a text node reads the engine's own font; the bake is dete
     CHECK(recipe_of_entry(p, "assets/models/sign.glb")["inputs"].size() == 1);
 }
 
-TEST_CASE("model.create, model.edit and model.bake: an sdf node melts shapes into a closed .glb, takes edits by id and teaches on a misplaced shape") {
+TEST_CASE("model.create, model.edit and model.bake: an sdf node melts shapes into a closed .glb, takes edits by id and "
+          "teaches on a misplaced shape") {
     AssetsProject p;
     const std::string path = "assets/models/rock.model.json";
-    const Json created = p.ok("model.create", {{"path", path},
-                                               {"materials", {{"stone", {{"color", {0.5, 0.5, 0.5, 1}}}}}},
-                                               {"nodes", Json::array({{{"op", "sdf"}, {"id", "rock"}, {"quality", "draft"}, {"noiseAmplitude", 0.05}, {"noiseSeed", 3}, {"align", "bottom"},
-                                                                       {"children", Json::array({{{"op", "sdf_ellipsoid"}, {"id", "base"}, {"radii", {0.8, 0.5, 0.6}}, {"material", "stone"}},
-                                                                                                 {{"op", "sdf_sphere"}, {"id", "lump"}, {"radius", 0.4}, {"position", {0.5, 0.3, 0}}, {"smooth", 0.2}, {"material", "stone"}}})}}})}});
+    const Json created =
+        p.ok("model.create",
+             {{"path", path},
+              {"materials", {{"stone", {{"color", {0.5, 0.5, 0.5, 1}}}}}},
+              {"nodes",
+               Json::array(
+                   {{{"op", "sdf"},
+                     {"id", "rock"},
+                     {"quality", "draft"},
+                     {"noiseAmplitude", 0.05},
+                     {"noiseSeed", 3},
+                     {"align", "bottom"},
+                     {"children",
+                      Json::array(
+                          {{{"op", "sdf_ellipsoid"}, {"id", "base"}, {"radii", {0.8, 0.5, 0.6}}, {"material", "stone"}},
+                           {{"op", "sdf_sphere"},
+                            {"id", "lump"},
+                            {"radius", 0.4},
+                            {"position", {0.5, 0.3, 0}},
+                            {"smooth", 0.2},
+                            {"material", "stone"}}})}}})}});
     CHECK(created["nodeCount"] == 3);
     CHECK(created["tree"][0]["op"] == "sdf");
     CHECK(created["measurements"]["closed"] == true);
@@ -418,9 +487,18 @@ TEST_CASE("model.create, model.edit and model.bake: an sdf node melts shapes int
     CHECK(bigger["measurements"]["closed"] == true);
 
     // add a shape into the sdf and a group of shapes into it; a cut is a shape with blend "subtract"
-    const Json add = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "rock"},
-                                         {"node", {{"op", "sdf_group"}, {"id", "pits"}, {"blend", "subtract"}, {"smooth", 0.05}, {"mirror", "z"},
-                                                   {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.15}, {"position", {0.2, 0.4, 0.3}}}})}}}});
+    const Json add = p.ok(
+        "model.edit",
+        {{"path", path},
+         {"op", "add"},
+         {"parent", "rock"},
+         {"node",
+          {{"op", "sdf_group"},
+           {"id", "pits"},
+           {"blend", "subtract"},
+           {"smooth", 0.05},
+           {"mirror", "z"},
+           {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.15}, {"position", {0.2, 0.4, 0.3}}}})}}}});
     CHECK(add["edit"]["pointer"] == "/nodes/0/children/2");
     const Json pitted = p.ok("model.info", {{"path", path}});
     CHECK(pitted["valid"] == true);
@@ -438,8 +516,17 @@ TEST_CASE("model.create, model.edit and model.bake: an sdf node melts shapes int
     CHECK(read_all(p.file(path)) == saved);
 
     // a modifier wraps the sdf and a boolean takes it as an operand
-    p.ok("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "mirror"}, {"id", "twin"}, {"axis", "x"}, {"children", Json::array({{{"op", "sdf"}, {"quality", "draft"}, {"position", {2, 0, 0}},
-                                                                                                                                      {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.5}}})}}})}}}});
+    p.ok("model.edit",
+         {{"path", path},
+          {"op", "add"},
+          {"node",
+           {{"op", "mirror"},
+            {"id", "twin"},
+            {"axis", "x"},
+            {"children", Json::array({{{"op", "sdf"},
+                                       {"quality", "draft"},
+                                       {"position", {2, 0, 0}},
+                                       {"children", Json::array({{{"op", "sdf_sphere"}, {"radius", 0.5}}})}}})}}}});
     CHECK(p.ok("model.info", {{"path", path}})["measurements"]["closed"] == true);
 
     // the bake is the same twice
@@ -495,7 +582,8 @@ TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a
     CHECK(found == 4);  // the creature, the rock, the tree and the mushroom
 }
 
-TEST_CASE("model.select: tries a query on the mesh a node receives; model.info lists the queries and what each edit node selected") {
+TEST_CASE("model.select: tries a query on the mesh a node receives; model.info lists the queries and what each edit "
+          "node selected") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
     REQUIRE(catalog.contains("selections"));
@@ -509,12 +597,18 @@ TEST_CASE("model.select: tries a query on the mesh a node receives; model.info l
 
     const Json doc = Json::object(
         {{"format", "factoria.model/1"},
-         {"nodes", Json::array({{{"op", "extrude_faces"}, {"id", "bump"}, {"distance", 0.2}, {"newPart", "bump"}, {"faces", {{"by", "normal"}, {"direction", "top"}}},
+         {"nodes", Json::array({{{"op", "extrude_faces"},
+                                 {"id", "bump"},
+                                 {"distance", 0.2},
+                                 {"newPart", "bump"},
+                                 {"faces", {{"by", "normal"}, {"direction", "top"}}},
                                  {"children", Json::array({{{"op", "box"}, {"id", "base"}, {"part", "body"}}})}}})}});
     p.ok("model.create", {{"path", "assets/models/crate.model.json"}, {"nodes", doc["nodes"]}});
 
     // on the primitive's mesh, with a query of the call, and with the edit node's own selection
-    const Json top = p.ok("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "normal"}, {"direction", "top"}}}});
+    const Json top = p.ok("model.select", {{"path", "assets/models/crate.model.json"},
+                                           {"node", "base"},
+                                           {"faces", {{"by", "normal"}, {"direction", "top"}}}});
     CHECK(top["matched"] == 2);
     CHECK(top["total"] == 12);
     CHECK(top["area"].get<double>() == doctest::Approx(1.0));
@@ -524,16 +618,20 @@ TEST_CASE("model.select: tries a query on the mesh a node receives; model.info l
     CHECK(own["matched"] == 2);
 
     // nothing matched: a warning that teaches, not an error
-    const Json none = p.ok("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "part"}, {"part", "bodi"}}}});
+    const Json none = p.ok(
+        "model.select",
+        {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "part"}, {"part", "bodi"}}}});
     CHECK(none["matched"] == 0);
     REQUIRE(none.contains("warnings"));
     CHECK(contains(none["warnings"], "body"));
 
     // errors teach
-    auto wrong = p.call("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "nromal"}}}});
+    auto wrong = p.call("model.select",
+                        {{"path", "assets/models/crate.model.json"}, {"node", "base"}, {"faces", {{"by", "nromal"}}}});
     REQUIRE_FALSE(wrong.ok);
     CHECK(contains(wrong.error, "normal"));
-    auto missing = p.call("model.select", {{"path", "assets/models/crate.model.json"}, {"node", "bas"}, {"faces", {{"by", "all"}}}});
+    auto missing = p.call("model.select",
+                          {{"path", "assets/models/crate.model.json"}, {"node", "bas"}, {"faces", {{"by", "all"}}}});
     REQUIRE_FALSE(missing.ok);
     CHECK(contains(missing.error, "base"));
 
@@ -545,7 +643,8 @@ TEST_CASE("model.select: tries a query on the mesh a node receives; model.info l
     CHECK(info["measurements"]["closed"] == true);
 }
 
-TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid document that builds a closed surface without warnings") {
+TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid document that builds a closed surface "
+          "without warnings") {
     namespace stdfs = std::filesystem;
     const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
     const std::size_t from = text.find("## Selections and edits");
@@ -577,23 +676,28 @@ TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog bui
     namespace stdfs = std::filesystem;
     const stdfs::path file = stdfs::path(FA_REPO_ROOT) / "schemas" / "model.schema.json";
     const Json built = model_doc_schema();
-    if (const char* regenerate = std::getenv("FA_REGENERATE_MODEL_SCHEMA"); regenerate && std::string(regenerate) == "1") {
+    if (const char* regenerate = std::getenv("FA_REGENERATE_MODEL_SCHEMA");
+        regenerate && std::string(regenerate) == "1") {
         std::ofstream out(file, std::ios::binary);
         out << built.dump(2) << "\n";
     }
     auto schema = parse_json(read_all(file), "model.schema.json");
     REQUIRE(schema.ok());
-    CHECK_MESSAGE(*schema == built, "schemas/model.schema.json is out of date: run the tests with FA_REGENERATE_MODEL_SCHEMA=1 to write it again");
+    CHECK_MESSAGE(
+        *schema == built,
+        "schemas/model.schema.json is out of date: run the tests with FA_REGENERATE_MODEL_SCHEMA=1 to write it again");
     for (const ModelOpInfo& op : model_ops()) CHECK((*schema)["$defs"].contains(op.op));
 
     auto sample = parse_json(kDoor, "door");
     REQUIRE(sample.ok());
     CHECK(validate_json(*schema, *sample).empty());
-    Json nested = *parse_json(R"({"format": "factoria.model/1", "nodes": [{"op": "group", "position": [1, 0, 0], "children": [
+    Json nested =
+        *parse_json(R"({"format": "factoria.model/1", "nodes": [{"op": "group", "position": [1, 0, 0], "children": [
         {"op": "stairs", "steps": 5}, {"op": "arch"}, {"op": "pipe"}, {"op": "text", "text": "A"},
         {"op": "mirror", "axis": "x", "children": [{"op": "lathe", "profile": [[0.2, 0], [0.4, 1]]}]},
         {"op": "boolean", "mode": "intersection", "children": [{"op": "box"}, {"op": "sphere"}]},
-        {"op": "sdf", "quality": "fine", "align": "bottom", "children": [{"op": "sdf_group", "mirror": "x", "children": [{"op": "sdf_capsule"}, {"op": "sdf_torus", "blend": "subtract"}]}]}]}]})", "nested");
+        {"op": "sdf", "quality": "fine", "align": "bottom", "children": [{"op": "sdf_group", "mirror": "x", "children": [{"op": "sdf_capsule"}, {"op": "sdf_torus", "blend": "subtract"}]}]}]}]})",
+                    "nested");
     CHECK(validate_json(*schema, nested).empty());
     Json broken = *sample;
     broken["nodes"][0]["op"] = "cube";
@@ -636,7 +740,8 @@ TEST_CASE("model.uv: a document with no uv section is measured on the primitives
     CHECK_FALSE(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}}).contains("$image"));
 }
 
-TEST_CASE("model.uv: set writes the section, bakes the .glb with the uvs and measures them; set merges, replace replaces, clear removes") {
+TEST_CASE("model.uv: set writes the section, bakes the .glb with the uvs and measures them; set merges, replace "
+          "replaces, clear removes") {
     AssetsProject p;
     write_all(p.file(kCratePath), kCrate);
     const Json r = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "unwrap"}, {"texelsPerUnit", 256}}}});
@@ -657,24 +762,30 @@ TEST_CASE("model.uv: set writes the section, bakes the .glb with the uvs and mea
     CHECK(saved["nodes"].size() == 2);  // the rest of the document is untouched
 
     // a merge keeps what is not named; a null removes a field; a part merges field by field
-    const Json m = p.ok("model.uv", {{"path", kCratePath},
-                                      {"set", {{"seams", "many"}, {"parts", {{"barrel", {{"method", "cylinder"}, {"axis", "y"}}}}}}},
-                                      {"picture", false}});
+    const Json m = p.ok("model.uv",
+                        {{"path", kCratePath},
+                         {"set", {{"seams", "many"}, {"parts", {{"barrel", {{"method", "cylinder"}, {"axis", "y"}}}}}}},
+                         {"picture", false}});
     CHECK(m["uv"]["method"] == "unwrap");
     CHECK(m["uv"]["texelsPerUnit"] == 256);
     CHECK(m["uv"]["seams"] == "many");
     CHECK(m["uv"]["parts"]["barrel"]["method"] == "cylinder");
     bool cylinder = false;
-    for (const Json& part : m["report"]["parts"]) cylinder = cylinder || (part["part"] == "barrel" && part["method"] == "cylinder");
+    for (const Json& part : m["report"]["parts"])
+        cylinder = cylinder || (part["part"] == "barrel" && part["method"] == "cylinder");
     CHECK(cylinder);
-    const Json n = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"texelsPerUnit", nullptr}, {"parts", {{"barrel", {{"axis", nullptr}}}}}}}, {"picture", false}});
+    const Json n =
+        p.ok("model.uv", {{"path", kCratePath},
+                          {"set", {{"texelsPerUnit", nullptr}, {"parts", {{"barrel", {{"axis", nullptr}}}}}}},
+                          {"picture", false}});
     CHECK_FALSE(n["uv"].contains("texelsPerUnit"));
     CHECK(n["uv"]["parts"]["barrel"]["method"] == "cylinder");
     CHECK_FALSE(n["uv"]["parts"]["barrel"].contains("axis"));
     const Json same = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"seams", "many"}}}, {"picture", false}});
     CHECK(same["changed"] == false);
 
-    const Json rep = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"replace", true}, {"picture", false}});
+    const Json rep =
+        p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"replace", true}, {"picture", false}});
     CHECK(rep["uv"]["method"] == "box");
     CHECK(rep["uv"]["seams"] == "balanced");  // the settings come back with their defaults filled in
     CHECK_FALSE(rep["uv"].contains("parts"));
@@ -690,14 +801,20 @@ TEST_CASE("model.uv: bake false leaves the .glb stale; the tile layout and a mis
     write_all(p.file(kCratePath), kCrate);
     p.ok("model.bake", {});
     const std::string glb = read_all(p.file("assets/models/crate.glb"));
-    const Json r = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"layout", "tile"}, {"texelsPerUnit", 64}, {"textureSize", 512}}}, {"bake", false}, {"picture", false}});
+    const Json r = p.ok("model.uv", {{"path", kCratePath},
+                                     {"set", {{"layout", "tile"}, {"texelsPerUnit", 64}, {"textureSize", 512}}},
+                                     {"bake", false},
+                                     {"picture", false}});
     CHECK(r["report"]["layout"] == "tile");
     CHECK(r["bake"]["state"] == "stale");
     CHECK(read_all(p.file("assets/models/crate.glb")) == glb);
-    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"picture", false}})["bake"]["state"] == "baked");
+    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"picture", false}})["bake"]["state"] ==
+          "baked");
 
     const std::string before = read_all(p.file(kCratePath));
-    CommandResult bad = p.call("model.uv", {{"path", kCratePath}, {"set", {{"method", "unwarp"}, {"padding", 99}, {"parts", {{"barell", {{"method", "box"}}}}}}}});
+    CommandResult bad = p.call(
+        "model.uv", {{"path", kCratePath},
+                     {"set", {{"method", "unwarp"}, {"padding", 99}, {"parts", {{"barell", {{"method", "box"}}}}}}}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error["code"] == "invalid_document");
     const Json issues = bad.error["data"]["issues"];
@@ -706,7 +823,8 @@ TEST_CASE("model.uv: bake false leaves the .glb stale; the tile layout and a mis
     CHECK(read_all(p.file(kCratePath)) == before);
 
     // a tile layout cannot unwrap: the evaluation says so
-    CommandResult tileUnwrap = p.call("model.uv", {{"path", kCratePath}, {"set", {{"layout", "tile"}, {"method", "unwrap"}}}});
+    CommandResult tileUnwrap =
+        p.call("model.uv", {{"path", kCratePath}, {"set", {{"layout", "tile"}, {"method", "unwrap"}}}});
     CHECK_FALSE(tileUnwrap.ok);
     CHECK(tileUnwrap.error.dump().find("cannot use") != std::string::npos);
     CHECK(tileUnwrap.error.dump().find("Nothing was written.") != std::string::npos);
@@ -718,18 +836,23 @@ TEST_CASE("model.uv: bake false leaves the .glb stale; the tile layout and a mis
     CHECK_FALSE(p.call("model.uv", {{"path", kCratePath}, {"colour", 1}}).ok);
 
     // an unknown part name is a warning of the build, not an error
-    const Json warn = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"parts", {{"barell", {{"method", "box"}}}}}}}, {"picture", false}});
+    const Json warn =
+        p.ok("model.uv",
+             {{"path", kCratePath}, {"set", {{"parts", {{"barell", {{"method", "box"}}}}}}}, {"picture", false}});
     bool did = false;
     for (const Json& w : warn["warnings"]) did = did || w.get<std::string>().find("barrel") != std::string::npos;
     CHECK(did);
 }
 
-TEST_CASE("model.uv: the texel density comes from assets.json style.texelsPerUnit and the .glb goes stale when the style changes it") {
+TEST_CASE("model.uv: the texel density comes from assets.json style.texelsPerUnit and the .glb goes stale when the "
+          "style changes it") {
     AssetsProject p;
     auto set_style = [&](const Json& density) {
         Json m = p.exists("assets.json") ? p.manifest() : Json({{"format", "factoria.assets/1"}});
-        if (density.is_null()) m.erase("style");
-        else m["style"] = Json::object({{"texelsPerUnit", density}});
+        if (density.is_null())
+            m.erase("style");
+        else
+            m["style"] = Json::object({{"texelsPerUnit", density}});
         write_all(p.file("assets.json"), m.dump(2) + "\n");
     };
     auto glb_state = [&]() {
@@ -749,34 +872,47 @@ TEST_CASE("model.uv: the texel density comes from assets.json style.texelsPerUni
     CHECK(glb_state() == true);
     p.ok("assets.regenerate", {{"stale", true}});
     CHECK(glb_state() == false);
-    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() > 110);
+    CHECK(
+        p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() >
+        110);
     // a density of the section's own does not depend on the style
     p.ok("model.uv", {{"path", kCratePath}, {"set", {{"texelsPerUnit", 200}}}, {"picture", false}});
     set_style(32);
     CHECK(glb_state() == false);
-    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() > 170);
+    CHECK(
+        p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() >
+        170);
 }
 
-TEST_CASE("model.create and model.edit: the uv section can be given with the document and replaced through the document operation") {
+TEST_CASE("model.create and model.edit: the uv section can be given with the document and replaced through the "
+          "document operation") {
     AssetsProject p;
-    const Json r = p.ok("model.create", {{"path", "assets/models/box.model.json"}, {"nodes", Json::array({{{"op", "box"}}})}, {"uv", {{"method", "unwrap"}, {"texelsPerUnit", 64}}}});
+    const Json r = p.ok("model.create", {{"path", "assets/models/box.model.json"},
+                                         {"nodes", Json::array({{{"op", "box"}}})},
+                                         {"uv", {{"method", "unwrap"}, {"texelsPerUnit", 64}}}});
     CHECK(r["measurements"]["uv"]["layout"] == "atlas");
     CHECK(r["measurements"]["uv"]["charts"].get<int>() >= 1);
     CHECK(parse_json(read_all(p.file("assets/models/box.model.json")), "doc").value()["uv"]["texelsPerUnit"] == 64);
     const Json info = p.ok("model.info", {{"path", "assets/models/box.model.json"}});
     CHECK(info["measurements"]["uv"]["layout"] == "atlas");
-    const Json edited = p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", {{"layout", "tile"}}}});
+    const Json edited = p.ok(
+        "model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", {{"layout", "tile"}}}});
     CHECK(edited["measurements"]["uv"]["layout"] == "tile");
-    CHECK(p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", nullptr}})["measurements"].contains("uv") == false);
+    CHECK(p.ok("model.edit",
+               {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", nullptr}})["measurements"]
+              .contains("uv") == false);
 }
 
-TEST_CASE("model.game_ready: collider.part fits the collider to one part, a short capsule height warns, and a part name with + is refused") {
+TEST_CASE("model.game_ready: collider.part fits the collider to one part, a short capsule height warns, and a part "
+          "name with + is refused") {
     AssetsProject p;
-    write_all(p.file("assets/models/tree.model.json"),
-              R"({"format": "factoria.model/1", "nodes": [{"op": "cylinder", "radius": 0.2, "height": 2, "position": [0, 1, 0], "part": "trunk"},
+    write_all(
+        p.file("assets/models/tree.model.json"),
+        R"({"format": "factoria.model/1", "nodes": [{"op": "cylinder", "radius": 0.2, "height": 2, "position": [0, 1, 0], "part": "trunk"},
                                                           {"op": "sphere", "radius": 1.5, "position": [0, 3.5, 0], "part": "canopy"}]})");
     p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}}}});
-    p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunk"}}}});
+    p.ok("model.game_ready",
+         {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunk"}}}});
     const Json doc = parse_json(read_all(p.file("assets/models/tree.model.json")), "doc").value();
     CHECK(doc["gameReady"]["collider"]["part"] == "trunk");
     const Json prefab = parse_json(read_all(p.file("assets/models/tree.prefab.json")), "prefab").value();
@@ -785,33 +921,43 @@ TEST_CASE("model.game_ready: collider.part fits the collider to one part, a shor
     CHECK(size[0].get<double>() < 0.5);  // the trunk is 0.4 wide; the canopy is 3 wide
     CHECK(size[1].get<double>() < 2.5);
     // a part that does not exist teaches
-    const CommandResult missing = p.call("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "box"}, {"part", "trunc"}}}});
+    const CommandResult missing = p.call("model.game_ready", {{"path", "assets/models/tree.model.json"},
+                                                              {"collider", {{"shape", "box"}, {"part", "trunc"}}}});
     const std::string missingText = missing.ok ? missing.result.dump() : missing.error.dump();
     CHECK(missingText.find("no part named") != std::string::npos);
     CHECK(missingText.find("trunk") != std::string::npos);
     // a capsule shorter than its two caps is raised, and the result says so
-    const Json capsule = p.ok("model.game_ready", {{"path", "assets/models/tree.model.json"}, {"collider", {{"shape", "capsule"}, {"part", "trunk"}, {"radius", 0.5}, {"height", 0.6}}}});
+    const Json capsule =
+        p.ok("model.game_ready",
+             {{"path", "assets/models/tree.model.json"},
+              {"collider", {{"shape", "capsule"}, {"part", "trunk"}, {"radius", 0.5}, {"height", 0.6}}}});
     CHECK(capsule.dump().find("less than twice the radius") != std::string::npos);
     // "+" joins merged part names, so a part may not contain it
-    const CommandResult plus = p.call("model.create", {{"path", "assets/models/bad.model.json"}, {"nodes", Json::array({{{"op", "box"}, {"part", "a+b"}}})}});
+    const CommandResult plus = p.call("model.create", {{"path", "assets/models/bad.model.json"},
+                                                       {"nodes", Json::array({{{"op", "box"}, {"part", "a+b"}}})}});
     REQUIRE_FALSE(plus.ok);
     CHECK(plus.error.dump().find("a_b") != std::string::npos);
 }
 
-TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs, the collider and a prefab, and fewer LODs remove the old files") {
+TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs, the collider and a prefab, and fewer "
+          "LODs remove the old files") {
     AssetsProject p;
-    write_all(p.file("assets/models/ball.model.json"),
-              R"({"format": "factoria.model/1", "nodes": [{"op": "sphere", "id": "s", "radius": 0.5, "position": [0, 2, 0], "part": "ball"}]})");
+    write_all(
+        p.file("assets/models/ball.model.json"),
+        R"({"format": "factoria.model/1", "nodes": [{"op": "sphere", "id": "s", "radius": 0.5, "position": [0, 2, 0], "part": "ball"}]})");
     // no settings: a report, nothing written
     const Json report = p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}});
     CHECK(report.contains("report"));
     CHECK_FALSE(p.exists("assets/models/ball.glb"));
 
-    const Json r = p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"origin", "bottom_center"},
-                                             {"lods", Json::array({{{"ratio", 0.5}}, {{"ratio", 0.2}}})}, {"collider", {{"shape", "convex"}}}});
+    const Json r = p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"},
+                                             {"origin", "bottom_center"},
+                                             {"lods", Json::array({{{"ratio", 0.5}}, {{"ratio", 0.2}}})},
+                                             {"collider", {{"shape", "convex"}}}});
     CHECK(r["gameReady"].contains("lods"));
     CHECK(r["extras"].size() == 4);
-    for (const char* f : {"ball.glb", "ball.lod1.glb", "ball.lod2.glb", "ball.collider.glb", "ball.prefab.json"}) CHECK(p.exists(std::string("assets/models/") + f));
+    for (const char* f : {"ball.glb", "ball.lod1.glb", "ball.lod2.glb", "ball.collider.glb", "ball.prefab.json"})
+        CHECK(p.exists(std::string("assets/models/") + f));
     const Json prefab = parse_json(read_all(p.file("assets/models/ball.prefab.json")), "prefab").value();
     CHECK(prefab["format"] == "factoria.prefab/1");
     CHECK(prefab["entity"]["components"]["MeshRenderer"]["lods"].size() == 2);
@@ -840,7 +986,8 @@ TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs
 
     // a bad setting teaches and writes nothing
     const std::string before = read_all(p.file("assets/models/ball.model.json"));
-    CHECK_FALSE(p.call("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"collider", {{"shape", "convx"}}}}).ok);
+    CHECK_FALSE(
+        p.call("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"collider", {{"shape", "convx"}}}}).ok);
     CHECK(read_all(p.file("assets/models/ball.model.json")) == before);
     // clear
     p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"clear", true}});

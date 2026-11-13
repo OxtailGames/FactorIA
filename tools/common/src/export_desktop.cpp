@@ -33,12 +33,13 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
         if (const std::string installed = installed_player(platform); !installed.empty()) return stdfs::path(installed);
         return err("export: cannot export for " + platform + " from a " + host_platform() +
                        " machine without a player binary built for " + platform,
-                   "run `factoria setup players` (the editor: Set up in the Export window) to download the " + platform +
-                       " player of this FactorIA version, or build factoria_player on " + platform +
+                   "run `factoria setup players` (the editor: Set up in the Export window) to download the " +
+                       platform + " player of this FactorIA version, or build factoria_player on " + platform +
                        " (see docs/BUILDING.md) and pass it with --player <path>");
     }
     stdfs::path dir = executable_dir();
-    for (const stdfs::path& c : {dir / exe, dir.parent_path() / "player" / exe, dir.parent_path().parent_path() / "player" / exe})
+    for (const stdfs::path& c :
+         {dir / exe, dir.parent_path() / "player" / exe, dir.parent_path().parent_path() / "player" / exe})
         if (stdfs::is_regular_file(c, ec)) return c;
     return err("export: factoria_player not found next to the factoria binary (" + generic(dir) + ")",
                "build it with `cmake --build <build dir> --target factoria_player`, or pass --player <path>");
@@ -56,7 +57,8 @@ bool looks_like_executable(const std::string& head) {
     if (b(0) == '!' && b(1) == '<' && b(2) == 'a' && b(3) == 'r') return true;
     if (b(0) == 0x7f && b(1) == 'E' && b(2) == 'L' && b(3) == 'F') return true;
     const std::uint32_t magic = static_cast<std::uint32_t>(b(0)) << 24 | b(1) << 16 | b(2) << 8 | b(3);
-    return magic == 0xFEEDFACEu || magic == 0xFEEDFACFu || magic == 0xCEFAEDFEu || magic == 0xCFFAEDFEu || magic == 0xCAFEBABEu;
+    return magic == 0xFEEDFACEu || magic == 0xFEEDFACFu || magic == 0xCEFAEDFEu || magic == 0xCFFAEDFEu ||
+           magic == 0xCAFEBABEu;
 }
 
 }  // namespace
@@ -72,38 +74,54 @@ Result<void> check_player_build(const ExportOptions& o, const stdfs::path& playe
     // The same commit, with uncommitted edits on one side only: the player may be stale, so this warns but does not stop.
     const auto commit = [](const std::string& f) { return f.substr(0, f.find("-dirty")); };
     if (!theirs.empty() && commit(theirs) == commit(mine)) {
-        warnings.push_back("export: the " + platform + " player '" + generic(player) + "' was built from " + theirs + " and this factoria from " +
-                           mine + ": the same commit, but one of them had uncommitted changes; rebuild both if you edited the engine");
+        warnings.push_back(
+            "export: the " + platform + " player '" + generic(player) + "' was built from " + theirs +
+            " and this factoria from " + mine +
+            ": the same commit, but one of them had uncommitted changes; rebuild both if you edited the engine");
         return {};
     }
-    const std::string what = theirs.empty() ? "has no build fingerprint (it is older than this check)" : "was built from " + theirs;
-    const std::string message = "export: the " + platform + " player '" + generic(player) + "' " + what + ", but this factoria was built from " + mine +
-                                ": a player of another build may lack what the game uses (components, script API) or fail to start";
+    const std::string what =
+        theirs.empty() ? "has no build fingerprint (it is older than this check)" : "was built from " + theirs;
+    const std::string message =
+        "export: the " + platform + " player '" + generic(player) + "' " + what +
+        ", but this factoria was built from " + mine +
+        ": a player of another build may lack what the game uses (components, script API) or fail to start";
     if (o.allowPlayerMismatch) {
         warnings.push_back(message + " (exported anyway because allowPlayerMismatch / --allow-player-mismatch is on)");
         return {};
     }
-    const std::string passAnyway = "To bundle this player anyway: factoria export --allow-player-mismatch (export command: "
-                                   "\"allowPlayerMismatch\": true).";
+    const std::string passAnyway =
+        "To bundle this player anyway: factoria export --allow-player-mismatch (export command: "
+        "\"allowPlayerMismatch\": true).";
     if (platform == "web")
         return err(message,
                    std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
-                       "Build the web player from this checkout (`cmake --preset web-release; cmake --build --preset web-release`, "
-                       "docs/BUILDING.md: the export prefers build/web-release/player), run `factoria setup players --platforms web` "
-                       "for the player of this FactorIA version, or pass the matching folder with --player <folder>. " + passAnyway);
+                       "Build the web player from this checkout (`cmake --preset web-release; cmake --build --preset "
+                       "web-release`, "
+                       "docs/BUILDING.md: the export prefers build/web-release/player), run `factoria setup players "
+                       "--platforms web` "
+                       "for the player of this FactorIA version, or pass the matching folder with --player <folder>. " +
+                       passAnyway);
     if (platform == "android" || platform == "ios")
-        return err(message,
-                   std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
-                       "Run `factoria setup players` for the mobile players of this FactorIA version, use the mobile/ folder of the matching "
-                       "FactorIA download (--mobile-dir), or compile the engine from this checkout (--engine-root <checkout>). " + passAnyway);
+        return err(message, std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
+                                "Run `factoria setup players` for the mobile players of this FactorIA version, use the "
+                                "mobile/ folder of the matching "
+                                "FactorIA download (--mobile-dir), or compile the engine from this checkout "
+                                "(--engine-root <checkout>). " +
+                                passAnyway);
     if (theirs.empty())  // a player of a release before the fingerprint (v0.2.0): reinstalling it changes nothing
-        return err(message,
-                   "This player predates build fingerprints, so it cannot be compared with this factoria, and `factoria setup players` installs "
-                   "the same release again. Install a player from a newer release (once one is published), build both from one checkout "
-                   "(`cmake --build <build dir> --target factoria factoria_player`), or pass the player with --player <path>. " + passAnyway);
-    return err(message,
-               "Build both from the same checkout (`cmake --build <build dir> --target factoria factoria_player`), or for another OS run "
-               "`factoria setup players` (the player of this FactorIA version), or pass the matching player with --player <path>. " + passAnyway);
+        return err(message, "This player predates build fingerprints, so it cannot be compared with this factoria, and "
+                            "`factoria setup players` installs "
+                            "the same release again. Install a player from a newer release (once one is published), "
+                            "build both from one checkout "
+                            "(`cmake --build <build dir> --target factoria factoria_player`), or pass the player with "
+                            "--player <path>. " +
+                                passAnyway);
+    return err(message, "Build both from the same checkout (`cmake --build <build dir> --target factoria "
+                        "factoria_player`), or for another OS run "
+                        "`factoria setup players` (the player of this FactorIA version), or pass the matching player "
+                        "with --player <path>. " +
+                            passAnyway);
 }
 
 namespace {
@@ -116,19 +134,35 @@ std::string macos_plist(const Project& p, const std::string& exeName, bool hasIc
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
         "<plist version=\"1.0\">\n<dict>\n"
-        "\t<key>CFBundleExecutable</key><string>" + xml_escape(exeName) + "</string>\n"
-        "\t<key>CFBundleIdentifier</key><string>" + xml_escape(p.id.empty() ? "com.example.game" : p.id) + "</string>\n"
-        "\t<key>CFBundleName</key><string>" + xml_escape(p.name) + "</string>\n"
-        "\t<key>CFBundleDisplayName</key><string>" + xml_escape(p.name) + "</string>\n"
+        "\t<key>CFBundleExecutable</key><string>" +
+        xml_escape(exeName) +
+        "</string>\n"
+        "\t<key>CFBundleIdentifier</key><string>" +
+        xml_escape(p.id.empty() ? "com.example.game" : p.id) +
+        "</string>\n"
+        "\t<key>CFBundleName</key><string>" +
+        xml_escape(p.name) +
+        "</string>\n"
+        "\t<key>CFBundleDisplayName</key><string>" +
+        xml_escape(p.name) +
+        "</string>\n"
         "\t<key>CFBundlePackageType</key><string>APPL</string>\n"
-        "\t<key>CFBundleShortVersionString</key><string>" + xml_escape(p.version) + "</string>\n"
-        "\t<key>CFBundleVersion</key><string>" + xml_escape(p.settings.macos_build_number().empty() ? p.version : p.settings.macos_build_number()) + "</string>\n"
-        "\t<key>ITSAppUsesNonExemptEncryption</key>" + (m.usesNonExemptEncryption ? "<true/>" : "<false/>") + "\n";
+        "\t<key>CFBundleShortVersionString</key><string>" +
+        xml_escape(p.version) +
+        "</string>\n"
+        "\t<key>CFBundleVersion</key><string>" +
+        xml_escape(p.settings.macos_build_number().empty() ? p.version : p.settings.macos_build_number()) +
+        "</string>\n"
+        "\t<key>ITSAppUsesNonExemptEncryption</key>" +
+        (m.usesNonExemptEncryption ? "<true/>" : "<false/>") + "\n";
     if (hasIcon) plist += "\t<key>CFBundleIconFile</key><string>AppIcon</string>\n";
-    plist += "\t<key>LSMinimumSystemVersion</key><string>" + xml_escape(m.minimumSystemVersion) + "</string>\n"
+    plist += "\t<key>LSMinimumSystemVersion</key><string>" + xml_escape(m.minimumSystemVersion) +
+             "</string>\n"
              "\t<key>NSHighResolutionCapable</key><true/>\n"
-             "\t<key>LSApplicationCategoryType</key><string>" + xml_escape(m.category) + "</string>\n";
-    if (!m.copyright.empty()) plist += "\t<key>NSHumanReadableCopyright</key><string>" + xml_escape(m.copyright) + "</string>\n";
+             "\t<key>LSApplicationCategoryType</key><string>" +
+             xml_escape(m.category) + "</string>\n";
+    if (!m.copyright.empty())
+        plist += "\t<key>NSHumanReadableCopyright</key><string>" + xml_escape(m.copyright) + "</string>\n";
     return plist + "</dict>\n</plist>\n";
 }
 
@@ -136,11 +170,16 @@ std::string macos_plist(const Project& p, const std::string& exeName, bool hasIc
 std::string desktop_entry_value(const std::string& s) {
     std::string o;
     for (char c : s) {
-        if (c == '\\') o += "\\\\";
-        else if (c == '\n') o += "\\n";
-        else if (c == '\t') o += "\\t";
-        else if (c == '\r') o += "\\r";
-        else o += c;
+        if (c == '\\')
+            o += "\\\\";
+        else if (c == '\n')
+            o += "\\n";
+        else if (c == '\t')
+            o += "\\t";
+        else if (c == '\r')
+            o += "\\r";
+        else
+            o += c;
     }
     return o;
 }
@@ -150,10 +189,12 @@ std::string desktop_entry_value(const std::string& s) {
 std::string linux_desktop_file(const Project& p, const std::string& slug, const std::string& exeName, bool hasIcon) {
     std::string categories;
     for (std::string c : p.settings.linux.categories) {
-        c.erase(std::remove_if(c.begin(), c.end(), [](char ch) { return ch == ';' || ch == '\n' || ch == '\r'; }), c.end());
+        c.erase(std::remove_if(c.begin(), c.end(), [](char ch) { return ch == ';' || ch == '\n' || ch == '\r'; }),
+                c.end());
         if (!c.empty()) categories += c + ";";
     }
-    std::string out = "[Desktop Entry]\nType=Application\nName=" + desktop_entry_value(p.name) + "\nExec=" + exeName + "\n";
+    std::string out =
+        "[Desktop Entry]\nType=Application\nName=" + desktop_entry_value(p.name) + "\nExec=" + exeName + "\n";
     if (hasIcon) out += "Icon=" + slug + "\n";
     out += "Terminal=false\n";
     if (!categories.empty()) out += "Categories=" + categories + "\n";
@@ -162,15 +203,17 @@ std::string linux_desktop_file(const Project& p, const std::string& slug, const 
 
 Result<void> write_binary(const stdfs::path& path, const std::vector<std::uint8_t>& bytes) {
     std::string e;
-    if (!write_file(path, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &e)) return err("export: " + e);
+    if (!write_file(path, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &e))
+        return err("export: " + e);
     return {};
 }
 
 // Puts the player at `dest`. A Windows export writes the game into the exe's resources (pe_icon.h): its icon, when it
 // has one, and its name, version and file name (the version information Explorer and Task Manager show). A player that
 // cannot take them is copied as it is, with a warning. `signatureRemoved` tells that the patch cut the exe's signature.
-Result<void> install_player(const Project& p, const stdfs::path& player, const stdfs::path& dest, const std::string& platform,
-                            const Image& icon, ExportReport& report, bool& signatureRemoved) {
+Result<void> install_player(const Project& p, const stdfs::path& player, const stdfs::path& dest,
+                            const std::string& platform, const Image& icon, ExportReport& report,
+                            bool& signatureRemoved) {
     std::error_code ec;
     if (platform == "windows") {
         if (auto data = read_file(player)) {
@@ -179,33 +222,43 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
             bool changed = false;
             const std::string newer = " Use the factoria_player.exe of this FactorIA version.";
             if (!icon.empty()) {
-                const std::string keeps = " The exe keeps the player's own icon; the window still shows the game's icon at run time.";
+                const std::string keeps =
+                    " The exe keeps the player's own icon; the window still shows the game's icon at run time.";
                 auto patched = patch_pe_icon(bytes, icon);
                 if (patched.ok() && patched->replaced > 0) {
                     changed = true;
                     signatureRemoved = signatureRemoved || patched->signatureRemoved;
                 } else {
-                    report.warnings.push_back(patched.ok() ? "The player " + generic(player) + " has no placeholder icon to replace (it was "
-                                                                 "built without player/windows/factoria_player.rc)." + keeps + newer
-                                                           : patched.error().message + "." + keeps + " " + patched.error().hint);
+                    report.warnings.push_back(patched.ok()
+                                                  ? "The player " + generic(player) +
+                                                        " has no placeholder icon to replace (it was "
+                                                        "built without player/windows/factoria_player.rc)." +
+                                                        keeps + newer
+                                                  : patched.error().message + "." + keeps + " " + patched.error().hint);
                 }
             }
             PeVersionInfo info;
             info.version = p.version;
-            info.strings = {{"FileDescription", p.name},  {"ProductName", p.name},
-                            {"FileVersion", p.version},   {"ProductVersion", p.version},
-                            {"InternalName", dest.stem().string()}, {"OriginalFilename", dest.filename().string()}};
+            info.strings = {{"FileDescription", p.name},
+                            {"ProductName", p.name},
+                            {"FileVersion", p.version},
+                            {"ProductVersion", p.version},
+                            {"InternalName", dest.stem().string()},
+                            {"OriginalFilename", dest.filename().string()}};
             auto version = patch_pe_version(bytes, info);
             if (version.ok() && version->found) {
                 changed = true;
                 signatureRemoved = signatureRemoved || version->signatureRemoved;
                 for (const std::string& key : version->truncated)
-                    report.warnings.push_back("The " + key + " of the exe's version information is cut short: '" + info.strings[key] +
-                                              "' is longer than the room the player has for it (79 characters for names, 31 for "
-                                              "versions). Use a shorter `name` or `version` in factoria.json.");
+                    report.warnings.push_back(
+                        "The " + key + " of the exe's version information is cut short: '" + info.strings[key] +
+                        "' is longer than the room the player has for it (79 characters for names, 31 for "
+                        "versions). Use a shorter `name` or `version` in factoria.json.");
             } else if (version.ok()) {
-                report.warnings.push_back("The player " + generic(player) + " has no version information to fill in, so Windows shows "
-                                          "the exe's file name instead of the game's name and version." + newer);
+                report.warnings.push_back("The player " + generic(player) +
+                                          " has no version information to fill in, so Windows shows "
+                                          "the exe's file name instead of the game's name and version." +
+                                          newer);
             } else if (icon.empty()) {  // with an icon, the icon's warning already says what is wrong with the file
                 report.warnings.push_back(version.error().message + ". " + version.error().hint);
             }
@@ -214,10 +267,11 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
     }
     stdfs::copy_file(os_path(player), os_path(dest), stdfs::copy_options::overwrite_existing, ec);
     if (ec)
-        return err("export: cannot copy the player to " + generic(dest) + ": " + ec.message(),
-                   fs::is_sharing_violation(ec) && ec != std::errc::permission_denied
-                       ? "A program holds the file open (the game running from that folder?): close it and export again."
-                       : "Check that the output folder can be written, then export again.");
+        return err(
+            "export: cannot copy the player to " + generic(dest) + ": " + ec.message(),
+            fs::is_sharing_violation(ec) && ec != std::errc::permission_denied
+                ? "A program holds the file open (the game running from that folder?): close it and export again."
+                : "Check that the output folder can be written, then export again.");
     return {};
 }
 
@@ -228,7 +282,8 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
 // Each file gets the codec export.pack.codecs names for its extension, else the engine's default for its type
 // (pack_default_codec); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
 // export.pack.useLoadOrder is false or nothing was recorded.
-Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report) {
+Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
+                       ExportReport& report) {
     PackWriter writer;
     const PackExportSettings& pack = p.settings.pack;
     auto codec_for = [&](const std::string& path) -> std::optional<Codec> {
@@ -248,16 +303,20 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
                     return err("export: " + r.error().message, r.error().hint);
                 continue;
             }
-            report.warnings.push_back(bytecode.error().message + " - '" + f + "' is packed as plain source, so the game reports this error "
-                                      "when it loads the script (`factoria validate` lists the syntax errors of a project)");
+            report.warnings.push_back(
+                bytecode.error().message + " - '" + f +
+                "' is packed as plain source, so the game reports this error "
+                "when it loads the script (`factoria validate` lists the syntax errors of a project)");
         }
-        if (auto r = writer.add_file(f, from, codec_for(f)); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+        if (auto r = writer.add_file(f, from, codec_for(f)); !r.ok())
+            return err("export: " + r.error().message, r.error().hint);
     }
     report.packOrder = "path";
     if (pack.useLoadOrder) {
         auto recorded = read_load_order(p.dir);
         if (!recorded.ok()) {
-            report.warnings.push_back(recorded.error().message + " - the pack is written by path. " + recorded.error().hint);
+            report.warnings.push_back(recorded.error().message + " - the pack is written by path. " +
+                                      recorded.error().hint);
         } else if (!recorded.value().empty()) {
             PackOrder order = pack_order(recorded.value(), p.mainScene, files);
             if (!order.files.empty()) {
@@ -272,8 +331,10 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
     if (!stats.ok()) return err("export: " + stats.error().message, stats.error().hint);
     const PackStats& st = stats.value();
     if (st.compressErrors > 0)
-        report.warnings.push_back(std::to_string(st.compressErrors) + " block(s) of the pack could not be compressed and are stored as "
-                                  "they are (" + st.firstCompressError + "): the game reads them fine, the pack is only bigger");
+        report.warnings.push_back(std::to_string(st.compressErrors) +
+                                  " block(s) of the pack could not be compressed and are stored as "
+                                  "they are (" +
+                                  st.firstCompressError + "): the game reads them fine, the pack is only bigger");
     report.pack = generic(packFile.filename());
     report.packed = files;
     report.packBytes = st.packBytes;
@@ -282,14 +343,15 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
     report.packCodecs.clear();
     for (std::size_t i = 0; i < st.codecs.size(); ++i)
         if (st.codecs[i].files > 0)
-            report.packCodecs.push_back(ExportPackCodec{std::string(codec_name(Codec(i))), st.codecs[i].files, st.codecs[i].bytes,
-                                                        st.codecs[i].storedBytes});
+            report.packCodecs.push_back(ExportPackCodec{std::string(codec_name(Codec(i))), st.codecs[i].files,
+                                                        st.codecs[i].bytes, st.codecs[i].storedBytes});
     return {};
 }
 
 }  // namespace
 
-Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report) {
+Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
+                          ExportReport& report) {
     return pack_game(p, files, packFile, report);
 }
 
@@ -299,14 +361,16 @@ Result<void> pack_project(const Project& p, const std::vector<std::string>& file
 static Json macos_entitlements(const Json& asked, const Project& p) {
     if (asked.empty()) return Json::object();
     std::string team;
-    for (char c : p.settings.ios.teamId) if (std::isalnum(static_cast<unsigned char>(c))) team += c;
+    for (char c : p.settings.ios.teamId)
+        if (std::isalnum(static_cast<unsigned char>(c))) team += c;
     if (team.empty()) team = "TEAMID";
     Json out = Json::object();
     out["com.apple.application-identifier"] = team + "." + p.id;
     out["com.apple.developer.team-identifier"] = team;
     for (auto it = asked.begin(); it != asked.end(); ++it) {
         if (it->is_string())
-            out[it.key()] = replace_all(replace_all(it->get<std::string>(), "$(TeamIdentifierPrefix)", team + "."), "$(CFBundleIdentifier)", p.id);
+            out[it.key()] = replace_all(replace_all(it->get<std::string>(), "$(TeamIdentifierPrefix)", team + "."),
+                                        "$(CFBundleIdentifier)", p.id);
         else
             out[it.key()] = it.value();
     }
@@ -334,7 +398,8 @@ std::string desktop_exe_name(const std::string& slug, const std::string& platfor
 std::string sign_app_ad_hoc(const stdfs::path& app) {
 #if defined(__APPLE__)
     // --deep: the native plugins in Contents/Frameworks are signed too.
-    const std::string cmd = "/usr/bin/codesign --force --deep --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
+    const std::string cmd =
+        "/usr/bin/codesign --force --deep --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return "could not run /usr/bin/codesign";
     std::string out;
@@ -350,8 +415,9 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 #endif
 }
 
-Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform, const stdfs::path& player,
-                            const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
+Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform,
+                            const stdfs::path& player, const stdfs::path& outRoot,
+                            const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = desktop_exe_name(slug, platform);
     std::error_code ec;
@@ -370,7 +436,8 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     stdfs::create_directories(os_path(exeDest.parent_path()), ec);
     bool signatureRemoved = false;
     if (auto r = install_player(p, player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
-    stdfs::permissions(os_path(exeDest), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+    stdfs::permissions(os_path(exeDest),
+                       stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
     // The pack sits where the game/ folder would: next to the executable, in Contents/Resources of a macOS app.
     const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
@@ -381,21 +448,26 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     }
     // Native plugins: their build folder (the library and the ones it needs) next to the executable, where the player
     // looks for them; inside a macOS app that is Contents/Frameworks.
-    const stdfs::path libDest = platform == "macos" ? exeDest.parent_path().parent_path() / "Frameworks" : exeDest.parent_path();
+    const stdfs::path libDest =
+        platform == "macos" ? exeDest.parent_path().parent_path() / "Frameworks" : exeDest.parent_path();
     std::vector<NamedManifest> manifests;
     for (const Project::Plugin& plugin : p.plugins) {
         stdfs::create_directories(os_path(libDest), ec);
         stdfs::copy(os_path(plugin.build), os_path(libDest),
-                    stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing | stdfs::copy_options::copy_symlinks, ec);
-        if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " +
-                           generic(libDest) + ": " + ec.message());
+                    stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing |
+                        stdfs::copy_options::copy_symlinks,
+                    ec);
+        if (ec)
+            return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " +
+                       generic(libDest) + ": " + ec.message());
         // plugin.json tells the export what the app needs (fa/tooling/plugin_manifest.h); the player never reads it.
         if (stdfs::exists(os_path(plugin.build / kPluginManifestFile), ec)) {
             stdfs::remove(os_path(libDest / kPluginManifestFile), ec);
             if (platform == "macos") {
                 auto manifest = read_plugin_manifest(plugin.build);
                 if (!manifest.ok())
-                    return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message, manifest.error().hint);
+                    return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message,
+                               manifest.error().hint);
                 manifests.push_back({plugin.name, manifest.value()});
             }
         }
@@ -417,52 +489,74 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
 
     if (platform == "macos") {
         stdfs::path app = stdfs::path(fs_safe_name(p.name) + ".app");
-        report.nextSteps = {
-            "Run it: open '" + generic(outRoot / app) + "'",
-            "To distribute outside your machine, sign it with your Developer ID and have Apple notarize it, on a Mac: factoria call sign.macos "
-            "'{\"identity\":\"Developer ID Application: <you> (TEAMID)\",\"keychainProfile\":\"<notarytool profile>\"}' signs the app and its plugin "
-            "libraries, notarizes it, staples the ticket and writes " + slug + "-macos.zip to share; add \"dryRun\":true to see the commands first "
-            "(docs/EXPORTING.md, \"Signing and notarizing for macOS\")",
-            "For the Mac App Store: sign.macos with \"distribution\":\"appStore\" sandboxes the app, signs it for the store and writes " + slug +
-            "-macos.pkg, which publish.appstore uploads (export.macos.buildNumber / usesNonExemptEncryption / entitlements are the store's settings; "
-            "docs/EXPORTING.md, \"Mac App Store\")"};
+        report.nextSteps = {"Run it: open '" + generic(outRoot / app) + "'",
+                            "To distribute outside your machine, sign it with your Developer ID and have Apple "
+                            "notarize it, on a Mac: factoria call sign.macos "
+                            "'{\"identity\":\"Developer ID Application: <you> "
+                            "(TEAMID)\",\"keychainProfile\":\"<notarytool profile>\"}' signs the app and its plugin "
+                            "libraries, notarizes it, staples the ticket and writes " +
+                                slug +
+                                "-macos.zip to share; add \"dryRun\":true to see the commands first "
+                                "(docs/EXPORTING.md, \"Signing and notarizing for macOS\")",
+                            "For the Mac App Store: sign.macos with \"distribution\":\"appStore\" sandboxes the app, "
+                            "signs it for the store and writes " +
+                                slug +
+                                "-macos.pkg, which publish.appstore uploads (export.macos.buildNumber / "
+                                "usesNonExemptEncryption / entitlements are the store's settings; "
+                                "docs/EXPORTING.md, \"Mac App Store\")"};
         if (!entitlementsFile.empty()) {
             std::vector<std::string> names;
             for (auto it = entitlements.begin(); it != entitlements.end(); ++it) names.push_back(it.key());
-            report.nextSteps.push_back(
-                "The plugins ask for capabilities (" + join(names, ", ") + "), which only a signature with your Apple developer "
-                "certificate and a provisioning profile can carry: until then the app runs and those services answer 'unavailable' with "
-                "a hint. To turn them on: create a macOS provisioning profile for the App ID " + p.id + " with the same capabilities in the "
-                "Apple Developer portal, replace TEAMID in " + entitlementsFile + " with your 10-character Team ID (or set export.ios.teamId "
-                "in factoria.json and export again), and sign with sign.macos passing \"provisioningProfile\": the path of the profile file; "
-                "it embeds the profile and applies " + entitlementsFile + " (docs/PLATFORM.md, section Apple)");
+            report.nextSteps.push_back("The plugins ask for capabilities (" + join(names, ", ") +
+                                       "), which only a signature with your Apple developer "
+                                       "certificate and a provisioning profile can carry: until then the app runs and "
+                                       "those services answer 'unavailable' with "
+                                       "a hint. To turn them on: create a macOS provisioning profile for the App ID " +
+                                       p.id +
+                                       " with the same capabilities in the "
+                                       "Apple Developer portal, replace TEAMID in " +
+                                       entitlementsFile +
+                                       " with your 10-character Team ID (or set export.ios.teamId "
+                                       "in factoria.json and export again), and sign with sign.macos passing "
+                                       "\"provisioningProfile\": the path of the profile file; "
+                                       "it embeds the profile and applies " +
+                                       entitlementsFile + " (docs/PLATFORM.md, section Apple)");
         }
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
                             "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep " +
-                                (options.release ? std::string(kPackFileName) : std::string("game/")) + " next to the exe"};
+                                (options.release ? std::string(kPackFileName) : std::string("game/")) +
+                                " next to the exe"};
         if (signatureRemoved)
-            report.nextSteps.push_back("The exe's digital signature was removed because the export wrote the game's icon, name and "
-                                       "version into it (the player of the FactorIA download is signed with FactorIA's certificate). "
-                                       "Windows may show 'unknown publisher'; sign the exe with your own certificate to publish it: "
-                                       "signtool sign /fd SHA256 /a /tr <timestamp server URL> /td SHA256 " + exeName);
+            report.nextSteps.push_back(
+                "The exe's digital signature was removed because the export wrote the game's icon, name and "
+                "version into it (the player of the FactorIA download is signed with FactorIA's certificate). "
+                "Windows may show 'unknown publisher'; sign the exe with your own certificate to publish it: "
+                "signtool sign /fd SHA256 /a /tr <timestamp server URL> /td SHA256 " +
+                exeName);
     } else {
         if (!icon.empty())
             if (auto r = write_png_icon(generic(outRoot / (slug + ".png")), icon, 256); !r.ok()) return r;
-        if (auto r = write_text(outRoot / (slug + ".desktop"), linux_desktop_file(p, slug, exeName, !icon.empty())); !r.ok()) return r;
-        report.nextSteps = {"Run it: " + generic(outRoot / exeName),
-                            "To add it to the application menu, run this in the folder where the game will live: sed -e "
-                            "\"s|^Exec=.*|Exec=$PWD/" + exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +
-                                ".desktop > ~/.local/share/applications/" + slug + ".desktop (" + slug + ".desktop names the game, "
-                                "its categories and its icon)",
-                            "Archive to share: tar czf " + outRoot.filename().string() + ".tar.gz -C " +
-                                generic(outRoot.parent_path()) + " " + outRoot.filename().string()};
+        if (auto r = write_text(outRoot / (slug + ".desktop"), linux_desktop_file(p, slug, exeName, !icon.empty()));
+            !r.ok())
+            return r;
+        report.nextSteps = {
+            "Run it: " + generic(outRoot / exeName),
+            "To add it to the application menu, run this in the folder where the game will live: sed -e "
+            "\"s|^Exec=.*|Exec=$PWD/" +
+                exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +
+                ".desktop > ~/.local/share/applications/" + slug + ".desktop (" + slug +
+                ".desktop names the game, "
+                "its categories and its icon)",
+            "Archive to share: tar czf " + outRoot.filename().string() + ".tar.gz -C " +
+                generic(outRoot.parent_path()) + " " + outRoot.filename().string()};
     }
     if (options.release)
-        report.nextSteps.push_back(std::string("The whole game is in ") + kPackFileName + " (" + std::to_string(files.size()) + " files" +
-                                   (p.settings.scriptBytecode ? ", scripts compiled to bytecode" : ", scripts as source") + "), next to the " +
-                                   (platform == "macos" ? "app's executable inside the .app" : "executable") +
-                                   "; there is no game/ folder. Ship them together");
+        report.nextSteps.push_back(
+            std::string("The whole game is in ") + kPackFileName + " (" + std::to_string(files.size()) + " files" +
+            (p.settings.scriptBytecode ? ", scripts compiled to bytecode" : ", scripts as source") + "), next to the " +
+            (platform == "macos" ? "app's executable inside the .app" : "executable") +
+            "; there is no game/ folder. Ship them together");
     return {};
 }
 

@@ -25,26 +25,39 @@ constexpr std::size_t kMaxPaths = 4;
 constexpr std::size_t kMaxReferences = 3;
 
 const char* kSystem =
-    "You review pictures made for a game, as the art director of its style. You are given: the house style rules of the game "
-    "(assets.json `style`), the measurements of an automatic check (assets.check_art: each rule has a value, a verdict ok / warn / "
-    "fail and a hint), then images in this order: the style reference images (if any), the pictures under review, and the check's "
-    "annotated picture (one row per asset: the picture, its greyscale value, over each background, at each on-screen size).\n"
-    "Judge what the numbers cannot: does the picture match the references and the style (shapes, shading, line quality, level of "
-    "detail), does it read at its on-screen size, does it suit what it is for, are there artifacts (stray pixels, blur, cut-off "
-    "limbs, text-like noise). Trust the numbers for what they measure; never contradict a `fail` by calling the picture fine.\n"
-    "Every fix must be something the person making the art can DO with a command of the engine or a setting of assets.json: "
+    "You review pictures made for a game, as the art director of its style. You are given: the house style rules of "
+    "the game "
+    "(assets.json `style`), the measurements of an automatic check (assets.check_art: each rule has a value, a verdict "
+    "ok / warn / "
+    "fail and a hint), then images in this order: the style reference images (if any), the pictures under review, and "
+    "the check's "
+    "annotated picture (one row per asset: the picture, its greyscale value, over each background, at each on-screen "
+    "size).\n"
+    "Judge what the numbers cannot: does the picture match the references and the style (shapes, shading, line "
+    "quality, level of "
+    "detail), does it read at its on-screen size, does it suit what it is for, are there artifacts (stray pixels, "
+    "blur, cut-off "
+    "limbs, text-like noise). Trust the numbers for what they measure; never contradict a `fail` by calling the "
+    "picture fine.\n"
+    "Every fix must be something the person making the art can DO with a command of the engine or a setting of "
+    "assets.json: "
     "regenerate with assets.generate_image {prompt, path, overwrite:true} (say what to change in the prompt), "
     "assets.generate_texture, assets.rasterize_svg (say which shape to change), a `style.*` setting of assets.json, "
-    "assets.check_art / assets.contact_sheet / assets.preview_in_scene to look again. Never invent a command or a setting.\n"
+    "assets.check_art / assets.contact_sheet / assets.preview_in_scene to look again. Never invent a command or a "
+    "setting.\n"
     "Answer with ONE JSON object and nothing else:\n"
-    "{\"verdict\":\"good|fix|redo\",\"summary\":\"one or two sentences\",\"fixes\":[{\"what\":\"the problem and the change\","
-    "\"where\":\"the picture path, and the part of it\",\"command\":\"the command with its main arguments, or the assets.json setting\"}]}\n"
-    "`good`: nothing to change (fixes empty). `fix`: keep the picture, change what the fixes say. `redo`: start the picture again. "
+    "{\"verdict\":\"good|fix|redo\",\"summary\":\"one or two sentences\",\"fixes\":[{\"what\":\"the problem and the "
+    "change\","
+    "\"where\":\"the picture path, and the part of it\",\"command\":\"the command with its main arguments, or the "
+    "assets.json setting\"}]}\n"
+    "`good`: nothing to change (fixes empty). `fix`: keep the picture, change what the fixes say. `redo`: start the "
+    "picture again. "
     "At most 6 fixes, most important first.";
 
 // The numbers the model is given: the verdict and every rule that is not ok (with its value, threshold and hint), per asset and for the set.
 Json check_summary(const Json& check) {
-    Json out = Json::object({{"verdict", str(check, "verdict")}, {"counts", check.contains("counts") ? check["counts"] : Json::object()}});
+    Json out = Json::object(
+        {{"verdict", str(check, "verdict")}, {"counts", check.contains("counts") ? check["counts"] : Json::object()}});
     auto rules_of = [](const Json& rules) {
         Json list = Json::array();
         if (!rules.is_array()) return list;
@@ -82,12 +95,13 @@ bool is_known_command(const CommandRegistry& registry, std::string_view text) {
 
 }  // namespace
 
-void register_assets_review(CommandRegistry& registry, std::function<Result<AiConfig>()> load, std::function<std::string()> projectDir,
-                            const AiCommandOptions& options) {
+void register_assets_review(CommandRegistry& registry, std::function<Result<AiConfig>()> load,
+                            std::function<std::string()> projectDir, const AiCommandOptions& options) {
     CommandInfo info;
     info.name = "assets.review";
     info.category = "assets";
-    info.summary = "A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on assets.check_art and the style references.";
+    info.summary = "A cheap one-shot vision review of the pictures you made: a verdict and concrete fixes, grounded on "
+                   "assets.check_art and the style references.";
     info.description =
         "The optional last look of the make, preview, check, fix loop (docs/AI_GUIDE.md 9.23, docs/ASSETS.md "
         "\"Reviewing art\"). It runs assets.check_art on the same pictures first, then sends a vision model "
@@ -100,8 +114,7 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
         "set up (docs/AI_PROVIDERS.md) and you carry on with assets.check_art alone. One model call per "
         "review: call it once the check shows no `fail`, not after every edit. Example: "
         "{\"paths\":[\"assets/knight.png\",\"assets/orc.png\"],\"focus\":\"do they look like the same game "
-        "at 48 px?\"}"
-        FA_COMMAND_DETAILS
+        "at 48 px?\"}" FA_COMMAND_DETAILS
         "Result: {verdict: good | fix | redo (never `good` while the check has a fail), summary, fixes: "
         "[{what, where, command}], checkArt: {verdict, counts, assets, set}, role, provider, model, "
         "warnings, nextSteps}. A fix names a command or an assets.json setting; one that names something "
@@ -119,12 +132,18 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
             for (const Json& x : *p)
                 if (x.is_string()) paths.push_back(x.get<std::string>());
         if (const std::string one = str(args, "path"); !one.empty()) paths.insert(paths.begin(), one);
-        if (paths.empty()) throw CommandError("invalid_arguments", "assets.review needs a picture", "Pass `path` (or `paths`), for example {\"path\":\"assets/knight.png\"}.");
+        if (paths.empty())
+            throw CommandError("invalid_arguments", "assets.review needs a picture",
+                               "Pass `path` (or `paths`), for example {\"path\":\"assets/knight.png\"}.");
         if (paths.size() > kMaxPaths)
-            throw CommandError("invalid_arguments", "assets.review takes at most " + std::to_string(kMaxPaths) + " pictures, got " + std::to_string(paths.size()),
-                               "Review the set in groups of " + std::to_string(kMaxPaths) + ", or run assets.check_art for the numbers of a larger set.");
+            throw CommandError("invalid_arguments",
+                               "assets.review takes at most " + std::to_string(kMaxPaths) + " pictures, got " +
+                                   std::to_string(paths.size()),
+                               "Review the set in groups of " + std::to_string(kMaxPaths) +
+                                   ", or run assets.check_art for the numbers of a larger set.");
         const std::string dir = projectDir();
-        if (dir.empty()) throw CommandError("no_project", "assets.review needs a project", "Open a project (or pass --project).");
+        if (dir.empty())
+            throw CommandError("no_project", "assets.review needs a project", "Open a project (or pass --project).");
 
         // The model first: no provider is the commonest failure and costs nothing to find out.
         auto cfg = load();
@@ -138,15 +157,18 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
         if (!model.ok())
             throw CommandError("no_model", "assets.review needs a vision model, and " + model.error().message,
                                model.error().hint + (model.error().hint.empty() ? "" : " ") +
-                                   "Meanwhile assets.check_art, assets.contact_sheet and assets.preview_in_scene give you the numbers and the pictures to judge yourself.");
+                                   "Meanwhile assets.check_art, assets.contact_sheet and assets.preview_in_scene give "
+                                   "you the numbers and the pictures to judge yourself.");
 
         // The numbers, from the very same command the AI uses on its own.
         Json checkArgs = Json::object({{"paths", Json(paths)}});
         const CommandResult check = registry.call("assets.check_art", checkArgs);
         if (!check.ok) {
-            const std::string msg = check.error.is_object() ? str(check.error, "message") : std::string("assets.check_art failed");
+            const std::string msg =
+                check.error.is_object() ? str(check.error, "message") : std::string("assets.check_art failed");
             const std::string hint = check.error.is_object() ? str(check.error, "hint") : std::string();
-            throw CommandError("check_failed", "assets.review runs assets.check_art first, and it failed: " + msg, hint.empty() ? "Fix that, then call assets.review again." : hint);
+            throw CommandError("check_failed", "assets.review runs assets.check_art first, and it failed: " + msg,
+                               hint.empty() ? "Fix that, then call assets.review again." : hint);
         }
         const Json summary = check_summary(check.result);
 
@@ -166,8 +188,10 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
         user << "## House style (assets.json `style`)\n";
         if (styleJson.empty()) {
             user << "(none set)\n";
-            warnings.push_back("assets.json has no `style`, so the review has no house style or reference pictures to compare with. Set one (docs/ASSETS.md, \"House style\").");
-        } else user << dump_pretty(styleJson) << "\n";
+            warnings.push_back("assets.json has no `style`, so the review has no house style or reference pictures to "
+                               "compare with. Set one (docs/ASSETS.md, \"House style\").");
+        } else
+            user << dump_pretty(styleJson) << "\n";
 
         std::size_t refCount = 0;
         std::ostringstream refNames;
@@ -190,9 +214,13 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
         for (const std::string& p : paths) {
             bool shrunk = false;
             auto img = picture_for_model(resolve(dir, p), &shrunk);
-            if (!img.ok()) throw CommandError("invalid_arguments", "Cannot send '" + p + "' to the model: " + img.error().message,
-                                              img.error().hint.empty() ? "Pass pictures the AI accepts (PNG, JPEG, WebP, GIF)." : img.error().hint);
-            if (shrunk) warnings.push_back("'" + p + "' is large, so the model saw it shrunk to " + std::to_string(kLongSide) + " px on the long side.");
+            if (!img.ok())
+                throw CommandError("invalid_arguments", "Cannot send '" + p + "' to the model: " + img.error().message,
+                                   img.error().hint.empty() ? "Pass pictures the AI accepts (PNG, JPEG, WebP, GIF)."
+                                                            : img.error().hint);
+            if (shrunk)
+                warnings.push_back("'" + p + "' is large, so the model saw it shrunk to " + std::to_string(kLongSide) +
+                                   " px on the long side.");
             images.push_back(*img);
         }
         bool annotated = false;
@@ -201,12 +229,14 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
             if (img.ok()) {
                 images.push_back(*img);
                 annotated = true;
-            } else warnings.push_back("The annotated picture of assets.check_art was not sent: " + img.error().message);
+            } else
+                warnings.push_back("The annotated picture of assets.check_art was not sent: " + img.error().message);
         }
 
         user << "\n## Images, in order\n";
         if (refImages) user << "1-" << refImages << ": style references (" << refNames.str() << ")\n";
-        user << (refImages + 1) << (paths.size() > 1 ? "-" + std::to_string(refImages + paths.size()) : std::string()) << ": the picture(s) under review: ";
+        user << (refImages + 1) << (paths.size() > 1 ? "-" + std::to_string(refImages + paths.size()) : std::string())
+             << ": the picture(s) under review: ";
         for (std::size_t i = 0; i < paths.size(); ++i) user << (i ? ", " : "") << paths[i];
         user << "\n";
         if (annotated) user << images.size() << ": the annotated picture of assets.check_art\n";
@@ -216,47 +246,77 @@ void register_assets_review(CommandRegistry& registry, std::function<Result<AiCo
 
         auto answer = (*model)(kSystem, user.str(), images);
         if (!answer.ok())
-            throw CommandError("review_failed", "The " + modelInfo.role + " model (" + modelInfo.provider + "/" + modelInfo.model + ") did not answer: " + answer.error().message,
-                               answer.error().hint.empty() ? "Check `factoria ai providers` for the role '" + modelInfo.role + "', and that its model accepts pictures." : answer.error().hint);
+            throw CommandError("review_failed",
+                               "The " + modelInfo.role + " model (" + modelInfo.provider + "/" + modelInfo.model +
+                                   ") did not answer: " + answer.error().message,
+                               answer.error().hint.empty()
+                                   ? "Check `factoria ai providers` for the role '" + modelInfo.role +
+                                         "', and that its model accepts pictures."
+                                   : answer.error().hint);
         const Json reply = parse(json_object_in(*answer));
         const Json* fixesIn = reply.is_object() ? child(reply, "fixes") : nullptr;
         std::string verdict = reply.is_object() ? str(reply, "verdict") : std::string();
-        if (!reply.is_object() || (verdict != "good" && verdict != "fix" && verdict != "redo") || !fixesIn || !fixesIn->is_array())
+        if (!reply.is_object() || (verdict != "good" && verdict != "fix" && verdict != "redo") || !fixesIn ||
+            !fixesIn->is_array())
             throw CommandError("review_failed",
-                               "The " + modelInfo.role + " model did not answer with the JSON the review needs ({verdict: good | fix | redo, summary, fixes: [{what, where, command}]}).",
-                               "Call assets.review again, or point the \"" + modelInfo.role + "\" role at a stronger vision model (docs/AI_PROVIDERS.md). Its answer began: " +
+                               "The " + modelInfo.role +
+                                   " model did not answer with the JSON the review needs ({verdict: good | fix | redo, "
+                                   "summary, fixes: [{what, where, command}]}).",
+                               "Call assets.review again, or point the \"" + modelInfo.role +
+                                   "\" role at a stronger vision model (docs/AI_PROVIDERS.md). Its answer began: " +
                                    answer->substr(0, 160));
 
         Json fixes = Json::array();
         for (const Json& f : *fixesIn) {
             if (!f.is_object() || str(f, "what").empty()) continue;
-            Json row = Json::object({{"what", str(f, "what")}, {"where", str(f, "where")}, {"command", str(f, "command")}});
+            Json row =
+                Json::object({{"what", str(f, "what")}, {"where", str(f, "where")}, {"command", str(f, "command")}});
             if (row["command"].get<std::string>().empty())
-                warnings.push_back("Fix '" + str(f, "what") + "' names no command or setting; use assets.generate_image {overwrite:true} or the assets.json `style` to apply it.");
+                warnings.push_back("Fix '" + str(f, "what") +
+                                   "' names no command or setting; use assets.generate_image {overwrite:true} or the "
+                                   "assets.json `style` to apply it.");
             else if (!is_known_command(registry, row["command"].get<std::string>()))
-                warnings.push_back("Fix '" + str(f, "what") + "' names '" + row["command"].get<std::string>() + "', which is not a command of this engine; find the real one with commands_list or docs_read assets.");
+                warnings.push_back("Fix '" + str(f, "what") + "' names '" + row["command"].get<std::string>() +
+                                   "', which is not a command of this engine; find the real one with commands_list or "
+                                   "docs_read assets.");
             fixes.push_back(row);
         }
         const std::string checkVerdict = str(check.result, "verdict");
         if (checkVerdict == "fail" && verdict == "good") {
             verdict = "fix";
-            warnings.push_back("The model called the pictures good, but assets.check_art has a `fail`: the verdict is fix. Fix the failing rules first (each has a hint).");
+            warnings.push_back("The model called the pictures good, but assets.check_art has a `fail`: the verdict is "
+                               "fix. Fix the failing rules first (each has a hint).");
         }
-        if (verdict != "good" && fixes.empty()) warnings.push_back("The verdict is " + verdict + " but the model listed no fix: read `summary`, and the hints of assets.check_art.");
+        if (verdict != "good" && fixes.empty())
+            warnings.push_back("The verdict is " + verdict +
+                               " but the model listed no fix: read `summary`, and the hints of assets.check_art.");
 
         Json steps = Json::array();
-        if (verdict == "good") steps.push_back("Nothing to change. Use the pictures; run assets.preview_in_scene once more if they are not in a scene yet.");
+        if (verdict == "good")
+            steps.push_back("Nothing to change. Use the pictures; run assets.preview_in_scene once more if they are "
+                            "not in a scene yet.");
         else {
-            steps.push_back(verdict == "redo" ? "Make the picture again with the changes in `fixes`." : "Apply the `fixes`, one at a time, most important first.");
-            steps.push_back("Look at the result (assets.contact_sheet or assets.preview_in_scene), run assets.check_art until it has no fail, and call assets.review once more only if the change was large.");
+            steps.push_back(verdict == "redo" ? "Make the picture again with the changes in `fixes`."
+                                              : "Apply the `fixes`, one at a time, most important first.");
+            steps.push_back(
+                "Look at the result (assets.contact_sheet or assets.preview_in_scene), run assets.check_art until it "
+                "has no fail, and call assets.review once more only if the change was large.");
         }
-        Json out = Json::object({{"verdict", verdict}, {"summary", str(reply, "summary")}, {"fixes", fixes}, {"checkArt", summary},
-                                 {"role", modelInfo.role}, {"provider", modelInfo.provider}, {"model", modelInfo.model},
-                                 {"paths", Json(paths)}, {"warnings", warnings}, {"nextSteps", steps}});
+        Json out = Json::object({{"verdict", verdict},
+                                 {"summary", str(reply, "summary")},
+                                 {"fixes", fixes},
+                                 {"checkArt", summary},
+                                 {"role", modelInfo.role},
+                                 {"provider", modelInfo.provider},
+                                 {"model", modelInfo.model},
+                                 {"paths", Json(paths)},
+                                 {"warnings", warnings},
+                                 {"nextSteps", steps}});
         return out;
     });
     // Reads the pictures and sends them to a vision model (network, spend; process when the model is a CLI agent): nothing written.
-    declare_command_capabilities(registry, {{"assets.review", CapabilitySet{Capability::Read, Capability::Process, Capability::Network, Capability::Spend}}});
+    declare_command_capabilities(registry, {{"assets.review", CapabilitySet{Capability::Read, Capability::Process,
+                                                                            Capability::Network, Capability::Spend}}});
 }
 
 }  // namespace fa::ai

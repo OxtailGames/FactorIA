@@ -44,8 +44,8 @@ std::vector<ReferenceImage> load_reference_images(const std::vector<std::string>
 // The paths normalized and without repeats.
 std::vector<std::string> normalized_unique_paths(const std::vector<std::string>& raw);
 // The provenance record assets.json keeps for a generated image, and storing it for `path`.
-Json image_provenance(const Json& args, const ProviderConfig& provider, const AssetResult& made, const std::string& prompt,
-                      const std::vector<std::string>& references, const std::string& notes);
+Json image_provenance(const Json& args, const ProviderConfig& provider, const AssetResult& made,
+                      const std::string& prompt, const std::vector<std::string>& references, const std::string& notes);
 void record_provenance(const std::string& path, const Json& provenance);
 
 }  // namespace asset_support

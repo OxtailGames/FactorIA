@@ -22,7 +22,8 @@ TEST_CASE("ui.scale: remembered, range-checked with a teaching error, and every 
     TestHost h("uiscale");
     REQUIRE(h.start());
     CHECK(eval_ok(h, "ui.scale").get<double>() == doctest::Approx(1.0));
-    eval_ok(h, "world.spawn({id: 'p', components: {Transform: {position: [10, 20]}, Panel: {size: [100, 50], pivot: [0, 1]}}})");
+    eval_ok(h, "world.spawn({id: 'p', components: {Transform: {position: [10, 20]}, Panel: {size: [100, 50], pivot: "
+               "[0, 1]}}})");
     CHECK(eval_ok(h, "ui.rectOf('p').w").get<double>() == doctest::Approx(100));
     eval_ok(h, "ui.scale = 1.5");
     CHECK(eval_ok(h, "ui.scale").get<double>() == doctest::Approx(1.5));
@@ -31,9 +32,11 @@ TEST_CASE("ui.scale: remembered, range-checked with a teaching error, and every 
     CHECK(eval_ok(h, "ui.rectOf('p').h").get<double>() == doctest::Approx(75));
     CHECK(eval_ok(h, "ui.rectOf('p').x").get<double>() == doctest::Approx(15));
     CHECK(eval_ok(h, "ui.rectOf('p').y").get<double>() == doctest::Approx(30));
-    CHECK(eval_ok(h, "world.find('p').get('Panel').size.x").get<double>() == doctest::Approx(100));  // the authored size
+    CHECK(eval_ok(h, "world.find('p').get('Panel').size.x").get<double>() ==
+          doctest::Approx(100));  // the authored size
     // measureText answers in UI units: a label of fontSize 10 is the same size at any ui.scale
-    CHECK(eval_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'screen' }).width").get<double>() == doctest::Approx(24.0));
+    CHECK(eval_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'screen' }).width").get<double>() ==
+          doctest::Approx(24.0));
     // a value outside 0.5 .. 3 throws, says what is accepted and what to do, and changes nothing
     for (const char* bad : {"ui.scale = 5", "ui.scale = 0.1", "ui.scale = 'big'", "ui.scale = NaN"}) {
         INFO(bad);

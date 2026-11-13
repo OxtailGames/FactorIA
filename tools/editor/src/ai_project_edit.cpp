@@ -42,7 +42,8 @@ ai::AiConfig ai_apply_edits(const ai::AiConfig& base, const std::map<std::string
             const auto it = roles->find(name);
             if (it == roles->end()) continue;
             out.roles[name] = it->second;
-            if (std::string_view(name) == ai::kRoleOrchestrator) out.roles[name].enabled = true;  // it cannot be turned off
+            if (std::string_view(name) == ai::kRoleOrchestrator)
+                out.roles[name].enabled = true;  // it cannot be turned off
         }
     }
     if (routes) {
@@ -56,8 +57,10 @@ ai::AiConfig ai_apply_edits(const ai::AiConfig& base, const std::map<std::string
     return out;
 }
 
-Result<Json> ai_project_overrides_for(const ai::ResolvedAiConfig& resolved, const std::map<std::string, ai::RoleConfig>* roles,
-                                      const std::map<std::string, ai::AssetRoute>* routes, const ai::AssetSources* sources) {
+Result<Json> ai_project_overrides_for(const ai::ResolvedAiConfig& resolved,
+                                      const std::map<std::string, ai::RoleConfig>* roles,
+                                      const std::map<std::string, ai::AssetRoute>* routes,
+                                      const ai::AssetSources* sources) {
     if (routes) {
         for (ai::MediaKind k : ai::kMediaKinds) {
             const std::string kind = ai::media_kind_name(k);
@@ -67,7 +70,8 @@ Result<Json> ai_project_overrides_for(const ai::ResolvedAiConfig& resolved, cons
             if (want != routes->end() && !want->second.provider.empty()) continue;
             return make_error("A project cannot turn " + kind + " assets back to None: your defaults make them with '" +
                                   have->second.provider + "'",
-                              "Pick a provider for this project, press Reset to my defaults on the row, or use Save as my defaults to "
+                              "Pick a provider for this project, press Reset to my defaults on the row, or use Save as "
+                              "my defaults to "
                               "change it for every project.");
         }
     }
@@ -99,8 +103,8 @@ bool ai_roles_edited(const std::map<std::string, ai::RoleConfig>& edits, const a
     return std::ranges::any_of(edits, [&](const auto& kv) { return !ai_same_role(kv.second, shown.role(kv.first)); });
 }
 
-std::map<std::string, ai::RoleConfig> ai_roles_keep_edits(const std::map<std::string, ai::RoleConfig>& edits, const ai::AiConfig& shown,
-                                                          const ai::AiConfig& now) {
+std::map<std::string, ai::RoleConfig> ai_roles_keep_edits(const std::map<std::string, ai::RoleConfig>& edits,
+                                                          const ai::AiConfig& shown, const ai::AiConfig& now) {
     std::map<std::string, ai::RoleConfig> out;
     for (const char* name : ai::kAllRoles) {
         const auto it = edits.find(name);
@@ -121,13 +125,14 @@ bool same_route(const ai::AssetRoute& a, const ai::AssetRoute& b) {
 }
 
 bool same_sites(const std::vector<ai::AssetSite>& a, const std::vector<ai::AssetSite>& b) {
-    return std::ranges::equal(a, b, [](const ai::AssetSite& x, const ai::AssetSite& y) { return x.url == y.url && x.note == y.note; });
+    return std::ranges::equal(
+        a, b, [](const ai::AssetSite& x, const ai::AssetSite& y) { return x.url == y.url && x.note == y.note; });
 }
 
 }  // namespace
 
-std::map<std::string, ai::AssetRoute> ai_routes_keep_edits(const std::map<std::string, ai::AssetRoute>& edits, const ai::AiConfig& shown,
-                                                           const ai::AiConfig& now) {
+std::map<std::string, ai::AssetRoute> ai_routes_keep_edits(const std::map<std::string, ai::AssetRoute>& edits,
+                                                           const ai::AiConfig& shown, const ai::AiConfig& now) {
     std::map<std::string, ai::AssetRoute> out;
     for (ai::MediaKind k : ai::kMediaKinds) {
         const std::string kind = ai::media_kind_name(k);
@@ -138,7 +143,8 @@ std::map<std::string, ai::AssetRoute> ai_routes_keep_edits(const std::map<std::s
     return out;
 }
 
-ai::AssetSources ai_sources_keep_edits(const ai::AssetSources& edits, const ai::AiConfig& shown, const ai::AiConfig& now) {
+ai::AssetSources ai_sources_keep_edits(const ai::AssetSources& edits, const ai::AiConfig& shown,
+                                       const ai::AiConfig& now) {
     ai::AssetSources out = now.assetSources;
     if (edits.onlyListed != shown.assetSources.onlyListed) out.onlyListed = edits.onlyListed;
     for (ai::SiteCategory c : ai::kSiteCategories) {

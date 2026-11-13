@@ -75,7 +75,10 @@ std::vector<Vec3> reduce_cloud(const std::vector<Vec3>& pts) {
         float bestDot = -1e30f;
         for (std::size_t i = 0; i < unique.size(); ++i) {
             const float v = dot(unique[i], d);
-            if (v > bestDot) { bestDot = v; best = i; }
+            if (v > bestDot) {
+                bestDot = v;
+                best = i;
+            }
         }
         keep[best] = 1;
     };
@@ -85,7 +88,8 @@ std::vector<Vec3> reduce_cloud(const std::vector<Vec3>& pts) {
             d[s] = sign;
             extreme(d);
         }
-    for (int i = 0; i < 8; ++i) extreme(normalize(Vec3{(i & 1) ? 1.0f : -1.0f, (i & 2) ? 1.0f : -1.0f, (i & 4) ? 1.0f : -1.0f}));
+    for (int i = 0; i < 8; ++i)
+        extreme(normalize(Vec3{(i & 1) ? 1.0f : -1.0f, (i & 2) ? 1.0f : -1.0f, (i & 4) ? 1.0f : -1.0f}));
     for (int i = 0; i < dirs; ++i) {  // Fibonacci sphere
         const float y = 1.0f - 2.0f * (float(i) + 0.5f) / float(dirs), r = std::sqrt(std::max(0.0f, 1.0f - y * y));
         const float phi = float(i) * 2.39996323f;
@@ -201,7 +205,10 @@ Vec3 core_support(const Core& c, Vec3 d) {
             float bestDot = -1e30f;
             for (int i = 0; i < c.count; ++i) {
                 const float v = dot(dl, c.verts[i]);
-                if (v > bestDot) { bestDot = v; best = i; }
+                if (v > bestDot) {
+                    bestDot = v;
+                    best = i;
+                }
             }
             const Vec3 v = c.verts[best];
             return c.a + c.ax[0] * (v.x * c.scale.x) + c.ax[1] * (v.y * c.scale.y) + c.ax[2] * (v.z * c.scale.z);
@@ -228,8 +235,17 @@ Vec3 reduce2(Vtx* s, int& n, float* lam) {
     const Vec3 a = s[0].w, ab = s[1].w - a;
     const float len2 = dot(ab, ab);
     const float t = len2 > 1e-20f ? dot(-a, ab) / len2 : 0.0f;
-    if (t <= 0.0f) { n = 1; lam[0] = 1.0f; return a; }
-    if (t >= 1.0f) { s[0] = s[1]; n = 1; lam[0] = 1.0f; return s[0].w; }
+    if (t <= 0.0f) {
+        n = 1;
+        lam[0] = 1.0f;
+        return a;
+    }
+    if (t >= 1.0f) {
+        s[0] = s[1];
+        n = 1;
+        lam[0] = 1.0f;
+        return s[0].w;
+    }
     lam[0] = 1.0f - t;
     lam[1] = t;
     return a + ab * t;
@@ -239,22 +255,40 @@ Vec3 reduce3(Vtx* s, int& n, float* lam) {
     const Vec3 a = s[0].w, b = s[1].w, c = s[2].w;
     const Vec3 ab = b - a, ac = c - a;
     const float d1 = dot(ab, -a), d2 = dot(ac, -a);
-    if (d1 <= 0.0f && d2 <= 0.0f) { n = 1; lam[0] = 1.0f; return a; }
+    if (d1 <= 0.0f && d2 <= 0.0f) {
+        n = 1;
+        lam[0] = 1.0f;
+        return a;
+    }
     const float d3 = dot(ab, -b), d4 = dot(ac, -b);
-    if (d3 >= 0.0f && d4 <= d3) { s[0] = s[1]; n = 1; lam[0] = 1.0f; return b; }
+    if (d3 >= 0.0f && d4 <= d3) {
+        s[0] = s[1];
+        n = 1;
+        lam[0] = 1.0f;
+        return b;
+    }
     const float vc = d1 * d4 - d3 * d2;
     if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
         const float v = d1 / (d1 - d3);
-        n = 2; lam[0] = 1.0f - v; lam[1] = v;
+        n = 2;
+        lam[0] = 1.0f - v;
+        lam[1] = v;
         return a + ab * v;
     }
     const float d5 = dot(ab, -c), d6 = dot(ac, -c);
-    if (d6 >= 0.0f && d5 <= d6) { s[0] = s[2]; n = 1; lam[0] = 1.0f; return c; }
+    if (d6 >= 0.0f && d5 <= d6) {
+        s[0] = s[2];
+        n = 1;
+        lam[0] = 1.0f;
+        return c;
+    }
     const float vb = d5 * d2 - d1 * d6;
     if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
         const float w = d2 / (d2 - d6);
         s[1] = s[2];
-        n = 2; lam[0] = 1.0f - w; lam[1] = w;
+        n = 2;
+        lam[0] = 1.0f - w;
+        lam[1] = w;
         return a + ac * w;
     }
     const float va = d3 * d6 - d5 * d4;
@@ -262,12 +296,17 @@ Vec3 reduce3(Vtx* s, int& n, float* lam) {
         const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
         s[0] = s[1];
         s[1] = s[2];
-        n = 2; lam[0] = 1.0f - w; lam[1] = w;
+        n = 2;
+        lam[0] = 1.0f - w;
+        lam[1] = w;
         return b + (c - b) * w;
     }
     const float denom = 1.0f / (va + vb + vc);
     const float v = vb * denom, w = vc * denom;
-    n = 3; lam[0] = 1.0f - v - w; lam[1] = v; lam[2] = w;
+    n = 3;
+    lam[0] = 1.0f - v - w;
+    lam[1] = v;
+    lam[2] = w;
     return a + ab * v + ac * w;
 }
 
@@ -293,12 +332,18 @@ bool reduce4(Vtx* s, int& n, float* lam, Vec3& closest) {
             bestD2 = d2;
             closest = p;
             bestN = tn;
-            for (int i = 0; i < tn; ++i) { bestS[i] = tri[i]; bestLam[i] = tl[i]; }
+            for (int i = 0; i < tn; ++i) {
+                bestS[i] = tri[i];
+                bestLam[i] = tl[i];
+            }
         }
     }
     if (!outside) return false;
     n = bestN;
-    for (int i = 0; i < n; ++i) { s[i] = bestS[i]; lam[i] = bestLam[i]; }
+    for (int i = 0; i < n; ++i) {
+        s[i] = bestS[i];
+        lam[i] = bestLam[i];
+    }
     return true;
 }
 
@@ -314,22 +359,35 @@ GjkResult gjk(const Core& A, const Core& B) {
     float lam[4] = {1, 0, 0, 0};
     Vec3 v = s[0].w;
     for (int it = 0; it < 64; ++it) {
-        if (n == 1) { v = s[0].w; lam[0] = 1.0f; }
-        else if (n == 2) v = reduce2(s, n, lam);
-        else if (n == 3) v = reduce3(s, n, lam);
-        else if (!reduce4(s, n, lam, v)) { out.overlap = true; break; }
+        if (n == 1) {
+            v = s[0].w;
+            lam[0] = 1.0f;
+        } else if (n == 2)
+            v = reduce2(s, n, lam);
+        else if (n == 3)
+            v = reduce3(s, n, lam);
+        else if (!reduce4(s, n, lam, v)) {
+            out.overlap = true;
+            break;
+        }
         const float v2 = dot(v, v);
-        if (v2 < 1e-12f) { out.overlap = true; break; }
+        if (v2 < 1e-12f) {
+            out.overlap = true;
+            break;
+        }
         const Vtx w = make_vertex(A, B, -v);
         if (v2 - dot(v, w.w) <= 1e-6f * v2) break;  // the new support point goes no nearer: converged
         bool dup = false;
-        for (int i = 0; i < n; ++i) if (length_sq(s[i].w - w.w) < 1e-14f) dup = true;
+        for (int i = 0; i < n; ++i)
+            if (length_sq(s[i].w - w.w) < 1e-14f) dup = true;
         if (dup) break;
         s[n++] = w;
     }
     if (!out.overlap) {  // refresh the barycentric coordinates (stale when the iteration cap ended the loop)
-        if (n == 2) reduce2(s, n, lam);
-        else if (n == 3) reduce3(s, n, lam);
+        if (n == 2)
+            reduce2(s, n, lam);
+        else if (n == 3)
+            reduce3(s, n, lam);
         else if (n == 4) {
             Vec3 c;
             if (!reduce4(s, n, lam, c)) out.overlap = true;
@@ -359,8 +417,15 @@ EpaResult epa(const Core& A, const Core& B, const GjkResult& g) {
     EpaResult res;
     std::vector<Vtx> vs(g.v, g.v + g.n);
     // Grow the simplex to a tetrahedron around the origin.
-    static const Vec3 probes[] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
-                                  {0.577f, 0.577f, 0.577f}, {-0.577f, 0.577f, -0.577f}, {0.577f, -0.577f, -0.577f},
+    static const Vec3 probes[] = {{1, 0, 0},
+                                  {-1, 0, 0},
+                                  {0, 1, 0},
+                                  {0, -1, 0},
+                                  {0, 0, 1},
+                                  {0, 0, -1},
+                                  {0.577f, 0.577f, 0.577f},
+                                  {-0.577f, 0.577f, -0.577f},
+                                  {0.577f, -0.577f, -0.577f},
                                   {-0.577f, -0.577f, 0.577f}};
     auto dimension_ok = [&](const std::vector<Vtx>& v) {
         const std::size_t k = v.size();
@@ -383,7 +448,11 @@ EpaResult epa(const Core& A, const Core& B, const GjkResult& g) {
             }
             std::vector<Vtx> trial = vs;
             trial.push_back(make_vertex(A, B, d));
-            if (dimension_ok(trial)) { vs = std::move(trial); grown = true; break; }
+            if (dimension_ok(trial)) {
+                vs = std::move(trial);
+                grown = true;
+                break;
+            }
         }
         if (!grown) return res;
     }
@@ -391,7 +460,10 @@ EpaResult epa(const Core& A, const Core& B, const GjkResult& g) {
     const Vec3 inside = (vs[0].w + vs[1].w + vs[2].w + vs[3].w) * 0.25f;  // stays inside the growing polytope
     auto add_face = [&](int a, int b, int c) {
         Face f{{a, b, c}, normalize(cross(vs[b].w - vs[a].w, vs[c].w - vs[a].w)), 0.0f, true};
-        if (dot(f.n, inside - vs[a].w) > 0.0f) { std::swap(f.i[1], f.i[2]); f.n = -f.n; }
+        if (dot(f.n, inside - vs[a].w) > 0.0f) {
+            std::swap(f.i[1], f.i[2]);
+            f.n = -f.n;
+        }
         f.d = std::max(dot(f.n, vs[a].w), 0.0f);
         faces.push_back(f);
     };
@@ -416,8 +488,10 @@ EpaResult epa(const Core& A, const Core& B, const GjkResult& g) {
             for (int e = 0; e < 3; ++e) {
                 const std::pair<int, int> edge{q.i[e], q.i[(e + 1) % 3]};
                 auto rev = std::find(horizon.begin(), horizon.end(), std::pair<int, int>{edge.second, edge.first});
-                if (rev != horizon.end()) horizon.erase(rev);
-                else horizon.push_back(edge);
+                if (rev != horizon.end())
+                    horizon.erase(rev);
+                else
+                    horizon.push_back(edge);
             }
         }
         if (horizon.empty()) break;

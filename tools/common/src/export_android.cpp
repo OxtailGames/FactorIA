@@ -81,7 +81,9 @@ std::string resolve_keystore(const Project& p, const std::string& keystore) {
 std::vector<std::string> gradle_outputs(const AndroidPlan& a) {
     const std::string variant = a.release ? "release" : "debug";
     if (a.format == "aab") return {"app/build/outputs/bundle/" + variant + "/app-" + variant + ".aab"};
-    if (a.release) return {"app/build/outputs/apk/release/app-release.apk", "app/build/outputs/apk/release/app-release-unsigned.apk"};
+    if (a.release)
+        return {"app/build/outputs/apk/release/app-release.apk",
+                "app/build/outputs/apk/release/app-release-unsigned.apk"};
     return {"app/build/outputs/apk/debug/app-debug.apk"};
 }
 
@@ -98,7 +100,8 @@ std::string quote_path(const std::string& s) { return is_windows_host() ? "\"" +
 std::string adb_command(const AndroidPlan& a) {
     if (!a.toolchain.sdk.empty()) {
         std::error_code ec;
-        const stdfs::path adb = stdfs::path(a.toolchain.sdk) / "platform-tools" / (is_windows_host() ? "adb.exe" : "adb");
+        const stdfs::path adb =
+            stdfs::path(a.toolchain.sdk) / "platform-tools" / (is_windows_host() ? "adb.exe" : "adb");
         if (stdfs::is_regular_file(adb, ec)) return quote_path(generic(adb));
     }
     return "adb";
@@ -145,24 +148,31 @@ Result<PluginGradle> export_plugins(const Project& p, const stdfs::path& outRoot
             if (!copyEc) stdfs::copy_file(src, os_path(to / rel), stdfs::copy_options::overwrite_existing, copyEc);
         };
         if (isModule) {  // the whole module but for what building it leaves behind
-            for (stdfs::recursive_directory_iterator it(osFrom, ec), end; !ec && !copyEc && it != end; it.increment(ec)) {
+            for (stdfs::recursive_directory_iterator it(osFrom, ec), end; !ec && !copyEc && it != end;
+                 it.increment(ec)) {
                 const stdfs::path rel = it->path().lexically_relative(osFrom);
                 const std::string top = rel.begin()->string();
-                if (top == "build" || top == ".gradle" || top == ".cxx") it.disable_recursion_pending();
-                else if (it->is_regular_file(ec)) copy_to(it->path(), rel);
+                if (top == "build" || top == ".gradle" || top == ".cxx")
+                    it.disable_recursion_pending();
+                else if (it->is_regular_file(ec))
+                    copy_to(it->path(), rel);
             }
         } else {  // only the archives
             for (stdfs::directory_iterator it(osFrom, ec), end; !ec && !copyEc && it != end; it.increment(ec)) {
                 const std::string ext = lower(it->path().extension().string());
-                if ((ext == ".aar" || ext == ".jar") && it->is_regular_file(ec)) copy_to(it->path(), it->path().filename());
+                if ((ext == ".aar" || ext == ".jar") && it->is_regular_file(ec))
+                    copy_to(it->path(), it->path().filename());
             }
         }
         if (ec || copyEc)
-            return err("export: cannot copy the plugin '" + name + "' (" + generic(from) + ") to " + generic(to) + ": " + (copyEc ? copyEc : ec).message());
+            return err("export: cannot copy the plugin '" + name + "' (" + generic(from) + ") to " + generic(to) +
+                       ": " + (copyEc ? copyEc : ec).message());
         if (isModule) {
-            g.projects += "\ninclude ':plugin_" + name + "'\nproject(':plugin_" + name + "').projectDir = file('plugins/" + name + "')";
+            g.projects += "\ninclude ':plugin_" + name + "'\nproject(':plugin_" + name +
+                          "').projectDir = file('plugins/" + name + "')";
             deps += "\n    implementation project(':plugin_" + name + "')";
-            g.hasCode = g.hasCode || is_folder(from / "src" / "main" / "java") || is_folder(from / "src" / "main" / "kotlin");
+            g.hasCode =
+                g.hasCode || is_folder(from / "src" / "main" / "java") || is_folder(from / "src" / "main" / "kotlin");
         } else {
             deps += "\n    implementation fileTree(dir: 'libs/" + name + "', include: ['*.aar', '*.jar'])";
             g.hasCode = true;
@@ -193,16 +203,19 @@ void choose_cmake(const ExportOptions& o, AndroidPlan& a) {
     std::string best;
     std::error_code ec;
     if (!a.toolchain.sdk.empty())
-        for (stdfs::directory_iterator it(stdfs::path(a.toolchain.sdk) / "cmake", ec), end; !ec && it != end; it.increment(ec)) {
+        for (stdfs::directory_iterator it(stdfs::path(a.toolchain.sdk) / "cmake", ec), end; !ec && it != end;
+             it.increment(ec)) {
             const std::string name = it->path().filename().string();
-            if (!stdfs::is_regular_file(it->path() / "bin" / exe, ec) || !version_at_least(version_numbers(name), kSetupCmakeMinimum)) continue;
+            if (!stdfs::is_regular_file(it->path() / "bin" / exe, ec) ||
+                !version_at_least(version_numbers(name), kSetupCmakeMinimum))
+                continue;
             if (name == kSetupCmakeVersion) return;  // the pinned one
             if (best.empty() || version_numbers(name) > version_numbers(best)) best = name;
         }
     if (!best.empty()) {
         a.cmakeVersion = best;
-        a.cmakeNote = ("The Android SDK has no CMake " + std::string(kSetupCmakeVersion) + "; the build uses the SDK's CMake " + best +
-                           " (factoria.cmakeVersion in gradle.properties).");
+        a.cmakeNote = ("The Android SDK has no CMake " + std::string(kSetupCmakeVersion) +
+                       "; the build uses the SDK's CMake " + best + " (factoria.cmakeVersion in gradle.properties).");
         return;
     }
     const SetupContext defaultContext;
@@ -222,8 +235,9 @@ void choose_cmake(const ExportOptions& o, AndroidPlan& a) {
     if (ec) real = stdfs::path(cmake);
     a.cmakeVersion = version;
     a.cmakeDir = generic(real.parent_path().parent_path());
-    a.cmakeNote = ("The Android SDK has no CMake " + std::string(kSetupCmakeVersion) + "; the build uses the CMake " + version + " of this computer (" +
-                       a.cmakeDir + ": cmake.dir in local.properties, factoria.cmakeVersion in gradle.properties).");
+    a.cmakeNote = ("The Android SDK has no CMake " + std::string(kSetupCmakeVersion) + "; the build uses the CMake " +
+                   version + " of this computer (" + a.cmakeDir +
+                   ": cmake.dir in local.properties, factoria.cmakeVersion in gradle.properties).");
 }
 
 }  // namespace
@@ -237,7 +251,8 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
     // ---- format ----
     a.format = o.format.empty() ? s.format : lower(o.format);
     if (!is_export_format(a.format))
-        return err("export: unknown Android format '" + (o.format.empty() ? s.format : o.format) + "'", did_you_mean(a.format, export_formats()));
+        return err("export: unknown Android format '" + (o.format.empty() ? s.format : o.format) + "'",
+                   did_you_mean(a.format, export_formats()));
     if (a.format != "gradle") {
         const std::string name = slug_of(p) + (o.release ? "" : "-debug") + (a.format == "aab" ? ".aab" : ".apk");
         a.artifact = outRoot / name;
@@ -248,7 +263,8 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
     bool decode = decodeIcons;
     if (const std::string icon = p.settings.icon_for("android"); !icon.empty() && !decode) {
         std::error_code ec;
-        const std::string background = s.adaptiveIcon.background.rfind('#', 0) == 0 ? std::string() : s.adaptiveIcon.background;
+        const std::string background =
+            s.adaptiveIcon.background.rfind('#', 0) == 0 ? std::string() : s.adaptiveIcon.background;
         for (const std::string& rel : {icon, s.adaptiveIcon.foreground, s.adaptiveIcon.monochrome, background})
             if (!rel.empty() && !stdfs::is_regular_file(p.dir / rel, ec)) decode = true;
     }
@@ -275,25 +291,30 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
     } else if (builds) {
         return machine.error();
     } else {
-        warnings.push_back("Ignoring the machine settings (they are not needed for the Gradle project): " + machine.error().to_string());
+        warnings.push_back("Ignoring the machine settings (they are not needed for the Gradle project): " +
+                           machine.error().to_string());
     }
     a.toolchain = find_android_toolchain(config, search);
     choose_cmake(o, a);
     if (builds) {
         if (!a.toolchain.ok()) {
-            std::string message = std::string("export: cannot build the Android ") + (a.format == "aab" ? "bundle" : "app") +
-                                  " on this computer: ";
-            for (std::size_t i = 0; i < a.toolchain.problems.size(); ++i) message += (i ? " " : "") + a.toolchain.problems[i];
-            return err(message, "To write only the Gradle project (and build it elsewhere, e.g. in Android Studio), export with the format "
-                                "gradle: factoria export --platform android --format gradle, or \"format\": \"gradle\" under "
-                                "export.android in factoria.json.");
+            std::string message = std::string("export: cannot build the Android ") +
+                                  (a.format == "aab" ? "bundle" : "app") + " on this computer: ";
+            for (std::size_t i = 0; i < a.toolchain.problems.size(); ++i)
+                message += (i ? " " : "") + a.toolchain.problems[i];
+            return err(message,
+                       "To write only the Gradle project (and build it elsewhere, e.g. in Android Studio), export with "
+                       "the format "
+                       "gradle: factoria export --platform android --format gradle, or \"format\": \"gradle\" under "
+                       "export.android in factoria.json.");
         }
         warnings.insert(warnings.end(), a.toolchain.warnings.begin(), a.toolchain.warnings.end());
     }
 
     // ---- ads: a release export that would carry Google's sample ids (only when the game has the admob plugin) ----
     if (o.release)
-        for (const AdsIssue& i : check_ads(generic(p.dir), "android")) warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
+        for (const AdsIssue& i : check_ads(generic(p.dir), "android"))
+            warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
 
     // ---- release signing ----
     if (!s.signing.keystore.empty() && !s.signing.alias.empty()) {
@@ -303,34 +324,53 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
     if (o.release && builds) {
         if (!s.signing.keystore.empty()) {
             if (s.signing.alias.empty())
-                return err("factoria.json#/export/android/signing/alias: missing, so the release build cannot be signed",
-                           "Add \"alias\": \"<key alias>\" next to \"keystore\" (the name you gave the key in keytool -genkeypair -alias ...; "
-                           "keytool -list -keystore <file> shows it).");
+                return err(
+                    "factoria.json#/export/android/signing/alias: missing, so the release build cannot be signed",
+                    "Add \"alias\": \"<key alias>\" next to \"keystore\" (the name you gave the key in keytool "
+                    "-genkeypair -alias ...; "
+                    "keytool -list -keystore <file> shows it).");
             std::error_code ec;
             if (!stdfs::is_regular_file(stdfs::path(a.keystore), ec))
-                return err("factoria.json#/export/android/signing/keystore: the keystore '" + a.keystore + "' does not exist",
-                           "Fix the path (project-relative or absolute), or create a keystore: the editor's Platform settings > Android > "
-                           "Create keystore..., or keytool -genkeypair -v -keystore <file> -alias <alias> -keyalg RSA -keysize 2048 -validity 10000. "
-                           "Keep it outside the repository and never lose it: Google Play cannot update an app signed with another key.");
+                return err("factoria.json#/export/android/signing/keystore: the keystore '" + a.keystore +
+                               "' does not exist",
+                           "Fix the path (project-relative or absolute), or create a keystore: the editor's Platform "
+                           "settings > Android > "
+                           "Create keystore..., or keytool -genkeypair -v -keystore <file> -alias <alias> -keyalg RSA "
+                           "-keysize 2048 -validity 10000. "
+                           "Keep it outside the repository and never lose it: Google Play cannot update an app signed "
+                           "with another key.");
             a.secrets = resolve_android_signing_secrets(config, env);
             if (a.secrets.keystorePassword.empty())
-                return err("export: the password of the release keystore '" + a.keystore + "' is not set",
-                           "Set the environment variable FACTORIA_ANDROID_KEYSTORE_PASSWORD (and FACTORIA_ANDROID_KEY_PASSWORD when the key has "
-                           "its own password) before exporting, or save them on this computer in the editor (Platform settings > Android > This "
-                           "computer > Remember on this computer), which writes " + machine_export_config_path(env) + ". Passwords are never "
-                           "stored in the project or in the exported files; Gradle gets them as environment variables.");
+                return err(
+                    "export: the password of the release keystore '" + a.keystore + "' is not set",
+                    "Set the environment variable FACTORIA_ANDROID_KEYSTORE_PASSWORD (and "
+                    "FACTORIA_ANDROID_KEY_PASSWORD when the key has "
+                    "its own password) before exporting, or save them on this computer in the editor (Platform "
+                    "settings > Android > This "
+                    "computer > Remember on this computer), which writes " +
+                        machine_export_config_path(env) +
+                        ". Passwords are never "
+                        "stored in the project or in the exported files; Gradle gets them as environment variables.");
             warnings.insert(warnings.end(), config.warnings.begin(), config.warnings.end());
         } else if (!o.allowDebugKey) {
-            return err("factoria.json#/export/android/signing: a release build has no keystore to sign with, and an app signed with the debug key is "
+            return err("factoria.json#/export/android/signing: a release build has no keystore to sign with, and an "
+                       "app signed with the debug key is "
                        "one Google Play rejects",
-                       "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool -genkeypair -v -keystore <file> "
-                       "-alias <alias> -keyalg RSA -keysize 2048 -validity 10000; keep it outside the repository and never lose it) and set "
-                       "export.android.signing.keystore and .alias in factoria.json. To try a release build on your own device with the debug key "
-                       "instead, export with allowDebugKey: true (factoria export --allow-debug-key); do not upload that build.");
+                       "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool "
+                       "-genkeypair -v -keystore <file> "
+                       "-alias <alias> -keyalg RSA -keysize 2048 -validity 10000; keep it outside the repository and "
+                       "never lose it) and set "
+                       "export.android.signing.keystore and .alias in factoria.json. To try a release build on your "
+                       "own device with the debug key "
+                       "instead, export with allowDebugKey: true (factoria export --allow-debug-key); do not upload "
+                       "that build.");
         } else {
-            warnings.push_back("This release build is signed with the debug key because allowDebugKey is on and export.android.signing has no "
-                               "keystore: fine to test on a device, but Google Play rejects it. Create a keystore (the editor's Platform settings > "
-                               "Android > Create keystore..., or keytool -genkeypair) and set export.android.signing.keystore and .alias in factoria.json");
+            warnings.push_back("This release build is signed with the debug key because allowDebugKey is on and "
+                               "export.android.signing has no "
+                               "keystore: fine to test on a device, but Google Play rejects it. Create a keystore (the "
+                               "editor's Platform settings > "
+                               "Android > Create keystore..., or keytool -genkeypair) and set "
+                               "export.android.signing.keystore and .alias in factoria.json");
         }
     }
     return a;
@@ -338,10 +378,12 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
 
 // ---- the Gradle project --------------------------------------------------------------------------------
 
-Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, ExportReport& report) {
+Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a,
+                            const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report) {
     const AndroidExportSettings& s = p.settings.android;
-    const std::string orient = p.orientation == "portrait" ? "sensorPortrait" : p.orientation == "any" ? "fullSensor" : "sensorLandscape";
+    const std::string orient = p.orientation == "portrait" ? "sensorPortrait"
+                               : p.orientation == "any"    ? "fullSensor"
+                                                           : "sensorLandscape";
     const int versionCode = s.versionCode > 0 ? s.versionCode : android_version_code_from(p.version);
 
     std::vector<std::string> permissions;
@@ -353,23 +395,36 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     if (std::find(s.permissions.begin(), s.permissions.end(), internet) == s.permissions.end()) {
         std::ifstream projectFile(p.dir / "factoria.json", std::ios::binary);
         const Json projectJson = Json::parse(projectFile, nullptr, false);
-        const NetworkParse network = parse_network(projectJson.is_object() && projectJson.contains(kNetworkKey) ? projectJson[kNetworkKey] : Json());
-        if (network.ok() && !network.policy.hosts.empty()) permissions.push_back("<uses-permission android:name=\"" + internet + "\" />");
+        const NetworkParse network = parse_network(
+            projectJson.is_object() && projectJson.contains(kNetworkKey) ? projectJson[kNetworkKey] : Json());
+        if (network.ok() && !network.policy.hosts.empty())
+            permissions.push_back("<uses-permission android:name=\"" + internet + "\" />");
     }
     std::string signingProperties;
     if (!a.keystore.empty())
-        signingProperties = "# Release signing (export.android.signing in factoria.json). The passwords are NOT stored here: set the environment\n"
-                            "# variables FACTORIA_ANDROID_KEYSTORE_PASSWORD and FACTORIA_ANDROID_KEY_PASSWORD before running a release build.\n"
-                            "factoria.signing.keystore=" + properties_escape(a.keystore) + "\n"
-                            "factoria.signing.alias=" + properties_escape(a.alias) + "\n";
+        signingProperties = "# Release signing (export.android.signing in factoria.json). The passwords are NOT stored "
+                            "here: set the environment\n"
+                            "# variables FACTORIA_ANDROID_KEYSTORE_PASSWORD and FACTORIA_ANDROID_KEY_PASSWORD before "
+                            "running a release build.\n"
+                            "factoria.signing.keystore=" +
+                            properties_escape(a.keystore) +
+                            "\n"
+                            "factoria.signing.alias=" +
+                            properties_escape(a.alias) + "\n";
 
     // The AdMob plugin's manifest placeholders (platforms/android/app/build.gradle): always written, the plugin may be added later.
     const AdsExportSettings ads = ads_export_settings(generic(p.dir), a.release);
-    const std::string adsProperties = "# The AdMob plugin (platform.add_backend admob): a development export carries Google's sample app id and shows test ads;\n"
+    const std::string adsProperties = "# The AdMob plugin (platform.add_backend admob): a development export carries "
+                                      "Google's sample app id and shows test ads;\n"
                                       "# a release export carries platform.ads.appIds.android of factoria.json.\n"
-                                      "factoria.ads.appId=" + properties_escape(ads.appId) + "\n"
-                                      "factoria.ads.test=" + (ads.test ? "true" : "false") + "\n"
-                                      "factoria.ads.audience=" + properties_escape(ads.audience) + "\n";
+                                      "factoria.ads.appId=" +
+                                      properties_escape(ads.appId) +
+                                      "\n"
+                                      "factoria.ads.test=" +
+                                      (ads.test ? "true" : "false") +
+                                      "\n"
+                                      "factoria.ads.audience=" +
+                                      properties_escape(ads.audience) + "\n";
 
     auto plugins = export_plugins(p, outRoot);
     if (!plugins.ok()) return plugins.error();
@@ -385,7 +440,10 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"CMAKE_VERSION", a.cmakeVersion},
         {"MIN_SDK", std::to_string(s.minSdk)},
         {"TARGET_SDK", std::to_string(s.targetSdk)},  // compileSdk = targetSdk
-        {"APP_ICON_ATTRS", a.hasIcon ? "\n        android:icon=\"@mipmap/ic_launcher\"\n        android:roundIcon=\"@mipmap/ic_launcher_round\"" : ""},
+        {"APP_ICON_ATTRS",
+         a.hasIcon
+             ? "\n        android:icon=\"@mipmap/ic_launcher\"\n        android:roundIcon=\"@mipmap/ic_launcher_round\""
+             : ""},
         {"USES_PERMISSIONS", indent_lines(permissions)},
         {"ADS_PROPERTIES", adsProperties},
         {"SIGNING_PROPERTIES", signingProperties},
@@ -393,8 +451,11 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"PLUGIN_DEPENDENCIES", plugins->dependencies},
         {"HAS_CODE", plugins->hasCode ? "true" : "false"},
         // The prebuilt libraries are stripped already (and Gradle has no NDK to strip them with): say so instead of a warning.
-        {"PACKAGING_OPTIONS", setup.prebuilt ? "\n\n    // The prebuilt engine libraries are stripped already.\n    packaging {\n        jniLibs {\n"
-                                               "            keepDebugSymbols += ['**/*.so']\n        }\n    }" : ""},
+        {"PACKAGING_OPTIONS",
+         setup.prebuilt
+             ? "\n\n    // The prebuilt engine libraries are stripped already.\n    packaging {\n        jniLibs {\n"
+               "            keepDebugSymbols += ['**/*.so']\n        }\n    }"
+             : ""},
     };
     auto templates = load_templates(setup, "android");
     if (!templates.ok()) return templates.error();
@@ -418,13 +479,16 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         if (auto r = write_text(outRoot / "local.properties",
                                 "# Generated by factoria export for this computer: do not commit it.\nsdk.dir=" +
                                     properties_escape(generic(stdfs::path(a.toolchain.sdk))) + "\n" +
-                                    (!setup.prebuilt && !a.cmakeDir.empty() ? "cmake.dir=" + properties_escape(a.cmakeDir) + "\n" : std::string()));
+                                    (!setup.prebuilt && !a.cmakeDir.empty()
+                                         ? "cmake.dir=" + properties_escape(a.cmakeDir) + "\n"
+                                         : std::string()));
             !r.ok())
             return r;
     }
     if (!setup.prebuilt && !a.cmakeNote.empty()) report.warnings.push_back(a.cmakeNote);
     if (a.hasIcon)
-        if (auto r = write_android_icons(generic(outRoot / "app" / "src" / "main" / "res"), a.icon, a.adaptive); !r.ok())
+        if (auto r = write_android_icons(generic(outRoot / "app" / "src" / "main" / "res"), a.icon, a.adaptive);
+            !r.ok())
             return err("export: cannot write the Android icons: " + r.error().message, r.error().hint);
 
     std::error_code ec;
@@ -432,8 +496,11 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         for (const char* abi : kAndroidAbis) {
             const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / "libfactoria_player.so";
             stdfs::create_directories(os_path(to.parent_path()), ec);
-            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", os_path(to), stdfs::copy_options::overwrite_existing, ec);
-            if (ec) return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " + ec.message());
+            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", os_path(to),
+                             stdfs::copy_options::overwrite_existing, ec);
+            if (ec)
+                return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " +
+                           ec.message());
         }
     stdfs::path assets = outRoot / "app" / "src" / "main" / "assets";
     if (auto r = copy_game(p, files, assets); !r.ok()) return r;
@@ -487,39 +554,62 @@ bool mentions(const std::string& lowerText, std::initializer_list<const char*> n
 std::string gradle_failure_hint(const std::deque<std::string>& tail, const std::string& failure, const AndroidPlan& a) {
     std::string text = lower(failure);
     for (const std::string& l : tail) text += "\n" + lower(l);
-    const std::string sdkTool = a.toolchain.sdk.empty() ? std::string("sdkmanager")
-                                                        : generic(stdfs::path(a.toolchain.sdk) / "cmdline-tools" / "<revision>" / "bin" / "sdkmanager");
-    if (mentions(text, {"licences have not been accepted", "licenses have not been accepted", "have not accepted the license",
-                        "not accepted the licenses"}))
-        return "The Android SDK licenses are not accepted yet, so Gradle cannot download the SDK package it needs (a platform or the build tools). Accept them once: "
-               "factoria setup android (it shows the license and records it once you agree; the editor's Install Android build tools does the same), " +
-               sdkTool + " --licenses (answer y), or Android Studio > Settings > Android SDK > SDK Tools, then export again.";
-    if (mentions(text, {"unsupported class file major version", "unsupportedclassversionerror", "unsupported java", "incompatible java",
-                        "requires java 17", "requires jdk 17", "could not determine java version", "invalid source release"}))
-        return "The JDK '" + a.toolchain.jdk + "'" + (a.toolchain.jdkMajor > 0 ? " (Java " + std::to_string(a.toolchain.jdkMajor) + ")" : std::string()) +
-               " does not suit this Gradle build: Android builds are tested with JDK 17 and 21 (too old and too new both fail). Choose "
-               "another JDK in Platform settings > Android (This computer), \"android\": {\"jdk\": \"<folder>\"} in ~/.factoria/export.json, "
+    const std::string sdkTool =
+        a.toolchain.sdk.empty()
+            ? std::string("sdkmanager")
+            : generic(stdfs::path(a.toolchain.sdk) / "cmdline-tools" / "<revision>" / "bin" / "sdkmanager");
+    if (mentions(text, {"licences have not been accepted", "licenses have not been accepted",
+                        "have not accepted the license", "not accepted the licenses"}))
+        return "The Android SDK licenses are not accepted yet, so Gradle cannot download the SDK package it needs (a "
+               "platform or the build tools). Accept them once: "
+               "factoria setup android (it shows the license and records it once you agree; the editor's Install "
+               "Android build tools does the same), " +
+               sdkTool +
+               " --licenses (answer y), or Android Studio > Settings > Android SDK > SDK Tools, then export again.";
+    if (mentions(text, {"unsupported class file major version", "unsupportedclassversionerror", "unsupported java",
+                        "incompatible java", "requires java 17", "requires jdk 17", "could not determine java version",
+                        "invalid source release"}))
+        return "The JDK '" + a.toolchain.jdk + "'" +
+               (a.toolchain.jdkMajor > 0 ? " (Java " + std::to_string(a.toolchain.jdkMajor) + ")" : std::string()) +
+               " does not suit this Gradle build: Android builds are tested with JDK 17 and 21 (too old and too new "
+               "both fail). Choose "
+               "another JDK in Platform settings > Android (This computer), \"android\": {\"jdk\": \"<folder>\"} in "
+               "~/.factoria/export.json, "
                "or JAVA_HOME.";
     // Source mode compiles the engine with the SDK's NDK and CMake; AGP does not always install them itself.
-    if (mentions(text, {"[cxx1300]", "[cxx1101]", "[cxx1104]", "cmake '3.31.6' was not found", "ndk is not installed", "did not have a source.properties"}) ||
+    if (mentions(text, {"[cxx1300]", "[cxx1101]", "[cxx1104]", "cmake '3.31.6' was not found", "ndk is not installed",
+                        "did not have a source.properties"}) ||
         (text.find("cmake") != std::string::npos && text.find("was not found in sdk") != std::string::npos))
-        return "This export compiles the engine from source (mode: source), which needs NDK r27+ and CMake 3.31.6 in the Android SDK" +
-               (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") + ". Install them once: " + sdkTool +
-               " \"ndk;27.2.12479018\" \"cmake;3.31.6\" (Android Studio > SDK Manager > SDK Tools > NDK (Side by side) and CMake), then export "
-               "again. Offline, or without that CMake: any CMake 3.24+ on this computer works (install it with brew install cmake, winget install "
-               "Kitware.CMake or https://cmake.org/download, or `factoria setup cmake` on a Mac): the export then writes cmake.dir=<its folder> into "
-               "local.properties and factoria.cmakeVersion=<its version> into gradle.properties by itself (edit both by hand when you build from "
-               "another folder), and Gradle needs --offline plus a ninja next to that CMake or on PATH. The FactorIA download exports with prebuilt "
+        return "This export compiles the engine from source (mode: source), which needs NDK r27+ and CMake 3.31.6 in "
+               "the Android SDK" +
+               (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") +
+               ". Install them once: " + sdkTool +
+               " \"ndk;27.2.12479018\" \"cmake;3.31.6\" (Android Studio > SDK Manager > SDK Tools > NDK (Side by side) "
+               "and CMake), then export "
+               "again. Offline, or without that CMake: any CMake 3.24+ on this computer works (install it with brew "
+               "install cmake, winget install "
+               "Kitware.CMake or https://cmake.org/download, or `factoria setup cmake` on a Mac): the export then "
+               "writes cmake.dir=<its folder> into "
+               "local.properties and factoria.cmakeVersion=<its version> into gradle.properties by itself (edit both "
+               "by hand when you build from "
+               "another folder), and Gradle needs --offline plus a ninja next to that CMake or on PATH. The FactorIA "
+               "download exports with prebuilt "
                "players instead and needs neither.";
     if (mentions(text, {"sdk location not found", "no sdk directory", "android sdk is missing"}))
-        return "Gradle could not use the Android SDK" + (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") +
-               ": check that the folder is a full SDK (platform-tools, platforms, licenses) in Platform settings > Android (This computer), "
+        return "Gradle could not use the Android SDK" +
+               (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") +
+               ": check that the folder is a full SDK (platform-tools, platforms, licenses) in Platform settings > "
+               "Android (This computer), "
                "\"android\": {\"sdk\": \"<folder>\"} in ~/.factoria/export.json, or ANDROID_HOME.";
-    if (mentions(text, {"could not resolve", "could not get ", "could not download", "could not install gradle distribution", "unknownhostexception",
-                        "connect timed out", "read timed out", "network is unreachable", "no route to host", "connection refused",
-                        "sslhandshakeexception", "unable to tunnel through proxy", "failed to download", "could not transfer"}))
-        return "Gradle could not download something. The first build needs the internet: it fetches Gradle itself (services.gradle.org), the "
-               "Android Gradle plugin and the SDK platform (Google Maven, dl.google.com). Check the connection, the proxy or firewall, then "
+    if (mentions(text,
+                 {"could not resolve", "could not get ", "could not download", "could not install gradle distribution",
+                  "unknownhostexception", "connect timed out", "read timed out", "network is unreachable",
+                  "no route to host", "connection refused", "sslhandshakeexception", "unable to tunnel through proxy",
+                  "failed to download", "could not transfer"}))
+        return "Gradle could not download something. The first build needs the internet: it fetches Gradle itself "
+               "(services.gradle.org), the "
+               "Android Gradle plugin and the SDK platform (Google Maven, dl.google.com). Check the connection, the "
+               "proxy or firewall, then "
                "export again; everything is cached after one successful build.";
     return {};
 }
@@ -531,27 +621,40 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
     const std::string task = gradle_task(a);
     const std::string outputRel = gradle_outputs(a).front();
     const std::string wrapper = is_windows_host() ? "gradlew.bat" : "./gradlew";
-    const std::string installPrereq = setup.prebuilt
-        ? "Install the prerequisites once: a JDK 17+ and the Android SDK (Android Studio installs both) and give them to Gradle with JAVA_HOME and "
-          "ANDROID_HOME (or open the folder in Android Studio). The engine is prebuilt (mode: prebuilt), so no NDK or CMake is needed"
-        : "Install the prerequisites once: a JDK 17+ and the Android SDK (give them to Gradle with JAVA_HOME and ANDROID_HOME) with NDK r27+, CMake 3.31.6 "
-          "and platform " + std::to_string(p.settings.android.targetSdk) + ": sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-" +
-          std::to_string(p.settings.android.targetSdk) + "\" (Gradle also installs missing ones itself once the SDK licenses are accepted; mode: source, "
-          "the engine is compiled from its checkout)";
+    const std::string installPrereq =
+        setup.prebuilt
+            ? "Install the prerequisites once: a JDK 17+ and the Android SDK (Android Studio installs both) and give "
+              "them to Gradle with JAVA_HOME and "
+              "ANDROID_HOME (or open the folder in Android Studio). The engine is prebuilt (mode: prebuilt), so no NDK "
+              "or CMake is needed"
+            : "Install the prerequisites once: a JDK 17+ and the Android SDK (give them to Gradle with JAVA_HOME and "
+              "ANDROID_HOME) with NDK r27+, CMake 3.31.6 "
+              "and platform " +
+                  std::to_string(p.settings.android.targetSdk) +
+                  ": sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-" +
+                  std::to_string(p.settings.android.targetSdk) +
+                  "\" (Gradle also installs missing ones itself once the SDK licenses are accepted; mode: source, "
+                  "the engine is compiled from its checkout)";
 
     std::vector<std::string> steps;
     if (a.format == "gradle") {
-        steps = {installPrereq,
-                 "cd " + quote_path(generic(outRoot)),
-                 wrapper + " " + task + (setup.prebuilt ? "   (nothing is compiled but the Java glue, so it is quick; the " + std::string(a.format == "aab" ? "bundle" : "APK") + " is "
-                                                          : "   (first build compiles the whole engine; the file is ") + outputRel + ")",
+        steps = {installPrereq, "cd " + quote_path(generic(outRoot)),
+                 wrapper + " " + task +
+                     (setup.prebuilt ? "   (nothing is compiled but the Java glue, so it is quick; the " +
+                                           std::string(a.format == "aab" ? "bundle" : "APK") + " is "
+                                     : "   (first build compiles the whole engine; the file is ") +
+                     outputRel + ")",
                  "adb install -r " + outputRel +
-                     (setup.prebuilt ? "  (the engine is " + generic(setup.libs / "jniLibs") + " copied to app/src/main/jniLibs)"
-                                     : "  (the engine is located via factoria.engineDir in gradle.properties: " + generic(setup.engine) + ")")};
+                     (setup.prebuilt
+                          ? "  (the engine is " + generic(setup.libs / "jniLibs") + " copied to app/src/main/jniLibs)"
+                          : "  (the engine is located via factoria.engineDir in gradle.properties: " +
+                                generic(setup.engine) + ")")};
         if (o.release)
-            steps.push_back("Release builds are signed with the keystore of export.android.signing (set FACTORIA_ANDROID_KEYSTORE_PASSWORD and "
-                            "FACTORIA_ANDROID_KEY_PASSWORD first; with none, allowDebugKey uses the debug key); Google Play takes a bundle: " + wrapper +
-                            " bundleRelease. See docs/MOBILE.md (Signing)");
+            steps.push_back("Release builds are signed with the keystore of export.android.signing (set "
+                            "FACTORIA_ANDROID_KEYSTORE_PASSWORD and "
+                            "FACTORIA_ANDROID_KEY_PASSWORD first; with none, allowDebugKey uses the debug key); Google "
+                            "Play takes a bundle: " +
+                            wrapper + " bundleRelease. See docs/MOBILE.md (Signing)");
         report.nextSteps.insert(report.nextSteps.begin(), steps.begin(), steps.end());
         return {};
     }
@@ -563,19 +666,22 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
         std::error_code sec;
         fs::remove_tree(outRoot / stale, sec);
         if (sec)
-            return err("export: cannot delete " + fs::path_to_utf8(outRoot / stale) + ", the output of the previous Android build: " +
-                           sec.message(),
+            return err("export: cannot delete " + fs::path_to_utf8(outRoot / stale) +
+                           ", the output of the previous Android build: " + sec.message(),
                        fs::is_sharing_violation(sec) && sec != std::errc::permission_denied
-                           ? "A program holds a file in it open (an emulator installing the app, Android Studio?): close it and export again."
+                           ? "A program holds a file in it open (an emulator installing the app, Android Studio?): "
+                             "close it and export again."
                            : "Check that the folder can be written, or delete it yourself, then export again.");
     }
     ProcessOptions po;
-    if (is_windows_host()) po.argv = {"cmd.exe", "/c", "gradlew.bat", task, "--console=plain"};
-    else po.argv = {generic(outRoot / "gradlew"), task, "--console=plain"};
+    if (is_windows_host())
+        po.argv = {"cmd.exe", "/c", "gradlew.bat", task, "--console=plain"};
+    else
+        po.argv = {generic(outRoot / "gradlew"), task, "--console=plain"};
     po.workingDir = generic(outRoot);
     po.env["JAVA_HOME"] = a.toolchain.jdk;
     po.env["ANDROID_HOME"] = a.toolchain.sdk;
-    po.unsetEnv = {"ANDROID_SDK_ROOT"};  // the SDK found above is the one; the two variables must not disagree
+    po.unsetEnv = {"ANDROID_SDK_ROOT"};      // the SDK found above is the one; the two variables must not disagree
     if (!a.keystore.empty() && o.release) {  // only as environment variables of this process: never in a file
         po.env["FACTORIA_ANDROID_KEYSTORE_PASSWORD"] = a.secrets.keystorePassword;
         po.env["FACTORIA_ANDROID_KEY_PASSWORD"] = a.secrets.keyPassword;
@@ -597,28 +703,35 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
     };
     po.onStdoutLine = line;
     po.onStderrLine = line;
-    const std::string startLine = std::string("Starting Gradle: ") + wrapper + " " + task + " (JDK " + a.toolchain.jdk + ", Android SDK " +
-                                  a.toolchain.sdk + "). The first build downloads Gradle and the Android Gradle plugin" +
-                                  (setup.prebuilt ? "" : " and compiles the engine for two ABIs") + ": it can take several minutes";
+    const std::string startLine =
+        std::string("Starting Gradle: ") + wrapper + " " + task + " (JDK " + a.toolchain.jdk + ", Android SDK " +
+        a.toolchain.sdk + "). The first build downloads Gradle and the Android Gradle plugin" +
+        (setup.prebuilt ? "" : " and compiles the engine for two ABIs") + ": it can take several minutes";
     line(startLine);
 
     keepOutput = true;  // from here on a failure leaves the Gradle project for the user to open
     auto run = run_process(po);
-    const std::string kept = "The Gradle project stays in " + generic(outRoot) + ": open it in Android Studio, or run " + wrapper + " " + task +
-                             " there.";
+    const std::string kept = "The Gradle project stays in " + generic(outRoot) +
+                             ": open it in Android Studio, or run " + wrapper + " " + task + " there.";
     if (!run.ok())
-        return err("export: cannot start Gradle (" + generic(outRoot / "gradlew") + "): " + run.error().message + " " + kept,
-                   run.error().hint.empty() ? "Check that the folder is writable and not mounted noexec." : run.error().hint);
+        return err(
+            "export: cannot start Gradle (" + generic(outRoot / "gradlew") + "): " + run.error().message + " " + kept,
+            run.error().hint.empty() ? "Check that the folder is writable and not mounted noexec." : run.error().hint);
     if (run->cancelled)
-        return err("export: cancelled: the Android build was stopped. " + kept, "Export again to build it from where Gradle left off.");
+        return err("export: cancelled: the Android build was stopped. " + kept,
+                   "Export again to build it from where Gradle left off.");
     if (run->exitCode != 0) {
         const std::string failure = gradle_failure_text(tail);
         std::string hint = gradle_failure_hint(tail, failure, a);
         if (hint.empty())
-            hint = "Read " + generic(logPath) + " (the whole Gradle output), or open the project in Android Studio to see the error in context; "
-                   "adding --stacktrace to " + wrapper + " " + task + " shows more.";
-        return err("export: the Gradle build failed (" + wrapper + " " + task + " exited with code " + std::to_string(run->exitCode) + "). What went wrong: " +
-                       (failure.empty() ? "Gradle printed nothing" : failure) + " Full log: " + generic(logPath) + ". " + kept,
+            hint = "Read " + generic(logPath) +
+                   " (the whole Gradle output), or open the project in Android Studio to see the error in context; "
+                   "adding --stacktrace to " +
+                   wrapper + " " + task + " shows more.";
+        return err("export: the Gradle build failed (" + wrapper + " " + task + " exited with code " +
+                       std::to_string(run->exitCode) +
+                       "). What went wrong: " + (failure.empty() ? "Gradle printed nothing" : failure) +
+                       " Full log: " + generic(logPath) + ". " + kept,
                    hint);
     }
 
@@ -631,31 +744,44 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
             break;
         }
     if (built.empty())
-        return err("export: Gradle finished without errors but " + outputRel + " was not written. Full log: " + generic(logPath) + ". " + kept,
+        return err("export: Gradle finished without errors but " + outputRel +
+                       " was not written. Full log: " + generic(logPath) + ". " + kept,
                    "Open the project in Android Studio and run the build there, or report this as an engine bug.");
     stdfs::copy_file(built, a.artifact, stdfs::copy_options::overwrite_existing, ec);
-    if (ec) return err("export: cannot copy " + generic(built) + " to " + generic(a.artifact) + ": " + ec.message() + ". " + kept);
+    if (ec)
+        return err("export: cannot copy " + generic(built) + " to " + generic(a.artifact) + ": " + ec.message() + ". " +
+                   kept);
     keepOutput = false;
     if (built.filename().string().find("unsigned") != std::string::npos)
-        report.warnings.push_back("The release app was built without a signature, so it cannot be installed or uploaded: sign it with apksigner, or set "
+        report.warnings.push_back("The release app was built without a signature, so it cannot be installed or "
+                                  "uploaded: sign it with apksigner, or set "
                                   "export.android.signing in factoria.json");
     report.artifact = generic(a.artifact);
 
     const std::string artifact = quote_path(generic(a.artifact));
     const std::string adb = adb_command(a);
     if (a.format == "apk") {
-        steps.push_back("Install the app on a phone (USB debugging on) or a running emulator: " + adb + " install -r " + artifact);
+        steps.push_back("Install the app on a phone (USB debugging on) or a running emulator: " + adb + " install -r " +
+                        artifact);
         steps.push_back("Start it from the launcher; the log is " + adb + " logcat -s factoria");
         if (o.release)
-            steps.push_back("Google Play takes an Android App Bundle, not an APK: factoria export --platform android --format aab --release");
+            steps.push_back("Google Play takes an Android App Bundle, not an APK: factoria export --platform android "
+                            "--format aab --release");
     } else {
-        steps.push_back(std::string("Upload ") + artifact + " to Google Play: Play Console > your app > Release > Create new release" +
-                        (o.release && !a.keystore.empty() ? " (Play App Signing keeps the final key; this bundle is signed with your upload key)"
-                                                          : " (Google Play only accepts a bundle signed with your own release key: this one is not)"));
+        steps.push_back(
+            std::string("Upload ") + artifact +
+            " to Google Play: Play Console > your app > Release > Create new release" +
+            (o.release && !a.keystore.empty()
+                 ? " (Play App Signing keeps the final key; this bundle is signed with your upload key)"
+                 : " (Google Play only accepts a bundle signed with your own release key: this one is not)"));
         const std::string apks = quote_path(generic(outRoot / (slug_of(p) + ".apks")));
-        steps.push_back("To try the bundle on a phone first, install bundletool (https://developer.android.com/tools/bundletool) and run: bundletool "
-                        "build-apks --bundle=" + artifact + " --output=" + apks + " --connected-device" +
-                        (o.release && !a.keystore.empty() ? " --ks=" + quote_path(a.keystore) + " --ks-key-alias=" + a.alias : std::string()) +
+        steps.push_back("To try the bundle on a phone first, install bundletool "
+                        "(https://developer.android.com/tools/bundletool) and run: bundletool "
+                        "build-apks --bundle=" +
+                        artifact + " --output=" + apks + " --connected-device" +
+                        (o.release && !a.keystore.empty()
+                             ? " --ks=" + quote_path(a.keystore) + " --ks-key-alias=" + a.alias
+                             : std::string()) +
                         "; bundletool install-apks --apks=" + apks);
     }
     report.nextSteps.insert(report.nextSteps.begin(), steps.begin(), steps.end());

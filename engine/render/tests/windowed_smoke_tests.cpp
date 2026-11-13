@@ -20,8 +20,8 @@
 
 using namespace fa;
 
-TEST_CASE("windowed smoke: run_app opens, renders, presents with letterboxing and quits"
-          * doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
+TEST_CASE("windowed smoke: run_app opens, renders, presents with letterboxing and quits" *
+          doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     Renderer renderer;
     World world;
     Input input;

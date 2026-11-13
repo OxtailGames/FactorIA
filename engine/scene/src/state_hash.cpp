@@ -143,8 +143,8 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
     for (Entity e : world.entities()) {
         components.clear();
         for (const TypeInfo* t : world.components_of(e)) {
-            if (filtered &&
-                std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) == options.onlyComponents.end())
+            if (filtered && std::find(options.onlyComponents.begin(), options.onlyComponents.end(), t->name) ==
+                                options.onlyComponents.end())
                 continue;
             if (const void* obj = world.get(e, *t)) components.push_back(ComponentRef{t, obj});
         }
@@ -170,13 +170,21 @@ StateHash world_state_hash(const World& world, const StateHashOptions& options) 
             all.u8(sim.everSpawned ? 1 : 0);
             all.u32(std::uint32_t(sim.pending_burst()));
             all.f64(sim.clock());
-            all.u64(sim.rng_state());         // the next particle's random draws depend on it
+            all.u64(sim.rng_state());             // the next particle's random draws depend on it
             all.f32(sim.emission_accumulator());  // ...and when the next one is born
             for (const Particle& p : sim.particles) {
-                all.f32(p.pos.x); all.f32(p.pos.y); all.f32(p.pos.z);
-                all.f32(p.vel.x); all.f32(p.vel.y); all.f32(p.vel.z);
-                all.f32(p.age); all.f32(p.life); all.f32(p.rotation); all.f32(p.spin);
-                all.f32(p.sizeScale); all.f32(p.random);
+                all.f32(p.pos.x);
+                all.f32(p.pos.y);
+                all.f32(p.pos.z);
+                all.f32(p.vel.x);
+                all.f32(p.vel.y);
+                all.f32(p.vel.z);
+                all.f32(p.age);
+                all.f32(p.life);
+                all.f32(p.rotation);
+                all.f32(p.spin);
+                all.f32(p.sizeScale);
+                all.f32(p.random);
                 all.u8(p.group);
             }
         }

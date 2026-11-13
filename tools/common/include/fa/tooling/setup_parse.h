@@ -30,21 +30,23 @@ bool is_trusted_download_url(const std::string& url);
 // ---- Android SDK repository (repository2-3.xml) ----------------------------------------------------------------
 
 struct SdkArchive {
-    std::string url;            // absolute (kSdkDownloadBase + the relative <url> of the XML)
-    std::string checksumType;   // "sha1"
-    std::string checksum;       // hex
-    std::uint64_t size = 0;     // bytes
-    std::string hostOs;         // "macosx" | "windows" | "linux" as the XML says
-    std::string hostArch;       // "aarch64" | "x64" | "" (any)
+    std::string url;           // absolute (kSdkDownloadBase + the relative <url> of the XML)
+    std::string checksumType;  // "sha1"
+    std::string checksum;      // hex
+    std::uint64_t size = 0;    // bytes
+    std::string hostOs;        // "macosx" | "windows" | "linux" as the XML says
+    std::string hostArch;      // "aarch64" | "x64" | "" (any)
 };
 
 struct SdkRepositoryInfo {
-    std::string cmdlineToolsPackage;   // "cmdline-tools;22.0" (kSetupAndroidCmdlineTools) or "cmdline-tools;latest" (the fallback)
+    std::string
+        cmdlineToolsPackage;  // "cmdline-tools;22.0" (kSetupAndroidCmdlineTools) or "cmdline-tools;latest" (the fallback)
     std::string cmdlineToolsRevision;  // "22.0"
     bool cmdlineToolsPinned = false;   // the archive is kSetupAndroidCmdlineTools: the classic, Java-based sdkmanager
     SdkArchive cmdlineTools;           // the archive of that package for the host
     SetupLicense license;              // the android-sdk-license text
-    std::vector<std::string> warnings; // what the user should know, e.g. that the pinned package was gone and `latest` is used
+    std::vector<std::string>
+        warnings;  // what the user should know, e.g. that the pinned package was gone and `latest` is used
 };
 
 // `hostOs` is "macos" | "windows" | "linux", `hostArch` "aarch64" | "x64". Prefers the package kSetupAndroidCmdlineTools; only
@@ -52,7 +54,8 @@ struct SdkRepositoryInfo {
 // kSetupAndroidCmdlineToolsFallback is used instead, and `warnings` says why. The Error says what the listing lacks (a new
 // layout of the XML, or no archive for this OS and CPU). Checksum (SHA-1) and download address are checked the same way
 // for either package.
-Result<SdkRepositoryInfo> parse_sdk_repository(std::string_view xml, const std::string& hostOs, const std::string& hostArch);
+Result<SdkRepositoryInfo> parse_sdk_repository(std::string_view xml, const std::string& hostOs,
+                                               const std::string& hostArch);
 
 // What the Android SDK tools write into <sdk>/licenses/<id> once a license is accepted: the SHA-1 (hex) of the license text
 // as the tools read it from the repository XML (whitespace of the XML layout normalised the way their TrimStringAdapter does:
@@ -66,11 +69,11 @@ std::string decode_xml_entities(std::string_view text);
 // ---- Eclipse Temurin (Adoptium API) ------------------------------------------------------------------------------
 
 struct JdkDownload {
-    std::string name;       // "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz"
+    std::string name;  // "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz"
     std::string url;
     std::string sha256;
-    std::string release;    // "jdk-21.0.12.1+1"
-    std::string version;    // "21.0.12.1+1-LTS"
+    std::string release;  // "jdk-21.0.12.1+1"
+    std::string version;  // "21.0.12.1+1-LTS"
     std::uint64_t size = 0;
 };
 

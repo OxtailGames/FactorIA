@@ -63,8 +63,9 @@ bool store_stats(FaRequest* request) {
     Backend& b = backend();
     b.statsDirty = false;
     if (b.steam.SteamAPI_ISteamUserStats_StoreStats(b.steam.userStats)) return true;
-    reject(request, "network", "Steam did not accept the stats: the player is offline, or the stats were not loaded yet",
-           "The change is kept in this session and Steam sends it with the next successful store. Offer a retry later.");
+    reject(
+        request, "network", "Steam did not accept the stats: the player is offline, or the stats were not loaded yet",
+        "The change is kept in this session and Steam sends it with the next successful store. Offer a retry later.");
     return false;
 }
 
@@ -73,8 +74,10 @@ void flush_stats() {
     if (!b.statsDirty || b.stats != Backend::Stats::Ready) return;
     b.statsDirty = false;
     if (!b.steam.SteamAPI_ISteamUserStats_StoreStats(b.steam.userStats))
-        warn_once("storestats", "Steam did not accept StoreStats: the player is offline, or the stats were not loaded. The stats stay "
-                                "in this session and are sent with the next store.");
+        warn_once(
+            "storestats",
+            "Steam did not accept StoreStats: the player is offline, or the stats were not loaded. The stats stay "
+            "in this session and are sent with the next store.");
 }
 
 // -------------------------------------------------------------------------------------------------- the callbacks --
@@ -113,16 +116,19 @@ void stats_received(const UserStatsReceived& r) {
     }
     b.stats = Backend::Stats::Idle;  // the next request asks again
     for (const Backend::Held& h : held)
-        reject(h.request, "network", "Steam could not load the player's stats (EResult " + std::to_string(r.result) + ")",
-               "Check that Steam is online and that the game has stats and achievements configured in the Steamworks partner site.");
+        reject(h.request, "network",
+               "Steam could not load the player's stats (EResult " + std::to_string(r.result) + ")",
+               "Check that Steam is online and that the game has stats and achievements configured in the Steamworks "
+               "partner site.");
 }
 
 void stats_stored(const UserStatsStored& r) {
     if (r.result == kResultOk) return;
     if (r.result == kResultInvalidParam)
-        warn_once("statsinvalid", "Steam rejected some of the stats that were stored (they broke a constraint of the stat in the "
-                                  "Steamworks partner site, e.g. a maximum change) and sent its own values back: read them again "
-                                  "with platform.stats.get.");
+        warn_once("statsinvalid",
+                  "Steam rejected some of the stats that were stored (they broke a constraint of the stat in the "
+                  "Steamworks partner site, e.g. a maximum change) and sent its own values back: read them again "
+                  "with platform.stats.get.");
     else
         warn_once("statsstored", "Steam could not store the stats (EResult " + std::to_string(r.result) +
                                      "): they stay in this session and are sent with the next successful store.");
@@ -139,15 +145,16 @@ void dispatch(int id, const std::vector<std::uint8_t>& data) {
             // Fetch the result even when nobody waits for it: Steam keeps it until it is fetched.
             std::vector<std::uint8_t> result(std::max<u32>(done.paramSize, 1));
             bool failed = false;
-            const bool got = s.SteamAPI_ManualDispatch_GetAPICallResult(s.pipe, done.asyncCall, result.data(), static_cast<int>(done.paramSize),
-                                                                        done.callback, &failed);
+            const bool got = s.SteamAPI_ManualDispatch_GetAPICallResult(
+                s.pipe, done.asyncCall, result.data(), static_cast<int>(done.paramSize), done.callback, &failed);
             if (it == b.calls.end()) return;  // an answer for a call this plugin did not make: harmless
             ResultHandler handler = std::move(it->second.handler);
             const int expected = it->second.callback;
             b.calls.erase(it);
             if (got && !failed && done.callback != expected) {
-                warn_once("callbackid", "Steam answered a call with the result " + std::to_string(done.callback) + " but " +
-                                            std::to_string(expected) + " was expected: the Steam library does not match this plugin");
+                warn_once("callbackid", "Steam answered a call with the result " + std::to_string(done.callback) +
+                                            " but " + std::to_string(expected) +
+                                            " was expected: the Steam library does not match this plugin");
                 handler(result.data(), 0, true);
                 return;
             }
@@ -159,9 +166,7 @@ void dispatch(int id, const std::vector<std::uint8_t>& data) {
             if (read(data, r)) text_input_dismissed(r);
             return;
         }
-        case kFloatingGamepadTextInputDismissed:
-            floating_text_input_dismissed();
-            return;
+        case kFloatingGamepadTextInputDismissed: floating_text_input_dismissed(); return;
         case kGameOverlayActivated: {
             GameOverlayActivated a;
             if (!read(data, a)) return;

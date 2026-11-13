@@ -43,8 +43,9 @@ Result<VecNode*> node_at(VecNodePath& path, int subpath, int node) {
     if (!s.ok()) return s.error();
     VecSubpath& sp = **s;
     if (node < 0 || node >= int(sp.nodes.size()))
-        return err(std::format("node {} does not exist in subpath {}: it has {} node(s).", node, subpath, sp.nodes.size()),
-                   sp.nodes.empty() ? "" : std::format("Use 0 to {}.", sp.nodes.size() - 1));
+        return err(
+            std::format("node {} does not exist in subpath {}: it has {} node(s).", node, subpath, sp.nodes.size()),
+            sp.nodes.empty() ? "" : std::format("Use 0 to {}.", sp.nodes.size() - 1));
     return &sp.nodes[std::size_t(node)];
 }
 
@@ -126,7 +127,8 @@ VecNodePath nodes_from_path(const vec::Path& path) {
 Result<VecNodePath> vector_nodes_from_d(const std::string& d) {
     vec::Path path;
     std::string why;
-    if (!vec::parse_path_data(d, path, why)) return err("Path data cannot be read: " + why, "Write it as an SVG path: \"M10 10 L90 10 L50 80 Z\".");
+    if (!vec::parse_path_data(d, path, why))
+        return err("Path data cannot be read: " + why, "Write it as an SVG path: \"M10 10 L90 10 L50 80 Z\".");
     return nodes_from_path(path);
 }
 
@@ -156,7 +158,9 @@ vec::Path path_from_nodes(const VecNodePath& path) {
     return out;
 }
 
-std::string vector_nodes_to_d(const VecNodePath& path, int decimals) { return vec::path_to_data(path_from_nodes(path), decimals); }
+std::string vector_nodes_to_d(const VecNodePath& path, int decimals) {
+    return vec::path_to_data(path_from_nodes(path), decimals);
+}
 
 VecNodeKind vector_node_kind(const VecNode& n) {
     if (!n.hasIn || !n.hasOut) return VecNodeKind::Corner;
@@ -215,8 +219,10 @@ VecNearest vector_nearest_on_path(const VecNodePath& path, VecPoint p) {
                 double lo = std::max(0.0, bt - 1.0 / steps), hi = std::min(1.0, bt + 1.0 / steps);
                 for (int it = 0; it < 24; ++it) {
                     const double m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
-                    if (distance(cubic_at(c, m1), p) < distance(cubic_at(c, m2), p)) hi = m2;
-                    else lo = m1;
+                    if (distance(cubic_at(c, m1), p) < distance(cubic_at(c, m2), p))
+                        hi = m2;
+                    else
+                        lo = m1;
                 }
                 bt = (lo + hi) * 0.5;
                 bd = distance(cubic_at(c, bt), p);
@@ -281,8 +287,10 @@ Result<void> vector_handle_move(VecNodePath& path, int subpath, int node, bool o
     if (away || link == VecHandleLink::None || !otherHas) return {};
     const VecPoint dir = unit(v.p - to);
     const double len = link == VecHandleLink::Mirror ? distance(to, v.p) : otherLen;
-    if (out) v.in = v.p + dir * len;
-    else v.out = v.p + dir * len;
+    if (out)
+        v.in = v.p + dir * len;
+    else
+        v.out = v.p + dir * len;
     return {};
 }
 
@@ -291,9 +299,13 @@ Result<int> vector_node_insert(VecNodePath& path, int subpath, int segment, doub
     if (!s.ok()) return s.error();
     VecSubpath& sp = **s;
     if (segment < 0 || segment >= vector_segment_count(sp))
-        return err(std::format("segment {} does not exist in subpath {}: it has {} segment(s).", segment, subpath, vector_segment_count(sp)),
-                   "A segment is the piece between node i and node i+1; a closed subpath also has one from the last node back to the first.");
-    if (!(t > 0 && t < 1)) return err(std::format("`t` must be between 0 and 1 (exclusive), got {}.", t), "0.5 splits the segment in the middle.");
+        return err(std::format("segment {} does not exist in subpath {}: it has {} segment(s).", segment, subpath,
+                               vector_segment_count(sp)),
+                   "A segment is the piece between node i and node i+1; a closed subpath also has one from the last "
+                   "node back to the first.");
+    if (!(t > 0 && t < 1))
+        return err(std::format("`t` must be between 0 and 1 (exclusive), got {}.", t),
+                   "0.5 splits the segment in the middle.");
     const Cubic c = cubic_of(sp, segment);
     const bool curve = vector_segment_is_curve(sp, segment);
     VecNode mid;
@@ -338,7 +350,9 @@ Result<void> vector_node_delete(VecNodePath& path, int subpath, int node, bool k
     const int count = int(sp.nodes.size());
     const int remaining = count - 1;
     if (remaining < 2) {
-        if (path.size() == 1) return err("Deleting this node would leave the path with nothing to draw.", "Delete the element instead (vector.delete).");
+        if (path.size() == 1)
+            return err("Deleting this node would leave the path with nothing to draw.",
+                       "Delete the element instead (vector.delete).");
         path.erase(path.begin() + subpath);
         return {};
     }
@@ -390,11 +404,16 @@ Result<void> vector_node_convert(VecNodePath& path, int subpath, int node, VecNo
     } else if (prev) {
         dir = unit(v.p - prev->p);
     }
-    if (length(dir) < kEps) return err("This node has no neighbour to take a direction from, so it cannot be made smooth.", "Add a second node first.");
+    if (length(dir) < kEps)
+        return err("This node has no neighbour to take a direction from, so it cannot be made smooth.",
+                   "Add a second node first.");
     double lin = v.hasIn ? distance(v.in, v.p) : (prev ? distance(prev->p, v.p) / 3 : 0);
     double lout = v.hasOut ? distance(v.out, v.p) : (next ? distance(next->p, v.p) / 3 : 0);
     if (kind == VecNodeKind::Symmetric) {
-        const double l = (v.hasIn && v.hasOut) ? (lin + lout) * 0.5 : (v.hasIn ? lin : v.hasOut ? lout : std::max(lin, lout));
+        const double l = (v.hasIn && v.hasOut) ? (lin + lout) * 0.5
+                                               : (v.hasIn    ? lin
+                                                  : v.hasOut ? lout
+                                                             : std::max(lin, lout));
         lin = lout = l;
     }
     if (lout > kEps && (hasNext || v.hasOut)) {
@@ -426,7 +445,9 @@ Result<void> vector_node_break(VecNodePath& path, int subpath, int node) {
         sp.closed = false;
         return {};
     }
-    if (node == 0 || node == count - 1) return err(std::format("node {} is an end of an open subpath, so there is nothing to cut.", node), "Break a node in the middle of the path, or of a closed one.");
+    if (node == 0 || node == count - 1)
+        return err(std::format("node {} is an end of an open subpath, so there is nothing to cut.", node),
+                   "Break a node in the middle of the path, or of a closed one.");
     VecSubpath second;
     second.nodes.assign(sp.nodes.begin() + node, sp.nodes.end());
     second.nodes.front().hasIn = false;
@@ -466,8 +487,11 @@ Result<void> vector_subpath_close(VecNodePath& path, int subpath) {
     if (!s.ok()) return s.error();
     VecSubpath& sp = **s;
     if (sp.closed) return err(std::format("subpath {} is already closed.", subpath));
-    if (sp.nodes.size() < 2) return err(std::format("subpath {} has {} node(s); closing needs at least 2.", subpath, sp.nodes.size()), "Add more nodes first.");
-    if (distance(sp.nodes.back().p, sp.nodes.front().p) < 1e-7 && sp.nodes.size() > 2) {  // the last node sits on the first: they are one
+    if (sp.nodes.size() < 2)
+        return err(std::format("subpath {} has {} node(s); closing needs at least 2.", subpath, sp.nodes.size()),
+                   "Add more nodes first.");
+    if (distance(sp.nodes.back().p, sp.nodes.front().p) < 1e-7 &&
+        sp.nodes.size() > 2) {  // the last node sits on the first: they are one
         const VecNode last = sp.nodes.back();
         sp.nodes.pop_back();
         if (last.hasIn) {
@@ -486,11 +510,15 @@ Result<void> vector_nodes_join(VecNodePath& path, int sa, int na, int sb, int nb
     if (!rb.ok()) return rb.error();
     VecSubpath& a = **ra;
     VecSubpath& b = **rb;
-    if (a.closed || b.closed) return err("A closed subpath has no ends to join.", "Break it at a node first (vector.nodes op \"break\").");
+    if (a.closed || b.closed)
+        return err("A closed subpath has no ends to join.", "Break it at a node first (vector.nodes op \"break\").");
     auto is_end = [](const VecSubpath& s, int n) { return n == 0 || n == int(s.nodes.size()) - 1; };
     if (!is_end(a, na) || !is_end(b, nb))
-        return err(std::format("Only the first or last node of a subpath can be joined; got node {} of subpath {} and node {} of subpath {}.", na, sa, nb, sb),
-                   std::format("Subpath {} ends at nodes 0 and {}, subpath {} at 0 and {}.", sa, a.nodes.size() - 1, sb, b.nodes.size() - 1));
+        return err(std::format("Only the first or last node of a subpath can be joined; got node {} of subpath {} and "
+                               "node {} of subpath {}.",
+                               na, sa, nb, sb),
+                   std::format("Subpath {} ends at nodes 0 and {}, subpath {} at 0 and {}.", sa, a.nodes.size() - 1, sb,
+                               b.nodes.size() - 1));
     if (sa == sb) {
         if (na == nb) return err("Joining a node with itself does nothing.", "Pick the two ends of the path.");
         if (a.nodes.size() < 2) return err("The subpath has a single node.");
@@ -510,8 +538,10 @@ Result<void> vector_nodes_join(VecNodePath& path, int sa, int na, int sb, int nb
         a.closed = true;
         return {};
     }
-    if (na == 0 && a.nodes.size() > 1) reverse_nodes(a);  // a's joined end last
-    else if (na == 0 && a.nodes.size() == 1) {}
+    if (na == 0 && a.nodes.size() > 1)
+        reverse_nodes(a);  // a's joined end last
+    else if (na == 0 && a.nodes.size() == 1) {
+    }
     if (nb != 0 && b.nodes.size() > 1) reverse_nodes(b);  // b's joined end first
     if (merge) {
         VecNode& end = a.nodes.back();
@@ -547,7 +577,10 @@ Result<void> vector_node_append(VecNodePath& path, int subpath, VecPoint at, con
     auto s = sub_at(path, subpath);
     if (!s.ok()) return s.error();
     VecSubpath& sp = **s;
-    if (sp.closed) return err(std::format("subpath {} is closed, so it has no end to continue.", subpath), "Break it at a node first, or start a new subpath with subpath = " + std::to_string(path.size()) + ".");
+    if (sp.closed)
+        return err(std::format("subpath {} is closed, so it has no end to continue.", subpath),
+                   "Break it at a node first, or start a new subpath with subpath = " + std::to_string(path.size()) +
+                       ".");
     if (atEnd) {
         sp.nodes.push_back(n);
     } else {
@@ -561,11 +594,14 @@ Result<void> vector_node_append(VecNodePath& path, int subpath, VecPoint at, con
 
 namespace {
 
-Error op_error(std::size_t i, const std::string& what, const std::string& hint = {}) { return Error{std::format("/ops/{}: {}", i, what), hint}; }
+Error op_error(std::size_t i, const std::string& what, const std::string& hint = {}) {
+    return Error{std::format("/ops/{}: {}", i, what), hint};
+}
 
 bool read_point(const Json& o, const char* key, VecPoint& p) {
     auto it = o.find(key);
-    if (it == o.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) return false;
+    if (it == o.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number())
+        return false;
     p = {(*it)[0].get<double>(), (*it)[1].get<double>()};
     return std::isfinite(p.x) && std::isfinite(p.y);
 }
@@ -573,15 +609,19 @@ bool read_point(const Json& o, const char* key, VecPoint& p) {
 }  // namespace
 
 Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
-    static const std::vector<std::string> names = {"move", "handle", "insert", "delete", "convert", "break", "join", "close", "reverse", "append"};
-    if (!ops.is_array()) return Error{"`ops` must be a list of operations.", "Example: [{\"op\": \"move\", \"node\": 2, \"to\": [40, 50]}]."};
+    static const std::vector<std::string> names = {"move",  "handle", "insert", "delete",  "convert",
+                                                   "break", "join",   "close",  "reverse", "append"};
+    if (!ops.is_array())
+        return Error{"`ops` must be a list of operations.",
+                     "Example: [{\"op\": \"move\", \"node\": 2, \"to\": [40, 50]}]."};
     for (std::size_t i = 0; i < ops.size(); ++i) {
         const Json& o = ops[i];
         if (!o.is_object() || !o.contains("op") || !o["op"].is_string())
             return op_error(i, "each operation is an object with an `op`.", "One of: " + join(names, ", ") + ".");
         const std::string op = o["op"].get<std::string>();
         if (std::find(names.begin(), names.end(), op) == names.end())
-            return op_error(i, "unknown op '" + op + "'.", did_you_mean(op, names) + " The ops: " + join(names, ", ") + ".");
+            return op_error(i, "unknown op '" + op + "'.",
+                            did_you_mean(op, names) + " The ops: " + join(names, ", ") + ".");
         const int sp = o.contains("subpath") && o["subpath"].is_number_integer() ? o["subpath"].get<int>() : 0;
         const int node = o.contains("node") && o["node"].is_number_integer() ? o["node"].get<int>() : -1;
         auto need_node = [&]() -> bool { return node >= 0; };
@@ -590,12 +630,14 @@ Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
         if (op == "move") {
             if (!need_node()) return op_error(i, "`move` needs `node` (a whole number).");
             VecPoint by;
-            if (read_point(o, "to", to)) r = vector_node_move(path, sp, node, to, o.value("handles", true));
+            if (read_point(o, "to", to))
+                r = vector_node_move(path, sp, node, to, o.value("handles", true));
             else if (read_point(o, "by", by)) {
                 auto n = node_at(path, sp, node);
                 if (!n.ok()) return op_error(i, n.error().message, n.error().hint);
                 r = vector_node_move(path, sp, node, (*n)->p + by, o.value("handles", true));
-            } else return op_error(i, "`move` needs `to` [x, y] or `by` [dx, dy].");
+            } else
+                return op_error(i, "`move` needs `to` [x, y] or `by` [dx, dy].");
         } else if (op == "handle") {
             if (!need_node()) return op_error(i, "`handle` needs `node` (a whole number).");
             const std::string which = o.value("which", std::string());
@@ -603,10 +645,15 @@ Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
             if (!read_point(o, "to", to)) return op_error(i, "`handle` needs `to` [x, y]: where the handle goes.");
             VecHandleLink link = VecHandleLink::Auto;
             const std::string l = o.value("link", std::string("auto"));
-            if (l == "none") link = VecHandleLink::None;
-            else if (l == "angle") link = VecHandleLink::Angle;
-            else if (l == "mirror") link = VecHandleLink::Mirror;
-            else if (l != "auto") return op_error(i, "`link` must be auto, none, angle or mirror.", did_you_mean(l, std::vector<std::string>{"auto", "none", "angle", "mirror"}));
+            if (l == "none")
+                link = VecHandleLink::None;
+            else if (l == "angle")
+                link = VecHandleLink::Angle;
+            else if (l == "mirror")
+                link = VecHandleLink::Mirror;
+            else if (l != "auto")
+                return op_error(i, "`link` must be auto, none, angle or mirror.",
+                                did_you_mean(l, std::vector<std::string>{"auto", "none", "angle", "mirror"}));
             r = vector_handle_move(path, sp, node, which == "out", to, link);
         } else if (op == "insert") {
             int segment = o.contains("segment") && o["segment"].is_number_integer() ? o["segment"].get<int>() : -1;
@@ -626,7 +673,9 @@ Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
                     continue;
                 }
             }
-            if (segment < 0) return op_error(i, "`insert` needs `segment` (and `t`, default 0.5) or a point `at` [x, y] near the path.");
+            if (segment < 0)
+                return op_error(
+                    i, "`insert` needs `segment` (and `t`, default 0.5) or a point `at` [x, y] near the path.");
             auto res = vector_node_insert(path, sp, segment, t);
             if (!res.ok()) return op_error(i, res.error().message, res.error().hint);
             continue;
@@ -636,15 +685,23 @@ Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
         } else if (op == "convert") {
             if (!need_node()) return op_error(i, "`convert` needs `node` (a whole number).");
             const std::string k = o.value("to", std::string());
-            if (k != "corner" && k != "smooth" && k != "symmetric") return op_error(i, "`to` must be corner, smooth or symmetric.", did_you_mean(k, std::vector<std::string>{"corner", "smooth", "symmetric"}));
-            r = vector_node_convert(path, sp, node, k == "corner" ? VecNodeKind::Corner : k == "smooth" ? VecNodeKind::Smooth : VecNodeKind::Symmetric);
+            if (k != "corner" && k != "smooth" && k != "symmetric")
+                return op_error(i, "`to` must be corner, smooth or symmetric.",
+                                did_you_mean(k, std::vector<std::string>{"corner", "smooth", "symmetric"}));
+            r = vector_node_convert(path, sp, node,
+                                    k == "corner"   ? VecNodeKind::Corner
+                                    : k == "smooth" ? VecNodeKind::Smooth
+                                                    : VecNodeKind::Symmetric);
         } else if (op == "break") {
             if (!need_node()) return op_error(i, "`break` needs `node` (a whole number).");
             r = vector_node_break(path, sp, node);
         } else if (op == "join") {
             const int osp = o.contains("other") && o["other"].is_number_integer() ? o["other"].get<int>() : sp;
-            const int onode = o.contains("otherNode") && o["otherNode"].is_number_integer() ? o["otherNode"].get<int>() : -1;
-            if (!need_node() || onode < 0) return op_error(i, "`join` needs `node` and `otherNode` (the two ends), and `other` when it is another subpath.");
+            const int onode =
+                o.contains("otherNode") && o["otherNode"].is_number_integer() ? o["otherNode"].get<int>() : -1;
+            if (!need_node() || onode < 0)
+                return op_error(
+                    i, "`join` needs `node` and `otherNode` (the two ends), and `other` when it is another subpath.");
             r = vector_nodes_join(path, sp, node, osp, onode, o.value("connect", std::string("merge")) != "line");
         } else if (op == "close") {
             r = vector_subpath_close(path, sp);
@@ -654,7 +711,8 @@ Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops) {
             if (!read_point(o, "at", to)) return op_error(i, "`append` needs `at` [x, y].");
             VecPoint out;
             const bool hasOut = read_point(o, "out", out);
-            r = vector_node_append(path, sp, to, hasOut ? &out : nullptr, o.value("end", std::string("end")) != "start");
+            r = vector_node_append(path, sp, to, hasOut ? &out : nullptr,
+                                   o.value("end", std::string("end")) != "start");
         }
         if (!r.ok()) return op_error(i, r.error().message, r.error().hint);
     }

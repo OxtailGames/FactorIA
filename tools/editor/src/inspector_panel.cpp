@@ -23,7 +23,9 @@ Json numbers(const float* v, int n) {
 
 void read_floats(const Json& cur, float* v, int n, float fallback = 0.0f) {
     for (int i = 0; i < n; ++i)
-        v[i] = cur.is_array() && std::size_t(i) < cur.size() && cur[std::size_t(i)].is_number() ? cur[std::size_t(i)].get<float>() : fallback;
+        v[i] = cur.is_array() && std::size_t(i) < cur.size() && cur[std::size_t(i)].is_number()
+                   ? cur[std::size_t(i)].get<float>()
+                   : fallback;
 }
 
 void tooltip(const std::string& text) {
@@ -41,8 +43,10 @@ std::string field_tip(const FieldInfo& f, bool disabled) {
         std::snprintf(buf, sizeof buf, "\nRange: %g to %g", double(f.minValue), double(f.maxValue));
         tip += buf;
     }
-    if (f.readOnly) tip += "\nRead-only.";
-    else if (disabled) tip += "\nNot editable here.";
+    if (f.readOnly)
+        tip += "\nRead-only.";
+    else if (disabled)
+        tip += "\nNot editable here.";
     return tip;
 }
 
@@ -83,7 +87,8 @@ void Editor::draw_inspector_panel() {
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::BeginCombo("##addcomp", "Add Component...")) {
             std::vector<const TypeInfo*> types = TypeRegistry::global().all();
-            std::stable_sort(types.begin(), types.end(), [](const TypeInfo* a, const TypeInfo* b) { return a->category < b->category; });
+            std::stable_sort(types.begin(), types.end(),
+                             [](const TypeInfo* a, const TypeInfo* b) { return a->category < b->category; });
             std::string category;
             for (const TypeInfo* t : types) {
                 if (t->name == "EntityInfo" || t->name == "Transform" || w.get(e, *t) != nullptr) continue;
@@ -93,8 +98,9 @@ void Editor::draw_inspector_panel() {
                 }
                 if (ImGui::Selectable(t->name.c_str())) {
                     std::string err;
-                    CommandResult r = edit_command("insp:add:" + std::to_string(uiFrame_), "scene.set_component",
-                                                   Json::object({{"id", id}, {"component", t->name}, {"fields", Json::object()}}), &err);
+                    CommandResult r = edit_command(
+                        "insp:add:" + std::to_string(uiFrame_), "scene.set_component",
+                        Json::object({{"id", id}, {"component", t->name}, {"fields", Json::object()}}), &err);
                     if (!r.ok) notify("Could not add " + t->name + ": " + err, 2);
                 }
                 at_track("insp:add:" + t->name);
@@ -123,15 +129,17 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     bool keep = true;
     ImGui::PushID(type.name.c_str());
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-    const bool open = ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
+    const bool open =
+        ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
     at_track("insp:hdr:" + type.name);
     if (inspScrollTo_ == type.name) {  // the autotest asks for a header low in a long list
         ImGui::SetScrollHereY(0.0f);
         inspScrollTo_.clear();
     }
     if (removable)  // the x of the header, for the autotest
-        at_track_at("insp:hdr:" + type.name + ":x", Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
-                                                           (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});
+        at_track_at("insp:hdr:" + type.name + ":x",
+                    Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
+                         (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});
     tooltip(type.doc);
     if (!keep) {  // the x of the header
         std::string err;
@@ -169,8 +177,10 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                         std::string err;
                         CommandResult r = edit_command("insp:" + id + ":" + key, "scene.set_component",
                                                        field_edit_args(id, type.name, f.name, out), &err);
-                        if (r.ok) inspErrors_.erase(key);
-                        else inspErrors_[key] = err;
+                        if (r.ok)
+                            inspErrors_.erase(key);
+                        else
+                            inspErrors_[key] = err;
                     }
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
@@ -178,7 +188,8 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                 if (type.name == "MeshRenderer" && f.name == "material" && value.is_string()) {
                     if (assetReportAt_ + 0.5 < time_ || assetReport_.is_null()) {
                         assetReportAt_ = time_;
-                        assetReport_ = engine_ && engine_->renderer() ? engine_->renderer()->asset_report() : Json::object();
+                        assetReport_ =
+                            engine_ && engine_->renderer() ? engine_->renderer()->asset_report() : Json::object();
                     }
                     const std::string buildError = material_build_error(assetReport_, value.get<std::string>());
                     if (!buildError.empty()) {
@@ -207,7 +218,8 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
     auto track_parts = [&](int n) {
         const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         for (int i = 0; i < n; ++i)
-            at_track_at(track + "." + std::to_string(i), Vec2{a.x + (b.x - a.x) * (float(i) + 0.5f) / float(n), (a.y + b.y) * 0.5f}, !disabled);
+            at_track_at(track + "." + std::to_string(i),
+                        Vec2{a.x + (b.x - a.x) * (float(i) + 0.5f) / float(n), (a.y + b.y) * 0.5f}, !disabled);
     };
     // One drag is ONE undo step: while the item is held, the edit key stays alive however still the mouse is.
     auto keep_step_alive = [&] {
@@ -217,7 +229,10 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
     switch (kind) {
         case FieldWidget::Checkbox: {
             bool v = cur.is_boolean() && cur.get<bool>();
-            if (ImGui::Checkbox("##v", &v)) { out = v; changed = true; }
+            if (ImGui::Checkbox("##v", &v)) {
+                out = v;
+                changed = true;
+            }
             at_track(track, !disabled);
             tooltip(tip);
             break;
@@ -225,7 +240,8 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         case FieldWidget::DragInt: {
             int v = cur.is_number() ? int(std::lround(cur.get<double>())) : 0;
             const bool ranged = field_has_range(f);
-            if (ImGui::DragInt("##v", &v, drag_speed_for(f, v), ranged ? int(f.minValue) : 0, ranged ? int(f.maxValue) : 0)) {
+            if (ImGui::DragInt("##v", &v, drag_speed_for(f, v), ranged ? int(f.minValue) : 0,
+                               ranged ? int(f.maxValue) : 0)) {
                 out = v;
                 changed = true;
             }
@@ -237,7 +253,8 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         case FieldWidget::DragFloat: {
             float v = cur.is_number() ? cur.get<float>() : 0.0f;
             const bool ranged = field_has_range(f);
-            if (ImGui::DragFloat("##v", &v, drag_speed_for(f, v), ranged ? f.minValue : 0.0f, ranged ? f.maxValue : 0.0f, "%.3f")) {
+            if (ImGui::DragFloat("##v", &v, drag_speed_for(f, v), ranged ? f.minValue : 0.0f,
+                                 ranged ? f.maxValue : 0.0f, "%.3f")) {
                 out = round4(v);
                 changed = true;
             }
@@ -255,12 +272,19 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             read_floats(cur, v, n, 0.0f);
             const bool ranged = field_has_range(f);
             const float lo = ranged ? f.minValue : 0.0f, hi = ranged ? f.maxValue : 0.0f;
-            const float speed = drag_speed_for(f, std::max({std::fabs(v[0]), std::fabs(v[1]), n > 2 ? std::fabs(v[2]) : 0.0f}));
+            const float speed =
+                drag_speed_for(f, std::max({std::fabs(v[0]), std::fabs(v[1]), n > 2 ? std::fabs(v[2]) : 0.0f}));
             bool edited = false;
-            if (n == 2) edited = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f");
-            else if (n == 3) edited = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f");
-            else edited = ImGui::DragFloat4("##v", v, speed, lo, hi, "%.3f");
-            if (edited) { out = numbers(v, n); changed = true; }
+            if (n == 2)
+                edited = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f");
+            else if (n == 3)
+                edited = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f");
+            else
+                edited = ImGui::DragFloat4("##v", v, speed, lo, hi, "%.3f");
+            if (edited) {
+                out = numbers(v, n);
+                changed = true;
+            }
             at_track(track, !disabled);
             track_parts(n);
             tooltip(tip);
@@ -283,7 +307,10 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             const std::string name = cur.is_string() ? cur.get<std::string>() : std::string();
             if (ImGui::BeginCombo("##v", name.c_str())) {
                 for (const std::string& n : f.enumNames)
-                    if (ImGui::Selectable(n.c_str(), n == name)) { out = n; changed = true; }
+                    if (ImGui::Selectable(n.c_str(), n == name)) {
+                        out = n;
+                        changed = true;
+                    }
                 ImGui::EndCombo();
             }
             at_track(track, !disabled);
@@ -294,10 +321,16 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             World& w = world();
             const std::string name = cur.is_string() ? cur.get<std::string>() : std::string();
             if (ImGui::BeginCombo("##v", name.empty() ? "(none)" : name.c_str())) {
-                if (ImGui::Selectable("(none)", name.empty())) { out = nullptr; changed = true; }
+                if (ImGui::Selectable("(none)", name.empty())) {
+                    out = nullptr;
+                    changed = true;
+                }
                 for (Entity o : w.entities()) {
                     const std::string oid = w.id_of(o);
-                    if (ImGui::Selectable((tree_label(w.info(o).name, oid) + "###" + oid).c_str(), oid == name)) { out = oid; changed = true; }
+                    if (ImGui::Selectable((tree_label(w.info(o).name, oid) + "###" + oid).c_str(), oid == name)) {
+                        out = oid;
+                        changed = true;
+                    }
                 }
                 ImGui::EndCombo();
             }
@@ -317,7 +350,11 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             if (ImGui::IsItemDeactivated() && !commit) b.dirty = false;  // Escape: the old value comes back
             at_track(track, !disabled);
             tooltip(tip);
-            if (commit) { out = b.text; b.dirty = false; changed = true; }
+            if (commit) {
+                out = b.text;
+                b.dirty = false;
+                changed = true;
+            }
             if (asset && ImGui::BeginDragDropTarget()) {
                 // A file from the Project panel: only one of this field's asset type is taken; it is written as picking it does.
                 const ImGuiPayload* live = ImGui::GetDragDropPayload();
@@ -341,10 +378,18 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
                         cache.first = time_;
                         cache.second = list_asset_files(projectDir_, f.assetType);
                     }
-                    if (ImGui::Selectable("(none)", b.text.empty())) { out = std::string(); changed = true; b.dirty = false; }
+                    if (ImGui::Selectable("(none)", b.text.empty())) {
+                        out = std::string();
+                        changed = true;
+                        b.dirty = false;
+                    }
                     const std::string now = cur.is_string() ? cur.get<std::string>() : std::string();
                     for (const std::string& file : cache.second)
-                        if (ImGui::Selectable(file.c_str(), file == now)) { out = file; changed = true; b.dirty = false; }
+                        if (ImGui::Selectable(file.c_str(), file == now)) {
+                            out = file;
+                            changed = true;
+                            b.dirty = false;
+                        }
                     if (cache.second.empty()) ImGui::TextDisabled("No %s files in the project.", f.assetType.c_str());
                     ImGui::EndCombo();
                 }
@@ -354,10 +399,13 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             if (asset && f.assetType == "mesh" && cur.is_string() && MeshStore::is_id(cur.get<std::string>())) {
                 // A procedural mesh (mesh.create): what it is, or why the entity shows the placeholder box.
                 if (const MeshStore::Entry* m = world().meshes().find(cur.get<std::string>()))
-                    ImGui::TextDisabled("Procedural mesh: %zu vertices, %zu triangles, %zu submeshes (mesh.save writes it as a .glb)",
-                                        m->data.vertex_count(), m->data.triangle_count(), m->data.submeshes.size());
+                    ImGui::TextDisabled(
+                        "Procedural mesh: %zu vertices, %zu triangles, %zu submeshes (mesh.save writes it as a .glb)",
+                        m->data.vertex_count(), m->data.triangle_count(), m->data.submeshes.size());
                 else
-                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "This procedural mesh no longer exists (destroyed, or its scene was unloaded): a placeholder box is drawn.");
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f),
+                                       "This procedural mesh no longer exists (destroyed, or its scene was unloaded): "
+                                       "a placeholder box is drawn.");
             }
             break;
         }
@@ -378,12 +426,20 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             tooltip(tip + "\nJSON: applied when you click away; invalid JSON is refused.");
             if (ImGui::IsItemDeactivated() && b.dirty) {
                 auto parsed = parse_json_box(b.text);
-                if (parsed.ok()) { out = *parsed; b.dirty = false; b.error.clear(); changed = true; }
-                else b.error = parsed.error().message;
+                if (parsed.ok()) {
+                    out = *parsed;
+                    b.dirty = false;
+                    b.error.clear();
+                    changed = true;
+                } else
+                    b.error = parsed.error().message;
             }
             if (b.dirty && !b.error.empty()) {
                 error_text("Not applied: " + b.error);
-                if (ImGui::SmallButton("Revert")) { b.dirty = false; b.error.clear(); }
+                if (ImGui::SmallButton("Revert")) {
+                    b.dirty = false;
+                    b.error.clear();
+                }
             }
             break;
         }
@@ -403,7 +459,8 @@ void Editor::draw_animator_clips(Entity e, const std::string& id, const Json& cu
     }
     const auto sheet = assets::sheet(sprite->texture);
     if (!sheet || sheet->clips.empty()) {
-        ImGui::TextDisabled("'%s' has no clips in assets.json (assets.animate_svg, assets.bake_sheet and assets.slice_sheet record them).",
+        ImGui::TextDisabled("'%s' has no clips in assets.json (assets.animate_svg, assets.bake_sheet and "
+                            "assets.slice_sheet record them).",
                             sprite->texture.c_str());
         return;
     }
@@ -411,23 +468,28 @@ void Editor::draw_animator_clips(Entity e, const std::string& id, const Json& cu
     ImGui::TextDisabled("Clips (click to play):");
     tooltip("The clips of " + sprite->texture + " (its `sheet` entry in assets.json)");
     for (const assets::SheetClip& c : sheet->clips) {
-        const float w = ImGui::CalcTextSize(c.name.c_str()).x + ImGui::GetStyle().FramePadding.x * 2 + ImGui::GetStyle().ItemSpacing.x;
+        const float w = ImGui::CalcTextSize(c.name.c_str()).x + ImGui::GetStyle().FramePadding.x * 2 +
+                        ImGui::GetStyle().ItemSpacing.x;
         if (&c != &sheet->clips.front() && ImGui::GetContentRegionAvail().x > w) ImGui::SameLine();
         if (ImGui::SmallButton((c.name + "###clip:" + c.name).c_str()) && c.name != now) {
             std::string err;
             CommandResult r = edit_command("insp:" + id + ":SpriteAnimator.clip", "scene.set_component",
                                            field_edit_args(id, "SpriteAnimator", "clip", c.name), &err);
-            if (r.ok) inspErrors_.erase("SpriteAnimator.clip");
-            else inspErrors_["SpriteAnimator.clip"] = err;
+            if (r.ok)
+                inspErrors_.erase("SpriteAnimator.clip");
+            else
+                inspErrors_["SpriteAnimator.clip"] = err;
         }
         at_track("insp:SpriteAnimator.clip:" + c.name);
-        tooltip(std::format("Frames {} to {} at {} fps{}", c.firstFrame, c.lastFrame, c.fps, c.loop ? ", loops" : ", plays once"));
+        tooltip(std::format("Frames {} to {} at {} fps{}", c.firstFrame, c.lastFrame, c.fps,
+                            c.loop ? ", loops" : ", plays once"));
     }
 }
 
 void Editor::draw_material_params(Entity e, const Json& cur) {
     const std::string id = world().id_of(e);
-    const std::string path = cur.contains("material") && cur["material"].is_string() ? cur["material"].get<std::string>() : std::string();
+    const std::string path =
+        cur.contains("material") && cur["material"].is_string() ? cur["material"].get<std::string>() : std::string();
     const Json overrides = cur.contains("materialParams") ? cur["materialParams"] : Json::object();
     FieldInfo rawField;  // the plain JSON box, when there is no material to type the params by
     rawField.name = "materialParams";
@@ -439,8 +501,10 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
             std::string err;
             CommandResult r = edit_command("insp:" + id + ":MeshRenderer.materialParams", "scene.set_component",
                                            field_edit_args(id, "MeshRenderer", "materialParams", out), &err);
-            if (!r.ok) inspErrors_["MeshRenderer.materialParams"] = err;
-            else inspErrors_.erase("MeshRenderer.materialParams");
+            if (!r.ok)
+                inspErrors_["MeshRenderer.materialParams"] = err;
+            else
+                inspErrors_.erase("MeshRenderer.materialParams");
         }
     };
     if (path.empty()) {
@@ -462,8 +526,10 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
                 entry.error = "This build has no material.info command.";
             } else {
                 CommandResult r = engine_->commands().call("material.info", Json::object({{"material", path}}));
-                if (r.ok) entry.info = r.result;
-                else entry.error = command_error_text(r.error);
+                if (r.ok)
+                    entry.info = r.result;
+                else
+                    entry.error = command_error_text(r.error);
             }
         }
     }
@@ -490,8 +556,13 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         ImGui::TextUnformatted((p.name + (overridden ? " *" : "")).c_str());
         {
             std::string tipText = p.doc + "\n" + p.type;
-            if (p.min && p.max) { char b[64]; std::snprintf(b, sizeof b, " (%g to %g)", *p.min, *p.max); tipText += b; }
-            tipText += overridden ? "\nSet on this entity (the material's default is overridden)." : "\nUsing the material's default.";
+            if (p.min && p.max) {
+                char b[64];
+                std::snprintf(b, sizeof b, " (%g to %g)", *p.min, *p.max);
+                tipText += b;
+            }
+            tipText += overridden ? "\nSet on this entity (the material's default is overridden)."
+                                  : "\nUsing the material's default.";
             tooltip(tipText);
         }
         ImGui::SameLine();
@@ -503,7 +574,8 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         float v[4];
         read_floats(value.is_number() ? Json::array({value}) : value, v, std::max(n, 1), 0.0f);
         const float lo = p.min ? float(*p.min) : 0.0f, hi = p.max ? float(*p.max) : 0.0f;
-        const float speed = p.min && p.max ? std::max(1e-4f, (hi - lo) / 200.0f) : std::max(0.01f, std::fabs(v[0]) * 0.01f);
+        const float speed =
+            p.min && p.max ? std::max(1e-4f, (hi - lo) / 200.0f) : std::max(0.01f, std::fabs(v[0]) * 0.01f);
         if (p.type == "float") {
             changed = ImGui::DragFloat("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
             if (changed) out = round4(v[0]);
@@ -528,17 +600,21 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         if (changed) {
             std::string err;
             CommandResult r = edit_command(editKey, "scene.set_component", material_param_edit_args(id, p, out), &err);
-            if (r.ok) inspErrors_.erase("matparam:" + p.name);
-            else inspErrors_["matparam:" + p.name] = err;
+            if (r.ok)
+                inspErrors_.erase("matparam:" + p.name);
+            else
+                inspErrors_["matparam:" + p.name] = err;
         }
         ImGui::SameLine();
         ImGui::BeginDisabled(!overridden);
         if (ImGui::SmallButton("Reset")) {
             std::string err;
-            CommandResult r = edit_command("insp:" + id + ":matreset:" + std::to_string(uiFrame_), "scene.set_component",
-                                           material_param_reset_args(id, p), &err);
-            if (!r.ok) inspErrors_["matparam:" + p.name] = err;
-            else inspErrors_.erase("matparam:" + p.name);
+            CommandResult r = edit_command("insp:" + id + ":matreset:" + std::to_string(uiFrame_),
+                                           "scene.set_component", material_param_reset_args(id, p), &err);
+            if (!r.ok)
+                inspErrors_["matparam:" + p.name] = err;
+            else
+                inspErrors_.erase("matparam:" + p.name);
         }
         ImGui::EndDisabled();
         at_track("insp:matreset:" + p.name, overridden);

@@ -61,8 +61,10 @@ const UserMappings& user_mappings() {
             load(env, "SDL_GAMECONTROLLERCONFIG", u.env);
         if (fs::exists(kGamepadUserDbFile)) {
             Result<std::string> text = fs::read_text(kGamepadUserDbFile);
-            if (text) load(*text, kGamepadUserDbFile, u.file);
-            else FA_WARN("gamepad", "Cannot read {}: {}", kGamepadUserDbFile, text.error().message);
+            if (text)
+                load(*text, kGamepadUserDbFile, u.file);
+            else
+                FA_WARN("gamepad", "Cannot read {}: {}", kGamepadUserDbFile, text.error().message);
         }
         return u;
     }();
@@ -118,15 +120,18 @@ bool open_pad(int index, Slot& s) {
     GamepadMapping mapping = select_gamepad_mapping(user.env, user.file, id, &problems);
     for (const std::string& problem : problems) FA_WARN("gamepad", "{}", problem);
     if (mapping.guid == fallback_gamepad_mapping().guid)
-        FA_INFO("gamepad", "pad {} ('{}', GUID {}) has no mapping: using the Xbox (xpad) layout. If its buttons are wrong, "
-                           "add a line for this GUID to SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
+        FA_INFO("gamepad",
+                "pad {} ('{}', GUID {}) has no mapping: using the Xbox (xpad) layout. If its buttons are wrong, "
+                "add a line for this GUID to SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
                 index, id.name, gamepad_guid(id), kGamepadUserDbFile);
     else if (guid_without_crc(mapping.guid) == gamepad_guid(id))
-        FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}'.", index, id.name, gamepad_guid(id), mapping.name);
+        FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}'.", index, id.name, gamepad_guid(id),
+                mapping.name);
     else  // matched by vendor and product only: say so, it is the likely culprit when the buttons come out wrong
-        FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}', which is listed for another bus or version of "
-                           "this pad (GUID {}). If its buttons are wrong, add a line for this GUID to "
-                           "SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
+        FA_INFO("gamepad",
+                "pad {} ('{}', GUID {}) uses the mapping '{}', which is listed for another bus or version of "
+                "this pad (GUID {}). If its buttons are wrong, add a line for this GUID to "
+                "SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
                 index, id.name, gamepad_guid(id), mapping.name, mapping.guid, kGamepadUserDbFile);
     s.mapper.emplace(std::move(mapping));
     // The kernel's "uniq" is the pad's serial number (a Bluetooth pad's address); many USB pads have none, and then two pads of
@@ -175,7 +180,7 @@ void poll_gamepads(Input& in) {
                 continue;
             } else if (n < 0 && errno == EAGAIN) {
                 break;  // everything pending is read
-            } else {  // unplugged (ENODEV) or a broken read
+            } else {    // unplugged (ENODEV) or a broken read
                 alive = false;
                 break;
             }
@@ -189,7 +194,7 @@ void poll_gamepads(Input& in) {
             continue;
         }
         in.set_gamepad_info(i, s.info);  // before the feed, which connects the pad
-        s.mapper->state().feed(in, i);  // all of it, every poll: also reconnects the pad after a focus loss
+        s.mapper->state().feed(in, i);   // all of it, every poll: also reconnects the pad after a focus loss
     }
 }
 

@@ -25,8 +25,10 @@ Ink ink(const Image& img, int rx0, int ry0, int rx1, int ry1, float threshold = 
     for (int y = std::max(ry0, 0); y < std::min(ry1, img.height); ++y)
         for (int x = std::max(rx0, 0); x < std::min(rx1, img.width); ++x)
             if (img.pixel(x, y).r > threshold) {
-                k.x0 = std::min(k.x0, x); k.y0 = std::min(k.y0, y);
-                k.x1 = std::max(k.x1, x); k.y1 = std::max(k.y1, y);
+                k.x0 = std::min(k.x0, x);
+                k.y0 = std::min(k.y0, y);
+                k.x1 = std::max(k.x1, x);
+                k.y1 = std::max(k.y1, y);
             }
     return k;
 }
@@ -43,12 +45,13 @@ Entity put_text(World& w, const char* name, Vec3 pos, RenderSpace space) {
 
 }  // namespace
 
-TEST_CASE("ui scale: screen-space Text, labels and backgrounds are drawn k times as big from their anchor; world Text is not") {
+TEST_CASE("ui scale: screen-space Text, labels and backgrounds are drawn k times as big from their anchor; world Text "
+          "is not") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
     w.add<Camera>(make(w, "cam")).clearColor = Color::black();
-    put_text(w, "hud", {10, 10, 0}, RenderSpace::Screen);   // top-left of the screen
+    put_text(w, "hud", {10, 10, 0}, RenderSpace::Screen);    // top-left of the screen
     put_text(w, "world", {70, -30, 0}, RenderSpace::World);  // pixel (230, 120)
     Entity p = make(w, "panel", {150, 10, 0});
     Panel& panel = w.add<Panel>(p);
@@ -63,12 +66,19 @@ TEST_CASE("ui scale: screen-space Text, labels and backgrounds are drawn k times
     btn.text = "HHHH";
     btn.fontSize = 20;
 
-    struct Boxes { Ink hud, world, panel, label; Image img; };
+    struct Boxes {
+        Ink hud, world, panel, label;
+        Image img;
+    };
     auto draw = [&] {
         const Image img = g.render(w);
-        return Boxes{ink(img, 0, 0, 140, 65), ink(img, 220, 100, 320, 180), ink(img, 140, 0, 320, 100), ink(img, 0, 65, 200, 180), img};
+        return Boxes{ink(img, 0, 0, 140, 65), ink(img, 220, 100, 320, 180), ink(img, 140, 0, 320, 100),
+                     ink(img, 0, 65, 200, 180), img};
     };
-    struct Reset { Renderer& r; ~Reset() { r.set_ui_scale(1.0f); } } reset{g.renderer};
+    struct Reset {
+        Renderer& r;
+        ~Reset() { r.set_ui_scale(1.0f); }
+    } reset{g.renderer};
 
     const Boxes one = draw();
     REQUIRE((one.hud.any() && one.world.any() && one.panel.any() && one.label.any()));
@@ -110,7 +120,8 @@ TEST_CASE("ui scale: screen-space Text, labels and backgrounds are drawn k times
     w.set_ui_scale(0.5f);
     g.renderer.set_ui_scale(0.5f);
     const Boxes small = draw();
-    const Ink half = ink(small.img, 60, 0, 140, 40);  // the panel, at 75 .. 105 x 5 .. 25 (the HUD text is smaller and elsewhere)
+    const Ink half =
+        ink(small.img, 60, 0, 140, 40);  // the panel, at 75 .. 105 x 5 .. 25 (the HUD text is smaller and elsewhere)
     REQUIRE(half.any());
     CHECK(half.x0 == 75);
     CHECK(half.w() == 30);

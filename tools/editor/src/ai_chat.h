@@ -52,19 +52,20 @@ struct ChatItem {
     std::vector<std::string> images;  // User: project-relative paths of the pictures sent with the message
 
     // Run and Revert (docs/EDITOR.md, "Revert an AI run"). Saved with the chat, so the button works after a restart.
-    std::string checkpointId;             // Run: the checkpoint taken before the run. Revert: the one the project went back to
-    std::vector<std::string> modified, added, deleted;  // Run: what the run changed. Revert: what the restore did (capped)
-    int omitted = 0;                      // files over the cap of kMaxListedFiles that the lists leave out
-    bool sceneChanged = false;            // Run: the open scene differs from before the run
+    std::string checkpointId;  // Run: the checkpoint taken before the run. Revert: the one the project went back to
+    std::vector<std::string> modified, added,
+        deleted;                // Run: what the run changed. Revert: what the restore did (capped)
+    int omitted = 0;            // files over the cap of kMaxListedFiles that the lists leave out
+    bool sceneChanged = false;  // Run: the open scene differs from before the run
     // Run: when the run started and ended (epoch seconds; 0 = saved before chats could run side by side) and the scene file
     // that was open at its end. Revert uses them to tell which other chats' runs could have changed the same files.
     i64 startedAt = 0, endedAt = 0;
     std::string scenePath;
-    std::string revertedBy;               // Run: the safety checkpoint of the Revert that took it back ("" = not reverted)
-    std::string safetyId;                 // Revert: the automatic "Before restoring ..." checkpoint (what Undo revert restores)
-    bool undone = false;                  // Revert: it was taken back with Undo revert
-    bool isUndo = false;                  // Revert: this item IS an Undo revert
-    bool scoped = false;                  // Revert: only some files went back (other chats' runs had changed files too)
+    std::string revertedBy;  // Run: the safety checkpoint of the Revert that took it back ("" = not reverted)
+    std::string safetyId;    // Revert: the automatic "Before restoring ..." checkpoint (what Undo revert restores)
+    bool undone = false;     // Revert: it was taken back with Undo revert
+    bool isUndo = false;     // Revert: this item IS an Undo revert
+    bool scoped = false;     // Revert: only some files went back (other chats' runs had changed files too)
 
     Json to_json() const;
     static ChatItem from_json(const Json& j);
@@ -80,22 +81,23 @@ struct ChatAttachment {
 };
 
 struct AiChat {
-    std::string id;     // file name stem in the chats folder: "20261014-153012" (+ "-2"...)
-    std::string title;  // the first message, shortened; "" until there is one
-    i64 created = 0, updated = 0;  // epoch seconds
+    std::string id;                 // file name stem in the chats folder: "20261014-153012" (+ "-2"...)
+    std::string title;              // the first message, shortened; "" until there is one
+    i64 created = 0, updated = 0;   // epoch seconds
     ai::Conversation conversation;  // CLI session id / message history that carries the chat to the next message
     std::vector<ChatItem> items;    // the transcript
     ai::Usage usage;                // tokens of the finished runs
     double costUsd = 0;
     u64 contextTokens = 0, contextWindow = 0;
-    ai::ContextSplit contextSplit;  // where the last model call's context went (built-in agent only; known() false otherwise)
+    ai::ContextSplit
+        contextSplit;  // where the last model call's context went (built-in agent only; known() false otherwise)
 
     // Not saved:
-    RunUsage run;                 // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)
-    std::string input;            // the unsent text
+    RunUsage run;       // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)
+    std::string input;  // the unsent text
     std::vector<ChatAttachment> pending;  // the unsent pictures
-    bool scrollDown = false;      // new output: follow it if the transcript is at the bottom
-    bool forceScroll = false;     // go to the bottom even if scrolled up (the user sent a message or asked for the latest)
+    bool scrollDown = false;              // new output: follow it if the transcript is at the bottom
+    bool forceScroll = false;  // go to the bottom even if scrolled up (the user sent a message or asked for the latest)
 
     bool empty() const { return items.empty(); }
     Json to_json() const;
@@ -112,7 +114,7 @@ class AiChats {
 public:
     std::vector<AiChat> tabs;  // never empty
     int active = 0;
-    std::string dir;           // the chats folder; "" = nothing is saved (no project open)
+    std::string dir;  // the chats folder; "" = nothing is saved (no project open)
 
     AiChats();  // one blank tab, nothing saved until open_dir()
 
@@ -163,7 +165,8 @@ std::string unique_file_name(const std::string& dir, const std::string& fileName
 // Copies an image file into <projectDir>/.factoria/ai/attachments/ under a unique name (nothing already there is touched).
 Result<ChatAttachment> attach_file(const std::string& projectDir, const std::string& source);
 // Same for picture bytes that are not a file yet (the clipboard): `fileName` is "paste.png", made unique like the above.
-Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName, const std::vector<std::uint8_t>& bytes);
+Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName,
+                                    const std::vector<std::uint8_t>& bytes);
 
 // The line that tells the AI which entity the user is pointing at ("" when nothing is selected).
 std::string selection_line(const std::string& entityName, const std::string& entityId);

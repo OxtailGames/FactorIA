@@ -47,10 +47,25 @@ struct TempProject {
         // 0.5 s of silence, 16-bit mono PCM at 44.1 kHz
         const std::uint32_t n = 22050;
         std::string b;
-        auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-        auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-        b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-        b += "data"; u32(n * 2);
+        auto u32 = [&](std::uint32_t v) {
+            for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+        };
+        auto u16 = [&](std::uint16_t v) {
+            b.push_back(char(v & 0xff));
+            b.push_back(char(v >> 8));
+        };
+        b += "RIFF";
+        u32(36 + n * 2);
+        b += "WAVEfmt ";
+        u32(16);
+        u16(1);
+        u16(1);
+        u32(44100);
+        u32(88200);
+        u16(2);
+        u16(16);
+        b += "data";
+        u32(n * 2);
         b.append(std::size_t(n) * 2, '\0');
         write("assets/sfx/line.wav", b);
     }
@@ -121,7 +136,8 @@ TEST_CASE("captions: audio.stop and stopAll end the caption at once; a looping s
     eval(e, "audio.stopAll()");
     REQUIRE(e.captions().size() == 1);  // only the line that was not tied to a sound stays
     CHECK(e.captions().lines()[0].text == "free line");
-    auto r = e.commands().call("script.eval", Json::object({{"code", "audio.play('assets/sfx/line.wav', { loop: true, caption: 'x' })"}}));
+    auto r = e.commands().call(
+        "script.eval", Json::object({{"code", "audio.play('assets/sfx/line.wav', { loop: true, caption: 'x' })"}}));
     CHECK_FALSE(r.ok);
     CHECK(r.error.dump().find("captionSeconds") != std::string::npos);
     eval(e, "audio.play('assets/sfx/line.wav', { loop: true, caption: 'bed', captionSeconds: 0.25 })");

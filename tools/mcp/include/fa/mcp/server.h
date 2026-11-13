@@ -61,11 +61,11 @@ public:
     virtual ~McpHost() = default;
     virtual CommandRegistry& commands() = 0;
     virtual std::string project_dir() const { return "."; }  // resolves relative image paths and project resources
-    virtual std::string server_version() const;                // default FA_ENGINE_VERSION
-    virtual std::string instructions() const;                  // default: default_mcp_instructions()
-    virtual std::vector<McpResource> list_resources();         // default: docs + project files
+    virtual std::string server_version() const;              // default FA_ENGINE_VERSION
+    virtual std::string instructions() const;                // default: default_mcp_instructions()
+    virtual std::vector<McpResource> list_resources();       // default: docs + project files
     virtual Result<McpResourceContent> read_resource(std::string_view uri);
-    virtual std::vector<McpPrompt> list_prompts();             // default: make-game, add-feature, fix-bug, report-engine-gap
+    virtual std::vector<McpPrompt> list_prompts();  // default: make-game, add-feature, fix-bug, report-engine-gap
     virtual Result<std::vector<McpPromptMessage>> get_prompt(std::string_view name, const Json& arguments);
 };
 
@@ -145,7 +145,7 @@ private:
     mutable std::mutex mu_;
     Handshake handshake_;
     std::multimap<std::string, std::shared_ptr<std::atomic<bool>>> inFlight_;  // id.dump() -> flag
-    std::multimap<std::string, bool> queued_;  // id.dump() -> cancelled while queued
+    std::multimap<std::string, bool> queued_;                                  // id.dump() -> cancelled while queued
 };
 
 class McpServer {
@@ -259,12 +259,13 @@ private:
     Json call_tool(const Json& params, const std::atomic<bool>* cancel);
     Json run_tool(const Json& params, const std::atomic<bool>* cancel);
     void emit(const Json& message);
-    bool visible(const CommandInfo& c) const;  // not user-only, allowed by the filter
-    bool listed(const CommandInfo& c) const;   // visible and in the current profile
+    bool visible(const CommandInfo& c) const;        // not user-only, allowed by the filter
+    bool listed(const CommandInfo& c) const;         // visible and in the current profile
     bool listed_locked(const CommandInfo& c) const;  // the profile part of listed(); profileMutex_ must be held
     Json tool_json(const CommandInfo& c) const;
     Json loader_tools_json() const;
-    Json run_loader_tool(const std::string& tool, const Json& args, const Json& params, const std::atomic<bool>* cancel);
+    Json run_loader_tool(const std::string& tool, const Json& args, const Json& params,
+                         const std::atomic<bool>* cancel);
     std::string validate_groups(const std::vector<std::string>& groups) const;
 
     McpHost& host_;
@@ -279,8 +280,8 @@ private:
     Sink sink_;
     CommandFilter filter_;
     CapabilitySet capabilities_ = capability_sets::mcp();
-    bool profile_ = false;                // a profile other than "all" is set
-    std::vector<std::string> loaded_;     // the groups the profile and tool_load added (the core set is always in)
+    bool profile_ = false;             // a profile other than "all" is set
+    std::vector<std::string> loaded_;  // the groups the profile and tool_load added (the core set is always in)
     mutable std::mutex profileMutex_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};

@@ -19,54 +19,53 @@ std::string patch_ok(const std::string& text, const std::vector<JsonPatchOp>& op
 }  // namespace
 
 TEST_CASE("json patch: a new key goes last, the other lines are byte for byte as they were") {
-    const std::string text =
-        "{\n"
-        "    \"zeta\":   1,\n"
-        "    \"alpha\" : [1,2,   3],   \n"
-        "    \"mid\": { \"b\": 2, \"a\": 1 }\n"
-        "}\n";
+    const std::string text = "{\n"
+                             "    \"zeta\":   1,\n"
+                             "    \"alpha\" : [1,2,   3],   \n"
+                             "    \"mid\": { \"b\": 2, \"a\": 1 }\n"
+                             "}\n";
     const std::string out = patch_ok(text, {{{"added"}, Json("x")}});
-    CHECK(out ==
-          "{\n"
-          "    \"zeta\":   1,\n"
-          "    \"alpha\" : [1,2,   3],   \n"
-          "    \"mid\": { \"b\": 2, \"a\": 1 },\n"
-          "    \"added\": \"x\"\n"
-          "}\n");
+    CHECK(out == "{\n"
+                 "    \"zeta\":   1,\n"
+                 "    \"alpha\" : [1,2,   3],   \n"
+                 "    \"mid\": { \"b\": 2, \"a\": 1 },\n"
+                 "    \"added\": \"x\"\n"
+                 "}\n");
 }
 
 TEST_CASE("json patch: replacing a value keeps the order of the keys and the layout around it") {
     const std::string text = "{ \"b\": 1, \"a\": {\"k\": [1, 2]},\n  \"c\": 3 }";
     CHECK(patch_ok(text, {{{"a"}, Json(5)}}) == "{ \"b\": 1, \"a\": 5,\n  \"c\": 3 }");
-    CHECK(patch_ok(text, {{{"b"}, Json("s")}, {{"c"}, Json(true)}}) == "{ \"b\": \"s\", \"a\": {\"k\": [1, 2]},\n  \"c\": true }");
+    CHECK(patch_ok(text, {{{"b"}, Json("s")}, {{"c"}, Json(true)}}) ==
+          "{ \"b\": \"s\", \"a\": {\"k\": [1, 2]},\n  \"c\": true }");
 }
 
 TEST_CASE("json patch: nested keys change only the key asked for, and parents are created when missing") {
-    const std::string text =
-        "{\n"
-        "  \"name\": \"g\",\n"
-        "  \"plugins\": {\n"
-        "    \"one\": { \"path\": \"plugins/one\" }\n"
-        "  },\n"
-        "  \"tail\": [1]\n"
-        "}\n";
+    const std::string text = "{\n"
+                             "  \"name\": \"g\",\n"
+                             "  \"plugins\": {\n"
+                             "    \"one\": { \"path\": \"plugins/one\" }\n"
+                             "  },\n"
+                             "  \"tail\": [1]\n"
+                             "}\n";
     // A key inside an existing object: appended there, with that object's own indentation.
-    const std::string added = patch_ok(text, {{{"plugins", "two"}, Json::parse(R"({"path": "plugins/two", "platforms": ["macos"]})")}});
-    CHECK(added ==
-          "{\n"
-          "  \"name\": \"g\",\n"
-          "  \"plugins\": {\n"
-          "    \"one\": { \"path\": \"plugins/one\" },\n"
-          "    \"two\": {\n"
-          "      \"path\": \"plugins/two\",\n"
-          "      \"platforms\": [\"macos\"]\n"
-          "    }\n"
-          "  },\n"
-          "  \"tail\": [1]\n"
-          "}\n");
+    const std::string added =
+        patch_ok(text, {{{"plugins", "two"}, Json::parse(R"({"path": "plugins/two", "platforms": ["macos"]})")}});
+    CHECK(added == "{\n"
+                   "  \"name\": \"g\",\n"
+                   "  \"plugins\": {\n"
+                   "    \"one\": { \"path\": \"plugins/one\" },\n"
+                   "    \"two\": {\n"
+                   "      \"path\": \"plugins/two\",\n"
+                   "      \"platforms\": [\"macos\"]\n"
+                   "    }\n"
+                   "  },\n"
+                   "  \"tail\": [1]\n"
+                   "}\n");
     // A nested value replaced in place.
     CHECK(patch_ok(text, {{{"plugins", "one", "path"}, Json("elsewhere")}}) ==
-          "{\n  \"name\": \"g\",\n  \"plugins\": {\n    \"one\": { \"path\": \"elsewhere\" }\n  },\n  \"tail\": [1]\n}\n");
+          "{\n  \"name\": \"g\",\n  \"plugins\": {\n    \"one\": { \"path\": \"elsewhere\" }\n  },\n  \"tail\": "
+          "[1]\n}\n");
     // A parent that does not exist yet is created with the whole path.
     const std::string made = patch_ok("{\n  \"name\": \"g\"\n}\n", {{{"a", "b", "c"}, Json(1)}});
     auto parsed = parse_json(made, "made");

@@ -47,8 +47,11 @@ std::string mb(std::uint64_t bytes) {
 }
 
 Error compat_table_error(std::size_t patterns, const char* who) {
-    return Error{std::string(who) + " has " + std::to_string(patterns) + " patterns and their adjacency table would hold more than " + std::to_string(kMaxCompatEntries) + " entries",
-                 "Use a smaller or less uniform sample, a bigger n (patterns constrain each other more), or symmetry 1; for the tiled model, fewer tiles per terrain."};
+    return Error{std::string(who) + " has " + std::to_string(patterns) +
+                     " patterns and their adjacency table would hold more than " + std::to_string(kMaxCompatEntries) +
+                     " entries",
+                 "Use a smaller or less uniform sample, a bigger n (patterns constrain each other more), or symmetry "
+                 "1; for the tiled model, fewer tiles per terrain."};
 }
 
 // ------------------------------------------------------------------------------------------------ pattern transforms
@@ -93,27 +96,35 @@ std::vector<Pat> variants(const Pat& p, int n, int symmetry) {
 Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& sample, const OverlapOptions& options) {
     const int n = options.n;
     if (n < kMinPatternSize || n > kMaxPatternSize)
-        return make_error("The pattern size n is " + std::to_string(n) + " but it must be between " + std::to_string(kMinPatternSize) + " and " +
-                              std::to_string(kMaxPatternSize),
-                          "n = 3 is the usual choice: a bigger n copies larger pieces of the sample (more faithful, less varied), a smaller n mixes more freely.");
+        return make_error("The pattern size n is " + std::to_string(n) + " but it must be between " +
+                              std::to_string(kMinPatternSize) + " and " + std::to_string(kMaxPatternSize),
+                          "n = 3 is the usual choice: a bigger n copies larger pieces of the sample (more faithful, "
+                          "less varied), a smaller n mixes more freely.");
     if (options.symmetry != 1 && options.symmetry != 2 && options.symmetry != 4 && options.symmetry != 8)
         return make_error("symmetry is " + std::to_string(options.symmetry) + " but it must be 1, 2, 4 or 8",
-                          "1 = the sample as it is, 2 = also mirrored left-right, 4 = also turned by 90, 180 and 270 degrees, 8 = turned and mirrored.");
+                          "1 = the sample as it is, 2 = also mirrored left-right, 4 = also turned by 90, 180 and 270 "
+                          "degrees, 8 = turned and mirrored.");
     if (sample.width <= 0 || sample.height <= 0 || sample.cells.empty() || sample.symbolCount <= 0)
         return make_error("The sample is empty: it has no cells to learn patterns from",
                           "Give a sample with at least a few rows and columns: a Tilemap entity or ASCII rows.");
     if (sample.cells.size() != std::size_t(sample.width) * std::size_t(sample.height))
-        return make_error("The sample's cell list does not match its size " + std::to_string(sample.width) + " x " + std::to_string(sample.height));
+        return make_error("The sample's cell list does not match its size " + std::to_string(sample.width) + " x " +
+                          std::to_string(sample.height));
     if (sample.cells.size() > kMaxSampleCells)
-        return make_error("The sample has " + std::to_string(sample.cells.size()) + " cells, more than the limit of " + std::to_string(kMaxSampleCells),
+        return make_error("The sample has " + std::to_string(sample.cells.size()) + " cells, more than the limit of " +
+                              std::to_string(kMaxSampleCells),
                           "Use a smaller sample: a 16 x 16 to 64 x 64 piece shows the same patterns.");
     if (!options.periodicInput && (sample.width < n || sample.height < n))
-        return make_error("The sample is " + std::to_string(sample.width) + " x " + std::to_string(sample.height) + " cells, smaller than n = " +
-                              std::to_string(n) + ": it has no " + std::to_string(n) + " x " + std::to_string(n) + " window to learn",
-                          "Use a bigger sample, a smaller n (n = " + std::to_string(std::max(kMinPatternSize, std::min(sample.width, sample.height))) +
+        return make_error("The sample is " + std::to_string(sample.width) + " x " + std::to_string(sample.height) +
+                              " cells, smaller than n = " + std::to_string(n) + ": it has no " + std::to_string(n) +
+                              " x " + std::to_string(n) + " window to learn",
+                          "Use a bigger sample, a smaller n (n = " +
+                              std::to_string(std::max(kMinPatternSize, std::min(sample.width, sample.height))) +
                               " fits), or periodicInput true so the sample wraps around its edges.");
     for (int v : sample.cells)
-        if (v < 0 || v >= sample.symbolCount) return make_error("The sample holds symbol " + std::to_string(v) + " outside 0.." + std::to_string(sample.symbolCount - 1));
+        if (v < 0 || v >= sample.symbolCount)
+            return make_error("The sample holds symbol " + std::to_string(v) + " outside 0.." +
+                              std::to_string(sample.symbolCount - 1));
 
     auto model = std::make_shared<PatternModel>();
     model->n = n;
@@ -132,14 +143,18 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
         for (int x = 0; x < xEnd; ++x) {
             for (int dy = 0; dy < n; ++dy)
                 for (int dx = 0; dx < n; ++dx)
-                    window[std::size_t(dy * n + dx)] = sample.cells[std::size_t((y + dy) % sample.height) * std::size_t(sample.width) + std::size_t((x + dx) % sample.width)];
+                    window[std::size_t(dy * n + dx)] =
+                        sample.cells[std::size_t((y + dy) % sample.height) * std::size_t(sample.width) +
+                                     std::size_t((x + dx) % sample.width)];
             for (Pat& v : variants(window, n, options.symmetry)) {
                 auto it = patternIndex.find(v);
                 if (it == patternIndex.end()) {
                     if (patterns.size() >= kMaxPatterns)
-                        return make_error("The sample has more than " + std::to_string(kMaxPatterns) + " distinct " + std::to_string(n) + " x " + std::to_string(n) +
+                        return make_error("The sample has more than " + std::to_string(kMaxPatterns) + " distinct " +
+                                              std::to_string(n) + " x " + std::to_string(n) +
                                               " patterns, more than the generator handles",
-                                          "Use a smaller or more regular sample, a smaller n, or a lower symmetry (symmetry 1 keeps only the patterns the sample shows).");
+                                          "Use a smaller or more regular sample, a smaller n, or a lower symmetry "
+                                          "(symmetry 1 keeps only the patterns the sample shows).");
                     it = patternIndex.emplace(v, patterns.size()).first;
                     patterns.push_back(v);
                     weights.push_back(0);
@@ -151,7 +166,8 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
     std::uint64_t totalWeight = 0;
     for (std::uint32_t w : weights) totalWeight += w;
     if (totalWeight > kMaxTotalWeight)
-        return make_error("The pattern counts add up to " + std::to_string(totalWeight) + ", more than the " + std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+        return make_error("The pattern counts add up to " + std::to_string(totalWeight) + ", more than the " +
+                              std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
                           "Use a smaller sample or a lower symmetry.");
     model->symbols.reserve(count * nn);
     for (const Pat& p : patterns) model->symbols.insert(model->symbols.end(), p.begin(), p.end());
@@ -194,10 +210,12 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
     return model;
 }
 
-Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains, const std::vector<std::pair<int, std::uint32_t>>& tileWeights) {
+Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains,
+                                         const std::vector<std::pair<int, std::uint32_t>>& tileWeights) {
     if (terrains.empty())
         return make_error("There are no terrain rules to build the tiled model from",
-                          "Give the Tilemap autotile rules (tilemap.set_terrains, or image.tileset.build writes them), or use model \"overlapping\", which needs only a sample.");
+                          "Give the Tilemap autotile rules (tilemap.set_terrains, or image.tileset.build writes them), "
+                          "or use model \"overlapping\", which needs only a sample.");
     struct P {
         int value;
         int terrain;
@@ -210,7 +228,9 @@ Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains, c
         for (std::size_t s = 0; s < terrains[t].slots.size(); ++s)
             for (int v : terrains[t].slots[s]) pats.push_back({v, int(t), masks[s]});
     }
-    if (pats.size() > kMaxPatterns) return make_error("The terrain rules have " + std::to_string(pats.size()) + " tiles, more than " + std::to_string(kMaxPatterns));
+    if (pats.size() > kMaxPatterns)
+        return make_error("The terrain rules have " + std::to_string(pats.size()) + " tiles, more than " +
+                          std::to_string(kMaxPatterns));
 
     TerrainModel out;
     out.model = std::make_shared<PatternModel>();
@@ -249,15 +269,17 @@ Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains, c
         out.patternTerrain.push_back(p.terrain < 0 ? std::string() : terrains[std::size_t(p.terrain)].name);
     }
     if (totalWeight > kMaxTotalWeight)
-        return make_error("The tile weights add up to " + std::to_string(totalWeight) + " over the " + std::to_string(count) + " patterns, more than the " +
-                              std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+        return make_error("The tile weights add up to " + std::to_string(totalWeight) + " over the " +
+                              std::to_string(count) + " patterns, more than the " + std::to_string(kMaxTotalWeight) +
+                              " the weighted choice can draw from",
                           "Use smaller weights.");
     std::size_t entries = 0;
     for (int d = 0; d < kDirs; ++d) {
         m.compat[d].resize(count);
         for (std::size_t p = 0; p < count; ++p) {
             for (std::size_t q = 0; q < count; ++q)
-                if (bit(pats[p], d) == counts(pats[p].terrain, pats[q].terrain) && bit(pats[q], d ^ 2) == counts(pats[q].terrain, pats[p].terrain))
+                if (bit(pats[p], d) == counts(pats[p].terrain, pats[q].terrain) &&
+                    bit(pats[q], d ^ 2) == counts(pats[q].terrain, pats[p].terrain))
                     m.compat[d][p].push_back(std::uint16_t(q));
             entries += m.compat[d][p].size();
             if (entries > kMaxCompatEntries) return compat_table_error(count, "The terrain rules");
@@ -287,22 +309,23 @@ int wave_side(int output, int n, bool periodic) { return periodic ? output : out
 
 }  // namespace
 
-
 namespace {
 
-constexpr std::uint64_t kHeapEntryBytes = 24;      // sizeof(Impl::HeapEntry), checked by a static_assert below
-constexpr std::uint64_t kHeapEntriesPerCell = 4;   // the heap is rebuilt before it grows past this many entries per cell
+constexpr std::uint64_t kHeapEntryBytes = 24;     // sizeof(Impl::HeapEntry), checked by a static_assert below
+constexpr std::uint64_t kHeapEntriesPerCell = 4;  // the heap is rebuilt before it grows past this many entries per cell
 
 std::uint64_t sat_add(std::uint64_t a, std::uint64_t b) { return a > UINT64_MAX - b ? UINT64_MAX : a + b; }
-std::uint64_t sat_mul(std::uint64_t a, std::uint64_t b) { return (a == 0 || b == 0) ? 0 : (a > UINT64_MAX / b ? UINT64_MAX : a * b); }
+std::uint64_t sat_mul(std::uint64_t a, std::uint64_t b) {
+    return (a == 0 || b == 0) ? 0 : (a > UINT64_MAX / b ? UINT64_MAX : a * b);
+}
 
 std::uint64_t model_bytes(const PatternModel& model) {
     std::uint64_t entries = 0;
     for (int d = 0; d < kDirs; ++d)
         for (const auto& v : model.compat[d]) entries += v.size();
     const std::uint64_t T = model.pattern_count();
-    return entries * sizeof(std::uint16_t) + T * kDirs * sizeof(std::vector<std::uint16_t>) + std::uint64_t(model.symbols.size()) * sizeof(int) + T * sizeof(std::uint32_t) +
-           model.edgeOk.size();
+    return entries * sizeof(std::uint16_t) + T * kDirs * sizeof(std::vector<std::uint16_t>) +
+           std::uint64_t(model.symbols.size()) * sizeof(int) + T * sizeof(std::uint32_t) + model.edgeOk.size();
 }
 
 std::string rule_name(const std::vector<CellRule>& rules, std::size_t r) {
@@ -320,13 +343,15 @@ int axis_distance(int pos, int start, int n, int size, bool periodic) {
 }  // namespace
 
 std::uint64_t estimate_generator_memory(const PatternModel& model, int width, int height, bool periodic) {
-    const std::uint64_t cells = sat_mul(std::uint64_t(std::max(1, wave_side(width, model.n, periodic))), std::uint64_t(std::max(1, wave_side(height, model.n, periodic))));
+    const std::uint64_t cells = sat_mul(std::uint64_t(std::max(1, wave_side(width, model.n, periodic))),
+                                        std::uint64_t(std::max(1, wave_side(height, model.n, periodic))));
     const std::uint64_t T = model.pattern_count();
     const std::uint64_t words = (T + 63) / 64;
     // Per cell: the wave bits and the bits of the removals still to propagate, four u16 support counters per pattern, remaining, the two
     // sums, noise, stamp, two flags, a dirty entry, a queue entry and up to kHeapEntriesPerCell heap entries. Every one of these has a fixed
     // size (a pattern leaves a cell once; a cell is queued once), so this is a true bound. Then the model and the output.
-    const std::uint64_t perCell = sat_add(sat_add(sat_mul(words, 16), sat_mul(T, kDirs * 2)), 4 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + kHeapEntriesPerCell * kHeapEntryBytes);
+    const std::uint64_t perCell = sat_add(sat_add(sat_mul(words, 16), sat_mul(T, kDirs * 2)),
+                                          4 + 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + kHeapEntriesPerCell * kHeapEntryBytes);
     std::uint64_t total = sat_mul(cells, perCell);
     total = sat_add(total, sat_mul(T, 16));
     total = sat_add(total, model_bytes(model));
@@ -335,47 +360,55 @@ std::uint64_t estimate_generator_memory(const PatternModel& model, int width, in
     return total;
 }
 
-Result<std::uint64_t> check_generator_memory(const PatternModel& model, int width, int height, bool periodic, std::uint64_t extraBytes) {
+Result<std::uint64_t> check_generator_memory(const PatternModel& model, int width, int height, bool periodic,
+                                             std::uint64_t extraBytes) {
     const std::uint64_t need = sat_add(estimate_generator_memory(model, width, height, periodic), extraBytes);
     if (need <= kWfcMemoryBudget) return need;
-    const std::uint64_t outCells = std::max<std::uint64_t>(1, sat_mul(std::uint64_t(std::max(width, 1)), std::uint64_t(std::max(height, 1))));
+    const std::uint64_t outCells =
+        std::max<std::uint64_t>(1, sat_mul(std::uint64_t(std::max(width, 1)), std::uint64_t(std::max(height, 1))));
     const std::uint64_t perCell = std::max<std::uint64_t>(1, need / outCells);
     const std::uint64_t maxCells = kWfcMemoryBudget / perCell;
     std::uint64_t side = 1;
     while ((side + 1) * (side + 1) <= maxCells) ++side;
-    return make_error("Generating " + std::to_string(width) + " x " + std::to_string(height) + " cells from a model with " + std::to_string(model.pattern_count()) +
-                          " patterns needs about " + mb(need) + " of memory, above the limit of " + mb(kWfcMemoryBudget),
-                      "Ask for a smaller size (about " + std::to_string(side) + " x " + std::to_string(side) + " fits this model), or reduce the patterns: a smaller n, symmetry 1, or a simpler sample.");
+    return make_error("Generating " + std::to_string(width) + " x " + std::to_string(height) +
+                          " cells from a model with " + std::to_string(model.pattern_count()) +
+                          " patterns needs about " + mb(need) + " of memory, above the limit of " +
+                          mb(kWfcMemoryBudget),
+                      "Ask for a smaller size (about " + std::to_string(side) + " x " + std::to_string(side) +
+                          " fits this model), or reduce the patterns: a smaller n, symmetry 1, or a simpler sample.");
 }
 
 struct Generator::Impl {
     std::shared_ptr<const PatternModel> model;
     GenerateOptions opt;
 
-    std::size_t T = 0;       // patterns
-    std::size_t words = 0;   // 64-bit words per cell of the wave
-    int wc = 0, hc = 0;      // wave size in cells
+    std::size_t T = 0;      // patterns
+    std::size_t words = 0;  // 64-bit words per cell of the wave
+    int wc = 0, hc = 0;     // wave size in cells
     std::size_t cells = 0;
-    std::vector<std::int64_t> logw;                    // per pattern, Q20 log2 of its weight
-    std::vector<std::uint16_t> supportInit;            // T * 4: the support counters of a fresh cell
-    std::vector<std::uint32_t> special;                // patterns that cannot stand in the middle of the map or at an edge in some direction
-    std::vector<std::vector<char>> ruleMask;           // per cell rule: allowed symbol flags
-    std::vector<std::uint32_t> forbiddenPatterns;      // patterns that hold a forbidden symbol somewhere
-    std::vector<std::vector<char>> countMask;          // per count rule: symbol flags
-    std::vector<char> ruleCell;                        // per output cell: a cell rule covers it
-    std::vector<int> pendingPins;                      // per count rule: cells to pin in the next attempt (a minimum was missed)
-    std::vector<char> pinTaken;                        // per output cell: pinned in this attempt
+    std::vector<std::int64_t> logw;          // per pattern, Q20 log2 of its weight
+    std::vector<std::uint16_t> supportInit;  // T * 4: the support counters of a fresh cell
+    std::vector<std::uint32_t>
+        special;  // patterns that cannot stand in the middle of the map or at an edge in some direction
+    std::vector<std::vector<char>> ruleMask;       // per cell rule: allowed symbol flags
+    std::vector<std::uint32_t> forbiddenPatterns;  // patterns that hold a forbidden symbol somewhere
+    std::vector<std::vector<char>> countMask;      // per count rule: symbol flags
+    std::vector<char> ruleCell;                    // per output cell: a cell rule covers it
+    std::vector<int> pendingPins;  // per count rule: cells to pin in the next attempt (a minimum was missed)
+    std::vector<char> pinTaken;    // per output cell: pinned in this attempt
     // Maximums that steer the solver (count rules with max >= 1). capHit[(klass * capRules.size() + c) * words + w]: the patterns of the
     // wave cell of ownership class `klass` that put a symbol of rule capRules[c] on a cell the wave cell owns (see owned_offsets()).
     std::vector<std::size_t> capRules;
     std::vector<std::uint64_t> capHit;
-    std::vector<std::int64_t> committed;               // per capRules entry: cells whose symbol is already decided to be in the group
-    std::vector<char> capApplied, capDue;              // per capRules entry: the group's symbols were taken out of the undecided cells / are due to be
-    int capCurrent = -1;                               // the capRules entry whose symbols are being taken out, or -1
+    std::vector<std::int64_t>
+        committed;  // per capRules entry: cells whose symbol is already decided to be in the group
+    std::vector<char> capApplied,
+        capDue;  // per capRules entry: the group's symbols were taken out of the undecided cells / are due to be
+    int capCurrent = -1;  // the capRules entry whose symbols are being taken out, or -1
     std::size_t capCursor = 0;
-    int overRule = -1;                                 // a count rule whose maximum the decided cells already pass (the attempt is refused)
+    int overRule = -1;  // a count rule whose maximum the decided cells already pass (the attempt is refused)
     std::int64_t overFound = 0;
-    std::int64_t owed = 0;                             // work not yet charged (the scans of ban())
+    std::int64_t owed = 0;  // work not yet charged (the scans of ban())
 
     // state of the attempt
     std::vector<std::uint64_t> wave;
@@ -400,7 +433,8 @@ struct Generator::Impl {
     };
     static_assert(sizeof(HeapEntry) == kHeapEntryBytes, "estimate_generator_memory assumes the size of HeapEntry");
     std::vector<HeapEntry> heap;
-    static bool heap_after(const HeapEntry& a, const HeapEntry& b) {  // "a comes after b": a min-heap on (key, noise, cell)
+    static bool heap_after(const HeapEntry& a,
+                           const HeapEntry& b) {  // "a comes after b": a min-heap on (key, noise, cell)
         if (a.key != b.key) return a.key > b.key;
         if (a.noise != b.noise) return a.noise > b.noise;
         return a.cell > b.cell;
@@ -418,17 +452,17 @@ struct Generator::Impl {
     // step() is called.
     enum class Phase { Reset, Special, Forbidden, Rules, Pins, Run, Extract, Output, Counts, Accept, Finish };
     Phase phase = Phase::Reset;
-    std::size_t cursor = 0;                    // position inside the phase: a cell, a cell rule or an output cell
-    std::uint64_t totalW = 0;                  // sum of the weights / of weight * log2(weight): every fresh cell starts with them
+    std::size_t cursor = 0;    // position inside the phase: a cell, a cell rule or an output cell
+    std::uint64_t totalW = 0;  // sum of the weights / of weight * log2(weight): every fresh cell starts with them
     std::int64_t totalWL = 0;
     Rng pinRng;
     std::size_t pinRule = 0;
     int pinTries = 0, pinPlaced = 0;
-    std::vector<std::int64_t> perSymbol;       // Counts: cells per symbol of the finished grid
+    std::vector<std::int64_t> perSymbol;  // Counts: cells per symbol of the finished grid
     bool acceptBegun = false;
     bool finishBegun = false;
     static constexpr std::int64_t kChunkWork = 16384;
-    int flushStage = 0;                        // Run: 0 = no flush under way, 1 = stamping the dirty cells, 2 = pushing their entries
+    int flushStage = 0;  // Run: 0 = no flush under way, 1 = stamping the dirty cells, 2 = pushing their entries
     std::size_t flushPos = 0;
 
     GenStatus status = GenStatus::Running;
@@ -436,7 +470,7 @@ struct Generator::Impl {
     GenStats stats;
     GenFailure failure;
     int failedAttempts = 0;
-    std::int64_t stepWork = 0;   // work charged in the current step() call
+    std::int64_t stepWork = 0;  // work charged in the current step() call
 
     // ------------------------------------------------------------------------------------------------------------
     bool present(std::size_t cell, std::size_t p) const { return (wave[cell * words + (p >> 6)] >> (p & 63)) & 1u; }
@@ -458,7 +492,8 @@ struct Generator::Impl {
     // also the n - 1 cells beyond it (output_chunk() reads them from that wave cell). klass bit 0: the wave cell owns extra columns, bit 1: extra rows.
     int cell_class(std::size_t cell) const {
         const int cx = int(cell % std::size_t(wc)), cy = int(cell / std::size_t(wc));
-        return ((!opt.periodic && cx == wc - 1 && opt.width > wc) ? 1 : 0) | ((!opt.periodic && cy == hc - 1 && opt.height > hc) ? 2 : 0);
+        return ((!opt.periodic && cx == wc - 1 && opt.width > wc) ? 1 : 0) |
+               ((!opt.periodic && cy == hc - 1 && opt.height > hc) ? 2 : 0);
     }
     void owned_offsets(int klass, int& nx, int& ny) const {
         nx = (klass & 1) ? opt.width - wc + 1 : 1;
@@ -591,7 +626,9 @@ struct Generator::Impl {
     }
 
     // Cells of one chunk when a cell costs `perCell` units (at least one cell).
-    static std::size_t chunk_cells(std::int64_t perCell) { return std::size_t(std::max<std::int64_t>(1, kChunkWork / std::max<std::int64_t>(1, perCell))); }
+    static std::size_t chunk_cells(std::int64_t perCell) {
+        return std::size_t(std::max<std::int64_t>(1, kChunkWork / std::max<std::int64_t>(1, perCell)));
+    }
 
     // Starts an attempt: the per-attempt values, then the Reset phase resets the cells chunk by chunk.
     void begin_attempt() {
@@ -641,10 +678,10 @@ struct Generator::Impl {
             stamp[c] = 0;
             for (std::size_t wi = 0; wi < words; ++wi) pending[c * words + wi] = 0;
             queued[c] = 0;
-            dirtyFlag[c] = 1;   // every cell gets its heap entry
+            dirtyFlag[c] = 1;  // every cell gets its heap entry
             dirty.push_back(std::uint32_t(c));
         }
-        charge(std::int64_t(to - from) * perCell);   // resetting the state of every cell
+        charge(std::int64_t(to - from) * perCell);  // resetting the state of every cell
         cursor = to;
         if (cursor >= cells) enter(Phase::Special);
     }
@@ -663,7 +700,8 @@ struct Generator::Impl {
             for (std::uint32_t p : special) {
                 for (int d = 0; d < kDirs; ++d) {
                     std::size_t nb = 0;
-                    if (neighbour(c, d, nb) ? model->compat[d][p].empty() : !model->edgeOk[std::size_t(p) * kDirs + std::size_t(d)]) {
+                    if (neighbour(c, d, nb) ? model->compat[d][p].empty()
+                                            : !model->edgeOk[std::size_t(p) * kDirs + std::size_t(d)]) {
                         ban(c, p);
                         break;
                     }
@@ -676,7 +714,8 @@ struct Generator::Impl {
     // Forbidden symbols: the patterns that hold one anywhere are out of every cell.
     void forbidden_chunk() {
         if (forbiddenPatterns.empty()) return enter(Phase::Rules);
-        const std::size_t from = cursor, to = std::min(cells, cursor + chunk_cells(std::int64_t(forbiddenPatterns.size())));
+        const std::size_t from = cursor,
+                          to = std::min(cells, cursor + chunk_cells(std::int64_t(forbiddenPatterns.size())));
         charge(std::int64_t(to - from) * std::int64_t(forbiddenPatterns.size()));
         for (std::size_t c = from; c < to && !contradiction; ++c)
             for (std::uint32_t p : forbiddenPatterns) ban(c, p);
@@ -789,7 +828,7 @@ struct Generator::Impl {
                 dirtyFlag[dirty[i]] = 0;
                 ++stamp[dirty[i]];
             }
-            charge(std::int64_t(to - flushPos));   // one stamp per cell that changed
+            charge(std::int64_t(to - flushPos));  // one stamp per cell that changed
             flushPos = to;
             if (flushPos < n) return;
             // Stale entries pile up (every change of a cell leaves its old entry behind): when the heap could pass its allowance, keep
@@ -815,7 +854,7 @@ struct Generator::Impl {
                 std::push_heap(heap.begin(), heap.end(), heap_after);
             }
         }
-        charge(std::int64_t(to - flushPos));   // one heap entry per cell that changed
+        charge(std::int64_t(to - flushPos));  // one heap entry per cell that changed
         flushPos = to;
         if (flushPos < n) return;
         dirty.clear();
@@ -877,7 +916,8 @@ struct Generator::Impl {
         int best = -1, bestD = n + 1;
         for (std::size_t r = 0; r < opt.cellRules.size(); ++r) {
             const CellRule& rule = opt.cellRules[r];
-            const int d = std::max(axis_distance(rule.x, cx, n, opt.width, opt.periodic), axis_distance(rule.y, cy, n, opt.height, opt.periodic));
+            const int d = std::max(axis_distance(rule.x, cx, n, opt.width, opt.periodic),
+                                   axis_distance(rule.y, cy, n, opt.height, opt.periodic));
             if (d < bestD) {
                 bestD = d;
                 best = int(r);
@@ -886,7 +926,8 @@ struct Generator::Impl {
         return best;
     }
 
-    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1, bool cutOff = false) {
+    void fail_attempt(int x, int y, const std::string& reason, bool isContradiction, int countRule = -1,
+                      bool cutOff = false) {
         attemptRunning = false;
         failure.attempt = attempt;
         failure.x = x;
@@ -895,7 +936,8 @@ struct Generator::Impl {
         failure.countRule = countRule;
         failure.cellRule = -1;
         ++failedAttempts;
-        if (isContradiction) ++stats.contradictions;
+        if (isContradiction)
+            ++stats.contradictions;
         else {
             ++stats.rejected;
             if (cutOff) ++stats.cutOff;
@@ -995,13 +1037,15 @@ struct Generator::Impl {
                 pendingPins[r] = opt.pinMissing ? int(std::min<std::int64_t>(rule.min - found, kMaxPins)) : 0;
                 if (firstBad < 0) {
                     firstBad = int(r);
-                    why = "only " + std::to_string(found) + " cell(s) hold " + name + ", at least " + std::to_string(rule.min) + " are required";
+                    why = "only " + std::to_string(found) + " cell(s) hold " + name + ", at least " +
+                          std::to_string(rule.min) + " are required";
                 }
             } else {
                 pendingPins[r] = 0;
                 if (rule.max >= 0 && found > rule.max && firstBad < 0) {
                     firstBad = int(r);
-                    why = std::to_string(found) + " cells hold " + name + ", at most " + std::to_string(rule.max) + " are allowed";
+                    why = std::to_string(found) + " cells hold " + name + ", at most " + std::to_string(rule.max) +
+                          " are allowed";
                 }
             }
         }
@@ -1023,7 +1067,8 @@ struct Generator::Impl {
             charge(std::max<std::int64_t>(work, 1));
             if (v == GridCheck::Verdict::More) return;
             if (v == GridCheck::Verdict::Refused)
-                return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false, -1, opt.check->refusedCutOff);
+                return fail_attempt(-1, -1, why.empty() ? "the finished level was refused" : why, false, -1,
+                                    opt.check->refusedCutOff);
         } else if (opt.accept) {
             std::string why;
             std::int64_t acceptWork = 0;
@@ -1045,7 +1090,8 @@ struct Generator::Impl {
         const GridCheck::Verdict v = opt.finish->step(kAcceptChunk, why, work);
         charge(std::max<std::int64_t>(work, 1));
         if (v == GridCheck::Verdict::More) return;
-        if (v == GridCheck::Verdict::Refused) return fail_attempt(-1, -1, why.empty() ? "the finished level could not be completed" : why, false);
+        if (v == GridCheck::Verdict::Refused)
+            return fail_attempt(-1, -1, why.empty() ? "the finished level could not be completed" : why, false);
         after_finish();
     }
 
@@ -1064,16 +1110,20 @@ struct Generator::Impl {
     std::string count_rule_name(const CountRule& rule) const {
         if (!rule.name.empty()) return rule.name;
         std::string out = "symbol";
-        for (std::size_t i = 0; i < rule.symbols.size(); ++i) out += (i == 0 ? " " : ", ") + std::to_string(rule.symbols[i]);
+        for (std::size_t i = 0; i < rule.symbols.size(); ++i)
+            out += (i == 0 ? " " : ", ") + std::to_string(rule.symbols[i]);
         return out;
     }
 
     std::size_t bytes_held() const {
-        return wave.capacity() * sizeof(std::uint64_t) + support.capacity() * sizeof(std::uint16_t) + remaining.capacity() * sizeof(std::uint32_t) +
-               sumW.capacity() * sizeof(std::uint64_t) + sumWL.capacity() * sizeof(std::int64_t) + noise.capacity() * sizeof(std::uint32_t) +
-               stamp.capacity() * sizeof(std::uint32_t) + dirtyFlag.capacity() + dirty.capacity() * sizeof(std::uint32_t) + pending.capacity() * sizeof(std::uint64_t) +
-               queue.capacity() * sizeof(std::uint32_t) + queued.capacity() + heap.capacity() * sizeof(HeapEntry) + output.capacity() * sizeof(int) + pinTaken.capacity() +
-               logw.capacity() * sizeof(std::int64_t) + supportInit.capacity() * sizeof(std::uint16_t) + capHit.capacity() * sizeof(std::uint64_t) +
+        return wave.capacity() * sizeof(std::uint64_t) + support.capacity() * sizeof(std::uint16_t) +
+               remaining.capacity() * sizeof(std::uint32_t) + sumW.capacity() * sizeof(std::uint64_t) +
+               sumWL.capacity() * sizeof(std::int64_t) + noise.capacity() * sizeof(std::uint32_t) +
+               stamp.capacity() * sizeof(std::uint32_t) + dirtyFlag.capacity() +
+               dirty.capacity() * sizeof(std::uint32_t) + pending.capacity() * sizeof(std::uint64_t) +
+               queue.capacity() * sizeof(std::uint32_t) + queued.capacity() + heap.capacity() * sizeof(HeapEntry) +
+               output.capacity() * sizeof(int) + pinTaken.capacity() + logw.capacity() * sizeof(std::int64_t) +
+               supportInit.capacity() * sizeof(std::uint16_t) + capHit.capacity() * sizeof(std::uint64_t) +
                std::size_t(model_bytes(*model));
     }
 
@@ -1091,7 +1141,8 @@ struct Generator::Impl {
                 continue;
             }
             if (contradiction) {
-                fail_attempt(int(contradictionCell % std::uint32_t(wc)), int(contradictionCell / std::uint32_t(wc)), "contradiction", true);
+                fail_attempt(int(contradictionCell % std::uint32_t(wc)), int(contradictionCell / std::uint32_t(wc)),
+                             "contradiction", true);
                 continue;
             }
             if (owed > 0) {
@@ -1101,7 +1152,9 @@ struct Generator::Impl {
             if (overRule >= 0) {
                 // The cells already decided hold more of the group than its maximum: whatever the rest becomes, the finished grid would be refused.
                 const std::size_t r = std::size_t(overRule);
-                const std::string why = "at least " + std::to_string(overFound) + " cells hold " + count_rule_name(opt.counts[r]) + ", at most " + std::to_string(opt.counts[r].max) + " are allowed";
+                const std::string why = "at least " + std::to_string(overFound) + " cells hold " +
+                                        count_rule_name(opt.counts[r]) + ", at most " +
+                                        std::to_string(opt.counts[r].max) + " are allowed";
                 overRule = -1;
                 fail_attempt(-1, -1, why, false, int(r));
                 continue;
@@ -1134,7 +1187,7 @@ namespace {
 // The tiles a count rule or a pattern may not hold, and why: the user's `forbidden` list, or a count rule with a maximum of 0.
 struct Barred {
     std::vector<char> flag;
-    std::vector<int> byRule;   // per symbol: -1 = the forbidden list, else the index of the count rule with max 0
+    std::vector<int> byRule;  // per symbol: -1 = the forbidden list, else the index of the count rule with max 0
     bool is(int sym) const { return flag[std::size_t(sym)] != 0; }
 };
 
@@ -1164,30 +1217,41 @@ std::vector<std::uint16_t> placement_table(const PatternModel& model, const Barr
         std::uint16_t valid = 0;
         for (int mask = 0; mask < 16; ++mask) {
             bool ok = true;
-            for (int d = 0; d < kDirs && ok; ++d) ok = (mask >> d) & 1 ? !model.compat[d][p].empty() : model.edgeOk[p * kDirs + std::size_t(d)] != 0;
+            for (int d = 0; d < kDirs && ok; ++d)
+                ok = (mask >> d) & 1 ? !model.compat[d][p].empty() : model.edgeOk[p * kDirs + std::size_t(d)] != 0;
             if (ok) valid = std::uint16_t(valid | (1u << mask));
         }
         if (!valid) continue;
-        for (std::size_t k = 0; k < n2; ++k) table[k * symbols + std::size_t(model.symbols[p * n2 + k])] = std::uint16_t(table[k * symbols + std::size_t(model.symbols[p * n2 + k])] | valid);
+        for (std::size_t k = 0; k < n2; ++k)
+            table[k * symbols + std::size_t(model.symbols[p * n2 + k])] =
+                std::uint16_t(table[k * symbols + std::size_t(model.symbols[p * n2 + k])] | valid);
     }
     return table;
 }
 
 }  // namespace
 
-Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const PatternModel> model, GenerateOptions options) {
+Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const PatternModel> model,
+                                                     GenerateOptions options) {
     if (!model || model->pattern_count() == 0) return make_error("The model has no patterns to place");
     const int n = model->n;
     if (options.width < 1 || options.height < 1 || options.width > kMaxOutputSide || options.height > kMaxOutputSide)
-        return make_error("The output size " + std::to_string(options.width) + " x " + std::to_string(options.height) + " is outside 1.." + std::to_string(kMaxOutputSide) + " cells per side",
+        return make_error("The output size " + std::to_string(options.width) + " x " + std::to_string(options.height) +
+                              " is outside 1.." + std::to_string(kMaxOutputSide) + " cells per side",
                           "Generate a smaller level; for a bigger world generate several chunks.");
     if (options.width < n || options.height < n)
-        return make_error("The output size " + std::to_string(options.width) + " x " + std::to_string(options.height) + " is smaller than the pattern size n = " + std::to_string(n),
-                          "Make the output at least " + std::to_string(n) + " x " + std::to_string(n) + " cells, or use a smaller n.");
+        return make_error("The output size " + std::to_string(options.width) + " x " + std::to_string(options.height) +
+                              " is smaller than the pattern size n = " + std::to_string(n),
+                          "Make the output at least " + std::to_string(n) + " x " + std::to_string(n) +
+                              " cells, or use a smaller n.");
     if (options.maxAttempts < 1 || options.maxAttempts > kMaxAttempts)
-        return make_error("maxAttempts is " + std::to_string(options.maxAttempts) + " but it must be between 1 and " + std::to_string(kMaxAttempts),
-                          "Each attempt restarts from the next derived seed; 10 is the default and enough unless the sample is very restrictive.");
-    if (options.maxWork < 0) return make_error("maxWork is " + std::to_string(options.maxWork) + " but it cannot be negative", "Use 0 for no cap, or the units of work to allow.");
+        return make_error("maxAttempts is " + std::to_string(options.maxAttempts) + " but it must be between 1 and " +
+                              std::to_string(kMaxAttempts),
+                          "Each attempt restarts from the next derived seed; 10 is the default and enough unless the "
+                          "sample is very restrictive.");
+    if (options.maxWork < 0)
+        return make_error("maxWork is " + std::to_string(options.maxWork) + " but it cannot be negative",
+                          "Use 0 for no cap, or the units of work to allow.");
     // The size comes before everything that allocates per cell or per fixed cell. The maximums that steer the solver keep four bit sets of one
     // word per 64 patterns each.
     std::uint64_t capBytes = 0;
@@ -1197,19 +1261,24 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
     if (!memory.ok()) return memory.error();
     const std::uint64_t need = *memory;
     if (options.cellRules.size() > kMaxCellRules)
-        return make_error(std::to_string(options.cellRules.size()) + " cells are fixed, more than the limit of " + std::to_string(kMaxCellRules),
-                          "Fix only what the level needs (an entrance, an exit, a border) and let the sample fill the rest.");
+        return make_error(
+            std::to_string(options.cellRules.size()) + " cells are fixed, more than the limit of " +
+                std::to_string(kMaxCellRules),
+            "Fix only what the level needs (an entrance, an exit, a border) and let the sample fill the rest.");
     for (std::size_t r = 0; r < options.cellRules.size(); ++r) {
         const CellRule& rule = options.cellRules[r];
         const std::string who = rule_name(options.cellRules, r);
         if (rule.x < 0 || rule.y < 0 || rule.x >= options.width || rule.y >= options.height)
-            return make_error(who + " names the cell (" + std::to_string(rule.x) + ", " + std::to_string(rule.y) + ") outside the " + std::to_string(options.width) + " x " +
+            return make_error(who + " names the cell (" + std::to_string(rule.x) + ", " + std::to_string(rule.y) +
+                                  ") outside the " + std::to_string(options.width) + " x " +
                                   std::to_string(options.height) + " output",
                               "Cells count from 0 at the top-left; x is the column, y the row.");
-        if (rule.allowed.empty()) return make_error(who + " allows no symbol at all", "List at least one symbol the cell may hold.");
+        if (rule.allowed.empty())
+            return make_error(who + " allows no symbol at all", "List at least one symbol the cell may hold.");
         for (int s : rule.allowed)
             if (s < 0 || s >= model->symbolCount)
-                return make_error(who + " allows symbol " + std::to_string(s) + " but the model has symbols 0.." + std::to_string(model->symbolCount - 1));
+                return make_error(who + " allows symbol " + std::to_string(s) + " but the model has symbols 0.." +
+                                  std::to_string(model->symbolCount - 1));
     }
     // ---- weights, forbidden symbols, count rules: what contradicts itself or the model is refused before anything runs
     const std::size_t symbols = std::size_t(model->symbolCount);
@@ -1219,7 +1288,8 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         totalWeight += w;
     }
     if (totalWeight > kMaxTotalWeight)
-        return make_error("The pattern weights add up to " + std::to_string(totalWeight) + ", more than the " + std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
+        return make_error("The pattern weights add up to " + std::to_string(totalWeight) + ", more than the " +
+                              std::to_string(kMaxTotalWeight) + " the weighted choice can draw from",
                           "Use smaller weights or a smaller sample.");
     Barred barred;
     barred.flag.assign(symbols, 0);
@@ -1227,7 +1297,8 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
     for (std::size_t i = 0; i < options.forbidden.size(); ++i) {
         const int sym = options.forbidden[i];
         if (sym < 0 || sym >= model->symbolCount)
-            return make_error("Forbidden symbol " + std::to_string(sym) + " is not one of the model's symbols 0.." + std::to_string(model->symbolCount - 1));
+            return make_error("Forbidden symbol " + std::to_string(sym) + " is not one of the model's symbols 0.." +
+                              std::to_string(model->symbolCount - 1));
         barred.flag[std::size_t(sym)] = 1;
     }
     const std::int64_t outputCells = std::int64_t(options.width) * options.height;
@@ -1237,12 +1308,18 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         const std::string who = count_name(options.counts, r);
         if (rule.symbols.empty()) return make_error(who + " names no symbol", "List the symbols that count together.");
         for (int sym : rule.symbols)
-            if (sym < 0 || sym >= model->symbolCount) return make_error(who + " names symbol " + std::to_string(sym) + " but the model has symbols 0.." + std::to_string(model->symbolCount - 1));
-        if (rule.min < 0) return make_error(who + " has min " + std::to_string(rule.min) + " but a count cannot be negative");
+            if (sym < 0 || sym >= model->symbolCount)
+                return make_error(who + " names symbol " + std::to_string(sym) + " but the model has symbols 0.." +
+                                  std::to_string(model->symbolCount - 1));
+        if (rule.min < 0)
+            return make_error(who + " has min " + std::to_string(rule.min) + " but a count cannot be negative");
         if (rule.max >= 0 && rule.min > rule.max)
-            return make_error(who + " has min " + std::to_string(rule.min) + " greater than max " + std::to_string(rule.max), "Make min at most max.");
+            return make_error(who + " has min " + std::to_string(rule.min) + " greater than max " +
+                                  std::to_string(rule.max),
+                              "Make min at most max.");
         if (rule.min > outputCells)
-            return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but the output has only " + std::to_string(outputCells),
+            return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but the output has only " +
+                                  std::to_string(outputCells),
                               "Ask for a bigger output or a smaller minimum.");
         if (rule.max == 0)
             for (int sym : rule.symbols)
@@ -1260,14 +1337,15 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         forbiddenCount += patternForbidden[p] ? 1u : 0u;
     }
     if (forbiddenCount == model->pattern_count())
-        return make_error("Every pattern of the model holds a tile that is forbidden or capped at a maximum of 0, so nothing can be placed",
+        return make_error("Every pattern of the model holds a tile that is forbidden or capped at a maximum of 0, so "
+                          "nothing can be placed",
                           "Forbid fewer tiles or drop a `max: 0`: the sample is made of them.");
     // The cell rules of one output cell narrow each other down (sorted symbol lists, not a flag per symbol: a level can fix thousands
     // of cells); a cell with nothing left, or only barred symbols, cannot be filled.
     struct Effective {
         std::vector<int> allowed;
-        std::size_t first = 0;   // the first rule that named the cell
-        std::size_t last = 0;    // the last one
+        std::size_t first = 0;  // the first rule that named the cell
+        std::size_t last = 0;   // the last one
     };
     std::map<std::size_t, Effective> effective;  // output cell -> symbols every rule on it allows
     for (std::size_t r = 0; r < options.cellRules.size(); ++r) {
@@ -1281,13 +1359,15 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
             it = effective.emplace(at, Effective{own, r, r}).first;
         } else {
             std::vector<int> both;
-            std::set_intersection(it->second.allowed.begin(), it->second.allowed.end(), own.begin(), own.end(), std::back_inserter(both));
+            std::set_intersection(it->second.allowed.begin(), it->second.allowed.end(), own.begin(), own.end(),
+                                  std::back_inserter(both));
             it->second.allowed = std::move(both);
             it->second.last = r;
         }
         const std::string who = rule_name(options.cellRules, r);
         if (it->second.allowed.empty())
-            return make_error(who + " leaves no symbol for the cell (" + std::to_string(rule.x) + ", " + std::to_string(rule.y) + "): it shares no tile with " +
+            return make_error(who + " leaves no symbol for the cell (" + std::to_string(rule.x) + ", " +
+                                  std::to_string(rule.y) + "): it shares no tile with " +
                                   rule_name(options.cellRules, it->second.first),
                               "Give each cell one fixed tile; a cell named twice must share a tile.");
         int usable = -1;
@@ -1297,20 +1377,24 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
                 break;
             }
         if (usable < 0)
-            return make_error(who + " allows only barred tiles for the cell (" + std::to_string(rule.x) + ", " + std::to_string(rule.y) + "): " +
-                                  symbol_text(it->second.allowed.front()) + " cannot be placed because " + barred_text(barred, options.counts, it->second.allowed.front()),
-                              "Remove the tile from the forbidden list or from the `max: 0` count, or fix the cell to another tile.");
+            return make_error(
+                who + " allows only barred tiles for the cell (" + std::to_string(rule.x) + ", " +
+                    std::to_string(rule.y) + "): " + symbol_text(it->second.allowed.front()) +
+                    " cannot be placed because " + barred_text(barred, options.counts, it->second.allowed.front()),
+                "Remove the tile from the forbidden list or from the `max: 0` count, or fix the cell to another tile.");
     }
     // A fixed cell must have a place in the model: some pattern (without the barred tiles) that puts one of its tiles there, also at the
     // edge of the map when the cell is near it. The sample may show a tile only in the middle, or only next to a tile that is forbidden.
     if (!effective.empty()) {
         const std::vector<std::uint16_t> table = placement_table(*model, barred, true);
-        std::vector<std::uint16_t> tableAll;   // built when a cell fails, to say why
+        std::vector<std::uint16_t> tableAll;  // built when a cell fails, to say why
         const int wcCheck = options.periodic ? options.width : options.width - n + 1;
         const int hcCheck = options.periodic ? options.height : options.height - n + 1;
-        std::map<std::tuple<std::vector<int>, int, int, int>, bool> memo;   // (allowed, offset, offset, edge situation) -> a pattern exists
+        std::map<std::tuple<std::vector<int>, int, int, int>, bool>
+            memo;  // (allowed, offset, offset, edge situation) -> a pattern exists
         for (const auto& entry : effective) {
-            const int x = int(entry.first % std::size_t(options.width)), y = int(entry.first / std::size_t(options.width));
+            const int x = int(entry.first % std::size_t(options.width)),
+                      y = int(entry.first / std::size_t(options.width));
             std::vector<int> usable;
             for (int sym : entry.second.allowed)
                 if (!barred.is(sym)) usable.push_back(sym);
@@ -1324,7 +1408,8 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
                     } else if (cx < 0 || cy < 0 || cx >= wcCheck || cy >= hcCheck) {
                         continue;
                     } else {
-                        mask = (cx + 1 < wcCheck ? 1 : 0) | (cy + 1 < hcCheck ? 2 : 0) | (cx > 0 ? 4 : 0) | (cy > 0 ? 8 : 0);
+                        mask = (cx + 1 < wcCheck ? 1 : 0) | (cy + 1 < hcCheck ? 2 : 0) | (cx > 0 ? 4 : 0) |
+                               (cy > 0 ? 8 : 0);
                     }
                     const auto key = std::make_tuple(usable, ox, oy, mask);
                     auto found = memo.find(key);
@@ -1341,16 +1426,23 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
                     if (tableAll.empty()) tableAll = placement_table(*model, barred, false);
                     bool withBarred = false;
                     for (int sym : usable)
-                        if ((tableAll[std::size_t(oy * n + ox) * symbols + std::size_t(sym)] >> mask) & 1u) withBarred = true;
+                        if ((tableAll[std::size_t(oy * n + ox) * symbols + std::size_t(sym)] >> mask) & 1u)
+                            withBarred = true;
                     const std::string who = rule_name(options.cellRules, entry.second.last);
                     std::string list;
-                    for (std::size_t i = 0; i < usable.size() && i < 4; ++i) list += (i ? ", " : "") + std::to_string(usable[i]);
-                    return make_error(who + " fixes the cell (" + std::to_string(x) + ", " + std::to_string(y) + ") to symbol(s) " + list + " but " +
-                                          (withBarred ? "every pattern of the model that can put it there also holds a forbidden tile (or one capped at a maximum of 0)"
-                                                      : "no pattern of the model can put it there: the sample shows it only in other places (for example away from the edge of a level, "
-                                                        "where a border or a corner needs it, or never next to the tiles around it)"),
-                                      "Draw the tile at that kind of place in the sample (a border or corner tile must appear along the sample's own edge), fix another tile, "
-                                      "or remove the tile that conflicts from `forbidden` / `max: 0` counts.");
+                    for (std::size_t i = 0; i < usable.size() && i < 4; ++i)
+                        list += (i ? ", " : "") + std::to_string(usable[i]);
+                    return make_error(
+                        who + " fixes the cell (" + std::to_string(x) + ", " + std::to_string(y) + ") to symbol(s) " +
+                            list + " but " +
+                            (withBarred ? "every pattern of the model that can put it there also holds a forbidden "
+                                          "tile (or one capped at a maximum of 0)"
+                                        : "no pattern of the model can put it there: the sample shows it only in other "
+                                          "places (for example away from the edge of a level, "
+                                          "where a border or a corner needs it, or never next to the tiles around it)"),
+                        "Draw the tile at that kind of place in the sample (a border or corner tile must appear along "
+                        "the sample's own edge), fix another tile, "
+                        "or remove the tile that conflicts from `forbidden` / `max: 0` counts.");
                 }
         }
     }
@@ -1380,9 +1472,10 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         }
         forcedOf[r] = forced;
         if (rule.max >= 0 && forced > rule.max)
-            return make_error(who + " allows at most " + std::to_string(rule.max) + " cells but " + std::to_string(forced) + " fixed cells already hold it (the first: " +
-                                  rule_name(options.cellRules, forcedFirst[r]) + ")",
-                              "Raise the maximum or fix fewer cells to it.");
+            return make_error(
+                who + " allows at most " + std::to_string(rule.max) + " cells but " + std::to_string(forced) +
+                    " fixed cells already hold it (the first: " + rule_name(options.cellRules, forcedFirst[r]) + ")",
+                "Raise the maximum or fix fewer cells to it.");
         if (rule.min > 0) {
             int usableSym = -1;
             for (int sym : rule.symbols)
@@ -1391,21 +1484,28 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
                     break;
                 }
             if (usableSym < 0)
-                return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but none of its tiles can be placed: " + barred_text(barred, options.counts, rule.symbols.front()),
+                return make_error(who + " needs at least " + std::to_string(rule.min) +
+                                      " cells but none of its tiles can be placed: " +
+                                      barred_text(barred, options.counts, rule.symbols.front()),
                                   "Remove the tile from `forbidden` or from the `max: 0` count, or drop the minimum.");
         }
         if (rule.min > possible)
-            return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but only " + std::to_string(possible) + " cells can hold it (the others are fixed to other tiles)",
+            return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but only " +
+                                  std::to_string(possible) + " cells can hold it (the others are fixed to other tiles)",
                               "Lower the minimum, ask for a bigger output or fix fewer cells to other tiles.");
         if (rule.min > 0) {
             bool placeable = false;
             for (std::size_t p = 0; p < model->pattern_count() && !placeable; ++p) {
                 if (patternForbidden[p]) continue;
-                for (std::size_t k = 0; k < patternCells && !placeable; ++k) placeable = in[std::size_t(model->symbols[p * patternCells + k])] != 0;
+                for (std::size_t k = 0; k < patternCells && !placeable; ++k)
+                    placeable = in[std::size_t(model->symbols[p * patternCells + k])] != 0;
             }
             if (!placeable)
-                return make_error(who + " needs at least " + std::to_string(rule.min) + " cells but no pattern of the model holds it" + (forbiddenCount > 0 ? " (once the forbidden tiles are out)" : ""),
-                                  "Draw it in the sample (the model only places what the sample shows) or drop the minimum.");
+                return make_error(
+                    who + " needs at least " + std::to_string(rule.min) +
+                        " cells but no pattern of the model holds it" +
+                        (forbiddenCount > 0 ? " (once the forbidden tiles are out)" : ""),
+                    "Draw it in the sample (the model only places what the sample shows) or drop the minimum.");
         }
     }
     // A minimum on tiles that all belong to another rule's group counts toward that group's maximum (and so do the fixed cells).
@@ -1419,9 +1519,11 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
             for (int sym : floorRule.symbols)
                 if (!barred.is(sym) && !inRule[b][std::size_t(sym)]) inside = false;
             if (inside)
-                return make_error(count_name(options.counts, a) + " needs at least " + std::to_string(floorRule.min) + " cells, all of them tiles that " + count_name(options.counts, b) +
-                                      " allows at most " + std::to_string(cap.max) + " of",
-                                  "Lower the minimum, raise the maximum, or make the minimum name a tile outside the capped group.");
+                return make_error(
+                    count_name(options.counts, a) + " needs at least " + std::to_string(floorRule.min) +
+                        " cells, all of them tiles that " + count_name(options.counts, b) + " allows at most " +
+                        std::to_string(cap.max) + " of",
+                    "Lower the minimum, raise the maximum, or make the minimum name a tile outside the capped group.");
         }
     }
 
@@ -1454,7 +1556,8 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
     for (std::size_t p = 0; p < m.pattern_count(); ++p)
         if (patternForbidden[p]) I.forbiddenPatterns.push_back(std::uint32_t(p));
     I.ruleCell.assign(std::size_t(I.opt.width) * std::size_t(I.opt.height), 0);
-    for (const CellRule& rule : I.opt.cellRules) I.ruleCell[std::size_t(rule.y) * std::size_t(I.opt.width) + std::size_t(rule.x)] = 1;
+    for (const CellRule& rule : I.opt.cellRules)
+        I.ruleCell[std::size_t(rule.y) * std::size_t(I.opt.width) + std::size_t(rule.x)] = 1;
     for (const CountRule& rule : I.opt.counts) {
         std::vector<char> in(std::size_t(m.symbolCount), 0);
         for (int s : rule.symbols)
@@ -1472,7 +1575,9 @@ Result<std::unique_ptr<Generator>> Generator::create(std::shared_ptr<const Patte
         for (int klass = 0; klass < 4; ++klass) {
             int nx = 1, ny = 1;
             I.owned_offsets(klass, nx, ny);
-            nx = std::min(nx, n);   // a window never reaches past n - 1 (a wave side below the output by more than that cannot happen)
+            nx = std::min(
+                nx,
+                n);  // a window never reaches past n - 1 (a wave side below the output by more than that cannot happen)
             ny = std::min(ny, n);
             for (std::size_t c = 0; c < I.capRules.size(); ++c) {
                 const std::vector<char>& mask = I.countMask[I.capRules[c]];
@@ -1541,27 +1646,35 @@ std::string Generator::failure_message() const {
     const GenFailure& f = impl_->failure;
     const GenStats& s = impl_->stats;
     if (f.workLimit) {
-        return "The work limit of " + std::to_string(impl_->opt.maxWork) + " units was reached after " + std::to_string(s.attempts) + (s.attempts == 1 ? " attempt" : " attempts") + " (" +
+        return "The work limit of " + std::to_string(impl_->opt.maxWork) + " units was reached after " +
+               std::to_string(s.attempts) + (s.attempts == 1 ? " attempt" : " attempts") + " (" +
                std::to_string(s.work) + " units of work done)";
     }
-    std::string m = "No level came out after " + std::to_string(s.attempts) + (s.attempts == 1 ? " attempt" : " attempts");
+    std::string m =
+        "No level came out after " + std::to_string(s.attempts) + (s.attempts == 1 ? " attempt" : " attempts");
     if (s.contradictions > 0) m += " (" + std::to_string(s.contradictions) + " ended in a contradiction";
-    if (s.rejected > 0) m += std::string(s.contradictions > 0 ? ", " : " (") + std::to_string(s.rejected) + " finished but were refused";
+    if (s.rejected > 0)
+        m +=
+            std::string(s.contradictions > 0 ? ", " : " (") + std::to_string(s.rejected) + " finished but were refused";
     if (s.contradictions > 0 || s.rejected > 0) m += ")";
     if (f.x >= 0) {
-        m += ". The last one failed at cell (" + std::to_string(f.x) + ", " + std::to_string(f.y) + "): every pattern that could stand there was ruled out by its neighbours";
+        m += ". The last one failed at cell (" + std::to_string(f.x) + ", " + std::to_string(f.y) +
+             "): every pattern that could stand there was ruled out by its neighbours";
         if (f.cellRule >= 0) {
             const CellRule& rule = impl_->opt.cellRules[std::size_t(f.cellRule)];
             const int n = impl_->model->n;
-            const int d = std::max(axis_distance(rule.x, f.x, n, impl_->opt.width, impl_->opt.periodic), axis_distance(rule.y, f.y, n, impl_->opt.height, impl_->opt.periodic));
-            m += std::string("; the fixed cell (") + std::to_string(rule.x) + ", " + std::to_string(rule.y) + ") of " + rule_name(impl_->opt.cellRules, std::size_t(f.cellRule)) +
+            const int d = std::max(axis_distance(rule.x, f.x, n, impl_->opt.width, impl_->opt.periodic),
+                                   axis_distance(rule.y, f.y, n, impl_->opt.height, impl_->opt.periodic));
+            m += std::string("; the fixed cell (") + std::to_string(rule.x) + ", " + std::to_string(rule.y) + ") of " +
+                 rule_name(impl_->opt.cellRules, std::size_t(f.cellRule)) +
                  (d == 0 ? " is inside the pattern window there" : " is " + std::to_string(d) + " cell(s) from it");
         }
     } else {
         m += ". The last finished level was refused: " + f.reason;
         if (s.cutOff * 2 > s.attempts)
             m += ". Cut-off areas refused " + std::to_string(s.cutOff) + " of " + std::to_string(s.attempts) +
-                 " attempts, so the sample's shape is the cause: it joins its open areas (rooms) by passages one cell wide, or draws walkable pockets "
+                 " attempts, so the sample's shape is the cause: it joins its open areas (rooms) by passages one cell "
+                 "wide, or draws walkable pockets "
                  "closed by walls, and the level repeats that, leaving islands";
     }
     return m;
@@ -1572,26 +1685,38 @@ std::string Generator::failure_hint() const {
     const GenerateOptions& o = impl_->opt;
     std::string h;
     if (f.workLimit) {
-        h = "Make the level smaller, use a smaller n or symmetry 1 (fewer patterns), a simpler sample, fewer constraints, or raise the work limit.";
+        h = "Make the level smaller, use a smaller n or symmetry 1 (fewer patterns), a simpler sample, fewer "
+            "constraints, or raise the work limit.";
     } else if (f.x >= 0) {
-        h = "Try a bigger or more varied sample (patterns that never meet in the sample cannot meet in the level), a smaller n, "
-            "symmetry 2, 4 or 8 to learn rotated and mirrored patterns, periodic true, more attempts (maxAttempts), another seed";
+        h = "Try a bigger or more varied sample (patterns that never meet in the sample cannot meet in the level), a "
+            "smaller n, "
+            "symmetry 2, 4 or 8 to learn rotated and mirrored patterns, periodic true, more attempts (maxAttempts), "
+            "another seed";
         if (!o.cellRules.empty())
-            h += ", or fewer and looser fixed cells and borders (a border or a rect longer than the sample's own straight pieces, or a tile next to one the sample never shows beside it, cannot be built)";
+            h += ", or fewer and looser fixed cells and borders (a border or a rect longer than the sample's own "
+                 "straight pieces, or a tile next to one the sample never shows beside it, cannot be built)";
         bool anyMin = false, anyMax = false;
         for (const CountRule& c : o.counts) {
             anyMin = anyMin || c.min > 0;
             anyMax = anyMax || c.max >= 0;
         }
-        if (anyMax) h += ", higher maximums (once a tile has reached its maximum it is taken out of every cell still open, which can leave a cell with nothing)";
+        if (anyMax)
+            h += ", higher maximums (once a tile has reached its maximum it is taken out of every cell still open, "
+                 "which can leave a cell with nothing)";
         if (!o.forbidden.empty()) h += ", fewer forbidden tiles (they remove every pattern that holds them)";
-        if (anyMin) h += ", lower minimums (a missing tile is pinned at a cell drawn from the seed, which can clash with its neighbours)";
+        if (anyMin)
+            h += ", lower minimums (a missing tile is pinned at a cell drawn from the seed, which can clash with its "
+                 "neighbours)";
         h += ".";
     } else if (f.x < 0 && impl_->stats.cutOff * 2 > impl_->stats.attempts) {
-        h = "Fix the sample: draw open areas with passages 2-3 cells wide, no walkable pocket closed by walls, and no isolated walkable tile; "
-            "or drop reachability.allConnected (or give reachability.from so only the area around it must be whole), or give more attempts (maxAttempts) or another seed.";
+        h = "Fix the sample: draw open areas with passages 2-3 cells wide, no walkable pocket closed by walls, and no "
+            "isolated walkable tile; "
+            "or drop reachability.allConnected (or give reachability.from so only the area around it must be whole), "
+            "or give more attempts (maxAttempts) or another seed.";
     } else if (f.countRule >= 0) {
-        h = "Lower the minimum or raise the maximum, ask for a bigger output, make the sample show the tile (a tile that is rare in the sample is rare in the level, and one drawn only on the sample's edge can hardly be placed), "
+        h = "Lower the minimum or raise the maximum, ask for a bigger output, make the sample show the tile (a tile "
+            "that is rare in the sample is rare in the level, and one drawn only on the sample's edge can hardly be "
+            "placed), "
             "give more attempts (maxAttempts), or use another seed.";
     } else {
         h = "Relax what the finished level has to satisfy, give more attempts (maxAttempts), or use another seed.";

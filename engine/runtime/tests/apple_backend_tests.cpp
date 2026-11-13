@@ -42,8 +42,9 @@ struct AppleGame {
     AppleGame() {
         dir = fs::make_temp_dir("fa_apple_backend_test").value();
         stdfs::create_directories(dir / "scenes");
-        std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Store","plugins":{"apple":{"path":")" << FA_APPLE_PLUGIN_DIR
-                                             << R"(","platforms":["macos"]}},"platform":{
+        std::ofstream(dir / "factoria.json")
+            << R"({"format":"factoria.project/1","name":"Store","plugins":{"apple":{"path":")" << FA_APPLE_PLUGIN_DIR
+            << R"(","platforms":["macos"]}},"platform":{
           "achievements": [{"id": "first_win", "name": "First win"}],
           "leaderboards": [{"id": "high_score", "name": "High score"}, {"id": "daily_route", "name": "Daily route", "order": "ascending", "period": "daily"}, {"id": "weekly_best", "name": "Weekly best", "period": "weekly"}],
           "products": [{"id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99, "ids": {"apple": "com.example.gems100"}}]}})";
@@ -88,8 +89,10 @@ constexpr double kPatience = 45.0;  // the plugin answers a silent store after 3
 // Calls `expression` (a platform call returning a promise) and records its outcome in out[name]: {ok, value} or {ok, code,
 // message, hint}. Waits for the answer.
 Json outcome(Engine& engine, const std::string& name, const std::string& expression, double seconds = kPatience) {
-    run(engine, "globalThis.out = globalThis.out || {}; (" + expression + ").then((v) => { out['" + name + "'] = {ok: true, value: v}; }, "
-                "(e) => { out['" + name + "'] = {ok: false, code: e.code, message: e.message, hint: e.hint}; }); 0");
+    run(engine, "globalThis.out = globalThis.out || {}; (" + expression + ").then((v) => { out['" + name +
+                    "'] = {ok: true, value: v}; }, "
+                    "(e) => { out['" +
+                    name + "'] = {ok: false, code: e.code, message: e.message, hint: e.hint}; }); 0");
     const bool answered = settle(engine, "'" + name + "' in out", seconds);
     INFO(name << ": " << expression);
     REQUIRE_MESSAGE(answered, "no answer within " << seconds << " s");
@@ -149,25 +152,32 @@ TEST_CASE("apple backend: every request is answered once and in time, and each r
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
 
     // Game Center before the sign-in: the player is not signed in, whatever the call.
-    check_teaches(outcome(engine, "unlock", "platform.achievements.unlock('first_win')"), {"notSignedIn"}, "Game Center");
+    check_teaches(outcome(engine, "unlock", "platform.achievements.unlock('first_win')"), {"notSignedIn"},
+                  "Game Center");
     check_teaches(outcome(engine, "progress", "platform.achievements.progress('first_win', 0.5)"), {"notSignedIn"});
     check_teaches(outcome(engine, "list", "platform.achievements.list()"), {"notSignedIn"});
     check_teaches(outcome(engine, "reset", "platform.achievements.reset()"), {"notSignedIn"});
     check_teaches(outcome(engine, "submit", "platform.leaderboards.submit('high_score', 10)"), {"notSignedIn"});
-    check_teaches(outcome(engine, "entries", "platform.leaderboards.entries('high_score', {range: 'friends', count: 5})"), {"notSignedIn"});
+    check_teaches(
+        outcome(engine, "entries", "platform.leaderboards.entries('high_score', {range: 'friends', count: 5})"),
+        {"notSignedIn"});
     // A daily or weekly board is a Game Center board like another: signed out, it says so (it is not "unavailable").
-    check_teaches(outcome(engine, "dailySubmit", "platform.leaderboards.submit('daily_route', 61000)"), {"notSignedIn"});
+    check_teaches(outcome(engine, "dailySubmit", "platform.leaderboards.submit('daily_route', 61000)"),
+                  {"notSignedIn"});
     check_teaches(outcome(engine, "weeklyEntries", "platform.leaderboards.entries('weekly_best')"), {"notSignedIn"});
     check_teaches(outcome(engine, "overlay", "platform.overlay.open('achievements')"), {"notSignedIn"});
     // The App Store has no overlay for the app's own products.
-    check_teaches(outcome(engine, "store", "platform.overlay.open('store')"), {"unavailable"}, "platform.purchases.buy");
+    check_teaches(outcome(engine, "store", "platform.overlay.open('store')"), {"unavailable"},
+                  "platform.purchases.buy");
 
     // iCloud: this process has no iCloud entitlement, so cloud saves are unavailable and the error names the entitlement.
-    check_teaches(outcome(engine, "csave", "platform.cloud.save('slot1', {level: 3})"), {"unavailable"}, "com.apple.developer.ubiquity-kvstore-identifier");
+    check_teaches(outcome(engine, "csave", "platform.cloud.save('slot1', {level: 3})"), {"unavailable"},
+                  "com.apple.developer.ubiquity-kvstore-identifier");
     check_teaches(outcome(engine, "cload", "platform.cloud.load('slot1')"), {"unavailable"});
     check_teaches(outcome(engine, "clist", "platform.cloud.list()"), {"unavailable"});
     check_teaches(outcome(engine, "cremove", "platform.cloud.remove('slot1')"), {"unavailable"});
-    check_teaches(outcome(engine, "cstat", "platform.cloud.stat('slot1')"), {"unavailable"}, "com.apple.developer.ubiquity-kvstore-identifier");
+    check_teaches(outcome(engine, "cstat", "platform.cloud.stat('slot1')"), {"unavailable"},
+                  "com.apple.developer.ubiquity-kvstore-identifier");
 
     // The Game Center sign-in: a process with no window cannot show its sheet, so it ends as "not signed in" (or, on a
     // machine whose Game Center accepts this process, as a signed-in player) rather than waiting for ever.
@@ -189,8 +199,10 @@ TEST_CASE("apple backend: every request is answered once and in time, and each r
     Json bought = outcome(engine, "buy", "platform.purchases.buy('gems_100')");
     if (bought["ok"] == false) check_teaches(bought, {"unavailable", "unknownId", "network", "notAllowed", "failed"});
     Json restored = outcome(engine, "restore", "platform.purchases.restore()");
-    if (restored["ok"] == true) CHECK(restored["value"].is_array());
-    else check_teaches(restored, {"unavailable", "network", "notAllowed", "failed"});
+    if (restored["ok"] == true)
+        CHECK(restored["value"].is_array());
+    else
+        check_teaches(restored, {"unavailable", "network", "notAllowed", "failed"});
 
     // Nothing is left waiting, and the plugin never answered twice.
     CHECK(engine.platform_services()->pending() == 0);
@@ -205,11 +217,14 @@ TEST_CASE("apple backend: the engine checks ids before the plugin sees them") {
     std::string err;
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
     auto message = [&](const char* call) {
-        return run(engine, std::string("(() => { try { ") + call + "; return ''; } catch (e) { return e.message; } })()").get<std::string>();
+        return run(engine,
+                   std::string("(() => { try { ") + call + "; return ''; } catch (e) { return e.message; } })()")
+            .get<std::string>();
     };
     CHECK(has(message("platform.achievements.unlock('first_wn')"), "did you mean \"first_win\""));
     // An unknown transaction rejects with unknownId (no throw at the call); the plugin never sees it either.
-    Json rejected = run(engine, "(async () => { try { await platform.purchases.finish('123'); } catch (e) { return [e.code, e.message]; } })()");
+    Json rejected = run(engine, "(async () => { try { await platform.purchases.finish('123'); } catch (e) { return "
+                                "[e.code, e.message]; } })()");
     REQUIRE(rejected.is_array());
     CHECK(rejected[0] == "unknownId");
     CHECK(has(rejected[1].get<std::string>(), "is not one this game was told about"));

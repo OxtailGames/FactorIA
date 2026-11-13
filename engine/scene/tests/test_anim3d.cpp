@@ -89,7 +89,8 @@ std::shared_ptr<Baked> bake(const char* model, const char* tmpl, const char* opt
     REQUIRE(doc.ok());
     auto b = evaluate_model(*doc);
     REQUIRE(b.ok());
-    std::string text = std::string(R"({"format":"factoria.rig/1","model":"p.model.json","template":")") + tmpl + R"(","options":)" + options + "}";
+    std::string text = std::string(R"({"format":"factoria.rig/1","model":"p.model.json","template":")") + tmpl +
+                       R"(","options":)" + options + "}";
     std::vector<RigIssue> issues;
     auto rd = parse_rig_doc(J(text.c_str()), "t.rig.json", &issues);
     REQUIRE_MESSAGE(rd.ok(), (rd.ok() ? std::string() : rd.error().to_string()));
@@ -106,11 +107,26 @@ std::shared_ptr<Baked> bake(const char* model, const char* tmpl, const char* opt
     return out;
 }
 
-std::shared_ptr<Baked> person() { static auto p = bake(kPerson, "humanoid"); return p; }
-std::shared_ptr<Baked> kid() { static auto p = bake(kKid, "humanoid"); return p; }
-std::shared_ptr<Baked> dog() { static auto p = bake(kDog, "quadruped"); return p; }
-std::shared_ptr<Baked> bird() { static auto p = bake(kBird, "bird"); return p; }
-std::shared_ptr<Baked> tailrig() { static auto p = bake(kTailModel, "tail", R"({"segments":4})"); return p; }
+std::shared_ptr<Baked> person() {
+    static auto p = bake(kPerson, "humanoid");
+    return p;
+}
+std::shared_ptr<Baked> kid() {
+    static auto p = bake(kKid, "humanoid");
+    return p;
+}
+std::shared_ptr<Baked> dog() {
+    static auto p = bake(kDog, "quadruped");
+    return p;
+}
+std::shared_ptr<Baked> bird() {
+    static auto p = bake(kBird, "bird");
+    return p;
+}
+std::shared_ptr<Baked> tailrig() {
+    static auto p = bake(kTailModel, "tail", R"({"segments":4})");
+    return p;
+}
 
 Anim3DClip generate(const Baked& b, const char* kind, const char* params = "{}") {
     auto r = generate_anim3d(b.rig, kind, J(params));
@@ -147,10 +163,11 @@ void check_stance(const Baked& b, const Anim3DClip& clip, float speedScale, floa
             if (!in_contact(c, t - margin, clip.duration) || !in_contact(c, t + margin, clip.duration)) continue;
             const Vec3 p0 = head_at(b, clip, c.bone.c_str(), t - dt), p1 = head_at(b, clip, c.bone.c_str(), t + dt);
             const Vec3 p = head_at(b, clip, c.bone.c_str(), t);
-            INFO(c.bone << " at t=" << t << ": height " << p.y << " rest " << restY << ", z speed " << (p1.z - p0.z) / (2 * dt)
-                          << " ground speed " << clip.groundSpeed * speedScale);
+            INFO(c.bone << " at t=" << t << ": height " << p.y << " rest " << restY << ", z speed "
+                        << (p1.z - p0.z) / (2 * dt) << " ground speed " << clip.groundSpeed * speedScale);
             CHECK(std::fabs(p.y - restY) <= tolY);
-            CHECK(std::fabs((p1.z - p0.z) / (2 * dt) + clip.groundSpeed * speedScale) <= tolV * clip.groundSpeed * speedScale + 1e-3f);
+            CHECK(std::fabs((p1.z - p0.z) / (2 * dt) + clip.groundSpeed * speedScale) <=
+                  tolV * clip.groundSpeed * speedScale + 1e-3f);
             CHECK(std::fabs((p1.x - p0.x) / (2 * dt)) <= 0.15f);
             ++samples;
         }
@@ -162,7 +179,8 @@ struct TempProject {
     std::filesystem::path dir, old;
     TempProject() {
         old = fs::project_root();
-        dir = std::filesystem::temp_directory_path() / ("fa_anim3d_test_" + std::to_string(std::uintptr_t(this) % 100000));
+        dir = std::filesystem::temp_directory_path() /
+              ("fa_anim3d_test_" + std::to_string(std::uintptr_t(this) % 100000));
         std::filesystem::remove_all(dir);
         std::filesystem::create_directories(dir);
         fs::set_project_root(dir);
@@ -218,7 +236,9 @@ TEST_CASE("anim3d: a clip round-trips through JSON and the loader names the firs
     CHECK(is_anim3d_json(out));
 
     // Bad files teach: the pointer, what is wrong, the way out.
-    auto bad = parse_anim3d(J(R"({"format":"factoria.anim3d/1","duration":1,"tracks":[{"bone":"head","channel":"spin","keys":[]}]})"), "bad.anim.json", &issues);
+    auto bad = parse_anim3d(
+        J(R"({"format":"factoria.anim3d/1","duration":1,"tracks":[{"bone":"head","channel":"spin","keys":[]}]})"),
+        "bad.anim.json", &issues);
     CHECK_FALSE(bad.ok());
     REQUIRE_FALSE(issues.empty());
     CHECK(issues[0].pointer.find("/tracks/0") == 0);
@@ -337,7 +357,8 @@ TEST_CASE("anim3d_gen: stride parameters set the speed and the gait of a quadrup
     CHECK(fast.duration == doctest::Approx(0.5f).epsilon(1e-3));
 }
 
-TEST_CASE("anim3d_gen: feet lift in the swing, the legs keep their length, the loop closes and the output is deterministic") {
+TEST_CASE(
+    "anim3d_gen: feet lift in the swing, the legs keep their length, the loop closes and the output is deterministic") {
     const Baked& p = *person();
     const Anim3DClip clip = generate(p, "walk", R"({"footLift":0.12,"bounce":0.03})");
     const int foot = p.node("foot_l");
@@ -473,7 +494,8 @@ TEST_CASE("anim3d_gen: idle, swing and hit") {
     CHECK_FALSE(hit.loop);
     const float restHead = p.rig.rest_head(p.node("head")).z;
     float maxShift = 0;
-    for (float tm = 0; tm <= hit.duration; tm += 0.01f) maxShift = std::max(maxShift, std::fabs(head_at(p, hit, "head", tm).z - restHead));
+    for (float tm = 0; tm <= hit.duration; tm += 0.01f)
+        maxShift = std::max(maxShift, std::fabs(head_at(p, hit, "head", tm).z - restHead));
     INFO("max shift " << maxShift);
     CHECK(maxShift > 0.03f);
     CHECK(std::fabs(head_at(p, hit, "head", hit.duration).z - restHead) < 0.01f);
@@ -695,7 +717,9 @@ TEST_CASE("ik3d: foot placement lowers the pelvis for a lower foot and lifts a f
     const float restY = p.rig.rest_head(p.node("foot_l")).y;
 
     // Flat ground at 0: nothing moves.
-    auto flat = [](Vec3 origin, Vec3, float, std::int32_t, Entity) -> std::optional<GroundHit> { return GroundHit{{origin.x, 0, origin.z}, {0, 1, 0}}; };
+    auto flat = [](Vec3 origin, Vec3, float, std::int32_t, Entity) -> std::optional<GroundHit> {
+        return GroundHit{{origin.x, 0, origin.z}, {0, 1, 0}};
+    };
     s.step(flat);
     CHECK(s.head(p, "foot_l").y == doctest::Approx(restY).epsilon(0.02));
     CHECK(s.head(p, "foot_r").y == doctest::Approx(restY).epsilon(0.02));
@@ -723,7 +747,9 @@ TEST_CASE("ik3d: foot placement lowers the pelvis for a lower foot and lifts a f
     CHECK(s.head(p, "root").y < p.rig.rest_head(p.node("root")).y - 0.15f);
 
     // The pelvis drop is capped.
-    auto pit = [](Vec3 origin, Vec3, float, std::int32_t, Entity) -> std::optional<GroundHit> { return GroundHit{{origin.x, -0.7f, origin.z}, {0, 1, 0}}; };
+    auto pit = [](Vec3 origin, Vec3, float, std::int32_t, Entity) -> std::optional<GroundHit> {
+        return GroundHit{{origin.x, -0.7f, origin.z}, {0, 1, 0}};
+    };
     s.ik->rayDown = 2.0f;
     s.step(pit);
     CHECK(s.ik->rt.pelvisShift == doctest::Approx(-s.ik->maxPelvisDrop).epsilon(0.01));
@@ -743,7 +769,9 @@ TEST_CASE("ik3d: foot placement lowers the pelvis for a lower foot and lifts a f
 
 TEST_CASE("ik3d: foot placement tilts the foot to a slope and a two-bone solver follows a named entity") {
     const Baked& p = *person();
-    IKScene s(p, R"([{"type":"foot","side":"l","alignToGround":true},{"type":"twoBone","limb":"arm","side":"l","target":[0.5,1.3,0.5]},
+    IKScene s(
+        p,
+        R"([{"type":"foot","side":"l","alignToGround":true},{"type":"twoBone","limb":"arm","side":"l","target":[0.5,1.3,0.5]},
                      {"type":"lookAt","bone":"head","target":[0,1.8,3]}])");
     auto slope = [](Vec3 origin, Vec3, float, std::int32_t, Entity) -> std::optional<GroundHit> {
         const Vec3 n = normalize(Vec3{0, 1, 0.3f});
@@ -758,28 +786,35 @@ TEST_CASE("ik3d: foot placement tilts the foot to a slope and a two-bone solver 
 
     // The sole follows the slope: the toe end is no longer at the ankle's height.
     const int foot = p.node("foot_l");
-    const Vec3 tip = s.a->palette.at(std::size_t(p.rig.boneOfNode[std::size_t(foot)]))
-                         .transform_point(p.rig.rest_head(foot) + p.rig.axis[std::size_t(foot)] * p.rig.length[std::size_t(foot)]);
+    const Vec3 tip =
+        s.a->palette.at(std::size_t(p.rig.boneOfNode[std::size_t(foot)]))
+            .transform_point(p.rig.rest_head(foot) + p.rig.axis[std::size_t(foot)] * p.rig.length[std::size_t(foot)]);
     const Vec3 ank = s.head(p, "foot_l");
     CHECK(std::fabs(tip.y - ank.y) > 0.005f);
 
     // A mistake in a solver is reported once and skips only that solver; the others still run.
-    IKScene bad(p, R"([{"type":"lookAt","bone":"hed","target":[0,1.8,3]},{"type":"twoBone","limb":"arm","side":"l","target":[0.5,1.3,0.5]}])");
+    IKScene bad(
+        p,
+        R"([{"type":"lookAt","bone":"hed","target":[0,1.8,3]},{"type":"twoBone","limb":"arm","side":"l","target":[0.5,1.3,0.5]}])");
     bad.step(slope);
     CHECK(length(bad.head(p, "hand_l") - Vec3{0.5f, 1.3f, 0.5f}) < 0.02f);
     CHECK(bad.ik->status[0].contains("problem"));
 
-    const auto issues = ik3d_check_solvers(J(R"([{"type":"lookAt","bone":"hed","target":[0,1,3]},{"type":"fly"},{"type":"twoBone","limb":"arm"}])"), &p.rig);
+    const auto issues = ik3d_check_solvers(
+        J(R"([{"type":"lookAt","bone":"hed","target":[0,1,3]},{"type":"fly"},{"type":"twoBone","limb":"arm"}])"),
+        &p.rig);
     REQUIRE(issues.size() >= 3);
     CHECK(issues[0].pointer == "/0/bone");
-    const bool suggests = issues[0].message.find("head") != std::string::npos || issues[0].hint.find("head") != std::string::npos;
+    const bool suggests =
+        issues[0].message.find("head") != std::string::npos || issues[0].hint.find("head") != std::string::npos;
     CHECK(suggests);
     CHECK(issues[1].pointer.find("/1") == 0);
 }
 
 // The skeleton cache is keyed on path, size and file time. A rig baked again within the clock step of the first bake (1/64 s under
 // the Windows rules, which ctest turns on; 1 s or 2 s on some file systems) of the same size keeps both: the content decides.
-TEST_CASE("load_skeleton: a file written again with the same size and the same file time is read again, not served from the cache") {
+TEST_CASE("load_skeleton: a file written again with the same size and the same file time is read again, not served "
+          "from the cache") {
     const Baked& p = *person();
     TempProject project;
     REQUIRE(fs::write_bytes("same.rig.glb", p.glb.data(), p.glb.size()));
@@ -841,7 +876,9 @@ TEST_CASE("anim3d: the Animator plays a 3D clip file on a skinned rig, with even
     auto headTop = [&] {  // where the top of the head ends up
         return a.palette.at(std::size_t(headJoint)).transform_point(p.rig.rest_head(headNode) + Vec3{0, 0.2f, 0});
     };
-    auto rootY = [&] { return a.palette.at(std::size_t(rootJoint)).transform_point(p.rig.rest_head(p.node("root"))).y; };
+    auto rootY = [&] {
+        return a.palette.at(std::size_t(rootJoint)).transform_point(p.rig.rest_head(p.node("root"))).y;
+    };
 
     CHECK(step(0.25f).empty());
     CHECK(a.palette.size() == p.sk->skins[0].joints.size());
@@ -864,7 +901,9 @@ TEST_CASE("anim3d: the Animator plays a 3D clip file on a skinned rig, with even
     CHECK(rootY() - p.rig.rest_head(p.node("root")).y == doctest::Approx(0.5f).epsilon(0.02));
 
     // A file that names a bone the model lacks still plays, skipping that track (one warning, in clipWarnings).
-    REQUIRE(fs::write_text("ghost.anim.json", R"({"format":"factoria.anim3d/1","duration":1,"tracks":[{"bone":"ghost","channel":"rotation","keys":[{"t":0,"value":[0,0,0]},{"t":1,"value":[10,0,0]}]}]})"));
+    REQUIRE(fs::write_text(
+        "ghost.anim.json",
+        R"({"format":"factoria.anim3d/1","duration":1,"tracks":[{"bone":"ghost","channel":"rotation","keys":[{"t":0,"value":[0,0,0]},{"t":1,"value":[10,0,0]}]}]})"));
     a.clips = J(R"({"nod":"nod.anim.json","ghost":"ghost.anim.json"})");
     a.clip = "ghost";
     step(0.1f);
@@ -883,14 +922,16 @@ TEST_CASE("schemas/anim3d.schema.json lists what the loader accepts") {
         for (auto& [k, v] : o.items()) out.insert(k);
         return out;
     };
-    CHECK(keysOf(schema["properties"]) == std::set<std::string>{"$schema", "format", "doc", "rig", "template", "duration", "loop", "rotation",
-                                                                 "groundSpeed", "tracks", "events", "contacts", "generated"});
+    CHECK(keysOf(schema["properties"]) == std::set<std::string>{"$schema", "format", "doc", "rig", "template",
+                                                                "duration", "loop", "rotation", "groundSpeed", "tracks",
+                                                                "events", "contacts", "generated"});
     CHECK(keysOf(schema["$defs"]["track"]["properties"]) == std::set<std::string>{"bone", "channel", "keys"});
     CHECK(keysOf(schema["$defs"]["key"]["properties"]) == std::set<std::string>{"t", "value", "interp", "in", "out"});
     CHECK(keysOf(schema["$defs"]["event"]["properties"]) == std::set<std::string>{"t", "name", "data", "feel"});
     CHECK(keysOf(schema["$defs"]["contact"]["properties"]) == std::set<std::string>{"bone", "from", "to"});
     std::set<std::string> eases;
-    for (const Json& n : schema["$defs"]["key"]["properties"]["interp"]["anyOf"][1]["enum"]) eases.insert(n.get<std::string>());
+    for (const Json& n : schema["$defs"]["key"]["properties"]["interp"]["anyOf"][1]["enum"])
+        eases.insert(n.get<std::string>());
     CHECK(eases == std::set<std::string>(clip_ease_names().begin() + 1, clip_ease_names().end()));
     // A 2D loader pointed at a 3D file says what it is.
     auto two = parse_anim_clip(J(R"({"format":"factoria.anim3d/1","duration":1,"tracks":[]})"), "x.anim.json");

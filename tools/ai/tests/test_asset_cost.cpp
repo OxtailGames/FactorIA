@@ -29,7 +29,9 @@ struct Home {
     ScopedShareEnv scoped;
     static ShareEnv make(const std::string& home, double waitSec, std::function<std::int64_t()> now = {}) {
         ShareEnv env;
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.now = std::move(now);  // empty = the system clock
         env.lockWaitSec = waitSec;
         env.lockStaleSec = 600.0;
@@ -47,20 +49,25 @@ struct Home {
 
 // A fake provider "paid" with a price table: 0.30 a picture, 0.10 a second of sound, 0.50 per 1000 characters of voice, 1.00 a model.
 Json paid_config(const std::string& limits = "{}") {
-    return Json::parse(R"({"providers":{"paid":{"type":"fake","assetPricing":{"image":0.30,"soundPerSecond":0.10,"musicPerSecond":0.01,
+    return Json::parse(
+        R"({"providers":{"paid":{"type":"fake","assetPricing":{"image":0.30,"soundPerSecond":0.10,"musicPerSecond":0.01,
                 "voicePer1000Chars":0.50,"model3d":1.00,"checked":"2026-11-06","source":"https://example.com/prices"}}},
                "assets":{"image":{"provider":"paid"},"sound":{"provider":"paid"},"music":{"provider":"paid"},
                          "voice":{"provider":"paid"},"model3d":{"provider":"paid"}},
-               "limits":)" + limits + "}");
+               "limits":)" +
+        limits + "}");
 }
 
-Json image_args(const std::string& path) { return {{"prompt", "a gem"}, {"path", path}, {"width", 16}, {"height", 16}}; }
+Json image_args(const std::string& path) {
+    return {{"prompt", "a gem"}, {"path", path}, {"width", 16}, {"height", 16}};
+}
 
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------------------------ the price tables
 
-TEST_CASE("assetPricing: the table parses, a number is the price of any size, and it round trips through config_to_json") {
+TEST_CASE(
+    "assetPricing: the table parses, a number is the price of any size, and it round trips through config_to_json") {
     const AiConfig cfg = config_from(R"({"providers":{"p":{"type":"fake","assetPricing":{
         "image":{"1024x1024":{"low":0.011,"high":0.167},"1536x1024":0.25},"voicePer1000Chars":0.2,"soundPerSecond":0.05,
         "checked":"2026-11-06","source":"https://example.com","note":"a note","unverified":["voice"]}}}})");
@@ -82,15 +89,18 @@ TEST_CASE("assetPricing: the table parses, a number is the price of any size, an
 }
 
 TEST_CASE("assetPricing: a wrong table is an error with the JSON pointer") {
-    auto cfg = parse_config(Json::parse(R"({"providers":{"p":{"type":"fake","assetPricing":{"soundPerSecond":-1}}}})"), "test");
+    auto cfg = parse_config(Json::parse(R"({"providers":{"p":{"type":"fake","assetPricing":{"soundPerSecond":-1}}}})"),
+                            "test");
     REQUIRE_FALSE(cfg.ok());
     CHECK(has(cfg.error().message, "/providers/p/assetPricing/soundPerSecond"));
-    auto typo = parse_config(Json::parse(R"({"providers":{"p":{"type":"fake","assetPricing":{"soundPerSec":0.1}}}})"), "test");
+    auto typo =
+        parse_config(Json::parse(R"({"providers":{"p":{"type":"fake","assetPricing":{"soundPerSec":0.1}}}})"), "test");
     REQUIRE_FALSE(typo.ok());
     CHECK(has(typo.error().to_string(), "soundPerSecond"));  // did you mean
 }
 
-TEST_CASE("assetPricing: the built-in presets carry a price list with the day it was checked and where it is published") {
+TEST_CASE(
+    "assetPricing: the built-in presets carry a price list with the day it was checked and where it is published") {
     const AiConfig cfg = default_config();
     for (const char* name : {"openai", "elevenlabs", "meshy"}) {
         INFO(name);
@@ -156,7 +166,8 @@ TEST_CASE("estimate_asset_cost: by kind, with the count of results, rounded") {
     CHECK(*estimate_asset_cost(paid, model).usd == doctest::Approx(1.00));
 }
 
-TEST_CASE("estimate_asset_cost: OpenAI is priced at the size it draws, the quality asked for, and an unknown quality never lowers the price") {
+TEST_CASE("estimate_asset_cost: OpenAI is priced at the size it draws, the quality asked for, and an unknown quality "
+          "never lowers the price") {
     const AiConfig cfg = default_config();
     const ProviderConfig& openai = *cfg.provider("openai");
     AssetRequest r;
@@ -176,7 +187,8 @@ TEST_CASE("estimate_asset_cost: OpenAI is priced at the size it draws, the quali
 }
 
 TEST_CASE("estimate_asset_cost: the fake provider and local programs are free, an unknown price is not zero") {
-    const AiConfig cfg = config_from(R"({"providers":{"mytool":{"type":"asset-command","command":"python","argv":["gen.py","{output}"]},
+    const AiConfig cfg =
+        config_from(R"({"providers":{"mytool":{"type":"asset-command","command":"python","argv":["gen.py","{output}"]},
         "remote":{"type":"openai-compatible","baseUrl":"https://api.example.com/v1"},
         "local":{"type":"openai-compatible","baseUrl":"http://localhost:1234/v1"}}})");
     AssetRequest r;
@@ -207,7 +219,8 @@ TEST_CASE("format_usd: at least two decimals, at most four") {
 
 // ------------------------------------------------------------------------------------------------------- results carry the estimate
 
-TEST_CASE("assets.generate_*: every result carries estimatedCostUsd, labelled an estimate, and the fake provider is free") {
+TEST_CASE(
+    "assets.generate_*: every result carries estimatedCostUsd, labelled an estimate, and the fake provider is free") {
     Home home;
     Game free(fake_config());
     Json r = free.ok("assets.generate_image", image_args("assets/a.png"));
@@ -237,8 +250,9 @@ TEST_CASE("assets.generate_*: every result carries estimatedCostUsd, labelled an
 
 TEST_CASE("assets.generate_*: the command documentation tells an AI to ask the user and never to approve by itself") {
     Game game(fake_config());
-    for (const char* name : {"assets.generate_image", "assets.generate_sprite_sheet", "assets.generate_sound", "assets.generate_music",
-                             "assets.generate_voice", "assets.generate_model", "image.inpaint", "image.generate_layer"}) {
+    for (const char* name :
+         {"assets.generate_image", "assets.generate_sprite_sheet", "assets.generate_sound", "assets.generate_music",
+          "assets.generate_voice", "assets.generate_model", "image.inpaint", "image.generate_layer"}) {
         INFO(name);
         const CommandInfo* info = game.registry.info(name);
         REQUIRE(info);
@@ -252,7 +266,8 @@ TEST_CASE("assets.generate_*: the command documentation tells an AI to ask the u
 
 // ------------------------------------------------------------------------------------------------------------------------ the limits
 
-TEST_CASE("limits.maxAssetCostUsd.perRun: the call that would pass it is refused before the provider, with the numbers and how to raise it") {
+TEST_CASE("limits.maxAssetCostUsd.perRun: the call that would pass it is refused before the provider, with the numbers "
+          "and how to raise it") {
     Home home;
     Game game(config_from(paid_config(R"({"maxAssetCostUsd":{"perRun":0.80},"askAboveUsd":5})")));
     AssetRunScope run("chat-a");
@@ -278,7 +293,8 @@ TEST_CASE("limits.maxAssetCostUsd.perRun: the call that would pass it is refused
     game.ok("assets.generate_image", image_args("assets/c.png"));
 }
 
-TEST_CASE("limits.maxAssetCostUsd.perDay: the day's total is shared by every process through a file, and a day later starts again") {
+TEST_CASE("limits.maxAssetCostUsd.perDay: the day's total is shared by every process through a file, and a day later "
+          "starts again") {
     std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     TempDir homeDir;
     ScopedShareEnv scoped(Home::make(homeDir.str(), 2.0, [&now] { return now; }));
@@ -328,7 +344,8 @@ TEST_CASE("limits.maxAssetCostUsd.perDay: the total is per project") {
     CHECK_FALSE(a.call("assets.generate_image", image_args("assets/b.png")).ok);
 }
 
-TEST_CASE("limits: a lock that cannot be taken is reported and changes nothing when a per-day limit is set; without one the call goes on with a warning") {
+TEST_CASE("limits: a lock that cannot be taken is reported and changes nothing when a per-day limit is set; without "
+          "one the call goes on with a warning") {
     Home home(0.2);
     home.hold_lock();
     {
@@ -372,8 +389,10 @@ TEST_CASE("limits: a damaged day file stops a per-day limit instead of being cou
 TEST_CASE("limits: with a limit set, a price that is not known is refused; without one it asks") {
     Home home;
     auto remote = [](const std::string& limits) {
-        return Json::parse(R"({"providers":{"remote":{"type":"openai-compatible","baseUrl":"https://api.example.com/v1","apiKeyEnv":"X_KEY"}},
-            "assets":{"image":{"provider":"remote"}},"limits":)" + limits + "}");
+        return Json::parse(
+            R"({"providers":{"remote":{"type":"openai-compatible","baseUrl":"https://api.example.com/v1","apiKeyEnv":"X_KEY"}},
+            "assets":{"image":{"provider":"remote"}},"limits":)" +
+            limits + "}");
     };
     {
         Game limited(config_from(remote(R"({"maxAssetCostUsd":{"perRun":1}})")));
@@ -395,7 +414,8 @@ TEST_CASE("limits: with a limit set, a price that is not known is refused; witho
 
 // ---------------------------------------------------------------------------------------------------------------------- the approval
 
-TEST_CASE("approval: a call above askAboveUsd returns needsApproval with the plan and makes nothing; approved:true makes it") {
+TEST_CASE("approval: a call above askAboveUsd returns needsApproval with the plan and makes nothing; approved:true "
+          "makes it") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
     // at or under the threshold: no question
@@ -433,14 +453,16 @@ TEST_CASE("approval: a limit still holds for an approved call") {
     Game game(config_from(paid_config(R"({"maxAssetCostUsd":{"perRun":0.5},"askAboveUsd":0.1})")));
     AssetRunScope run("approved-run");
     asset_run_begin("approved-run");
-    auto r = game.call("assets.generate_voice", {{"text", std::string(2000, 'a')}, {"path", "assets/v.wav"}, {"approved", true}});
+    auto r = game.call("assets.generate_voice",
+                       {{"text", std::string(2000, 'a')}, {"path", "assets/v.wav"}, {"approved", true}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "asset_cost_limit");
 }
 
 TEST_CASE("approval: the fake provider and local programs never ask, even with askAboveUsd 0") {
     Home home;
-    Game game(config_from(R"({"limits":{"askAboveUsd":0},"providers":{"mytool":{"type":"asset-command","command":"python","argv":["g.py","{output}"]}},
+    Game game(config_from(
+        R"({"limits":{"askAboveUsd":0},"providers":{"mytool":{"type":"asset-command","command":"python","argv":["g.py","{output}"]}},
                               "assets":{"image":{"provider":"fake"},"sound":{"provider":"fake"},"music":{"provider":"fake"},
                                         "voice":{"provider":"fake"},"model3d":{"provider":"fake"}}})"));
     auto r = game.call("assets.generate_image", image_args("assets/a.png"));
@@ -449,7 +471,8 @@ TEST_CASE("approval: the fake provider and local programs never ask, even with a
     CHECK(game.exists("assets/a.png"));
 }
 
-TEST_CASE("approval: with an approver installed (the editor) the call waits for the answer instead of returning needsApproval") {
+TEST_CASE("approval: with an approver installed (the editor) the call waits for the answer instead of returning "
+          "needsApproval") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.10})")));
     AssetRunScope run("editor-chat");
@@ -491,7 +514,8 @@ TEST_CASE("approval: with an approver installed (the editor) the call waits for 
     CHECK(asked.size() == 4);
 }
 
-TEST_CASE("approval: the approver of a registry (AiCommandOptions::assetApprover) is asked only by that registry's calls") {
+TEST_CASE(
+    "approval: the approver of a registry (AiCommandOptions::assetApprover) is asked only by that registry's calls") {
     Home home;
     const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":0.10})"));
     int asked = 0;
@@ -502,11 +526,12 @@ TEST_CASE("approval: the approver of a registry (AiCommandOptions::assetApprover
         opt.loadConfig = [cfg] { return Result<AiConfig>(cfg); };
         opt.projectDir = [&dir] { return dir.str(); };
         opt.assetRunKey = "chat-x";
-        if (reg == &withApprover) opt.assetApprover = [&asked](const AssetApprovalRequest& req) {
-            ++asked;
-            CHECK(req.runKey == "chat-x");
-            return AssetDecision::Approve;
-        };
+        if (reg == &withApprover)
+            opt.assetApprover = [&asked](const AssetApprovalRequest& req) {
+                ++asked;
+                CHECK(req.runKey == "chat-x");
+                return AssetDecision::Approve;
+            };
         register_ai_commands(*reg, std::move(opt));
     }
     auto yes = withApprover.call("assets.generate_image", image_args("assets/a.png"));
@@ -520,7 +545,8 @@ TEST_CASE("approval: the approver of a registry (AiCommandOptions::assetApprover
     CHECK(asset_run_key().empty());             // the scope ended with the call
 }
 
-TEST_CASE("approval: an approver that waits on another thread does not hold the lock of the user folder or the run's ledger") {
+TEST_CASE("approval: an approver that waits on another thread does not hold the lock of the user folder or the run's "
+          "ledger") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.10,"maxAssetCostUsd":{"perDay":5}})")));
     std::atomic<bool> waiting{false}, release{false};
@@ -625,7 +651,8 @@ TEST_CASE("approval: AssetCall::userApproved is the host's own yes and counts wh
         ++asked;
         return AssetDecision::Cancel;
     });
-    CHECK_THROWS_AS(AssetCostGuard::begin(cfg.limits, call, true), CommandError);  // the argument: ignored, the approver says no
+    CHECK_THROWS_AS(AssetCostGuard::begin(cfg.limits, call, true),
+                    CommandError);  // the argument: ignored, the approver says no
     CHECK(asked == 1);
     call.userApproved = true;
     AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
@@ -651,7 +678,8 @@ TEST_CASE("approval: a run that is stopped while the card waits gets cancelled, 
 
 // ----------------------------------------------------------------------------------------------- a batch cut into small calls
 
-TEST_CASE("approval: calls under askAboveUsd that add up above it are asked about (no approver: needsApproval), and a yes starts the count again") {
+TEST_CASE("approval: calls under askAboveUsd that add up above it are asked about (no approver: needsApproval), and a "
+          "yes starts the count again") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
     AssetRunScope run("batch");
@@ -676,7 +704,8 @@ TEST_CASE("approval: calls under askAboveUsd that add up above it are asked abou
     CHECK(asset_run_spent("batch") == doctest::Approx(0.90));
 }
 
-TEST_CASE("approval: with an approver, small calls add up to a card; Approve resets the count, Approve all stops the questions for the run") {
+TEST_CASE("approval: with an approver, small calls add up to a card; Approve resets the count, Approve all stops the "
+          "questions for the run") {
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
     AssetRunScope run("batch-card");
@@ -695,7 +724,8 @@ TEST_CASE("approval: with an approver, small calls add up to a card; Approve res
     game.ok("assets.generate_image", image_args("assets/c.png"));  // after the yes: 0.30 alone
     CHECK(asked.size() == 1);
     answer = AssetDecision::ApproveAll;
-    game.ok("assets.generate_image", image_args("assets/d.png"));  // 0.60 again: asks, and the answer turns the questions off
+    game.ok("assets.generate_image",
+            image_args("assets/d.png"));  // 0.60 again: asks, and the answer turns the questions off
     CHECK(asked.size() == 2);
     game.ok("assets.generate_image", image_args("assets/e.png"));
     game.ok("assets.generate_image", image_args("assets/f.png"));
@@ -756,7 +786,8 @@ TEST_CASE("day total: a refund after midnight goes back to the day the money was
     CHECK(*asset_spent_today(homeDir.str()) == doctest::Approx(0.0));
 }
 
-TEST_CASE("day total: the notice of a refund that failed waits for a call that goes ahead, a call that throws leaves it for the next") {
+TEST_CASE("day total: the notice of a refund that failed waits for a call that goes ahead, a call that throws leaves "
+          "it for the next") {
     Home home(0.2);
     const AiConfig cfg = config_from(paid_config(R"({"askAboveUsd":5,"maxAssetCostUsd":{"perRun":0.5,"perDay":5}})"));
     AssetCall call;
@@ -768,20 +799,20 @@ TEST_CASE("day total: the notice of a refund that failed waits for a call that g
     request.width = request.height = 8;
     call.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 1);
     AssetCall tooMuch = call;
-    tooMuch.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 4);   // 1.20 > perRun 0.50
+    tooMuch.estimate = estimate_asset_cost(*cfg.provider("paid"), request, 4);  // 1.20 > perRun 0.50
     AssetCall freeCall = call;
     freeCall.estimate = AssetEstimate{};
     freeCall.estimate.free = true;
     AssetRunScope run("notice-run");
     asset_run_begin("notice-run");
-    {   // earlier notices of other tests (a process-wide list) are delivered first
+    {  // earlier notices of other tests (a process-wide list) are delivered first
         AssetCostGuard drain = AssetCostGuard::begin(cfg.limits, freeCall, false);
         REQUIRE(drain.go());
     }
     {
         AssetCostGuard guard = AssetCostGuard::begin(cfg.limits, call, false);
         REQUIRE(guard.go());
-        home.hold_lock();   // the refund of the day total cannot take the lock: a notice is left behind
+        home.hold_lock();  // the refund of the day total cannot take the lock: a notice is left behind
     }
     home.release_lock();
     CHECK_THROWS_AS(AssetCostGuard::begin(cfg.limits, tooMuch, false), CommandError);
@@ -792,7 +823,7 @@ TEST_CASE("day total: the notice of a refund that failed waits for a call that g
     CHECK_MESSAGE(told, "the call that went ahead carries the notice the refused call did not consume");
     next.commit();
     AssetCostGuard again = AssetCostGuard::begin(cfg.limits, freeCall, false);
-    CHECK(again.warnings().empty());   // (delivered once)
+    CHECK(again.warnings().empty());  // (delivered once)
 }
 
 TEST_CASE("day total: a file with another shape is reported as unreadable, with where, and nothing is changed") {
@@ -844,7 +875,9 @@ TEST_CASE("image.generate_layer: dryRun reports the estimate, a paid call asks, 
     Home home;
     Game game(config_from(paid_config(R"({"askAboveUsd":0.10})")));
     fa::register_asset_commands(game.registry, game.dir.str());
-    game.ok("image.create", {{"path", "assets/art/hero.image.json"}, {"width", 16}, {"height", 16},
+    game.ok("image.create", {{"path", "assets/art/hero.image.json"},
+                             {"width", 16},
+                             {"height", 16},
                              {"layers", Json::array({{{"kind", "fill"}, {"name", "sky"}, {"color", "#406080"}}})}});
     const Json args = {{"path", "assets/art/hero.image.json"}, {"prompt", "a brass key"}};
     Json dry = args;
@@ -869,12 +902,15 @@ TEST_CASE("image.generate_layer: dryRun reports the estimate, a paid call asks, 
 
 // ------------------------------------------------------------------------------------------------------------------ the run's total
 
-TEST_CASE("session: the estimated asset cost of the tool calls is summed into the result and the Done event, apart from the model's cost") {
+TEST_CASE("session: the estimated asset cost of the tool calls is summed into the result and the Done event, apart "
+          "from the model's cost") {
     CommandRegistry registry = make_registry();
     CommandInfo gen;
     gen.name = "assets.generate_image";
     gen.summary = "Stands for a paid generating command.";
-    registry.add(gen, [](const Json&) { return Json::object({{"ok", true}, {"estimatedCostUsd", 0.3}, {"costIsEstimate", true}}); });
+    registry.add(gen, [](const Json&) {
+        return Json::object({{"ok", true}, {"estimatedCostUsd", 0.3}, {"costIsEstimate", true}});
+    });
     auto provider = std::make_shared<FakeProvider>();
     ToolCall a, b;
     a.id = "t1";
@@ -903,11 +939,13 @@ TEST_CASE("session: the estimated asset cost of the tool calls is summed into th
 
 // --------------------------------------------------------------------------------------------------------- the limits in the files
 
-TEST_CASE("save_asset_limits: writes only the limits keys, keeps the rest of the file, and the defaults remove their keys") {
+TEST_CASE(
+    "save_asset_limits: writes only the limits keys, keeps the rest of the file, and the defaults remove their keys") {
     TempDir dir;
     const std::string path = (dir.path / "ai.json").string();
     {
-        std::ofstream(dir.path / "ai.json", std::ios::binary) << R"({"limits":{"maxTurns":30},"roles":{"worker":{"model":"sonnet"}}})";
+        std::ofstream(dir.path / "ai.json", std::ios::binary)
+            << R"({"limits":{"maxTurns":30},"roles":{"worker":{"model":"sonnet"}}})";
     }
     Limits l;
     l.maxAssetCostPerRunUsd = 2.5;

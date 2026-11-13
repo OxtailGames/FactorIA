@@ -32,14 +32,18 @@ bool android_read(const std::string& path, std::vector<std::uint8_t>& out) {
     } else if (len > 0) {
         // Compressed asset without a direct buffer: fall back to read().
         int n = AAsset_read(asset, out.data(), std::size_t(len));
-        if (n < 0) { AAsset_close(asset); return false; }
+        if (n < 0) {
+            AAsset_close(asset);
+            return false;
+        }
         out.resize(std::size_t(n));
     }
     AAsset_close(asset);
     return true;
 }
 
-bool android_view(const std::string& path, std::shared_ptr<const void>& owner, const std::uint8_t*& data, std::size_t& size) {
+bool android_view(const std::string& path, std::shared_ptr<const void>& owner, const std::uint8_t*& data,
+                  std::size_t& size) {
     AAssetManager* mgr = g_manager.load();
     if (!mgr) return false;
     AAsset* asset = AAssetManager_open(mgr, path.c_str(), AASSET_MODE_BUFFER);

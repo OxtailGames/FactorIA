@@ -36,10 +36,10 @@ using ProjectFn = std::function<Vec2(Vec3)>;  // world point -> panel pixels
 
 struct GizmoView {
     ProjectFn project;
-    bool threeD = false;        // a perspective camera looking at a world-space entity: z handles and three rotation rings
-    float armPx = 80.0f;        // length of an arrow / scale handle
-    float ringPx = 62.0f;       // radius of a rotation ring
-    float tipHalfPx = 6.0f;     // half size of a scale handle's end box
+    bool threeD = false;     // a perspective camera looking at a world-space entity: z handles and three rotation rings
+    float armPx = 80.0f;     // length of an arrow / scale handle
+    float ringPx = 62.0f;    // radius of a rotation ring
+    float tipHalfPx = 6.0f;  // half size of a scale handle's end box
     float centreHalfPx = 8.0f;  // half size of the centre square (free move, uniform scale)
 };
 
@@ -52,12 +52,12 @@ struct GizmoFrame {
 struct GizmoShape {
     enum class Type { Arm, Centre, Ring } type = Type::Arm;
     GizmoHandle handle;
-    Vec2 from{}, to{};        // Arm: pivot -> tip (screen)
-    Vec2 dir{};               // Arm: unit screen direction
-    bool tipBox = false;      // Arm: ends in a box (scale)
-    Vec2 centre{};            // the pivot on screen (Centre: the square's centre)
-    float half = 0;           // Centre / tip box half size
-    std::vector<Vec2> ring;   // Ring: closed polyline
+    Vec2 from{}, to{};       // Arm: pivot -> tip (screen)
+    Vec2 dir{};              // Arm: unit screen direction
+    bool tipBox = false;     // Arm: ends in a box (scale)
+    Vec2 centre{};           // the pivot on screen (Centre: the square's centre)
+    float half = 0;          // Centre / tip box half size
+    std::vector<Vec2> ring;  // Ring: closed polyline
 };
 
 // The shapes of `mode`'s gizmo (empty for Select). Move arms follow the WORLD axes, rotation rings and scale handles the LOCAL
@@ -91,8 +91,15 @@ float rotation_sign(const ProjectFn& project, Vec3 pivot, Vec3 u, Vec3 v);
 // Accumulates the mouse angle without jumps: crossing +-180 keeps turning in the same direction.
 struct AngleTracker {
     float last = 0, total = 0;
-    void start(float angle) { last = angle; total = 0; }
-    float update(float angle) { total += wrap_deg(angle - last); last = angle; return total; }
+    void start(float angle) {
+        last = angle;
+        total = 0;
+    }
+    float update(float angle) {
+        total += wrap_deg(angle - last);
+        last = angle;
+        return total;
+    }
 };
 // Turns the euler rotation (pitch x, yaw y, roll z; R = Ry * Rx * Rz) by `deg` about its own LOCAL axis `axis`.
 Vec3 rotate_local_euler(Vec3 euler, int axis, float deg);

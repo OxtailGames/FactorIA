@@ -94,10 +94,10 @@ TEST_CASE("DualShock 4 raw events map to the right buttons and axes") {
     pad.set_button(0, false);
     CHECK_FALSE(pad.state().buttons[size_t(GamepadButton::A)]);
 
-    pad.set_axis(0, 0.25f);   // left stick X
-    pad.set_axis(1, 1.0f);    // left stick Y: the joystick API's +Y is down, FactorIA's is up
-    pad.set_axis(3, 0.5f);    // right stick X
-    pad.set_axis(4, -1.0f);   // right stick Y pushed up
+    pad.set_axis(0, 0.25f);  // left stick X
+    pad.set_axis(1, 1.0f);   // left stick Y: the joystick API's +Y is down, FactorIA's is up
+    pad.set_axis(3, 0.5f);   // right stick X
+    pad.set_axis(4, -1.0f);  // right stick Y pushed up
     st = pad.state();
     CHECK(st.axes[size_t(GamepadAxis::LeftX)] == doctest::Approx(0.25f));
     CHECK(st.axes[size_t(GamepadAxis::LeftY)] == doctest::Approx(-1.0f));
@@ -142,14 +142,15 @@ TEST_CASE("hats drive the D-pad, from a hat mask or from the joystick API's two 
     CHECK(st.buttons[size_t(GamepadButton::DpadLeft)]);
     CHECK_FALSE(st.buttons[size_t(GamepadButton::DpadUp)]);
 
-    pad.set_hat(7, 1);        // out of range: ignored
+    pad.set_hat(7, 1);  // out of range: ignored
     pad.set_hat_axis(-1, true, 1.0f);
     pad.set_axis(99, 1.0f);
     pad.set_button(300, true);
 }
 
 TEST_CASE("half axes, inverted axes and axes read as buttons") {
-    GamepadMapper pad(parse_ok(std::string(kZeroGuid) +
+    GamepadMapper pad(parse_ok(
+        std::string(kZeroGuid) +
         ",Odd pad,lefttrigger:+a1,righttrigger:-a1,leftx:a0~,rightx:a2,a:+a3,b:-a3,x:a4,y:a5~,platform:Linux,"));
     pad.set_axis(1, 0.5f);  // +a1: the positive half, 0..1
     GamepadState st = pad.state();
@@ -192,11 +193,11 @@ TEST_CASE("a Switch Pro: digital triggers, positional face buttons and a hat D-p
     id.version = 0x8111;
     GamepadMapper pad(select_gamepad_mapping({}, {}, id));
     CHECK(pad.mapping().name == "Nintendo Switch Pro Controller");
-    pad.set_button(7, true);   // ZL
+    pad.set_button(7, true);           // ZL
     pad.set_hat_axis(0, true, -1.0f);  // D-pad up
-    pad.set_button(5, true);   // L
-    pad.set_button(1, true);   // the button east of the centre: GamepadB
-    pad.set_axis(2, 0.5f);     // right stick X
+    pad.set_button(5, true);           // L
+    pad.set_button(1, true);           // the button east of the centre: GamepadB
+    pad.set_axis(2, 0.5f);             // right stick X
     GamepadState st = pad.state();
     CHECK(st.axes[size_t(GamepadAxis::LeftTrigger)] == 1.0f);
     CHECK(st.axes[size_t(GamepadAxis::RightTrigger)] == 0.0f);
@@ -295,7 +296,7 @@ TEST_CASE("the built-in mappings all parse, and identify the common pads") {
     CHECK(name_for(3, 0x057e, 0x2009, 0x7777) == "Nintendo Switch Pro Controller");
     CHECK(name_for(3, 0x057e, 0x2009, 0x8111) == "Nintendo Switch Pro Controller");
     CHECK(name_for(3, 0x045e, 0x028e, 0x0114) == "Xbox 360 Controller");  // listed in SDL_GameControllerDB
-    CHECK(name_for(3, 0xbeef, 0xcafe, 0x0100) == fallback.name);           // listed nowhere: the xpad layout
+    CHECK(name_for(3, 0xbeef, 0xcafe, 0x0100) == fallback.name);          // listed nowhere: the xpad layout
     CHECK(name_for(0, 0, 0, 0) == fallback.name);
 
     GamepadIdentity ds4;
@@ -334,25 +335,26 @@ TEST_CASE("user mappings win over built-in ones, an exact version over a loose o
     ds4.version = 0x8111;
 
     // The user remaps the DualShock 4's cross to B.
-    GamepadMappingSet user = parse_gamepad_mappings(
-        "030000004c050000cc09000000000000,My PS4,b:b0,platform:Linux,", "SDL_GAMECONTROLLERCONFIG", "Linux");
+    GamepadMappingSet user = parse_gamepad_mappings("030000004c050000cc09000000000000,My PS4,b:b0,platform:Linux,",
+                                                    "SDL_GAMECONTROLLERCONFIG", "Linux");
     REQUIRE(user.mappings.size() == 1);
     GamepadMapping m = select_gamepad_mapping(user.mappings, {}, ds4);
     CHECK(m.name == "My PS4");
     CHECK(m.buttons[size_t(GamepadButton::B)].index == 0);
     CHECK(m.buttons[size_t(GamepadButton::A)].kind == GamepadSource::Kind::None);
 
-    GamepadMappingSet two = parse_gamepad_mappings(
-        "030000004c050000cc09000011810000,Exact,a:b0,platform:Linux,\n"
-        "030000004c050000cc09000000000000,Loose,a:b0,platform:Linux,\n", "t", "Linux");
+    GamepadMappingSet two = parse_gamepad_mappings("030000004c050000cc09000011810000,Exact,a:b0,platform:Linux,\n"
+                                                   "030000004c050000cc09000000000000,Loose,a:b0,platform:Linux,\n",
+                                                   "t", "Linux");
     REQUIRE(two.mappings.size() == 2);
-    CHECK(select_gamepad_mapping(two.mappings, {}, ds4).name == "Exact");  // exact version, though the loose one is later
+    CHECK(select_gamepad_mapping(two.mappings, {}, ds4).name ==
+          "Exact");  // exact version, though the loose one is later
     ds4.version = 0x0001;
     CHECK(select_gamepad_mapping(two.mappings, {}, ds4).name == "Loose");
 
-    GamepadMappingSet twice = parse_gamepad_mappings(
-        "030000004c050000cc09000000000000,First,a:b0,platform:Linux,\n"
-        "030000004c050000cc09000000000000,Second,a:b0,platform:Linux,\n", "t", "Linux");
+    GamepadMappingSet twice = parse_gamepad_mappings("030000004c050000cc09000000000000,First,a:b0,platform:Linux,\n"
+                                                     "030000004c050000cc09000000000000,Second,a:b0,platform:Linux,\n",
+                                                     "t", "Linux");
     CHECK(select_gamepad_mapping(twice.mappings, {}, ds4).name == "Second");
 
     // A GUID made of a name (vendor and product 0) matches nothing.
@@ -468,7 +470,8 @@ TEST_CASE("mapping priority: SDL_GAMECONTROLLERCONFIG, then the user's file, the
     CHECK(select_gamepad_mapping(both, {}, id).name == "File pad");
 }
 
-TEST_CASE("an exact line of the database beats the hand-written one; an unlisted version gets the kernel driver's layout") {
+TEST_CASE(
+    "an exact line of the database beats the hand-written one; an unlisted version gets the kernel driver's layout") {
     // A DualShock 4 on the legacy generic HID driver (version 0x0111) numbers its buttons differently (a:b1) from one
     // bound to hid-sony (0x8111, a:b0). The database lists both; the hand-written line is the answer for the rest.
     GamepadMapping legacy = select_gamepad_mapping({}, {}, identity(3, 0x054c, 0x09cc, 0x0111));
@@ -486,7 +489,7 @@ TEST_CASE("a database line FactorIA cannot apply is skipped for the next candida
         "\n"
         "030000001111000022220000aaaa0000,Exact,a:b0,platform:Linux,\n"
         "030000001111000022220000bbbb0000,Other version,a:b1,platform:Linux,\n"
-        "xinput,No ids,a:b2,platform:Linux,\n"                                   // skipped silently: can never match
+        "xinput,No ids,a:b2,platform:Linux,\n"                                    // skipped silently: can never match
         "6e616d65000000000000000000000000,Made of a name,a:b3,platform:Linux,\n"  // vendor and product are 0: same
         "030000001111000022220000cccc0000,Broken,leftshouldr:b4,platform:Linux,\n";  // line 7
     GamepadMappingDb db;
@@ -581,8 +584,10 @@ TEST_CASE("a Linux pad end to end: DualShock 4 events through the routes into In
     }()));
     auto axis_event = [&](int number, float v) {
         const EvdevAxisRoute& e = routes[size_t(number)];
-        if (e.kind == EvdevAxisRoute::Kind::Axis) pad.set_axis(e.index, v);
-        else pad.set_hat_axis(e.index, e.kind == EvdevAxisRoute::Kind::HatY, v);
+        if (e.kind == EvdevAxisRoute::Kind::Axis)
+            pad.set_axis(e.index, v);
+        else
+            pad.set_hat_axis(e.index, e.kind == EvdevAxisRoute::Kind::HatY, v);
     };
     Input in;
     in.begin_frame();
@@ -642,12 +647,12 @@ TEST_CASE("a pad that stays plugged in comes back connected after a focus loss, 
 // Android
 // ---------------------------------------------------------------------------
 TEST_CASE("Android: which keycodes belong to a gamepad") {
-    CHECK(AndroidGamepads::is_gamepad_key(96));    // BUTTON_A
-    CHECK(AndroidGamepads::is_gamepad_key(110));   // BUTTON_MODE
-    CHECK(AndroidGamepads::is_gamepad_key(188));   // BUTTON_1
-    CHECK(AndroidGamepads::is_gamepad_key(203));   // BUTTON_16
-    CHECK(AndroidGamepads::is_gamepad_key(19));    // DPAD_UP
-    CHECK(AndroidGamepads::is_gamepad_key(23));    // DPAD_CENTER
+    CHECK(AndroidGamepads::is_gamepad_key(96));         // BUTTON_A
+    CHECK(AndroidGamepads::is_gamepad_key(110));        // BUTTON_MODE
+    CHECK(AndroidGamepads::is_gamepad_key(188));        // BUTTON_1
+    CHECK(AndroidGamepads::is_gamepad_key(203));        // BUTTON_16
+    CHECK(AndroidGamepads::is_gamepad_key(19));         // DPAD_UP
+    CHECK(AndroidGamepads::is_gamepad_key(23));         // DPAD_CENTER
     CHECK_FALSE(AndroidGamepads::is_gamepad_key(4));    // BACK stays the system's
     CHECK_FALSE(AndroidGamepads::is_gamepad_key(29));   // the A key of a keyboard
     CHECK_FALSE(AndroidGamepads::is_gamepad_key(111));  // ESCAPE
@@ -674,15 +679,24 @@ TEST_CASE("Android: key events become buttons on a pad slot per device, in order
     CHECK_FALSE(b.buttons[size_t(GamepadButton::A)]);
 
     // Every button.
-    const struct { int key; GamepadButton button; } all[] = {
-        {kAndroidKeyButtonA, GamepadButton::A}, {kAndroidKeyButtonB, GamepadButton::B},
-        {kAndroidKeyButtonX, GamepadButton::X}, {kAndroidKeyButtonY, GamepadButton::Y},
-        {kAndroidKeyButtonL1, GamepadButton::LeftShoulder}, {kAndroidKeyButtonR1, GamepadButton::RightShoulder},
-        {kAndroidKeyButtonThumbL, GamepadButton::LeftThumb}, {kAndroidKeyButtonThumbR, GamepadButton::RightThumb},
-        {kAndroidKeyButtonStart, GamepadButton::Start}, {kAndroidKeyButtonSelect, GamepadButton::Back},
-        {kAndroidKeyButtonMode, GamepadButton::Guide}, {kAndroidKeyDpadUp, GamepadButton::DpadUp},
-        {kAndroidKeyDpadDown, GamepadButton::DpadDown}, {kAndroidKeyDpadLeft, GamepadButton::DpadLeft},
-        {kAndroidKeyDpadRight, GamepadButton::DpadRight}};
+    const struct {
+        int key;
+        GamepadButton button;
+    } all[] = {{kAndroidKeyButtonA, GamepadButton::A},
+               {kAndroidKeyButtonB, GamepadButton::B},
+               {kAndroidKeyButtonX, GamepadButton::X},
+               {kAndroidKeyButtonY, GamepadButton::Y},
+               {kAndroidKeyButtonL1, GamepadButton::LeftShoulder},
+               {kAndroidKeyButtonR1, GamepadButton::RightShoulder},
+               {kAndroidKeyButtonThumbL, GamepadButton::LeftThumb},
+               {kAndroidKeyButtonThumbR, GamepadButton::RightThumb},
+               {kAndroidKeyButtonStart, GamepadButton::Start},
+               {kAndroidKeyButtonSelect, GamepadButton::Back},
+               {kAndroidKeyButtonMode, GamepadButton::Guide},
+               {kAndroidKeyDpadUp, GamepadButton::DpadUp},
+               {kAndroidKeyDpadDown, GamepadButton::DpadDown},
+               {kAndroidKeyDpadLeft, GamepadButton::DpadLeft},
+               {kAndroidKeyDpadRight, GamepadButton::DpadRight}};
     for (const auto& c : all) {
         AndroidGamepads one;
         one.on_key(1, c.key, true);
@@ -768,7 +782,7 @@ TEST_CASE("Android: BUTTON_L2/R2 are the trigger only until the pad shows an ana
     CHECK(pads.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == doctest::Approx(0.3f));
     m.ltrigger = 0.0f;
     pads.on_motion(1, m);
-    CHECK(pads.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == 0.0f);  // released, though the key was still down
+    CHECK(pads.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == 0.0f);   // released, though the key was still down
     CHECK(pads.state(0).axes[size_t(GamepadAxis::RightTrigger)] == 1.0f);  // R2 never had an analog axis
 }
 
@@ -783,7 +797,7 @@ TEST_CASE("Android: four slots; a fifth device replaces the pad that has been si
     CHECK(replaced.buttons[size_t(GamepadButton::Y)]);
     CHECK_FALSE(replaced.buttons[size_t(GamepadButton::A)]);  // a fresh pad: the old state is gone
     CHECK(pads.state(1).buttons[size_t(GamepadButton::A)]);   // the others are untouched
-    pads.on_key(2, kAndroidKeyButtonX, true);  // device 2 still has its slot
+    pads.on_key(2, kAndroidKeyButtonX, true);                 // device 2 still has its slot
     CHECK(pads.state(1).buttons[size_t(GamepadButton::X)]);
 }
 
@@ -812,7 +826,8 @@ TEST_CASE("Android: the axes a device reports decide what Z and RZ are") {
     AndroidLayout l = android_layout_for({.z = true, .rz = true, .ltrigger = true, .rtrigger = true});
     CHECK(l.rightStick == R::ZRz);
     CHECK_FALSE(l.zrzAreTriggers);
-    l = android_layout_for({.z = true, .rz = true, .brake = true, .gas = true});  // the trigger axes by their other names
+    l = android_layout_for(
+        {.z = true, .rz = true, .brake = true, .gas = true});  // the trigger axes by their other names
     CHECK(l.rightStick == R::ZRz);
     // The Xbox-like layout: RX/RY is the stick and Z/RZ are the triggers, since nothing else is.
     l = android_layout_for({.z = true, .rz = true, .rx = true, .ry = true});
@@ -835,8 +850,8 @@ TEST_CASE("Android: the axes a device reports decide what Z and RZ are") {
 TEST_CASE("Android: a pad with Z/RZ triggers does not push its right stick, and its triggers read 0..1") {
     // An Xbox-like pad: Z/RZ are the triggers and rest at -1; RX/RY is the right stick.
     AndroidMotionAxes m;
-    m.z = -1.0f;   // left trigger released
-    m.rz = 1.0f;   // right trigger fully pulled
+    m.z = -1.0f;  // left trigger released
+    m.rz = 1.0f;  // right trigger fully pulled
     m.rx = 0.5f;
     m.ry = -0.5f;  // Android's +Y is down: the stick is pushed up
 

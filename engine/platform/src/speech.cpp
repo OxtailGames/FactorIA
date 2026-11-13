@@ -28,10 +28,11 @@ bool Speech::speak(std::string_view text, std::string_view language, bool interr
     if (!b->available()) {
         if (!warned_) {
             warned_ = true;
-            fa::log(LogLevel::Warn, "speech",
-                    "ui.speak: this system has no text to speech (Linux needs speech-dispatcher, libspeechd.so.2, and a "
-                    "speech engine such as espeak-ng; Android needs a speech engine installed). Nothing will be said; "
-                    "check ui.speechAvailable and hide the option instead of calling ui.speak.");
+            fa::log(
+                LogLevel::Warn, "speech",
+                "ui.speak: this system has no text to speech (Linux needs speech-dispatcher, libspeechd.so.2, and a "
+                "speech engine such as espeak-ng; Android needs a speech engine installed). Nothing will be said; "
+                "check ui.speechAvailable and hide the option instead of calling ui.speak.");
         }
         return false;
     }

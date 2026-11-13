@@ -48,7 +48,8 @@ struct TempDir {
     std::filesystem::path path;
     TempDir() {
         static int n = 0;
-        path = std::filesystem::temp_directory_path() / ("fa_test_ai_" + std::to_string(getpid_()) + "_" + std::to_string(n++));
+        path = std::filesystem::temp_directory_path() /
+               ("fa_test_ai_" + std::to_string(getpid_()) + "_" + std::to_string(n++));
         std::filesystem::remove_all(path);
         std::filesystem::create_directories(path);
     }
@@ -72,16 +73,21 @@ inline CommandRegistry make_registry() {
     CommandInfo list;
     list.name = "scene.list_entities";
     list.summary = "List entities.";
-    list.inputSchema = Json::parse(R"({"type":"object","properties":{"limit":{"type":"integer","default":10},"filter":{"type":"string"}}})");
+    list.inputSchema = Json::parse(
+        R"({"type":"object","properties":{"limit":{"type":"integer","default":10},"filter":{"type":"string"}}})");
     r.add(list, [](const Json& a) { return Json::object({{"count", 2}, {"limit", a.value("limit", 0)}}); });
     CommandInfo val;
     val.name = "project.validate";
     val.summary = "Validate the project.";
-    r.add(val, [](const Json&) -> Json { throw CommandError("failed", "scene main is broken", "Fix scenes/main.scene.json"); });
+    r.add(val, [](const Json&) -> Json {
+        throw CommandError("failed", "scene main is broken", "Fix scenes/main.scene.json");
+    });
     CommandInfo shot;
     shot.name = "game.screenshot";
     shot.summary = "Screenshot.";
-    r.add(shot, [](const Json&) { return Json::object({{"image", Json::object({{"mediaType", "image/png"}, {"data", "QUJD"}})}, {"w", 4}}); });
+    r.add(shot, [](const Json&) {
+        return Json::object({{"image", Json::object({{"mediaType", "image/png"}, {"data", "QUJD"}})}, {"w", 4}});
+    });
     CommandInfo ai;
     ai.name = "ai.run";
     ai.summary = "must be hidden from the model";
@@ -124,7 +130,8 @@ inline ChatResponse tool_response(std::vector<ToolCall> calls, const std::string
     r.message.toolCalls = calls;
     Json raw = Json::array({Json::object({{"type", "thinking"}, {"thinking", "hmm"}, {"signature", "sig"}})});
     if (!text.empty()) raw.push_back(Json::object({{"type", "text"}, {"text", text}}));
-    for (auto& c : calls) raw.push_back(Json::object({{"type", "tool_use"}, {"id", c.id}, {"name", c.name}, {"input", c.input}}));
+    for (auto& c : calls)
+        raw.push_back(Json::object({{"type", "tool_use"}, {"id", c.id}, {"name", c.name}, {"input", c.input}}));
     r.message.raw = raw;
     r.stopReason = StopReason::ToolUse;
     r.rawStopReason = "tool_use";

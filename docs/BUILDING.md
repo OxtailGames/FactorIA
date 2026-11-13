@@ -283,7 +283,10 @@ starts that build directory over, because CMake would otherwise keep using the o
 | `linux-debug` | Linux | Ninja (GCC or Clang) | Debug | yes | Default on Linux |
 | `linux-release` | Linux | Ninja | Release | yes | |
 | `linux-sniper` | Linux, inside the Steam Runtime sniper SDK container | Ninja (GCC 14) | Release | no | Static libstdc++, no tests: what `scripts/build-sniper.sh` builds (see "Linux release" above) |
+| `linux-asan` | Linux | Ninja (Clang) | Debug (`-O1 -g1`) | yes | AddressSanitizer + UBSan + LeakSanitizer, the CI job `linux-asan` (see "Sanitizers" below) |
+| `linux-tsan` | Linux | Ninja (Clang) | Debug (`-O1 -g1`) | yes | ThreadSanitizer, the CI job `linux-tsan`; run `ctest -L tsan` |
 | `macos-debug` | macOS | Ninja (Apple Clang) | Debug | yes | Default on macOS |
+| `macos-asan` | macOS | Ninja (Apple Clang) | Debug (`-O1 -g1`) | yes | ASan + UBSan for local runs (no leak detection on macOS) |
 | `macos-release` | macOS | Ninja | Release | yes | |
 | `windows-debug` | Windows | Visual Studio 17 2022, x64 | Debug | yes | Default on Windows |
 | `windows-release` | Windows | Visual Studio 17 2022, x64 | Release | yes | |
@@ -297,6 +300,31 @@ starts that build directory over, because CMake would otherwise keep using the o
 
 Desktop presets build the tools (`factoria` CLI, MCP server, AI agent, editor)
 and the unit tests. Mobile and web presets build the engine libraries and `factoria_player`.
+
+### Strict builds (warnings as errors)
+
+CI builds with `-DFA_WARNINGS_AS_ERRORS=ON`: a compiler warning in FactorIA's own code (the engine, the tools, the player,
+the plugins and test programs that are built here) fails the build on GCC and Clang (`-Werror`) and on MSVC (`/WX`). The
+warning set does not change (`-Wall -Wextra`, `/W4`); the option only makes it fatal. Code under `external/` is never
+strict: its targets do not link `fa_warnings` and its headers are `SYSTEM` includes. Every first-party target links the
+`fa_warnings` interface target (cmake/FactoriaHelpers.cmake); `fa_add_module` and `fa_add_tests` do it themselves, a target
+declared by hand (a tool, a test program, a plugin) must add `fa_warnings` to its `target_link_libraries`, or it escapes
+the strict build.
+
+The option is OFF in the presets and in a plain `cmake -S . -B build/dev`, so a local build stays tolerant of the
+warnings of a compiler newer than CI's. CI turns it on in `.github/workflows/ci.yml` (and `scripts/ci-local.sh`, which
+mirrors it), by passing `-DFA_WARNINGS_AS_ERRORS=ON` to each `cmake --preset ...` and `scripts/build-sniper.sh build --`
+step, not in `CMakePresets.json`: `release.yml` configures the same presets, and a release must not fail because a new
+compiler release warns about code CI already built. To build strict yourself:
+
+```bash
+cmake --preset macos-debug -DFA_WARNINGS_AS_ERRORS=ON      # or: cmake -S . -B build/strict -G Ninja -DFA_WARNINGS_AS_ERRORS=ON
+cmake --build --preset macos-debug -- -k 0                 # -k 0: list every warning, not only the first
+```
+
+The option is cached: to go back, configure again with `-DFA_WARNINGS_AS_ERRORS=OFF`. Fix a warning in the code. A
+`#pragma` that silences one is only for a warning raised inside an external header that `SYSTEM` does not cover, with a
+comment that names the header and the warning.
 
 ### Web player
 
@@ -384,6 +412,184 @@ cmake --build build/my-build -j 2
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
+
+## Sanitizers
+
+`FA_SANITIZE` (a CMake cache variable) builds every target with Clang's or GCC's sanitizers: the engine, the tools, the
+player, the tests and `external/` (ASan must instrument the third-party code too, or it reports container-overflow false
+positives where our code and theirs share a `std::vector`, and TSan cannot see the accesses of uninstrumented code). It is
+empty by default. Allowed values (anything else stops the configure with a message saying so): `address;undefined`
+(AddressSanitizer + UndefinedBehaviorSanitizer; quote the semicolon in a shell), `address`, `undefined` and `thread`
+(ThreadSanitizer, which cannot be combined with `address`). GCC and Clang on Linux and macOS only: MSVC, Emscripten,
+Android and iOS stop the configure with a teaching error. UBSan is built with `-fno-sanitize-recover=undefined`, so a
+finding fails the test it happens in instead of printing one line; ASan stops at its first report as well, and TSan prints
+every race of the run and fails the test with its exit code.
+
+- **Run it locally:** `cmake --preset macos-asan && cmake --build --preset macos-asan && ctest --preset macos-asan`
+  (Linux: `linux-asan`, with Clang installed; `linux-tsan` for ThreadSanitizer, `ctest --preset linux-tsan -L tsan`). The
+  presets build into `build/<preset>` with `-O1 -g1` (assertions stay on). With `scripts/agent-build.sh`, configure the tree
+  by hand first (`cmake -S . -B build/agent-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DFA_SANITIZE="address;undefined"
+  -DCMAKE_C_FLAGS_DEBUG="-O1 -g1" -DCMAKE_CXX_FLAGS_DEBUG="-O1 -g1" -DCMAKE_OBJC_FLAGS_DEBUG="-O1 -g1"
+  -DCMAKE_OBJCXX_FLAGS_DEBUG="-O1 -g1"` on a Mac); the script builds and tests a tree that is already configured.
+- **The test environment is set by CMake**, not by the test presets: `add_test()` (cmake/FactoriaHelpers.cmake) gives every
+  test of a sanitizer tree `ASAN_OPTIONS`, `UBSAN_OPTIONS`, `LSAN_OPTIONS` (Linux only: LeakSanitizer does not exist on
+  macOS, where the runtime refuses `detect_leaks`) or `TSAN_OPTIONS`, with the suppression files of `tools/ci/sanitizers/`.
+  So any `ctest` of such a tree has them, with a preset or without. A program you run by hand needs them exported.
+- **Timeouts are scaled:** instrumented code is 2-3x slower (ASan + UBSan) or 5-15x slower (TSan), so `add_test()` also
+  multiplies the `TIMEOUT` of every test by `FA_SANITIZE_TIMEOUT_FACTOR` (3 for ASan + UBSan, 5 for TSan; a CMake cache
+  variable); a test with no `TIMEOUT` gets ctest's 1500 s times the factor. With `FA_COVERAGE` on too the factors are multiplied (one
+  helper, `fa_scale_test_timeout`, scales each test once). The limits inside the programs are not scaled:
+  the script limits (60 s per `factoria test` test, 5 s of `script.eval`, 2 s of a callback) count CPU time of the script
+  thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
+  `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
+- **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
+  the example games' tests off as in any Debug build, and the `_perf` budgets (`example_*_perf`, `fixture_skinned_sprites_perf`)
+  off too: a sanitizer build has no baseline and its times and memory are not an optimized build's. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
+  four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
+  core, the jobs engine and the background loads of runtime, and all of audio and mcp. Both are part of `CI result` and run
+  when the change touches anything but docs. Each runs `sudo sysctl vm.mmap_rnd_bits=28` before the tests: the runner's kernel
+  randomizes mappings with more bits than the sanitizers' shadow memory layout supports, and the programs would not start.
+- **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding
+  in our own code (engine, tools, player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside
+  `external/`, which is never edited, may be suppressed by file pattern, one entry each with the reason above it
+  (`ubsan_ignorelist.txt` is a Clang `-fsanitize-ignorelist` that compiles the listed files without the check, because the UBSan
+  runtime ignores its suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer, and
+  tinysoundfont and xatlas call a function through a pointer of another function type, which `-fsanitize=function` aborts).
+  `asan.supp` names an Apple system library whose own code ASan flags (CoreGraphics' PDF parser, reached from the editor
+  window's controls); LeakSanitizer suppressions name system libraries we cannot free (Mesa, X11, ALSA). A suppression you add
+  says why, in the file and in the commit.
+- **Reading a report:** `llvm-symbolizer` on the `PATH` (the CI job installs `llvm`; Apple's toolchain has it) gives file
+  and line in the stack. `UBSAN_OPTIONS=print_stacktrace=1` is already set.
+
+## Fuzzing
+
+`tools/fuzz/` holds the fuzz targets: each feeds arbitrary bytes to one reader of data other people wrote, and the contract
+is that every input is a result or an error, never a crash, a hang, runaway memory or undefined behaviour. The targets are
+`json` (`parse_json`), `json_schema` (`validate_json` and the schema helpers), `scene` (`load_scene`), `prefab`
+(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
+with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project), `translations`
+(`read_csv`, `read_xliff`) and the decoders of the files a project brings: `image` (`decode_image` and `image_size`:
+PNG, JPG, TGA, BMP, GIF...), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),
+`gltf` (`parse_skeleton` and `read_gltf_mesh_bytes` on a `.glb` or `.gltf`), `font` (`rasterize_text` with a TrueType font
+in memory), `audio` (`decode_audio`; the first input byte picks `.wav`, `.ogg`, `.mp3` or `.qoa`), `midi` (`parse_midi`
+and `write_midi`) and `soundfont` (`Soundfont::from_memory` and one rendered note). Each is one `tools/fuzz/targets/<name>.cpp` that defines
+`extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t*, std::size_t)`, and a corpus folder of small seed files in
+`tools/fuzz/corpus/<name>/`.
+
+**Every desktop build with `FA_BUILD_TESTS` replays the corpus.** Without `FA_FUZZ` (every desktop compiler and platform, MSVC included; not Android, iOS or the web) each target is linked
+with a small `main()` (`tools/fuzz/replay_main.cpp`) and registered as a ctest `fuzz_<name>` with the label `fuzz`: it runs
+every file of the corpus once, so the seeds and every crash ever found stay regression tests of the normal suite
+(`ctest --test-dir build/dev -L fuzz`). The same program also mutates: `build/dev/tools/fuzz/fa_fuzz_pak --mutate 20000 --seed 3
+tools/fuzz/corpus/pak` runs 20000 deterministic mutations of the corpus files (set `FA_FUZZ_LAST_INPUT=<file>` to have each
+input written there before it runs, so the one that crashed is left behind). That is no coverage-guided fuzzing, but in a
+build with `-fsanitize=address,undefined` (AppleClang has no libFuzzer) it is a quick smoke test.
+
+**Real fuzzing needs Clang with libFuzzer** (Linux: `apt install clang libclang-rt-<version>-dev`; Apple's Clang does not
+ship libFuzzer, Homebrew's LLVM does):
+
+```bash
+cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+cmake --build build/fuzz --target fa_fuzz_all
+tools/fuzz/run.sh build/fuzz 60            # every target, 60 s each
+tools/fuzz/run.sh build/fuzz 600 pak json  # two targets, ten minutes each
+```
+
+`FA_FUZZ` builds the whole tree with AddressSanitizer, UndefinedBehaviorSanitizer (a finding aborts) and coverage
+instrumentation, and each target as a libFuzzer program `build/fuzz/tools/fuzz/fa_fuzz_<name>`. `run.sh` runs them over a copy
+of the corpus (new inputs land in `build/fuzz/fuzz-work/<name>/`, the repository's corpus is never written) with a 20 s
+timeout per input, a 4 GB memory limit and inputs up to 64 KiB; a crash, timeout, out-of-memory or leak leaves its input in
+`build/fuzz/fuzz-crashes/` and the script exits 1 after running the other targets. It exits 2 when the run itself is
+broken (no program, an unknown target, a program that failed without leaving an input); that wins over 1. CI treats 1 as a
+warning with the inputs listed in the job summary and 2 as a failed job. CMake refuses `FA_FUZZ` with any compiler but
+Clang.
+
+**The decoders wrap code in `external/`** (stb_image, stb_truetype, cgltf, the Basis Universal transcoder, dr_libs,
+stb_vorbis, TinySoundFont): it is not ours to edit, so the engine validates before it calls it. The wrappers cap what a
+header can ask for (`kMaxImagePixels` for images, plus a side of at most `kMaxImageSide` for KTX2, 32 audio channels, 8 million
+reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check` runs `cgltf_validate` before
+any glTF accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length
+parameter). It refuses the whole font for table offsets, glyph offsets and `cmap` segments outside the file, a `cmap`
+subtable format the engine does not read, a font with no glyphs and a glyph 0 that is itself unsafe. A format 4 `cmap`
+search header is not required to equal the specification (a few system fonts, such as Shree714.ttc, write other values):
+the check runs stb_truetype's binary search on it and refuses it only when the entries it can reach lie outside the
+subtable. What is wrong with one glyph does not condemn the font: a glyph that includes itself or nests more than 32
+levels, composite glyphs placed by matching points, contours that do not end at rising points, a last contour of a single
+point off the curve, or a composite that draws more than 20000 glyphs is listed as unsafe, `FontFace::stb_glyph` hands
+stb_truetype glyph 0 (the `.notdef` box) in its place, and everything else in the font still loads. Smaller checks of
+the same kind: a picture with no rows is an error, a KTX2
+level whose stored size differs from its unpacked size is refused before the Basis transcoder asserts on it, the comment
+header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed; a header over
+16 MB, such as one with a huge cover picture, is refused with an error that says it is a size limit, not damage), and
+`sf2_problem` follows the index chains of a SoundFont (preset, instrument and sample numbers, zone and generator ranges)
+before TinySoundFont, which trusts them, reads it. What stays inside `external/` and is only fuzzed: the CFF outline reader
+of stb_truetype (an `.otf` with PostScript outlines; the file check covers its place in the file, not its contents), the
+Basis transcoder's own parsing after the header and level checks, dr_wav, dr_mp3, qoa, stb_vorbis beyond the comment header
+(codebooks and setup), TinySoundFont once its tables check out (sample ranges are not checked) and the cgltf parser itself
+(`gltf_check` validates accessors, not the JSON parse). The sanitizer build silences UBSan (not ASan) inside `external/`
+through `tools/fuzz/ubsan_ignorelist.txt`, which `cmake/FactoriaFuzz.cmake` gives the compiler (`-fsanitize-ignorelist`;
+a runtime `UBSAN_OPTIONS=suppressions` does not work with `-fno-sanitize-recover`), so a benign wrap-around or shift in
+their code does not stop a run; an out-of-bounds access there still does, and is then fixed in the wrapper.
+
+**Add a target:** write `tools/fuzz/targets/<name>.cpp` (include `fuzz_support.h` for quiet logging, `fa::fuzz::fail()` and
+`fa::fuzz::empty_project()`; a target must not write outside a temporary folder, open sockets or start programs), put a few
+small seed files (a few KB in all, taken from fixtures, schemas or examples) in `tools/fuzz/corpus/<name>/`, and add
+`fa_add_fuzz_target(<name> DEPS <library>)` to `tools/fuzz/CMakeLists.txt`. The ctest, the libFuzzer program and `run.sh`
+pick it up.
+
+**Add a crash to the corpus:** reproduce it with `build/fuzz/tools/fuzz/fa_fuzz_<name> build/fuzz/fuzz-crashes/crash-<hash>`,
+shrink it with `fa_fuzz_<name> -minimize_crash=1 -runs=100000 crash-<hash>` (it writes `minimized-from-*`), fix the code,
+write the doctest for the cause in the module's `tests/` (the fix is not finished without one), and copy the minimized file
+to `tools/fuzz/corpus/<name>/` under a name that says what it is. Then `ctest -L fuzz` keeps the bug fixed on every
+platform.
+
+**CI:** the job `linux-fuzz` of `.github/workflows/ci.yml` (Clang, `FA_FUZZ=ON`, whenever code changed) builds every target
+and runs `tools/fuzz/run.sh build/fuzz 60`. A build error fails the job, which is part of `CI result`. The random minute does
+not: a different input is tried on every run, so a crash there is usually not caused by the pull request that happened to
+meet it, and it must not block unrelated work. That step is `continue-on-error`; when it fails the job stays green, prints a
+warning annotation and a summary, and uploads `build/fuzz/fuzz-crashes` as the artifact `fuzz-crashes`. The corpus replay
+(`ctest -L fuzz`, in every normal job) does block: it holds every input that ever crashed.
+
+**Weekly run:** `.github/workflows/fuzz-weekly.yml` (Sundays 03:17 UTC, and by hand from the Actions tab with the minutes per
+target) fuzzes each target on its own runner for 25 minutes by default, starting from the corpus of the previous weeks (kept in
+the Actions cache). It never commits and never opens an issue. It leaves two artifacts per target: `fuzz-corpus-<name>`, the
+corpus after `fa_fuzz_<name> -merge=1` (only inputs that add coverage), and `fuzz-crashes-<name>` with the inputs that
+crashed; a target that found one makes the run fail, which is the notification.
+
+**Take a weekly crash into the corpus:** download `fuzz-crashes-<name>` from the run, then follow "Add a crash to the corpus"
+above with the file (`fa_fuzz_<name> crash-<hash>` reproduces it in an `FA_FUZZ` build, on Linux or with Homebrew's LLVM on a
+Mac). To adopt interesting inputs of `fuzz-corpus-<name>` as seeds, copy a few small ones into `tools/fuzz/corpus/<name>/`
+(keep the whole folder to a few tens of KB: it is replayed by every normal build).
+
+## Coverage
+
+`-DFA_COVERAGE=ON` (Clang only, `cmake/FactoriaCoverage.cmake`; Apple clang works, GCC and MSVC stop with an error that says so)
+builds every target with `-fprofile-instr-generate -fcoverage-mapping`, and every ctest process writes its raw profile to
+`<build>/coverage/raw/` (`LLVM_PROFILE_FILE=.../%4m.profraw` is set on each test by the `add_test` wrapper of
+`cmake/FactoriaHelpers.cmake`: `%m` is online merge mode, so the many processes of one binary, cli_integration and the examples
+start thousands, update a pool of 4 shared files per binary instead of leaving a full profile each; the `factoria` the editor
+autotest starts is covered too). The `TIMEOUT` of every test is multiplied by `FA_COVERAGE_TIMEOUT_SCALE` (default 3; times the sanitizer factor when both
+are on), because instrumented Debug runs are slow and a test killed by its timeout writes no profile. `external/` is instrumented too, and left
+out of the report.
+
+```bash
+cmake -S . -B build/cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON
+cmake --build build/cov -j4
+xvfb-run -a -s "-screen 0 1280x720x24" ctest --test-dir build/cov --output-on-failure   # Linux; macOS needs no xvfb-run
+scripts/coverage-report.sh build/cov            # report in build/cov/coverage/report, or pass an out-dir
+```
+
+`scripts/coverage-report.sh` merges the profiles (`llvm-profdata`), reads every `fa_test_*` program, `factoria` and
+`fa_editor_autotest` in one merged `llvm-cov export`, and writes `coverage.md` and `coverage.json` (lines, functions and
+regions per module: `engine/<m>/` and `tools/<m>/`, with `tools/common` as `tooling`; test code, `external/`, `tools/fuzz` and
+`tools/bench` are not counted) and `html/index.html` (every file, line by line). It finds `llvm-cov` with `xcrun` on macOS and
+`llvm-cov-<version>` on Linux (`LLVM_COV` / `LLVM_PROFDATA` override). Only the `fa_test_*` programs, `factoria` and
+`fa_editor_autotest` are read: `factoria_player` and the plugin `.so` files are not passed as `-object`, so code only they run
+is not counted. A report of a subset of the tests is valid: it counts
+only what ran. The CI job `coverage` (Ubuntu, Clang, Debug, the whole suite with the editor autotest) does this on every code
+change (ctest with `--parallel 2`, without the `perf` label; it can still go red on a timeout of an instrumented test, and the
+report is made anyway from the profiles that exist), writes the table to the job summary and uploads the report as the artifact `coverage-report`. It is informative: it is
+not part of `CI result`, so a failure of the job (or a number going down) never blocks a merge.
 
 ## Golden images
 
@@ -552,6 +758,47 @@ Pull requests from forks never receive the secrets. A pull request from a branch
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
 Environment with required reviewers is the stricter option).
 
+## Formatting and lint
+
+First-party C and C++ (`.c .cc .cpp .h .hpp` under `engine/`, `tools/`, `player/`, `platforms/`, `examples/`,
+`templates/`) follows `.clang-format` (the CLAUDE.md style: 4 spaces, 120 columns, attached braces, no indent inside
+namespaces, indented `case`, `T* p`, two spaces before a trailing comment; includes keep the order the author wrote).
+`.clang-format-ignore` lists what is never formatted: `external/`, the shader headers `tools/shaders` generates and the
+byte-exact test data. Objective-C (`.m`, `.mm`) is not formatted. `.editorconfig` has the whitespace rules for every other
+file type (LF, UTF-8, final newline; CRLF only for `.bat` and `.cmd`, as `.gitattributes` says).
+
+```bash
+scripts/format.sh                      # format every file in place
+scripts/format.sh --check              # change nothing; list the files that need it, exit 1 if any
+scripts/format.sh --changed origin/main        # only the files changed against a base (and uncommitted ones)
+scripts/format.sh --check --changed origin/main
+scripts/tidy-changed.sh origin/main    # clang-tidy over the changed .cpp files
+```
+
+The scripts use one pinned `clang-format` and `clang-tidy` (the versions are at the top of `scripts/lint-tools.sh`;
+formatting differs between versions, so a different one gives different results). The first run installs them as pip
+wheels into a venv in `build/lint-venv`: nothing is installed system wide, and it is the same on macOS, Linux and
+Windows (Git Bash). To change a version, edit that file.
+
+`.clang-tidy` enables bug finders only (use after move, dangling views, `sizeof` mistakes, `memset` and string
+constructor mistakes, redundant expressions, `std::move` of a const...), no style or modernizing checks, and every hit is
+an error. `scripts/tidy-changed.sh <base> [build-dir]` runs them over the first-party `.cpp` files changed against the
+base, with the `compile_commands.json` of a CMake configure (`build/tidy`, configured on first use: configure only,
+nothing is compiled). Files that only a commit of `.git-blame-ignore-revs` changed (a repository-wide reformat) are
+left out. A false positive: rewrite the line or end it with `// NOLINT(<check>)` and a reason.
+
+Both scripts exit 0 when clean, 1 when they found something (files to format, a tidy diagnostic) and 2 when the tool
+or its setup failed (no Python, pip, git diff against an unknown base, a CMake configure, a clang crash): a 2 is never a
+finding. `scripts/tidy-changed.sh --all` checks every first-party `.cpp` (about an hour on a laptop; the CI job only
+checks what a change touches). The configure also builds the one generated header the sources need
+(`fa_build_fingerprint.h`).
+
+CI has a `lint` job (Ubuntu, cheap, part of `CI result`): `scripts/format.sh --check --changed <base>` and
+`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push). When
+every file is formatted, set `FORMAT_SCOPE: all` in that job's `env` in `.github/workflows/ci.yml` and the check covers
+the whole repository. A repository-wide reformat is one commit with no other change; add its hash to a `.git-blame-ignore-revs` file
+(`git config blame.ignoreRevsFile .git-blame-ignore-revs`) so `git blame` skips it.
+
 ## Before a push
 
 `scripts/ci-preflight.sh` is the one command to run before every push, so the PR passes GitHub CI the first time. It
@@ -672,7 +919,8 @@ base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds not
 and the iOS and Android jobs run only when the change touches what they build or run
 (`engine/`, `player/`, `platforms/`, `external/`, `cmake/`, `templates/`,
 `tools/common/`, `tools/cli/`, `scripts/`, the top-level CMake files or `ci.yml`).
-The job `Linux (Steam Runtime sniper)` builds the Linux release programs as `release.yml` does and runs them in Valve's
+The jobs `Linux (Clang, ASan + UBSan)` and `Linux (Clang, TSan, threaded tests)` build with sanitizers and run the Debug
+suite and the threaded tests ("Sanitizers" above), each with its own ccache. The job `Linux (Steam Runtime sniper)` builds the Linux release programs as `release.yml` does and runs them in Valve's
 sniper runtime image (`scripts/build-sniper.sh`, "Linux release" above), with its own ccache. The last job,
 `CI result`, fails if any job that ran failed. It is the only check that
 the branch protection of `main` requires, so a pull request with auto-merge on
@@ -691,7 +939,9 @@ and prints the physics replay hash. `python scripts/ctest_shard.py --preset <pre
 on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
-of that ref: the event and the `perfBaselines` tick are part of the concurrency group). A `_perf` test that passes inside
+of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`
+job builds only `fa_bench` and compares the engine's microbenchmarks with `tools/bench/baselines/linux-gcc.json`
+(docs/PERFORMANCE.md, "Microbenchmarks"). A `_perf` test that passes inside
 the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
 in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,

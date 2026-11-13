@@ -18,8 +18,9 @@ namespace fa {
 
 namespace {
 constexpr double kEps = 1e-6;
-constexpr std::int64_t kMusicStreamAutoFrames = 20 * std::int64_t(kMusicRate);  // import.music.stream "auto": stems of 20 s or more stream
-}
+constexpr std::int64_t kMusicStreamAutoFrames =
+    20 * std::int64_t(kMusicRate);  // import.music.stream "auto": stems of 20 s or more stream
+}  // namespace
 
 const char* music_quantize_name(MusicQuantize q) {
     switch (q) {
@@ -49,11 +50,20 @@ float music_layer_gain(float intensity, float threshold, float range) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why, bool stemsStale) {
-    auto say = [&](const char* text) { if (why) *why = text; };
-    if (mode == MusicMode::Live) { say("mode is live"); return MusicMode::Live; }
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool stemsAvailable, std::string* why,
+                             bool stemsStale) {
+    auto say = [&](const char* text) {
+        if (why) *why = text;
+    };
+    if (mode == MusicMode::Live) {
+        say("mode is live");
+        return MusicMode::Live;
+    }
     if (mode == MusicMode::Stems) {
-        if (stemsAvailable) { say("mode is stems"); return MusicMode::Stems; }
+        if (stemsAvailable) {
+            say("mode is stems");
+            return MusicMode::Stems;
+        }
         say("mode is stems but the song has no stem files (run music.render)");
         return MusicMode::Live;
     }
@@ -61,18 +71,22 @@ MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& d, bool s
     const bool needsStems = d.web || d.tier == "low" || (handheld && d.tier != "high");
     if (!stemsAvailable) {
         say(needsStems ? "auto would use stems on this device but the song has none (run music.render)"
-                       : "auto: the song has no stem files, so it renders live (run music.render to stream it from its stems)");
+                       : "auto: the song has no stem files, so it renders live (run music.render to stream it from its "
+                         "stems)");
         return MusicMode::Live;
     }
     if (stemsStale) {
-        say("auto: the song changed after music.render wrote its stems, so it plays live (run music.render again to use the stems)");
+        say("auto: the song changed after music.render wrote its stems, so it plays live (run music.render again to "
+            "use the stems)");
         return MusicMode::Live;
     }
     // A song with stem files plays from them on every device: a long stem streams from its encoded ogg in memory (a window of a few MB
     // instead of 10 MB per minute per stem), and there is no render to wait for.
-    say(d.web ? "auto: stems on the web" : d.tier == "low" ? "auto: stems on a low-tier device"
+    say(d.web             ? "auto: stems on the web"
+        : d.tier == "low" ? "auto: stems on a low-tier device"
         : needsStems ? "auto: stems on a phone or tablet that is not high-tier"
-                     : "auto: the song has stem files, which play from their encoded ogg instead of rendering the song in memory");
+                     : "auto: the song has stem files, which play from their encoded ogg instead of rendering the song "
+                       "in memory");
     return MusicMode::Stems;
 }
 
@@ -95,8 +109,10 @@ int MusicMap::span_at(double frame) const {
     std::size_t lo = 0, hi = spans.size();
     while (hi - lo > 1) {
         const std::size_t mid = (lo + hi) / 2;
-        if (spans[mid].start <= frame + kEps) lo = mid;
-        else hi = mid;
+        if (spans[mid].start <= frame + kEps)
+            lo = mid;
+        else
+            hi = mid;
     }
     return int(lo);
 }
@@ -105,7 +121,8 @@ void MusicMap::position(double frame, int& bar, int& beat) const {
     bar = 1;
     beat = 1;
     if (marks.empty()) return;
-    auto it = std::upper_bound(marks.begin(), marks.end(), frame + kEps, [](double f, const MusicMark& m) { return f < m.frame; });
+    auto it = std::upper_bound(marks.begin(), marks.end(), frame + kEps,
+                               [](double f, const MusicMark& m) { return f < m.frame; });
     if (it == marks.begin()) return;
     --it;
     bar = it->bar;
@@ -127,7 +144,8 @@ Result<MusicMap> music_map_build(const SongDoc& song, const SongTimeline& timeli
     m.musicEnd = music_tick_frame(song, timeline.totalTicks);
     m.frames = clipFrames > 0 ? clipFrames : std::int64_t(m.musicEnd);
     if (timeline.spans.empty() || m.musicEnd <= 0.0)
-        return make_error("the song has no music to play (no notes or sections)", "Add a pattern to a section of the song (music.info shows its structure).");
+        return make_error("the song has no music to play (no notes or sections)",
+                          "Add a pattern to a section of the song (music.info shows its structure).");
 
     for (const SongSection& s : song.sections) {
         MusicSection ms;
@@ -165,9 +183,11 @@ Result<MusicMap> music_map_build(const SongDoc& song, const SongTimeline& timeli
         if (song.sections[i].kind == "loop") loopSections.push_back(int(i));
     for (std::size_t k = 1; k < loopSections.size(); ++k)
         if (loopSections[k] != loopSections[k - 1] + 1)
-            return make_error("the sections `" + song.sections[std::size_t(loopSections[k - 1])].name + "` and `" + song.sections[std::size_t(loopSections[k])].name +
+            return make_error("the sections `" + song.sections[std::size_t(loopSections[k - 1])].name + "` and `" +
+                                  song.sections[std::size_t(loopSections[k])].name +
                                   "` are both of kind \"loop\", with other sections between them",
-                              "The loop is one stretch of the song: make the sections between them kind \"section\", or put the loop sections next to each other.");
+                              "The loop is one stretch of the song: make the sections between them kind \"section\", "
+                              "or put the loop sections next to each other.");
     if (!loopSections.empty()) {
         bool any = false;
         for (const MusicSpan& sp : m.spans) {
@@ -198,7 +218,8 @@ double music_boundary(const MusicMap& map, double pos, MusicQuantize q, double l
     double b = pos;
     const double top = limit > 0.0 ? limit : map.playEnd;
     auto first_mark = [&](double from) {
-        return std::lower_bound(map.marks.begin(), map.marks.end(), from - kEps, [](const MusicMark& mk, double f) { return mk.frame < f; });
+        return std::lower_bound(map.marks.begin(), map.marks.end(), from - kEps,
+                                [](const MusicMark& mk, double f) { return mk.frame < f; });
     };
     switch (q) {
         case MusicQuantize::None: break;
@@ -215,7 +236,10 @@ double music_boundary(const MusicMap& map, double pos, MusicQuantize q, double l
         }
         case MusicQuantize::Section: {
             const int i = map.span_at(pos);
-            if (i < 0) { b = top; break; }
+            if (i < 0) {
+                b = top;
+                break;
+            }
             const MusicSpan& sp = map.spans[std::size_t(i)];
             b = std::fabs(pos - sp.start) <= kEps ? pos : sp.end;
             break;
@@ -298,7 +322,8 @@ std::optional<double> style_music_target() {
 }
 }  // namespace
 
-Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, const SongTimeline& timeline, std::string path) {
+Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, const SongTimeline& timeline,
+                                                         std::string path) {
     auto src = std::make_shared<MusicSource>();
     src->path = std::move(path);
     src->mode = "live";
@@ -314,15 +339,18 @@ Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, co
     }
     auto r = render_song_asset(song, timeline, options);
     if (!r) return r.error();
-    if (r->mix.clip.channels != 2) return make_error("the song render is not stereo", "This is an engine bug: report it.");
+    if (r->mix.clip.channels != 2)
+        return make_error("the song render is not stereo", "This is an engine bug: report it.");
     auto map = music_map_build(song, timeline, std::int64_t(r->mix.clip.samples.size() / 2));
     if (!map) return map.error();
     src->map = std::move(*map);
     if (options.stems && !r->stems.empty()) {
         for (std::size_t i = 0; i < r->stems.size(); ++i) {
             r->stems[i].clip.samples.shrink_to_fit();
-            src->stems.push_back(music_make_stem(r->stems[i].name, float(r->stems[i].intensity), r->stems[i].clip.samples));
-            std::vector<float>().swap(r->stems[i].clip.samples);  // free the float copy as soon as the 16-bit one exists
+            src->stems.push_back(
+                music_make_stem(r->stems[i].name, float(r->stems[i].intensity), r->stems[i].clip.samples));
+            std::vector<float>().swap(
+                r->stems[i].clip.samples);  // free the float copy as soon as the 16-bit one exists
         }
     } else {
         src->stems.push_back(music_make_stem("mix", 0.0f, r->mix.clip.samples));
@@ -348,7 +376,8 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
             (*it)["provenance"]["recipe"].is_object() && (*it)["provenance"]["recipe"].contains("inputs") &&
             (*it)["provenance"]["recipe"]["inputs"].is_array()) {
             for (const Json& in : (*it)["provenance"]["recipe"]["inputs"])
-                if (in.is_object() && in.contains("path") && in["path"].is_string() && fs::normalize(in["path"].get<std::string>()) == song)
+                if (in.is_object() && in.contains("path") && in["path"].is_string() &&
+                    fs::normalize(in["path"].get<std::string>()) == song)
                     recordedSha = in.value("sha256", std::string());
         }
         if (m.contains("stream") && m["stream"].is_string()) {
@@ -356,7 +385,10 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
             if (mode == "auto" || mode == "always" || mode == "never") {
                 plan.stream = mode;
             } else {
-                FA_WARN("audio", "assets.json '{}': import.music.stream is \"{}\"; use \"auto\", \"always\" or \"never\" (taken as \"auto\")", it.key(), mode);
+                FA_WARN("audio",
+                        "assets.json '{}': import.music.stream is \"{}\"; use \"auto\", \"always\" or \"never\" (taken "
+                        "as \"auto\")",
+                        it.key(), mode);
             }
         }
         if (!m.contains("stems") || !m["stems"].is_array()) return plan;
@@ -377,11 +409,14 @@ MusicStemPlan music_stem_plan_of(std::string_view songPath) {
     return plan;
 }
 
-Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const SongTimeline& timeline, std::string path, const MusicStemPlan& plan) {
+Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const SongTimeline& timeline,
+                                                      std::string path, const MusicStemPlan& plan) {
     if (plan.files.empty())
-        return make_error("'" + path + "' has no stem files in assets.json", "Run music.render on the song (it writes one file per layer), or play it live.");
+        return make_error("'" + path + "' has no stem files in assets.json",
+                          "Run music.render on the song (it writes one file per layer), or play it live.");
     if (plan.files.size() > kMusicMaxStems)
-        return make_error("'" + path + "' has " + std::to_string(plan.files.size()) + " stems, but a player mixes " + std::to_string(kMusicMaxStems) + " at most",
+        return make_error("'" + path + "' has " + std::to_string(plan.files.size()) + " stems, but a player mixes " +
+                              std::to_string(kMusicMaxStems) + " at most",
                           "Render fewer stems: music.render with stems \"layers\" and fewer song layers.");
     auto src = std::make_shared<MusicSource>();
     src->path = std::move(path);
@@ -390,8 +425,9 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
     std::int64_t frames = 0;
     for (const MusicStemFile& f : plan.files) {
         auto file = read_audio_file(f.path);
-        if (!file) return make_error("stem '" + f.name + "' of '" + src->path + "' could not be read: " + file.error().message,
-                                     "Run music.render again (it rewrites every stem), or play the song live.");
+        if (!file)
+            return make_error("stem '" + f.name + "' of '" + src->path + "' could not be read: " + file.error().message,
+                              "Run music.render again (it rewrites every stem), or play the song live.");
         const std::string ext = fs::extension(file->path);
         auto bytes = std::make_shared<audio_detail::Bytes>(std::move(file->bytes));
         std::string problem;
@@ -408,7 +444,8 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
             if (stream) {
                 const std::int64_t n = stream->frames();
                 if (frames != 0 && n != frames)
-                    return make_error("stem '" + f.path + "' is " + std::to_string(n) + " frames long but the others are " + std::to_string(frames),
+                    return make_error("stem '" + f.path + "' is " + std::to_string(n) +
+                                          " frames long but the others are " + std::to_string(frames),
                                       "The stems are from different renders: run music.render again.");
                 frames = n;
                 MusicStem stem;
@@ -420,7 +457,10 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
                 continue;
             }
             if (plan.stream == "always")
-                FA_WARN("audio", "stem '{}' of '{}' cannot stream ({}), so it is decoded whole (import.music.stream is \"always\")", f.path, src->path, why);
+                FA_WARN(
+                    "audio",
+                    "stem '{}' of '{}' cannot stream ({}), so it is decoded whole (import.music.stream is \"always\")",
+                    f.path, src->path, why);
         }
         audio_detail::Resampler resampler(bytes, std::move(decoder), false);
         std::vector<float> data;
@@ -432,10 +472,12 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
             data.resize(at + 2 * got);
             if (got < 16384) break;
         }
-        if (data.empty()) return make_error("stem '" + f.path + "' contains no audio samples", "Run music.render again.");
+        if (data.empty())
+            return make_error("stem '" + f.path + "' contains no audio samples", "Run music.render again.");
         const std::int64_t n = std::int64_t(data.size() / 2);
         if (frames != 0 && n != frames)
-            return make_error("stem '" + f.path + "' is " + std::to_string(n) + " frames long but the others are " + std::to_string(frames),
+            return make_error("stem '" + f.path + "' is " + std::to_string(n) + " frames long but the others are " +
+                                  std::to_string(frames),
                               "The stems are from different renders: run music.render again.");
         frames = n;
         src->stems.push_back(music_make_stem(stemName, f.threshold, data));
@@ -443,9 +485,10 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
     auto map = music_map_build(song, timeline, frames);
     if (!map) return map.error();
     if (double(frames) + 2.0 < map->musicEnd)
-        return make_error("the stems of '" + src->path + "' are " + std::to_string(frames) + " frames long but the song is now " + std::to_string(std::int64_t(map->musicEnd)) +
-                              " frames: the song changed after they were rendered",
-                          "Run music.render again (assets.regenerate {\"stale\": true} does it), or play the song live.");
+        return make_error(
+            "the stems of '" + src->path + "' are " + std::to_string(frames) + " frames long but the song is now " +
+                std::to_string(std::int64_t(map->musicEnd)) + " frames: the song changed after they were rendered",
+            "Run music.render again (assets.regenerate {\"stale\": true} does it), or play the song live.");
     src->map = std::move(*map);
     // The first chunks of a streamed song are decoded before it plays, so the first block of the music is not an underrun.
     music_prime(*src, 0.0);
@@ -453,7 +496,8 @@ Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const
     return src;
 }
 
-Result<std::shared_ptr<MusicSource>> music_load_source(std::string path, MusicMode mode, const MusicStemPlan& plan, std::string* note) {
+Result<std::shared_ptr<MusicSource>> music_load_source(std::string path, MusicMode mode, const MusicStemPlan& plan,
+                                                       std::string* note) {
     auto song = load_song(path);
     if (!song) return song.error();
     auto timeline = expand_song(*song);

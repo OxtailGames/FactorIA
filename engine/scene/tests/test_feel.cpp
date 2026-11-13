@@ -94,7 +94,8 @@ TEST_CASE("shake: stacking adds trauma up to the cap, a longer shake is kept, th
     CHECK_FALSE(bad.ok());
 }
 
-TEST_CASE("pose: drawn_matrix is world_matrix without effects, adds the pose with them, and the Transform never changes") {
+TEST_CASE(
+    "pose: drawn_matrix is world_matrix without effects, adds the pose with them, and the Transform never changes") {
     Fixture f;
     CHECK(f.w.drawn_matrix(f.box).m[12] == f.w.world_matrix(f.box).m[12]);
     REQUIRE(feel_squash(f.w, f.box, {0.4f, 0.3f}).ok());
@@ -182,7 +183,8 @@ TEST_CASE("flash: fades from its strength to nothing and is not left behind; red
     CHECK(f.w.feel().flash_of(f.box)->a < b1);  // the square wave became a fade
 }
 
-TEST_CASE("reduce motion: shake and squash shrink to a quarter; the system value is followed until the game sets its own") {
+TEST_CASE(
+    "reduce motion: shake and squash shrink to a quarter; the system value is followed until the game sets its own") {
     Fixture f;
     f.w.feel().systemReduceMotion = true;
     CHECK(f.w.feel().reduce_motion());
@@ -198,7 +200,8 @@ TEST_CASE("reduce motion: shake and squash shrink to a quarter; the system value
     CHECK(f.w.feel().reduce_motion());
 }
 
-TEST_CASE("knockback: a body-less entity slides and slows, the lock follows lockTime, clear keeps the player's choices") {
+TEST_CASE(
+    "knockback: a body-less entity slides and slows, the lock follows lockTime, clear keeps the player's choices") {
     Fixture f;
     REQUIRE(feel_knockback(f.w, f.box, {{1, 0, 0}, 10.0f, 0.2f, 5.0f}).ok());
     CHECK(f.w.feel().knocked_back(f.box));
@@ -225,7 +228,8 @@ TEST_CASE("feel_apply_action: data in, effects out, and the mistakes name the fi
     CHECK(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"flash","color":"#ff0000","duration":0.1})")).ok());
     CHECK(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"squash","amount":0.2,"axis":"x"})")).ok());
     CHECK(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0]})")).ok());
-    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"shake","amount":0.3})")).ok());  // the main camera
+    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"shake","amount":0.3})"))
+              .ok());  // the main camera
     CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"hitStop","duration":0.05})")).ok());
 
     auto r = feel_apply_action(f.w, f.box, Json::parse(R"({"action":"flsh"})"));
@@ -279,7 +283,8 @@ TEST_CASE("knockback: the default speed is 6 m/s, which is 6 times pixelsPerMete
     // As data: no "speed" key is the default, a wrong type is an error.
     REQUIRE(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0]})")).ok());
     CHECK(f.w.feel().find(f.box)->knock->velocity.x == doctest::Approx(600.0f));
-    CHECK_FALSE(feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0],"speed":"fast"})")).ok());
+    CHECK_FALSE(
+        feel_apply_action(f.w, f.box, Json::parse(R"({"action":"knockback","direction":[1,0],"speed":"fast"})")).ok());
 }
 
 TEST_CASE("gameplay never sees the pose, the pointer sees the shaken view") {

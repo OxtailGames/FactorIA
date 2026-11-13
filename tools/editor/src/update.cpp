@@ -92,7 +92,8 @@ bool version_newer(std::string_view a, std::string_view b) {
 Result<UpdateInfo> parse_releases(const Json& releases, std::string_view current) {
     UpdateInfo info;
     info.current = std::string(current);
-    if (!releases.is_array()) return make_error("GitHub releases: expected a JSON array, got " + releases.dump().substr(0, 200));
+    if (!releases.is_array())
+        return make_error("GitHub releases: expected a JSON array, got " + releases.dump().substr(0, 200));
     std::vector<const Json*> newer;
     for (const Json& r : releases) {
         if (!r.is_object() || r.value("draft", false) || r.value("prerelease", false)) continue;
@@ -108,7 +109,8 @@ Result<UpdateInfo> parse_releases(const Json& releases, std::string_view current
         for (const Json& a : *assets)
             if (a.is_object() && str(a, "name") == package) {
                 info.packageUrl = str(a, "browser_download_url");
-                if (a.contains("size") && a["size"].is_number_integer()) info.packageSize = a["size"].get<std::uint64_t>();
+                if (a.contains("size") && a["size"].is_number_integer())
+                    info.packageSize = a["size"].get<std::uint64_t>();
             }
     if (info.packageUrl.empty())
         return make_error("Release " + tag + " has no " + package + " package (yet)",
@@ -135,7 +137,8 @@ Result<UpdateInfo> check_for_update(const ai::HttpTransport& http) {
     if (resp.status == 0)
         return make_error("Cannot reach GitHub to check for updates: " + resp.error, "check the internet connection");
     if (!resp.ok())
-        return make_error("GitHub answered " + std::to_string(resp.status) + " to " + rq.url + ": " + resp.body.substr(0, 300),
+        return make_error("GitHub answered " + std::to_string(resp.status) + " to " + rq.url + ": " +
+                              resp.body.substr(0, 300),
                           resp.status == 403 ? "GitHub limits unauthenticated requests per hour: try again later" : "");
     auto json = parse_json(resp.body, rq.url);
     if (!json) return json.error();
@@ -176,8 +179,8 @@ Result<void> install_update(const UpdateInfo& info, const stdfs::path& installDi
         ai::HttpResponse resp = http(rq);
         out.close();
         if (!resp.ok() || !out)
-            return fail("Downloading " + info.packageUrl + " failed: " +
-                            (resp.error.empty() ? "HTTP " + std::to_string(resp.status) : resp.error),
+            return fail("Downloading " + info.packageUrl +
+                            " failed: " + (resp.error.empty() ? "HTTP " + std::to_string(resp.status) : resp.error),
                         "check the internet connection and the free disk space, then try again");
     }
 
@@ -187,14 +190,18 @@ Result<void> install_update(const UpdateInfo& info, const stdfs::path& installDi
     auto tar = ai::run_process(po);
     const stdfs::path src = staging / "x" / "FactorIA";
     if (!tar || tar->exitCode != 0)
-        return fail("Cannot unpack " + editor::utf8_string(archive) + ": " + (tar ? tar->stderrText : tar.error().message),
+        return fail("Cannot unpack " + editor::utf8_string(archive) + ": " +
+                        (tar ? tar->stderrText : tar.error().message),
                     "the download may be damaged: try again");
     if (!stdfs::is_regular_file(src / (std::string("factoria") + kExe), ec))
         return fail("The package " + update_package_name() + " has no FactorIA/factoria" + kExe,
                     "download the package from the Releases page and unzip it over this folder");
 
     // 3. Swap the files: the old ones become <name>.old; on failure put them back.
-    struct Swapped { stdfs::path dst; bool hadOld; };
+    struct Swapped {
+        stdfs::path dst;
+        bool hadOld;
+    };
     std::vector<Swapped> done;
     std::string error;
     for (const auto& entry : stdfs::directory_iterator(src, ec)) {
@@ -207,7 +214,10 @@ Result<void> install_update(const UpdateInfo& info, const stdfs::path& installDi
         if (had) {
             stdfs::remove_all(old, ec);
             stdfs::rename(dst, old, ec);
-            if (ec) { error = "cannot rename " + editor::utf8_string(dst) + ": " + ec.message(); break; }
+            if (ec) {
+                error = "cannot rename " + editor::utf8_string(dst) + ": " + ec.message();
+                break;
+            }
         }
         stdfs::rename(entry.path(), dst, ec);
         if (ec) {
@@ -246,9 +256,11 @@ Result<void> start_editor_process(const std::string& projectDir) {
     // Through the launcher the user pinned (the Dock or taskbar icon), when it is ours: a bare `factoria` would show a
     // second FactorIA icon next to it. Any failure falls back to starting the program itself.
     std::error_code absEc;
-    const stdfs::path absProject = projectDir.empty() ? stdfs::path() : stdfs::absolute(editor::utf8_path(projectDir), absEc);
+    const stdfs::path absProject =
+        projectDir.empty() ? stdfs::path() : stdfs::absolute(editor::utf8_path(projectDir), absEc);
 #if defined(_WIN32)
-    const std::vector<std::string> viaLauncher = editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
+    const std::vector<std::string> viaLauncher =
+        editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
 #else
     // macOS: a helper that waits until this editor is gone, so the new one takes the pinned Dock icon.
     const std::vector<std::string> viaLauncher =
@@ -257,12 +269,13 @@ Result<void> start_editor_process(const std::string& projectDir) {
     if (!viaLauncher.empty()) {
 #if defined(_WIN32)
         std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\"";
-        if (viaLauncher.size() > 1) cmd += L" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";  // none: start screen
+        if (viaLauncher.size() > 1)
+            cmd += L" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";  // none: start screen
         STARTUPINFOW si{};
         si.cb = sizeof si;
         PROCESS_INFORMATION pi{};
-        if (CreateProcessW(editor::utf8_path(viaLauncher[0]).c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                           nullptr, &si, &pi)) {
+        if (CreateProcessW(editor::utf8_path(viaLauncher[0]).c_str(), cmd.data(), nullptr, nullptr, FALSE,
+                           CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             return {};
@@ -290,7 +303,8 @@ Result<void> start_editor_process(const std::string& projectDir) {
     si.cb = sizeof si;
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
-        return make_error("Cannot start " + editor::utf8_string(exe) + " (error " + std::to_string(GetLastError()) + ")",
+        return make_error("Cannot start " + editor::utf8_string(exe) + " (error " + std::to_string(GetLastError()) +
+                              ")",
                           "open the editor again yourself");
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);

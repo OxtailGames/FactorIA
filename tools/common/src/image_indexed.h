@@ -16,16 +16,17 @@ struct Target {
     LayerRef ref;
     PixelPalette pal;
     IndexGrid grid;
-    int ox = 0, oy = 0;       // canvas position of the grid's top-left pixel
+    int ox = 0, oy = 0;  // canvas position of the grid's top-left pixel
     Json extra = Json::object();
     std::vector<std::string> warnings;
-    TileGrid tile;            // the document's tile mode (tile.on); the grid then covers every tile cell it touches
+    TileGrid tile;  // the document's tile mode (tile.on); the grid then covers every tile cell it touches
 };
 
 Json layer_summary(const LayerRef& r);
 std::string layer_label(const LayerRef& r);
 // The palette of the document (its own, else the style's); `force` resolves it even when no layer is indexed yet.
-PixelPalette load_doc_palette(const std::string& projectDir, const std::string& rel, const Json& docJson, bool force, const char* cmd);
+PixelPalette load_doc_palette(const std::string& projectDir, const std::string& rel, const Json& docJson, bool force,
+                              const char* cmd);
 // Writes the palette into the document when it has none; true when it did.
 bool pin_palette(Json& docJson, const PixelPalette& pal);
 // Replaces the result's `$image` with the picture magnified by whole pixels (see image.pixel).

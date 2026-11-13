@@ -65,8 +65,8 @@ struct DeferredRef {
 struct LoadReport {
     std::vector<LoadMessage> messages;
     std::vector<DeferredRef> deferred;  // only filled by entity_from_json(..., deferMissingRefs = true)
-    std::vector<Entity> created;  // all entities created, in order
-    bool ok() const;              // no Error-severity messages
+    std::vector<Entity> created;        // all entities created, in order
+    bool ok() const;                    // no Error-severity messages
     std::size_t error_count() const;
     std::string summary() const;  // multi-line, for logs and tool output
 };
@@ -90,11 +90,11 @@ struct SpawnedSkip {
 // instantiate_prefab) is written by entity_to_json and save_scene.
 enum class PrefabSave {
     Expand,  // as ordinary inline entities (the default)
-    Marks,   // inline too, plus the keys "$prefab" (on the root of an instance) and "$fromPrefab" (on what the prefab made)
-             // that load_scene and entity_from_json read back, so an in-memory snapshot (editor undo, Play/Stop) keeps
-             // where the entities came from. Never written to a file.
-    Keep,    // the file form: {id, prefab, only what differs from the prefab, overrides, children added to the instance}
-             // (diff_entity_with_prefab). An instance whose differences that form cannot express is expanded instead.
+    Marks,  // inline too, plus the keys "$prefab" (on the root of an instance) and "$fromPrefab" (on what the prefab made)
+            // that load_scene and entity_from_json read back, so an in-memory snapshot (editor undo, Play/Stop) keeps
+            // where the entities came from. Never written to a file.
+    Keep,  // the file form: {id, prefab, only what differs from the prefab, overrides, children added to the instance}
+           // (diff_entity_with_prefab). An instance whose differences that form cannot express is expanded instead.
 };
 // An instance that PrefabSave::Keep wrote expanded, and why.
 struct PrefabExpanded {
@@ -104,10 +104,10 @@ struct PrefabExpanded {
 };
 
 struct SaveSceneOptions {
-    bool skipSpawned = false;           // leave out what scripts spawned at runtime (see save_scene)
-    SpawnedSkip* skipped = nullptr;     // what that left out (may be null)
+    bool skipSpawned = false;        // leave out what scripts spawned at runtime (see save_scene)
+    SpawnedSkip* skipped = nullptr;  // what that left out (may be null)
     PrefabSave prefabs = PrefabSave::Expand;
-    std::vector<PrefabExpanded>* prefabsExpanded = nullptr;   // with Keep: the instances written expanded (may be null)
+    std::vector<PrefabExpanded>* prefabsExpanded = nullptr;  // with Keep: the instances written expanded (may be null)
 };
 
 // Canonical JSON: nested children, only non-default fields, stable key order. The one exception is the gravity: `settings`
@@ -163,10 +163,10 @@ struct PoseRestEntry {
     Entity entity;
     const TypeInfo* type = nullptr;
     const FieldInfo* field = nullptr;
-    Json value;   // the field as JSON (all channels of a vector: the driven ones at rest, the others as they are now)
+    Json value;  // the field as JSON (all channels of a vector: the driven ones at rest, the others as they are now)
 };
 struct PoseRest {
-    std::vector<PoseRestEntry> entries;   // sorted by entity (Entity::bits)
+    std::vector<PoseRestEntry> entries;  // sorted by entity (Entity::bits)
     bool empty() const { return entries.empty(); }
 };
 // Collects it from every Animator of `world`. Empty when no Animator plays 2D clips.
@@ -186,14 +186,15 @@ public:
     void forget_world();
     struct Impl;
     Impl& impl() { return *impl_; }
+
 private:
     std::unique_ptr<Impl> impl_;
 };
 
 struct EntityJsonOptions {
     bool includeChildren = true;
-    bool includeDefaults = false;   // true = every field (useful for AI inspection)
-    bool includeRuntime = false;    // include runtime-only fields (velocity mirrors, animator time...)
+    bool includeDefaults = false;  // true = every field (useful for AI inspection)
+    bool includeRuntime = false;   // include runtime-only fields (velocity mirrors, animator time...)
     // Leave out entities a script spawned at runtime (EntityInfo::scriptSpawned) together with their children.
     bool skipSpawned = false;
     // When skipSpawned: filled with what was left out (may be null).
@@ -216,8 +217,8 @@ struct PrefabDiffOptions {
     // The entity's descendants carry EntityInfo::fromPrefab marks (it was loaded by this engine, not built by hand): the
     // prefab's own children must be exactly the marked ones. Without it the first children are taken to be the prefab's.
     bool useMarks = false;
-    const PoseRest* poseRest = nullptr;              // rest values of posed fields, as in EntityJsonOptions
-    PrefabBaseCache* cache = nullptr;                // the loaded prefabs (null = this call loads its own)
+    const PoseRest* poseRest = nullptr;  // rest values of posed fields, as in EntityJsonOptions
+    PrefabBaseCache* cache = nullptr;    // the loaded prefabs (null = this call loads its own)
     // How the children added under the root are written (skipSpawned, prefabs, ...); null = the defaults.
     const EntityJsonOptions* childOptions = nullptr;
 };
@@ -235,14 +236,15 @@ struct PrefabDiff {
     // prefab's content (apart from its id).
     std::size_t changes = 0;
 };
-PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::string_view prefabPath, const PrefabDiffOptions& opts = {});
+PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::string_view prefabPath,
+                                   const PrefabDiffOptions& opts = {});
 // Creates an entity (and children) from entity JSON. Errors go to `report`. References to entities inside the JSON (its
 // own children included) always resolve once the whole tree exists. With `deferMissingRefs`, a reference to an id that
 // still does not exist then is a warning (not an error) and is listed in `report.deferred` so the caller can resolve it
 // later, e.g. when a script spawns the knob of a slider after the slider.
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report,
-                        std::string_view sourceName = "<memory>", std::string_view pointer = "",
-                        int index = -1, bool deferMissingRefs = false);
+                        std::string_view sourceName = "<memory>", std::string_view pointer = "", int index = -1,
+                        bool deferMissingRefs = false);
 
 // Components
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults = false,

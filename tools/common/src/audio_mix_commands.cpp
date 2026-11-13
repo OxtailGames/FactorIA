@@ -92,7 +92,8 @@ void scan_script(const std::string& text, PlayMap& out) {
             if (!tooling_detail::is_audio_file(path)) continue;
             int depth = 1;
             std::size_t q = end + 1;
-            for (; q < text.size() && q < end + 600 && depth > 0; ++q) depth += text[q] == '(' ? 1 : text[q] == ')' ? -1 : 0;
+            for (; q < text.size() && q < end + 600 && depth > 0; ++q)
+                depth += text[q] == '(' ? 1 : text[q] == ')' ? -1 : 0;
             const std::string args = text.substr(end + 1, q - end - 1);
             Play& play = out[fs::normalize(path)];
             std::string bus = music ? "music" : "sfx";
@@ -109,10 +110,12 @@ void scan_script(const std::string& text, PlayMap& out) {
                     }
                 }
             play.buses.insert(bus);
-            if (music) play.loops = true;
+            if (music)
+                play.loops = true;
             else if (std::size_t l = args.find("loop"); l != std::string::npos) {
                 const std::size_t c = args.find(':', l);
-                if (c != std::string::npos && args.compare(args.find_first_not_of(' ', c + 1), 4, "true") == 0) play.loops = true;
+                if (c != std::string::npos && args.compare(args.find_first_not_of(' ', c + 1), 4, "true") == 0)
+                    play.loops = true;
             }
         }
     }
@@ -143,7 +146,8 @@ std::map<std::string, std::string> bus_roots(const std::string& projectDir) {
             if (audio != j->end() && audio->is_object() && buses != audio->end() && buses->is_object())
                 for (auto it = buses->begin(); it != buses->end(); ++it) {
                     auto par = it->is_object() ? it->find("parent") : it->end();
-                    parent[it.key()] = it->is_object() && par != it->end() && par->is_string() ? par->get<std::string>() : "master";
+                    parent[it.key()] =
+                        it->is_object() && par != it->end() && par->is_string() ? par->get<std::string>() : "master";
                 }
         }
     std::map<std::string, std::string> roots;
@@ -164,7 +168,8 @@ struct Target {
 };
 
 // Reads {"<bus>": lufs | {"lufs", "toleranceLu"}, "default": ...}. `toleranceDefault` applies when the entry has none.
-void read_targets(const Json& j, double toleranceDefault, const std::string& source, std::map<std::string, Target>& out) {
+void read_targets(const Json& j, double toleranceDefault, const std::string& source,
+                  std::map<std::string, Target>& out) {
     if (!j.is_object()) return;
     for (auto it = j.begin(); it != j.end(); ++it) {
         Target t;
@@ -174,7 +179,8 @@ void read_targets(const Json& j, double toleranceDefault, const std::string& sou
             t.lufs = it->get<double>();
         } else if (it->is_object() && it->contains("lufs") && (*it)["lufs"].is_number()) {
             t.lufs = (*it)["lufs"].get<double>();
-            if (it->contains("toleranceLu") && (*it)["toleranceLu"].is_number()) t.toleranceLu = (*it)["toleranceLu"].get<double>();
+            if (it->contains("toleranceLu") && (*it)["toleranceLu"].is_number())
+                t.toleranceLu = (*it)["toleranceLu"].get<double>();
         } else {
             continue;
         }
@@ -219,8 +225,14 @@ struct Finding {
 };
 
 Json finding_json(const Finding& f) {
-    Json j = Json::object({{"sound", f.sound}, {"rule", f.rule}, {"value", num(f.value)}, {"threshold", num(f.threshold)}, {"unit", f.unit},
-                           {"verdict", f.verdict}, {"message", f.message}, {"hint", f.hint}});
+    Json j = Json::object({{"sound", f.sound},
+                           {"rule", f.rule},
+                           {"value", num(f.value)},
+                           {"threshold", num(f.threshold)},
+                           {"unit", f.unit},
+                           {"verdict", f.verdict},
+                           {"message", f.message},
+                           {"hint", f.hint}});
     if (!f.bus.empty()) j["bus"] = f.bus;
     if (!f.detail.is_null()) j["detail"] = f.detail;
     return j;
@@ -229,15 +241,20 @@ Json finding_json(const Finding& f) {
 const char* kImportHint = "in assets.json, under the sound's \"import\" (or defaults.audio)";
 
 std::string normalize_fix(const Sound& s, double target) {
-    return std::format("Set {} {{\"normalize\": true, \"targetLufs\": {:.0f}}} so it plays at {:.0f} LUFS (assets.json {}), or level the source file.",
+    return std::format("Set {} {{\"normalize\": true, \"targetLufs\": {:.0f}}} so it plays at {:.0f} LUFS (assets.json "
+                       "{}), or level the source file.",
                        "\"import\":", target, target, kImportHint);
 }
 
 // The loop points a WAV carries in its `smpl` chunk (what a `loop` step of an audio document writes), end exclusive; none for another
 // file or a chunk that does not hold a usable loop.
 std::optional<am::LoopPoints> wav_loop_points(const std::vector<std::uint8_t>& b) {
-    auto u32 = [&](std::size_t at) { return std::uint32_t(b[at]) | std::uint32_t(b[at + 1]) << 8 | std::uint32_t(b[at + 2]) << 16 | std::uint32_t(b[at + 3]) << 24; };
-    if (b.size() < 12 || std::memcmp(b.data(), "RIFF", 4) != 0 || std::memcmp(b.data() + 8, "WAVE", 4) != 0) return std::nullopt;
+    auto u32 = [&](std::size_t at) {
+        return std::uint32_t(b[at]) | std::uint32_t(b[at + 1]) << 8 | std::uint32_t(b[at + 2]) << 16 |
+               std::uint32_t(b[at + 3]) << 24;
+    };
+    if (b.size() < 12 || std::memcmp(b.data(), "RIFF", 4) != 0 || std::memcmp(b.data() + 8, "WAVE", 4) != 0)
+        return std::nullopt;
     std::size_t at = 12;
     while (at + 8 <= b.size()) {
         const std::size_t size = u32(at + 4), body = at + 8;
@@ -256,21 +273,27 @@ std::optional<am::LoopPoints> wav_loop_points(const std::vector<std::uint8_t>& b
 // command audio.bake.
 std::set<std::string> audio_document_sources(const std::string& projectDir) {
     std::set<std::string> out;
-    const std::string text = tooling_detail::read_file(std::filesystem::path(projectDir) / assets::kManifestFile).value_or(std::string());
+    const std::string text =
+        tooling_detail::read_file(std::filesystem::path(projectDir) / assets::kManifestFile).value_or(std::string());
     if (text.empty()) return out;
     auto parsed = parse_json(text, assets::kManifestFile);
-    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object()) return out;
+    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object())
+        return out;
     for (const auto& [path, entry] : (*parsed)["assets"].items()) {
         const Json recipe = assets_detail::recipe_of(entry);
-        if (!recipe.is_object() || recipe.value("command", std::string()) != "audio.bake" || !recipe.contains("inputs") || !recipe["inputs"].is_array()) continue;
+        if (!recipe.is_object() || recipe.value("command", std::string()) != "audio.bake" ||
+            !recipe.contains("inputs") || !recipe["inputs"].is_array())
+            continue;
         for (const Json& in : recipe["inputs"])
-            if (in.is_object() && in.contains("path") && in["path"].is_string() && tooling_detail::is_audio_file(in["path"].get<std::string>()))
+            if (in.is_object() && in.contains("path") && in["path"].is_string() &&
+                tooling_detail::is_audio_file(in["path"].get<std::string>()))
                 out.insert(fs::normalize(in["path"].get<std::string>()));
     }
     return out;
 }
 
-Result<Sound> measure_sound(const std::string& projectDir, const std::string& path, const PlayMap& plays, const std::map<std::string, std::string>& roots) {
+Result<Sound> measure_sound(const std::string& projectDir, const std::string& path, const PlayMap& plays,
+                            const std::map<std::string, std::string>& roots) {
     auto analysis = analyze_audio_file(projectDir, path);
     if (!analysis) return analysis.error();
     Sound s;
@@ -286,11 +309,13 @@ Result<Sound> measure_sound(const std::string& projectDir, const std::string& pa
         // without them falls back to the `smpl` chunk a `loop` step of an audio document writes.
         std::optional<am::LoopPoints> loop;
         {
-            const double a = tooling_detail::number_setting(s.analysis.settings, "loopStart", 0.0), b = tooling_detail::number_setting(s.analysis.settings, "loopEnd", 0.0);
+            const double a = tooling_detail::number_setting(s.analysis.settings, "loopStart", 0.0),
+                         b = tooling_detail::number_setting(s.analysis.settings, "loopEnd", 0.0);
             if (b > a && a >= 0.0 && decoded->rate > 0) {
                 // The engine clamps a loopEnd past the end of the file to the last frame and plays loopStart..end.
                 const std::size_t frames = decoded->frames();
-                const std::size_t start = std::size_t(std::llround(a * decoded->rate)), end = std::min(frames, std::size_t(std::llround(b * decoded->rate)));
+                const std::size_t start = std::size_t(std::llround(a * decoded->rate)),
+                                  end = std::min(frames, std::size_t(std::llround(b * decoded->rate)));
                 if (end > start) loop = am::LoopPoints{start, end};
             }
         }
@@ -313,8 +338,10 @@ Result<Sound> measure_sound(const std::string& projectDir, const std::string& pa
         const std::string root = r != roots.end() ? r->second : b;
         (root == "music" ? music : effect) = true;
     }
-    if (music) s.role = "music";
-    else if (effect) s.role = "effect";
+    if (music)
+        s.role = "music";
+    else if (effect)
+        s.role = "effect";
     return s;
 }
 
@@ -334,12 +361,17 @@ void add(std::vector<Finding>& out, Finding f) { out.push_back(std::move(f)); }
 void check_clipping(const Sound& s, std::vector<Finding>& out) {
     const std::size_t frames = std::size_t(s.metrics.seconds * s.metrics.rate);
     const double n = double(s.metrics.clippedSamples);
-    Finding f{s.path, "clipping", verdict_of(n, 0, std::max(32.0, double(frames) / 2000.0)), "samples", {}, {}, bus_label(s), n, 0};
+    Finding f{s.path,       "clipping", verdict_of(n, 0, std::max(32.0, double(frames) / 2000.0)),
+              "samples",    {},         {},
+              bus_label(s), n,          0};
     f.message = n == 0 ? "No clipped samples."
-                       : std::format("{} samples sit at full scale in runs of two or more (the wave is flattened{}).", s.metrics.clippedSamples,
-                                     s.metrics.clippedSamples > 1000 ? ", audibly" : "");
-    f.hint = n == 0 ? "" : "Export the source again with its peak under -1 dBFS (the engine has no limiter, and import normalize only lowers the "
-                           "gain: it cannot restore a flattened wave). If it was generated, generate it again at a lower level.";
+                       : std::format("{} samples sit at full scale in runs of two or more (the wave is flattened{}).",
+                                     s.metrics.clippedSamples, s.metrics.clippedSamples > 1000 ? ", audibly" : "");
+    f.hint =
+        n == 0 ? ""
+               : "Export the source again with its peak under -1 dBFS (the engine has no limiter, and import normalize "
+                 "only lowers the "
+                 "gain: it cannot restore a flattened wave). If it was generated, generate it again at a lower level.";
     f.detail = Json::object({{"fullScaleSamples", s.metrics.fullScaleSamples}});
     add(out, std::move(f));
 }
@@ -350,11 +382,18 @@ void check_true_peak(const Sound& s, std::vector<Finding>& out) {
     const std::string played = s.normalize ? std::format(" (with the normalize gain of {:+.1f} dB)", s.gainDb) : "";
     if (tp > -1.0) {
         const double cut = tp + 1.0;
-        f.message = std::format("True peak {} dBTP{} is above -1 dBTP: between samples the wave reaches higher than the samples say, and lossy codecs and DACs can clip it.", db_text(tp), played);
-        f.hint = s.normalize ? std::format("Lower \"targetLufs\" of its import by {:.1f} dB (now {:.0f}), or level the source file down.", std::ceil(cut * 10) / 10, s.targetLufs)
-                             : std::format("Level the source file down by {:.1f} dB, or set import \"normalize\": true with a \"targetLufs\" about {:.1f} dB under its loudness "
-                                           "(the engine has no limiter; normalize keeps the sample peak under -1 dBFS).",
-                                           std::ceil(cut * 10) / 10, std::ceil(cut * 10) / 10);
+        f.message = std::format("True peak {} dBTP{} is above -1 dBTP: between samples the wave reaches higher than "
+                                "the samples say, and lossy codecs and DACs can clip it.",
+                                db_text(tp), played);
+        f.hint =
+            s.normalize
+                ? std::format(
+                      "Lower \"targetLufs\" of its import by {:.1f} dB (now {:.0f}), or level the source file down.",
+                      std::ceil(cut * 10) / 10, s.targetLufs)
+                : std::format("Level the source file down by {:.1f} dB, or set import \"normalize\": true with a "
+                              "\"targetLufs\" about {:.1f} dB under its loudness "
+                              "(the engine has no limiter; normalize keeps the sample peak under -1 dBFS).",
+                              std::ceil(cut * 10) / 10, std::ceil(cut * 10) / 10);
     } else {
         f.message = std::format("True peak {} dBTP{}.", db_text(tp), played);
     }
@@ -372,10 +411,15 @@ void check_edges(const Sound& s, std::vector<Finding>& out) {
         if (f.verdict == "ok") {
             f.message = std::format("The {} of the sound starts from {} dBFS: no click.", where, db_text(db));
         } else {
-            f.message = stepValue > sample
-                            ? std::format("The {} of the sound jumps {} dBFS in one sample ({:.0f}x its usual step): it clicks.", where, db_text(db), step / std::max(m.typicalStep, 1e-4))
-                            : std::format("The {} sample is {} dBFS, not zero: the sound starts or stops abruptly and clicks.", where, db_text(db));
-            f.hint = std::format("Fade the {} of the source over 5 to 10 ms (about {} samples at {} Hz), or cut it at a zero crossing; sounds made with assets.synth_sound "
+            f.message =
+                stepValue > sample
+                    ? std::format(
+                          "The {} of the sound jumps {} dBFS in one sample ({:.0f}x its usual step): it clicks.", where,
+                          db_text(db), step / std::max(m.typicalStep, 1e-4))
+                    : std::format("The {} sample is {} dBFS, not zero: the sound starts or stops abruptly and clicks.",
+                                  where, db_text(db));
+            f.hint = std::format("Fade the {} of the source over 5 to 10 ms (about {} samples at {} Hz), or cut it at "
+                                 "a zero crossing; sounds made with assets.synth_sound "
                                  "start and end at zero.",
                                  where, std::lround(0.0075 * m.rate), m.rate);
         }
@@ -393,23 +437,46 @@ void check_seam(const Sound& s, std::vector<Finding>& out) {
     const char* jumpVerdict = negligible ? "ok" : verdict_of(m.seamJumpRatio, 5.0, 10.0);
     Finding j{s.path, "loop_seam_jump", jumpVerdict, "x typical step", {}, {}, bus_label(s), m.seamJumpRatio, 5.0};
     j.detail = Json::object({{"jumpDbfs", num(jumpDb)}, {"jump", num(m.seamJump, 4)}});
-    j.message = j.verdict == "ok" ? std::format("The loop's last sample joins its first with a step of {:.1f}x the usual one: no seam.", m.seamJumpRatio)
-                                  : std::format("The loop jumps {} dBFS from its last sample to its first ({:.1f}x the sound's usual sample step): it ticks once per repetition.",
-                                                db_text(jumpDb), m.seamJumpRatio);
+    j.message =
+        j.verdict == "ok"
+            ? std::format("The loop's last sample joins its first with a step of {:.1f}x the usual one: no seam.",
+                          m.seamJumpRatio)
+            : std::format("The loop jumps {} dBFS from its last sample to its first ({:.1f}x the sound's usual sample "
+                          "step): it ticks once per repetition.",
+                          db_text(jumpDb), m.seamJumpRatio);
     if (j.verdict != "ok")
-        j.hint = "Make the loop seamless: assets.generate_loop writes noise and drone loops with an inaudible seam; for another sound, cut it at points where "
-                 "the wave and its slope match (a zero crossing going the same way), or crossfade the end into the start in the source.";
+        j.hint = "Make the loop seamless: assets.generate_loop writes noise and drone loops with an inaudible seam; "
+                 "for another sound, cut it at points where "
+                 "the wave and its slope match (a zero crossing going the same way), or crossfade the end into the "
+                 "start in the source.";
+    const std::string jumpHint = j.hint;  // j is moved into the findings below; k reuses its hint
     add(out, std::move(j));
     const bool flat = m.seamSlope < 0.002;
-    Finding k{s.path, "loop_seam_slope", flat ? "ok" : verdict_of(m.seamSlopeRatio, 8.0, 16.0), "x typical curvature", {}, {}, bus_label(s), m.seamSlopeRatio, 8.0};
+    Finding k{s.path,
+              "loop_seam_slope",
+              flat ? "ok" : verdict_of(m.seamSlopeRatio, 8.0, 16.0),
+              "x typical curvature",
+              {},
+              {},
+              bus_label(s),
+              m.seamSlopeRatio,
+              8.0};
     k.detail = Json::object({{"slopeChange", num(m.seamSlope, 4)}});
-    k.message = k.verdict == "ok" ? std::format("The loop's slope continues across the seam ({:.1f}x the usual curvature).", m.seamSlopeRatio)
-                                  : std::format("The wave bends {:.1f}x more at the loop point than anywhere else: the slope does not continue, which is heard as a tick.", m.seamSlopeRatio);
-    if (k.verdict != "ok") k.hint = j.hint.empty() ? "Cut the loop where the wave goes the same way at both ends, or use assets.generate_loop." : j.hint;
+    k.message =
+        k.verdict == "ok"
+            ? std::format("The loop's slope continues across the seam ({:.1f}x the usual curvature).", m.seamSlopeRatio)
+            : std::format("The wave bends {:.1f}x more at the loop point than anywhere else: the slope does not "
+                          "continue, which is heard as a tick.",
+                          m.seamSlopeRatio);
+    if (k.verdict != "ok")
+        k.hint = jumpHint.empty()
+                     ? "Cut the loop where the wave goes the same way at both ends, or use assets.generate_loop."
+                     : jumpHint;
     add(out, std::move(k));
 }
 
-void check_loudness(std::vector<Sound*>& sounds, const std::map<std::string, Target>& targets, std::vector<Finding>& out) {
+void check_loudness(std::vector<Sound*>& sounds, const std::map<std::string, Target>& targets,
+                    std::vector<Finding>& out) {
     std::map<std::string, std::vector<Sound*>> byBus;
     for (Sound* s : sounds) {
         if (s->analysis.loudness.integratedLufs <= kSilentLufs) continue;
@@ -418,21 +485,38 @@ void check_loudness(std::vector<Sound*>& sounds, const std::map<std::string, Tar
     }
     for (auto& [bus, group] : byBus) {
         const Target* target = nullptr;
-        if (auto t = targets.find(bus); t != targets.end()) target = &t->second;
-        else if (auto d = targets.find("default"); d != targets.end()) target = &d->second;
-        const std::string where = bus == "unknown bus" ? "unknown bus (no scene, prefab or script plays it with a literal path)" : "bus \"" + bus + "\"";
+        if (auto t = targets.find(bus); t != targets.end())
+            target = &t->second;
+        else if (auto d = targets.find("default"); d != targets.end())
+            target = &d->second;
+        const std::string where = bus == "unknown bus"
+                                      ? "unknown bus (no scene, prefab or script plays it with a literal path)"
+                                      : "bus \"" + bus + "\"";
         if (target) {
             for (Sound* s : group) {
                 const double dev = s->playedLufs - target->lufs;
-                Finding f{s->path, "loudness_target", verdict_of(std::fabs(dev), target->toleranceLu, 2 * target->toleranceLu), "LU", {}, {}, bus, dev, target->toleranceLu};
-                f.detail = Json::object({{"lufs", num(s->playedLufs)}, {"targetLufs", num(target->lufs)}, {"source", target->source}});
+                Finding f{s->path,
+                          "loudness_target",
+                          verdict_of(std::fabs(dev), target->toleranceLu, 2 * target->toleranceLu),
+                          "LU",
+                          {},
+                          {},
+                          bus,
+                          dev,
+                          target->toleranceLu};
+                f.detail = Json::object(
+                    {{"lufs", num(s->playedLufs)}, {"targetLufs", num(target->lufs)}, {"source", target->source}});
                 if (f.verdict == "ok") {
-                    f.message = std::format("{:.1f} LUFS as played on {}: {:+.1f} LU from the target of {:.0f} ({}).", s->playedLufs, where, dev, target->lufs, target->source);
+                    f.message = std::format("{:.1f} LUFS as played on {}: {:+.1f} LU from the target of {:.0f} ({}).",
+                                            s->playedLufs, where, dev, target->lufs, target->source);
                 } else {
-                    f.message = std::format("{:.1f} LUFS as played on {}: {:+.1f} LU {} the target of {:.0f} LUFS ({}), more than the {:.1f} LU allowed.", s->playedLufs, where,
-                                            dev, dev > 0 ? "above" : "below", target->lufs, target->source, target->toleranceLu);
+                    f.message = std::format("{:.1f} LUFS as played on {}: {:+.1f} LU {} the target of {:.0f} LUFS "
+                                            "({}), more than the {:.1f} LU allowed.",
+                                            s->playedLufs, where, dev, dev > 0 ? "above" : "below", target->lufs,
+                                            target->source, target->toleranceLu);
                     f.hint = normalize_fix(*s, target->lufs);
-                    if (dev < 0 && s->normalize && s->gainDb >= 23.9) f.hint += " (Its gain is already at the 24 dB cap: level the source file up.)";
+                    if (dev < 0 && s->normalize && s->gainDb >= 23.9)
+                        f.hint += " (Its gain is already at the 24 dB cap: level the source file up.)";
                 }
                 add(out, std::move(f));
             }
@@ -440,13 +524,21 @@ void check_loudness(std::vector<Sound*>& sounds, const std::map<std::string, Tar
             std::vector<double> levels;
             for (Sound* s : group) levels.push_back(s->playedLufs);
             std::sort(levels.begin(), levels.end());
-            const double median = levels.size() % 2 ? levels[levels.size() / 2] : (levels[levels.size() / 2 - 1] + levels[levels.size() / 2]) / 2;
+            const double median = levels.size() % 2 ? levels[levels.size() / 2]
+                                                    : (levels[levels.size() / 2 - 1] + levels[levels.size() / 2]) / 2;
             for (Sound* s : group) {
                 const double dev = s->playedLufs - median;
-                Finding f{s->path, "loudness_spread", verdict_of(std::fabs(dev), 6.0, 12.0), "LU", {}, {}, bus, dev, 6.0};
-                f.detail = Json::object({{"lufs", num(s->playedLufs)}, {"medianLufs", num(median)}, {"sounds", int(group.size())}});
-                f.message = std::format("{:.1f} LUFS as played on {}: {:+.1f} LU from the median of its {} sounds ({:.1f} LUFS).", s->playedLufs, where, dev, group.size(), median);
-                if (f.verdict != "ok") f.hint = normalize_fix(*s, std::round(median)) + " Or set a loudness target per bus (style.audio.loudnessLufs in assets.json, or the `targets` argument).";
+                Finding f{s->path, "loudness_spread", verdict_of(std::fabs(dev), 6.0, 12.0), "LU", {}, {}, bus, dev,
+                          6.0};
+                f.detail = Json::object(
+                    {{"lufs", num(s->playedLufs)}, {"medianLufs", num(median)}, {"sounds", int(group.size())}});
+                f.message = std::format(
+                    "{:.1f} LUFS as played on {}: {:+.1f} LU from the median of its {} sounds ({:.1f} LUFS).",
+                    s->playedLufs, where, dev, group.size(), median);
+                if (f.verdict != "ok")
+                    f.hint = normalize_fix(*s, std::round(median)) +
+                             " Or set a loudness target per bus (style.audio.loudnessLufs in assets.json, or the "
+                             "`targets` argument).";
                 add(out, std::move(f));
             }
         }
@@ -464,32 +556,48 @@ void check_masking(const std::vector<Sound*>& sounds, std::vector<Finding>& out)
         const double topLevel = e->metrics.bandDb[std::size_t(top)] + e->gainDb;
         std::vector<int> main;  // the bands within 6 dB of the loudest
         for (int b = 0; b < am::kBands; ++b)
-            if (e->metrics.bandDb[std::size_t(b)] > am::kBandAbsent + 1 && e->metrics.bandDb[std::size_t(b)] + e->gainDb >= topLevel - 6.0) main.push_back(b);
+            if (e->metrics.bandDb[std::size_t(b)] > am::kBandAbsent + 1 &&
+                e->metrics.bandDb[std::size_t(b)] + e->gainDb >= topLevel - 6.0)
+                main.push_back(b);
         // The music that covers the effect's loudest band the most is the one that masks it.
         const Sound* culprit = music.front();
         for (const Sound* m : music)
-            if (m->metrics.bandDb[std::size_t(top)] + m->gainDb > culprit->metrics.bandDb[std::size_t(top)] + culprit->gainDb) culprit = m;
+            if (m->metrics.bandDb[std::size_t(top)] + m->gainDb >
+                culprit->metrics.bandDb[std::size_t(top)] + culprit->gainDb)
+                culprit = m;
         std::vector<std::string> masked;
         Json bands = Json::array();
         for (int b : main) {
-            const double eff = e->metrics.bandDb[std::size_t(b)] + e->gainDb, mus = culprit->metrics.bandDb[std::size_t(b)] + culprit->gainDb;
+            const double eff = e->metrics.bandDb[std::size_t(b)] + e->gainDb,
+                         mus = culprit->metrics.bandDb[std::size_t(b)] + culprit->gainDb;
             if (mus >= eff) masked.push_back(am::kBandNames[b]);
-            bands.push_back(Json::object({{"band", am::kBandNames[b]}, {"effectDb", num(eff, 1)}, {"musicDb", num(mus, 1)}}));
+            bands.push_back(
+                Json::object({{"band", am::kBandNames[b]}, {"effectDb", num(eff, 1)}, {"musicDb", num(mus, 1)}}));
         }
         const double headroom = topLevel - (culprit->metrics.bandDb[std::size_t(top)] + culprit->gainDb);
         const bool topMasked = headroom <= 0.0;
-        const char* verdict = headroom <= -6.0 ? "fail" : (topMasked || masked.size() * 2 >= main.size()) ? "warn" : "ok";
-        Finding f{e->path, "music_masking", verdict, "dB over the music in the effect's loudest band", {}, {}, bus_label(*e), headroom, 0.0};
+        const char* verdict = headroom <= -6.0                                  ? "fail"
+                              : (topMasked || masked.size() * 2 >= main.size()) ? "warn"
+                                                                                : "ok";
+        Finding f{e->path,       "music_masking", verdict, "dB over the music in the effect's loudest band", {}, {},
+                  bus_label(*e), headroom,        0.0};
         f.detail = Json::object({{"music", culprit->path}, {"loudestBand", am::kBandNames[top]}, {"mainBands", bands}});
         std::string list;
         for (const std::string& b : masked) list += (list.empty() ? "" : ", ") + b;
         if (f.verdict == "ok") {
-            f.message = std::format("Its main energy ({}) stays {:+.1f} dB over '{}' there: it is heard over the music.", am::kBandNames[top], headroom, culprit->path);
+            f.message =
+                std::format("Its main energy ({}) stays {:+.1f} dB over '{}' there: it is heard over the music.",
+                            am::kBandNames[top], headroom, culprit->path);
         } else {
-            f.message = std::format("Its main energy sits in {}, where '{}' is {} ({:+.1f} dB for the effect); masked bands: {}.", am::kBandNames[top], culprit->path,
-                                    topMasked ? "as loud or louder" : "close", headroom, list.empty() ? "none" : list);
-            f.hint = std::format("Duck the music while it plays (audio.bus(\"music\").duck(\"sfx\", 0.5), docs/SCRIPTING.md \"Audio buses\"), raise its \"targetLufs\" (assets.json import), "
-                                 "or make the effect with its energy outside {} (assets.synth_sound with another preset, or the music with less there).", am::kBandNames[top]);
+            f.message = std::format(
+                "Its main energy sits in {}, where '{}' is {} ({:+.1f} dB for the effect); masked bands: {}.",
+                am::kBandNames[top], culprit->path, topMasked ? "as loud or louder" : "close", headroom,
+                list.empty() ? "none" : list);
+            f.hint = std::format("Duck the music while it plays (audio.bus(\"music\").duck(\"sfx\", 0.5), "
+                                 "docs/SCRIPTING.md \"Audio buses\"), raise its \"targetLufs\" (assets.json import), "
+                                 "or make the effect with its energy outside {} (assets.synth_sound with another "
+                                 "preset, or the music with less there).",
+                                 am::kBandNames[top]);
         }
         add(out, std::move(f));
     }
@@ -503,20 +611,27 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     bool asked = false;
     if (args.contains("paths") && !args["paths"].is_null()) {
         asked = true;
-        if (!args["paths"].is_array()) throw CommandError("invalid_argument", "'paths' must be an array of project-relative sound files.", "Example: {\"paths\": [\"assets/sfx/jump.wav\"]}");
+        if (!args["paths"].is_array())
+            throw CommandError("invalid_argument", "'paths' must be an array of project-relative sound files.",
+                               "Example: {\"paths\": [\"assets/sfx/jump.wav\"]}");
         for (const Json& p : args["paths"]) {
             if (!p.is_string() || !tooling_detail::is_audio_file(p.get<std::string>()))
-                throw CommandError("invalid_argument", "'paths' must hold sound files (.wav, .ogg, .mp3, .qoa); got " + p.dump() + ".", "Use assets.list to see the sounds of the project.");
+                throw CommandError("invalid_argument",
+                                   "'paths' must hold sound files (.wav, .ogg, .mp3, .qoa); got " + p.dump() + ".",
+                                   "Use assets.list to see the sounds of the project.");
             paths.push_back(fs::normalize(p.get<std::string>()));
         }
     } else {
         paths = project_audio_files(projectDir);
     }
     std::map<std::string, Target> targets = style_targets(projectDir);
-    std::string targetSource = targets.empty() ? "none: loudness is judged by the spread inside each bus" : "style.audio in assets.json";
+    std::string targetSource =
+        targets.empty() ? "none: loudness is judged by the spread inside each bus" : "style.audio in assets.json";
     if (args.contains("targets") && !args["targets"].is_null()) {
         if (!args["targets"].is_object())
-            throw CommandError("invalid_argument", "'targets' must be an object of bus -> LUFS.", "Example: {\"targets\": {\"music\": -16, \"sfx\": {\"lufs\": -14, \"toleranceLu\": 2}}}");
+            throw CommandError(
+                "invalid_argument", "'targets' must be an object of bus -> LUFS.",
+                "Example: {\"targets\": {\"music\": -16, \"sfx\": {\"lufs\": -14, \"toleranceLu\": 2}}}");
         targets.clear();
         read_targets(args["targets"], 3.0, "targets argument", targets);
         targetSource = "targets argument";
@@ -532,7 +647,11 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     const std::set<std::string> docSources = asked ? std::set<std::string>() : audio_document_sources(projectDir);
     for (const std::string& p : paths) {
         if (docSources.contains(p) && !plays.contains(p)) {
-            skippedSources.push_back(Json::object({{"path", p}, {"reason", "only the source of an audio document's recipe (assets.json): the game plays the baked sound, which is judged. If a script plays it with a path it builds, or you want it judged anyway, pass it in `paths`."}}));
+            skippedSources.push_back(
+                Json::object({{"path", p},
+                              {"reason", "only the source of an audio document's recipe (assets.json): the game plays "
+                                         "the baked sound, which is judged. If a script plays it with a path it "
+                                         "builds, or you want it judged anyway, pass it in `paths`."}}));
             continue;
         }
         auto s = measure_sound(projectDir, p, plays, roots);
@@ -560,7 +679,8 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     // Worst first, then by sound and rule: the same project always lists the same way.
     auto rank = [](const std::string& v) { return v == "fail" ? 0 : v == "warn" ? 1 : 2; };
     std::stable_sort(findings.begin(), findings.end(), [&](const Finding& a, const Finding& b) {
-        return std::tuple(rank(a.verdict), a.sound, a.rule, a.bus) < std::tuple(rank(b.verdict), b.sound, b.rule, b.bus);
+        return std::tuple(rank(a.verdict), a.sound, a.rule, a.bus) <
+               std::tuple(rank(b.verdict), b.sound, b.rule, b.bus);
     });
     const bool includeOk = tooling_detail::arg_bool(args, "includeOk", false);
     int ok = 0, warn = 0, fail = 0;
@@ -571,26 +691,35 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     }
     Json soundRows = Json::array();
     for (const Sound& s : sounds) {
-        Json row = Json::object({{"path", s.path},
-                                 {"bus", s.buses.empty() ? Json("unknown bus") : Json(s.buses.size() == 1 ? s.buses[0] : bus_label(s))},
-                                 {"role", s.role},
-                                 {"loops", s.loops},
-                                 {"seconds", num(s.metrics.seconds, 3)},
-                                 {"loudnessLufs", num(s.analysis.loudness.integratedLufs)},
-                                 {"playedLufs", num(s.playedLufs)},
-                                 {"gainDb", num(s.gainDb)},
-                                 {"samplePeakDb", num(s.metrics.samplePeakDb)},
-                                 {"truePeakDb", num(s.playedTruePeakDb)},
-                                 {"clippedSamples", s.metrics.clippedSamples},
-                                 {"cachedAnalysis", s.analysis.cached}});
+        Json row = Json::object(
+            {{"path", s.path},
+             {"bus", s.buses.empty() ? Json("unknown bus") : Json(s.buses.size() == 1 ? s.buses[0] : bus_label(s))},
+             {"role", s.role},
+             {"loops", s.loops},
+             {"seconds", num(s.metrics.seconds, 3)},
+             {"loudnessLufs", num(s.analysis.loudness.integratedLufs)},
+             {"playedLufs", num(s.playedLufs)},
+             {"gainDb", num(s.gainDb)},
+             {"samplePeakDb", num(s.metrics.samplePeakDb)},
+             {"truePeakDb", num(s.playedTruePeakDb)},
+             {"clippedSamples", s.metrics.clippedSamples},
+             {"cachedAnalysis", s.analysis.cached}});
         if (s.metrics.dominantBand >= 0) row["dominantBand"] = am::kBandNames[s.metrics.dominantBand];
         if (s.metrics.silent) row["silent"] = true;
         soundRows.push_back(std::move(row));
     }
     Json targetJson = Json::object();
-    for (const auto& [bus, t] : targets) targetJson[bus] = Json::object({{"lufs", t.lufs}, {"toleranceLu", t.toleranceLu}});
-    Json result = Json::object({{"verdict", fail ? "fail" : warn ? "warn" : "ok"},
-                                {"summary", Json::object({{"sounds", int(sounds.size())}, {"checks", ok + warn + fail}, {"ok", ok}, {"warn", warn}, {"fail", fail}, {"unreadable", int(unreadable.size())}})},
+    for (const auto& [bus, t] : targets)
+        targetJson[bus] = Json::object({{"lufs", t.lufs}, {"toleranceLu", t.toleranceLu}});
+    Json result = Json::object({{"verdict", fail   ? "fail"
+                                            : warn ? "warn"
+                                                   : "ok"},
+                                {"summary", Json::object({{"sounds", int(sounds.size())},
+                                                          {"checks", ok + warn + fail},
+                                                          {"ok", ok},
+                                                          {"warn", warn},
+                                                          {"fail", fail},
+                                                          {"unreadable", int(unreadable.size())}})},
                                 {"findings", list},
                                 {"sounds", soundRows},
                                 {"targets", targetJson},
@@ -602,16 +731,22 @@ Json check_mix(const std::string& projectDir, const Json& args) {
     }
     if (sounds.empty()) {
         if (!skippedSources.empty() && unreadable.empty())
-            result["note"] = std::format("Every sound ({}) was skipped: each one is only the source of an audio document's recipe. Pass `paths` to judge them, or check the baked sounds.", skippedSources.size());
+            result["note"] = std::format("Every sound ({}) was skipped: each one is only the source of an audio "
+                                         "document's recipe. Pass `paths` to judge them, or check the baked sounds.",
+                                         skippedSources.size());
         else if (!unreadable.empty())
             result["note"] = "No sound could be read: see `unreadable` for each file's error.";
         else
             result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/, or pass `paths`.";
     }
     Json steps = Json::array();
-    if (fail || warn) steps.push_back("Fix the findings from the top (each has a `hint`), then run assets.check_mix again; assets.spectrogram shows a single sound.");
+    if (fail || warn)
+        steps.push_back("Fix the findings from the top (each has a `hint`), then run assets.check_mix again; "
+                        "assets.spectrogram shows a single sound.");
     if (std::any_of(sounds.begin(), sounds.end(), [](const Sound& s) { return s.buses.empty(); }))
-        steps.push_back("Sounds on an unknown bus are not played with a literal path by any scene, prefab or script: play them with audio.play(\"assets/...\", {bus: \"sfx\"}) or an AudioSource so the check can place them.");
+        steps.push_back(
+            "Sounds on an unknown bus are not played with a literal path by any scene, prefab or script: play them "
+            "with audio.play(\"assets/...\", {bus: \"sfx\"}) or an AudioSource so the check can place them.");
     if (!ok && !warn && !fail && !sounds.empty()) steps.push_back("Nothing to check: every sound is silent.");
     result["nextSteps"] = steps;
     return result;
@@ -629,26 +764,36 @@ std::filesystem::path next_picture_file(const std::string& projectDir) {
     }
 }
 
-std::string time_text(double t, double step) { return step < 1.0 ? std::format("{:.2f}s", t) : step < 10.0 ? std::format("{:.1f}s", t) : std::format("{:.0f}s", t); }
+std::string time_text(double t, double step) {
+    return step < 1.0 ? std::format("{:.2f}s", t) : step < 10.0 ? std::format("{:.1f}s", t) : std::format("{:.0f}s", t);
+}
 
 Json spectrogram_command(const std::string& projectDir, const Json& args, const char* command) {
-    assets_detail::check_arg_keys("assets.spectrogram", args, "", {"path", "width", "height", "out", "loop", "channels"});
+    assets_detail::check_arg_keys("assets.spectrogram", args, "",
+                                  {"path", "width", "height", "out", "loop", "channels"});
     const std::string rel = tooling_detail::arg_string(args, "path", true);
-    if (!tooling_detail::is_audio_file(rel)) throw CommandError("invalid_argument", "'" + rel + "' is not a sound file.", "Sounds are .wav, .ogg, .mp3 or .qoa files.");
+    if (!tooling_detail::is_audio_file(rel))
+        throw CommandError("invalid_argument", "'" + rel + "' is not a sound file.",
+                           "Sounds are .wav, .ogg, .mp3 or .qoa files.");
     const int width = int(std::clamp<long>(tooling_detail::arg_int(args, "width", 1000), 400, 2400));
     const int height = int(std::clamp<long>(tooling_detail::arg_int(args, "height", 640), 280, 1600));
     const std::string channelsMode = tooling_detail::arg_string(args, "channels", false, "mid");
     if (channelsMode != "mid" && channelsMode != "each")
-        throw CommandError("invalid_argument", "'channels' is \"" + channelsMode + "\".", "Use \"mid\" (one waveform) or \"each\" (one waveform per channel).");
+        throw CommandError("invalid_argument", "'channels' is \"" + channelsMode + "\".",
+                           "Use \"mid\" (one waveform) or \"each\" (one waveform per channel).");
     const std::string outRel = tooling_detail::arg_string(args, "out", false);
     std::filesystem::path outFile;
     if (!outRel.empty()) {
-        if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/jump.png\".");
+        if (to_lower(fs::extension(outRel)) != ".png")
+            throw CommandError("invalid_argument", "'out' must end in .png.",
+                               "Example: \"out\": \"assets/src/sound/jump.png\".");
         outFile = assets_detail::caller_output_file(projectDir, outRel, command);
     }
 
     auto analysis = analyze_audio_file(projectDir, rel);
-    if (!analysis) throw CommandError(analysis.error().message.find("not found") != std::string::npos ? "not_found" : "failed", analysis.error().message, analysis.error().hint);
+    if (!analysis)
+        throw CommandError(analysis.error().message.find("not found") != std::string::npos ? "not_found" : "failed",
+                           analysis.error().message, analysis.error().hint);
     DecodedAudio audio;
     {
         tooling_detail::ProjectRootScope root(projectDir);
@@ -670,7 +815,8 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
     }
 
     // ---- layout ----
-    const Rgb bg{18, 18, 24}, axis{150, 150, 165}, grid{255, 255, 255}, wave{80, 200, 190}, red{255, 70, 70}, seam{255, 60, 200};
+    const Rgb bg{18, 18, 24}, axis{150, 150, 165}, grid{255, 255, 255}, wave{80, 200, 190}, red{255, 70, 70},
+        seam{255, 60, 200};
     const int left = 62, right = 64, top = 26, bottom = 30, gap = 20;
     const int plotW = width - left - right;
     const int usable = height - top - bottom - 2 * gap;
@@ -679,8 +825,9 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
     Canvas cv(width, height, bg);
 
     // ---- title ----
-    cv.text(std::format("{}   {:.1f} kHz {}   {:.2f} s   {:.1f} LUFS   TP {} dBTP   clipped {}", analysis->path, m.rate / 1000.0, m.channels == 1 ? "mono" : "stereo", m.seconds,
-                        lufs, db_text(m.truePeakDb), m.clippedSamples),
+    cv.text(std::format("{}   {:.1f} kHz {}   {:.2f} s   {:.1f} LUFS   TP {} dBTP   clipped {}", analysis->path,
+                        m.rate / 1000.0, m.channels == 1 ? "mono" : "stereo", m.seconds, lufs, db_text(m.truePeakDb),
+                        m.clippedSamples),
             left, 6, 12, {235, 235, 240});
 
     // ---- time grid ----
@@ -692,7 +839,8 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
     auto time_x = [&](double t) { return left + int(std::lround(t / m.seconds * (plotW - 1))); };
     for (double t = 0; t <= m.seconds + 1e-9; t += timeStep) {
         const int x = time_x(t);
-        for (int y0 : {waveY, specY, loudY}) cv.vline(x, y0, y0 + (y0 == waveY ? waveH : y0 == specY ? specH : loudH) - 1, grid, 0.10);
+        for (int y0 : {waveY, specY, loudY})
+            cv.vline(x, y0, y0 + (y0 == waveY ? waveH : y0 == specY ? specH : loudH) - 1, grid, 0.10);
         cv.text(time_text(t, timeStep), x, loudY + loudH + 6, 11, axis, t == 0 ? 0 : 1);
     }
 
@@ -707,11 +855,14 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
         const double half = laneH / 2.0 - 1.0;
         cv.hline(left, left + plotW - 1, cy, axis, 0.35);
         for (int c = 0; c < plotW; ++c) {
-            const std::size_t a = std::size_t(double(c) * double(frames) / plotW), b = std::max(a + 1, std::min(frames, std::size_t(double(c + 1) * double(frames) / plotW)));
+            const std::size_t a = std::size_t(double(c) * double(frames) / plotW),
+                              b = std::max(a + 1,
+                                           std::min(frames, std::size_t(double(c + 1) * double(frames) / plotW)));
             float lo = 0, hi = 0;
             for (std::size_t i = a; i < b; ++i) {
                 float v;
-                if (lanes == 2) v = audio.samples[i * ch + std::size_t(lane)];
+                if (lanes == 2)
+                    v = audio.samples[i * ch + std::size_t(lane)];
                 else {
                     v = 0;
                     for (std::size_t k = 0; k < ch; ++k) v += audio.samples[i * ch + k];
@@ -723,7 +874,8 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
             for (std::size_t i = a; i < b; ++i)
                 for (std::size_t k = 0; k < ch; ++k)
                     if (std::fabs(audio.samples[i * ch + k]) >= am::kFullScale) clippedColumn[std::size_t(c)] = true;
-            const int y0 = cy - int(std::lround(std::min(1.0f, hi) * half)), y1 = cy - int(std::lround(std::max(-1.0f, lo) * half));
+            const int y0 = cy - int(std::lround(std::min(1.0f, hi) * half)),
+                      y1 = cy - int(std::lround(std::max(-1.0f, lo) * half));
             cv.vline(left + c, y0, std::max(y0, y1), clippedColumn[std::size_t(c)] ? red : wave);
         }
         const char* tag = lanes == 2 ? (lane == 0 ? "L" : "R") : "";
@@ -739,24 +891,31 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
     const am::Spectrogram sp = am::spectrogram(audio, plotW, specH);
     const double ceiling = std::max<double>(sp.maxDb, -30.0), range = 80.0;
     for (int r = 0; r < specH; ++r)
-        for (int c = 0; c < plotW; ++c) cv.blend(left + c, specY + r, magma((sp.db[std::size_t(r) * std::size_t(plotW) + std::size_t(c)] - (ceiling - range)) / range), 1.0);
+        for (int c = 0; c < plotW; ++c)
+            cv.blend(left + c, specY + r,
+                     magma((sp.db[std::size_t(r) * std::size_t(plotW) + std::size_t(c)] - (ceiling - range)) / range),
+                     1.0);
     const double logSpan = std::log(sp.maxHz / sp.minHz);
     for (double f : {20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0}) {
         if (f < sp.minHz * 0.999 || f > sp.maxHz * 1.001) continue;
         const int y = specY + int(std::lround((1.0 - std::log(f / sp.minHz) / logSpan) * (specH - 1)));
         cv.hline(left, left + plotW - 1, y, grid, 0.18);
-        cv.text(f >= 1000 ? std::format("{:g} kHz", f / 1000.0) : std::format("{:g} Hz", f), left - 6, y, 11, axis, 2, true);
+        cv.text(f >= 1000 ? std::format("{:g} kHz", f / 1000.0) : std::format("{:g} Hz", f), left - 6, y, 11, axis, 2,
+                true);
     }
     for (int i = 0; i < specH; ++i) {  // colour bar with its dB scale
         const double t = 1.0 - double(i) / std::max(1, specH - 1);
         cv.rect(left + plotW + 10, specY + i, left + plotW + 18, specY + i, magma(t));
     }
     for (int k = 0; k <= 4; ++k)
-        cv.text(std::format("{:.0f} dB", ceiling - range * k / 4.0), left + plotW + 22, specY + int(double(k) / 4.0 * (specH - 1)), 10, axis, 0, true);
+        cv.text(std::format("{:.0f} dB", ceiling - range * k / 4.0), left + plotW + 22,
+                specY + int(double(k) / 4.0 * (specH - 1)), 10, axis, 0, true);
 
     // ---- loudness curve ----
     cv.rect(left, loudY, left + plotW - 1, loudY + loudH - 1, {10, 10, 14});
-    auto lufs_y = [&](double v) { return loudY + int(std::lround((1.0 - (std::clamp(v, -60.0, 0.0) + 60.0) / 60.0) * (loudH - 1))); };
+    auto lufs_y = [&](double v) {
+        return loudY + int(std::lround((1.0 - (std::clamp(v, -60.0, 0.0) + 60.0) / 60.0) * (loudH - 1)));
+    };
     for (int v = 0; v >= -60; v -= 10) {
         cv.hline(left, left + plotW - 1, lufs_y(v), grid, 0.12);
         cv.text(std::to_string(v), left - 6, lufs_y(v), 11, axis, 2, true);
@@ -780,8 +939,11 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
         cv.text(std::format("integrated {:.1f}", lufs), left + plotW - 4, lufs_y(lufs) - 13, 11, {255, 255, 255}, 2);
     }
     if (momentaryMax > -80.0) {
-        cv.rect(time_x(momentaryAt) - 3, lufs_y(momentaryMax) - 3, time_x(momentaryAt) + 3, lufs_y(momentaryMax) + 3, {255, 230, 90});
-        cv.text(std::format("M max {:.1f}", momentaryMax), time_x(momentaryAt) + (momentaryAt > m.seconds * 0.8 ? -8 : 8), lufs_y(momentaryMax) - 14, 11, {255, 230, 90}, momentaryAt > m.seconds * 0.8 ? 2 : 0);
+        cv.rect(time_x(momentaryAt) - 3, lufs_y(momentaryMax) - 3, time_x(momentaryAt) + 3, lufs_y(momentaryMax) + 3,
+                {255, 230, 90});
+        cv.text(std::format("M max {:.1f}", momentaryMax),
+                time_x(momentaryAt) + (momentaryAt > m.seconds * 0.8 ? -8 : 8), lufs_y(momentaryMax) - 14, 11,
+                {255, 230, 90}, momentaryAt > m.seconds * 0.8 ? 2 : 0);
     }
     cv.text("momentary", left + 6, loudY + 4, 11, {110, 140, 220});
     cv.text("short-term", left + 76, loudY + 4, 11, {255, 170, 60});
@@ -789,40 +951,58 @@ Json spectrogram_command(const std::string& projectDir, const Json& args, const 
     // ---- loop seam ----
     if (loops) {
         for (int x : {left, left + plotW - 1})
-            for (int y0 : {waveY, specY, loudY}) cv.vline(x, y0, y0 + (y0 == waveY ? waveH : y0 == specY ? specH : loudH) - 1, seam, 0.9, 4);
-        cv.text(std::format("loop seam: jump {:.1f}x, slope {:.1f}x", m.seamJumpRatio, m.seamSlopeRatio), left + plotW - 4, 6, 12, seam, 2);
+            for (int y0 : {waveY, specY, loudY})
+                cv.vline(x, y0, y0 + (y0 == waveY ? waveH : y0 == specY ? specH : loudH) - 1, seam, 0.9, 4);
+        cv.text(std::format("loop seam: jump {:.1f}x, slope {:.1f}x", m.seamJumpRatio, m.seamSlopeRatio),
+                left + plotW - 4, 6, 12, seam, 2);
     }
-    if (m.clippedSamples > 0) cv.text("red = clipped", left + 330 > width ? left : left + plotW / 2, waveY + waveH - 14, 11, red, 1);
+    if (m.clippedSamples > 0)
+        cv.text("red = clipped", left + 330 > width ? left : left + plotW / 2, waveY + waveH - 14, 11, red, 1);
 
     // ---- write ----
     const std::vector<std::uint8_t> png = encode_png(cv.img);
     const bool keep = !outRel.empty();
     const std::filesystem::path file = keep ? outFile : next_picture_file(projectDir);
     std::string err;
-    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) throw CommandError("failed", err);
+    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    &err))
+        throw CommandError("failed", err);
 
-    Json result = Json::object({{"path", analysis->path},
-                                {"seconds", num(m.seconds, 3)},
-                                {"sampleRate", m.rate},
-                                {"channels", m.channels},
-                                {"integratedLufs", num(lufs)},
-                                {"truePeakDb", num(m.truePeakDb)},
-                                {"samplePeakDb", num(m.samplePeakDb)},
-                                {"momentaryMaxLufs", num(momentaryMax)},
-                                {"shortTermMaxLufs", num(shortMax)},
-                                {"clippedSamples", m.clippedSamples},
-                                {"fullScaleSamples", m.fullScaleSamples},
-                                {"loops", loops},
-                                {"cachedAnalysis", analysis->cached},
-                                {"picture", Json::object({{"width", width}, {"height", height}, {"spectrogramDbRange", Json::array({num(ceiling - range, 0), num(ceiling, 0)})}})}});
+    Json result = Json::object(
+        {{"path", analysis->path},
+         {"seconds", num(m.seconds, 3)},
+         {"sampleRate", m.rate},
+         {"channels", m.channels},
+         {"integratedLufs", num(lufs)},
+         {"truePeakDb", num(m.truePeakDb)},
+         {"samplePeakDb", num(m.samplePeakDb)},
+         {"momentaryMaxLufs", num(momentaryMax)},
+         {"shortTermMaxLufs", num(shortMax)},
+         {"clippedSamples", m.clippedSamples},
+         {"fullScaleSamples", m.fullScaleSamples},
+         {"loops", loops},
+         {"cachedAnalysis", analysis->cached},
+         {"picture", Json::object({{"width", width},
+                                   {"height", height},
+                                   {"spectrogramDbRange", Json::array({num(ceiling - range, 0), num(ceiling, 0)})}})}});
     if (m.dominantBand >= 0)
-        result["dominantBand"] = Json::object({{"band", am::kBandNames[m.dominantBand]}, {"centreHz", am::kBandCentreHz[m.dominantBand]}, {"levelDb", num(m.bandDb[std::size_t(m.dominantBand)], 1)}});
-    if (loops) result["loopSeam"] = Json::object({{"jumpRatio", num(m.seamJumpRatio)}, {"slopeRatio", num(m.seamSlopeRatio)}, {"jumpDbfs", num(m.seamJump > 1e-10 ? 20.0 * std::log10(m.seamJump) : -200.0)}});
+        result["dominantBand"] = Json::object({{"band", am::kBandNames[m.dominantBand]},
+                                               {"centreHz", am::kBandCentreHz[m.dominantBand]},
+                                               {"levelDb", num(m.bandDb[std::size_t(m.dominantBand)], 1)}});
+    if (loops)
+        result["loopSeam"] =
+            Json::object({{"jumpRatio", num(m.seamJumpRatio)},
+                          {"slopeRatio", num(m.seamSlopeRatio)},
+                          {"jumpDbfs", num(m.seamJump > 1e-10 ? 20.0 * std::log10(m.seamJump) : -200.0)}});
     if (keep) result["out"] = outRel;
-    Json steps = Json::array({"Read the picture: top = waveform (red columns are clipped samples), middle = spectrogram (log frequency, brighter = louder, scale on the right), bottom = loudness "
-                              "(blue momentary, orange short-term, dashed white integrated, yellow square the loudest momentary value)."});
-    if (m.clippedSamples > 0 || m.truePeakDb > -1.0) steps.push_back("It clips or peaks above -1 dBTP: assets.check_mix says how to fix it.");
-    steps.push_back("assets.check_mix measures every sound of the project together (loudness per bus, masking, clicks, loop seams).");
+    Json steps = Json::array(
+        {"Read the picture: top = waveform (red columns are clipped samples), middle = spectrogram (log frequency, "
+         "brighter = louder, scale on the right), bottom = loudness "
+         "(blue momentary, orange short-term, dashed white integrated, yellow square the loudest momentary value)."});
+    if (m.clippedSamples > 0 || m.truePeakDb > -1.0)
+        steps.push_back("It clips or peaks above -1 dBTP: assets.check_mix says how to fix it.");
+    steps.push_back("assets.check_mix measures every sound of the project together (loudness per bus, masking, clicks, "
+                    "loop seams).");
     result["nextSteps"] = steps;
     Json image = Json::object({{"path", file.string()}, {"mimeType", "image/png"}});
     if (!keep) image["temporary"] = true;
@@ -836,12 +1016,17 @@ Json audio_mix::spectrogram_picture(const std::string& projectDir, const Json& a
     return spectrogram_command(projectDir, args, command);
 }
 
-Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int widthArg,
-                                  const std::string& outRel, const char* command) {
-    if (rows.empty()) throw CommandError("invalid_argument", "A contact sheet needs at least one sound.", "Give it the sounds to compare.");
+Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::string& title,
+                                  const std::vector<SheetRow>& rows, int widthArg, const std::string& outRel,
+                                  const char* command) {
+    if (rows.empty())
+        throw CommandError("invalid_argument", "A contact sheet needs at least one sound.",
+                           "Give it the sounds to compare.");
     std::filesystem::path outFile;
     if (!outRel.empty()) {
-        if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/sheet.png\".");
+        if (to_lower(fs::extension(outRel)) != ".png")
+            throw CommandError("invalid_argument", "'out' must end in .png.",
+                               "Example: \"out\": \"assets/src/sound/sheet.png\".");
         outFile = assets_detail::caller_output_file(projectDir, outRel, command);
     }
     const int width = std::clamp(widthArg, 400, 2400);
@@ -884,19 +1069,25 @@ Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::stri
         cv.hline(left, left + w - 1, cy, axis, 0.3);
         const std::size_t frames = r.samples.size();
         for (int c = 0; c < w; ++c) {
-            const std::size_t a = std::size_t(double(c) * double(frames) / w), b = std::max(a + 1, std::min(frames, std::size_t(double(c + 1) * double(frames) / w)));
+            const std::size_t a = std::size_t(double(c) * double(frames) / w),
+                              b = std::max(a + 1, std::min(frames, std::size_t(double(c + 1) * double(frames) / w)));
             float lo = 0, hi = 0;
             for (std::size_t k = a; k < b; ++k) {
                 lo = std::min(lo, r.samples[k]);
                 hi = std::max(hi, r.samples[k]);
             }
-            const int ya = cy - int(std::lround(std::min(1.0f, hi) * half)), yb = cy - int(std::lround(std::max(-1.0f, lo) * half));
+            const int ya = cy - int(std::lround(std::min(1.0f, hi) * half)),
+                      yb = cy - int(std::lround(std::max(-1.0f, lo) * half));
             cv.vline(left + c, ya, std::max(ya, yb), wave);
         }
         const am::Spectrogram& sp = specs[std::size_t(i)];
         for (int row = 0; row < sp.rows && row < specH; ++row)
             for (int c = 0; c < sp.columns && c < plotW; ++c)
-                cv.blend(left + c, y0 + waveH + row, magma((sp.db[std::size_t(row) * std::size_t(sp.columns) + std::size_t(c)] - (ceiling - range)) / range), 1.0);
+                cv.blend(
+                    left + c, y0 + waveH + row,
+                    magma((sp.db[std::size_t(row) * std::size_t(sp.columns) + std::size_t(c)] - (ceiling - range)) /
+                          range),
+                    1.0);
     }
     // shared time axis
     double step = 0.01;
@@ -915,7 +1106,9 @@ Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::stri
     const bool keep = !outRel.empty();
     const std::filesystem::path file = keep ? outFile : next_picture_file(projectDir);
     std::string err;
-    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) throw CommandError("failed", err);
+    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    &err))
+        throw CommandError("failed", err);
     Json image = Json::object({{"path", file.string()}, {"mimeType", "image/png"}});
     if (!keep) image["temporary"] = true;
     Json result = Json::object({{"picture", Json::object({{"width", width}, {"height", height}, {"rows", n}})}});
@@ -929,45 +1122,74 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
         CommandInfo info;
         info.name = "assets.spectrogram";
         info.category = "assets";
-        info.summary = "See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.";
+        info.summary = "See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with "
+                       "the clipped samples and the loop seam marked.";
         info.description =
-            "Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, like assets.preview_sheet does for a sprite sheet: the waveform on top (mid, or each channel; red columns are samples at full "
-            "scale), a spectrogram in the middle (short-time Fourier transform of the mid channel, 20 Hz to 20 kHz on a logarithmic axis, brighter = louder, with a dB scale) and the loudness curve at the bottom "
-            "(momentary 400 ms in blue, short-term 3 s in orange, the integrated value dashed, the loudest momentary value marked). When the sound is played looping (an AudioSource with loop, SceneSettings.music, "
-            "audio.music, or audio.play with loop: true; or `loop: true` here) magenta dashed lines mark the loop seam and the title gives its jump and slope. Axes are labelled with the engine's built-in font. "
-            "The result carries the numbers: integratedLufs, truePeakDb (4x oversampled), samplePeakDb, momentaryMaxLufs, shortTermMaxLufs, seconds, clippedSamples (samples flattened at full scale), "
-            "dominantBand (the loudest octave band) and loopSeam. It reuses the sound's fresh `analysis` record for the integrated loudness and writes nothing unless `out` is given. "
-            "The picture is a temporary screenshot in .factoria/screenshots; with `out` the PNG is kept at that project path. Example: {\"path\":\"assets/music/theme.ogg\",\"width\":1200}";
+            "Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, like assets.preview_sheet "
+            "does for a sprite sheet: the waveform on top (mid, or each channel; red columns are samples at full "
+            "scale), a spectrogram in the middle (short-time Fourier transform of the mid channel, 20 Hz to 20 kHz on "
+            "a logarithmic axis, brighter = louder, with a dB scale) and the loudness curve at the bottom "
+            "(momentary 400 ms in blue, short-term 3 s in orange, the integrated value dashed, the loudest momentary "
+            "value marked). When the sound is played looping (an AudioSource with loop, SceneSettings.music, "
+            "audio.music, or audio.play with loop: true; or `loop: true` here) magenta dashed lines mark the loop seam "
+            "and the title gives its jump and slope. Axes are labelled with the engine's built-in font. "
+            "The result carries the numbers: integratedLufs, truePeakDb (4x oversampled), samplePeakDb, "
+            "momentaryMaxLufs, shortTermMaxLufs, seconds, clippedSamples (samples flattened at full scale), "
+            "dominantBand (the loudest octave band) and loopSeam. It reuses the sound's fresh `analysis` record for "
+            "the integrated loudness and writes nothing unless `out` is given. "
+            "The picture is a temporary screenshot in .factoria/screenshots; with `out` the PNG is kept at that "
+            "project path. Example: {\"path\":\"assets/music/theme.ogg\",\"width\":1200}";
         auto integer = [](const char* what, int minimum, int maximum, int def) {
-            return Json::object({{"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}, {"default", def}, {"description", what}});
+            return Json::object({{"type", "integer"},
+                                 {"minimum", minimum},
+                                 {"maximum", maximum},
+                                 {"default", def},
+                                 {"description", what}});
         };
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"required", Json::array({"path"})},
              {"additionalProperties", false},
              {"properties",
-              Json::object({{"path", Json::object({{"type", "string"}, {"x-fa-path", "read"}, {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav."}})},
-                            {"width", integer("Width of the picture in pixels.", 400, 2400, 1000)},
-                            {"height", integer("Height of the picture in pixels.", 280, 1600, 640)},
-                            {"out", Json::object({{"type", "string"}, {"x-fa-path", "write"}, {"description", "Also keep the PNG at this project-relative path (must end in .png; needs the writeProject capability, never inside .git or .factoria). Without it the picture is a temporary screenshot."}})},
-                            {"loop", Json::object({{"type", "boolean"}, {"description", "Mark the loop seam. Default: whether the project plays the sound looping (scenes, prefabs and scripts)."}})},
-                            {"channels", Json::object({{"type", "string"}, {"enum", Json::array({"mid", "each"})}, {"default", "mid"}, {"description", "\"mid\": one waveform of the average of the channels; \"each\": one lane per channel of a stereo sound."}})}})}});
-        registry.add(info, [projectDir](const Json& args) { return spectrogram_command(projectDir, args.is_null() ? Json::object() : args, "assets.spectrogram"); });
+              Json::object(
+                  {{"path", Json::object({{"type", "string"},
+                                          {"x-fa-path", "read"},
+                                          {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav."}})},
+                   {"width", integer("Width of the picture in pixels.", 400, 2400, 1000)},
+                   {"height", integer("Height of the picture in pixels.", 280, 1600, 640)},
+                   {"out",
+                    Json::object({{"type", "string"},
+                                  {"x-fa-path", "write"},
+                                  {"description", "Also keep the PNG at this project-relative path (must end in .png; "
+                                                  "needs the writeProject capability, never inside .git or .factoria). "
+                                                  "Without it the picture is a temporary screenshot."}})},
+                   {"loop", Json::object({{"type", "boolean"},
+                                          {"description", "Mark the loop seam. Default: whether the project plays the "
+                                                          "sound looping (scenes, prefabs and scripts)."}})},
+                   {"channels",
+                    Json::object({{"type", "string"},
+                                  {"enum", Json::array({"mid", "each"})},
+                                  {"default", "mid"},
+                                  {"description", "\"mid\": one waveform of the average of the channels; \"each\": one "
+                                                  "lane per channel of a stereo sound."}})}})}});
+        registry.add(info, [projectDir](const Json& args) {
+            return spectrogram_command(projectDir, args.is_null() ? Json::object() : args, "assets.spectrogram");
+        });
     }
     {
         CommandInfo info;
         info.name = "assets.check_mix";
         info.category = "assets";
         info.readOnly = true;
-        info.summary = "Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.";
+        info.summary = "Measure every sound of the project together: loudness per bus, music masking effects, clicks, "
+                       "loop seams, clipping, true peak; each finding has a fix.";
         info.description =
             "Listens for what a game's mix gets wrong. Measures the sounds of the project (the set "
             "assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or "
             "prefab names), or `paths`, as they play (with the gain import \"normalize\" applies). Each "
             "finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a "
             "`message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. "
-            "Example: {\"targets\":{\"music\":-16,\"sfx\":-14}}"
-            FA_COMMAND_DETAILS
+            "Example: {\"targets\":{\"music\":-16,\"sfx\":-14}}" FA_COMMAND_DETAILS
             "Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, "
             "or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond "
             "12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and "
@@ -985,22 +1207,36 @@ void register_audio_mix_commands(CommandRegistry& registry, const std::string& p
             "-14, \"toleranceLu\": 2}, \"default\": -16}), else style.audio.loudnessLufs and toleranceLu in "
             "assets.json, else the spread rule. A sound that is only an input of an audio "
             "document's recipe (a recording the document is baked from) and that no scene or script plays is not "
-            "judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, findings, sounds (one row of "
+            "judged: it is listed in `skipped` with the reason, unless `paths` names it. Returns {verdict, summary, "
+            "findings, sounds (one row of "
             "numbers per sound), skipped, targets, nextSteps}. Deterministic and read-only: it writes nothing (run "
             "assets.analyze_audio first to keep the loudness records, so later runs do not measure again).";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"additionalProperties", false},
              {"properties",
-              Json::object({{"paths", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", "Project-relative sound files to check. Omit for every sound of the project."}})},
-                            {"targets", Json::object({{"type", "object"},
-                                                      {"description", "Loudness targets in LUFS per bus: {\"music\": -16, \"sfx\": {\"lufs\": -14, \"toleranceLu\": 2}, \"default\": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json."}})},
-                            {"includeOk", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Also list the checks that passed."}})}})}});
-        registry.add(info, [projectDir](const Json& args) { return check_mix(projectDir, args.is_null() ? Json::object() : args); });
+              Json::object(
+                  {{"paths",
+                    Json::object({{"type", "array"},
+                                  {"items", Json::object({{"type", "string"}})},
+                                  {"description",
+                                   "Project-relative sound files to check. Omit for every sound of the project."}})},
+                   {"targets", Json::object({{"type", "object"},
+                                             {"description",
+                                              "Loudness targets in LUFS per bus: {\"music\": -16, \"sfx\": {\"lufs\": "
+                                              "-14, \"toleranceLu\": 2}, \"default\": -16}. A number uses a tolerance "
+                                              "of 3 LU. Omit to use style.audio in assets.json."}})},
+                   {"includeOk", Json::object({{"type", "boolean"},
+                                               {"default", false},
+                                               {"description", "Also list the checks that passed."}})}})}});
+        registry.add(info, [projectDir](const Json& args) {
+            return check_mix(projectDir, args.is_null() ? Json::object() : args);
+        });
     }
     {
         using namespace capability_sets;
-        declare_command_capabilities(registry, {{"assets.spectrogram", changes_state()}, {"assets.check_mix", changes_state()}});
+        declare_command_capabilities(registry,
+                                     {{"assets.spectrogram", changes_state()}, {"assets.check_mix", changes_state()}});
     }
 }
 

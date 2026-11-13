@@ -17,7 +17,7 @@ namespace fa {
 
 enum class LogLevel : std::uint8_t { Trace, Debug, Info, Warn, Error };
 
-const char* log_level_name(LogLevel level);                // "trace".."error"
+const char* log_level_name(LogLevel level);                  // "trace".."error"
 bool parse_log_level(std::string_view name, LogLevel& out);  // case-insensitive
 
 struct LogEntry {
@@ -48,7 +48,7 @@ std::string format_log_line(const LogEntry& entry);
 
 void set_log_level(LogLevel minLevel);  // affects stderr sink + ring buffer
 LogLevel log_level();
-void set_log_format(LogFormat format);  // stderr format; Json = one object per line
+void set_log_format(LogFormat format);    // stderr format; Json = one object per line
 void set_log_frame(std::uint64_t frame);  // engine updates this every frame
 
 // Optional filter for the stderr sink only (sinks and the ring buffer are unaffected): return false to keep an entry

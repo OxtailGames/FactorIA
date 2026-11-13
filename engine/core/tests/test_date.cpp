@@ -69,7 +69,8 @@ TEST_CASE("date: time of day and the UTC date") {
     CalendarDate before = parse_calendar_date("1969-12-31T23:00").value();
     before.utcOffsetMinutes = -120;
     CHECK(before.utc().iso() == "1970-01-01");
-    for (const char* bad : {"2026-10-23T24:00", "2026-10-23T12:60", "2026-10-23T12:30:61", "2026-10-23T9:00", "2026-10-23T12", "2026-10-23x12:00", "2026-10-23T12:00:0"})
+    for (const char* bad : {"2026-10-23T24:00", "2026-10-23T12:60", "2026-10-23T12:30:61", "2026-10-23T9:00",
+                            "2026-10-23T12", "2026-10-23x12:00", "2026-10-23T12:00:0"})
         CHECK_MESSAGE(!parse_calendar_date(bad).ok(), bad);
     // The time of day is not part of the "same day" comparison.
     CHECK(parse_calendar_date("2026-10-23T01:00").value() == parse_calendar_date("2026-10-23T22:00").value());

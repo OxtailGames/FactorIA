@@ -76,8 +76,8 @@ private:
         for (const char* sub : {"scripts", "tools"}) {
             fsys::path dir = root / sub;
             if (!fsys::is_directory(dir, ec)) continue;
-            for (fsys::recursive_directory_iterator it(dir, fsys::directory_options::skip_permission_denied, ec), end; !ec && it != end;
-                 it.increment(ec)) {
+            for (fsys::recursive_directory_iterator it(dir, fsys::directory_options::skip_permission_denied, ec), end;
+                 !ec && it != end; it.increment(ec)) {
                 if (!it->is_regular_file(ec) || it->path().extension() != ".js") continue;
                 now[fsys::relative(it->path(), root, ec).generic_string()] = fs::host_modified_time(it->path());
             }
@@ -96,8 +96,10 @@ private:
     void reload_module(const std::string& path) {
         try {
             FA_INFO("mcp", "reloading {}", path);
-            if (starts_with(path, "tools/")) session_->engine().scripts().reload_tools();
-            else session_->engine().scripts().reload_module(path);
+            if (starts_with(path, "tools/"))
+                session_->engine().scripts().reload_tools();
+            else
+                session_->engine().scripts().reload_module(path);
         } catch (const std::exception& e) {
             FA_WARN("mcp", "reload of {} failed: {}", path, e.what());
         }
@@ -144,33 +146,39 @@ Command make_mcp_command() {
         "command becomes a tool (scene.spawn -> scene_spawn); docs and project files are resources. Scripts and\n"
         "project tools hot-reload and clients are notified. Without a project (none in the current directory)\n"
         "the server starts with documentation and project-creation tools only, so an AI can bootstrap a game.\n"
-        "When the factoria file is replaced by a newer one while the server runs, it restarts itself in place between two\n"
-        "messages (Linux, macOS; on Windows it tells the AI to reconnect) and the first tool result says so (docs/MCP.md).";
+        "When the factoria file is replaced by a newer one while the server runs, it restarts itself in place between "
+        "two\n"
+        "messages (Linux, macOS; on Windows it tells the AI to reconnect) and the first tool result says so "
+        "(docs/MCP.md).";
     c.maxPositional = 0;
-    c.flags = {{"project", "DIR", "Project folder (default: the project containing the current directory)."},
-               {"scene", "PATH", "Start scene override."},
-               {"no-graphics", "", "Do not create a GPU context (game_screenshot is then unavailable)."},
-               {"no-hot-reload", "", "Do not watch scripts/ and tools/ for edits."},
-               {"render-all", "", "Draw every frame (default: only when game_screenshot asks)."},
-               {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
-               {"seed", "N", "World RNG seed (default 1)."},
-               kDateFlag,
-               {"read-only", "",
-                "Serve only the commands that look and play (read-only ones plus game_step/input/click, scene_load, ...): "
-                "the art critic and reviewer agents run this way."},
-               {"tools", "PROFILE",
-                "Which tools tools/list offers: all (default), core (" + std::to_string(core_command_names().size()) + " commands), or a comma list of groups "
-                "(core,anim,physics: command categories or exact command names). With a profile, tool_load adds groups "
-                "later and tool_describe / tool_call reach every command (docs/MCP.md, \"Tool profiles\")."},
-               {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.", false, true}};
-    c.examples = {"factoria mcp --project games/my-game",
-                  "claude mcp add factoria -- factoria mcp --project .",
-                  "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' | factoria mcp --project ."};
+    c.flags = {
+        {"project", "DIR", "Project folder (default: the project containing the current directory)."},
+        {"scene", "PATH", "Start scene override."},
+        {"no-graphics", "", "Do not create a GPU context (game_screenshot is then unavailable)."},
+        {"no-hot-reload", "", "Do not watch scripts/ and tools/ for edits."},
+        {"render-all", "", "Draw every frame (default: only when game_screenshot asks)."},
+        {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
+        {"seed", "N", "World RNG seed (default 1)."},
+        kDateFlag,
+        {"read-only", "",
+         "Serve only the commands that look and play (read-only ones plus game_step/input/click, scene_load, ...): "
+         "the art critic and reviewer agents run this way."},
+        {"tools", "PROFILE",
+         "Which tools tools/list offers: all (default), core (" + std::to_string(core_command_names().size()) +
+             " commands), or a comma list of groups "
+             "(core,anim,physics: command categories or exact command names). With a profile, tool_load adds groups "
+             "later and tool_describe / tool_call reach every command (docs/MCP.md, \"Tool profiles\")."},
+        {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.",
+         false, true}};
+    c.examples = {
+        "factoria mcp --project games/my-game", "claude mcp add factoria -- factoria mcp --project .",
+        "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' | factoria mcp --project ."};
     c.run = [](Context& ctx) {
         std::string dir = find_project_dir_or_empty(ctx, 99);
         if (!dir.empty() && !fsys::exists(fsys::path(dir) / kProjectFileName))
-            throw CliError("'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found.",
-                           "Pass --project <folder containing factoria.json>, or create one with 'factoria new <dir>'.");
+            throw CliError(
+                "'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found.",
+                "Pass --project <folder containing factoria.json>, or create one with 'factoria new <dir>'.");
         std::unique_ptr<Session> session;
         CommandRegistry standalone;
         CommandRegistry* registry = &standalone;
@@ -186,7 +194,8 @@ Command make_mcp_command() {
             session = Session::open(dir, so);
             registry = &session->registry();
             register_cli_commands(*registry, dir, &session->engine());
-            FA_INFO("mcp", "project {} ({} tools, graphics {})", dir, registry->list().size(), session->has_graphics() ? "on" : "off");
+            FA_INFO("mcp", "project {} ({} tools, graphics {})", dir, registry->list().size(),
+                    session->has_graphics() ? "on" : "off");
         } else {
             register_cli_commands(*registry, "", nullptr);
             FA_INFO("mcp", "no project found: serving documentation and project-creation tools only");
@@ -210,7 +219,8 @@ Command make_mcp_command() {
         if (ctx.args.has("tools")) {
             const std::string err = server.set_tool_profile(split_tool_groups(ctx.args.str("tools")));
             if (!err.empty())
-                throw UsageError("--tools: " + err, "Use all (every tool, the default), core, or a comma list such as core,anim,physics.");
+                throw UsageError("--tools: " + err,
+                                 "Use all (every tool, the default), core, or a comma list such as core,anim,physics.");
         }
         HotReloadPoller poller(session.get(), *registry, server);
 
@@ -230,8 +240,7 @@ Command make_mcp_command() {
 
         // POSIX reads fd 0 itself (exact: no message is read ahead of the one handled, which a restart in place needs);
         // the tests give the command their own streams.
-        std::unique_ptr<LineReader> reader =
-            &ctx.in == &std::cin ? make_stdin_reader() : make_stream_reader(ctx.in);
+        std::unique_ptr<LineReader> reader = &ctx.in == &std::cin ? make_stdin_reader() : make_stream_reader(ctx.in);
         StdioLoopOptions lo;
         lo.poll = [&] {
             poller.poll();
@@ -248,7 +257,8 @@ Command make_mcp_command() {
             // and stay open; what is still unread in the pipe is read by the new process. No tidying up first: if the new
             // file cannot be started this process must still be able to serve, and the operating system frees the rest.
             const McpResume next = monitor.resume_state();
-            const std::string exe = next.executable.empty() ? process_update_watch().executable().string() : next.executable;
+            const std::string exe =
+                next.executable.empty() ? process_update_watch().executable().string() : next.executable;
             FA_INFO("mcp", "restarting in place: {} -> {}", process_update_watch().running().label(),
                     process_update_watch().on_disk().label());
             ctx.out.flush();

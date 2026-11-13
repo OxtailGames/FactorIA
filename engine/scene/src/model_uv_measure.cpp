@@ -23,8 +23,10 @@ struct TriMetrics {
 
 TriMetrics measure_triangle(const Vec3 (&p)[3], const Vec2 (&t)[3], double textureSize) {
     TriMetrics m;
-    const double q1x = double(p[1].x) - double(p[0].x), q1y = double(p[1].y) - double(p[0].y), q1z = double(p[1].z) - double(p[0].z);
-    const double q2x = double(p[2].x) - double(p[0].x), q2y = double(p[2].y) - double(p[0].y), q2z = double(p[2].z) - double(p[0].z);
+    const double q1x = double(p[1].x) - double(p[0].x), q1y = double(p[1].y) - double(p[0].y),
+                 q1z = double(p[1].z) - double(p[0].z);
+    const double q2x = double(p[2].x) - double(p[0].x), q2y = double(p[2].y) - double(p[0].y),
+                 q2z = double(p[2].z) - double(p[0].z);
     const double cx = q1y * q2z - q1z * q2y, cy = q1z * q2x - q1x * q2z, cz = q1x * q2y - q1y * q2x;
     m.area3 = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
     if (m.area3 < 1e-12) return m;
@@ -41,9 +43,12 @@ TriMetrics measure_triangle(const Vec3 (&p)[3], const Vec2 (&t)[3], double textu
         return m;
     }
     // Sander et al.: the derivatives of the position by u and by v
-    const double sux = (q1x * s2y - q2x * s1y) / det, suy = (q1y * s2y - q2y * s1y) / det, suz = (q1z * s2y - q2z * s1y) / det;
-    const double svx = (q2x * s1x - q1x * s2x) / det, svy = (q2y * s1x - q1y * s2x) / det, svz = (q2z * s1x - q1z * s2x) / det;
-    const double a = sux * sux + suy * suy + suz * suz, b = sux * svx + suy * svy + suz * svz, c = svx * svx + svy * svy + svz * svz;
+    const double sux = (q1x * s2y - q2x * s1y) / det, suy = (q1y * s2y - q2y * s1y) / det,
+                 suz = (q1z * s2y - q2z * s1y) / det;
+    const double svx = (q2x * s1x - q1x * s2x) / det, svy = (q2y * s1x - q1y * s2x) / det,
+                 svz = (q2z * s1x - q1z * s2x) / det;
+    const double a = sux * sux + suy * suy + suz * suz, b = sux * svx + suy * svy + suz * svz,
+                 c = svx * svx + svy * svy + svz * svz;
     const double root = std::sqrt((a - c) * (a - c) + 4 * b * b);
     const double big = 0.5 * ((a + c) + root), small = 0.5 * ((a + c) - root);
     m.stretch = small > 1e-30 ? std::sqrt(big / small) : 1e6;
@@ -64,8 +69,10 @@ void rasterize(std::vector<std::uint16_t>& grid, int R, const Vec2 (&t)[3]) {
         std::swap(x[1], x[2]);
         std::swap(y[1], y[2]);
     }
-    const int x0 = std::max(0, int(std::floor(std::min({x[0], x[1], x[2]}) - 0.5))), x1 = std::min(R - 1, int(std::ceil(std::max({x[0], x[1], x[2]}) - 0.5)));
-    const int y0 = std::max(0, int(std::floor(std::min({y[0], y[1], y[2]}) - 0.5))), y1 = std::min(R - 1, int(std::ceil(std::max({y[0], y[1], y[2]}) - 0.5)));
+    const int x0 = std::max(0, int(std::floor(std::min({x[0], x[1], x[2]}) - 0.5))),
+              x1 = std::min(R - 1, int(std::ceil(std::max({x[0], x[1], x[2]}) - 0.5)));
+    const int y0 = std::max(0, int(std::floor(std::min({y[0], y[1], y[2]}) - 0.5))),
+              y1 = std::min(R - 1, int(std::ceil(std::max({y[0], y[1], y[2]}) - 0.5)));
     for (int j = y0; j <= y1; ++j)
         for (int i = x0; i <= x1; ++i) {
             const double px = i + 0.5, py = j + 0.5;
@@ -74,10 +81,13 @@ void rasterize(std::vector<std::uint16_t>& grid, int R, const Vec2 (&t)[3]) {
                 const int n = (k + 1) % 3;
                 const double dx = x[n] - x[k], dy = y[n] - y[k];
                 const double e = dx * (py - y[k]) - dy * (px - x[k]);
-                if (e < 0) inside = false;
-                else if (e == 0 && !(dy > 0 || (dy == 0 && dx > 0))) inside = false;
+                if (e < 0)
+                    inside = false;
+                else if (e == 0 && !(dy > 0 || (dy == 0 && dx > 0)))
+                    inside = false;
             }
-            if (inside && grid[std::size_t(j) * std::size_t(R) + std::size_t(i)] < 65535) ++grid[std::size_t(j) * std::size_t(R) + std::size_t(i)];
+            if (inside && grid[std::size_t(j) * std::size_t(R) + std::size_t(i)] < 65535)
+                ++grid[std::size_t(j) * std::size_t(R) + std::size_t(i)];
         }
 }
 
@@ -88,7 +98,8 @@ namespace fa {
 
 using namespace uv;
 
-ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::string>& partNames, const std::string& layout, int textureSize) {
+ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::string>& partNames,
+                               const std::string& layout, int textureSize) {
     ModelUvReport r;
     r.layout = layout;
     r.textureSize = textureSize;
@@ -127,7 +138,9 @@ ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::str
         r.parts[part].triangles++;
         partCharts[part][std::size_t(chart[t])] = 1;
         if (!tm[t].valid) continue;
-        chartSign[std::size_t(chart[t])] += tm[t].signedUv > 0 ? tm[t].areaUv : tm[t].signedUv < 0 ? -tm[t].areaUv : 0.0;
+        chartSign[std::size_t(chart[t])] += tm[t].signedUv > 0   ? tm[t].areaUv
+                                            : tm[t].signedUv < 0 ? -tm[t].areaUv
+                                                                 : 0.0;
         const double a = tm[t].area3;
         area += a;
         if (tm[t].flat) {
@@ -166,7 +179,8 @@ ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::str
     for (std::size_t t = 0; t < tris; ++t) {
         if (!tm[t].valid || tm[t].flat) continue;
         const double s = chartSign[std::size_t(chart[t])];
-        if ((tm[t].signedUv > 0) != (s > 0)) ++r.flippedTriangles;  // a tie goes to the expected side (negative: counter-clockwise from outside)
+        if ((tm[t].signedUv > 0) != (s > 0))
+            ++r.flippedTriangles;  // a tie goes to the expected side (negative: counter-clockwise from outside)
     }
 
     // seams: an inner edge whose two triangles do not agree on the uvs of its two ends
@@ -188,7 +202,8 @@ ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::str
             }
             uses.push_back({a, b, std::uint32_t(t), ua, ub});
         }
-    std::stable_sort(uses.begin(), uses.end(), [](const Use& x, const Use& y) { return x.lo != y.lo ? x.lo < y.lo : x.hi < y.hi; });
+    std::stable_sort(uses.begin(), uses.end(),
+                     [](const Use& x, const Use& y) { return x.lo != y.lo ? x.lo < y.lo : x.hi < y.hi; });
     auto same = [](Vec2 a, Vec2 b) {
         const float tol = 1e-6f * std::max({1.0f, std::fabs(a.x), std::fabs(a.y)});
         return std::fabs(a.x - b.x) <= tol && std::fabs(a.y - b.y) <= tol;
@@ -225,11 +240,19 @@ ModelUvReport model_uv_measure(const ModelMesh& mesh, const std::vector<std::str
         r.overlap = covered ? double(shared) / double(covered) : 0.0;
     }
 
-    if (flat > 0) r.warnings.push_back(std::format("{} triangle(s) have area in space but none in the texture: they will draw one stripe of texels", flat));
+    if (flat > 0)
+        r.warnings.push_back(std::format(
+            "{} triangle(s) have area in space but none in the texture: they will draw one stripe of texels", flat));
     if (r.stretchMax > 4 && flat == 0)
-        r.warnings.push_back(std::format("the worst triangle is stretched {:.1f}:1 (mean {:.2f}): textures will smear there; use more seams (`seams`: \"many\"), or another method for that part", r.stretchMax, r.stretchMean));
-    if (r.overlap > 0.005) r.warnings.push_back(std::format("{:.1f}% of the used texels are shared by two or more triangles: a texture painted there shows on both", r.overlap * 100));
-    if (r.outsideTriangles > 0 && layout == "atlas") r.warnings.push_back(std::format("{} triangle(s) have uvs outside the 0..1 texture", r.outsideTriangles));
+        r.warnings.push_back(std::format("the worst triangle is stretched {:.1f}:1 (mean {:.2f}): textures will smear "
+                                         "there; use more seams (`seams`: \"many\"), or another method for that part",
+                                         r.stretchMax, r.stretchMean));
+    if (r.overlap > 0.005)
+        r.warnings.push_back(std::format(
+            "{:.1f}% of the used texels are shared by two or more triangles: a texture painted there shows on both",
+            r.overlap * 100));
+    if (r.outsideTriangles > 0 && layout == "atlas")
+        r.warnings.push_back(std::format("{} triangle(s) have uvs outside the 0..1 texture", r.outsideTriangles));
     return r;
 }
 

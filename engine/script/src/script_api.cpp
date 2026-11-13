@@ -27,11 +27,17 @@ std::vector<std::string> split_top(const std::string& s, char sep) {
     std::string cur;
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
-        if (c == '<' || c == '(' || c == '{' || c == '[') ++depth;
-        else if (c == '>' && !(i > 0 && s[i - 1] == '=')) --depth;
-        else if (c == ')' || c == '}' || c == ']') --depth;
-        if (c == sep && depth == 0) { out.push_back(cur); cur.clear(); }
-        else cur += c;
+        if (c == '<' || c == '(' || c == '{' || c == '[')
+            ++depth;
+        else if (c == '>' && !(i > 0 && s[i - 1] == '='))
+            --depth;
+        else if (c == ')' || c == '}' || c == ']')
+            --depth;
+        if (c == sep && depth == 0) {
+            out.push_back(cur);
+            cur.clear();
+        } else
+            cur += c;
     }
     if (!cur.empty() || !out.empty()) out.push_back(cur);
     for (auto& p : out) {
@@ -44,33 +50,61 @@ std::vector<std::string> split_top(const std::string& s, char sep) {
 
 Sig parse_sig(std::string s) {
     Sig r;
-    if (s.rfind("readonly ", 0) == 0) { r.readonly = true; s = s.substr(9); }
+    if (s.rfind("readonly ", 0) == 0) {
+        r.readonly = true;
+        s = s.substr(9);
+    }
     size_t i = 0;
-    if (!s.empty() && s[0] == '[') i = s.find(']') + 1;  // a computed or index member: [Symbol.iterator](), [index: number]
-    else while (i < s.size() && (std::isalnum(static_cast<unsigned char>(s[i])) || s[i] == '_' || s[i] == '$')) ++i;
+    if (!s.empty() && s[0] == '[')
+        i = s.find(']') + 1;  // a computed or index member: [Symbol.iterator](), [index: number]
+    else
+        while (i < s.size() && (std::isalnum(static_cast<unsigned char>(s[i])) || s[i] == '_' || s[i] == '$')) ++i;
     r.name = s.substr(0, i);
-    if (i < s.size() && s[i] == '?') { r.optional = true; ++i; }
+    if (i < s.size() && s[i] == '?') {
+        r.optional = true;
+        ++i;
+    }
     if (i < s.size() && (s[i] == '(' || s[i] == '<')) {
         r.isMethod = true;
         if (s[i] == '<') {
-            int d = 0; size_t j = i;
-            for (; j < s.size(); ++j) { if (s[j] == '<') ++d; else if (s[j] == '>') { if (--d == 0) break; } }
+            int d = 0;
+            size_t j = i;
+            for (; j < s.size(); ++j) {
+                if (s[j] == '<')
+                    ++d;
+                else if (s[j] == '>') {
+                    if (--d == 0) break;
+                }
+            }
             r.typeParams = s.substr(i, j - i + 1);
             i = j + 1;
         }
-        int d = 0; size_t j = i;
-        for (; j < s.size(); ++j) { if (s[j] == '(') ++d; else if (s[j] == ')') { if (--d == 0) break; } }
+        int d = 0;
+        size_t j = i;
+        for (; j < s.size(); ++j) {
+            if (s[j] == '(')
+                ++d;
+            else if (s[j] == ')') {
+                if (--d == 0) break;
+            }
+        }
         std::string inner = s.substr(i + 1, j - i - 1);
         for (const std::string& p : split_top(inner, ',')) {
             if (p.empty()) continue;
             Param pr;
             std::string t = p;
-            if (t.rfind("...", 0) == 0) { pr.rest = true; t = t.substr(3); }
+            if (t.rfind("...", 0) == 0) {
+                pr.rest = true;
+                t = t.substr(3);
+            }
             size_t colon = t.find(':');
             std::string nm = colon == std::string::npos ? t : t.substr(0, colon);
             pr.type = colon == std::string::npos ? "any" : t.substr(colon + 1);
             if (!pr.type.empty() && pr.type[0] == ' ') pr.type.erase(0, 1);
-            if (!nm.empty() && nm.back() == '?') { pr.optional = true; nm.pop_back(); }
+            if (!nm.empty() && nm.back() == '?') {
+                pr.optional = true;
+                nm.pop_back();
+            }
             pr.name = nm;
             r.params.push_back(pr);
         }
@@ -148,7 +182,11 @@ std::string value_type(const FieldInfo& f) {
 
 std::string init_type(const FieldInfo& f) {
     switch (f.kind) {
-        case FieldKind::Vec2: case FieldKind::Vec3: case FieldKind::Vec4: case FieldKind::Color: case FieldKind::Rect: return like_type(f.kind);
+        case FieldKind::Vec2:
+        case FieldKind::Vec3:
+        case FieldKind::Vec4:
+        case FieldKind::Color:
+        case FieldKind::Rect: return like_type(f.kind);
         case FieldKind::Entity: return "EntityLike";
         default: return value_type(f);
     }
@@ -181,7 +219,8 @@ std::string emit_member(const Json& mem, const std::string& indent, bool isStati
         out += s.typeParams + "(";
         for (size_t i = 0; i < s.params.size(); ++i) {
             const Param& p = s.params[i];
-            out += (i ? ", " : "") + std::string(p.rest ? "..." : "") + p.name + (p.optional ? "?" : "") + ": " + p.type;
+            out +=
+                (i ? ", " : "") + std::string(p.rest ? "..." : "") + p.name + (p.optional ? "?" : "") + ": " + p.type;
         }
         out += "): " + s.returns + ";\n";
     } else {
@@ -207,7 +246,8 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
         out += jsdoc(doc, indent) + indent + exp + "function " + s.name + s.typeParams + "(";
         for (size_t i = 0; i < s.params.size(); ++i) {
             const Param& p = s.params[i];
-            out += (i ? ", " : "") + std::string(p.rest ? "..." : "") + p.name + (p.optional ? "?" : "") + ": " + p.type;
+            out +=
+                (i ? ", " : "") + std::string(p.rest ? "..." : "") + p.name + (p.optional ? "?" : "") + ": " + p.type;
         }
         out += "): " + s.returns + ";\n";
     } else if (kind == "namespace") {
@@ -219,7 +259,12 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
             const std::string head = indent + "  " + (s.readonly ? "readonly " : "") + s.name;
             const size_t at = text.find(head);
             if (at == std::string::npos) continue;
-            text.replace(at, head.size(), indent + "  " + (s.isMethod ? "function " : s.readonly ? "const " : "let ") + s.name);
+            text.replace(at, head.size(),
+                         indent + "  " +
+                             (s.isMethod   ? "function "
+                              : s.readonly ? "const "
+                                           : "let ") +
+                             s.name);
             out += text;
         }
         out += indent + "}\n";
@@ -228,11 +273,14 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
         if (it.contains("generics")) out += "<" + it["generics"].get<std::string>() + ">";
         if (it.contains("extends")) out += " extends " + it["extends"].get<std::string>();
         out += " {\n";
-        if (kind == "class" && it.contains("ctor")) out += indent + "  constructor(" + it["ctor"].get<std::string>() + ");\n";
+        if (kind == "class" && it.contains("ctor"))
+            out += indent + "  constructor(" + it["ctor"].get<std::string>() + ");\n";
         if (it.contains("members"))
-            for (const Json& m : it["members"]) out += emit_member(m, indent + "  ", false, kind == "class", member_key(keyPrefix, name, m), since);
+            for (const Json& m : it["members"])
+                out += emit_member(m, indent + "  ", false, kind == "class", member_key(keyPrefix, name, m), since);
         if (it.contains("statics"))
-            for (const Json& m : it["statics"]) out += emit_member(m, indent + "  ", true, true, member_key(keyPrefix, name, m), since);
+            for (const Json& m : it["statics"])
+                out += emit_member(m, indent + "  ", true, true, member_key(keyPrefix, name, m), since);
         out += indent + "}\n";
     }
     return out;
@@ -240,7 +288,10 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
 
 // Interfaces for every reflected component (+ the name maps).
 std::string emit_components(const ScriptSystem::SinceFn& since) {
-    auto since_tag = [&](const std::string& key) { std::string v = since ? since("components", key) : std::string(); return v.empty() ? v : "\n@since " + v; };
+    auto since_tag = [&](const std::string& key) {
+        std::string v = since ? since("components", key) : std::string();
+        return v.empty() ? v : "\n@since " + v;
+    };
     std::string out;
     out += "  // ---- Components (generated from the engine's reflection registry) ----\n";
     for (const TypeInfo* t : TypeRegistry::global().all()) {
@@ -266,7 +317,8 @@ std::string emit_components(const ScriptSystem::SinceFn& since) {
     out += "  /** Component views by name, as returned by entity.get(name). */\n  export interface Components {\n";
     for (const TypeInfo* t : TypeRegistry::global().all()) out += "    " + t->name + ": " + t->name + "Component;\n";
     out += "  }\n";
-    out += "  /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */\n  export interface ComponentInit {\n";
+    out += "  /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */\n  "
+           "export interface ComponentInit {\n";
     for (const TypeInfo* t : TypeRegistry::global().all()) {
         out += "    " + t->name + ": {";
         bool first = true;
@@ -275,7 +327,7 @@ std::string emit_components(const ScriptSystem::SinceFn& since) {
             out += std::string(first ? " " : "; ") + f.name + "?: " + init_type(f);
             first = false;
         }
-        out += first ? " }" : " }";
+        out += " }";
         out += ";\n";
     }
     out += "  }\n";
@@ -284,17 +336,20 @@ std::string emit_components(const ScriptSystem::SinceFn& since) {
 
 // PluginsAPI: one member per native plugin of the project, with its functions and their doc strings.
 std::string emit_plugins(const std::vector<ScriptPlugin>& plugins) {
-    std::string out = jsdoc("The native plugins of this game (factoria.json \"plugins\"): plugins.<plugin>.<function>(...args).", "  ");
+    std::string out = jsdoc(
+        "The native plugins of this game (factoria.json \"plugins\"): plugins.<plugin>.<function>(...args).", "  ");
     out += "  export interface PluginsAPI {\n";
     for (const ScriptPlugin& p : plugins) {
         // Not the load error itself: it names this machine's folders, and the typings are committed.
         out += jsdoc(p.error.empty() ? "Native plugin '" + p.name + "'."
-                                     : "Native plugin '" + p.name + "' (not loaded when these typings were generated, so its "
-                                       "functions are not listed: build it, then run `factoria api --dts` again; "
-                                       "`factoria validate` says why it did not load).",
+                                     : "Native plugin '" + p.name +
+                                           "' (not loaded when these typings were generated, so its "
+                                           "functions are not listed: build it, then run `factoria api --dts` again; "
+                                           "`factoria validate` says why it did not load).",
                      "    ");
         out += "    readonly " + p.name + ": {\n";
-        for (const ScriptPlugin::Function& f : p.functions) out += jsdoc(f.doc, "      ") + "      " + f.name + "(...args: any[]): any;\n";
+        for (const ScriptPlugin::Function& f : p.functions)
+            out += jsdoc(f.doc, "      ") + "      " + f.name + "(...args: any[]): any;\n";
         out += "    };\n";
     }
     out += "    readonly [plugin: string]: Record<string, (...args: any[]) => any> | undefined;\n  }\n";
@@ -306,7 +361,8 @@ std::string emit_plugins(const std::vector<ScriptPlugin>& plugins) {
 std::string ScriptSystem::Impl::typescript_declarations(const ScriptSystem::SinceFn& since) const {
     const Json& data = api_data();
     std::string out;
-    out += "// Generated by `factoria api --dts`. Do not edit; regenerate after adding components or changing the engine.\n";
+    out += "// Generated by `factoria api --dts`. Do not edit; regenerate after adding components or changing the "
+           "engine.\n";
     out += "// Declares the \"factoria\" and \"factoria:test\" modules used by gameplay scripts, tools and tests.\n\n";
     if (!data.contains("modules")) return out;
     for (const Json& mod : data["modules"]) {
@@ -314,7 +370,8 @@ std::string ScriptSystem::Impl::typescript_declarations(const ScriptSystem::Sinc
         out += jsdoc(mod.value("doc", ""), "");
         out += "declare module \"" + name + "\" {\n";
         if (name == "factoria:test") {
-            out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from \"factoria\";\n";
+            out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from "
+                   "\"factoria\";\n";
         }
         const std::string keyPrefix = name == "factoria:test" ? "test:" : "";
         for (const Json& it : mod["items"]) out += emit_item(it, "  ", true, keyPrefix, since) + "\n";
@@ -322,7 +379,8 @@ std::string ScriptSystem::Impl::typescript_declarations(const ScriptSystem::Sinc
         out += "}\n\n";
     }
     out += "/** JSON data: `import levels from \"../data/levels.json\"` is the parsed file; a glob import "
-           "(`import tables from \"../data/dialogue/*.json\"`) is an object of the parsed files keyed by file name, sorted. */\n"
+           "(`import tables from \"../data/dialogue/*.json\"`) is an object of the parsed files keyed by file name, "
+           "sorted. */\n"
            "declare module \"*.json\" {\n  const data: any;\n  export default data;\n}\n";
     return out;
 }
@@ -347,7 +405,8 @@ Json ScriptSystem::Impl::plugins_json() const {
     Json out = Json::array();
     for (const ScriptPlugin& p : plugins) {
         Json fns = Json::array();
-        for (const ScriptPlugin::Function& f : p.functions) fns.push_back(Json::object({{"name", f.name}, {"doc", f.doc}}));
+        for (const ScriptPlugin::Function& f : p.functions)
+            fns.push_back(Json::object({{"name", f.name}, {"doc", f.doc}}));
         Json pj = Json::object({{"name", p.name}, {"functions", fns}});
         if (!p.error.empty()) pj["error"] = p.error;
         out.push_back(pj);
@@ -359,7 +418,8 @@ Json ScriptSystem::Impl::api_manifest() const {
     const Json& data = api_data();
     Json out = Json::object();
     out["format"] = "factoria.scripting-api/1";
-    out["doc"] = "JavaScript (ES2023 modules, QuickJS). Behaviours extend Behaviour from \"factoria\". See docs/SCRIPTING.md.";
+    out["doc"] =
+        "JavaScript (ES2023 modules, QuickJS). Behaviours extend Behaviour from \"factoria\". See docs/SCRIPTING.md.";
     Json mods = Json::array();
     if (data.contains("modules")) {
         for (const Json& mod : data["modules"]) {
@@ -371,7 +431,9 @@ Json ScriptSystem::Impl::api_manifest() const {
                 if (s.isMethod) {
                     j["kind"] = "method";
                     Json ps = Json::array();
-                    for (const Param& p : s.params) ps.push_back(Json::object({{"name", p.name}, {"type", p.type}, {"optional", p.optional}, {"rest", p.rest}}));
+                    for (const Param& p : s.params)
+                        ps.push_back(Json::object(
+                            {{"name", p.name}, {"type", p.type}, {"optional", p.optional}, {"rest", p.rest}}));
                     j["params"] = ps;
                     j["returns"] = s.returns;
                 } else {
@@ -395,8 +457,10 @@ Json ScriptSystem::Impl::api_manifest() const {
                     e["type"] = it.value("type", "any");
                 } else {
                     Json members = Json::array(), statics = Json::array();
-                    if (it.contains("members")) for (const Json& mm : it["members"]) members.push_back(member_json(mm));
-                    if (it.contains("statics")) for (const Json& mm : it["statics"]) statics.push_back(member_json(mm));
+                    if (it.contains("members"))
+                        for (const Json& mm : it["members"]) members.push_back(member_json(mm));
+                    if (it.contains("statics"))
+                        for (const Json& mm : it["statics"]) statics.push_back(member_json(mm));
                     e["members"] = members;
                     if (!statics.empty()) e["statics"] = statics;
                     if (it.contains("ctor")) e["constructor"] = it["ctor"];
@@ -410,13 +474,15 @@ Json ScriptSystem::Impl::api_manifest() const {
     out["modules"] = mods;
     out["components"] = TypeRegistry::global().describe_all();
     out["plugins"] = plugins_json();  // plugins.<name>.<function>(...args)
-    out["lifecycle"] = Json::array({"onStart()", "onEnable()", "onDisable()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)", "onDestroy()",
-                                    "onCollisionEnter(other, info)", "onCollisionExit(other)", "onTriggerEnter(other)",
-                                    "onTriggerExit(other)", "onEvent(name, data, source)"});
-    out["notes"] = Json::array({"Component views are live: body.velocity.x = 3 writes into the engine.",
-                                "Enums are lowercase strings; asset fields are path strings; Json fields are plain-object copies.",
-                                "Math.random is routed to the deterministic world RNG; prefer rng.*.",
-                                "Callbacks that use more than 2 s of CPU time are aborted with 'script took too long'."});
+    out["lifecycle"] =
+        Json::array({"onStart()", "onEnable()", "onDisable()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)",
+                     "onDestroy()", "onCollisionEnter(other, info)", "onCollisionExit(other)", "onTriggerEnter(other)",
+                     "onTriggerExit(other)", "onEvent(name, data, source)"});
+    out["notes"] =
+        Json::array({"Component views are live: body.velocity.x = 3 writes into the engine.",
+                     "Enums are lowercase strings; asset fields are path strings; Json fields are plain-object copies.",
+                     "Math.random is routed to the deterministic world RNG; prefer rng.*.",
+                     "Callbacks that use more than 2 s of CPU time are aborted with 'script took too long'."});
     return out;
 }
 

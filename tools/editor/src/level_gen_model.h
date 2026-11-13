@@ -20,15 +20,17 @@ namespace fa::editor {
 using LevelGenCaller = std::function<CommandResult(const std::string& name, const Json& args)>;
 
 struct LevelGenOptions {
-    std::string sampleEntity;        // id of an entity with a Tilemap (used when sampleFile is empty)
-    std::string sampleFile;          // project-relative .json file with rows + legend (scene.import_ascii arguments); wins over the entity
-    int width = 48, height = 28;     // the level in cells
-    std::int64_t seed = 1;           // 0..2147483647
-    std::string model = "overlapping";   // or "tiled" (the sample's autotile rules)
-    int n = 3;                       // overlapping: side of the windows, 2..5
-    int symmetry = 1;                // overlapping: 1, 2, 4 or 8
+    std::string sampleEntity;  // id of an entity with a Tilemap (used when sampleFile is empty)
+    std::string
+        sampleFile;  // project-relative .json file with rows + legend (scene.import_ascii arguments); wins over the entity
+    int width = 48, height = 28;        // the level in cells
+    std::int64_t seed = 1;              // 0..2147483647
+    std::string model = "overlapping";  // or "tiled" (the sample's autotile rules)
+    int n = 3;                          // overlapping: side of the windows, 2..5
+    int symmetry = 1;                   // overlapping: 1, 2, 4 or 8
     bool periodic = false;
-    std::string extra;               // a JSON object merged over the arguments: constraints, reachability, maxAttempts, ... (not the keys the fields above own)
+    std::string
+        extra;  // a JSON object merged over the arguments: constraints, reachability, maxAttempts, ... (not the keys the fields above own)
 };
 
 inline constexpr std::int64_t kLevelGenMaxSeed = 2147483647;
@@ -50,10 +52,11 @@ struct LevelGenPreview {
     bool valid = false;
     int width = 0, height = 0;
     std::int64_t seed = 0;
-    std::vector<std::string> rows;   // row 0 = top, one glyph per cell
-    std::vector<LevelGenCell> cells; // width * height, row-major, built once when the generation ends (the legend is not looked up per drawn cell)
-    Json legend = Json::object();    // glyph -> tile / object, as tilemap.generate returns it
-    Json stats = Json::object();     // attempts, contradictions, work, patterns, ms...
+    std::vector<std::string> rows;  // row 0 = top, one glyph per cell
+    std::vector<LevelGenCell>
+        cells;  // width * height, row-major, built once when the generation ends (the legend is not looked up per drawn cell)
+    Json legend = Json::object();  // glyph -> tile / object, as tilemap.generate returns it
+    Json stats = Json::object();   // attempts, contradictions, work, patterns, ms...
     std::vector<std::string> warnings;
 };
 
@@ -61,7 +64,7 @@ struct LevelGenPreview {
 struct LevelGenTry {
     std::int64_t seed = 0;
     bool ok = false;
-    std::string note;                // "3 attempt(s)" or the first line of the error
+    std::string note;  // "3 attempt(s)" or the first line of the error
 };
 
 class LevelGenSession {
@@ -70,14 +73,16 @@ public:
 
     State state() const { return state_; }
     bool running() const { return state_ == State::Running; }
-    double progress() const { return progress_; }          // 0..1 while Running
-    const LevelGenPreview& preview() const { return preview_; }   // valid when Ready; kept from the last good run while Running / Failed
-    int job() const { return job_; }                        // the engine's job id while Running, else 0
-    const std::string& error() const { return error_; }    // Failed: what went wrong
-    const std::string& hint() const { return hint_; }      // Failed: how to fix it
+    double progress() const { return progress_; }  // 0..1 while Running
+    const LevelGenPreview& preview() const {
+        return preview_;
+    }  // valid when Ready; kept from the last good run while Running / Failed
+    int job() const { return job_; }                     // the engine's job id while Running, else 0
+    const std::string& error() const { return error_; }  // Failed: what went wrong
+    const std::string& hint() const { return hint_; }    // Failed: how to fix it
     // Why a run stopped without a result and without being a failure ("the scene changed under it"); "" otherwise. Cleared by start / clear.
     const std::string& notice() const { return notice_; }
-    const std::vector<LevelGenTry>& tries() const { return tries_; }   // oldest first, at most kMaxTries
+    const std::vector<LevelGenTry>& tries() const { return tries_; }  // oldest first, at most kMaxTries
     static constexpr std::size_t kMaxTries = 24;
 
     // Starts a generation with `o` (cancels a running one). A refused start (bad arguments) is a Failed state with the error text.
@@ -108,7 +113,8 @@ std::string level_gen_glyph_text(const LevelGenCell& c);
 
 // scene.import_ascii arguments that build the preview in the open scene as the entity `entity`: the rows and legend, the Tilemap fields
 // `tilemap` (tileset, tileSize, solidTiles...; copy them from the sample), and the position of its top-left corner.
-Json level_gen_keep_arguments(const LevelGenPreview& p, const std::string& entity, const Json& tilemapFields, double x, double y);
+Json level_gen_keep_arguments(const LevelGenPreview& p, const std::string& entity, const Json& tilemapFields, double x,
+                              double y);
 // The Tilemap fields worth copying from a sample entity (scene.get_entity's "Tilemap" object) to a generated level: the tileset, its
 // geometry and the solid tiles. The size and the tiles themselves come from the preview.
 Json level_gen_tilemap_fields(const Json& tilemapComponent);

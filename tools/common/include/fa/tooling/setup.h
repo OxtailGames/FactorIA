@@ -47,10 +47,10 @@
 namespace fa {
 
 // What `setup` installs (changing one needs the matching docs/EXPORTING.md text updated).
-inline constexpr int kSetupJdkMajor = 21;                                  // the JDK that is downloaded
+inline constexpr int kSetupJdkMajor = 21;  // the JDK that is downloaded
 inline constexpr const char* kSetupAndroidPlatformTools = "platform-tools";
-inline constexpr const char* kSetupAndroidPlatform = "platforms;android-36";    // = the default targetSdk
-inline constexpr const char* kSetupAndroidBuildTools = "build-tools;35.0.0";    // the Android Gradle plugin's default
+inline constexpr const char* kSetupAndroidPlatform = "platforms;android-36";  // = the default targetSdk
+inline constexpr const char* kSetupAndroidBuildTools = "build-tools;35.0.0";  // the Android Gradle plugin's default
 inline constexpr const char* kSetupAndroidLicenseId = "android-sdk-license";
 // The Android command-line tools: a PINNED revision of the classic, Java-based sdkmanager, not `cmdline-tools;latest`. Revision 23
 // (2026) turned sdkmanager into a shell script in front of Google's "Android CLI": it unpacks a ~250 MB copy of itself into
@@ -64,22 +64,25 @@ inline constexpr const char* kSetupAndroidCmdlineToolsFallback = "cmdline-tools;
 // releases (docs/BUILDING.md, "Web"; a test keeps them equal).
 inline constexpr const char* kSetupEmscriptenVersion = "6.0.10";
 inline constexpr const char* kSetupCmakeVersion = "3.31.6";
-inline constexpr const char* kSetupCmakeMinimum = "3.24";                  // what the engine and build_ios.sh need
+inline constexpr const char* kSetupCmakeMinimum = "3.24";  // what the engine and build_ios.sh need
 // The AppImage tools: the same releases and hashes as scripts/package-appimage.sh (a test keeps the two equal). To upgrade,
 // change the script and these four together.
 inline constexpr const char* kSetupAppimagetoolVersion = "1.9.1";
-inline constexpr const char* kSetupAppimagetoolSha256 = "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0";
-inline constexpr const char* kSetupAppImageRuntimeVersion = "20251108";  // github.com/AppImage/type2-runtime release tag
-inline constexpr const char* kSetupAppImageRuntimeSha256 = "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d";
+inline constexpr const char* kSetupAppimagetoolSha256 =
+    "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0";
+inline constexpr const char* kSetupAppImageRuntimeVersion =
+    "20251108";  // github.com/AppImage/type2-runtime release tag
+inline constexpr const char* kSetupAppImageRuntimeSha256 =
+    "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d";
 // sokol-shdc, the shader cross-compiler of custom materials (docs/design/CUSTOM_SHADERS.md): a pinned commit of
 // github.com/floooh/sokol-tools-bin (it has no release tags) and the SHA-256 of bin/<dir>/sokol-shdc[.exe] per host.
 // tools/shaders/compile_shaders.sh uses the same pin (a test keeps them equal); the generated code must match
 // external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together.
 inline constexpr const char* kSetupSokolShdcCommit = "b975d5642093d62e76a1e088bdae945d6d8b8ff2";
 struct SokolShdcBinary {
-    const char* host;      // "windows" | "linux" | "macos" (SetupContext::host_os)
-    const char* arch;      // "x64" | "aarch64" | "" (any: the Windows x64 binary also runs on Windows on Arm)
-    const char* dir;       // bin/<dir>/ in sokol-tools-bin
+    const char* host;  // "windows" | "linux" | "macos" (SetupContext::host_os)
+    const char* arch;  // "x64" | "aarch64" | "" (any: the Windows x64 binary also runs on Windows on Arm)
+    const char* dir;   // bin/<dir>/ in sokol-tools-bin
     const char* sha256;
 };
 inline constexpr SokolShdcBinary kSetupSokolShdcBinaries[] = {
@@ -121,11 +124,11 @@ std::string factoria_home(const ExportEnvLookup& env = system_export_env());
 using ProcessRunner = std::function<Result<ProcessResult>(const ProcessOptions&)>;
 
 struct DownloadRequest {
-    std::string url;                          // https:// (file:// works too: tests)
-    std::string destination;                  // the file to write; it is written as <destination>.part and renamed
-    std::vector<std::string> headers;         // "Accept: application/vnd.github+json"
-    std::uint64_t expectedBytes = 0;          // for progress only; 0 = unknown
-    std::string what;                         // "JDK 21 (Eclipse Temurin)": names the download in errors
+    std::string url;                   // https:// (file:// works too: tests)
+    std::string destination;           // the file to write; it is written as <destination>.part and renamed
+    std::vector<std::string> headers;  // "Accept: application/vnd.github+json"
+    std::uint64_t expectedBytes = 0;   // for progress only; 0 = unknown
+    std::string what;                  // "JDK 21 (Eclipse Temurin)": names the download in errors
     std::function<void(std::uint64_t bytesSoFar)> onBytes;  // about twice a second while it runs; may be empty
     const CancelFlag* cancel = nullptr;
 };
@@ -154,14 +157,15 @@ struct SetupContext {
     std::string hostArch;           // "aarch64" | "x64"; "" = this machine's
     std::string engineVersion;      // "" = FA_ENGINE_VERSION: the release the players come from
     std::string executableDir;      // "" = the folder of the running factoria (where mobile/ is looked for)
-    std::string sourceRoot;         // "" = the checkout this factoria was built from (FA_SOURCE_ROOT): where `setup webplayer` builds
-    std::string applicationsDir;    // macOS: where Xcode*.app is looked for; "" = /Applications
-    Downloader download;            // empty = curl_downloader()
-    ProcessRunner run;              // empty = fa::run_process
+    std::string
+        sourceRoot;  // "" = the checkout this factoria was built from (FA_SOURCE_ROOT): where `setup webplayer` builds
+    std::string applicationsDir;                            // macOS: where Xcode*.app is looked for; "" = /Applications
+    Downloader download;                                    // empty = curl_downloader()
+    ProcessRunner run;                                      // empty = fa::run_process
     std::function<void(const std::string& line)> progress;  // "Downloading JDK 21 (190 MB): 40%": may be empty
     const CancelFlag* cancel = nullptr;
     std::optional<AndroidToolchainSearch> toolchainSearch;  // nullopt = default_android_toolchain_search(env)
-    std::shared_ptr<SetupCache> cache;                       // null = every call fetches what it needs again
+    std::shared_ptr<SetupCache> cache;                      // null = every call fetches what it needs again
 
     // The effective values (the defaults above filled in).
     std::string home_dir() const;
@@ -170,9 +174,11 @@ struct SetupContext {
     std::string version() const;
     std::string config_path() const;
     AndroidToolchainSearch search() const;
-    DownloadResult fetch(const DownloadRequest& request) const;       // download, or the injected downloader
+    DownloadResult fetch(const DownloadRequest& request) const;  // download, or the injected downloader
     Result<ProcessResult> run_process_with(const ProcessOptions& options) const;
-    void say(const std::string& line) const { if (progress) progress(line); }
+    void say(const std::string& line) const {
+        if (progress) progress(line);
+    }
 };
 
 struct SetupCache {
@@ -192,12 +198,13 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
+    std::string
+        id;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
     std::vector<std::pair<std::string, std::string>> paths;  // "jdk" -> folder, "sdk" -> folder, "cmake" -> file...
-    std::vector<std::string> problems;   // what is missing or wrong, each with the way to fix it
+    std::vector<std::string> problems;                       // what is missing or wrong, each with the way to fix it
     int installSizeMb = 0;               // download size of an install, approximately (0 = nothing to download)
     std::vector<SetupLicense> licenses;  // licenses to show before `acceptLicenses`; only while not yet accepted
     bool canInstall = false;             // `setup.install` can do something here
@@ -215,25 +222,28 @@ struct SetupStatus {
 // Every component of this machine, or only `component` ("" = all). Looks at folders and runs version probes
 // (`cmake --version`, `xcodebuild -version`); the only network request is the license text of the Android SDK,
 // fetched when the licenses are not accepted yet and `fetchLicenses` is set.
-SetupStatus setup_status(const SetupContext& context = {}, const std::string& component = {}, bool fetchLicenses = true);
+SetupStatus setup_status(const SetupContext& context = {}, const std::string& component = {},
+                         bool fetchLicenses = true);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Install
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
-    bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
-    std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
-    bool force = false;                    // reinstall even when it is found (android, cmake)
+    std::string
+        component;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
+    bool acceptLicenses = false;  // android: the user agreed to the Android SDK license
+    std::vector<std::string>
+        platforms;       // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
+    bool force = false;  // reinstall even when it is found (android, cmake)
 };
 
 struct SetupStep {
-    std::string id;       // "jdk", "cmdline-tools", "licenses", "packages", "player-windows"...
+    std::string id;  // "jdk", "cmdline-tools", "licenses", "packages", "player-windows"...
     std::string title;
     std::string outcome;  // "installed" | "skipped" (already there, or done by a later step) | "guidance"
     std::string detail;
-    std::string path;     // where it is now
+    std::string path;  // where it is now
     std::uint64_t downloadedBytes = 0;
     double seconds = 0;
     Json to_json() const;
@@ -241,10 +251,10 @@ struct SetupStep {
 
 struct SetupReport {
     std::string component;
-    bool changed = false;                  // something was downloaded or written
+    bool changed = false;  // something was downloaded or written
     std::vector<SetupStep> steps;
     std::vector<std::pair<std::string, std::string>> paths;
-    std::vector<std::string> nextSteps;    // what the user does next (xcode: install it, open it once...)
+    std::vector<std::string> nextSteps;  // what the user does next (xcode: install it, open it once...)
     std::vector<std::string> warnings;
     double seconds = 0;
     Json to_json() const;
@@ -252,10 +262,10 @@ struct SetupReport {
 
 struct SetupResult {
     bool ok = false;
-    SetupReport report;   // always filled as far as the install got (the steps done before a failure)
-    std::string code;     // when !ok: "license_required" | "cancelled" | "network" | "checksum_mismatch" | "no_release" |
-                          // "unsupported" | "invalid_argument" | "failed"
-    Error error;          // when !ok
+    SetupReport report;  // always filled as far as the install got (the steps done before a failure)
+    std::string code;  // when !ok: "license_required" | "cancelled" | "network" | "checksum_mismatch" | "no_release" |
+                       // "unsupported" | "invalid_argument" | "failed"
+    Error error;       // when !ok
 };
 
 SetupResult setup_install(const SetupInstallOptions& options, const SetupContext& context = {});
@@ -317,7 +327,7 @@ bool refresh_launcher(const SetupContext& context = {});
 // it is another factoria's, or on Linux (the .desktop's StartupWMClass groups the window already).
 // `projectDir` should be absolute: the macOS launcher runs from the home folder.
 std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir,
-                                               long long quittingPid = 0);
+                                                long long quittingPid = 0);
 
 // Registers "setup.status" ({read, process, network}: it runs the tools it probes and may fetch the Android license text) and
 // "setup.install" ({read, writeAnywhere, process, network}: the user's call, an MCP client or an agent gets

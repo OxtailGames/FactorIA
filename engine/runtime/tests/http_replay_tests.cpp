@@ -32,7 +32,8 @@ struct NetProject {
 
 }  // namespace
 
-TEST_CASE("http.fetch: a replay's http entries are the answers of the game's requests, in order, and the recording keeps them") {
+TEST_CASE("http.fetch: a replay's http entries are the answers of the game's requests, in order, and the recording "
+          "keeps them") {
     NetProject p;
     EngineConfig cfg;
     cfg.projectDir = p.dir.generic_string();
@@ -47,7 +48,8 @@ TEST_CASE("http.fetch: a replay's http entries are the answers of the game's req
     std::vector<std::string> problems;
     e.apply_input_entry(Json::parse(R"({"http":[
         {"result":{"status":200,"headers":{},"text":"{\"daily\":7}"}},
-        {"error":"network","message":"timed out","hint":"Try again."}]})"), problems, 0);
+        {"error":"network","message":"timed out","hint":"Try again."}]})"),
+                        problems, 0);
     CHECK(problems.empty());
     auto run = [&](const std::string& code) {
         auto r = e.scripts().eval(code);
@@ -71,7 +73,8 @@ TEST_CASE("http.fetch: a replay's http entries are the answers of the game's req
     Json http = Json::array();
     for (const auto& [frame, entry] : replay["frames"].items())
         if (entry.contains("http"))
-            for (const Json& a : entry["http"]) http.push_back(Json::object({{"frame", std::stoi(frame)}, {"answer", a}}));
+            for (const Json& a : entry["http"])
+                http.push_back(Json::object({{"frame", std::stoi(frame)}, {"answer", a}}));
     INFO(replay.dump());
     REQUIRE(http.size() == 3);
     CHECK(http[0]["answer"]["result"]["text"] == R"({"daily":7})");

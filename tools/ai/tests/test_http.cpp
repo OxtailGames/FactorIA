@@ -22,7 +22,8 @@ namespace {
 // One-connection-at-a-time HTTP server: records the raw request, replies with a canned response.
 class LoopbackServer {
 public:
-    explicit LoopbackServer(std::vector<std::string> chunks, int sleepMs = 0) : chunks_(std::move(chunks)), sleepMs_(sleepMs) {
+    explicit LoopbackServer(std::vector<std::string> chunks, int sleepMs = 0)
+        : chunks_(std::move(chunks)), sleepMs_(sleepMs) {
         fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         int one = 1;
         setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
@@ -43,7 +44,9 @@ public:
         ::close(fd_);
         if (thread_.joinable()) thread_.join();
     }
-    std::string url(const std::string& path = "/v1/messages") const { return "http://127.0.0.1:" + std::to_string(port_) + path; }
+    std::string url(const std::string& path = "/v1/messages") const {
+        return "http://127.0.0.1:" + std::to_string(port_) + path;
+    }
     std::string request() {
         std::lock_guard<std::mutex> l(m_);
         return request_;
@@ -71,10 +74,14 @@ private:
                 }
                 if (headerEnd != std::string::npos && req.size() >= want) break;
             }
-            { std::lock_guard<std::mutex> l(m_); request_ = req; }
+            {
+                std::lock_guard<std::mutex> l(m_);
+                request_ = req;
+            }
             for (std::size_t i = 0; i < chunks_.size(); ++i) {
                 ::send(c, chunks_[i].data(), chunks_[i].size(), MSG_NOSIGNAL);
-                if (sleepMs_ > 0 && i + 1 < chunks_.size()) std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs_));
+                if (sleepMs_ > 0 && i + 1 < chunks_.size())
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs_));
             }
             ::close(c);
         }
@@ -92,7 +99,8 @@ private:
 HttpRequest post(const std::string& url) {
     HttpRequest r;
     r.url = url;
-    r.headers = {{"content-type", "application/json"}, {"x-api-key", "secret-key"}, {"anthropic-version", "2023-06-01"}};
+    r.headers = {
+        {"content-type", "application/json"}, {"x-api-key", "secret-key"}, {"anthropic-version", "2023-06-01"}};
     r.body = R"({"hello":"world"})";
     r.timeoutSeconds = 20;
     r.connectTimeoutSeconds = 5;
@@ -119,11 +127,14 @@ void check_backend(Backend send, const char* name) {
     }
     {  // error status keeps the body and headers
         std::string body = R"({"error":{"type":"rate_limit_error"}})";
-        LoopbackServer srv({"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 3\r\nContent-Length: " + std::to_string(body.size()) +
-                            "\r\nConnection: close\r\n\r\n" + body});
+        LoopbackServer srv({"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 3\r\nContent-Length: " +
+                            std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body});
         HttpRequest rq = post(srv.url());
         std::string streamed;
-        rq.onData = [&](std::string_view c) { streamed += c; return true; };  // not called for non-2xx
+        rq.onData = [&](std::string_view c) {
+            streamed += c;
+            return true;
+        };  // not called for non-2xx
         auto resp = send(rq);
         CHECK(resp.status == 429);
         CHECK(resp.body == body);
@@ -135,7 +146,10 @@ void check_backend(Backend send, const char* name) {
         LoopbackServer srv({head, "data: one\n\n", "data: two\n\n", "data: three\n\n"}, 80);
         HttpRequest rq = post(srv.url());
         std::vector<std::string> chunks;
-        rq.onData = [&](std::string_view c) { chunks.emplace_back(c); return true; };
+        rq.onData = [&](std::string_view c) {
+            chunks.emplace_back(c);
+            return true;
+        };
         auto resp = send(rq);
         CHECK(resp.status == 200);
         CHECK(resp.body.empty());
@@ -150,7 +164,10 @@ void check_backend(Backend send, const char* name) {
         CancelFlag cancel{false};
         HttpRequest rq = post(srv.url());
         rq.cancel = &cancel;
-        rq.onData = [&](std::string_view) { cancel = true; return true; };
+        rq.onData = [&](std::string_view) {
+            cancel = true;
+            return true;
+        };
         auto t0 = std::chrono::steady_clock::now();
         auto resp = send(rq);
         CHECK(resp.cancelled);
@@ -167,7 +184,10 @@ void check_backend(Backend send, const char* name) {
         rq.url = srv.url("/latest");
         rq.timeoutSeconds = 20;
         std::string streamed;
-        rq.onData = [&](std::string_view c) { streamed += c; return true; };
+        rq.onData = [&](std::string_view c) {
+            streamed += c;
+            return true;
+        };
         auto resp = send(rq);
         CHECK(resp.status == 200);
         CHECK(streamed == body);
@@ -187,7 +207,10 @@ void check_backend(Backend send, const char* name) {
 TEST_CASE("http client (default backend) against a loopback server") { check_backend(http_request, "default"); }
 
 TEST_CASE("http client (curl executable fallback) against a loopback server") {
-    if (which("curl").empty()) { MESSAGE("curl executable not installed; skipped"); return; }
+    if (which("curl").empty()) {
+        MESSAGE("curl executable not installed; skipped");
+        return;
+    }
     check_backend(http_request_curl_exe, "curl-exe");
 }
 

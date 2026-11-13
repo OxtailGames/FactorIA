@@ -14,7 +14,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-void write_text(const stdfs::path& p, const std::string& text) { REQUIRE(fa::fs::write_text(p.generic_string(), text).ok()); }
+void write_text(const stdfs::path& p, const std::string& text) {
+    REQUIRE(fa::fs::write_text(p.generic_string(), text).ok());
+}
 
 const char* kTest = R"JS(
 import { test, expect, game } from "factoria:test";
@@ -65,7 +67,8 @@ test("game.checkLayout() measures a panel the test opened and does not reload th
 TEST_CASE("scripts: game.tap through the UI and game.checkLayout in the current frame") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_ui_player").value() / "proj";
-    write_text(dir / "factoria.json", R"({"format":"factoria.project/1","name":"UiPlayer","id":"com.factoria.tests.uiplayer","version":"0.1.0",
+    write_text(dir / "factoria.json",
+               R"({"format":"factoria.project/1","name":"UiPlayer","id":"com.factoria.tests.uiplayer","version":"0.1.0",
         "mainScene":"scenes/main.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},
         "input":{"actions":{"interact":["Space"],"stickonly":["GamepadLeftStickUp"]}}})");
@@ -77,13 +80,13 @@ TEST_CASE("scripts: game.tap through the UI and game.checkLayout in the current 
         {"id":"side","active":false,"components":{"Panel":{"size":[300,200],"anchor":[0.85,0.6]}},
          "children":[{"id":"long_label","components":{"Button":{"text":"A very long label that cannot fit in a small button",
            "size":[120,40]}}}]}]})");
-    write_text(dir / "scripts" / "spy.js",
-               "import { Behaviour, ui, input } from \"factoria\";\n"
-               "export default class Spy extends Behaviour {\n"
-               "  stick = 0;\n"
-               "  onStart() { ui.on(\"click\", (e) => { if (e.id === \"go\" && globalThis.spy) globalThis.spy.clicks++; }); }\n"
-               "  onUpdate() { if (input.pressed(\"stickonly\")) this.stick++; }\n"
-               "}\n");
+    write_text(dir / "scripts" / "spy.js", "import { Behaviour, ui, input } from \"factoria\";\n"
+                                           "export default class Spy extends Behaviour {\n"
+                                           "  stick = 0;\n"
+                                           "  onStart() { ui.on(\"click\", (e) => { if (e.id === \"go\" && "
+                                           "globalThis.spy) globalThis.spy.clicks++; }); }\n"
+                                           "  onUpdate() { if (input.pressed(\"stickonly\")) this.stick++; }\n"
+                                           "}\n");
     write_text(dir / "tests" / "ui_player.test.js", kTest);
 
     fa::cli::SessionOptions so;

@@ -24,9 +24,12 @@ std::string eval_err(TestHost& h, const char* code) {
 
 TEST_CASE("nav.findTilePath: a Tilemap entity, a grid, version and errors") {
     TestHost h("nav_tiles");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({
-        Json::parse(R"({"id":"ground","components":{"Transform":{"position":[0,0,0]},
-            "Tilemap":{"tileSize":[16,16],"width":4,"height":3,"solidTiles":[1],"tiles":[0,0,0,0, 0,1,1,0, 0,0,0,0]}}})")})}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object(
+               {{"format", "factoria.scene/1"},
+                {"entities", Json::array({Json::parse(R"({"id":"ground","components":{"Transform":{"position":[0,0,0]},
+            "Tilemap":{"tileSize":[16,16],"width":4,"height":3,"solidTiles":[1],"tiles":[0,0,0,0, 0,1,1,0, 0,0,0,0]}}})")})}})
+               .dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     h.step_frames(2);
@@ -35,35 +38,51 @@ TEST_CASE("nav.findTilePath: a Tilemap entity, a grid, version and errors") {
     CHECK(eval_ok(h, "nav.findTilePath('ground', [0,1], [3,1], { costs: { 1: 1.5 } }).cells.length").get<int>() == 4);
     // Infinity blocks, closest still answers
     CHECK(eval_ok(h, "nav.findTilePath('ground', [0,1], [3,1], { costs: { 0: Infinity } }).reason") == "goal_blocked");
-    CHECK(eval_ok(h, "nav.findTilePath('ground', [0,1], [3,1], { costs: { 0: Infinity }, closest: true }).complete") == false);
+    CHECK(eval_ok(h, "nav.findTilePath('ground', [0,1], [3,1], { costs: { 0: Infinity }, closest: true }).complete") ==
+          false);
     CHECK(eval_ok(h, "nav.findTilePath('ground', [0,0], [3,0], { diagonals: true }).cells.length").get<int>() == 4);
     // a grid: Infinity, -1 and null block
-    CHECK(eval_ok(h, "nav.findTilePath({ width: 3, height: 3, cost: [1,Infinity,1, 1,-1,1, 1,1,1] }, [0,0], [2,0]).cost").get<int>() == 6);
+    CHECK(
+        eval_ok(h, "nav.findTilePath({ width: 3, height: 3, cost: [1,Infinity,1, 1,-1,1, 1,1,1] }, [0,0], [2,0]).cost")
+            .get<int>() == 6);
     // the version counts setTile writes
-    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').tilemap.setTile(0, 0, 1); nav.tileVersion('ground') - v").get<int>() == 1);
+    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').tilemap.setTile(0, 0, 1); "
+                     "nav.tileVersion('ground') - v")
+              .get<int>() == 1);
     CHECK(eval_ok(h, "nav.findTilePath('ground', [3,0], [3,0]).cells.length").get<int>() == 1);
     // writes that replace `tiles` as a whole count too: no change = same number, any change = a higher one
     // (scene.set_component and the editor write the same field; runtime tests cover them)
     CHECK(eval_ok(h, "nav.tileVersion('ground') - nav.tileVersion('ground')").get<int>() == 0);
-    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').get('Tilemap').tiles = [0,0,0,0, 0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') > v").get<bool>());
-    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').get('Tilemap').tiles = [0,0,0,0, 0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') === v").get<bool>());
+    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').get('Tilemap').tiles = [0,0,0,0, "
+                     "0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') > v")
+              .get<bool>());
+    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); world.find('ground').get('Tilemap').tiles = [0,0,0,0, "
+                     "0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') === v")
+              .get<bool>());
     // a setTile followed by a whole replacement before the next look still reads as changed
-    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); const t = world.find('ground'); t.tilemap.setTile(1, 1, 3); t.get('Tilemap').tiles = [0,0,0,0, 0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') > v").get<bool>());
+    CHECK(eval_ok(h, "const v = nav.tileVersion('ground'); const t = world.find('ground'); t.tilemap.setTile(1, 1, 3); "
+                     "t.get('Tilemap').tiles = [0,0,0,0, 0,0,0,0, 0,0,0,0]; nav.tileVersion('ground') > v")
+              .get<bool>());
     // errors teach
     CHECK(eval_err(h, "nav.findTilePath('ground', 'a', [1,1])").find("col, row") != std::string::npos);
     CHECK(eval_err(h, "nav.findTilePath(42, [0,0], [1,1])").find("grid") != std::string::npos);
     CHECK(eval_err(h, "nav.findTilePath('nothing', [0,0], [1,1])").find("nothing") != std::string::npos);
     CHECK(eval_ok(h, "nav.findTilePath('ground', [0,0], [9,9]).reason") == "goal_off_map");
     // a wrong option type is a script error, not a crash
-    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { diagonals: 'yes' })").find("true or false") != std::string::npos);
-    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { maxNodes: 'lots' })").find("maxNodes") != std::string::npos);
+    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { diagonals: 'yes' })").find("true or false") !=
+          std::string::npos);
+    CHECK(eval_err(h, "nav.findTilePath('ground', [0,0], [1,0], { maxNodes: 'lots' })").find("maxNodes") !=
+          std::string::npos);
 }
 
 TEST_CASE("AI_GUIDE recipe 9.27: the cellOf lines read the tile size from the Tilemap component") {
     TestHost h("nav_tiles_recipe");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({
-        Json::parse(R"({"id":"ground","components":{"Transform":{"position":[10,20,0]},
-            "Tilemap":{"tileSize":[16,8],"width":4,"height":3,"tiles":[0,0,0,0, 0,0,0,0, 0,0,0,0]}}})")})}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object({{"format", "factoria.scene/1"},
+                         {"entities",
+                          Json::array({Json::parse(R"({"id":"ground","components":{"Transform":{"position":[10,20,0]},
+            "Tilemap":{"tileSize":[16,8],"width":4,"height":3,"tiles":[0,0,0,0, 0,0,0,0, 0,0,0,0]}}})")})}})
+               .dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     h.step_frames(2);
@@ -74,7 +93,8 @@ TEST_CASE("AI_GUIDE recipe 9.27: the cellOf lines read the tile size from the Ti
         const o = map.position, t = map.get("Tilemap").tileSize;
         return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
       };)";
-    CHECK(eval_ok(h, (std::string(cellOf) + "JSON.stringify(cellOf({ x: 27, y: 11 }))").c_str()) == "{\"col\":1,\"row\":1}");
+    CHECK(eval_ok(h, (std::string(cellOf) + "JSON.stringify(cellOf({ x: 27, y: 11 }))").c_str()) ==
+          "{\"col\":1,\"row\":1}");
     // an entity has no `component` of its own (that is `entity.tilemap.component`): the old recipe threw here (reading it throws too)
     CHECK(eval_ok(h, "!('component' in world.find('ground'))").get<bool>());
     CHECK(eval_ok(h, "world.find('ground').tilemap.component.tileSize.x").get<int>() == 16);
@@ -82,7 +102,8 @@ TEST_CASE("AI_GUIDE recipe 9.27: the cellOf lines read the tile size from the Ti
 
 TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields and errors") {
     TestHost h("nav_grid_handles");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     // the grid gives the paths of the array form
@@ -92,9 +113,12 @@ TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields a
       const a = nav.findTilePath({ width: 5, height: 3, cost, origin: [10, 20], cellSize: 2 }, [2, 0], [2, 2]);
       const b = nav.findTilePath(g, [2, 0], [2, 2]);
       JSON.stringify(a.cells) === JSON.stringify(b.cells) && a.cost === b.cost && b.points[0].x === 15 && b.points[0].y === 19 && b.found
-    )").get<bool>());
+    )")
+              .get<bool>());
     // setCost: the next path sees it; the version counts changes
-    CHECK(eval_ok(h, "globalThis.v = g.version; g.setCost(2, 1, 1); g.setCost(2, 1, 1); [g.version - v, nav.findTilePath(g, [2, 0], [2, 2]).cost, g.getCost(1, 1), g.getCost(2, 1)]") == Json::parse("[1,2,\"Infinity\",1]"));
+    CHECK(eval_ok(h, "globalThis.v = g.version; g.setCost(2, 1, 1); g.setCost(2, 1, 1); [g.version - v, "
+                     "nav.findTilePath(g, [2, 0], [2, 2]).cost, g.getCost(1, 1), g.getCost(2, 1)]") ==
+          Json::parse("[1,2,\"Infinity\",1]"));
     CHECK(eval_ok(h, "g.setCost(2, 1, null); String(g.getCost(2, 1))") == "Infinity");  // null blocks too
     CHECK(eval_ok(h, "g.findPath([2, 0], [2, 2]).cost").get<int>() == 6);
     // flow field: distances, steps, path, goals, rebuild
@@ -106,19 +130,26 @@ TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields a
     CHECK(eval_ok(h, "g.setCost(2, 1, 1); [f.distance(2, 0), f.rebuilds]") == Json::parse("[2,2]"));
     CHECK(eval_ok(h, "f.stepToward({ col: 2, row: 0 }).col").get<int>() == 3);
     // a field with no reachable goal answers Infinity and null
-    CHECK(eval_ok(h, "const w = nav.createGrid({ width: 3, height: 1, cost: [1, Infinity, 1] }); const wf = nav.flowField(w, [2, 0]); [wf.distance(0, 0) === Infinity, wf.stepToward(0, 0), wf.pathFrom(0, 0).length]") == Json::parse("[true,null,0]"));
+    CHECK(eval_ok(
+              h,
+              "const w = nav.createGrid({ width: 3, height: 1, cost: [1, Infinity, 1] }); const wf = nav.flowField(w, "
+              "[2, 0]); [wf.distance(0, 0) === Infinity, wf.stepToward(0, 0), wf.pathFrom(0, 0).length]") ==
+          Json::parse("[true,null,0]"));
     CHECK(eval_ok(h, "nav.createGrid({ width: 2, height: 2 }).getCost(1, 1)").get<int>() == 1);
     // errors teach
-    CHECK(eval_err(h, "nav.createGrid({ width: 2, height: 2, cost: [1] })").find("width * height = 4") != std::string::npos);
+    CHECK(eval_err(h, "nav.createGrid({ width: 2, height: 2, cost: [1] })").find("width * height = 4") !=
+          std::string::npos);
     CHECK(eval_err(h, "nav.createGrid({ width: 0, height: 2 })").find("width and height") != std::string::npos);
     CHECK(eval_err(h, "g.setCost(9, 9, 1)").find("outside the 5 x 3 grid") != std::string::npos);
     CHECK(eval_err(h, "g.setCost(1, 1, 'x')").find("cost must be a number") != std::string::npos);
     CHECK(eval_err(h, "nav.flowField(g, [9, 9])").find("outside") != std::string::npos);
     CHECK(eval_err(h, "nav.flowField(g, [])").find("at least one goal") != std::string::npos);
-    CHECK(eval_err(h, "nav.flowField({ width: 2, height: 2, cost: [1,1,1,1] }, [0, 0])").find("nav.createGrid") != std::string::npos);
+    CHECK(eval_err(h, "nav.flowField({ width: 2, height: 2, cost: [1,1,1,1] }, [0, 0])").find("nav.createGrid") !=
+          std::string::npos);
     CHECK(eval_err(h, "f.distance('a', 1)").find("col, row") != std::string::npos);
     CHECK(eval_ok(h, "nav.findTilePath(g, [0,0], [9,9]).reason") == "goal_off_map");
-    CHECK(eval_err(h, "nav.findTilePath(g, [0,0], [1,0], { diagonals: 'yes' })").find("true or false") != std::string::npos);
+    CHECK(eval_err(h, "nav.findTilePath(g, [0,0], [1,0], { diagonals: 'yes' })").find("true or false") !=
+          std::string::npos);
 }
 
 // 600 walkers on a 60 x 60 map for 75 ticks, each asking for its next step toward one of 6 buildings every tick. The array
@@ -126,7 +157,8 @@ TEST_CASE("nav.createGrid and nav.flowField: a kept grid, setCost, flow fields a
 // search per goal. The numbers are printed so a later change can see where they stand.
 TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid vs flow field") {
     TestHost h("nav_grid_bench");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     eval_ok(h, R"(
@@ -177,8 +209,10 @@ TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid v
     const auto grid = time_it("grid", 75);
     const auto flow = time_it("flow", 75);
     const double arrayMs = arraySample.first * 75.0 / kSample;
-    std::printf("nav benchmark (600 walkers, 60x60, 75 ticks, Debug build): array form %.0f ms (%d ticks measured, scaled), "
-                "kept grid %.0f ms, flow field %.0f ms\n", arrayMs, kSample, grid.first, flow.first);
+    std::printf(
+        "nav benchmark (600 walkers, 60x60, 75 ticks, Debug build): array form %.0f ms (%d ticks measured, scaled), "
+        "kept grid %.0f ms, flow field %.0f ms\n",
+        arrayMs, kSample, grid.first, flow.first);
     // The array form and the kept grid take the very same steps. The flow field takes shortest steps too, but may break a tie
     // another way, so only its step count is compared.
     CHECK(arraySample.second == gridSample.second);
@@ -189,7 +223,8 @@ TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid v
 
 TEST_CASE("bt: every node type from factoria") {
     TestHost h("bt_nodes");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     const char* code = R"(
@@ -225,7 +260,8 @@ TEST_CASE("bt: every node type from factoria") {
 
 TEST_CASE("bt: parallel and repeat") {
     TestHost h("bt_parallel_repeat");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
+    h.file("scenes/main.scene.json",
+           Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}}).dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     const char* code = R"(
@@ -266,7 +302,8 @@ TEST_CASE("bt: parallel and repeat") {
     CHECK(o["repFail"] == Json::parse(R"(["running","running","failure"])"));
     CHECK(o["repBusy"] == "running");
     CHECK(o["repWait"] == Json::parse(R"(["running","running","running","success","running"])"));
-    CHECK(eval_err(h, "bt.parallel({ succeed: 'some' }, bt.action(() => 1))").find("\"all\" or \"any\"") != std::string::npos);
+    CHECK(eval_err(h, "bt.parallel({ succeed: 'some' }, bt.action(() => 1))").find("\"all\" or \"any\"") !=
+          std::string::npos);
     CHECK(eval_err(h, "bt.parallel({ win: 'all' })").find("unknown option") != std::string::npos);
     CHECK(eval_err(h, "bt.parallel(1)").find("not a node") != std::string::npos);
     CHECK(eval_err(h, "bt.repeat(bt.action(() => 1), 0)").find("whole number") != std::string::npos);

@@ -33,10 +33,10 @@ constexpr std::size_t kComparedShown = 8;  // inputs listed per skipped or faile
 // normal map; assets.draw_capsules a file per store size): the assets with the same command and arguments are one group.
 struct Group {
     std::string command;
-    Json args;                          // the recipe's args
-    Json recipe;                        // the first output's recipe (inputs are the same for all)
-    std::vector<std::string> outputs;   // asset paths, in the order of assets.json
-    std::vector<std::string> deps;      // outputs of other groups that this group reads
+    Json args;                         // the recipe's args
+    Json recipe;                       // the first output's recipe (inputs are the same for all)
+    std::vector<std::string> outputs;  // asset paths, in the order of assets.json
+    std::vector<std::string> deps;     // outputs of other groups that this group reads
 };
 
 // What a file was before the run: enough to say what changed after it.
@@ -72,7 +72,8 @@ Json manifest_entry(const std::string& projectDir, const std::string& rel) {
     auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
     if (!text) return Json::object();
     auto parsed = parse_json(*text, assets::kManifestFile);
-    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object()) return Json::object();
+    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object())
+        return Json::object();
     auto it = (*parsed)["assets"].find(rel);
     return it == (*parsed)["assets"].end() ? Json::object() : *it;
 }
@@ -81,19 +82,26 @@ Json manifest_entry(const std::string& projectDir, const std::string& rel) {
 Json describe_change(const Snapshot& before, const Snapshot& after, const Json& afterEntry) {
     Json out = Json::object();
     std::string summary;
-    if (!after.exists) summary = "missing";
-    else if (!before.exists) summary = "created";
-    else if (before.sha == after.sha) summary = "unchanged";
-    else if (before.image && after.image) summary = before.image->width == after.image->width && before.image->height == after.image->height &&
-                                                             before.image->rgba == after.image->rgba
-                                                         ? "bytes changed (same pixels)"
-                                                         : "pixels changed";
-    else summary = "bytes changed";
+    if (!after.exists)
+        summary = "missing";
+    else if (!before.exists)
+        summary = "created";
+    else if (before.sha == after.sha)
+        summary = "unchanged";
+    else if (before.image && after.image)
+        summary = before.image->width == after.image->width && before.image->height == after.image->height &&
+                          before.image->rgba == after.image->rgba
+                      ? "bytes changed (same pixels)"
+                      : "pixels changed";
+    else
+        summary = "bytes changed";
     out["result"] = summary;
     out["changed"] = summary != "unchanged";
     out["bytes"] = Json::object({{"before", before.bytes}, {"after", after.bytes}});
-    if (before.image && after.image && (before.image->width != after.image->width || before.image->height != after.image->height))
-        out["size"] = Json::object({{"before", Json::array({before.image->width, before.image->height})}, {"after", Json::array({after.image->width, after.image->height})}});
+    if (before.image && after.image &&
+        (before.image->width != after.image->width || before.image->height != after.image->height))
+        out["size"] = Json::object({{"before", Json::array({before.image->width, before.image->height})},
+                                    {"after", Json::array({after.image->width, after.image->height})}});
     else if (after.image)
         out["size"] = Json::array({after.image->width, after.image->height});
     const Json sheetAfter = afterEntry.is_object() ? afterEntry.value("sheet", Json()) : Json();
@@ -105,16 +113,23 @@ Json describe_change(const Snapshot& before, const Snapshot& after, const Json& 
     const Json prov = entry.is_object() ? entry.value("provenance", Json()) : Json();
     if (!prov.is_object())
         fail("no_recipe", "'" + rel + "' has no provenance record, so there is no recipe to run.",
-             "Only assets made by the offline makers (assets.rasterize_svg, assets.animate_svg, assets.synth_sound...) record one. Make the asset with the command again, or edit the file by hand.");
+             "Only assets made by the offline makers (assets.rasterize_svg, assets.animate_svg, assets.synth_sound...) "
+             "record one. Make the asset with the command again, or edit the file by hand.");
     const std::string origin = prov.value("origin", std::string());
     if (origin == "generated" && prov.contains("model"))
-        fail("not_regenerable", "'" + rel + "' was made by the image provider " + prov.value("provider", std::string("a provider")) +
-                                    "; a provider asset is not regenerated (it would cost money and give a different picture).",
-             "Call assets.generate_image (or the provider command that made it) again for a new take, with `overwrite: true`.");
+        fail("not_regenerable",
+             "'" + rel + "' was made by the image provider " + prov.value("provider", std::string("a provider")) +
+                 "; a provider asset is not regenerated (it would cost money and give a different picture).",
+             "Call assets.generate_image (or the provider command that made it) again for a new take, with `overwrite: "
+             "true`.");
     if (origin == "imported")
-        fail("not_regenerable", "'" + rel + "' was imported" + (prov.contains("source") ? " from '" + prov.value("source", std::string()) + "'" : std::string()) + ", not made by a command.",
+        fail("not_regenerable",
+             "'" + rel + "' was imported" +
+                 (prov.contains("source") ? " from '" + prov.value("source", std::string()) + "'" : std::string()) +
+                 ", not made by a command.",
              "Run assets.import again on the source file with `overwrite: true` if it changed.");
-    fail("no_recipe", "'" + rel + "' has a provenance record but no recipe, so it was made before recipes existed or by hand.",
+    fail("no_recipe",
+         "'" + rel + "' has a provenance record but no recipe, so it was made before recipes existed or by hand.",
          "Make it with its command again (the command records its recipe now), or edit the file by hand.");
 }
 
@@ -125,13 +140,17 @@ Json run_group(const CommandRegistry& registry, const std::string& projectDir, c
 
     Json args = g.args;
     if (const CommandInfo* info = registry.info(g.command))
-        if (info->inputSchema.contains("properties") && info->inputSchema["properties"].contains("overwrite")) args["overwrite"] = true;
+        if (info->inputSchema.contains("properties") && info->inputSchema["properties"].contains("overwrite"))
+            args["overwrite"] = true;
     CommandResult r = registry.call(g.command, args);
     if (!r.ok) {
         const std::string message = r.error.value("message", std::string("the command failed"));
         const std::string hint = r.error.value("hint", std::string());
-        if (single) fail(r.error.value("code", std::string("failed")).c_str(), "Making '" + g.outputs.front() + "' again with " + g.command + " failed: " + message, hint);
-        item["error"] = Json::object({{"code", r.error.value("code", std::string("failed"))}, {"message", message}, {"hint", hint}});
+        if (single)
+            fail(r.error.value("code", std::string("failed")).c_str(),
+                 "Making '" + g.outputs.front() + "' again with " + g.command + " failed: " + message, hint);
+        item["error"] = Json::object(
+            {{"code", r.error.value("code", std::string("failed"))}, {"message", message}, {"hint", hint}});
         return item;
     }
     if (r.result.is_object() && r.result.contains("warnings")) item["warnings"] = r.result["warnings"];
@@ -146,16 +165,20 @@ Json run_group(const CommandRegistry& registry, const std::string& projectDir, c
         if (old.is_object() && merged.is_object()) {
             merged = old;
             for (const char* key : {"recipe", "date"}) {
-                if (fresh["provenance"].contains(key)) merged[key] = fresh["provenance"][key];
-                else merged.erase(key);
+                if (fresh["provenance"].contains(key))
+                    merged[key] = fresh["provenance"][key];
+                else
+                    merged.erase(key);
             }
         }
         // A maker that draws a picture clears its `sheet` (new pixels, old grid unknown); the same picture made again keeps the grid
         // that was recorded for it (a rasterized picture sliced in place).
-        bool keepSheet = !before[rel].sheet.is_null() && !(fresh.is_object() && fresh.contains("sheet")) && before[rel].image;
+        bool keepSheet =
+            !before[rel].sheet.is_null() && !(fresh.is_object() && fresh.contains("sheet")) && before[rel].image;
         if (keepSheet) {
             const Snapshot now = snapshot(projectDir, rel, fresh);
-            keepSheet = now.image && now.image->width == before[rel].image->width && now.image->height == before[rel].image->height;
+            keepSheet = now.image && now.image->width == before[rel].image->width &&
+                        now.image->height == before[rel].image->height;
         }
         if (merged != (fresh.is_object() ? fresh.value("provenance", Json()) : Json()) || keepSheet) {
             ProjectRootGuard root(projectDir);
@@ -179,14 +202,17 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
     const bool all = tooling_detail::arg_bool(a, "all", false), staleOnly = tooling_detail::arg_bool(a, "stale", false);
     const bool dryRun = tooling_detail::arg_bool(a, "dryRun", false);
     if ((!pathArg.empty()) + all + staleOnly != 1)
-        fail("invalid_argument", "Give exactly one of `path` (one asset), `all` (every asset with a recipe) and `stale` (only those whose source changed).",
+        fail("invalid_argument",
+             "Give exactly one of `path` (one asset), `all` (every asset with a recipe) and `stale` (only those whose "
+             "source changed).",
              "Example: {\"stale\":true,\"dryRun\":true} lists what is out of date.");
 
     auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
     Json doc = Json::object();
     if (text) {
         auto parsed = parse_json(*text, assets::kManifestFile);
-        if (!parsed.ok()) fail("invalid_manifest", parsed.error().message, "Fix assets.json first (factoria validate).");
+        if (!parsed.ok())
+            fail("invalid_manifest", parsed.error().message, "Fix assets.json first (factoria validate).");
         if (parsed->is_object()) doc = std::move(*parsed);
     }
     const Json assetsJson = doc.contains("assets") && doc["assets"].is_object() ? doc["assets"] : Json::object();
@@ -194,7 +220,9 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
     std::string wanted;
     if (!pathArg.empty()) {
         auto norm = fs::normalize_checked(pathArg);
-        if (!norm.ok() || norm->empty()) fail("invalid_argument", "Invalid path '" + pathArg + "'.", "Use a project-relative path such as \"assets/hero.png\".");
+        if (!norm.ok() || norm->empty())
+            fail("invalid_argument", "Invalid path '" + pathArg + "'.",
+                 "Use a project-relative path such as \"assets/hero.png\".");
         wanted = *norm;
         auto it = assetsJson.find(wanted);
         if (it == assetsJson.end()) {
@@ -202,7 +230,9 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
             for (const auto& [k, v] : assetsJson.items())
                 if (!recipe_of(v).is_null()) keys.push_back(k);
             fail("not_found", "'" + wanted + "' has no entry in assets.json, so there is no recipe to run.",
-                 keys.empty() ? "Make the asset with a maker command (assets.rasterize_svg, assets.animate_svg...) so it records its recipe." : did_you_mean(wanted, keys));
+                 keys.empty() ? "Make the asset with a maker command (assets.rasterize_svg, assets.animate_svg...) so "
+                                "it records its recipe."
+                              : did_you_mean(wanted, keys));
         }
         if (recipe_of(*it).is_null()) no_recipe(wanted, *it);
     }
@@ -225,13 +255,16 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
         if (groups[i].recipe.contains("inputs") && groups[i].recipe["inputs"].is_array())
             for (const Json& in : groups[i].recipe["inputs"])
                 if (in.is_object() && in.value("path", std::string()).size())
-                    if (auto p = producer.find(in["path"].get<std::string>()); p != producer.end() && p->second != i) groups[i].deps.push_back(in["path"].get<std::string>());
+                    if (auto p = producer.find(in["path"].get<std::string>()); p != producer.end() && p->second != i)
+                        groups[i].deps.push_back(in["path"].get<std::string>());
 
     // Which groups to consider, upstream ones first (a sheet sliced from a picture made from an SVG: the picture, then the sheet).
     std::vector<std::size_t> order;
     std::set<std::size_t> seen, wantedGroups;
     for (std::size_t i = 0; i < groups.size(); ++i) {
-        if (!wanted.empty() && std::find(groups[i].outputs.begin(), groups[i].outputs.end(), wanted) == groups[i].outputs.end()) continue;
+        if (!wanted.empty() &&
+            std::find(groups[i].outputs.begin(), groups[i].outputs.end(), wanted) == groups[i].outputs.end())
+            continue;
         wantedGroups.insert(i);
     }
     std::function<void(std::size_t)> visit = [&](std::size_t i) {
@@ -247,19 +280,24 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
     Json warnings = Json::array();
     for (std::size_t gi : order) {
         const Group& g = groups[gi];
-        const RecipeCheck check = check_recipe(projectDir, g.recipe);  // now: an upstream asset made again moved its hash
+        const RecipeCheck check =
+            check_recipe(projectDir, g.recipe);  // now: an upstream asset made again moved its hash
         Json brief = Json::object({{"command", g.command}, {"outputs", Json(g.outputs)}});
         if (!check.missing.empty()) {
             const std::string where = check.missing.front();
             if (single)
-                fail("missing_input", "'" + wanted + "' cannot be made again: its input '" + where + "' no longer exists.",
-                     "Restore '" + where + "' (version control, or make it again), or run " + g.command + " with another source.");
+                fail("missing_input",
+                     "'" + wanted + "' cannot be made again: its input '" + where + "' no longer exists.",
+                     "Restore '" + where + "' (version control, or make it again), or run " + g.command +
+                         " with another source.");
             Json f = brief;
-            f["error"] = Json::object({{"code", "missing_input"}, {"message", "input '" + where + "' no longer exists"},
+            f["error"] = Json::object({{"code", "missing_input"},
+                                       {"message", "input '" + where + "' no longer exists"},
                                        {"hint", "Restore it, or run " + g.command + " again with another source."}});
             // Every input that is gone (the first kComparedShown), not only the first.
             Json gone = Json::array();
-            for (std::size_t i = 0; i < check.missing.size() && i < kComparedShown; ++i) gone.push_back(check.missing[i]);
+            for (std::size_t i = 0; i < check.missing.size() && i < kComparedShown; ++i)
+                gone.push_back(check.missing[i]);
             f["missingInputs"] = std::move(gone);
             f["missingCount"] = check.missing.size();
             failed.push_back(f);
@@ -267,11 +305,14 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
         }
         if (staleOnly && !check.stale()) {
             Json s = brief;
-            s["reason"] = check.compared.empty() ? "up to date: the recipe records no inputs, so nothing can make it stale" : "up to date: every input below still has the hash the recipe recorded";
+            s["reason"] = check.compared.empty()
+                              ? "up to date: the recipe records no inputs, so nothing can make it stale"
+                              : "up to date: every input below still has the hash the recipe recorded";
             // [{path, sha256}]: the inputs the check hashed now, and the style values it compared. The reply stays small however many
             // inputs a recipe has: `comparedCount` is all of them, `compared` the first kComparedShown.
             Json shown = Json::array();
-            for (std::size_t i = 0; i < check.compared.size() && i < kComparedShown; ++i) shown.push_back(check.compared[i]);
+            for (std::size_t i = 0; i < check.compared.size() && i < kComparedShown; ++i)
+                shown.push_back(check.compared[i]);
             s["comparedCount"] = check.compared.size();
             s["compared"] = std::move(shown);
             skipped.push_back(s);
@@ -281,10 +322,14 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
             std::vector<std::string> names;
             for (const CommandInfo* c : registry.list())
                 if (is_recipe_command(*c)) names.push_back(c->name);
-            const std::string message = info ? "'" + g.command + "' is not an asset maker, and regenerate only runs those (the assets.* makers, anim3d.generate and anim3d.retarget)."
-                                             : "the recipe names the command '" + g.command + "', which does not exist.";
-            const std::string hint = info ? "Edit provenance.recipe in assets.json, or make the asset again with its own command."
-                                          : (names.empty() ? std::string() : did_you_mean(g.command, names));
+            const std::string message = info
+                                            ? "'" + g.command +
+                                                  "' is not an asset maker, and regenerate only runs those (the "
+                                                  "assets.* makers, anim3d.generate and anim3d.retarget)."
+                                            : "the recipe names the command '" + g.command + "', which does not exist.";
+            const std::string hint =
+                info ? "Edit provenance.recipe in assets.json, or make the asset again with its own command."
+                     : (names.empty() ? std::string() : did_you_mean(g.command, names));
             if (single) fail("unknown_command", "Cannot make '" + wanted + "' again: " + message, hint);
             Json f = brief;
             f["error"] = Json::object({{"code", "unknown_command"}, {"message", message}, {"hint", hint}});
@@ -303,7 +348,9 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
             for (const std::string& dep : g.deps) {
                 const Group& up = groups[producer[dep]];
                 if (check_recipe(projectDir, up.recipe).stale())
-                    warnings.push_back("'" + dep + "', which '" + wanted + "' is made from, is itself stale: run assets.regenerate {\"stale\":true} to make both again in order.");
+                    warnings.push_back("'" + dep + "', which '" + wanted +
+                                       "' is made from, is itself stale: run assets.regenerate {\"stale\":true} to "
+                                       "make both again in order.");
             }
         Json item = run_group(registry, projectDir, g, single);
         (item.contains("error") ? failed : regenerated).push_back(item);
@@ -322,10 +369,15 @@ Json regenerate(const CommandRegistry& registry, const std::string& projectDir, 
     if (!failed.empty()) result["failed"] = failed;
     if (!warnings.empty()) result["warnings"] = warnings;
     Json next = Json::array();
-    if (groups.empty()) next.push_back("No asset records a recipe yet. The offline makers (assets.rasterize_svg, assets.draw_icon, assets.synth_sound...) write one when they make an asset.");
-    else if (dryRun) next.push_back("Run it without dryRun to make these assets again.");
-    else if (!failed.empty()) next.push_back("Fix the failed ones (see their hint) and call assets.regenerate again.");
-    else next.push_back("Look at the pictures (game.screenshot, or open the file) and run factoria validate.");
+    if (groups.empty())
+        next.push_back("No asset records a recipe yet. The offline makers (assets.rasterize_svg, assets.draw_icon, "
+                       "assets.synth_sound...) write one when they make an asset.");
+    else if (dryRun)
+        next.push_back("Run it without dryRun to make these assets again.");
+    else if (!failed.empty())
+        next.push_back("Fix the failed ones (see their hint) and call assets.regenerate again.");
+    else
+        next.push_back("Look at the pictures (game.screenshot, or open the file) and run factoria validate.");
     result["nextSteps"] = next;
     return result;
 }
@@ -351,8 +403,7 @@ void register_regenerate_command(CommandRegistry& registry, const std::string& p
         "SVG or other source file you edited). Assets that read the output of another (a sheet sliced from a "
         "picture made from an SVG) are made after it, and `stale` looks again at their inputs when their "
         "turn comes. `dryRun` lists what would run and which inputs changed, and changes nothing. Example: "
-        "{\"stale\":true} or {\"path\":\"assets/art/coin.png\"}."
-        FA_COMMAND_DETAILS
+        "{\"stale\":true} or {\"path\":\"assets/art/coin.png\"}." FA_COMMAND_DETAILS
         "What a person recorded in the provenance (license, author, notes) is kept; the recipe and the date "
         "are new. Several files made by one call (an icon and its foreground, a texture and its normal map, "
         "the capsules of a store) are made once. Provider-made assets (assets.generate_image...) have no "

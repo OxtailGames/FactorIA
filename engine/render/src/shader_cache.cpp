@@ -36,24 +36,27 @@ bool engine_caches_here() {
 
 #if defined(SOKOL_D3D11)
 // D3DCompile is loaded from d3dcompiler_47.dll like sokol does (no import library, no header of the compiler needed).
-using PD3DCompile = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR, UINT, UINT,
-                                     ID3DBlob**, ID3DBlob**);
+using PD3DCompile = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR,
+                                     UINT, UINT, ID3DBlob**, ID3DBlob**);
 constexpr UINT kCompileFlags = D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3;
 // The flags sokol_gfx uses when shader_debugging is off (sokol_gfx.h, _sg_d3d11_compile_shader). The cache key names them.
 constexpr const char* kCompileFlagsText = "column_major+O3";
 
 bool d3d_compile_stage(const sg_shader_function& fn, std::vector<std::uint8_t>& out, std::string& error) {
     static HMODULE dll = LoadLibraryA("d3dcompiler_47.dll");
-    static PD3DCompile compile = dll ? reinterpret_cast<PD3DCompile>(reinterpret_cast<void*>(GetProcAddress(dll, "D3DCompile"))) : nullptr;
+    static PD3DCompile compile =
+        dll ? reinterpret_cast<PD3DCompile>(reinterpret_cast<void*>(GetProcAddress(dll, "D3DCompile"))) : nullptr;
     if (!compile) {
         error = "d3dcompiler_47.dll could not be loaded";
         return false;
     }
     ID3DBlob* code = nullptr;
     ID3DBlob* messages = nullptr;
-    const HRESULT hr = compile(fn.source, strlen(fn.source), fn.d3d11_filepath, nullptr, nullptr, fn.entry ? fn.entry : "main",
-                               fn.d3d11_target, kCompileFlags, 0, &code, &messages);
-    if (messages) messages->Release();  // warnings: sokol shows them when it compiles; here a failure falls back to sokol, which reports it
+    const HRESULT hr = compile(fn.source, strlen(fn.source), fn.d3d11_filepath, nullptr, nullptr,
+                               fn.entry ? fn.entry : "main", fn.d3d11_target, kCompileFlags, 0, &code, &messages);
+    if (messages)
+        messages
+            ->Release();  // warnings: sokol shows them when it compiles; here a failure falls back to sokol, which reports it
     if (FAILED(hr) || !code) {
         if (code) code->Release();
         error = "D3DCompile failed";
@@ -89,7 +92,8 @@ Json ShaderBuildStats::to_json(const char* backend) const {
 std::string shader_cache_file_name(std::string_view label, std::string_view stage, std::string_view variant) {
     std::string safe;
     for (char c : label) {
-        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-';
+        const bool ok =
+            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-';
         safe += ok ? c : '_';
         if (safe.size() >= 60) break;
     }
@@ -100,9 +104,9 @@ std::string shader_cache_file_name(std::string_view label, std::string_view stag
     return name;
 }
 
-bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase, std::string_view label, std::string_view stage,
-                           const sg_shader_function& fn, const StageCompiler& compile, std::vector<std::uint8_t>& out,
-                           ShaderBuildStats& stats) {
+bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase, std::string_view label,
+                           std::string_view stage, const sg_shader_function& fn, const StageCompiler& compile,
+                           std::vector<std::uint8_t>& out, ShaderBuildStats& stats) {
     ++stats.stages;
     Sha256 h;
     h.update(fn.source ? std::string_view(fn.source) : std::string_view());
@@ -118,9 +122,12 @@ bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase
         ++stats.cacheHits;
         return true;
     }
-    if (status == BlobCache::Status::Stale) ++stats.cacheStale;
-    else if (status == BlobCache::Status::Damaged) ++stats.cacheDamaged;
-    else ++stats.cacheMisses;
+    if (status == BlobCache::Status::Stale)
+        ++stats.cacheStale;
+    else if (status == BlobCache::Status::Damaged)
+        ++stats.cacheDamaged;
+    else
+        ++stats.cacheMisses;
     std::string error;
     if (!compile(fn, out, error)) {
         out.clear();
@@ -155,7 +162,8 @@ sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
         const Stage stages[] = {{&copy.vertex_func, &vs, "vs"}, {&copy.fragment_func, &fsb, "fs"}};
         for (const Stage& st : stages) {
             if (st.fn->bytecode.ptr || !st.fn->source) continue;  // given as bytecode already, or no such stage
-            if (!cached_stage_bytecode(fs::cache_dir() / "shaders", keyBase, name, st.name, *st.fn, d3d_compile_stage, *st.bytes, g_stats)) {
+            if (!cached_stage_bytecode(fs::cache_dir() / "shaders", keyBase, name, st.name, *st.fn, d3d_compile_stage,
+                                       *st.bytes, g_stats)) {
                 viaCache = false;  // sokol compiles it and reports what is wrong
                 break;
             }
@@ -178,8 +186,6 @@ sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
 const ShaderBuildStats& shader_build_stats() { return g_stats; }
 void reset_shader_build_stats() { g_stats = ShaderBuildStats{}; }
 
-const char* shader_cache_mode() {
-    return engine_caches_here() && !fs::cache_dir().empty() ? "d3d11-dxbc" : "none";
-}
+const char* shader_cache_mode() { return engine_caches_here() && !fs::cache_dir().empty() ? "d3d11-dxbc" : "none"; }
 
 }  // namespace fa::render

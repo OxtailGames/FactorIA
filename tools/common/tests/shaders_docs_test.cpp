@@ -89,7 +89,8 @@ TEST_CASE("docs/SHADERS.md: the worked examples pass the schema and the material
 TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with the real sokol-shdc") {
     ShaderCompileOptions options;
     options.setup = SetupContext{};
-    FA_SKIP_WITHOUT_SHDC(options.setup, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the documentation examples are not compiled here and are in CI");
+    FA_SKIP_WITHOUT_SHDC(options.setup, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup "
+                                        "shaders`): the documentation examples are not compiled here and are in CI");
     options.useCache = false;
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);

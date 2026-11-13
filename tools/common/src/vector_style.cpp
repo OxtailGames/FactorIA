@@ -29,7 +29,9 @@ int hex_value(char c) {
     return -1;
 }
 
-std::string hex_of(const std::array<std::uint8_t, 3>& c) { return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]); }
+std::string hex_of(const std::array<std::uint8_t, 3>& c) {
+    return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+}
 
 }  // namespace
 
@@ -42,7 +44,8 @@ bool parse_css_colour(const std::string& textIn, std::array<std::uint8_t, 3>& rg
     alpha = 1.0;
     if (t.empty()) return false;
     const std::string l = lower(t);
-    if (l == "none" || l == "transparent" || l == "currentcolor" || l == "inherit" || l.rfind("url(", 0) == 0) return false;
+    if (l == "none" || l == "transparent" || l == "currentcolor" || l == "inherit" || l.rfind("url(", 0) == 0)
+        return false;
     if (l.rfind("rgb", 0) == 0) {
         const std::size_t open = l.find('('), close = l.find(')');
         if (open == std::string::npos || close == std::string::npos || close < open) return false;
@@ -64,13 +67,14 @@ bool parse_css_colour(const std::string& textIn, std::array<std::uint8_t, 3>& rg
             p = pc ? end + 1 : end;
         }
         if (v.size() < 3) return false;
-        for (int i = 0; i < 3; ++i) rgb[i] = std::uint8_t(std::clamp(std::lround(pct[i] ? v[i] * 2.55 : v[i]), 0L, 255L));
+        for (int i = 0; i < 3; ++i)
+            rgb[i] = std::uint8_t(std::clamp(std::lround(pct[i] ? v[i] * 2.55 : v[i]), 0L, 255L));
         if (v.size() >= 4) alpha = std::clamp(pct[3] ? v[3] / 100.0 : v[3], 0.0, 1.0);
         return true;
     }
     if (t[0] == '#') {
         const std::string h = t.substr(1);
-        int d[8];
+        int d[8] = {};
         if (h.size() != 3 && h.size() != 4 && h.size() != 6 && h.size() != 8) return false;
         for (std::size_t i = 0; i < h.size(); ++i) {
             d[i] = hex_value(h[i]);
@@ -87,12 +91,14 @@ bool parse_css_colour(const std::string& textIn, std::array<std::uint8_t, 3>& rg
     }
     Color c;
     if (!parse_color(t, c)) return false;
-    rgb = {std::uint8_t(std::lround(c.r * 255)), std::uint8_t(std::lround(c.g * 255)), std::uint8_t(std::lround(c.b * 255))};
+    rgb = {std::uint8_t(std::lround(c.r * 255)), std::uint8_t(std::lround(c.g * 255)),
+           std::uint8_t(std::lround(c.b * 255))};
     alpha = c.a;
     return true;
 }
 
-Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument, const StyleArgs& a, std::vector<std::string>& warnings) {
+Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument, const StyleArgs& a,
+              std::vector<std::string>& warnings) {
     const char* cmd = "vector.style";
     std::vector<XNode*> nodes;
     std::vector<XNode*> shapes;
@@ -133,7 +139,8 @@ Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument
             }
             const Mat ctm = element_ctm(*n);
             if (!ctm.invertible()) {
-                warnings.push_back(std::format("{} has a transform that scales it to nothing, so it got no outline.", describe_element(*n)));
+                warnings.push_back(std::format("{} has a transform that scales it to nothing, so it got no outline.",
+                                               describe_element(*n)));
                 continue;
             }
             set_prop(*n, "stroke", a.outlineColour);
@@ -143,7 +150,9 @@ Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument
         r["outlined"] = outlined;
         r["outlineWidthUnits"] = r3(wCanvas);
         if (skipped) r["outlineSkippedNoFill"] = skipped;
-        if (outlined == 0) warnings.push_back("No shape has a fill, so no outline was added (an outline goes around filled shapes; line art already has its strokes).");
+        if (outlined == 0)
+            warnings.push_back("No shape has a fill, so no outline was added (an outline goes around filled shapes; "
+                               "line art already has its strokes).");
     }
     if (a.palette) {
         const auto& pal = *a.palette;
@@ -158,7 +167,8 @@ Json op_style(SvgDoc& doc, const std::vector<XNode*>& picked, bool wholeDocument
                 std::size_t best = 0;
                 long bestD = -1;
                 for (std::size_t i = 0; i < pal.size(); ++i) {
-                    const long dr = long(rgb[0]) - pal[i][0], dg = long(rgb[1]) - pal[i][1], db = long(rgb[2]) - pal[i][2];
+                    const long dr = long(rgb[0]) - pal[i][0], dg = long(rgb[1]) - pal[i][1],
+                               db = long(rgb[2]) - pal[i][2];
                     const long d = dr * dr + dg * dg + db * db;
                     if (bestD < 0 || d < bestD) {
                         bestD = d;

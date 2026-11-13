@@ -35,7 +35,8 @@ std::string read_all(const std::string& rel) {
 TEST_CASE("tween: moves plain numbers with the fixed clock, easing and completion") {
     TestHost h("tween_basic");
     REQUIRE(h.start());
-    ev(h, "globalThis.o = { x: 0, y: 10 }; globalThis.done = []; globalThis.t = tween(o, { x: 10, y: 0 }, { duration: 1, onComplete: () => done.push('c') });"
+    ev(h, "globalThis.o = { x: 0, y: 10 }; globalThis.done = []; globalThis.t = tween(o, { x: 10, y: 0 }, { duration: "
+          "1, onComplete: () => done.push('c') });"
           "t.finished.then((v) => done.push('p:' + v));");
     h.step_frames(30);
     CHECK(num(h, "o.x") == doctest::Approx(5.0).epsilon(0.02));
@@ -51,14 +52,15 @@ TEST_CASE("tween: moves plain numbers with the fixed clock, easing and completio
 TEST_CASE("tween: delay, repeat and yoyo") {
     TestHost h("tween_repeat");
     REQUIRE(h.start());
-    ev(h, "globalThis.o = { x: 0 }; globalThis.t = tween(o, { x: 8 }, { duration: 0.5, delay: 0.25, repeat: 1, yoyo: true });");
-    h.step_frames(9);                                           // 0.15 s: still waiting
+    ev(h, "globalThis.o = { x: 0 }; globalThis.t = tween(o, { x: 8 }, { duration: 0.5, delay: 0.25, repeat: 1, yoyo: "
+          "true });");
+    h.step_frames(9);  // 0.15 s: still waiting
     CHECK(num(h, "o.x") == 0.0);
-    h.step_frames(30);                                          // 0.65 s: 0.4 s into the first play
+    h.step_frames(30);  // 0.65 s: 0.4 s into the first play
     CHECK(num(h, "o.x") == doctest::Approx(6.4).epsilon(0.02));
-    h.step_frames(24);                                          // 1.05 s: 0.8 s in = 0.3 s into the backwards play
+    h.step_frames(24);  // 1.05 s: 0.8 s in = 0.3 s into the backwards play
     CHECK(num(h, "o.x") == doctest::Approx(3.2).epsilon(0.03));
-    h.step_frames(30);                                          // over: yoyo with one repeat ends back at the start
+    h.step_frames(30);  // over: yoyo with one repeat ends back at the start
     CHECK(num(h, "o.x") == 0.0);
     CHECK_FALSE(ev(h, "t.active").get<bool>());
 }
@@ -67,7 +69,8 @@ TEST_CASE("tween: vectors and colors of components, chaining, cancel and pause w
     TestHost h("tween_components");
     REQUIRE(h.start());
     ev(h, "globalThis.e = world.spawn({ id: 'box', components: { Sprite: { color: [0, 0, 0, 1] } } });");
-    ev(h, "tween(e.position, { x: 100, y: -50 }, { duration: 1 }); tween(e.get('Sprite'), { color: '#ff0000' }, { duration: 1 });");
+    ev(h, "tween(e.position, { x: 100, y: -50 }, { duration: 1 }); tween(e.get('Sprite'), { color: '#ff0000' }, { "
+          "duration: 1 });");
     h.step_frames(30);
     CHECK(num(h, "e.position.x") == doctest::Approx(50.0).epsilon(0.02));
     CHECK(num(h, "e.get('Sprite').color.r") == doctest::Approx(0.5).epsilon(0.02));
@@ -76,20 +79,21 @@ TEST_CASE("tween: vectors and colors of components, chaining, cancel and pause w
     CHECK(num(h, "e.get('Sprite').color.r") == 1.0);
     CHECK(num(h, "e.get('Sprite').color.a") == 1.0);  // channels the end value does not mention keep their value
 
-    ev(h, "globalThis.L = []; globalThis.a = tween(e.position, { x: 0 }, { duration: 0.5, onComplete: () => L.push('a') });"
+    ev(h, "globalThis.L = []; globalThis.a = tween(e.position, { x: 0 }, { duration: 0.5, onComplete: () => "
+          "L.push('a') });"
           "globalThis.b = a.next(e.position, { y: 0 }, { duration: 0.5, onComplete: () => L.push('b') });");
     h.step_frames(20);
-    CHECK(num(h, "e.position.y") == -50.0);                     // b has not started
+    CHECK(num(h, "e.position.y") == -50.0);  // b has not started
     h.step_frames(20);
     CHECK(ev(h, "L.join(',')").get<std::string>() == "a");
     ev(h, "time.scale = 0");
     const double y = num(h, "e.position.y");
     h.step_frames(30);
-    CHECK(num(h, "e.position.y") == y);                         // paused with the game clock
+    CHECK(num(h, "e.position.y") == y);  // paused with the game clock
     ev(h, "time.scale = 1");
     ev(h, "b.cancel()");
     h.step_frames(60);
-    CHECK(ev(h, "L.join(',')").get<std::string>() == "a");      // a cancelled tween never completes
+    CHECK(ev(h, "L.join(',')").get<std::string>() == "a");  // a cancelled tween never completes
     CHECK_FALSE(ev(h, "b.active").get<bool>());
 }
 
@@ -106,7 +110,7 @@ TEST_CASE("tween: a destroyed target ends its tween quietly; mistakes teach") {
     CHECK(ev_err(h, "tween({ x: 0 }, { x: 1 }, { duration: -1 })").find("duration") != std::string::npos);
     CHECK(ev_err(h, "tween(0, 5, {})").find("onUpdate") != std::string::npos);
     ev(h, "globalThis.bad = tween({ posx: 0 }, { pos_x: 1 })");
-    h.step_frames(2);                                           // the unknown property is reported when the tween starts
+    h.step_frames(2);  // the unknown property is reported when the tween starts
     CHECK_FALSE(h.scripts.errors().empty());
     CHECK(h.scripts.errors()[0].message.find("posx") != std::string::npos);
 }
@@ -115,43 +119,47 @@ TEST_CASE("tween: a destroyed target ends its tween quietly; mistakes teach") {
 TEST_CASE("tween: world.settings moves the sky, ambient light and fog together (the dawn recipe)") {
     TestHost h("tween_settings");
     REQUIRE(h.start());
-    ev(h, "world.settings.skyColor = '#05060f'; world.settings.ambientLight = [0.05, 0.05, 0.1, 1]; world.settings.fogDensity = 0.08;");
+    ev(h, "world.settings.skyColor = '#05060f'; world.settings.ambientLight = [0.05, 0.05, 0.1, 1]; "
+          "world.settings.fogDensity = 0.08;");
     CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.08).epsilon(0.001));
-    ev(h, "globalThis.dawn = tween(world.settings, { skyColor: '#ffb070', ambientLight: [0.6, 0.45, 0.4, 1], fogDensity: 0.01 },"
+    ev(h, "globalThis.dawn = tween(world.settings, { skyColor: '#ffb070', ambientLight: [0.6, 0.45, 0.4, 1], "
+          "fogDensity: 0.01 },"
           " { duration: 1, ease: 'sineInOut' });");
-    h.step_frames(30);                                          // halfway: sineInOut(0.5) = 0.5
+    h.step_frames(30);  // halfway: sineInOut(0.5) = 0.5
     const double r05 = num(h, "world.settings.skyColor.r");
     CHECK(r05 > 0.1);
     CHECK(r05 < 0.95);
     CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.325).epsilon(0.002));
     CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.045).epsilon(0.002));
     h.step_frames(10);
-    CHECK(num(h, "world.settings.skyColor.r") > r05);           // still moving
+    CHECK(num(h, "world.settings.skyColor.r") > r05);  // still moving
     h.step_frames(40);
     CHECK_FALSE(ev(h, "dawn.active").get<bool>());
     CHECK(num(h, "world.settings.skyColor.r") == doctest::Approx(1.0).epsilon(0.001));
     CHECK(num(h, "world.settings.skyColor.b") == doctest::Approx(0x70 / 255.0).epsilon(0.001));
     CHECK(num(h, "world.settings.ambientLight.r") == doctest::Approx(0.6).epsilon(0.001));
     CHECK(num(h, "world.settings.fogDensity") == doctest::Approx(0.01).epsilon(0.001));
-    CHECK(num(h, "world.settings.horizonColor.a") == 1.0);      // fields the tween does not name stay as they were
+    CHECK(num(h, "world.settings.horizonColor.a") == 1.0);  // fields the tween does not name stay as they were
 }
 
 TEST_CASE("ease: every easing starts at 0, ends at 1 and keeps its known shape") {
     TestHost h("ease");
     REQUIRE(h.start());
-    CHECK(ev(h, "Object.keys(ease).every((k) => Math.abs(ease[k](0)) < 1e-9 && Math.abs(ease[k](1) - 1) < 1e-9)").get<bool>());
+    CHECK(ev(h, "Object.keys(ease).every((k) => Math.abs(ease[k](0)) < 1e-9 && Math.abs(ease[k](1) - 1) < 1e-9)")
+              .get<bool>());
     CHECK(num(h, "ease.quadOut(0.5)") == doctest::Approx(0.75));
     CHECK(num(h, "ease.quadInOut(0.25)") == doctest::Approx(0.125));
     CHECK(num(h, "ease.cubicIn(0.5)") == doctest::Approx(0.125));
     CHECK(num(h, "ease.sineInOut(0.5)") == doctest::Approx(0.5));
-    CHECK(num(h, "ease.backOut(0.6)") > 1.0);                   // overshoots
+    CHECK(num(h, "ease.backOut(0.6)") > 1.0);  // overshoots
     CHECK(num(h, "ease.bounceOut(0.5)") == doctest::Approx(0.765625));
     CHECK(num(h, "Object.keys(ease).length") == 31);
     // The numbers form: tween(from, to, { onUpdate }).
     ev(h, "globalThis.v = []; tween(0, 100, { duration: 0.5, ease: 'quadIn', onUpdate: (x) => v.push(x) });");
     h.step_frames(40);
     CHECK(num(h, "v[v.length - 1]") == 100.0);
-    CHECK(num(h, "v[14]") == doctest::Approx(100.0 * 0.5 * 0.5).epsilon(0.03));  // frame 15 of 30 = half the time = a quarter of the way
+    CHECK(num(h, "v[14]") ==
+          doctest::Approx(100.0 * 0.5 * 0.5).epsilon(0.03));  // frame 15 of 30 = half the time = a quarter of the way
 }
 
 TEST_CASE("entity.animator: play, parameters, events and a state machine from scripts") {
@@ -179,7 +187,7 @@ TEST_CASE("entity.animator: play, parameters, events and a state machine from sc
     h.step_frames(2);
     CHECK(ev(h, "e.animator.state").get<std::string>() == "run");
     CHECK(ev(h, "e.animator.clip").get<std::string>() == "Bend");
-    h.step_frames(70);                                          // more than one Bend loop at 60 steps per second
+    h.step_frames(70);  // more than one Bend loop at 60 steps per second
     const std::string log = ev(h, "L.join(',')").get<std::string>();
     CHECK(log.find("mine:run") != std::string::npos);
     CHECK(log.find("half:hero:hero") != std::string::npos);

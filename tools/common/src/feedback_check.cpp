@@ -51,8 +51,8 @@ std::vector<Word> words_of(std::string_view text) {
     while (i < n) {
         const unsigned char c = static_cast<unsigned char>(text[i]);
         if (!is_word_char(c)) {
-            if (c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?' || c == '(' || c == ')' || c == '[' ||
-                c == ']' || c == '{' || c == '}' || c == '\n' || c == '\r')
+            if (c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?' || c == '(' || c == ')' ||
+                c == '[' || c == ']' || c == '{' || c == '}' || c == '\n' || c == '\r')
                 clause = true;
             ++i;
             continue;
@@ -91,42 +91,42 @@ bool in_list(const char* const* list, std::size_t n, const std::string& s) {
 
 // "no X", "missing X", "add X", "does not have X", ...: the words before a name that claim it is not there.
 bool is_lead(const std::string& w) {
-    static const char* const leads[] = {"no",      "missing", "lacks",    "lack",    "lacking",  "without", "add",
-                                        "adding",  "introduce", "need",   "needs",   "needed",   "want",    "wants",
-                                        "propose", "nonexistent", "absent", "wish",  "request",  "implement", "not",
-                                        "expose",  "provide", "provides"};
+    static const char* const leads[] = {"no",      "missing",   "lacks",     "lack",        "lacking", "without",
+                                        "add",     "adding",    "introduce", "need",        "needs",   "needed",
+                                        "want",    "wants",     "propose",   "nonexistent", "absent",  "wish",
+                                        "request", "implement", "not",       "expose",      "provide", "provides"};
     return IN_LIST(leads, w);
 }
 
 // Words that may stand between the lead and the name: "no (built-in) (way to) (set a) (new) ...".
 bool is_filler(const std::string& w) {
-    static const char* const fillers[] = {"a",      "an",      "the",     "new",      "extra",    "more",     "any",     "some",
-                                          "per",    "own",     "proper",  "builtin",  "built",    "in",       "native",  "real",
-                                          "true",   "dedicated", "first", "class",    "option",   "options",  "field",   "fields",
-                                          "property", "properties", "flag", "setting", "settings", "parameter", "param",   "support",
-                                          "supports", "supported", "have", "has",     "had",      "to",       "for",     "of",
-                                          "on",     "way",     "ability", "feature",  "features", "bool",     "boolean", "api",
-                                          "engine", "do",      "does",    "any",      "kind",     "sort",     "type",    "types",
-                                          "good",   "nice",    "simple",  "easy",     "direct",   "official"};
+    static const char* const fillers[] = {
+        "a",       "an",       "the",       "new",     "extra",   "more",     "any",       "some",       "per",
+        "own",     "proper",   "builtin",   "built",   "in",      "native",   "real",      "true",       "dedicated",
+        "first",   "class",    "option",    "options", "field",   "fields",   "property",  "properties", "flag",
+        "setting", "settings", "parameter", "param",   "support", "supports", "supported", "have",       "has",
+        "had",     "to",       "for",       "of",      "on",      "way",      "ability",   "feature",    "features",
+        "bool",    "boolean",  "api",       "engine",  "do",      "does",     "any",       "kind",       "sort",
+        "type",    "types",    "good",      "nice",    "simple",  "easy",     "direct",    "official"};
     return IN_LIST(fillers, w);
 }
 
 // What may follow a component name in "No Tilemap component" without the claim being about something else.
 bool is_generic_after(const std::string& w) {
-    static const char* const generic[] = {"component", "components", "support", "supported", "system", "feature", "type", "node",
-                                          "class",     "builtin",    "built",   "in",        "for",    "the",     "a",    "an",
-                                          "engine",    "2d",         "3d",      "entity",    "available", "implemented", "option",
-                                          "options",   "capability", "exist",   "exists",    "is",     "are",     "yet",  "at",
-                                          "all",       "to",         "be",      "found",     "present"};
+    static const char* const generic[] = {
+        "component", "components", "support",   "supported",   "system", "feature", "type",       "node",   "class",
+        "builtin",   "built",      "in",        "for",         "the",    "a",       "an",         "engine", "2d",
+        "3d",        "entity",     "available", "implemented", "option", "options", "capability", "exist",  "exists",
+        "is",        "are",        "yet",       "at",          "all",    "to",      "be",         "found",  "present"};
     return IN_LIST(generic, w);
 }
 
 // "X does not exist", "X is missing", right after the name.
 bool existential_at(const std::vector<std::string>& rest, std::size_t p, std::size_t& used) {
-    static const char* const phrases[] = {"doesnotexist", "doesntexist", "ismissing",  "isabsent",    "isnotavailable",
-                                          "isntavailable", "notexist",   "isnotsupported", "isntsupported", "missing",
-                                          "isnotdefined", "isnotexposed", "areabsent",    "aremissing",   "isnotthere",
-                                          "doesnothave",  "doesnthave"};
+    static const char* const phrases[] = {
+        "doesnotexist", "doesntexist",    "ismissing",     "isabsent",    "isnotavailable", "isntavailable",
+        "notexist",     "isnotsupported", "isntsupported", "missing",     "isnotdefined",   "isnotexposed",
+        "areabsent",    "aremissing",     "isnotthere",    "doesnothave", "doesnthave"};
     std::string joined;
     for (std::size_t k = 0; k < 4 && p + k < rest.size(); ++k) {
         joined += rest[p + k];
@@ -187,12 +187,22 @@ bool lead_before(const std::vector<Word>& w, std::size_t at) {
 
 // The report says the thing exists but misbehaves: that is a bug report, not a request.
 bool says_it_misbehaves(const std::string& lowerText) {
-    static const char* const bugWords[] = {"ignored",    "no effect",   "not work",   "does not respect", "doesn't respect", "not respected",
-                                           "not honor",  "not honour",  "broken",     " bug",             "crash",           "fails",
-                                           "failing",    "wrong",       "incorrect",  "unexpected",       "even though",     "although",
-                                           "even with",  "even when",   "does nothing", "nothing happens", "regression",    "i set",
-                                           "i tried",    "when set",    "when i ",    "still ",           "stops working",   "not applied",
-                                           "has no visible", "silently"};
+    static const char* const bugWords[] = {"ignored",         "no effect",
+                                           "not work",        "does not respect",
+                                           "doesn't respect", "not respected",
+                                           "not honor",       "not honour",
+                                           "broken",          " bug",
+                                           "crash",           "fails",
+                                           "failing",         "wrong",
+                                           "incorrect",       "unexpected",
+                                           "even though",     "although",
+                                           "even with",       "even when",
+                                           "does nothing",    "nothing happens",
+                                           "regression",      "i set",
+                                           "i tried",         "when set",
+                                           "when i ",         "still ",
+                                           "stops working",   "not applied",
+                                           "has no visible",  "silently"};
     for (const char* b : bugWords)
         if (lowerText.find(b) != std::string::npos) return true;
     return false;
@@ -208,15 +218,16 @@ struct Member {
 };
 
 struct Catalog {
-    std::map<std::string, std::string> componentByNorm;                     // "collider2d" -> "Collider2D"
-    std::map<std::string, std::string> componentDoc;                        // name -> doc
-    std::map<std::string, std::set<std::string>> componentByStem;           // "collider" -> {"Collider2D"}
-    std::map<std::string, std::vector<Member>> memberByNorm;                // "oneway" -> members
-    std::map<std::string, Member> dotted;                                   // "collider2d.oneway" -> member
-    std::map<std::string, std::pair<std::string, std::string>> commands;    // lower name -> {name, summary}
+    std::map<std::string, std::string> componentByNorm;                   // "collider2d" -> "Collider2D"
+    std::map<std::string, std::string> componentDoc;                      // name -> doc
+    std::map<std::string, std::set<std::string>> componentByStem;         // "collider" -> {"Collider2D"}
+    std::map<std::string, std::vector<Member>> memberByNorm;              // "oneway" -> members
+    std::map<std::string, Member> dotted;                                 // "collider2d.oneway" -> member
+    std::map<std::string, std::pair<std::string, std::string>> commands;  // lower name -> {name, summary}
 };
 
-void add_member(Catalog& c, const std::string& kind, const std::string& owner, const std::string& member, const std::string& doc) {
+void add_member(Catalog& c, const std::string& kind, const std::string& owner, const std::string& member,
+                const std::string& doc) {
     if (owner.empty() || member.empty() || member.find_first_of("[] :") != std::string::npos) return;
     const std::string key = lower(owner) + "." + lower(member);
     if (c.dotted.count(key)) {
@@ -233,7 +244,8 @@ void add_member(Catalog& c, const std::string& kind, const std::string& owner, c
 }
 
 std::string strip_dimension(const std::string& n) {
-    if (n.size() > 2 && (n.compare(n.size() - 2, 2, "2d") == 0 || n.compare(n.size() - 2, 2, "3d") == 0)) return n.substr(0, n.size() - 2);
+    if (n.size() > 2 && (n.compare(n.size() - 2, 2, "2d") == 0 || n.compare(n.size() - 2, 2, "3d") == 0))
+        return n.substr(0, n.size() - 2);
     return n;
 }
 
@@ -268,8 +280,10 @@ Catalog build_catalog(const CommandRegistry* registry) {
                         if (!c.commands.count(lower(key))) c.commands[lower(key)] = {key, ""};
                     } else if (kind == "components") {
                         const std::size_t dot = key.find('.');
-                        if (dot == std::string::npos) add_component(c, key, "");
-                        else add_member(c, "field", key.substr(0, dot), key.substr(dot + 1), "");
+                        if (dot == std::string::npos)
+                            add_component(c, key, "");
+                        else
+                            add_member(c, "field", key.substr(0, dot), key.substr(dot + 1), "");
                     } else if (kind == "script") {
                         const std::size_t dot = key.find('.');
                         if (dot != std::string::npos && key.find('.', dot + 1) == std::string::npos)
@@ -284,7 +298,9 @@ Catalog build_catalog(const CommandRegistry* registry) {
 
 bool camel_case(const std::string& member) {
     for (std::size_t i = 1; i < member.size(); ++i)
-        if (std::isupper(static_cast<unsigned char>(member[i])) && std::islower(static_cast<unsigned char>(member[i - 1]))) return true;
+        if (std::isupper(static_cast<unsigned char>(member[i])) &&
+            std::islower(static_cast<unsigned char>(member[i - 1])))
+            return true;
     return member.find('_') != std::string::npos;
 }
 
@@ -326,8 +342,9 @@ void add_match(ClaimResult& r, ClaimMatch m) {
 }
 
 bool path_is_about_feedback(const std::string& path) {
-    static const char* const skip[] = {"docs/ENGINE_FEEDBACK.md", "docs/EXTENDING.md", "docs/ARCHITECTURE.md", "docs/design/",
-                                       "docs/ROADMAP.md",         "CHANGELOG.md",      "docs/CLI.md"};
+    static const char* const skip[] = {
+        "docs/ENGINE_FEEDBACK.md", "docs/EXTENDING.md", "docs/ARCHITECTURE.md", "docs/design/",
+        "docs/ROADMAP.md",         "CHANGELOG.md",      "docs/CLI.md"};
     for (const char* s : skip)
         if (path.rfind(s, 0) == 0) return true;
     return false;
@@ -352,7 +369,8 @@ std::string locate_docs(const std::string& name) {
         if (path_is_about_feedback(h.path)) continue;
         const std::string heading = lower(plain(h.heading));
         if (heading.find("typescript") != std::string::npos) continue;
-        if (heading == lower(type) || heading == lower(name) || heading.rfind(lower(name) + " ", 0) == 0) return describe(h);
+        if (heading == lower(type) || heading == lower(name) || heading.rfind(lower(name) + " ", 0) == 0)
+            return describe(h);
         if (!fallback) fallback = &h;
     }
     return fallback ? describe(*fallback) : std::string();
@@ -379,7 +397,8 @@ ClaimResult check_feedback_claim(const ClaimInput& input, const CommandRegistry*
         for (const DocHit& h : search_docs(input.title + " " + input.suggestion.substr(0, 80), 12)) {
             if (path_is_about_feedback(h.path) || lower(h.heading).find("typescript") != std::string::npos) continue;
             if (!seen.insert(h.path + "#" + h.heading).second) continue;
-            result.related.push_back(Json::object({{"doc", h.doc}, {"path", h.path}, {"heading", h.heading}, {"line", h.line}}));
+            result.related.push_back(
+                Json::object({{"doc", h.doc}, {"path", h.path}, {"heading", h.heading}, {"line", h.line}}));
             if (int(result.related.size()) >= relatedMax) break;
         }
     }
@@ -390,7 +409,8 @@ ClaimResult check_feedback_claim(const ClaimInput& input, const CommandRegistry*
         m.name = kFeedbackExampleTitle;
         m.phrase = input.title;
         m.where = "title";
-        m.doc = "This is the invented example of the documentation of feedback.report. It shows the shape of a report, not a gap "
+        m.doc = "This is the invented example of the documentation of feedback.report. It shows the shape of a report, "
+                "not a gap "
                 "anyone has.";
         result.matches.push_back(std::move(m));
         return result;
@@ -477,14 +497,15 @@ ClaimResult check_feedback_claim(const ClaimInput& input, const CommandRegistry*
                     }
                     // A component (exact name only, and only when nothing else is said about it).
                     if (!matched) {
-                        if (auto comp = cat.componentByNorm.find(candidate); comp != cat.componentByNorm.end() &&
-                                                                              remainder_generic(w, i + len)) {
+                        if (auto comp = cat.componentByNorm.find(candidate);
+                            comp != cat.componentByNorm.end() && remainder_generic(w, i + len)) {
                             ClaimMatch cm;
                             cm.kind = "component";
                             cm.name = comp->second;
                             cm.phrase = phrase;
                             cm.where = f.where;
-                            if (auto d = cat.componentDoc.find(comp->second); d != cat.componentDoc.end()) cm.doc = d->second;
+                            if (auto d = cat.componentDoc.find(comp->second); d != cat.componentDoc.end())
+                                cm.doc = d->second;
                             add_match(result, std::move(cm));
                             matched = true;
                         }
@@ -516,7 +537,8 @@ ClaimResult check_feedback_entry_claim(const Json& entry, const CommandRegistry*
 std::string ClaimResult::message() const {
     if (matches.empty()) return {};
     std::string out = matches.front().kind == "example" && matches.size() == 1
-                          ? "Not filed: the title is the invented example from the documentation of feedback.report, not a gap you met."
+                          ? "Not filed: the title is the invented example from the documentation of feedback.report, "
+                            "not a gap you met."
                           : "Not filed: the engine already has what this report says is missing.";
     for (const ClaimMatch& m : matches) {
         if (m.kind == "example") {
@@ -524,7 +546,10 @@ std::string ClaimResult::message() const {
             continue;
         }
         out += "\n  - \"" + m.phrase + "\" (" + m.where + ") is " + m.name + ", a " +
-               (m.kind == "field" ? std::string("component field") : m.kind == "script" ? std::string("scripting API member") : m.kind) + ".";
+               (m.kind == "field"    ? std::string("component field")
+                : m.kind == "script" ? std::string("scripting API member")
+                                     : m.kind) +
+               ".";
         if (!m.doc.empty()) out += " Its doc string: \"" + m.doc + "\"";
         if (!m.documentedIn.empty()) out += " Documented in " + m.documentedIn + ".";
     }
@@ -534,12 +559,17 @@ std::string ClaimResult::message() const {
 std::string ClaimResult::hint() const {
     if (matches.empty()) return {};
     if (matches.front().kind == "example" && matches.size() == 1)
-        return "Describe the gap you actually met: what the engine lacked (missing), the short name (title), and what you did instead "
+        return "Describe the gap you actually met: what the engine lacked (missing), the short name (title), and what "
+               "you did instead "
                "(workaround). Check the docs first (docs.search) so the gap is real.";
     const std::string name = matches.front().name;
-    return "Read it (docs.search \"" + name + "\", docs.read, or `factoria call docs.search`) and use it. If it exists but does not "
-           "work as documented, file it as a bug: say what you set, what you expected and what happened (for example \"" + name +
-           " is ignored when ...\"). If the engine has it but you need MORE from it, name the new option (for example " +
+    return "Read it (docs.search \"" + name +
+           "\", docs.read, or `factoria call docs.search`) and use it. If it exists but does not "
+           "work as documented, file it as a bug: say what you set, what you expected and what happened (for example "
+           "\"" +
+           name +
+           " is ignored when ...\"). If the engine has it but you need MORE from it, name the new option (for "
+           "example " +
            (name.find('.') != std::string::npos ? name.substr(0, name.find('.')) : name) +
            ".<newField>) and say why the existing ones are not enough.";
 }
@@ -550,7 +580,10 @@ std::string ClaimResult::reason() const {
         return "The title is the invented example of the feedback.report documentation, not a gap that was met.";
     std::string out = "The engine already has this:";
     for (const ClaimMatch& m : matches) {
-        out += " \"" + m.phrase + "\" is " + m.name + (m.kind == "field" ? " (a component field)" : m.kind == "command" ? " (a command)" : "");
+        out += " \"" + m.phrase + "\" is " + m.name +
+               (m.kind == "field"     ? " (a component field)"
+                : m.kind == "command" ? " (a command)"
+                                      : "");
         if (!m.documentedIn.empty()) out += ", documented in " + m.documentedIn;
         out += ".";
     }
@@ -569,14 +602,18 @@ Json ClaimResult::to_json() const {
         out["message"] = message();
         out["hint"] = hint();
     } else {
-        out["message"] = "Nothing in this report names something the engine already has. " +
-                         std::string(related.empty() ? "" : "Related documentation is listed in `related`: read it before filing; if it already "
-                                                            "covers the gap, do not file it.");
+        out["message"] =
+            "Nothing in this report names something the engine already has. " +
+            std::string(related.empty()
+                            ? ""
+                            : "Related documentation is listed in `related`: read it before filing; if it already "
+                              "covers the gap, do not file it.");
     }
     return out;
 }
 
-Result<std::vector<std::string>> reject_claimed_feedback_file(const std::string& path, const CommandRegistry* registry) {
+Result<std::vector<std::string>> reject_claimed_feedback_file(const std::string& path,
+                                                              const CommandRegistry* registry) {
     auto loaded = load_feedback(path);
     if (!loaded.ok()) return loaded.error();
     std::vector<std::pair<std::string, std::string>> caught;  // id, reason
@@ -602,21 +639,32 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
     info.category = "feedback";
     info.readOnly = true;
     info.summary = "Check, before filing, whether the engine already has what a feedback report says is missing.";
-    info.description =
-        "feedback.report runs this check itself and refuses a report that calls missing something the engine has (a component, a "
-        "field such as Collider2D.oneWay, a command, a scripting member): the answer names what exists, its doc string and the page "
-        "that documents it. Call it first with the title, missing and suggestion you are about to file to find out. `exists: true` "
-        "means do not file: read the docs; if it does not work as documented, file a BUG that says what you tried. `exists: false` "
-        "lists `related` documentation to read before you decide. A request for an extra option on an existing component (the field "
-        "is not there) passes. With `entries: true` it checks the OPEN entries already in this project's ENGINE_FEEDBACK.json instead, and with "
-        "`reject: true` too it rejects the ones it catches (status rejected, statusBy engine, the reason says what exists); a person can "
-        "reopen one and it is not rejected again. Example: {\"title\":\"No fluid simulation\",\"missing\":\"There is no liquid solver.\"}";
+    info.description = "feedback.report runs this check itself and refuses a report that calls missing something the "
+                       "engine has (a component, a "
+                       "field such as Collider2D.oneWay, a command, a scripting member): the answer names what exists, "
+                       "its doc string and the page "
+                       "that documents it. Call it first with the title, missing and suggestion you are about to file "
+                       "to find out. `exists: true` "
+                       "means do not file: read the docs; if it does not work as documented, file a BUG that says what "
+                       "you tried. `exists: false` "
+                       "lists `related` documentation to read before you decide. A request for an extra option on an "
+                       "existing component (the field "
+                       "is not there) passes. With `entries: true` it checks the OPEN entries already in this "
+                       "project's ENGINE_FEEDBACK.json instead, and with "
+                       "`reject: true` too it rejects the ones it catches (status rejected, statusBy engine, the "
+                       "reason says what exists); a person can "
+                       "reopen one and it is not rejected again. Example: {\"title\":\"No fluid "
+                       "simulation\",\"missing\":\"There is no liquid solver.\"}";
     Json props = Json::object();
     props["title"] = Json::object({{"type", "string"}, {"description", "The title you would file."}});
     props["missing"] = Json::object({{"type", "string"}, {"description", "What you say the engine lacks."}});
     props["suggestion"] = Json::object({{"type", "string"}, {"description", "The engine change you would propose."}});
-    props["entries"] = Json::object({{"type", "boolean"}, {"description", "Check the open entries of this project's feedback file instead of a new report."}});
-    props["reject"] = Json::object({{"type", "boolean"}, {"description", "With entries: reject the entries the check catches (statusBy engine)."}});
+    props["entries"] = Json::object(
+        {{"type", "boolean"},
+         {"description", "Check the open entries of this project's feedback file instead of a new report."}});
+    props["reject"] =
+        Json::object({{"type", "boolean"},
+                      {"description", "With entries: reject the entries the check catches (statusBy engine)."}});
     info.inputSchema = Json::object({{"type", "object"}, {"properties", props}});
     registry.add(info, [&registry, projectDir](const Json& args) {
         if (args.value("entries", false)) {
@@ -625,7 +673,9 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
                 require_capability(Capability::WriteProject, "feedback.check", "`reject` changes ENGINE_FEEDBACK.json");
             const std::string path = feedback_file_for_project(projectDir);
             auto loaded = load_feedback(path);
-            if (!loaded.ok()) return Json::object({{"entries", Json::array()}, {"count", 0}, {"note", "No ENGINE_FEEDBACK.json yet."}});
+            if (!loaded.ok())
+                return Json::object(
+                    {{"entries", Json::array()}, {"count", 0}, {"note", "No ENGINE_FEEDBACK.json yet."}});
             Json caught = Json::array();
             if (loaded->contains("entries") && (*loaded)["entries"].is_array())
                 for (const Json& e : (*loaded)["entries"]) {
@@ -652,8 +702,7 @@ void register_feedback_check_commands(CommandRegistry& registry, const std::stri
         return check_feedback_claim(in, &registry, 4).to_json();
     });
     // feedback.check only reads; `reject` changes ENGINE_FEEDBACK.json and requires writeProject in the handler.
-    declare_command_capabilities(registry, {
-        {"feedback.check", capability_sets::reads()}});
+    declare_command_capabilities(registry, {{"feedback.check", capability_sets::reads()}});
 }
 
 }  // namespace fa

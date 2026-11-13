@@ -32,7 +32,8 @@ struct Project {
     Project() {
         dir = fs::make_temp_dir("fa_sound_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<SoundModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<SoundModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);
         model->set_debounce_ticks(0);
     }
@@ -61,7 +62,10 @@ struct Project {
     void open_document() {
         ok("sfx.preset", Json::object({{"name", "coin"}, {"path", kPatch}}));
         ok("sfx.render", Json::object({{"path", kPatch}, {"picture", false}}));
-        ok("audio.create", Json::object({{"path", kDoc}, {"source", "assets/audio/coin.wav"}, {"bake", false}, {"steps", Json::array({Json::object({{"type", "gain"}, {"db", -3.0}})})}}));
+        ok("audio.create", Json::object({{"path", kDoc},
+                                         {"source", "assets/audio/coin.wav"},
+                                         {"bake", false},
+                                         {"steps", Json::array({Json::object({{"type", "gain"}, {"db", -3.0}})})}}));
         REQUIRE_MESSAGE(model->open(kDoc), model->error());
         model->settle();
         REQUIRE_MESSAGE(model->current(), model->render_error());
@@ -196,7 +200,8 @@ TEST_CASE("presets replace the patch in one undo step; a family is one step that
     bool anyLeft = false;
     std::error_code ec;
     if (stdfs::exists(p.file(m.family_dir()), ec))
-        for (const auto& e : stdfs::recursive_directory_iterator(p.file(m.family_dir()))) anyLeft = anyLeft || e.is_regular_file();
+        for (const auto& e : stdfs::recursive_directory_iterator(p.file(m.family_dir())))
+            anyLeft = anyLeft || e.is_regular_file();
     CHECK(!anyLeft);
     CHECK(m.apply_step(fam.step, true));
     CHECK(stdfs::exists(p.file(m.family_dir())));
@@ -206,7 +211,8 @@ TEST_CASE("variants render apart, in memory, and A/B picks them") {
     Project p;
     p.open_patch();
     SoundModel& m = *p.model;
-    const SoundEditOutcome v = m.set_field("/variations", Json::object({{"count", 3}, {"spread", Json::object({{"pitch", 120}})}}));
+    const SoundEditOutcome v =
+        m.set_field("/variations", Json::object({{"count", 3}, {"spread", Json::object({{"pitch", 120}})}}));
     REQUIRE_MESSAGE(v.ok, v.error);
     m.settle();
     CHECK(m.variations().count == 3);

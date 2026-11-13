@@ -84,11 +84,21 @@ bool is_valid_utf8(std::string_view s) {
         const unsigned char c = static_cast<unsigned char>(s[i]);
         std::size_t extra;
         std::uint32_t cp;
-        if (c < 0x80) { ++i; continue; }
-        if (c >= 0xC2 && c <= 0xDF) { extra = 1; cp = c & 0x1F; }
-        else if (c >= 0xE0 && c <= 0xEF) { extra = 2; cp = c & 0x0F; }
-        else if (c >= 0xF0 && c <= 0xF4) { extra = 3; cp = c & 0x07; }
-        else return false;  // a continuation byte alone, an overlong lead (C0, C1) or a lead beyond U+10FFFF
+        if (c < 0x80) {
+            ++i;
+            continue;
+        }
+        if (c >= 0xC2 && c <= 0xDF) {
+            extra = 1;
+            cp = c & 0x1F;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            extra = 2;
+            cp = c & 0x0F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            extra = 3;
+            cp = c & 0x07;
+        } else
+            return false;  // a continuation byte alone, an overlong lead (C0, C1) or a lead beyond U+10FFFF
         if (i + extra >= s.size()) return false;  // cut short
         for (std::size_t k = 1; k <= extra; ++k) {
             const unsigned char cc = static_cast<unsigned char>(s[i + k]);
@@ -96,7 +106,7 @@ bool is_valid_utf8(std::string_view s) {
             cp = (cp << 6) | (cc & 0x3F);
         }
         if ((extra == 2 && cp < 0x800) || (extra == 3 && cp < 0x10000)) return false;  // overlong
-        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;              // beyond Unicode, a surrogate
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;             // beyond Unicode, a surrogate
         i += extra + 1;
     }
     return true;
@@ -182,12 +192,18 @@ std::vector<unsigned char> base64_decode(std::string_view text) {
     int bits = 0;
     for (char c : text) {
         int v;
-        if (c >= 'A' && c <= 'Z') v = c - 'A';
-        else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
-        else if (c >= '0' && c <= '9') v = c - '0' + 52;
-        else if (c == '+' || c == '-') v = 62;
-        else if (c == '/' || c == '_') v = 63;
-        else continue;  // '=' padding and whitespace
+        if (c >= 'A' && c <= 'Z')
+            v = c - 'A';
+        else if (c >= 'a' && c <= 'z')
+            v = c - 'a' + 26;
+        else if (c >= '0' && c <= '9')
+            v = c - '0' + 52;
+        else if (c == '+' || c == '-')
+            v = 62;
+        else if (c == '/' || c == '_')
+            v = 63;
+        else
+            continue;  // '=' padding and whitespace
         acc = (acc << 6) | unsigned(v);
         bits += 6;
         if (bits >= 8) {

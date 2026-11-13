@@ -20,56 +20,56 @@ using i64 = std::int64_t;
 struct CallbackMsg;  // steam_types.h
 
 // Functions every supported SDK exports. Missing one = this is not a Steamworks library the plugin can use.
-#define STEAM_REQUIRED_FUNCTIONS(X)                                                                                         \
-    X(SteamAPI_Shutdown, void, ())                                                                                          \
-    X(SteamAPI_GetHSteamPipe, i32, ())                                                                                      \
-    X(SteamAPI_ManualDispatch_Init, void, ())                                                                               \
-    X(SteamAPI_ManualDispatch_RunFrame, void, (i32))                                                                        \
-    X(SteamAPI_ManualDispatch_GetNextCallback, bool, (i32, CallbackMsg*))                                                   \
-    X(SteamAPI_ManualDispatch_FreeLastCallback, void, (i32))                                                                \
-    X(SteamAPI_ManualDispatch_GetAPICallResult, bool, (i32, u64, void*, int, int, bool*))                                   \
-    /* ISteamUser */                                                                                                        \
-    X(SteamAPI_ISteamUser_BLoggedOn, bool, (void*))                                                                         \
-    X(SteamAPI_ISteamUser_GetSteamID, u64, (void*))                                                                         \
-    /* ISteamFriends */                                                                                                     \
-    X(SteamAPI_ISteamFriends_GetPersonaName, const char*, (void*))                                                          \
-    X(SteamAPI_ISteamFriends_GetFriendPersonaName, const char*, (void*, u64))                                               \
-    X(SteamAPI_ISteamFriends_ActivateGameOverlay, void, (void*, const char*))                                               \
-    X(SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage, void, (void*, const char*, int))                                 \
-    X(SteamAPI_ISteamFriends_ActivateGameOverlayToStore, void, (void*, u32, int))                                           \
-    X(SteamAPI_ISteamFriends_SetRichPresence, bool, (void*, const char*, const char*))                                      \
-    X(SteamAPI_ISteamFriends_ClearRichPresence, void, (void*))                                                              \
-    /* ISteamUtils */                                                                                                       \
-    X(SteamAPI_ISteamUtils_GetAppID, u32, (void*))                                                                          \
-    X(SteamAPI_ISteamUtils_IsOverlayEnabled, bool, (void*))                                                                 \
-    /* ISteamApps */                                                                                                        \
-    X(SteamAPI_ISteamApps_BIsDlcInstalled, bool, (void*, u32))                                                              \
-    X(SteamAPI_ISteamApps_GetDLCCount, int, (void*))                                                                        \
-    X(SteamAPI_ISteamApps_BGetDLCDataByIndex, bool, (void*, int, u32*, bool*, char*, int))                                  \
-    /* ISteamUserStats */                                                                                                   \
-    X(SteamAPI_ISteamUserStats_GetStatInt32, bool, (void*, const char*, i32*))                                              \
-    X(SteamAPI_ISteamUserStats_GetStatFloat, bool, (void*, const char*, float*))                                            \
-    X(SteamAPI_ISteamUserStats_SetStatInt32, bool, (void*, const char*, i32))                                               \
-    X(SteamAPI_ISteamUserStats_SetStatFloat, bool, (void*, const char*, float))                                             \
-    X(SteamAPI_ISteamUserStats_GetAchievement, bool, (void*, const char*, bool*))                                           \
-    X(SteamAPI_ISteamUserStats_SetAchievement, bool, (void*, const char*))                                                  \
-    X(SteamAPI_ISteamUserStats_StoreStats, bool, (void*))                                                                   \
-    X(SteamAPI_ISteamUserStats_IndicateAchievementProgress, bool, (void*, const char*, u32, u32))                           \
-    X(SteamAPI_ISteamUserStats_ResetAllStats, bool, (void*, bool))                                                          \
-    X(SteamAPI_ISteamUserStats_FindOrCreateLeaderboard, u64, (void*, const char*, int, int))                                \
-    X(SteamAPI_ISteamUserStats_DownloadLeaderboardEntries, u64, (void*, u64, int, int, int))                                \
-    X(SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry, bool, (void*, u64, int, void*, i32*, int))                    \
-    X(SteamAPI_ISteamUserStats_UploadLeaderboardScore, u64, (void*, u64, int, i32, const i32*, int))                        \
-    /* ISteamRemoteStorage */                                                                                               \
-    X(SteamAPI_ISteamRemoteStorage_FileWrite, bool, (void*, const char*, const void*, i32))                                 \
-    X(SteamAPI_ISteamRemoteStorage_FileRead, i32, (void*, const char*, void*, i32))                                         \
-    X(SteamAPI_ISteamRemoteStorage_GetFileSize, i32, (void*, const char*))                                                  \
-    X(SteamAPI_ISteamRemoteStorage_GetFileTimestamp, i64, (void*, const char*))                                             \
-    X(SteamAPI_ISteamRemoteStorage_FileExists, bool, (void*, const char*))                                                  \
-    X(SteamAPI_ISteamRemoteStorage_FileDelete, bool, (void*, const char*))                                                  \
-    X(SteamAPI_ISteamRemoteStorage_GetFileCount, i32, (void*))                                                              \
-    X(SteamAPI_ISteamRemoteStorage_GetFileNameAndSize, const char*, (void*, int, i32*))                                     \
-    X(SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount, bool, (void*))                                                 \
+#define STEAM_REQUIRED_FUNCTIONS(X)                                                                                    \
+    X(SteamAPI_Shutdown, void, ())                                                                                     \
+    X(SteamAPI_GetHSteamPipe, i32, ())                                                                                 \
+    X(SteamAPI_ManualDispatch_Init, void, ())                                                                          \
+    X(SteamAPI_ManualDispatch_RunFrame, void, (i32))                                                                   \
+    X(SteamAPI_ManualDispatch_GetNextCallback, bool, (i32, CallbackMsg*))                                              \
+    X(SteamAPI_ManualDispatch_FreeLastCallback, void, (i32))                                                           \
+    X(SteamAPI_ManualDispatch_GetAPICallResult, bool, (i32, u64, void*, int, int, bool*))                              \
+    /* ISteamUser */                                                                                                   \
+    X(SteamAPI_ISteamUser_BLoggedOn, bool, (void*))                                                                    \
+    X(SteamAPI_ISteamUser_GetSteamID, u64, (void*))                                                                    \
+    /* ISteamFriends */                                                                                                \
+    X(SteamAPI_ISteamFriends_GetPersonaName, const char*, (void*))                                                     \
+    X(SteamAPI_ISteamFriends_GetFriendPersonaName, const char*, (void*, u64))                                          \
+    X(SteamAPI_ISteamFriends_ActivateGameOverlay, void, (void*, const char*))                                          \
+    X(SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage, void, (void*, const char*, int))                            \
+    X(SteamAPI_ISteamFriends_ActivateGameOverlayToStore, void, (void*, u32, int))                                      \
+    X(SteamAPI_ISteamFriends_SetRichPresence, bool, (void*, const char*, const char*))                                 \
+    X(SteamAPI_ISteamFriends_ClearRichPresence, void, (void*))                                                         \
+    /* ISteamUtils */                                                                                                  \
+    X(SteamAPI_ISteamUtils_GetAppID, u32, (void*))                                                                     \
+    X(SteamAPI_ISteamUtils_IsOverlayEnabled, bool, (void*))                                                            \
+    /* ISteamApps */                                                                                                   \
+    X(SteamAPI_ISteamApps_BIsDlcInstalled, bool, (void*, u32))                                                         \
+    X(SteamAPI_ISteamApps_GetDLCCount, int, (void*))                                                                   \
+    X(SteamAPI_ISteamApps_BGetDLCDataByIndex, bool, (void*, int, u32*, bool*, char*, int))                             \
+    /* ISteamUserStats */                                                                                              \
+    X(SteamAPI_ISteamUserStats_GetStatInt32, bool, (void*, const char*, i32*))                                         \
+    X(SteamAPI_ISteamUserStats_GetStatFloat, bool, (void*, const char*, float*))                                       \
+    X(SteamAPI_ISteamUserStats_SetStatInt32, bool, (void*, const char*, i32))                                          \
+    X(SteamAPI_ISteamUserStats_SetStatFloat, bool, (void*, const char*, float))                                        \
+    X(SteamAPI_ISteamUserStats_GetAchievement, bool, (void*, const char*, bool*))                                      \
+    X(SteamAPI_ISteamUserStats_SetAchievement, bool, (void*, const char*))                                             \
+    X(SteamAPI_ISteamUserStats_StoreStats, bool, (void*))                                                              \
+    X(SteamAPI_ISteamUserStats_IndicateAchievementProgress, bool, (void*, const char*, u32, u32))                      \
+    X(SteamAPI_ISteamUserStats_ResetAllStats, bool, (void*, bool))                                                     \
+    X(SteamAPI_ISteamUserStats_FindOrCreateLeaderboard, u64, (void*, const char*, int, int))                           \
+    X(SteamAPI_ISteamUserStats_DownloadLeaderboardEntries, u64, (void*, u64, int, int, int))                           \
+    X(SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry, bool, (void*, u64, int, void*, i32*, int))               \
+    X(SteamAPI_ISteamUserStats_UploadLeaderboardScore, u64, (void*, u64, int, i32, const i32*, int))                   \
+    /* ISteamRemoteStorage */                                                                                          \
+    X(SteamAPI_ISteamRemoteStorage_FileWrite, bool, (void*, const char*, const void*, i32))                            \
+    X(SteamAPI_ISteamRemoteStorage_FileRead, i32, (void*, const char*, void*, i32))                                    \
+    X(SteamAPI_ISteamRemoteStorage_GetFileSize, i32, (void*, const char*))                                             \
+    X(SteamAPI_ISteamRemoteStorage_GetFileTimestamp, i64, (void*, const char*))                                        \
+    X(SteamAPI_ISteamRemoteStorage_FileExists, bool, (void*, const char*))                                             \
+    X(SteamAPI_ISteamRemoteStorage_FileDelete, bool, (void*, const char*))                                             \
+    X(SteamAPI_ISteamRemoteStorage_GetFileCount, i32, (void*))                                                         \
+    X(SteamAPI_ISteamRemoteStorage_GetFileNameAndSize, const char*, (void*, int, i32*))                                \
+    X(SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount, bool, (void*))                                            \
     X(SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp, bool, (void*))
 
 // Functions only some SDKs export; the plugin works without them (a null pointer in the table).
@@ -79,24 +79,24 @@ struct CallbackMsg;  // steam_types.h
 //   ISteamUserStats_RequestCurrentStats  SDK 1.60 and older need it before stats work; newer ones sync stats at init.
 //   ISteamUtils text input            Steam's own keyboard on a Steam Deck or in Big Picture (SDK 1.53 and newer has the floating one).
 //   ISteamRemotePlay                  Remote Play Together guests (SDK 1.49 and newer); all six functions or the service is off.
-#define STEAM_OPTIONAL_FUNCTIONS(X)                                                                                         \
-    X(SteamAPI_InitFlat, int, (char*))                                                                                      \
-    X(SteamAPI_Init, bool, ())                                                                                              \
-    X(SteamAPI_IsSteamRunning, bool, ())                                                                                    \
-    X(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))                                                          \
-    X(SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck, bool, (void*))                                                        \
-    X(SteamAPI_ISteamUtils_IsSteamInBigPictureMode, bool, (void*))                                                          \
-    X(SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput, bool, (void*, int, int, int, int, int))                            \
-    X(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool, (void*))                                                  \
-    X(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))                    \
-    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))                                                       \
-    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))                                           \
-    /* ISteamRemotePlay: RemotePlaySessionID_t is a u32, ESteamDeviceFormFactor a plain int */                              \
-    X(SteamAPI_ISteamRemotePlay_GetSessionCount, u32, (void*))                                                              \
-    X(SteamAPI_ISteamRemotePlay_GetSessionID, u32, (void*, int))                                                            \
-    X(SteamAPI_ISteamRemotePlay_GetSessionSteamID, u64, (void*, u32))                                                       \
-    X(SteamAPI_ISteamRemotePlay_GetSessionClientName, const char*, (void*, u32))                                            \
-    X(SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor, int, (void*, u32))                                              \
+#define STEAM_OPTIONAL_FUNCTIONS(X)                                                                                    \
+    X(SteamAPI_InitFlat, int, (char*))                                                                                 \
+    X(SteamAPI_Init, bool, ())                                                                                         \
+    X(SteamAPI_IsSteamRunning, bool, ())                                                                               \
+    X(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))                                                     \
+    X(SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck, bool, (void*))                                                   \
+    X(SteamAPI_ISteamUtils_IsSteamInBigPictureMode, bool, (void*))                                                     \
+    X(SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput, bool, (void*, int, int, int, int, int))                       \
+    X(SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput, bool, (void*))                                             \
+    X(SteamAPI_ISteamUtils_ShowGamepadTextInput, bool, (void*, int, int, const char*, u32, const char*))               \
+    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextLength, u32, (void*))                                                  \
+    X(SteamAPI_ISteamUtils_GetEnteredGamepadTextInput, bool, (void*, char*, u32))                                      \
+    /* ISteamRemotePlay: RemotePlaySessionID_t is a u32, ESteamDeviceFormFactor a plain int */                         \
+    X(SteamAPI_ISteamRemotePlay_GetSessionCount, u32, (void*))                                                         \
+    X(SteamAPI_ISteamRemotePlay_GetSessionID, u32, (void*, int))                                                       \
+    X(SteamAPI_ISteamRemotePlay_GetSessionSteamID, u64, (void*, u32))                                                  \
+    X(SteamAPI_ISteamRemotePlay_GetSessionClientName, const char*, (void*, u32))                                       \
+    X(SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor, int, (void*, u32))                                         \
     X(SteamAPI_ISteamRemotePlay_BGetSessionClientResolution, bool, (void*, u32, int*, int*))
 
 // The interface accessors of the SDK versions the plugin was checked against, newest first. Each interface is looked up
@@ -104,16 +104,16 @@ struct CallbackMsg;  // steam_types.h
 // 1.62 and 1.64. When none is exported, steam_loader.cpp probes the next kNewerVersionWindow versions above the first
 // (newest) name of the interface: a later SDK that bumped an interface (1.65 did ISteamUtils) is used with a warning, since
 // the flat functions the plugin calls are resolved by name and stay valid across interface versions.
-#define STEAM_ACCESSORS(X)                                                                                                  \
-    X(user, "ISteamUser", "SteamAPI_SteamUser_v023")                                                                        \
-    X(friends, "ISteamFriends", "SteamAPI_SteamFriends_v018", "SteamAPI_SteamFriends_v017")                                 \
-    X(utils, "ISteamUtils", "SteamAPI_SteamUtils_v010")                                                                     \
-    X(apps, "ISteamApps", "SteamAPI_SteamApps_v009", "SteamAPI_SteamApps_v008")                                             \
-    X(userStats, "ISteamUserStats", "SteamAPI_SteamUserStats_v013", "SteamAPI_SteamUserStats_v012")                         \
+#define STEAM_ACCESSORS(X)                                                                                             \
+    X(user, "ISteamUser", "SteamAPI_SteamUser_v023")                                                                   \
+    X(friends, "ISteamFriends", "SteamAPI_SteamFriends_v018", "SteamAPI_SteamFriends_v017")                            \
+    X(utils, "ISteamUtils", "SteamAPI_SteamUtils_v010")                                                                \
+    X(apps, "ISteamApps", "SteamAPI_SteamApps_v009", "SteamAPI_SteamApps_v008")                                        \
+    X(userStats, "ISteamUserStats", "SteamAPI_SteamUserStats_v013", "SteamAPI_SteamUserStats_v012")                    \
     X(remoteStorage, "ISteamRemoteStorage", "SteamAPI_SteamRemoteStorage_v016")
 
 // Interfaces that only some Steam clients give out (the plugin works without them; the field stays null). Same form as above.
-#define STEAM_OPTIONAL_ACCESSORS(X)                                                                                         \
+#define STEAM_OPTIONAL_ACCESSORS(X)                                                                                    \
     X(remotePlay, "ISteamRemotePlay", "SteamAPI_SteamRemotePlay_v002", "SteamAPI_SteamRemotePlay_v001")
 
 // The Steamworks SDK versions whose flat API this plugin was checked against (the text of the errors and warnings).

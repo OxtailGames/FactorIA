@@ -34,35 +34,38 @@ struct VecStarSpec {
 };
 struct VecGearSpec {
     VecPoint center;
-    double radius = 40;      // to the tips of the teeth
-    int teeth = 8;           // 3 to 128
-    double depth = 0.2;      // the height of a tooth as a fraction of `radius`
-    double toothWidth = 0.5; // the width of a tooth at its tip as a fraction of the pitch (the distance between two teeth)
-    double hole = 0.3;       // the radius of the centre hole as a fraction of `radius`, 0 for none
-    double rotation = -90;   // where the first tooth points
+    double radius = 40;  // to the tips of the teeth
+    int teeth = 8;       // 3 to 128
+    double depth = 0.2;  // the height of a tooth as a fraction of `radius`
+    double toothWidth =
+        0.5;            // the width of a tooth at its tip as a fraction of the pitch (the distance between two teeth)
+    double hole = 0.3;  // the radius of the centre hole as a fraction of `radius`, 0 for none
+    double rotation = -90;  // where the first tooth points
 };
 struct VecPolygonSpec {
     VecPoint center;
-    double radius = 40;       // of the circle through the corners
-    int sides = 6;            // 3 to 128
-    double cornerRadius = 0;  // the radius of the rounded corners, in drawing units (cut down where the sides are too short)
-    double rotation = -90;    // where the first corner points
+    double radius = 40;  // of the circle through the corners
+    int sides = 6;       // 3 to 128
+    double cornerRadius =
+        0;  // the radius of the rounded corners, in drawing units (cut down where the sides are too short)
+    double rotation = -90;  // where the first corner points
 };
 struct VecArrowSpec {
-    VecPoint from, to;       // the tail end of the shaft and the tip of the head
+    VecPoint from, to;  // the tail end of the shaft and the tip of the head
     double shaftWidth = 8;
     double headLength = 20;  // from the tip back along the arrow
     double headWidth = 24;
-    double curve = 0;        // bend: 0 straight; the sagitta as a fraction of the length, positive bends to the right of from -> to
+    double curve =
+        0;  // bend: 0 straight; the sagitta as a fraction of the length, positive bends to the right of from -> to
 };
 struct VecBubbleSpec {
     VecPoint center;
     double width = 80, height = 50;
     double cornerRadius = 10;
     bool hasTail = true;
-    VecPoint tailTo;           // the tip of the tail, outside the box
-    double tailWidth = 14;     // where it leaves the box
-    double tailRoundness = 0.5; // 0 sharp tip, 1 as round as the tail allows
+    VecPoint tailTo;             // the tip of the tail, outside the box
+    double tailWidth = 14;       // where it leaves the box
+    double tailRoundness = 0.5;  // 0 sharp tip, 1 as round as the tail allows
 };
 // A banner: a front band with a folded tail behind each end. Pieces back to front.
 struct VecRibbonSpec {
@@ -87,7 +90,8 @@ VecRibbonPieces vector_ribbon_paths(const VecRibbonSpec& s, int decimals = 3);
 // Text as path data (engine fonts, HarfBuzz shaping, see outline_text in fa/render/fonts.h): `size` is the em in drawing units,
 // (x, y) the baseline origin, `anchor` "start", "middle" or "end". Returns the `d` of one path (nonzero fill) and, if given, the advance
 // of the widest line and the number of glyphs drawn. An unreadable font is an error.
-Result<std::string> vector_text_path(const std::string& text, const std::string& font, double size, VecPoint at, const std::string& anchor,
-                                     double letterSpacing, int decimals, double* advance = nullptr, int* glyphs = nullptr);
+Result<std::string> vector_text_path(const std::string& text, const std::string& font, double size, VecPoint at,
+                                     const std::string& anchor, double letterSpacing, int decimals,
+                                     double* advance = nullptr, int* glyphs = nullptr);
 
 }  // namespace fa

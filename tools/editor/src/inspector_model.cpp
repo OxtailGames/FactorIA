@@ -75,8 +75,8 @@ float drag_speed_for(const FieldInfo& f, double current) {
     return whole ? std::max(1.0f, s) : std::max(0.01f, s);
 }
 
-Json field_edit_args(const std::string& entityId, const std::string& component, const std::string& field, const Json& value,
-                     bool merge) {
+Json field_edit_args(const std::string& entityId, const std::string& component, const std::string& field,
+                     const Json& value, bool merge) {
     Json a = Json::object({{"id", entityId}, {"component", component}, {"fields", Json::object({{field, value}})}});
     if (merge) a["merge"] = true;
     return a;
@@ -89,7 +89,10 @@ Result<Json> parse_json_box(const std::string& text) {
         return make_error("The box is empty.", "Write a JSON value, e.g. {} for an empty object, or null.");
     auto r = parse_json(trimmed, "this field");
     if (!r.ok())
-        return make_error(r.error().message, r.error().hint.empty() ? "Fix the JSON (quotes around keys and strings, commas between items); nothing is applied until it parses." : r.error().hint);
+        return make_error(r.error().message, r.error().hint.empty()
+                                                 ? "Fix the JSON (quotes around keys and strings, commas between "
+                                                   "items); nothing is applied until it parses."
+                                                 : r.error().hint);
     return r;
 }
 
@@ -107,14 +110,17 @@ bool asset_file_matches(std::string_view assetType, std::string_view relPath) {
     const std::string type = asset_type_of(relPath);
     if (type != "other") return type == assetType;
     return assetType != "texture" && assetType != "audio" && assetType != "font" && assetType != "mesh" &&
-           assetType != "script" && assetType != "scene" && assetType != "prefab" && assetType != "material" && assetType != "video" && assetType != "vfx";  // unknown type: anything
+           assetType != "script" && assetType != "scene" && assetType != "prefab" && assetType != "material" &&
+           assetType != "video" && assetType != "vfx";  // unknown type: anything
 }
 
 bool skip_project_dir(std::string_view name) {
-    return (!name.empty() && name[0] == '.') || name == "build" || name == "node_modules" || name == "dist" || name == "export";
+    return (!name.empty() && name[0] == '.') || name == "build" || name == "node_modules" || name == "dist" ||
+           name == "export";
 }
 
-std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType, std::size_t limit) {
+std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType,
+                                          std::size_t limit) {
     std::vector<std::string> out;
     if (projectDir.empty()) return out;
     std::error_code ec;
@@ -128,7 +134,10 @@ std::vector<std::string> list_asset_files(const std::string& projectDir, std::st
         }
         if (!it->is_regular_file(ec)) continue;
         const std::string rel = stdfs::relative(it->path(), root, ec).generic_string();
-        if (ec) { ec.clear(); continue; }
+        if (ec) {
+            ec.clear();
+            continue;
+        }
         if (rel.empty() || !asset_file_matches(assetType, rel)) continue;
         out.push_back(rel);
         if (out.size() >= limit) break;
@@ -148,7 +157,8 @@ int material_param_arity(std::string_view type) {
 
 Result<std::vector<MaterialParamSpec>> material_params_from_info(const Json& info) {
     if (!info.is_object() || !info.contains("params") || !info["params"].is_array())
-        return make_error("material.info did not return a params list.", "Run material.info on the material and fix its errors first.");
+        return make_error("material.info did not return a params list.",
+                          "Run material.info on the material and fix its errors first.");
     std::vector<MaterialParamSpec> out;
     for (const Json& p : info["params"]) {
         if (!p.is_object() || !p.contains("name") || !p["name"].is_string()) continue;
@@ -182,7 +192,8 @@ Json material_param_reset_args(const std::string& entityId, const MaterialParamS
 }
 
 std::string material_build_error(const Json& assetReport, const std::string& materialPath) {
-    if (materialPath.empty() || !assetReport.is_object() || !assetReport.contains("materials") || !assetReport["materials"].is_array())
+    if (materialPath.empty() || !assetReport.is_object() || !assetReport.contains("materials") ||
+        !assetReport["materials"].is_array())
         return {};
     std::string key = fs::normalize(materialPath);
     if (key.empty()) key = materialPath;

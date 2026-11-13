@@ -28,7 +28,8 @@ namespace {
 // An invalid project file that was not accepted is not an error here: the project runs without it and the resolution says why.
 ai::ResolvedAiConfig resolve_or_throw(const std::string& projectDir = {}) {
     auto resolved = ai::resolve_ai_config(projectDir);
-    if (!resolved.ok()) throw CliError("AI configuration is invalid: " + resolved.error().message, resolved.error().hint);
+    if (!resolved.ok())
+        throw CliError("AI configuration is invalid: " + resolved.error().message, resolved.error().hint);
     return std::move(*resolved);
 }
 ai::AiConfig load_config_or_throw(const std::string& projectDir = {}) { return resolve_or_throw(projectDir).config; }
@@ -53,15 +54,18 @@ std::string project_settings_line(const ai::ResolvedAiConfig& resolved) {
             }
         };
         walk(resolved.overrides, "");
-        for (const auto& [pointer, value] : leaves) out += "  " + ai::escape_control_chars(pointer + " = " + value.dump()) + "\n";
+        for (const auto& [pointer, value] : leaves)
+            out += "  " + ai::escape_control_chars(pointer + " = " + value.dump()) + "\n";
         return out;
     }
     if (resolved.invalidError) {
-        out += " (INVALID and not accepted: it has no effect, the project runs with your settings):\n  " + resolved.invalidError->message;
+        out += " (INVALID and not accepted: it has no effect, the project runs with your settings):\n  " +
+               resolved.invalidError->message;
         if (!resolved.invalidError->hint.empty()) out += "\n  " + resolved.invalidError->hint;
         return out + "\n";
     }
-    out += " (NOT applied: it was not saved on this computer; the project runs with your settings until you accept it in the editor's AI settings). It would change:\n";
+    out += " (NOT applied: it was not saved on this computer; the project runs with your settings until you accept it "
+           "in the editor's AI settings). It would change:\n";
     for (const auto& c : resolved.pending) out += "  " + c.text() + "\n";
     return out;
 }
@@ -70,13 +74,16 @@ std::string project_settings_line(const ai::ResolvedAiConfig& resolved) {
 Json project_settings_json(const ai::ResolvedAiConfig& resolved) {
     if (!resolved.fileExists) return nullptr;
     Json pending = Json::array();
-    for (const auto& c : resolved.pending) pending.push_back(Json::object({{"pointer", c.pointer}, {"from", c.from}, {"to", c.to}}));
+    for (const auto& c : resolved.pending)
+        pending.push_back(Json::object({{"pointer", c.pointer}, {"from", c.from}, {"to", c.to}}));
     Json out = Json::object({{"file", resolved.projectFile},
                              {"applied", resolved.applied},
                              {"pendingTrust", resolved.pendingTrust},
                              {"pending", pending},
                              {"overrides", resolved.overrides}});
-    if (resolved.invalidError) out["invalidError"] = Json::object({{"message", resolved.invalidError->message}, {"hint", resolved.invalidError->hint}});
+    if (resolved.invalidError)
+        out["invalidError"] =
+            Json::object({{"message", resolved.invalidError->message}, {"hint", resolved.invalidError->hint}});
     return out;
 }
 
@@ -120,14 +127,17 @@ Command make_ai_command() {
     Command g;
     g.name = "ai";
     g.summary = "The built-in AI agent: check providers, configure, and run a task on a project.";
-    g.details = "Providers: API keys (Anthropic, OpenAI-compatible) or your Claude Code / Codex subscription via their CLIs.\nSee docs: factoria docs read ai-providers";
+    g.details = "Providers: API keys (Anthropic, OpenAI-compatible) or your Claude Code / Codex subscription via their "
+                "CLIs.\nSee docs: factoria docs read ai-providers";
     g.maxPositional = -1;
 
     Command doctor;
     doctor.name = "doctor";
     doctor.summary = "Check which AI providers are usable (CLIs installed, keys visible). Never prints keys.";
     doctor.flags = {{"json", "", "Machine-readable output."},
-                    {"project", "DIR", "Project folder whose AI settings, extensions and Claude Code deny rules to check (default: the project containing the current folder)."}};
+                    {"project", "DIR",
+                     "Project folder whose AI settings, extensions and Claude Code deny rules to check (default: the "
+                     "project containing the current folder)."}};
     doctor.examples = {"factoria ai doctor", "factoria ai doctor --json", "factoria ai doctor --project examples/pong"};
     doctor.run = [](Context& ctx) {
         const std::string projectDir = ambient_project_dir(ctx);
@@ -135,26 +145,32 @@ Command make_ai_command() {
         const ai::AiConfig& cfg = resolved.config;
         if (ctx.args.has("json")) {
             Json rep = providers_report(cfg, true);
-            rep["extensions"] = ai::extensions_report(cfg, ai::make_extension_context(cfg, projectDir, ai::system_env()));
-            if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
+            rep["extensions"] =
+                ai::extensions_report(cfg, ai::make_extension_context(cfg, projectDir, ai::system_env()));
+            if (Json settings = project_settings_json(resolved); !settings.is_null())
+                rep["projectSettings"] = std::move(settings);
             print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir) << project_settings_line(resolved);
+        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir)
+                << project_settings_line(resolved);
         return 0;
     };
 
     Command providers;
     providers.name = "providers";
     providers.summary = "List the configured providers, their availability and the role mapping.";
-    providers.flags = {{"json", "", "Machine-readable output."},
-                       {"project", "DIR", "Project folder whose AI settings apply (default: the project containing the current folder)."}};
+    providers.flags = {
+        {"json", "", "Machine-readable output."},
+        {"project", "DIR",
+         "Project folder whose AI settings apply (default: the project containing the current folder)."}};
     providers.examples = {"factoria ai providers --json"};
     providers.run = [](Context& ctx) {
         const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
         const ai::AiConfig& cfg = resolved.config;
         Json rep = providers_report(cfg, false);
-        if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
+        if (Json settings = project_settings_json(resolved); !settings.is_null())
+            rep["projectSettings"] = std::move(settings);
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep);
             return 0;
@@ -162,11 +178,12 @@ Command make_ai_command() {
         ctx.out << project_settings_line(resolved);
         ctx.out << "roles:\n";
         for (const auto& [role, v] : rep["roles"].items())
-            ctx.out << "  " << role << ": " << v["provider"].get<std::string>() << " / " << v["model"].get<std::string>() << "\n";
+            ctx.out << "  " << role << ": " << v["provider"].get<std::string>() << " / "
+                    << v["model"].get<std::string>() << "\n";
         ctx.out << "providers:\n";
         for (const auto& p : rep["providers"])
-            ctx.out << "  " << (p.value("available", false) ? "[ok]   " : "[none] ") << p.value("name", std::string()) << "  (" << p.value("kind", std::string())
-                    << ")  " << p.value("detail", std::string()) << "\n";
+            ctx.out << "  " << (p.value("available", false) ? "[ok]   " : "[none] ") << p.value("name", std::string())
+                    << "  (" << p.value("kind", std::string()) << ")  " << p.value("detail", std::string()) << "\n";
         return 0;
     };
 
@@ -174,7 +191,8 @@ Command make_ai_command() {
     config.name = "config";
     config.summary = "Show where the AI config lives, the effective settings (keys redacted) and an example.";
     config.flags = {{"json", "", "Machine-readable output."},
-                    {"project", "DIR", "Project folder whose AI settings apply (default: the project containing the current folder)."}};
+                    {"project", "DIR",
+                     "Project folder whose AI settings apply (default: the project containing the current folder)."}};
     config.examples = {"factoria ai config"};
     config.run = [](Context& ctx) {
         const ai::ResolvedAiConfig resolved = resolve_or_throw(ambient_project_dir(ctx));
@@ -196,16 +214,21 @@ Command make_ai_command() {
   "limits": { "maxTurns": 40, "maxCostUsd": 5 }
 })";
         if (ctx.args.has("json")) {
-            Json rep = Json::object({{"path", path}, {"exists", exists}, {"effective", ai::config_to_json(cfg, true)},
+            Json rep = Json::object({{"path", path},
+                                     {"exists", exists},
+                                     {"effective", ai::config_to_json(cfg, true)},
                                      {"example", Json::parse(example)}});
-            if (Json settings = project_settings_json(resolved); !settings.is_null()) rep["projectSettings"] = std::move(settings);
+            if (Json settings = project_settings_json(resolved); !settings.is_null())
+                rep["projectSettings"] = std::move(settings);
             print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << project_settings_line(resolved) << "Config file: " << path << (exists ? "" : "  (does not exist yet; defaults are used)") << "\n"
+        ctx.out << project_settings_line(resolved) << "Config file: " << path
+                << (exists ? "" : "  (does not exist yet; defaults are used)") << "\n"
                 << "Override the location with FACTORIA_AI_CONFIG. API keys come from environment variables\n"
                 << "(ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) or this user file, never from a game project.\n"
-                << "Schema: schemas/ai-config.schema.json (factoria docs read ai-providers)\n\nExample:\n" << example << "\n";
+                << "Schema: schemas/ai-config.schema.json (factoria docs read ai-providers)\n\nExample:\n"
+                << example << "\n";
         return 0;
     };
 
@@ -214,13 +237,15 @@ Command make_ai_command() {
     run.summary = "Give the AI agent a task on a project; it works through the engine commands (and sub-agents).";
     run.usage = "[project] \"<task>\" [--provider P] [--role R] [--model M] [--max-turns N]";
     run.details =
-        "The agent sees the project's tools (scene.*, game.*, fs.*, feedback.report, ...). Text, tool calls and costs stream\n"
+        "The agent sees the project's tools (scene.*, game.*, fs.*, feedback.report, ...). Text, tool calls and costs "
+        "stream\n"
         "to the terminal; the transcript is saved in <project>/.factoria/ai/sessions/. Use '-' as task to read stdin,\n"
         "@file to read the task from a file. Exit code 1 if the run did not finish normally.";
     run.maxPositional = 2;
     run.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                  {"provider", "NAME", "Use this provider instead of the role's (see 'factoria ai providers')."},
-                 {"role", "ROLE", "orchestrator (default), worker, fast, artist or audio. Critics and reviewers: factoria ai review."},
+                 {"role", "ROLE",
+                  "orchestrator (default), worker, fast, artist or audio. Critics and reviewers: factoria ai review."},
                  {"model", "MODEL", "Model override."},
                  {"max-turns", "N", "Turn limit (default from config limits)."},
                  {"max-cost", "USD", "Cost limit in USD (0 = unlimited)."},
@@ -247,7 +272,8 @@ Command make_ai_command() {
         std::string role = a.str("role", ai::kRoleOrchestrator);
         if (ai::is_review_role(role))
             throw UsageError("The role '" + role + "' only runs as a review.",
-                             "Use 'factoria ai review " + ai::review_kind_for_role(role) + "' (docs/AI_PROVIDERS.md, \"Reviews\").");
+                             "Use 'factoria ai review " + ai::review_kind_for_role(role) +
+                                 "' (docs/AI_PROVIDERS.md, \"Reviews\").");
         if (role != ai::kRoleOrchestrator && !ai::is_delegable_role(role))
             throw UsageError("Unknown role '" + role + "'.",
                              "Valid roles: orchestrator, worker, fast, artist, audio (reviews: 'factoria ai review').");
@@ -272,7 +298,6 @@ Command make_ai_command() {
             for (const auto& [n, _] : cfg.providers) names.push_back(n);
             throw UsageError("Unknown provider '" + provider + "'.", fa::did_you_mean(provider, names));
         }
-
 
         SessionOptions so;
         so.gfx = Gfx::Auto;
@@ -314,12 +339,31 @@ Command make_ai_command() {
                 midLine = false;
             };
             switch (e.type) {
-                case T::SessionStart: endLine(); ctx.out << pad << "[" << e.role << "] " << e.text << "\n"; break;
-                case T::TextDelta: ctx.out << e.text; midLine = !e.text.empty() && e.text.back() != '\n'; break;
-                case T::ToolStart: endLine(); ctx.out << pad << "> " << e.toolName << " " << clip(e.toolInput.dump(), 160) << "\n"; break;
-                case T::ToolEnd: endLine(); ctx.out << pad << "  " << (e.isError ? "ERROR " : "ok    ") << clip(e.toolResult.dump(), 160) << "\n"; break;
-                case T::Info: endLine(); ctx.out << pad << "[info] " << e.text << "\n"; break;
-                case T::Error: endLine(); ctx.out << pad << "[error] " << e.text << "\n"; break;
+                case T::SessionStart:
+                    endLine();
+                    ctx.out << pad << "[" << e.role << "] " << e.text << "\n";
+                    break;
+                case T::TextDelta:
+                    ctx.out << e.text;
+                    midLine = !e.text.empty() && e.text.back() != '\n';
+                    break;
+                case T::ToolStart:
+                    endLine();
+                    ctx.out << pad << "> " << e.toolName << " " << clip(e.toolInput.dump(), 160) << "\n";
+                    break;
+                case T::ToolEnd:
+                    endLine();
+                    ctx.out << pad << "  " << (e.isError ? "ERROR " : "ok    ") << clip(e.toolResult.dump(), 160)
+                            << "\n";
+                    break;
+                case T::Info:
+                    endLine();
+                    ctx.out << pad << "[info] " << e.text << "\n";
+                    break;
+                case T::Error:
+                    endLine();
+                    ctx.out << pad << "[error] " << e.text << "\n";
+                    break;
                 default: break;
             }
             ctx.out.flush();
@@ -336,8 +380,10 @@ Command make_ai_command() {
                 std::lock_guard<std::mutex> lock(outMu);
                 if (midLine) ctx.out << "\n";
                 midLine = false;
-                if (asJson) ctx.out << Json::object({{"event", "progress"}, {"text", line}}).dump() << "\n";
-                else ctx.out << "  | " << line << "\n";
+                if (asJson)
+                    ctx.out << Json::object({{"event", "progress"}, {"text", line}}).dump() << "\n";
+                else
+                    ctx.out << "  | " << line << "\n";
                 ctx.out.flush();
             });
             res = agent.run(task);
@@ -347,23 +393,28 @@ Command make_ai_command() {
             print_json(ctx.out, res.to_json());
             return res.ok ? 0 : 1;
         }
-        ctx.out << "\n--- " << (res.ok ? "done" : "stopped") << ": " << res.stopReason << ", " << res.turns << " turns, " << res.usage.total()
-                << " tokens";
+        ctx.out << "\n--- " << (res.ok ? "done" : "stopped") << ": " << res.stopReason << ", " << res.turns
+                << " turns, " << res.usage.total() << " tokens";
         if (res.costUsd > 0) ctx.out << ", ~$" << res.costUsd;
         if (res.assetCostUsd > 0) ctx.out << ", assets ~" << ai::format_usd(res.assetCostUsd) << " (estimate)";
         ctx.out << "\n";
         if (!res.transcriptPath.empty()) ctx.out << "transcript: " << res.transcriptPath << "\n";
-        if (!res.ok) return report_failure(ctx, res.error.empty() ? "The agent stopped: " + res.stopReason : res.error, res.hint);
+        if (!res.ok)
+            return report_failure(ctx, res.error.empty() ? "The agent stopped: " + res.stopReason : res.error,
+                                  res.hint);
         return 0;
     };
 
     Command review;
     review.name = "review";
-    review.summary = "Ask for an art critique (kind art) or a game review (kind game): read-only agents play the build and score it.";
+    review.summary = "Ask for an art critique (kind art) or a game review (kind game): read-only agents play the build "
+                     "and score it.";
     review.usage = "art|game [project] [--count N] [--focus TEXT] [--provider P] [--model M] [--max-cost USD] [--json]";
     review.details =
-        "Starts N critics (art, role artCritic) or reviewers (game, role reviewer), one after another, each with its own point\n"
-        "of view. They can look and play (screenshots, game_step/input/click, bot play) but not change anything. Each report\n"
+        "Starts N critics (art, role artCritic) or reviewers (game, role reviewer), one after another, each with its "
+        "own point\n"
+        "of view. They can look and play (screenshots, game_step/input/click, bot play) but not change anything. Each "
+        "report\n"
         "ends in a score from 0 to 10 with sub-scores and is saved in <project>/.factoria/ai/reviews/ (list them with\n"
         "'factoria ai reviews'). Reviews only run when you ask: no agent starts them. They read REVIEW.md first\n"
         "(docs/AI_PROVIDERS.md, \"Reviews\").";
@@ -414,14 +465,19 @@ Command make_ai_command() {
             return 0;
         }
         for (const Json& rv : r.result.value("reviews", Json::array())) {
-            ctx.out << "=== " << rv.value("role", std::string()) << " (" << rv.value("persona", std::string()) << ")  score: ";
-            if (rv.contains("score") && rv["score"].is_number()) ctx.out << rv["score"].get<double>() << "/10";
-            else ctx.out << "none";
+            ctx.out << "=== " << rv.value("role", std::string()) << " (" << rv.value("persona", std::string())
+                    << ")  score: ";
+            if (rv.contains("score") && rv["score"].is_number())
+                ctx.out << rv["score"].get<double>() << "/10";
+            else
+                ctx.out << "none";
             ctx.out << " ===\n" << rv.value("text", std::string()) << "\n";
-            if (!rv.value("path", std::string()).empty()) ctx.out << "saved: " << rv.value("path", std::string()) << "\n";
+            if (!rv.value("path", std::string()).empty())
+                ctx.out << "saved: " << rv.value("path", std::string()) << "\n";
             ctx.out << "\n";
         }
-        for (const Json& e : r.result.value("errors", Json::array())) ctx.out << "[error] " << e.get<std::string>() << "\n";
+        for (const Json& e : r.result.value("errors", Json::array()))
+            ctx.out << "[error] " << e.get<std::string>() << "\n";
         if (r.result.contains("averageScore") && r.result["averageScore"].is_number())
             ctx.out << "average score: " << r.result["averageScore"].get<double>() << "/10\n";
         return 0;
@@ -458,8 +514,10 @@ Command make_ai_command() {
         }
         for (const ai::Review& r : list) {
             ctx.out << r.time << "  " << ai::review_kind_for_role(r.role) << "  ";
-            if (r.score >= 0) ctx.out << r.score << "/10";
-            else ctx.out << "  -  ";
+            if (r.score >= 0)
+                ctx.out << r.score << "/10";
+            else
+                ctx.out << "  -  ";
             ctx.out << "  " << r.persona << "  v" << r.gameVersion << "  " << clip(r.summary, 80) << "\n";
         }
         return 0;
@@ -467,22 +525,30 @@ Command make_ai_command() {
 
     Command retrospective;
     retrospective.name = "retrospective";
-    retrospective.summary = "Look back at the project's recorded AI runs, find where they wasted time or tokens and file efficiency feedback.";
+    retrospective.summary = "Look back at the project's recorded AI runs, find where they wasted time or tokens and "
+                            "file efficiency feedback.";
     retrospective.usage = "[project] [--session NAMES] [--since DATE] [--candidates-only] [--json]";
-    retrospective.details =
-        "Reads <project>/.factoria/ai/sessions: first a mechanical pass (no model) that measures failures repeated with the same\n"
-        "code, docs read again and again, results over 40 KB, screenshots in a row, long waits and edit-run-check loops, then ONE\n"
-        "short call of the fast role (ai.json) that picks at most three of them for entries in ENGINE_FEEDBACK.json. Every entry\n"
-        "goes through the same gate as 'factoria feedback add --kind efficiency' (threshold per fix type, the cheapest fix); what\n"
-        "the gate refuses is listed with its reason. A lesson that is true of this game only becomes a project-fact proposal\n"
-        "('factoria ai savers' lists it). Nothing is sent anywhere. The same as the ai.retrospective command and the Feedback\n"
-        "panel's button; with ai.json savers.retrospective on it also runs after a long run.";
+    retrospective.details = "Reads <project>/.factoria/ai/sessions: first a mechanical pass (no model) that measures "
+                            "failures repeated with the same\n"
+                            "code, docs read again and again, results over 40 KB, screenshots in a row, long waits and "
+                            "edit-run-check loops, then ONE\n"
+                            "short call of the fast role (ai.json) that picks at most three of them for entries in "
+                            "ENGINE_FEEDBACK.json. Every entry\n"
+                            "goes through the same gate as 'factoria feedback add --kind efficiency' (threshold per "
+                            "fix type, the cheapest fix); what\n"
+                            "the gate refuses is listed with its reason. A lesson that is true of this game only "
+                            "becomes a project-fact proposal\n"
+                            "('factoria ai savers' lists it). Nothing is sent anywhere. The same as the "
+                            "ai.retrospective command and the Feedback\n"
+                            "panel's button; with ai.json savers.retrospective on it also runs after a long run.";
     retrospective.maxPositional = 1;
-    retrospective.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
-                           {"session", "NAMES", "Comma-separated transcript names in .factoria/ai/sessions (default: the newest 40)."},
-                           {"since", "DATE", "Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30)."},
-                           {"candidates-only", "", "Only the mechanical pass: no model is asked and nothing is filed."},
-                           {"json", "", "Machine-readable output."}};
+    retrospective.flags = {
+        {"project", "DIR", "Project folder (alternative to the positional argument)."},
+        {"session", "NAMES", "Comma-separated transcript names in .factoria/ai/sessions (default: the newest 40)."},
+        {"since", "DATE",
+         "Only transcripts that began at or after this UTC date (2026-11-01) or date and time (2026-11-01T09:30)."},
+        {"candidates-only", "", "Only the mechanical pass: no model is asked and nothing is filed."},
+        {"json", "", "Machine-readable output."}};
     retrospective.examples = {"factoria ai retrospective", "factoria ai retrospective --since 2026-11-01",
                               "factoria ai retrospective --candidates-only --json"};
     retrospective.run = [](Context& ctx) {
@@ -506,7 +572,8 @@ Command make_ai_command() {
         register_cli_commands(session->registry(), dir, &session->engine());
         CommandResult r = session->registry().call("ai.retrospective", args);
         if (!r.ok)
-            return report_failure(ctx, r.error.value("message", std::string("The retrospective failed.")), r.error.value("hint", std::string()));
+            return report_failure(ctx, r.error.value("message", std::string("The retrospective failed.")),
+                                  r.error.value("hint", std::string()));
         if (a.has("json")) {
             print_json(ctx.out, r.result);
             return 0;
@@ -514,19 +581,23 @@ Command make_ai_command() {
         const Json& res = r.result;
         ctx.out << res.value("note", std::string()) << "\n";
         for (const Json& s : res.value("sessions", Json::array()))
-            ctx.out << "  session " << s.value("id", std::string()) << ": " << s.value("steps", 0) << " steps, " << s.value("minutes", 0.0)
-                    << " min, " << s.value("tokens", 0) << " tokens\n";
+            ctx.out << "  session " << s.value("id", std::string()) << ": " << s.value("steps", 0) << " steps, "
+                    << s.value("minutes", 0.0) << " min, " << s.value("tokens", 0) << " tokens\n";
         for (const Json& c : res.value("candidates", Json::array()))
-            ctx.out << "  candidate " << c.value("id", std::string()) << ": " << c.value("summary", std::string()) << " (could save about "
-                    << c["potentialSaving"].value("minutes", 0.0) << " min, " << c["potentialSaving"].value("tokens", 0) << " tokens)\n";
+            ctx.out << "  candidate " << c.value("id", std::string()) << ": " << c.value("summary", std::string())
+                    << " (could save about " << c["potentialSaving"].value("minutes", 0.0) << " min, "
+                    << c["potentialSaving"].value("tokens", 0) << " tokens)\n";
         for (const Json& f : res.value("fixChecks", Json::array()))
-            ctx.out << "  fix check " << f.value("entry", std::string()) << " (" << f.value("result", std::string()) << "): " << f.value("text", std::string()) << "\n";
+            ctx.out << "  fix check " << f.value("entry", std::string()) << " (" << f.value("result", std::string())
+                    << "): " << f.value("text", std::string()) << "\n";
         for (const Json& f : res.value("filed", Json::array()))
-            ctx.out << "  filed " << f.value("id", std::string()) << ": " << f.value("title", std::string()) << " (" << f.value("fixType", std::string()) << ")\n";
+            ctx.out << "  filed " << f.value("id", std::string()) << ": " << f.value("title", std::string()) << " ("
+                    << f.value("fixType", std::string()) << ")\n";
         for (const Json& f : res.value("facts", Json::array()))
             ctx.out << "  project fact proposed: " << f.value("line", std::string()) << "\n";
         for (const Json& d : res.value("dropped", Json::array()))
-            ctx.out << "  dropped " << d.value("candidate", std::string()) << ": " << d.value("code", std::string()) << " - " << d.value("reason", std::string()) << "\n";
+            ctx.out << "  dropped " << d.value("candidate", std::string()) << ": " << d.value("code", std::string())
+                    << " - " << d.value("reason", std::string()) << "\n";
         if (res.value("costUsd", 0.0) > 0) ctx.out << "model call cost: $" << res.value("costUsd", 0.0) << "\n";
         return 0;
     };

@@ -64,7 +64,11 @@ void feed(Sha256& h, float v) {
     std::memcpy(&bits, &v, sizeof bits);
     h.update(&bits, sizeof bits);
 }
-void feed(Sha256& h, Vec3 v) { feed(h, v.x); feed(h, v.y); feed(h, v.z); }
+void feed(Sha256& h, Vec3 v) {
+    feed(h, v.x);
+    feed(h, v.y);
+    feed(h, v.z);
+}
 
 // FNV-1a over the bits of a few vectors: the per-body digests of the trace below.
 std::uint32_t fnv(std::uint32_t h, Vec3 v) {
@@ -131,8 +135,11 @@ Replay replay_hash(bool trace = false) {
         t->position = {4.0f + 0.35f * float(i % 4), 3.0f + 1.1f * float(i), 0.2f * float(i % 3)};
         t->rotation = {7.0f * float(i), 11.0f * float(i), 5.0f * float(i)};
         Collider3D& c = world.add<Collider3D>(e);
-        if (i % 3 == 0) { c.shape = ColliderShape3D::Sphere; c.radius = 0.4f; }
-        else c.size = {0.7f, 0.5f + 0.05f * float(i), 0.6f};
+        if (i % 3 == 0) {
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.4f;
+        } else
+            c.size = {0.7f, 0.5f + 0.05f * float(i), 0.6f};
         c.restitution = 0.2f;
         RigidBody3D& b = world.add<RigidBody3D>(e);
         b.angularVelocity = {90.0f + 13.0f * float(i), 40.0f, -55.0f + 9.0f * float(i)};
@@ -149,8 +156,11 @@ Replay replay_hash(bool trace = false) {
             Entity e = world.create("c" + std::to_string(i), "c" + std::to_string(i));
             world.get<Transform>(e)->position = {float(i % 3) * 9.0f - 9.0f, 40.0f + 30.0f * float(i), 0};
             Collider2D& c = world.add<Collider2D>(e);
-            if (i % 2) { c.shape = ColliderShape::Circle; c.radius = 12.0f; }
-            else c.size = {24, 20};
+            if (i % 2) {
+                c.shape = ColliderShape::Circle;
+                c.radius = 12.0f;
+            } else
+                c.size = {24, 20};
             world.add<RigidBody2D>(e);
         }
     }
@@ -175,8 +185,9 @@ Replay replay_hash(bool trace = false) {
                 if (!rb) continue;
                 const Transform* t = world.get<Transform>(e);
                 char hex[16];
-                std::snprintf(hex, sizeof hex, " %08x",
-                              fnv(fnv(fnv(fnv(2166136261u, t->position), t->rotation), rb->velocity), rb->angularVelocity));
+                std::snprintf(
+                    hex, sizeof hex, " %08x",
+                    fnv(fnv(fnv(fnv(2166136261u, t->position), t->rotation), rb->velocity), rb->angularVelocity));
                 line += hex;
             }
             std::printf("%s\n", line.c_str());
@@ -198,9 +209,7 @@ Replay replay_hash(bool trace = false) {
 
 }  // namespace
 
-TEST_CASE("physics replay: the same build gives the same hash twice") {
-    CHECK(replay_hash().all == replay_hash().all);
-}
+TEST_CASE("physics replay: the same build gives the same hash twice") { CHECK(replay_hash().all == replay_hash().all); }
 
 TEST_CASE("physics replay hash matches the committed value of this platform") {
     const std::string key = platform_key();
@@ -209,9 +218,13 @@ TEST_CASE("physics replay hash matches the committed value of this platform") {
     std::string expected = kReferenceHash;
     bool override_ = false;
     for (const PlatformHash& p : kPlatformHashes)
-        if (key == p.key) { expected = p.hash; override_ = true; }
+        if (key == p.key) {
+            expected = p.hash;
+            override_ = true;
+        }
     std::printf("FA_PHYSICS_REPLAY_HASH platform=%s hash=%s expected=%s%s (3d=%s 2d=%s)\n", key.c_str(), got.c_str(),
-                expected.c_str(), override_ ? " (platform-specific)" : " (reference)", replay.d3.c_str(), replay.d2.c_str());
+                expected.c_str(), override_ ? " (platform-specific)" : " (reference)", replay.d3.c_str(),
+                replay.d2.c_str());
     std::fflush(stdout);
     if (const char* t = std::getenv("FA_PHYSICS_TRACE"); t && *t == '1') {
         replay_hash(true);
@@ -222,11 +235,17 @@ TEST_CASE("physics replay hash matches the committed value of this platform") {
             "physics replay hash on " + key + " is " + got + ", expected " + expected +
             (override_ ? " (this platform's own value).\n" : " (the reference value).\n") +
             "Platforms known to produce the reference: " + kKnownMatching + ".\n" +
-            "If a physics change moved every platform, update kReferenceHash (every job prints its hash: they should all print the "
-            "same). If only " + key + " differs, the simulation is not deterministic there: look for a C library call (std::sin, "
-            "cos, atan2, asin, acos, pow, exp, hypot; use fa::det:: or sqrt), a sort whose ties are not broken by index, an "
-            "iteration over an unordered container, or floating-point contraction (-ffp-contract=off). Run the core test "
-            "\"det math: exact bit patterns\" on this platform too: if it fails, + - * / sqrt rounds differently here. The "
+            "If a physics change moved every platform, update kReferenceHash (every job prints its hash: they should "
+            "all print the "
+            "same). If only " +
+            key +
+            " differs, the simulation is not deterministic there: look for a C library call (std::sin, "
+            "cos, atan2, asin, acos, pow, exp, hypot; use fa::det:: or sqrt), a sort whose ties are not broken by "
+            "index, an "
+            "iteration over an unordered container, or floating-point contraction (-ffp-contract=off). Run the core "
+            "test "
+            "\"det math: exact bit patterns\" on this platform too: if it fails, + - * / sqrt rounds differently here. "
+            "The "
             "FA_PHYSICS_TRACE lines above show where: diff them with FA_PHYSICS_TRACE=1 on a matching platform.";
         replay_hash(true);
         std::fflush(stdout);

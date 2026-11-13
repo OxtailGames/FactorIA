@@ -18,7 +18,9 @@ using namespace fa::testing;
 
 namespace {
 
-Json recipe_of_entry(const AssetsProject& p, const std::string& rel) { return p.manifest()["assets"][rel]["provenance"]["recipe"]; }
+Json recipe_of_entry(const AssetsProject& p, const std::string& rel) {
+    return p.manifest()["assets"][rel]["provenance"]["recipe"];
+}
 
 void write_door(const AssetsProject& p) { write_all(p.file("assets/raw/door.wav"), sine_wav(1.0, -20.0)); }
 
@@ -27,7 +29,8 @@ const char* kDoor = R"({"format": "factoria.audio/1", "doc": "test door", "sourc
 
 }  // namespace
 
-TEST_CASE("audio.bake: writes the WAV next to the document with measurements, provenance and a recipe whose inputs are the document and the source") {
+TEST_CASE("audio.bake: writes the WAV next to the document with measurements, provenance and a recipe whose inputs are "
+          "the document and the source") {
     AssetsProject p;
     write_door(p);
     write_all(p.file("assets/audio/door.audio.json"), kDoor);
@@ -58,7 +61,8 @@ TEST_CASE("audio.bake: writes the WAV next to the document with measurements, pr
     CHECK(read_all(p.file("assets/audio/door.wav")) == wav);
 }
 
-TEST_CASE("audio.bake: a changed source or document makes the sound stale; validate warns, regenerate and bake render it again") {
+TEST_CASE("audio.bake: a changed source or document makes the sound stale; validate warns, regenerate and bake render "
+          "it again") {
     AssetsProject p;
     write_door(p);
     write_all(p.file("assets/audio/door.audio.json"), kDoor);
@@ -68,9 +72,11 @@ TEST_CASE("audio.bake: a changed source or document makes the sound stale; valid
     CHECK(p.ok("audio.info", {{"path", "assets/audio/door.audio.json"}})["bake"]["state"] == "fresh");
 
     write_all(p.file("assets/raw/door.wav"), sine_wav(1.0, -30.0));
-    CHECK(p.ok("audio.info", {{"path", "assets/audio/door.audio.json"}, {"render", false}})["bake"]["state"] == "stale");
+    CHECK(p.ok("audio.info", {{"path", "assets/audio/door.audio.json"}, {"render", false}})["bake"]["state"] ==
+          "stale");
     bool warned = false;
-    for (const ValidationIssue& w : validate_project(p.dir).warnings) warned = warned || w.message.find("'assets/audio/door.wav' is stale") != std::string::npos;
+    for (const ValidationIssue& w : validate_project(p.dir).warnings)
+        warned = warned || w.message.find("'assets/audio/door.wav' is stale") != std::string::npos;
     CHECK(warned);
     const Json plan = p.ok("audio.bake", {{"dryRun", true}});
     REQUIRE(plan["wouldBake"].size() == 1);
@@ -93,7 +99,8 @@ TEST_CASE("audio.bake: a changed source or document makes the sound stale; valid
 TEST_CASE("audio.bake: a loop step records the loop points as import settings; a document without one erases them") {
     AssetsProject p;
     write_door(p);
-    write_all(p.file("assets/audio/hum.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [
+    write_all(p.file("assets/audio/hum.audio.json"),
+              R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [
         {"type": "loop", "start": 0.1, "end": 0.9, "crossfade": 0.1}]})");
     const Json r = p.ok("audio.bake", {});
     CHECK(r["baked"][0]["measurements"]["loop"]["startSeconds"].get<double>() == doctest::Approx(0.1).epsilon(0.001));
@@ -133,10 +140,14 @@ TEST_CASE("audio.bake: refuses to replace a file nothing baked, and a source it 
     CHECK(read_all(p.file("assets/raw/door.wav")) == sine_wav(1.0, -20.0));
     const Json all = p.ok("audio.bake", {});
     bool reported = false;
-    for (const Json& f : all.value("failed", Json::array())) reported = reported || f["error"]["message"].get<std::string>().find("overwrite its own source") != std::string::npos;
+    for (const Json& f : all.value("failed", Json::array()))
+        reported =
+            reported || f["error"]["message"].get<std::string>().find("overwrite its own source") != std::string::npos;
     CHECK(reported);
 
-    write_all(p.file("assets/audio/music.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "output": {"format": "ogg", "quality": 0.4}, "steps": []})");
+    write_all(
+        p.file("assets/audio/music.audio.json"),
+        R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "output": {"format": "ogg", "quality": 0.4}, "steps": []})");
     p.ok("audio.bake", {{"path", "assets/audio/music.audio.json"}});
     const std::string ogg = read_all(p.file("assets/audio/music.ogg"));
     REQUIRE(ogg.size() > 4);
@@ -153,14 +164,18 @@ TEST_CASE("audio.render and audio.info: measurements, per-step results, a pictur
     CHECK(r["steps"][0]["seconds"].get<double>() == doctest::Approx(0.6).epsilon(0.01));
     CHECK(r["measurements"]["peakDb"].get<double>() == doctest::Approx(-6.0).epsilon(0.1));
     CHECK_FALSE(p.exists("assets/audio/door.wav"));
-    const Json early = p.ok("audio.render", {{"path", "assets/audio/door.audio.json"}, {"stopAfter", 0}, {"picture", false}});
+    const Json early =
+        p.ok("audio.render", {{"path", "assets/audio/door.audio.json"}, {"stopAfter", 0}, {"picture", false}});
     CHECK(early["steps"].size() == 1);
     CHECK(early["measurements"]["peakDb"].get<double>() == doctest::Approx(-20.0).epsilon(0.1));
     auto bad = p.call("audio.render", {{"path", "assets/audio/door.audio.json"}, {"stopAfter", 9}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error.dump().find("stopAfter") != std::string::npos);
 
-    const Json inlineDoc = p.ok("audio.render", {{"document", Json::parse(R"({"source": "assets/raw/door.wav", "steps": [{"type": "gain", "db": -6}]})")}, {"picture", false}});
+    const Json inlineDoc =
+        p.ok("audio.render",
+             {{"document", Json::parse(R"({"source": "assets/raw/door.wav", "steps": [{"type": "gain", "db": -6}]})")},
+              {"picture", false}});
     CHECK(inlineDoc["measurements"]["peakDb"].get<double>() == doctest::Approx(-26.0).epsilon(0.1));
 
     const Json info = p.ok("audio.info", {{"path", "assets/audio/door.audio.json"}});
@@ -174,10 +189,13 @@ TEST_CASE("audio.render and audio.info: measurements, per-step results, a pictur
     CHECK(catalog["steps"][0]["fields"].size() > 3);
 }
 
-TEST_CASE("audio.info and project.validate: a broken document lists every issue with its pointer; unknown names get a suggestion") {
+TEST_CASE("audio.info and project.validate: a broken document lists every issue with its pointer; unknown names get a "
+          "suggestion") {
     AssetsProject p;
     write_door(p);
-    write_all(p.file("assets/audio/bad.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [{"type": "fad", "out": 0.1}, {"type": "gain"}]})");
+    write_all(
+        p.file("assets/audio/bad.audio.json"),
+        R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [{"type": "fad", "out": 0.1}, {"type": "gain"}]})");
     const Json info = p.ok("audio.info", {{"path", "assets/audio/bad.audio.json"}});
     CHECK(info["valid"] == false);
     REQUIRE(info["issues"].size() >= 2);
@@ -201,11 +219,16 @@ TEST_CASE("audio.info and project.validate: a broken document lists every issue 
     CHECK(typo.error.dump().find("stopAfter") != std::string::npos);
 }
 
-TEST_CASE("audio.create and audio.edit: write a checked document, bake it, change one step; a bad edit writes nothing") {
+TEST_CASE(
+    "audio.create and audio.edit: write a checked document, bake it, change one step; a bad edit writes nothing") {
     AssetsProject p;
     write_door(p);
-    const Json created = p.ok("audio.create", {{"path", "assets/audio/door.audio.json"}, {"source", "assets/raw/door.wav"},
-                                              {"steps", Json::parse(R"([{"type": "trim", "start": 0.2, "end": 0.8}, {"type": "normalize", "target": -6}])")}});
+    const Json created =
+        p.ok("audio.create",
+             {{"path", "assets/audio/door.audio.json"},
+              {"source", "assets/raw/door.wav"},
+              {"steps",
+               Json::parse(R"([{"type": "trim", "start": 0.2, "end": 0.8}, {"type": "normalize", "target": -6}])")}});
     CHECK(created["output"] == "assets/audio/door.wav");
     CHECK(created["measurements"]["peakDb"].get<double>() == doctest::Approx(-6.0).epsilon(0.1));
     CHECK(p.exists("assets/audio/door.wav"));
@@ -214,17 +237,27 @@ TEST_CASE("audio.create and audio.edit: write a checked document, bake it, chang
     CHECK(again.error.dump().find("overwrite") != std::string::npos);
 
     const std::string before = read_all(p.file("assets/audio/door.audio.json"));
-    const Json set = p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "set"}, {"index", 1}, {"values", {{"target", -12}}}});
+    const Json set =
+        p.ok("audio.edit",
+             {{"path", "assets/audio/door.audio.json"}, {"op", "set"}, {"index", 1}, {"values", {{"target", -12}}}});
     CHECK(set["measurements"]["peakDb"].get<double>() == doctest::Approx(-12.0).epsilon(0.1));
-    const Json add = p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "add"}, {"index", 1}, {"step", {{"type", "fade"}, {"out", 0.05}}}, {"bake", false}});
+    const Json add = p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"},
+                                         {"op", "add"},
+                                         {"index", 1},
+                                         {"step", {{"type", "fade"}, {"out", 0.05}}},
+                                         {"bake", false}});
     CHECK(add["steps"] == 3);
     CHECK(add["bake"]["state"] == "stale");
-    const Json moved = p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "move"}, {"index", 1}, {"to", 2}, {"bake", false}});
+    const Json moved =
+        p.ok("audio.edit",
+             {{"path", "assets/audio/door.audio.json"}, {"op", "move"}, {"index", 1}, {"to", 2}, {"bake", false}});
     CHECK(parse_json(read_all(p.file("assets/audio/door.audio.json"))).value()["steps"][2]["type"] == "fade");
     (void)moved;
 
     const std::string good = read_all(p.file("assets/audio/door.audio.json"));
-    auto bad = p.call("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "set"}, {"index", 0}, {"values", {{"strt", 1}}}});
+    auto bad =
+        p.call("audio.edit",
+               {{"path", "assets/audio/door.audio.json"}, {"op", "set"}, {"index", 0}, {"values", {{"strt", 1}}}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error.dump().find("/steps/0/strt") != std::string::npos);
     CHECK(read_all(p.file("assets/audio/door.audio.json")) == good);
@@ -233,33 +266,44 @@ TEST_CASE("audio.create and audio.edit: write a checked document, bake it, chang
     auto op = p.call("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "ad"}});
     CHECK_FALSE(op.ok);
     CHECK(op.error.dump().find("add") != std::string::npos);
-    p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"}, {"op", "document"}, {"output", {{"format", "ogg"}}}, {"bake", false}});
+    p.ok("audio.edit", {{"path", "assets/audio/door.audio.json"},
+                        {"op", "document"},
+                        {"output", {{"format", "ogg"}}},
+                        {"bake", false}});
     CHECK(parse_json(read_all(p.file("assets/audio/door.audio.json"))).value()["output"]["format"] == "ogg");
     (void)before;
 }
 
-TEST_CASE("audio documents: a document can layer another and a synth patch; changing the innermost makes the outer stale") {
+TEST_CASE(
+    "audio documents: a document can layer another and a synth patch; changing the innermost makes the outer stale") {
     AssetsProject p;
     write_door(p);
     write_all(p.file("assets/audio/blip.sfx.json"), R"({"format": "factoria.sfx/1", "length": 0.15, "layers": [
         {"oscillators": [{"wave": "square", "duty": 0.25}], "pitch": {"note": "A4"}, "amp": {"attack": 0.002, "decay": 0.1, "sustain": 0}}]})");
-    write_all(p.file("assets/audio/inner.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/audio/blip.sfx.json", "steps": [{"type": "gain", "db": -6}]})");
-    write_all(p.file("assets/audio/outer.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [
+    write_all(
+        p.file("assets/audio/inner.audio.json"),
+        R"({"format": "factoria.audio/1", "source": "assets/audio/blip.sfx.json", "steps": [{"type": "gain", "db": -6}]})");
+    write_all(p.file("assets/audio/outer.audio.json"),
+              R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [
         {"type": "layer", "source": "assets/audio/inner.audio.json", "offset": 0.5}]})");
     p.ok("audio.bake", {});
     const Json recipe = recipe_of_entry(p, "assets/audio/outer.wav");
     std::vector<std::string> inputs;
     for (const Json& i : recipe["inputs"]) inputs.push_back(i["path"]);
-    CHECK(inputs == std::vector<std::string>{"assets/audio/outer.audio.json", "assets/audio/blip.sfx.json", "assets/audio/inner.audio.json", "assets/raw/door.wav"});
+    CHECK(inputs == std::vector<std::string>{"assets/audio/outer.audio.json", "assets/audio/blip.sfx.json",
+                                             "assets/audio/inner.audio.json", "assets/raw/door.wav"});
     CHECK(p.ok("audio.bake", {})["count"] == 0);
-    write_all(p.file("assets/audio/inner.audio.json"), R"({"format": "factoria.audio/1", "source": "assets/audio/blip.sfx.json", "steps": [{"type": "gain", "db": -12}]})");
+    write_all(
+        p.file("assets/audio/inner.audio.json"),
+        R"({"format": "factoria.audio/1", "source": "assets/audio/blip.sfx.json", "steps": [{"type": "gain", "db": -12}]})");
     const Json plan = p.ok("audio.bake", {{"dryRun", true}});
     CHECK(plan["wouldBake"].size() == 2);  // the inner document's own sound and the outer one that layers it
 }
 
 TEST_CASE("audio schema: lists every step and field of the code, and valid documents pass it") {
     namespace stdfs = std::filesystem;
-    auto schema = parse_json(read_all(stdfs::path(FA_REPO_ROOT) / "schemas" / "audio.schema.json"), "audio.schema.json");
+    auto schema =
+        parse_json(read_all(stdfs::path(FA_REPO_ROOT) / "schemas" / "audio.schema.json"), "audio.schema.json");
     REQUIRE(schema.ok());
     for (const AudioStepInfo& step : audio_step_types()) {
         REQUIRE((*schema)["$defs"].contains(step.type));
@@ -274,24 +318,30 @@ TEST_CASE("audio schema: lists every step and field of the code, and valid docum
     auto sample = parse_json(kDoor, "door");
     REQUIRE(sample.ok());
     CHECK(validate_json(*schema, *sample).empty());
-    Json eq = {{"format", "factoria.audio/1"}, {"source", {{"path", "a.sfx.json"}, {"note", "C4"}}},
+    Json eq = {{"format", "factoria.audio/1"},
+               {"source", {{"path", "a.sfx.json"}, {"note", "C4"}}},
                {"output", {{"format", "ogg"}, {"quality", 0.4}}},
-               {"steps", Json::array({{{"type", "eq"}, {"bands", Json::array({{{"type", "peak"}, {"freq", 800}, {"gainDb", 3}}})}}, {{"type", "granular"}, {"length", 2.0}, {"enabled", false}}})}};
+               {"steps", Json::array({{{"type", "eq"},
+                                       {"bands", Json::array({{{"type", "peak"}, {"freq", 800}, {"gainDb", 3}}})}},
+                                      {{"type", "granular"}, {"length", 2.0}, {"enabled", false}}})}};
     CHECK(validate_json(*schema, eq).empty());
     Json broken = *sample;
     broken["steps"][1]["outt"] = 0.1;
     CHECK_FALSE(validate_json(*schema, broken).empty());
 }
 
-TEST_CASE("assets.check_mix: a recording that only feeds an audio document is skipped, and a looped bake is judged across its crossfade") {
+TEST_CASE("assets.check_mix: a recording that only feeds an audio document is skipped, and a looped bake is judged "
+          "across its crossfade") {
     AssetsProject p;
     register_audio_commands(p.registry, p.dir);
     write_door(p);
-    write_all(p.file("assets/audio/door.audio.json"),
-              R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [{"type": "loop", "start": 0.2, "end": 0.9, "crossfade": 0.1}]})");
+    write_all(
+        p.file("assets/audio/door.audio.json"),
+        R"({"format": "factoria.audio/1", "source": "assets/raw/door.wav", "steps": [{"type": "loop", "start": 0.2, "end": 0.9, "crossfade": 0.1}]})");
     p.ok("audio.bake", {{"path", "assets/audio/door.audio.json"}});
-    write_all(p.file("scenes/main.scene.json"),
-              R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/audio/door.wav","loop":true}}}]})");
+    write_all(
+        p.file("scenes/main.scene.json"),
+        R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/audio/door.wav","loop":true}}}]})");
     auto call = [&](const Json& args) {
         CommandResult r = p.registry.call("assets.check_mix", args);
         REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -312,7 +362,8 @@ TEST_CASE("assets.check_mix: a recording that only feeds an audio document is sk
     // The loop starts at 0.2 s: the join that is heard is the crossfaded one, so neither seam rule complains.
     bool sawSeam = false;
     for (const Json& f : all["findings"])
-        if (f["sound"] == "assets/audio/door.wav" && (f["rule"] == "loop_seam_jump" || f["rule"] == "loop_seam_slope")) {
+        if (f["sound"] == "assets/audio/door.wav" &&
+            (f["rule"] == "loop_seam_jump" || f["rule"] == "loop_seam_slope")) {
             sawSeam = true;
             CHECK_MESSAGE(f["verdict"] == "ok", f.dump());
         }
@@ -322,7 +373,8 @@ TEST_CASE("assets.check_mix: a recording that only feeds an audio document is sk
     CHECK_FALSE(asked.contains("skipped"));
     CHECK(asked["sounds"].size() == 1);
     // A recording that a scene plays is judged too.
-    write_all(p.file("scenes/main.scene.json"),
-              R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/raw/door.wav"}}}]})");
+    write_all(
+        p.file("scenes/main.scene.json"),
+        R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"AudioSource":{"clip":"assets/raw/door.wav"}}}]})");
     CHECK_FALSE(call({}).contains("skipped"));
 }

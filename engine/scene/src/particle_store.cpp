@@ -17,7 +17,10 @@ namespace {
 
 std::uint64_t hash_id(const std::string& id) {
     std::uint64_t h = 1469598103934665603ULL;
-    for (unsigned char c : id) { h ^= c; h *= 1099511628211ULL; }
+    for (unsigned char c : id) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
     return h;
 }
 
@@ -60,8 +63,8 @@ ParticleEnv make_env(World& world, Entity e, const ParticleEmitter& em, Particle
             } else {
                 st.mesh.reset();
                 if (!st.meshWarned)
-                    FA_WARN("particles", "{}: shapeMesh '{}' cannot be read, so particles are born at the point: {}", world.id_of(e),
-                            em.shapeMesh, r.error().to_string());
+                    FA_WARN("particles", "{}: shapeMesh '{}' cannot be read, so particles are born at the point: {}",
+                            world.id_of(e), em.shapeMesh, r.error().to_string());
                 st.meshWarned = true;
             }
             st.meshName = em.shapeMesh;
@@ -76,7 +79,8 @@ ParticleEnv make_env(World& world, Entity e, const ParticleEmitter& em, Particle
 }
 
 void log_problems(World& world, Entity e, ParticleEmitterState& st) {
-    for (const std::string& p : st.sim.take_problems()) FA_WARN("particles", "{}: ParticleEmitter: {}", world.id_of(e), p);
+    for (const std::string& p : st.sim.take_problems())
+        FA_WARN("particles", "{}: ParticleEmitter: {}", world.id_of(e), p);
 }
 
 // The emitters are stepped as jobs once the scene holds kParallelParticles live particles: moving one costs ~50 ns, handing out a
@@ -160,7 +164,8 @@ void ParticleStore::update(World& world, float dt) {
     // The steps only read the World (a Tilemap to bounce on, the emitter a sub-emitter names) and write their own sim.
     const auto ranges = jobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
     auto run_range = [&](std::size_t r) {
-        for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i) steps[i].st->sim.step(*steps[i].em, steps[i].env, dt);
+        for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i)
+            steps[i].st->sim.step(*steps[i].em, steps[i].env, dt);
     };
     if (ranges.size() <= 1) {
         if (!ranges.empty()) {
@@ -182,14 +187,16 @@ void ParticleStore::update(World& world, float dt) {
     for (StepItem& it : steps) {
         ParticleEmitterState& st = *it.st;
         log_problems(world, it.e, st);
-        if (it.em->autoDestroy && !it.em->emitting && st.sim.everSpawned && st.sim.empty() && st.sim.emitterTrail.empty() &&
-            st.sim.pending_burst() == 0 && !world.pending_destroy(it.e))
+        if (it.em->autoDestroy && !it.em->emitting && st.sim.everSpawned && st.sim.empty() &&
+            st.sim.emitterTrail.empty() && st.sim.pending_burst() == 0 && !world.pending_destroy(it.e))
             world.destroy(it.e);
     }
 
     for (auto it = states_.begin(); it != states_.end();) {
-        if (!it->second.seen) it = states_.erase(it);
-        else ++it;
+        if (!it->second.seen)
+            it = states_.erase(it);
+        else
+            ++it;
     }
 }
 

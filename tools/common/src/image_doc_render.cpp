@@ -39,7 +39,8 @@ struct Ctx {
     const ImageDocument& doc;
     std::string projectDir;
     std::map<std::string, Image> images;
-    const std::map<std::string, Image>* stand = nullptr;  // ImageRenderOptions::pictures: read before the disk, never copied
+    const std::map<std::string, Image>* stand =
+        nullptr;  // ImageRenderOptions::pictures: read before the disk, never copied
     std::set<std::string> inputs;
     std::vector<std::string> warnings;
     std::optional<StyleGuide> styleGuide;  // read from assets.json the first time an operation asks
@@ -52,14 +53,19 @@ struct Ctx {
     // The environment of the operations of the layer at `pointer` (`list`: "adjustments" or "effects").
     OpEnv op_env(const std::string& pointer, const char* list) {
         OpEnv env;
-        env.image = [this, pointer, list](const std::string& rel) -> const Image& { return image(pointer + "/" + list, rel); };
+        env.image = [this, pointer, list](const std::string& rel) -> const Image& {
+            return image(pointer + "/" + list, rel);
+        };
         env.style = [this]() -> const StyleGuide& { return style(); };
-        env.fail = [this, pointer, list](const std::string& message, const std::string& hint) { fail(pointer + "/" + list, message, hint); };
+        env.fail = [this, pointer, list](const std::string& message, const std::string& hint) {
+            fail(pointer + "/" + list, message, hint);
+        };
         return env;
     }
 
     [[noreturn]] void fail(const std::string& pointer, const std::string& message, const std::string& hint) const {
-        throw RenderFailure{(doc.file.empty() ? std::string("image document") : doc.file) + " " + pointer + ": " + message, hint};
+        throw RenderFailure{
+            (doc.file.empty() ? std::string("image document") : doc.file) + " " + pointer + ": " + message, hint};
     }
 
     const Image& image(const std::string& pointer, const std::string& rel) {
@@ -72,7 +78,9 @@ struct Ctx {
         auto path = resolve_project_path(projectDir, rel);
         if (!path.ok()) fail(pointer, path.error().message, path.error().hint);
         auto img = assets_detail::load_image(*path);
-        if (!img.ok()) fail(pointer, "Cannot read the picture '" + rel + "': " + img.error().message, img.error().hint.empty() ? "Check that the file exists and is a PNG." : img.error().hint);
+        if (!img.ok())
+            fail(pointer, "Cannot read the picture '" + rel + "': " + img.error().message,
+                 img.error().hint.empty() ? "Check that the file exists and is a PNG." : img.error().hint);
         inputs.insert(rel);
         return images.emplace(rel, std::move(*img)).first->second;
     }
@@ -103,8 +111,10 @@ Raster gradient_box(const ImageGradient& g, int w, int h) {
         for (int x = 0; x < w; ++x) {
             const float px = float(x) + 0.5f, py = float(y) + 0.5f;
             float t;
-            if (g.radial) t = std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) / reach;
-            else t = ((px - float(w) * 0.5f) * dx + (py - float(h) * 0.5f) * dy) / lineLength + 0.5f;
+            if (g.radial)
+                t = std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) / reach;
+            else
+                t = ((px - float(w) * 0.5f) * dx + (py - float(h) * 0.5f) * dy) / lineLength + 0.5f;
             t = std::clamp(t, 0.0f, 1.0f);
             // premultiplied interpolation between the two stops around t
             float rgba[4];
@@ -112,10 +122,16 @@ Raster gradient_box(const ImageGradient& g, int w, int h) {
             while (k + 1 < stops.size() && t > stops[k + 1].at) ++k;
             if (t <= stops.front().at) {
                 const Color& c = stops.front().color;
-                rgba[0] = c.r; rgba[1] = c.g; rgba[2] = c.b; rgba[3] = c.a;
+                rgba[0] = c.r;
+                rgba[1] = c.g;
+                rgba[2] = c.b;
+                rgba[3] = c.a;
             } else if (k + 1 >= stops.size()) {
                 const Color& c = stops.back().color;
-                rgba[0] = c.r; rgba[1] = c.g; rgba[2] = c.b; rgba[3] = c.a;
+                rgba[0] = c.r;
+                rgba[1] = c.g;
+                rgba[2] = c.b;
+                rgba[3] = c.a;
             } else {
                 const ImageGradientStop &a = stops[k], &b = stops[k + 1];
                 const float span = b.at - a.at;
@@ -140,7 +156,9 @@ Raster text_raster(Ctx& ctx, const ImageLayer& layer) {
     for (std::string& line : lines)
         if (!line.empty() && line.back() == '\r') line.pop_back();
     auto probe = rasterize_text("Hg", layer.font, layer.size);
-    if (!probe.ok()) ctx.fail(layer.pointer + "/font", "Cannot draw text with the font '" + layer.font + "': " + probe.error().message, probe.error().hint);
+    if (!probe.ok())
+        ctx.fail(layer.pointer + "/font",
+                 "Cannot draw text with the font '" + layer.font + "': " + probe.error().message, probe.error().hint);
     const float ascent = probe->ascent;
     struct Placed {
         TextBitmap bmp;
@@ -152,19 +170,27 @@ Raster text_raster(Ctx& ctx, const ImageLayer& layer) {
     for (std::size_t i = 0; i < lines.size(); ++i) {
         if (lines[i].empty()) continue;
         auto bmp = rasterize_text(lines[i], layer.font, layer.size);
-        if (!bmp.ok()) ctx.fail(layer.pointer + "/text", "Cannot draw the text: " + bmp.error().message, bmp.error().hint);
+        if (!bmp.ok())
+            ctx.fail(layer.pointer + "/text", "Cannot draw the text: " + bmp.error().message, bmp.error().hint);
         if (bmp->width <= 0) continue;
-        const float pen = layer.align == "center" ? -bmp->advance * 0.5f : layer.align == "right" ? -bmp->advance : 0.0f;
+        const float pen = layer.align == "center"  ? -bmp->advance * 0.5f
+                          : layer.align == "right" ? -bmp->advance
+                                                   : 0.0f;
         const int baseline = int(std::lround(ascent + float(i) * layer.lineHeight * layer.size));
         Placed p{std::move(*bmp), 0, 0};
         p.left = int(std::lround(pen)) - p.bmp.originX;
         p.top = baseline - p.bmp.originY;
         if (!any) {
-            minX = p.left; minY = p.top; maxX = p.left + p.bmp.width; maxY = p.top + p.bmp.height;
+            minX = p.left;
+            minY = p.top;
+            maxX = p.left + p.bmp.width;
+            maxY = p.top + p.bmp.height;
             any = true;
         } else {
-            minX = std::min(minX, p.left); minY = std::min(minY, p.top);
-            maxX = std::max(maxX, p.left + p.bmp.width); maxY = std::max(maxY, p.top + p.bmp.height);
+            minX = std::min(minX, p.left);
+            minY = std::min(minY, p.top);
+            maxX = std::max(maxX, p.left + p.bmp.width);
+            maxY = std::max(maxY, p.top + p.bmp.height);
         }
         placed.push_back(std::move(p));
     }
@@ -180,7 +206,9 @@ Raster text_raster(Ctx& ctx, const ImageLayer& layer) {
                 if (cov <= 0.0f) continue;
                 float* d = r.at(p.left + x - minX, p.top + y - minY);
                 const float inv = 1.0f - cov, outA = cov + d[3] * inv;
-                d[0] = layer.color.r; d[1] = layer.color.g; d[2] = layer.color.b;  // one colour per layer
+                d[0] = layer.color.r;
+                d[1] = layer.color.g;
+                d[2] = layer.color.b;  // one colour per layer
                 d[3] = outA;
             }
     return r;
@@ -195,16 +223,21 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel
     switch (layer.kind) {
         case ImageLayerKind::Pixels:
             if (cel.empty) return Raster();
-            return from_image(ctx.image(cel.origin == 0 ? layer.pointer + "/source" : layer.pointer + "/cels", *cel.source));
+            return from_image(
+                ctx.image(cel.origin == 0 ? layer.pointer + "/source" : layer.pointer + "/cels", *cel.source));
         case ImageLayerKind::Provider: return from_image(ctx.image(layer.pointer + "/source", layer.source));
-        case ImageLayerKind::Fill: return solid_box(layer.width > 0 ? layer.width : cw, layer.height > 0 ? layer.height : ch, layer.color);
-        case ImageLayerKind::Gradient: return gradient_box(layer.gradient, layer.width > 0 ? layer.width : cw, layer.height > 0 ? layer.height : ch);
+        case ImageLayerKind::Fill:
+            return solid_box(layer.width > 0 ? layer.width : cw, layer.height > 0 ? layer.height : ch, layer.color);
+        case ImageLayerKind::Gradient:
+            return gradient_box(layer.gradient, layer.width > 0 ? layer.width : cw,
+                                layer.height > 0 ? layer.height : ch);
         case ImageLayerKind::Procedural: {
             Json args = layer.texture;
             if (!args.contains("width")) args["width"] = cw;
             if (!args.contains("height")) args["height"] = ch;
             try {
-                return from_image(assets_detail::procedural_texture_image(args, "image.bake", layer.pointer + "/texture", ctx.warnings));
+                return from_image(assets_detail::procedural_texture_image(args, "image.bake",
+                                                                          layer.pointer + "/texture", ctx.warnings));
             } catch (const CommandError& e) {
                 ctx.fail(layer.pointer + "/texture", e.what(), e.hint);
             }
@@ -214,7 +247,9 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel
             if (!layer.source.empty()) {
                 auto path = resolve_project_path(ctx.projectDir, layer.source);
                 auto data = path.ok() ? tooling_detail::read_file(*path) : std::nullopt;
-                if (!data) ctx.fail(layer.pointer + "/source", "Cannot read '" + layer.source + "'.", "Check the path; it is relative to the project folder.");
+                if (!data)
+                    ctx.fail(layer.pointer + "/source", "Cannot read '" + layer.source + "'.",
+                             "Check the path; it is relative to the project folder.");
                 ctx.inputs.insert(layer.source);
                 text = std::move(*data);
             }
@@ -240,8 +275,10 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel
             Raster r(w, h);
             if (rows.empty()) return r;  // a blank layer
             if (ctx.doc.palette.empty())
-                ctx.fail(layer.pointer, "The layer is indexed but the document has no palette to look its colours up in.",
-                         "Add `palette` to the document (a list of colours), or set style.palette in assets.json and parse the document with its project folder.");
+                ctx.fail(layer.pointer,
+                         "The layer is indexed but the document has no palette to look its colours up in.",
+                         "Add `palette` to the document (a list of colours), or set style.palette in assets.json and "
+                         "parse the document with its project folder.");
             for (int y = 0; y < h && y < int(rows.size()); ++y)
                 for (int x = 0; x < w; ++x) {
                     const int idx = pixel_char_index(rows[std::size_t(y)][std::size_t(x)]);
@@ -256,9 +293,14 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer, const ImageCelView& cel
             return r;
         }
         case ImageLayerKind::Tileset: {
-            auto built = build_tileset(layer.tileset, ctx.doc.palette, [&ctx](const std::string& pointer, const std::string& rel) -> const Image& { return ctx.image(pointer, rel); });
+            auto built = build_tileset(layer.tileset, ctx.doc.palette,
+                                       [&ctx](const std::string& pointer, const std::string& rel) -> const Image& {
+                                           return ctx.image(pointer, rel);
+                                       });
             if (!built.ok())
-                throw RenderFailure{(ctx.doc.file.empty() ? std::string("image document") : ctx.doc.file) + " " + built.error().message, built.error().hint};
+                throw RenderFailure{(ctx.doc.file.empty() ? std::string("image document") : ctx.doc.file) + " " +
+                                        built.error().message,
+                                    built.error().hint};
             for (const std::string& w : built->warnings) ctx.warnings.push_back(layer.pointer + ": " + w);
             return from_image(built->sheet);
         }
@@ -291,15 +333,21 @@ Plane mask_plane(Ctx& ctx, const ImageMask& mask, int ox, int oy, int w, int h) 
             for (int y = 0; y < ph; ++y)
                 for (int x = 0; x < pw; ++x) {
                     const int lx = pox + x, ly = poy + y;
-                    if (lx >= mask.x && lx < mask.x + mask.width && ly >= mask.y && ly < mask.y + mask.height) plane.at(x, y) = 1.0f;
+                    if (lx >= mask.x && lx < mask.x + mask.width && ly >= mask.y && ly < mask.y + mask.height)
+                        plane.at(x, y) = 1.0f;
                 }
             break;
-        case ImageMask::Type::Ellipse: plane = fill_shapes({ellipse_polyline(float(mask.x), float(mask.y), float(mask.width), float(mask.height))}, pw, ph, pox, poy); break;
+        case ImageMask::Type::Ellipse:
+            plane = fill_shapes({ellipse_polyline(float(mask.x), float(mask.y), float(mask.width), float(mask.height))},
+                                pw, ph, pox, poy);
+            break;
         case ImageMask::Type::Polygon: plane = fill_shapes({Polyline{mask.points}}, pw, ph, pox, poy); break;
         case ImageMask::Type::Path: {
             std::vector<Polyline> shapes;
             std::string err;
-            if (!parse_svg_path(mask.path, shapes, err)) ctx.fail(mask.pointer + "/path", "The path data is not valid: " + err + ".", "Write SVG path data such as \"M10 10 L90 10 L50 80 Z\".");
+            if (!parse_svg_path(mask.path, shapes, err))
+                ctx.fail(mask.pointer + "/path", "The path data is not valid: " + err + ".",
+                         "Write SVG path data such as \"M10 10 L90 10 L50 80 Z\".");
             plane = fill_shapes(shapes, pw, ph, pox, poy);
             break;
         }
@@ -399,7 +447,9 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
                 if (x < 0 || x >= canvas.w) continue;
                 float s[4];
                 const float* src = r.at(i, j);
-                s[0] = src[0]; s[1] = src[1]; s[2] = src[2];
+                s[0] = src[0];
+                s[1] = src[1];
+                s[2] = src[2];
                 s[3] = src[3] * layerOpacity;
                 if (layer.clip) s[3] *= base.alpha.at(x, y);
                 if (s[3] <= 0.0f) continue;
@@ -462,7 +512,7 @@ Raster draw_with_onion(Ctx& ctx, int frame, const ImageOnionSkin& onion) {
         }
         draw_over(canvas, g);
     };
-    for (int d = onion.before; d >= 1; --d) ghost(d, -1);   // the farthest first
+    for (int d = onion.before; d >= 1; --d) ghost(d, -1);  // the farthest first
     for (int d = onion.after; d >= 1; --d) ghost(d, +1);
     draw_over(canvas, draw_frame(ctx, frame, false));
     return canvas;
@@ -470,7 +520,9 @@ Raster draw_with_onion(Ctx& ctx, int frame, const ImageOnionSkin& onion) {
 
 Result<void> check_canvas(const ImageDocument& doc) {
     if (doc.width < 1 || doc.height < 1 || doc.width > kImageDocMaxSide || doc.height > kImageDocMaxSide)
-        return make_error(std::format("The canvas is {}x{}, which is not from 1 to {} on each side.", doc.width, doc.height, kImageDocMaxSide), "Set width and height of the document.");
+        return make_error(std::format("The canvas is {}x{}, which is not from 1 to {} on each side.", doc.width,
+                                      doc.height, kImageDocMaxSide),
+                          "Set width and height of the document.");
     return {};
 }
 
@@ -496,8 +548,10 @@ Result<ImageRender> composite_image_document(const ImageDocument& doc, const Ima
     if (auto ok = check_canvas(doc); !ok.ok()) return ok.error();
     const int frames = image_frame_count(doc);
     if (options.frame < 0 || options.frame >= frames)
-        return make_error(std::format("Frame {} does not exist: the document has {} frame{} (0 to {}).", options.frame, frames, frames == 1 ? "" : "s", frames - 1),
-                          frames == 1 ? "Add frames with image.frame.add, or draw frame 0." : "Use a frame from 0 to " + std::to_string(frames - 1) + ".");
+        return make_error(std::format("Frame {} does not exist: the document has {} frame{} (0 to {}).", options.frame,
+                                      frames, frames == 1 ? "" : "s", frames - 1),
+                          frames == 1 ? "Add frames with image.frame.add, or draw frame 0."
+                                      : "Use a frame from 0 to " + std::to_string(frames - 1) + ".");
     Ctx ctx{doc, options.projectDir, {}, options.pictures, {}, {}};
     assets_detail::ProjectRootGuard root(options.projectDir);  // fonts are read through the VFS
     try {
@@ -508,7 +562,8 @@ Result<ImageRender> composite_image_document(const ImageDocument& doc, const Ima
     }
 }
 
-Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan, const ImageRenderOptions& options) {
+Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan,
+                                          const ImageRenderOptions& options) {
     if (auto ok = check_canvas(doc); !ok.ok()) return ok.error();
     Ctx ctx{doc, options.projectDir, {}, options.pictures, {}, {}};
     assets_detail::ProjectRootGuard root(options.projectDir);
@@ -525,7 +580,8 @@ Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageS
             const Image& frame = it->second;
             const int ox = (cell % plan.columns) * doc.width, oy = (cell / plan.columns) * doc.height;
             for (int y = 0; y < doc.height; ++y)
-                std::copy_n(&frame.rgba[std::size_t(y) * doc.width * 4], std::size_t(doc.width) * 4, &sheet.rgba[(std::size_t(oy + y) * sheet.width + ox) * 4]);
+                std::copy_n(&frame.rgba[std::size_t(y) * doc.width * 4], std::size_t(doc.width) * 4,
+                            &sheet.rgba[(std::size_t(oy + y) * sheet.width + ox) * 4]);
         }
         ImageRender out;
         out.image = std::move(sheet);

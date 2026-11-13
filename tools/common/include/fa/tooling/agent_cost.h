@@ -17,14 +17,15 @@
 namespace fa {
 
 struct AgentCostInput {
-    std::string transcript;      // the stream-json lines
-    Json finalPlay;              // the answer of `play.auto` on the final game (null = not run)
+    std::string transcript;  // the stream-json lines
+    Json finalPlay;          // the answer of `play.auto` on the final game (null = not run)
     std::string cli, model, brief, factoriaVersion;
-    std::string cliVersion;      // `claude --version` of the CLI that ran ("" = not recorded)
-    int homeIsolated = -1;       // 1 = the CLI ran with a throw-away HOME, 0 = with the real one (its CLAUDE.md and memory may have loaded), -1 = unknown
-    int exitStatus = 0;          // of the CLI
+    std::string cliVersion;  // `claude --version` of the CLI that ran ("" = not recorded)
+    int homeIsolated =
+        -1;  // 1 = the CLI ran with a throw-away HOME, 0 = with the real one (its CLAUDE.md and memory may have loaded), -1 = unknown
+    int exitStatus = 0;  // of the CLI
     int elapsedSeconds = 0;
-    int levels = 3;              // how many levels the brief asks for
+    int levels = 3;  // how many levels the brief asks for
 };
 
 // A play.auto answer (the JSON object, or a text that contains it) read as: how many distinct `phases` it recorded (the scenes it loaded,

@@ -12,7 +12,9 @@ TEST_CASE("log: ring buffer, sinks, counters") {
     clear_recent_logs();
     set_log_frame(7);
     int sinkHits = 0;
-    int id = add_log_sink([&](const LogEntry& e) { if (e.category == "t") ++sinkHits; });
+    int id = add_log_sink([&](const LogEntry& e) {
+        if (e.category == "t") ++sinkHits;
+    });
     FA_INFO("t", "hello {}", 42);
     FA_ERROR("t", "bad");
     FA_TRACE("t", "hidden");  // below the level
@@ -60,7 +62,9 @@ TEST_CASE("log: thread safety") {
     clear_recent_logs();
     std::vector<std::thread> threads;
     for (int t = 0; t < 4; ++t)
-        threads.emplace_back([] { for (int i = 0; i < 200; ++i) FA_INFO("mt", "line {}", i); });
+        threads.emplace_back([] {
+            for (int i = 0; i < 200; ++i) FA_INFO("mt", "line {}", i);
+        });
     for (auto& t : threads) t.join();
     CHECK(recent_logs(10000).size() == 800);
     set_log_format(LogFormat::Text);

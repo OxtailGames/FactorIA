@@ -24,7 +24,7 @@ struct ReviewLoaded {
     enum class Kind { List, Sheet, Picture };
     Kind kind = Kind::List;
     std::uint64_t gen = 0;
-    std::string error;                          // "" when it worked
+    std::string error;  // "" when it worked
     // List: review_list's value and the history of every picked sheet (newest pick first), the drop status checked on disk.
     std::vector<ReviewListRow> rows;
     std::vector<ReviewHistoryRow> history;
@@ -55,15 +55,16 @@ public:
     void request_sheet(const std::string& projectDir, const std::string& sheet, std::uint64_t gen);
     // `projectFile`: the picture is a candidate's own file (the Compare view's source pictures), which a pick may move: while one is
     // open, reading_project_file() is true (Windows cannot move a file another thread holds open).
-    void request_picture(const std::string& key, const std::filesystem::path& file, int maxSide, bool projectFile, std::uint64_t gen);
-    void drop_pictures();                       // forgets the pictures still waiting (the window moved to another sheet)
+    void request_picture(const std::string& key, const std::filesystem::path& file, int maxSide, bool projectFile,
+                         std::uint64_t gen);
+    void drop_pictures();  // forgets the pictures still waiting (the window moved to another sheet)
     // Forgets only the candidates' own files still waiting (a pick is about to move them) and returns their keys: the window forgets
     // those slots too, so they do not say "Loading..." forever, and asks for them again once the pick is over.
     std::vector<std::string> drop_project_files();
-    std::vector<ReviewLoaded> take();           // what finished since the last call
-    bool busy() const;                          // something is queued or being read
+    std::vector<ReviewLoaded> take();  // what finished since the last call
+    bool busy() const;                 // something is queued or being read
     bool reading_project_file() const { return readingProjectFile_.load(); }
-    void stop();                                // joins the thread (the queue is dropped); a later request starts it again
+    void stop();  // joins the thread (the queue is dropped); a later request starts it again
 
 private:
     struct Job {

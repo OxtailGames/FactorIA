@@ -99,7 +99,8 @@ struct World {
     // leaderboards
     std::map<u64, Board> boards;
     bool createBoards = true;
-    std::map<u64, std::vector<Ranked>> downloaded;  // entry handle -> the entries a download returned, with their global ranks
+    std::map<u64, std::vector<Ranked>>
+        downloaded;  // entry handle -> the entries a download returned, with their global ranks
     std::vector<u64> friends;
     int findCalls = 0;
     // cloud: the files, and the time Steam stamped each with (Unix seconds; a write takes `clock` and moves it on a second)
@@ -166,10 +167,14 @@ void reset_world() {
     g.manual = manual;
     g.appIdEnv = appIdEnv;
     g.gameIdEnv = gameIdEnv;
-    for (const char* a : {"ACH_WIN_ONE_GAME", "ACH_WIN_100_GAMES", "ACH_TRAVEL_FAR_ACCUM", "ACH_TRAVEL_FAR_SINGLE"}) g.achievements[a] = {};
+    for (const char* a : {"ACH_WIN_ONE_GAME", "ACH_WIN_100_GAMES", "ACH_TRAVEL_FAR_ACCUM", "ACH_TRAVEL_FAR_SINGLE"})
+        g.achievements[a] = {};
     for (const char* s : {"NumGames", "NumWins", "NumLosses"}) g.intStats[s] = 0;
     for (const char* s : {"FeetTraveled", "MaxFeetTraveled", "AverageSpeed"}) g.floatStats[s] = 0.0f;
-    g.names = {{g.steamId, "Tester"}, {76561198000000002ull, "Alice"}, {76561198000000003ull, "Bob"}, {76561198000000004ull, "Carol"}};
+    g.names = {{g.steamId, "Tester"},
+               {76561198000000002ull, "Alice"},
+               {76561198000000003ull, "Bob"},
+               {76561198000000004ull, "Carol"}};
     g.friends = {76561198000000002ull, 76561198000000003ull};
     Board feet;
     feet.handle = 900;
@@ -269,7 +274,8 @@ Json state() {
     Json boards = Json::object();
     for (const auto& b : g.boards) {
         Json entries = Json::array();
-        for (const Entry& e : b.second.entries) entries.push_back(Json::object({{"steamId", std::to_string(e.steamId)}, {"score", e.score}}));
+        for (const Entry& e : b.second.entries)
+            entries.push_back(Json::object({{"steamId", std::to_string(e.steamId)}, {"score", e.score}}));
         boards[b.second.name] = Json::object({{"sort", b.second.sort}, {"entries", entries}});
     }
     Json files = Json::object();
@@ -278,8 +284,12 @@ Json state() {
     for (const auto& f : g.fileTimes) fileTimes[f.first] = f.second;
     Json guests = Json::array();
     for (const auto& guest : g.guests)
-        guests.push_back(Json::object({{"id", guest.id}, {"steamId", std::to_string(guest.steamId)}, {"device", guest.device},
-                                       {"formFactor", guest.formFactor}, {"width", guest.width}, {"height", guest.height}}));
+        guests.push_back(Json::object({{"id", guest.id},
+                                       {"steamId", std::to_string(guest.steamId)},
+                                       {"device", guest.device},
+                                       {"formFactor", guest.formFactor},
+                                       {"width", guest.width},
+                                       {"height", guest.height}}));
     Json presence = Json::object();
     for (const auto& p : g.presence) presence[p.first] = p.second;
     Json dlc = Json::object();
@@ -359,12 +369,14 @@ Json control(const Json& cmd) {
         flag("noRemotePlay", g_noRemotePlay);
         if (cmd.contains("clock")) g.clock = cmd["clock"].get<i64>();
         if (cmd.contains("fileTimes"))
-            for (auto it = cmd["fileTimes"].begin(); it != cmd["fileTimes"].end(); ++it) g.fileTimes[it.key()] = it->get<i64>();
+            for (auto it = cmd["fileTimes"].begin(); it != cmd["fileTimes"].end(); ++it)
+                g.fileTimes[it.key()] = it->get<i64>();
         if (cmd.contains("guests"))
             for (const auto& e : cmd["guests"])
-                g.guests.push_back({e.value("id", 1u), std::stoull(e.value("steamId", std::string("76561198000000002"))),
-                                    e.value("device", std::string("Test phone")), e.value("formFactor", 1), e.value("width", 1280),
-                                    e.value("height", 720)});
+                g.guests.push_back({e.value("id", 1u),
+                                    std::stoull(e.value("steamId", std::string("76561198000000002"))),
+                                    e.value("device", std::string("Test phone")), e.value("formFactor", 1),
+                                    e.value("width", 1280), e.value("height", 720)});
         if (cmd.contains("initMode")) g_initMode = cmd["initMode"].get<std::string>();
         if (cmd.contains("exitLog")) g_exitLog = cmd["exitLog"].get<std::string>();
         if (cmd.contains("failNext")) g.failNext = cmd["failNext"].get<int>();
@@ -372,7 +384,8 @@ Json control(const Json& cmd) {
         if (cmd.contains("unlockedAchievements"))
             for (const auto& n : cmd["unlockedAchievements"]) g.achievements[n.get<std::string>()].unlocked = true;
         if (cmd.contains("intStats"))
-            for (auto it = cmd["intStats"].begin(); it != cmd["intStats"].end(); ++it) g.intStats[it.key()] = it->get<i32>();
+            for (auto it = cmd["intStats"].begin(); it != cmd["intStats"].end(); ++it)
+                g.intStats[it.key()] = it->get<i32>();
         if (cmd.contains("files"))
             for (auto it = cmd["files"].begin(); it != cmd["files"].end(); ++it) {
                 g.files[it.key()] = it->get<std::string>();
@@ -384,7 +397,9 @@ Json control(const Json& cmd) {
                 if (e.second.name == cmd["boardScore"].value("board", "")) b = &e.second;
             if (b) {
                 const u64 id = std::stoull(cmd["boardScore"].value("steamId", std::to_string(g.steamId)));
-                b->entries.erase(std::remove_if(b->entries.begin(), b->entries.end(), [&](const Entry& e) { return e.steamId == id; }), b->entries.end());
+                b->entries.erase(std::remove_if(b->entries.begin(), b->entries.end(),
+                                                [&](const Entry& e) { return e.steamId == id; }),
+                                 b->entries.end());
                 b->entries.push_back({id, cmd["boardScore"].value("score", 0)});
                 sort_board(*b);
             }
@@ -417,14 +432,19 @@ Json control(const Json& cmd) {
             SteamServersDisconnected d{kResultNoConnection};
             push_callback(kSteamServersDisconnected, bytes_of(d));
         } else if (what == "remotePlayConnect") {
-            World::Guest guest{cmd.value("id", 1u), std::stoull(cmd.value("steamId", std::string("76561198000000002"))),
-                        cmd.value("device", std::string("Test phone")), cmd.value("formFactor", 1), cmd.value("width", 1280),
-                        cmd.value("height", 720)};
+            World::Guest guest{cmd.value("id", 1u),
+                               std::stoull(cmd.value("steamId", std::string("76561198000000002"))),
+                               cmd.value("device", std::string("Test phone")),
+                               cmd.value("formFactor", 1),
+                               cmd.value("width", 1280),
+                               cmd.value("height", 720)};
             g.guests.push_back(guest);
             push_callback(kSteamRemotePlaySessionConnected, bytes_of(SteamRemotePlaySessionConnected{guest.id}));
         } else if (what == "remotePlayDisconnect") {
             const u32 id = cmd.value("id", 1u);
-            g.guests.erase(std::remove_if(g.guests.begin(), g.guests.end(), [&](const World::Guest& x) { return x.id == id; }), g.guests.end());
+            g.guests.erase(
+                std::remove_if(g.guests.begin(), g.guests.end(), [&](const World::Guest& x) { return x.id == id; }),
+                g.guests.end());
             push_callback(kSteamRemotePlaySessionDisconnected, bytes_of(SteamRemotePlaySessionDisconnected{id}));
         } else if (what == "stray") {
             SteamAPICallCompleted c{424242, kLeaderboardFindResult, sizeof(LeaderboardFindResult)};
@@ -466,7 +486,10 @@ MOCK_API int SteamAPI_InitFlat(char* errMessage) {
         g.running = false;
         return fail(kInitNoSteamClient, "SteamAPI_Init(): Sys_LoadModule failed to load the Steam client library");
     }
-    if (mode == "noappid") return fail(kInitFailedGeneric, "SteamAPI_Init(): Neither SteamAppId nor SteamGameId environment variable nor steam_appid.txt was found");
+    if (mode == "noappid")
+        return fail(
+            kInitFailedGeneric,
+            "SteamAPI_Init(): Neither SteamAppId nor SteamGameId environment variable nor steam_appid.txt was found");
     if (mode == "mismatch") return fail(kInitVersionMismatch, "Steam client appears to be out of date");
     g.initialized = true;
     ++g.inits;
@@ -530,15 +553,18 @@ MOCK_API void SteamAPI_ManualDispatch_FreeLastCallback(i32) {
     g.current.clear();
 }
 
-MOCK_API bool SteamAPI_ManualDispatch_GetAPICallResult(i32, u64 call, void* buffer, int size, int expected, bool* failed) {
+MOCK_API bool SteamAPI_ManualDispatch_GetAPICallResult(i32, u64 call, void* buffer, int size, int expected,
+                                                       bool* failed) {
     auto it = g.completed.find(call);
     if (it == g.completed.end()) return false;
     if (it->second.callback != expected) {
-        violation("GetAPICallResult expected callback " + std::to_string(expected) + " but the call has " + std::to_string(it->second.callback));
+        violation("GetAPICallResult expected callback " + std::to_string(expected) + " but the call has " +
+                  std::to_string(it->second.callback));
         return false;
     }
     if (size < static_cast<int>(it->second.data.size())) {
-        violation("GetAPICallResult got a buffer of " + std::to_string(size) + " bytes for a result of " + std::to_string(it->second.data.size()));
+        violation("GetAPICallResult got a buffer of " + std::to_string(size) + " bytes for a result of " +
+                  std::to_string(it->second.data.size()));
         return false;
     }
     if (failed) *failed = it->second.ioFailed;
@@ -620,8 +646,10 @@ MOCK_API void SteamAPI_ISteamFriends_ActivateGameOverlayToStore(void* self, u32 
 MOCK_API bool SteamAPI_ISteamFriends_SetRichPresence(void* self, const char* key, const char* value) {
     expect(self, &g_friends, "ISteamFriends::SetRichPresence");
     if (std::strlen(key) > 64 || std::strlen(value) > 256 || g.presence.size() >= 30) return false;
-    if (*value) g.presence[key] = value;
-    else g.presence.erase(key);
+    if (*value)
+        g.presence[key] = value;
+    else
+        g.presence.erase(key);
     return true;
 }
 MOCK_API void SteamAPI_ISteamFriends_ClearRichPresence(void* self) {
@@ -649,8 +677,8 @@ MOCK_API bool SteamAPI_ISteamUtils_IsSteamInBigPictureMode(void* self) {
 }
 MOCK_API bool SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput(void* self, int mode, int x, int y, int w, int h) {
     expect(self, &g_utils, "ISteamUtils::ShowFloatingGamepadTextInput");
-    record("ShowFloatingGamepadTextInput " + std::to_string(mode) + " " + std::to_string(x) + " " + std::to_string(y) + " " +
-           std::to_string(w) + " " + std::to_string(h));
+    record("ShowFloatingGamepadTextInput " + std::to_string(mode) + " " + std::to_string(x) + " " + std::to_string(y) +
+           " " + std::to_string(w) + " " + std::to_string(h));
     return g.floatingOffered;
 }
 MOCK_API bool SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput(void* self) {
@@ -658,10 +686,12 @@ MOCK_API bool SteamAPI_ISteamUtils_DismissFloatingGamepadTextInput(void* self) {
     record("DismissFloatingGamepadTextInput");
     return true;
 }
-MOCK_API bool SteamAPI_ISteamUtils_ShowGamepadTextInput(void* self, int mode, int line, const char* description, u32 charMax, const char* existing) {
+MOCK_API bool SteamAPI_ISteamUtils_ShowGamepadTextInput(void* self, int mode, int line, const char* description,
+                                                        u32 charMax, const char* existing) {
     expect(self, &g_utils, "ISteamUtils::ShowGamepadTextInput");
-    record("ShowGamepadTextInput " + std::to_string(mode) + " " + std::to_string(line) + " " + std::string(description ? description : "") + " " +
-           std::to_string(charMax) + " [" + std::string(existing ? existing : "") + "]");
+    record("ShowGamepadTextInput " + std::to_string(mode) + " " + std::to_string(line) + " " +
+           std::string(description ? description : "") + " " + std::to_string(charMax) + " [" +
+           std::string(existing ? existing : "") + "]");
     return g.modalOffered;
 }
 MOCK_API u32 SteamAPI_ISteamUtils_GetEnteredGamepadTextLength(void* self) {
@@ -686,7 +716,8 @@ MOCK_API int SteamAPI_ISteamApps_GetDLCCount(void* self) {
     expect(self, &g_apps, "ISteamApps::GetDLCCount");
     return static_cast<int>(g.dlc.size());
 }
-MOCK_API bool SteamAPI_ISteamApps_BGetDLCDataByIndex(void* self, int index, u32* app, bool* available, char* name, int size) {
+MOCK_API bool SteamAPI_ISteamApps_BGetDLCDataByIndex(void* self, int index, u32* app, bool* available, char* name,
+                                                     int size) {
     expect(self, &g_apps, "ISteamApps::BGetDLCDataByIndex");
     if (index < 0 || index >= static_cast<int>(g.dlc.size())) return false;
     *app = g.dlc[static_cast<std::size_t>(index)].appId;
@@ -766,10 +797,12 @@ MOCK_API bool SteamAPI_ISteamUserStats_StoreStats(void* self) {
     push_callback(kUserStatsStored, bytes_of(UserStatsStored{480, kResultOk}));
     return true;
 }
-MOCK_API bool SteamAPI_ISteamUserStats_IndicateAchievementProgress(void* self, const char* name, u32 current, u32 maximum) {
+MOCK_API bool SteamAPI_ISteamUserStats_IndicateAchievementProgress(void* self, const char* name, u32 current,
+                                                                   u32 maximum) {
     expect(self, &g_userStats, "ISteamUserStats::IndicateAchievementProgress");
     if (!stats_usable() || g.achievements.find(name) == g.achievements.end()) return false;
-    record(std::string("IndicateAchievementProgress ") + name + " " + std::to_string(current) + " " + std::to_string(maximum));
+    record(std::string("IndicateAchievementProgress ") + name + " " + std::to_string(current) + " " +
+           std::to_string(maximum));
     return true;
 }
 MOCK_API bool SteamAPI_ISteamUserStats_ResetAllStats(void* self, bool achievementsToo) {
@@ -799,7 +832,8 @@ MOCK_API u64 SteamAPI_ISteamUserStats_FindOrCreateLeaderboard(void* self, const 
     }
     return new_call(result);
 }
-MOCK_API u64 SteamAPI_ISteamUserStats_UploadLeaderboardScore(void* self, u64 handle, int method, i32 score, const i32*, int) {
+MOCK_API u64 SteamAPI_ISteamUserStats_UploadLeaderboardScore(void* self, u64 handle, int method, i32 score, const i32*,
+                                                             int) {
     expect(self, &g_userStats, "ISteamUserStats::UploadLeaderboardScore");
     record("UploadLeaderboardScore " + std::to_string(score) + " method " + std::to_string(method));
     LeaderboardScoreUploaded result{};
@@ -823,9 +857,11 @@ MOCK_API u64 SteamAPI_ISteamUserStats_UploadLeaderboardScore(void* self, u64 han
     result.globalRankPrevious = before;
     return new_call(result);
 }
-MOCK_API u64 SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(void* self, u64 handle, int request, int from, int to) {
+MOCK_API u64 SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(void* self, u64 handle, int request, int from,
+                                                                 int to) {
     expect(self, &g_userStats, "ISteamUserStats::DownloadLeaderboardEntries");
-    record("DownloadLeaderboardEntries " + std::to_string(request) + " " + std::to_string(from) + " " + std::to_string(to));
+    record("DownloadLeaderboardEntries " + std::to_string(request) + " " + std::to_string(from) + " " +
+           std::to_string(to));
     LeaderboardScoresDownloaded result{};
     Board* b = find_board(handle);
     if (!b) return new_call(result);
@@ -852,7 +888,8 @@ MOCK_API u64 SteamAPI_ISteamUserStats_DownloadLeaderboardEntries(void* self, u64
     g.downloaded[result.entries] = picked;
     return new_call(result);
 }
-MOCK_API bool SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(void* self, u64 entries, int index, void* out, i32*, int) {
+MOCK_API bool SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry(void* self, u64 entries, int index, void* out,
+                                                                     i32*, int) {
     expect(self, &g_userStats, "ISteamUserStats::GetDownloadedLeaderboardEntry");
     auto it = g.downloaded.find(entries);
     if (it == g.downloaded.end() || index < 0 || index >= static_cast<int>(it->second.size())) return false;
@@ -960,7 +997,8 @@ MOCK_API bool SteamAPI_ISteamRemotePlay_BGetSessionClientResolution(void* self, 
 }
 
 // The compiler checks that every function the plugin calls is defined here with the signature the plugin declares.
-#define MOCK_CHECK_SIGNATURE(name, ret, params) static_assert(std::is_same<decltype(&::name), ret(*) params>::value, "signature of " #name);
+#define MOCK_CHECK_SIGNATURE(name, ret, params)                                                                        \
+    static_assert(std::is_same<decltype(&::name), ret(*) params>::value, "signature of " #name);
 STEAM_REQUIRED_FUNCTIONS(MOCK_CHECK_SIGNATURE)
 #if !defined(MOCK_LEGACY)
 MOCK_CHECK_SIGNATURE(SteamAPI_InitFlat, int, (char*))

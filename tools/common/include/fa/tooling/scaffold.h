@@ -24,11 +24,11 @@ struct TemplateInfo {
 };
 
 struct ScaffoldOptions {
-    std::string name;  // display name; default = target folder name
-    std::string id;    // reverse-DNS id; default "com.example.<slug>"
+    std::string name;           // display name; default = target folder name
+    std::string id;             // reverse-DNS id; default "com.example.<slug>"
     std::string engineVersion;  // default FA_ENGINE_VERSION
     bool writeTypings = true;  // generate the real types/factoria.d.ts (needs a logic-only Engine); false = placeholder
-    bool force = false;  // allow a non-empty target dir (overwrites template files, keeps others)
+    bool force = false;        // allow a non-empty target dir (overwrites template files, keeps others)
 };
 
 struct ScaffoldResult {

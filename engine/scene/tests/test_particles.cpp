@@ -38,8 +38,11 @@ Print print_of(const ParticleSim& s) {
     Print p;
     p.count = int(s.particles.size());
     for (const Particle& q : s.particles) {
-        p.px += q.pos.x; p.py += q.pos.y; p.pz += q.pos.z;
-        p.vx += q.vel.x; p.vy += q.vel.y;
+        p.px += q.pos.x;
+        p.py += q.pos.y;
+        p.pz += q.pos.z;
+        p.vx += q.vel.x;
+        p.vy += q.vel.y;
         p.age += q.age;
     }
     return p;
@@ -179,7 +182,8 @@ TEST_CASE("particle_noise is deterministic, bounded and smooth") {
         CHECK(std::fabs(n.x) <= 1.0f);
         CHECK(std::fabs(n.y) <= 1.0f);
         CHECK(std::fabs(n.z) <= 1.0f);
-        const Vec3 m = particle_noise({float(i) * 3.7f + 0.1f, float(i) * -1.3f, 0.0f}, float(i) * 0.05f, 40.0f, 1.0f, 5);
+        const Vec3 m =
+            particle_noise({float(i) * 3.7f + 0.1f, float(i) * -1.3f, 0.0f}, float(i) * 0.05f, 40.0f, 1.0f, 5);
         maxStep = std::max(maxStep, std::fabs(n.x - m.x));
     }
     CHECK(maxStep < 0.05f);  // a tenth of a unit apart in an eddy 40 units wide: nearly the same
@@ -277,7 +281,8 @@ TEST_CASE("particle shapes: box volume and edge") {
     em.shapeFrom = ParticleShapeFrom::Edge;
     ParticleSim e = born(em, 300);
     for (const Particle& p : e.particles) {
-        const bool onX = std::fabs(std::fabs(p.pos.x) - 30.0f) < 1e-3f, onY = std::fabs(std::fabs(p.pos.y) - 10.0f) < 1e-3f;
+        const bool onX = std::fabs(std::fabs(p.pos.x) - 30.0f) < 1e-3f,
+                   onY = std::fabs(std::fabs(p.pos.y) - 10.0f) < 1e-3f;
         CHECK((onX || onY));
         CHECK(std::fabs(p.pos.x) <= 30.0f + 1e-3f);
         CHECK(std::fabs(p.pos.y) <= 10.0f + 1e-3f);
@@ -297,7 +302,8 @@ TEST_CASE("particle shapes: box volume and edge") {
     em.shapeFrom = ParticleShapeFrom::Edge;
     ParticleSim s3 = born(em, 300);
     for (const Particle& p : s3.particles) {
-        const bool onFace = std::fabs(std::fabs(p.pos.x) - 30.0f) < 1e-3f || std::fabs(std::fabs(p.pos.y) - 10.0f) < 1e-3f ||
+        const bool onFace = std::fabs(std::fabs(p.pos.x) - 30.0f) < 1e-3f ||
+                            std::fabs(std::fabs(p.pos.y) - 10.0f) < 1e-3f ||
                             std::fabs(std::fabs(p.pos.z) - 20.0f) < 1e-3f;
         CHECK(onFace);
     }
@@ -407,7 +413,8 @@ TEST_CASE("particle shapes: a mesh surface, or its edges, in 3D") {
     for (const Particle& p : e.particles) {
         const float x = p.pos.x - 100.0f, z = p.pos.z;
         const bool boundary = std::fabs(std::fabs(x) - 5.0f) < 1e-3f || std::fabs(std::fabs(z) - 5.0f) < 1e-3f;
-        const bool diagonal = std::fabs(x - z) < 1e-3f;  // the triangles share the edge (-5,-5)-(5,5)... indices 0 and 2
+        const bool diagonal =
+            std::fabs(x - z) < 1e-3f;  // the triangles share the edge (-5,-5)-(5,5)... indices 0 and 2
         CHECK((boundary || diagonal));
     }
     // No mesh given: particles are born at the point and nothing breaks.
@@ -622,7 +629,7 @@ TEST_CASE("particle collision: an inclined plane, friction and lifetime loss") {
     ParticleEnv env;
     for (int i = 0; i < 30; ++i) s.step(em, env, 1.0f / 60.0f);  // hits at 0.2 s
     REQUIRE(s.particles.size() == 1);
-    CHECK(s.particles[0].vel.y > 0.0f);                             // went back up
+    CHECK(s.particles[0].vel.y > 0.0f);                                      // went back up
     CHECK(s.particles[0].age == doctest::Approx(0.5f + 2.0f).epsilon(0.1));  // lost half of its life on the hit
     for (int i = 0; i < 120; ++i) s.step(em, env, 1.0f / 60.0f);
     CHECK(s.particles.empty());  // the lifetime loss let it die early
@@ -712,7 +719,8 @@ TEST_CASE("sub-emitters: death spawns children where the parent was, once") {
     ParticleEmitter em = quiet();
     em.lifetime = 0.1f;
     em.speed = 0;
-    em.subEmitters = Json::parse(R"({"death": {"count": 4, "emitter": {"lifetime": 5, "lifetimeVariance": 0, "speed": 10, "spread": 180}}})");
+    em.subEmitters = Json::parse(
+        R"({"death": {"count": 4, "emitter": {"lifetime": 5, "lifetimeVariance": 0, "speed": 10, "spread": 180}}})");
     ParticleSim s = born(em, 3, 1, Mat4::translate({10, 20, 0}));
     ParticleEnv env;
     env.emitter = Mat4::translate({10, 20, 0});
@@ -759,7 +767,8 @@ TEST_CASE("sub-emitters: collision children are born along the surface normal") 
     em.gravity = {0, -300, 0};
     em.collision = ParticleCollision::Plane;
     em.collisionPlane = {0, 1, 0, 0};
-    em.subEmitters = Json::parse(R"({"collision": {"count": 6, "emitter": {"speed": 50, "spread": 0, "direction": 90, "lifetime": 1, "gravity": [0, 0, 0], "speedVariance": 0}}})");
+    em.subEmitters = Json::parse(
+        R"({"collision": {"count": 6, "emitter": {"speed": 50, "spread": 0, "direction": 90, "lifetime": 1, "gravity": [0, 0, 0], "speedVariance": 0}}})");
     ParticleSim s = born(em, 1, 1, Mat4::translate({0, 50, 0}));
     ParticleEnv env;
     for (int i = 0; i < 90; ++i) s.step(em, env, 1.0f / 60.0f);
@@ -788,7 +797,8 @@ TEST_CASE("sub-emitters: bounded count, depth and groups") {
     CHECK(b.particles.size() == 1 + 2 + 4);
     for (const Particle& p : b.particles) CHECK(p.group <= 2);
     bool warned = false;
-    for (const ParticleProblem& p : particle_emitter_problems(em)) warned = warned || (!p.error && p.message.find("deep") != std::string::npos);
+    for (const ParticleProblem& p : particle_emitter_problems(em))
+        warned = warned || (!p.error && p.message.find("deep") != std::string::npos);
     CHECK(warned);
 
     // Per step, sub-emitters stop at kParticleSubPerStep however many parents there are.
@@ -801,7 +811,8 @@ TEST_CASE("sub-emitters: bounded count, depth and groups") {
 
     // More sub-emitters than kParticleSubGroups: the rest are ignored (and said so once).
     Json many = Json::array();
-    for (int i = 0; i < kParticleSubGroups + 4; ++i) many.push_back(Json::parse(R"({"count": 1, "emitter": {"speed": 0}})"));
+    for (int i = 0; i < kParticleSubGroups + 4; ++i)
+        many.push_back(Json::parse(R"({"count": 1, "emitter": {"speed": 0}})"));
     em.subEmitters = Json::object({{"birth", many}});
     ParticleSim d = born(em, 1);
     CHECK(int(d.particles.size()) <= 1 + kParticleSubGroups + 1);
@@ -827,7 +838,8 @@ TEST_CASE("sub-emitters: an inline emitter, a prefab file and another entity's e
     TempDir tmp("fa_particles_prefab");
     const stdfs::path dir = tmp.dir;
     const std::string path = (dir / "spark.prefab.json").string();
-    REQUIRE(fs::write_text(path, R"({"format": "factoria.prefab/1", "entity": {"id": "spark", "children": [{"id": "inner", "components":
+    REQUIRE(fs::write_text(
+        path, R"({"format": "factoria.prefab/1", "entity": {"id": "spark", "children": [{"id": "inner", "components":
         {"ParticleEmitter": {"lifetime": 7, "lifetimeVariance": 0, "speed": 0, "startSize": 3}}}]}})"));
     auto loaded = load_prefab_particle_emitter(path);
     REQUIRE(loaded);
@@ -849,7 +861,9 @@ TEST_CASE("sub-emitters: an inline emitter, a prefab file and another entity's e
     ParticleSim e;
     e.seed(1);
     ParticleEnv env;
-    env.findEmitter = [&](std::string_view id) -> const ParticleEmitter* { return id == "spark-source" ? &other : nullptr; };
+    env.findEmitter = [&](std::string_view id) -> const ParticleEmitter* {
+        return id == "spark-source" ? &other : nullptr;
+    };
     e.spawn(em, env, 2);
     REQUIRE(e.particles.size() == 4);
     CHECK(e.particles[1].life == doctest::Approx(9.0f));
@@ -915,7 +929,8 @@ TEST_CASE("particle trails: a per-particle trail keeps at most kParticleTrailPoi
     CHECK(n.trail_pool_points() == 0);
 }
 
-TEST_CASE("particle trails: 10000 particles of which the 512 trail slots are trailed draw at most the budget of quads, from one pool") {
+TEST_CASE("particle trails: 10000 particles of which the 512 trail slots are trailed draw at most the budget of quads, "
+          "from one pool") {
     static_assert(std::is_trivially_copyable_v<Particle>);  // a particle owns no memory: no allocation per particle
     ParticleEmitter em = quiet();
     em.maxParticles = 10000;
@@ -953,10 +968,12 @@ TEST_CASE("particle trails: 10000 particles of which the 512 trail slots are tra
     CHECK(t.trail_pool_points() == pool);
 }
 
-TEST_CASE("particle trails: only a trail=\"particle\" group of a sub-emitter takes slots, and a removed sub-emitter gives them back") {
+TEST_CASE("particle trails: only a trail=\"particle\" group of a sub-emitter takes slots, and a removed sub-emitter "
+          "gives them back") {
     ParticleEmitter em = quiet();
     em.lifetime = 0.05f;
-    em.subEmitters = Json::parse(R"({"death": {"count": 4, "emitter": {"lifetime": 2, "speed": 0, "trail": "particle", "trailTime": 1}}})");
+    em.subEmitters = Json::parse(
+        R"({"death": {"count": 4, "emitter": {"lifetime": 2, "speed": 0, "trail": "particle", "trailTime": 1}}})");
     ParticleSim s = born(em, 5);
     ParticleEnv env;
     s.step(em, env, 0.1f);
@@ -1081,7 +1098,8 @@ TEST_CASE("particle noise: a NaN position or time counts as zero and the answer 
     CHECK(s.particles.size() <= 1);
 }
 
-TEST_CASE("particle shapes: a mesh with triangles that point past its vertices is sampled only where it is valid, and a new mesh is used") {
+TEST_CASE("particle shapes: a mesh with triangles that point past its vertices is sampled only where it is valid, and "
+          "a new mesh is used") {
     MeshSurface bad;
     bad.positions = {{0, 0, 0}, {10, 0, 0}, {0, 0, 10}};
     bad.indices = {0, 1, 99, 0, 1, 2, 7, 8, 9};  // triangles 0 and 2 index vertices that are not there
@@ -1134,7 +1152,8 @@ TEST_CASE("sub-emitters: collision against a tilemap works for a sub-emitter, an
     tm.solidTiles = Json::parse("[0]");
     ParticleEmitter em = quiet();  // the parent itself does not collide
     em.lifetime = 0.05f;
-    em.subEmitters = Json::parse(R"({"death": {"count": 30, "emitter": {"lifetime": 100, "lifetimeVariance": 0, "speed": 150, "speedVariance": 0.5,
+    em.subEmitters = Json::parse(
+        R"({"death": {"count": 30, "emitter": {"lifetime": 100, "lifetimeVariance": 0, "speed": 150, "speedVariance": 0.5,
         "spread": 180, "gravity": [0, -400, 0], "collision": "tilemap", "collisionBounce": 0.3, "maxParticles": 100}}})");
     ParticleSim s;
     s.seed(4);
@@ -1177,7 +1196,8 @@ TEST_CASE("sub-emitters: collision against a tilemap works for a sub-emitter, an
 TEST_CASE("sub-emitters: a sub-emitter lives in the space of the emitter that owns it") {
     ParticleEmitter em = quiet();
     em.lifetime = 0.05f;
-    em.subEmitters = Json::parse(R"({"death": {"count": 3, "emitter": {"lifetime": 100, "speed": 0, "gravity": [0, -300, 0], "worldSpace": false,
+    em.subEmitters = Json::parse(
+        R"({"death": {"count": 3, "emitter": {"lifetime": 100, "speed": 0, "gravity": [0, -300, 0], "worldSpace": false,
         "collision": "plane", "collisionPlane": [0, 1, 0, 0], "collisionBounce": 0}}})");
     // Its own worldSpace says false, but the parent's particles are world ones: the children collide as the parent's would.
     ParticleSim s;
@@ -1198,7 +1218,8 @@ TEST_CASE("sub-emitters: a sub-emitter lives in the space of the emitter that ow
     for (const Particle& p : l.particles) CHECK(p.pos.y < -50.0f);
     // The loader says it.
     bool warned = false;
-    for (const ParticleProblem& pr : particle_emitter_problems(em)) warned = warned || (!pr.error && pr.pointer.find("worldSpace") != std::string::npos);
+    for (const ParticleProblem& pr : particle_emitter_problems(em))
+        warned = warned || (!pr.error && pr.pointer.find("worldSpace") != std::string::npos);
     CHECK(warned);
 }
 
@@ -1215,7 +1236,9 @@ TEST_CASE("sub-emitters: a prefab or an entity that could not be had is tried ag
     auto problems = s.take_problems();
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].find("tried again") != std::string::npos);
-    REQUIRE(fs::write_text(path, R"({"format": "factoria.prefab/1", "entity": {"id": "late", "components": {"ParticleEmitter": {"lifetime": 3}}}})"));
+    REQUIRE(fs::write_text(
+        path,
+        R"({"format": "factoria.prefab/1", "entity": {"id": "late", "components": {"ParticleEmitter": {"lifetime": 3}}}})"));
     s.step(em, env, 0.4f);  // under a second since the failure: not yet
     s.spawn(em, env, 1);
     CHECK(s.particles.size() == 2);
@@ -1271,13 +1294,17 @@ TEST_CASE("sub-emitters: an entity link follows an edit of the emitter it names 
 
 // ------------------------------------------------------------ the scene loader --
 
-TEST_CASE("particle emitters: old scenes load unchanged, new fields round trip, mistakes are reported with their pointer") {
+TEST_CASE(
+    "particle emitters: old scenes load unchanged, new fields round trip, mistakes are reported with their pointer") {
     auto scene = [](const char* emitter) {
-        return Json::parse(std::string(R"({"format": "factoria.scene/1", "entities": [{"id": "fx", "components": {"Transform": {}, "ParticleEmitter": )") +
-                           emitter + "}}]}");
+        return Json::parse(
+            std::string(
+                R"({"format": "factoria.scene/1", "entities": [{"id": "fx", "components": {"Transform": {}, "ParticleEmitter": )") +
+            emitter + "}}]}");
     };
     World w;
-    LoadReport ok = load_scene(w, scene(R"({"rate": 5, "startColor": "#ff0000", "gravity": [0, -50, 0]})"), "old.scene.json");
+    LoadReport ok =
+        load_scene(w, scene(R"({"rate": 5, "startColor": "#ff0000", "gravity": [0, -50, 0]})"), "old.scene.json");
     REQUIRE(ok.ok());
     CHECK(ok.messages.empty());
     const ParticleEmitter* pe = w.get<ParticleEmitter>(w.find_by_id("fx"));
@@ -1291,8 +1318,10 @@ TEST_CASE("particle emitters: old scenes load unchanged, new fields round trip, 
     CHECK(pe->pixelMode == false);
 
     World w2;
-    LoadReport good = load_scene(w2, scene(R"({"shape": "circle", "shapeFrom": "edge", "trail": "particle", "collision": "plane",
-        "colorGradient": [[0, "#ffffff"], [1, "#ff000000"]], "sizeCurve": [[0, 1], [1, 0]], "pixelMode": true, "seed": 5})"), "new.scene.json");
+    LoadReport good =
+        load_scene(w2, scene(R"({"shape": "circle", "shapeFrom": "edge", "trail": "particle", "collision": "plane",
+        "colorGradient": [[0, "#ffffff"], [1, "#ff000000"]], "sizeCurve": [[0, 1], [1, 0]], "pixelMode": true, "seed": 5})"),
+                   "new.scene.json");
     REQUIRE(good.ok());
     pe = w2.get<ParticleEmitter>(w2.find_by_id("fx"));
     REQUIRE(pe);

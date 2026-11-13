@@ -5,7 +5,9 @@
 #include <emscripten.h>
 
 #include "fa/platform/input.h"
+// clang-format off
 EM_JS(void, fa_web_vibrate, (int ms), { if (navigator.vibrate) navigator.vibrate(ms); });
+// clang-format on
 
 // The on-screen keyboard of a mobile browser: a browser raises it only for a focused <input>, so a hidden one (1 px, no
 // opacity) takes the focus while a TextField has it. What it receives goes to a queue that mobile_poll() drains into Input:
@@ -13,6 +15,7 @@ EM_JS(void, fa_web_vibrate, (int ms), { if (navigator.vibrate) navigator.vibrate
 // the keys of the window itself (keydown, and typed text from the keypress events). Keys that reach the page as real key
 // events (a hardware keyboard on a tablet) are seen by sokol_app too; the hidden input skips what it already delivered.
 // No apostrophes in this code: it travels through the C preprocessor.
+// clang-format off
 EM_JS(void, fa_web_keyboard, (int show), {
     const st = window.faText || (window.faText = { el: null, want: false, queue: [], composing: false, hardKey: false, pressAt: -1000 });
     st.want = !!show;
@@ -74,6 +77,7 @@ EM_JS(int, fa_web_text_pop, (), {
     const st = window.faText;
     return st && st.queue.length ? st.queue.shift() : -1;
 });
+// clang-format on
 #endif
 #if defined(__APPLE__)
 #include <TargetConditionals.h>

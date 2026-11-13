@@ -16,17 +16,20 @@ namespace {
 struct NumberStyle {
     const char* decimal = ".";
     const char* group = ",";
-    int minGrouping = 1;                // digits of the integer part from which groups start: 1 = "1,234", 2 = "12.345" only
-    const char* digits = nullptr;       // ten UTF-8 digits (nullptr: ASCII)
+    int minGrouping = 1;           // digits of the integer part from which groups start: 1 = "1,234", 2 = "12.345" only
+    const char* digits = nullptr;  // ten UTF-8 digits (nullptr: ASCII)
 };
 
-constexpr const char* kNbsp = "\xC2\xA0";          // U+00A0
+constexpr const char* kNbsp = "\xC2\xA0";            // U+00A0
 constexpr const char* kNarrowNbsp = "\xE2\x80\xAF";  // U+202F
-constexpr const char* kArabicDigits = "\xD9\xA0|\xD9\xA1|\xD9\xA2|\xD9\xA3|\xD9\xA4|\xD9\xA5|\xD9\xA6|\xD9\xA7|\xD9\xA8|\xD9\xA9";
-constexpr const char* kPersianDigits = "\xDB\xB0|\xDB\xB1|\xDB\xB2|\xDB\xB3|\xDB\xB4|\xDB\xB5|\xDB\xB6|\xDB\xB7|\xDB\xB8|\xDB\xB9";
+constexpr const char* kArabicDigits =
+    "\xD9\xA0|\xD9\xA1|\xD9\xA2|\xD9\xA3|\xD9\xA4|\xD9\xA5|\xD9\xA6|\xD9\xA7|\xD9\xA8|\xD9\xA9";
+constexpr const char* kPersianDigits =
+    "\xDB\xB0|\xDB\xB1|\xDB\xB2|\xDB\xB3|\xDB\xB4|\xDB\xB5|\xDB\xB6|\xDB\xB7|\xDB\xB8|\xDB\xB9";
 
-constexpr const char* kLanguages[] = {"ar", "bg", "cs", "da", "de", "el", "en", "es", "fa", "fi", "fr", "he", "id", "it",
-                                      "ja", "ko", "nb", "nl", "no", "pl", "pt", "ru", "sk", "sv", "tr", "uk", "zh"};
+constexpr const char* kLanguages[] = {"ar", "bg", "cs", "da", "de", "el", "en", "es", "fa",
+                                      "fi", "fr", "he", "id", "it", "ja", "ko", "nb", "nl",
+                                      "no", "pl", "pt", "ru", "sk", "sv", "tr", "uk", "zh"};
 
 void split_tag(std::string_view tag, std::string& language, std::string& region) {
     language.clear();
@@ -203,9 +206,12 @@ std::string format_duration(double seconds, int decimals, std::string_view langu
     // Digits and the decimal separator of the language; ':' stays. No grouping: minutes never reach 1000 here.
     std::string out = negative && total > 0 ? "-" : "";
     for (char c : ascii) {
-        if (c >= '0' && c <= '9') append_digit(out, s, c);
-        else if (c == '.') out += s.decimal;
-        else out += c;
+        if (c >= '0' && c <= '9')
+            append_digit(out, s, c);
+        else if (c == '.')
+            out += s.decimal;
+        else
+            out += c;
     }
     return out;
 }

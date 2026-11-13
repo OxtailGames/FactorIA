@@ -43,7 +43,8 @@ std::vector<std::uint8_t> bone_hops(const RigFit& fit) {
     const std::size_t n = fit.bones.size();
     std::vector<std::uint8_t> out(n * n, 0);
     std::vector<int> depth(n, 0);
-    for (std::size_t i = 0; i < n; ++i) depth[i] = fit.bones[i].parentIndex >= 0 ? depth[std::size_t(fit.bones[i].parentIndex)] + 1 : 0;
+    for (std::size_t i = 0; i < n; ++i)
+        depth[i] = fit.bones[i].parentIndex >= 0 ? depth[std::size_t(fit.bones[i].parentIndex)] + 1 : 0;
     for (std::size_t a = 0; a < n; ++a)
         for (std::size_t b = 0; b < n; ++b) {
             int x = int(a), y = int(b), hops = 0;
@@ -76,12 +77,12 @@ namespace {
 
 struct PartPlan {
     std::string name;
-    std::string method;                // heat, voxel, rigid
-    std::string requested;             // what the document said (auto, ...)
-    std::string used;                  // what bound the vertices in the end (heat can fall back to voxel)
-    std::uint64_t mask = 0;            // the bones a vertex of the part may follow
-    int forced = -1;                   // skin.parts[part].bone
-    std::vector<int> own;              // the bones that claim the part
+    std::string method;      // heat, voxel, rigid
+    std::string requested;   // what the document said (auto, ...)
+    std::string used;        // what bound the vertices in the end (heat can fall back to voxel)
+    std::uint64_t mask = 0;  // the bones a vertex of the part may follow
+    int forced = -1;         // skin.parts[part].bone
+    std::vector<int> own;    // the bones that claim the part
     std::size_t vertices = 0;
     std::string note;
 };
@@ -95,7 +96,8 @@ Seg bone_seg(const RigBoneFit& b) { return {b.head, b.tail}; }
 Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const RigFit& fit, const MeshData& mesh) {
     const std::size_t nb = fit.bones.size();
     if (nb == 0 || nb > kRigMaxBones)
-        return make_error(std::format("a skin needs 1 to {} bones, the rig has {}", kRigMaxBones, nb), "Lower the spine, neck or tail options.");
+        return make_error(std::format("a skin needs 1 to {} bones, the rig has {}", kRigMaxBones, nb),
+                          "Lower the spine, neck or tail options.");
     const std::size_t nv = mesh.vertex_count();
     const SkinModel model = make_skin_model(mesh);
     const std::vector<std::uint8_t> hops = bone_hops(fit);
@@ -113,13 +115,15 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
     for (const auto& [part, binding] : settings.parts)
         if (std::find(partNames.begin(), partNames.end(), part) == partNames.end())
             return make_error(std::format("skin.parts names the part '{}', which the model does not have", part),
-                              did_you_mean(part, namedParts) + " The parts of the model: " + join(namedParts, ", ") + ".");
+                              did_you_mean(part, namedParts) + " The parts of the model: " + join(namedParts, ", ") +
+                                  ".");
     std::vector<PartPlan> plans;
     for (const std::string& p : partNames) {
         PartPlan plan;
         plan.name = p;
         for (std::size_t b = 0; b < nb; ++b)
-            if (std::find(fit.bones[b].parts.begin(), fit.bones[b].parts.end(), p) != fit.bones[b].parts.end()) plan.own.push_back(int(b));
+            if (std::find(fit.bones[b].parts.begin(), fit.bones[b].parts.end(), p) != fit.bones[b].parts.end())
+                plan.own.push_back(int(b));
         std::string requested = settings.method;
         for (const auto& [part, binding] : settings.parts)
             if (part == p) {
@@ -129,7 +133,8 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
                     if (plan.forced < 0) {
                         std::vector<std::string> names;
                         for (const RigBoneFit& b : fit.bones) names.push_back(b.name);
-                        return make_error(std::format("skin.parts.{}.bone is '{}', which is not a bone of the {} rig", p, binding.bone, fit.templateName),
+                        return make_error(std::format("skin.parts.{}.bone is '{}', which is not a bone of the {} rig",
+                                                      p, binding.bone, fit.templateName),
                                           did_you_mean(binding.bone, names));
                     }
                 }
@@ -140,13 +145,16 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
         std::uint64_t m = 0;
         auto add_with_neighbours = [&](int b) {
             m |= std::uint64_t(1) << b;
-            if (fit.bones[std::size_t(b)].parentIndex >= 0) m |= std::uint64_t(1) << fit.bones[std::size_t(b)].parentIndex;
+            if (fit.bones[std::size_t(b)].parentIndex >= 0)
+                m |= std::uint64_t(1) << fit.bones[std::size_t(b)].parentIndex;
             for (std::size_t c = 0; c < nb; ++c)
                 if (fit.bones[c].parentIndex == b) m |= std::uint64_t(1) << c;
         };
         if (plan.forced >= 0) {
-            if (plan.method == "rigid") m = std::uint64_t(1) << plan.forced;
-            else add_with_neighbours(plan.forced);
+            if (plan.method == "rigid")
+                m = std::uint64_t(1) << plan.forced;
+            else
+                add_with_neighbours(plan.forced);
         } else if (!plan.own.empty()) {
             if (plan.method == "rigid") {
                 for (int b : plan.own) m |= std::uint64_t(1) << b;
@@ -181,7 +189,9 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
         }
     }
     const float diag = length(hi - lo);
-    auto position = [&](std::size_t v) { return Vec3{mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]}; };
+    auto position = [&](std::size_t v) {
+        return Vec3{mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]};
+    };
     // the nearest bone of the bones in `mask`, measured to the bone's segment
     auto nearest_bone = [&](Vec3 p, std::uint64_t mask) {
         if (!mask) mask = everyone;
@@ -218,7 +228,8 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
             bone = nearest_bone(c, plan.mask);
         }
         for (std::size_t v = 0; v < nv; ++v)
-            if (model.vertSub[v] != kNone && &plan_of_sub(model.vertSub[v]) == &plan) W[v] = {{std::uint16_t(bone), 1.0f}};
+            if (model.vertSub[v] != kNone && &plan_of_sub(model.vertSub[v]) == &plan)
+                W[v] = {{std::uint16_t(bone), 1.0f}};
         plan.note = "follows " + fit.bones[std::size_t(bone)].name;
     }
 
@@ -280,9 +291,11 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
                         viaVoxel[j] = 1;
                     }
                 if (hs.componentsFailed)
-                    rep.warnings.push_back(std::format("bone heat did not converge on {} piece(s) of the surface; the voxel binding was used for them. A mesh with "
-                                                       "inverted or tiny triangles does this: set skin.method to \"voxel\" for those parts.",
-                                                       hs.componentsFailed));
+                    rep.warnings.push_back(std::format(
+                        "bone heat did not converge on {} piece(s) of the surface; the voxel binding was used for "
+                        "them. A mesh with "
+                        "inverted or tiny triangles does this: set skin.method to \"voxel\" for those parts.",
+                        hs.componentsFailed));
             }
         } else {
             VoxelStats vs;
@@ -332,7 +345,9 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
             if (plan.method == method) {
                 bool voxelHere = false;
                 for (std::size_t v = 0; v < nv; ++v)
-                    if (model.vertSub[v] != kNone && &plan_of_sub(model.vertSub[v]) == &plan && weld.nodeOf[v] != kNone && viaVoxel[weld.nodeOf[v]]) voxelHere = true;
+                    if (model.vertSub[v] != kNone && &plan_of_sub(model.vertSub[v]) == &plan &&
+                        weld.nodeOf[v] != kNone && viaVoxel[weld.nodeOf[v]])
+                        voxelHere = true;
                 if (voxelHere) {
                     plan.note = "bone heat did not converge here, so the voxel binding was used";
                     plan.used = "voxel";
@@ -351,7 +366,8 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
         }
     }
     if (rep.unweighted)
-        rep.warnings.push_back(std::format("{} vertex(es) got no automatic weight and follow their nearest bone. Check that the part's bones are inside or near it "
+        rep.warnings.push_back(std::format("{} vertex(es) got no automatic weight and follow their nearest bone. Check "
+                                           "that the part's bones are inside or near it "
                                            "(rig.info shows the fit) or set skin.parts.<part>.method to \"rigid\".",
                                            rep.unweighted));
     for (Infl& w : W) limit_infl(w, std::clamp(settings.maxInfluences, 1, 4));
@@ -369,7 +385,9 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
     std::size_t totalInfl = 0;
     for (std::size_t v = 0; v < nv; ++v) {
         Infl w = W[v];
-        std::sort(w.begin(), w.end(), [](const auto& a, const auto& b) { return a.second > b.second || (a.second == b.second && a.first < b.first); });
+        std::sort(w.begin(), w.end(), [](const auto& a, const auto& b) {
+            return a.second > b.second || (a.second == b.second && a.first < b.first);
+        });
         float sum = 0;
         for (std::size_t k = 0; k < w.size() && k < 4; ++k) sum += w[k].second;
         for (std::size_t k = 0; k < w.size() && k < 4; ++k) {
@@ -390,7 +408,8 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
         if (!strongest[b]) rep.idleBones.push_back(fit.bones[b].name);
     }
     if (!rep.idleBones.empty() && nv)
-        rep.warnings.push_back(std::format("{} bone(s) are the strongest of no vertex and move nothing visible by themselves: {}. Name the model part each one moves in "
+        rep.warnings.push_back(std::format("{} bone(s) are the strongest of no vertex and move nothing visible by "
+                                           "themselves: {}. Name the model part each one moves in "
                                            "the rig's `parts`, or leave them: they are fine as helper bones.",
                                            rep.idleBones.size(), join(rep.idleBones, ", ")));
     for (const PartPlan& plan : plans) {
@@ -407,14 +426,12 @@ Result<RigSkinResult> compute_rig_skin(const RigSkinSettings& settings, const Ri
 }
 
 Json rig_skin_report_to_json(const RigSkinReport& r) {
-    Json j = {{"vertices", r.vertices},
-              {"unweighted", r.unweighted},
-              {"maxInfluences", r.maxInfluences},
-              {"meanInfluences", std::round(r.meanInfluences * 100.0) / 100.0},
-              {"farBlends", r.farBlends},
-              {"editsApplied", r.editsApplied}};
+    Json j = {{"vertices", r.vertices},           {"unweighted", r.unweighted},
+              {"maxInfluences", r.maxInfluences}, {"meanInfluences", std::round(r.meanInfluences * 100.0) / 100.0},
+              {"farBlends", r.farBlends},         {"editsApplied", r.editsApplied}};
     if (r.mirrorUnmatched) j["mirrorUnmatched"] = r.mirrorUnmatched;
-    if (r.heatComponents) j["heat"] = {{"pieces", r.heatComponents}, {"failed", r.heatFailed}, {"iterations", r.heatIterations}};
+    if (r.heatComponents)
+        j["heat"] = {{"pieces", r.heatComponents}, {"failed", r.heatFailed}, {"iterations", r.heatIterations}};
     Json parts = Json::array();
     for (const RigSkinPartReport& p : r.parts) {
         Json e = {{"part", p.part}, {"method", p.method}, {"vertices", p.vertices}};
@@ -440,13 +457,15 @@ struct Aff {
     Vec3 t{0, 0, 0};
     bool identity = true;
     Vec3 apply(Vec3 p) const {
-        return {r[0] * p.x + r[1] * p.y + r[2] * p.z + t.x, r[3] * p.x + r[4] * p.y + r[5] * p.z + t.y, r[6] * p.x + r[7] * p.y + r[8] * p.z + t.z};
+        return {r[0] * p.x + r[1] * p.y + r[2] * p.z + t.x, r[3] * p.x + r[4] * p.y + r[5] * p.z + t.y,
+                r[6] * p.x + r[7] * p.y + r[8] * p.z + t.z};
     }
 };
 Aff compose(const Aff& a, const Aff& b) {  // a after b
     Aff o;
     for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) o.r[i * 3 + j] = a.r[i * 3] * b.r[j] + a.r[i * 3 + 1] * b.r[3 + j] + a.r[i * 3 + 2] * b.r[6 + j];
+        for (int j = 0; j < 3; ++j)
+            o.r[i * 3 + j] = a.r[i * 3] * b.r[j] + a.r[i * 3 + 1] * b.r[3 + j] + a.r[i * 3 + 2] * b.r[6 + j];
     o.t = a.apply(b.t);
     o.identity = a.identity && b.identity;
     return o;
@@ -454,7 +473,8 @@ Aff compose(const Aff& a, const Aff& b) {  // a after b
 
 }  // namespace
 
-std::vector<float> rig_skin_pose(const RigFit& fit, const RigWeights& weights, const std::vector<float>& positions, const std::vector<RigBonePose>& poses) {
+std::vector<float> rig_skin_pose(const RigFit& fit, const RigWeights& weights, const std::vector<float>& positions,
+                                 const std::vector<RigBonePose>& poses) {
     const std::size_t nb = fit.bones.size();
     std::vector<Aff> local(nb), world(nb);
     for (const RigBonePose& p : poses) {
@@ -473,12 +493,14 @@ std::vector<float> rig_skin_pose(const RigFit& fit, const RigWeights& weights, c
         det::sin_cos(p.degrees * kDegToRad, s, c);
         const float t = 1 - c;
         Aff a;
-        const float R[9] = {c + axis.x * axis.x * t, axis.x * axis.y * t - axis.z * s, axis.x * axis.z * t + axis.y * s,
-                            axis.y * axis.x * t + axis.z * s, c + axis.y * axis.y * t, axis.y * axis.z * t - axis.x * s,
-                            axis.z * axis.x * t - axis.y * s, axis.z * axis.y * t + axis.x * s, c + axis.z * axis.z * t};
+        const float R[9] = {
+            c + axis.x * axis.x * t,          axis.x * axis.y * t - axis.z * s, axis.x * axis.z * t + axis.y * s,
+            axis.y * axis.x * t + axis.z * s, c + axis.y * axis.y * t,          axis.y * axis.z * t - axis.x * s,
+            axis.z * axis.x * t - axis.y * s, axis.z * axis.y * t + axis.x * s, c + axis.z * axis.z * t};
         for (int i = 0; i < 9; ++i) a.r[i] = R[i];
         // rotate about the head: p -> R (p - head) + head
-        const Vec3 rh = {R[0] * bone.head.x + R[1] * bone.head.y + R[2] * bone.head.z, R[3] * bone.head.x + R[4] * bone.head.y + R[5] * bone.head.z,
+        const Vec3 rh = {R[0] * bone.head.x + R[1] * bone.head.y + R[2] * bone.head.z,
+                         R[3] * bone.head.x + R[4] * bone.head.y + R[5] * bone.head.z,
                          R[6] * bone.head.x + R[7] * bone.head.y + R[8] * bone.head.z};
         a.t = bone.head - rh;
         a.identity = p.degrees == 0;

@@ -36,7 +36,8 @@ double noise(double px, double py, double period, u32 seed) {
     const int ix = int(std::floor(x)), iy = int(std::floor(y));
     const double fx = x - ix, fy = y - iy;
     const double sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const double a = lattice(ix, iy, seed), b = lattice(ix + 1, iy, seed), c = lattice(ix, iy + 1, seed), d = lattice(ix + 1, iy + 1, seed);
+    const double a = lattice(ix, iy, seed), b = lattice(ix + 1, iy, seed), c = lattice(ix, iy + 1, seed),
+                 d = lattice(ix + 1, iy + 1, seed);
     return (a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sy;
 }
 double fbm(double px, double py, double period, int octaves, u32 seed) {
@@ -99,7 +100,10 @@ Pic box_blur(const Pic& in, int r) {
             Px s;
             for (int d = -r; d <= r; ++d) {
                 const Px& q = in.clamped(x + d, y);
-                s.r += q.r; s.g += q.g; s.b += q.b; s.a += q.a;
+                s.r += q.r;
+                s.g += q.g;
+                s.b += q.b;
+                s.a += q.a;
             }
             tmp.at(x, y) = {s.r * k, s.g * k, s.b * k, s.a * k};
         }
@@ -109,7 +113,10 @@ Pic box_blur(const Pic& in, int r) {
             Px s;
             for (int d = -r; d <= r; ++d) {
                 const Px& q = tmp.clamped(x, y + d);
-                s.r += q.r; s.g += q.g; s.b += q.b; s.a += q.a;
+                s.r += q.r;
+                s.g += q.g;
+                s.b += q.b;
+                s.a += q.a;
             }
             out.at(x, y) = {s.r * k, s.g * k, s.b * k, s.a * k};
         }
@@ -122,13 +129,16 @@ Pic wobble(const Pic& in, double amp, double period, u32 seed) {
     Pic out = in;
     for (int y = 0; y < in.h; ++y) {
         for (int x = 0; x < in.w; ++x) {
-            const double sx = x + amp * (fbm(x + 0.5, y + 0.5, period, 2, seed + 1u)) + amp * 0.35 * noise(x, y, period * 0.3, seed + 7u);
-            const double sy = y + amp * (fbm(x + 0.5, y + 0.5, period, 2, seed + 2u)) + amp * 0.35 * noise(x, y, period * 0.3, seed + 8u);
+            const double sx = x + amp * (fbm(x + 0.5, y + 0.5, period, 2, seed + 1u)) +
+                              amp * 0.35 * noise(x, y, period * 0.3, seed + 7u);
+            const double sy = y + amp * (fbm(x + 0.5, y + 0.5, period, 2, seed + 2u)) +
+                              amp * 0.35 * noise(x, y, period * 0.3, seed + 8u);
             const double fx = sx - 0.5, fy = sy - 0.5;  // pixel centres
             const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
             const double tx = fx - ix, ty = fy - iy;
-            const Px a = in.clamped(ix, iy), b = in.clamped(ix + 1, iy), c = in.clamped(ix, iy + 1), d = in.clamped(ix + 1, iy + 1);
-            auto bil = [&](float Px::*m) {
+            const Px a = in.clamped(ix, iy), b = in.clamped(ix + 1, iy), c = in.clamped(ix, iy + 1),
+                     d = in.clamped(ix + 1, iy + 1);
+            auto bil = [&](float Px::* m) {
                 return float((a.*m * (1 - tx) + b.*m * tx) * (1 - ty) + (c.*m * (1 - tx) + d.*m * tx) * ty);
             };
             out.at(x, y) = {bil(&Px::r), bil(&Px::g), bil(&Px::b), bil(&Px::a)};
@@ -139,7 +149,8 @@ Pic wobble(const Pic& in, double amp, double period, u32 seed) {
 
 // How different a pixel is from its neighbourhood (premultiplied colour and alpha): high on a border, 0 in a flat area.
 double border_strength(const Px& p, const Px& blurred) {
-    return std::fabs(p.r - blurred.r) + std::fabs(p.g - blurred.g) + std::fabs(p.b - blurred.b) + 1.5 * std::fabs(p.a - blurred.a);
+    return std::fabs(p.r - blurred.r) + std::fabs(p.g - blurred.g) + std::fabs(p.b - blurred.b) +
+           1.5 * std::fabs(p.a - blurred.a);
 }
 
 void scale_colour(Px& p, double k) {
@@ -158,8 +169,12 @@ void watercolour(Pic& pic, double s, u32 seed, double ref) {
             const Px& sp = soft.at(x, y);
             // pigment bleeds a little into its surroundings
             const float bleed = float(0.55 * s);
-            p = {p.r + (sp.r - p.r) * bleed, p.g + (sp.g - p.g) * bleed, p.b + (sp.b - p.b) * bleed, p.a + (sp.a - p.a) * bleed};
-            if (p.a <= 0.002f) { pic.at(x, y) = p; continue; }
+            p = {p.r + (sp.r - p.r) * bleed, p.g + (sp.g - p.g) * bleed, p.b + (sp.b - p.b) * bleed,
+                 p.a + (sp.a - p.a) * bleed};
+            if (p.a <= 0.002f) {
+                pic.at(x, y) = p;
+                continue;
+            }
             // pigment pools along the borders of a shape (the dark rim of a wash)
             const double rim = smoothstep(0.02, 0.30, border_strength(pic.at(x, y), wide.at(x, y)));
             scale_colour(p, 1.0 - 0.42 * s * rim);
@@ -193,7 +208,8 @@ std::vector<float> ink_line(const Pic& pic, double s, u32 seed, double ref) {
         for (int x = 0; x < pic.w; ++x) {
             // the pen presses harder in places: the line thickens and thins along the border
             const double press = 0.75 + 0.5 * (0.5 + 0.5 * noise(x + 0.5, y + 0.5, ref / 14.0, seed + 41u));
-            line[std::size_t(y) * pic.w + x] = float(s * smoothstep(0.10, 0.34, border_strength(pic.at(x, y), around.at(x, y)) * press * 2.2));
+            line[std::size_t(y) * pic.w + x] =
+                float(s * smoothstep(0.10, 0.34, border_strength(pic.at(x, y), around.at(x, y)) * press * 2.2));
         }
     }
     return line;

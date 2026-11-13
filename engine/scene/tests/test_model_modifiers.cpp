@@ -20,8 +20,8 @@ bool same_vec(const std::vector<T>& x, const std::vector<T>& y) {
     return x.size() == y.size() && (x.empty() || std::memcmp(x.data(), y.data(), x.size() * sizeof(T)) == 0);
 }
 bool same_bits(const ModelMesh& a, const ModelMesh& b) {
-    return same_vec(a.positions, b.positions) && same_vec(a.normals, b.normals) && same_vec(a.uvs, b.uvs) && same_vec(a.colors, b.colors) &&
-           same_vec(a.indices, b.indices) && same_vec(a.triParts, b.triParts);
+    return same_vec(a.positions, b.positions) && same_vec(a.normals, b.normals) && same_vec(a.uvs, b.uvs) &&
+           same_vec(a.colors, b.colors) && same_vec(a.indices, b.indices) && same_vec(a.triParts, b.triParts);
 }
 
 // Unit normals, every triangle's own normal agreeing with the normals of its corners (so they point out), matching array sizes.
@@ -40,8 +40,11 @@ void check_shape(const ModelMesh& m, float sliver = 0) {
         REQUIRE(b < m.positions.size());
         REQUIRE(c < m.positions.size());
         const Vec3 g = cross(m.positions[b] - m.positions[a], m.positions[c] - m.positions[a]);
-        const float longest = std::max({length_sq(m.positions[b] - m.positions[a]), length_sq(m.positions[c] - m.positions[b]), length_sq(m.positions[a] - m.positions[c])});
-        if (length(g) < 1e-9f || length(g) < sliver * longest) continue;  // `sliver`: very thin triangles whose direction is noise
+        const float longest =
+            std::max({length_sq(m.positions[b] - m.positions[a]), length_sq(m.positions[c] - m.positions[b]),
+                      length_sq(m.positions[a] - m.positions[c])});
+        if (length(g) < 1e-9f || length(g) < sliver * longest)
+            continue;  // `sliver`: very thin triangles whose direction is noise
         if (dot(normalize(g), m.normals[a] + m.normals[b] + m.normals[c]) <= 0) ++disagree;
     }
     CHECK(disagree == 0);
@@ -235,7 +238,9 @@ TEST_CASE("modifiers: bevel rounds a box and stays a closed solid") {
     // the face centres keep a flat normal
     int flat = 0;
     for (std::size_t i = 0; i < m.positions.size(); ++i)
-        if (std::fabs(m.positions[i].y - 0.5f) < 1e-5f && std::fabs(m.positions[i].x) < 0.41f && std::fabs(m.positions[i].z) < 0.41f && m.normals[i].y > 0.9999f) ++flat;
+        if (std::fabs(m.positions[i].y - 0.5f) < 1e-5f && std::fabs(m.positions[i].x) < 0.41f &&
+            std::fabs(m.positions[i].z) < 0.41f && m.normals[i].y > 0.9999f)
+            ++flat;
     CHECK(flat > 0);
     CHECK(same_bits(m, ok(model_bevel(unit_box(), p))));
 
@@ -405,14 +410,17 @@ TEST_CASE("modifiers: boolean on touching and coplanar solids") {
     CHECK(ok(model_boolean({a, unit_box()}, ModelBooleanMode::Difference)).empty());
     check_closed(ok(model_boolean({a, unit_box()}, ModelBooleanMode::Intersection)), 1.0, 1e-4);
     // a smaller box that shares the top face with a bigger one
-    const ModelMesh flush = ok(model_boolean({a, moved(model_box({{0.5f, 0.5f, 0.5f}, 1, 1, 1}), {0, 0.25f, 0})}, ModelBooleanMode::Difference));
+    const ModelMesh flush = ok(model_boolean({a, moved(model_box({{0.5f, 0.5f, 0.5f}, 1, 1, 1}), {0, 0.25f, 0})},
+                                             ModelBooleanMode::Difference));
     check_shape(flush);
     check_closed(flush, 1.0 - 0.125, 1e-4);
     // disjoint solids stay two shells
     const ModelMesh far = ok(model_boolean({a, moved(unit_box(), {5, 0, 0})}, ModelBooleanMode::Union));
     check_closed(far, 2.0, 1e-4);
     // three operands: a bar through a ball and a block through it
-    const ModelMesh three = ok(model_boolean({model_sphere({0.5f, 24, 12}), model_box({{0.2f, 2, 0.2f}, 1, 1, 1}), model_box({{2, 0.2f, 0.2f}, 1, 1, 1})}, ModelBooleanMode::Difference));
+    const ModelMesh three = ok(model_boolean(
+        {model_sphere({0.5f, 24, 12}), model_box({{0.2f, 2, 0.2f}, 1, 1, 1}), model_box({{2, 0.2f, 0.2f}, 1, 1, 1})},
+        ModelBooleanMode::Difference));
     check_shape(three);
     CHECK(model_mesh_stats(three).closed());
     CHECK(volume(three) < volume(model_sphere({0.5f, 24, 12})));
@@ -450,13 +458,16 @@ TEST_CASE("modifiers: boolean carries uvs, colours and smooth normals") {
     int smooth = 0;
     for (std::size_t i = 0; i < m.positions.size(); ++i) {
         const float r = length(m.positions[i]);
-        if (std::fabs(r - 0.5f) < 1e-3f && length({m.positions[i].x, 0, m.positions[i].z}) > 0.25f && dot(normalize(m.positions[i]), m.normals[i]) > 0.99f) ++smooth;
+        if (std::fabs(r - 0.5f) < 1e-3f && length({m.positions[i].x, 0, m.positions[i].z}) > 0.25f &&
+            dot(normalize(m.positions[i]), m.normals[i]) > 0.99f)
+            ++smooth;
     }
     CHECK(smooth > 100);
 }
 
 TEST_CASE("modifiers: boolean refuses what is not a closed solid, with the operand named") {
-    auto r = model_boolean({unit_box(), model_grid({1, 1, 1, 1})}, ModelBooleanMode::Union, {"/nodes/0/children/0", "/nodes/0/children/1"});
+    auto r = model_boolean({unit_box(), model_grid({1, 1, 1, 1})}, ModelBooleanMode::Union,
+                           {"/nodes/0/children/0", "/nodes/0/children/1"});
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("/nodes/0/children/1") != std::string::npos);
     CHECK(r.error().message.find("closed") != std::string::npos);
@@ -466,7 +477,8 @@ TEST_CASE("modifiers: boolean refuses what is not a closed solid, with the opera
     inside.transform(Mat4::scale({-1, 1, 1}));  // transform() turns the winding back: a mirrored box is still a solid
     CHECK(model_boolean({unit_box(), inside}, ModelBooleanMode::Union).ok());
     ModelMesh inverted = unit_box();
-    for (std::size_t t = 0; t < inverted.triangle_count(); ++t) std::swap(inverted.indices[t * 3 + 1], inverted.indices[t * 3 + 2]);
+    for (std::size_t t = 0; t < inverted.triangle_count(); ++t)
+        std::swap(inverted.indices[t * 3 + 1], inverted.indices[t * 3 + 2]);
     auto bad = model_boolean({unit_box(), inverted}, ModelBooleanMode::Union);
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("inwards") != std::string::npos);
@@ -490,7 +502,7 @@ TEST_CASE("modifiers: bend, twist and taper deform without tearing") {
     check_closed(bent, 0.08, 0.05);
     Vec3 lo, hi;
     bounds(bent, lo, hi);
-    CHECK(hi.z > 0.5f);   // bends towards +Z
+    CHECK(hi.z > 0.5f);  // bends towards +Z
     CHECK(lo.z > -0.2f);
     // the top end has turned to point along +Z
     const float radius = 2.0f / (float(kPiD) / 2.0f);
@@ -555,7 +567,8 @@ TEST_CASE("modifiers: noise is seeded, bounded and keeps the surface closed") {
     ModelNoiseParams flat = p;
     flat.amplitude = 0;
     const ModelMesh calm = model_noise(ball, flat);
-    for (std::size_t i = 0; i < ball.positions.size(); ++i) REQUIRE(length(calm.positions[i] - ball.positions[i]) < 1e-5f);
+    for (std::size_t i = 0; i < ball.positions.size(); ++i)
+        REQUIRE(length(calm.positions[i] - ball.positions[i]) < 1e-5f);
     ModelNoiseParams free3 = p;
     free3.alongNormal = false;
     CHECK(model_mesh_stats(model_noise(ball, free3)).closed());
@@ -626,18 +639,21 @@ TEST_CASE("modifiers: shading flat, smooth and by angle") {
     const ModelMesh flat = model_shade(ball, s);
     CHECK(flat.triangle_count() == ball.triangle_count());
     for (std::size_t t = 0; t < flat.triangle_count(); ++t) {
-        const Vec3 a = flat.normals[flat.indices[t * 3]], b = flat.normals[flat.indices[t * 3 + 1]], c = flat.normals[flat.indices[t * 3 + 2]];
+        const Vec3 a = flat.normals[flat.indices[t * 3]], b = flat.normals[flat.indices[t * 3 + 1]],
+                   c = flat.normals[flat.indices[t * 3 + 2]];
         CHECK(near(a, b, 1e-4f));
         CHECK(near(a, c, 1e-4f));
     }
     s.mode = ModelShadeMode::Smooth;
     const ModelMesh smooth = model_shade(unit_box(), s);
     check_shape(smooth);
-    for (const Vec3& n : smooth.normals) CHECK(std::fabs(std::fabs(n.x) - 0.57735f) < 1e-3f);  // at a corner the three faces average to the diagonal
+    for (const Vec3& n : smooth.normals)
+        CHECK(std::fabs(std::fabs(n.x) - 0.57735f) < 1e-3f);  // at a corner the three faces average to the diagonal
     s.mode = ModelShadeMode::Auto;
     s.angle = 30;
     const ModelMesh box = model_shade(unit_box(), s);
-    for (const Vec3& n : box.normals) CHECK(std::max({std::fabs(n.x), std::fabs(n.y), std::fabs(n.z)}) > 0.9999f);  // the sharp edges stay
+    for (const Vec3& n : box.normals)
+        CHECK(std::max({std::fabs(n.x), std::fabs(n.y), std::fabs(n.z)}) > 0.9999f);  // the sharp edges stay
     const ModelMesh round = model_shade(ball, s);
     int outward = 0;
     for (std::size_t i = 0; i < round.positions.size(); ++i)
@@ -674,7 +690,8 @@ TEST_CASE("modifiers: lathe turns a profile into a closed solid") {
     ring.cap = false;
     CHECK(model_mesh_stats(model_lathe(ring)).boundaryEdges > 0);
     ring.cap = true;
-    check_closed(model_lathe(ring), 0.5 * 24 * std::sin(2 * kPiD / 24) * 0.25, 1e-3);  // the ends are extended to the axis: a solid cylinder
+    check_closed(model_lathe(ring), 0.5 * 24 * std::sin(2 * kPiD / 24) * 0.25,
+                 1e-3);  // the ends are extended to the axis: a solid cylinder
     // an outline that returns to its first point is turned as it is: a tube
     ring.profile = {{0.3f, 0}, {0.5f, 0}, {0.5f, 1}, {0.3f, 1}, {0.3f, 0}};
     const ModelMesh tube = model_lathe(ring);
@@ -691,7 +708,9 @@ TEST_CASE("modifiers: lathe turns a profile into a closed solid") {
 
     // a profile with a pole on the axis (a ball): one vertex there
     ModelLatheParams ball;
-    for (int k = 0; k <= 8; ++k) ball.profile.push_back({0.5f * std::sin(float(kPiD) * float(k) / 8.0f), -0.5f * std::cos(float(kPiD) * float(k) / 8.0f)});
+    for (int k = 0; k <= 8; ++k)
+        ball.profile.push_back(
+            {0.5f * std::sin(float(kPiD) * float(k) / 8.0f), -0.5f * std::cos(float(kPiD) * float(k) / 8.0f)});
     ball.segments = 16;
     ball.creaseAngle = 60;
     const ModelMesh b = model_lathe(ball);

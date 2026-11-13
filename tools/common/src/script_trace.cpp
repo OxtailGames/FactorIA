@@ -47,7 +47,8 @@ Json value_json(PausedScripts& ps, const DebugValue& v, int depth) {
         const char* e = b + v.value.size();
         auto r = std::from_chars(b, e, d);
         if (r.ec == std::errc() && r.ptr == e && std::isfinite(d)) {
-            if (d == std::floor(d) && std::fabs(d) < 9e15 && !(d == 0 && std::signbit(d))) return Json(static_cast<std::int64_t>(d));
+            if (d == std::floor(d) && std::fabs(d) < 9e15 && !(d == 0 && std::signbit(d)))
+                return Json(static_cast<std::int64_t>(d));
             return Json(d);
         }
         return Json(v.value);  // NaN, Infinity, -0
@@ -62,18 +63,25 @@ Json value_json(PausedScripts& ps, const DebugValue& v, int depth) {
         std::vector<DebugValue> kids = ps.variables(v.variablesReference, 0, kMaxChildren + 1);
         const bool more = static_cast<int>(kids.size()) > kMaxChildren;
         if (more) kids.resize(kMaxChildren);
-        kids.erase(std::remove_if(kids.begin(), kids.end(), [](const DebugValue& k) { return k.name == "[[Prototype]]"; }), kids.end());
-        const bool array = !kids.empty() && std::all_of(kids.begin(), kids.end(), [](const DebugValue& k) { return is_index(k.name); });
+        kids.erase(
+            std::remove_if(kids.begin(), kids.end(), [](const DebugValue& k) { return k.name == "[[Prototype]]"; }),
+            kids.end());
+        const bool array = !kids.empty() &&
+                           std::all_of(kids.begin(), kids.end(), [](const DebugValue& k) { return is_index(k.name); });
         Json out = array ? Json::array() : Json::object();
         for (const DebugValue& k : kids) {
             Json child = value_json(ps, k, depth - 1);
-            if (array) out.push_back(std::move(child));
-            else out[k.name] = std::move(child);
+            if (array)
+                out.push_back(std::move(child));
+            else
+                out[k.name] = std::move(child);
         }
         if (more) {
             const std::string note = std::format("... more than {} entries, not shown", kMaxChildren);
-            if (array) out.push_back(note);
-            else out["..."] = note;
+            if (array)
+                out.push_back(note);
+            else
+                out["..."] = note;
         }
         return out;
     }
@@ -125,7 +133,8 @@ public:
     }
 
     DebugResume paused(const DebugStop& stop, PausedScripts& scripts) override {
-        if (stop.hitBreakpointIds.empty()) {  // a condition that threw stops with no breakpoint: that is an error to report
+        if (stop.hitBreakpointIds
+                .empty()) {  // a condition that threw stops with no breakpoint: that is an error to report
             if (!stop.description.empty()) add_error(stop.description);
             return DebugResume::Continue;
         }
@@ -136,7 +145,8 @@ public:
             if (it == idToPoint_.end()) continue;
             TracePoint& p = points[static_cast<std::size_t>(it->second)];
             if (!p.active) continue;
-            if (p.hits >= maxHits) {  // one more than asked: there is more to see, so say so and stop recording this point
+            if (p.hits >=
+                maxHits) {  // one more than asked: there is more to see, so say so and stop recording this point
                 truncated = true;
                 p.active = false;
                 changed.insert(p.file);
@@ -170,7 +180,8 @@ public:
                         break;
                     }
                     ++p.hits;
-                    logs.push_back(Json::object({{"frame", frameNow}, {"file", file}, {"line", line}, {"text", std::string(text)}}));
+                    logs.push_back(Json::object(
+                        {{"frame", frameNow}, {"file", file}, {"line", line}, {"text", std::string(text)}}));
                 }
             }
             for (const std::string& f : changed) apply(f);
@@ -198,14 +209,21 @@ private:
         Json locals = Json::object();
         std::vector<DebugScope> scopes = scripts.scopes(top.id);
         if (!scopes.empty())
-            for (const DebugValue& v : scripts.variables(scopes.front().variablesReference, 0, 0)) locals[v.name] = value_json(scripts, v, depth);
+            for (const DebugValue& v : scripts.variables(scopes.front().variablesReference, 0, 0))
+                locals[v.name] = value_json(scripts, v, depth);
         Json watch = Json::object();
         for (const std::string& expr : p.watch) {
             auto r = scripts.evaluate(top.id, expr);
             watch[expr] = r.ok() ? value_json(scripts, *r, depth) : Json("<error: " + r.error().message + ">");
         }
-        return Json::object({{"point", pointIndex}, {"frame", std::max(frame_, 0)}, {"file", top.file}, {"line", top.line},
-                             {"function", top.name}, {"stack", stackJson}, {"locals", locals}, {"watch", watch}});
+        return Json::object({{"point", pointIndex},
+                             {"frame", std::max(frame_, 0)},
+                             {"file", top.file},
+                             {"line", top.line},
+                             {"function", top.name},
+                             {"stack", stackJson},
+                             {"locals", locals},
+                             {"watch", watch}});
     }
 };
 
@@ -214,15 +232,17 @@ std::vector<std::string> project_scripts(const std::string& projectDir) {
     std::vector<std::string> out;
     std::error_code ec;
     stdfs::path root(fs::os_path(projectDir));
-    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
-         it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         if (it->is_directory(ec)) {
-            if (name.starts_with(".") || name == "node_modules" || name == "build" || name == "export") it.disable_recursion_pending();
+            if (name.starts_with(".") || name == "node_modules" || name == "build" || name == "export")
+                it.disable_recursion_pending();
             continue;
         }
         const std::string ext = it->path().extension().string();
-        if (it->is_regular_file(ec) && (ext == ".js" || ext == ".mjs")) out.push_back(stdfs::relative(it->path(), root, ec).generic_string());
+        if (it->is_regular_file(ec) && (ext == ".js" || ext == ".mjs"))
+            out.push_back(stdfs::relative(it->path(), root, ec).generic_string());
     }
     std::sort(out.begin(), out.end());
     return out;
@@ -233,21 +253,25 @@ std::vector<std::string> project_scripts(const std::string& projectDir) {
 }
 
 Json require_object(const Json& j, const std::string& pointer, const char* what) {
-    if (!j.is_object()) bad(pointer, std::string("must be an object (") + what + ").", "Example: {\"file\":\"scripts/player.js\",\"line\":17}.");
+    if (!j.is_object())
+        bad(pointer, std::string("must be an object (") + what + ").",
+            "Example: {\"file\":\"scripts/player.js\",\"line\":17}.");
     return j;
 }
 
 void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& known) {
     for (auto it = obj.begin(); it != obj.end(); ++it)
         if (std::find(known.begin(), known.end(), it.key()) == known.end())
-            bad(pointer + "/" + tooling_detail::escape_token(it.key()), "unknown field '" + it.key() + "'.", did_you_mean(it.key(), known));
+            bad(pointer + "/" + tooling_detail::escape_token(it.key()), "unknown field '" + it.key() + "'.",
+                did_you_mean(it.key(), known));
 }
 
 int int_arg(const Json& a, const char* key, int def, int min, int max, const char* why) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number_integer() || it->get<long long>() < min || it->get<long long>() > max)
-        bad(std::string("/") + key, std::string("must be an integer from ") + std::to_string(min) + " to " + std::to_string(max) + ".", why);
+        bad(std::string("/") + key,
+            std::string("must be an integer from ") + std::to_string(min) + " to " + std::to_string(max) + ".", why);
     return it->get<int>();
 }
 
@@ -276,7 +300,8 @@ std::vector<TracePoint> parse_points(const Json& args, const std::string& projec
         tp.file = string_field(p, "file", at);
         std::replace(tp.file.begin(), tp.file.end(), '\\', '/');
         if (tp.file.starts_with("./")) tp.file = tp.file.substr(2);
-        if (tp.file.empty()) bad(at + "/file", "is required: the project-relative script to trace.", "Example: \"scripts/player.js\".");
+        if (tp.file.empty())
+            bad(at + "/file", "is required: the project-relative script to trace.", "Example: \"scripts/player.js\".");
 
         const bool escapes = tp.file.starts_with("/") || tp.file.find("..") != std::string::npos;
         std::error_code ec;
@@ -292,14 +317,16 @@ std::vector<TracePoint> parse_points(const Json& args, const std::string& projec
 
         auto lineIt = p.find("line");
         if (lineIt == p.end() || !lineIt->is_number_integer() || lineIt->get<long long>() < 1)
-            bad(at + "/line", "must be an integer >= 1 (1-based) naming a line of " + tp.file + " that starts a statement.",
+            bad(at + "/line",
+                "must be an integer >= 1 (1-based) naming a line of " + tp.file + " that starts a statement.",
                 "Open the file with fs.read to see its line numbers.");
         tp.line = lineIt->get<int>();
 
         auto b = breakable.find(tp.file);
         if (b == breakable.end()) {
             auto text = fs::read_text(onDisk.generic_string());
-            if (!text.ok()) bad(at + "/file", "cannot read '" + tp.file + "': " + text.error().message, text.error().hint);
+            if (!text.ok())
+                bad(at + "/file", "cannot read '" + tp.file + "': " + text.error().message, text.error().hint);
             auto inst = instrument_script(tp.file, *text, -1);
             if (!inst.ok())
                 bad(at + "/file", tp.file + " does not parse, so it cannot be traced: " + inst.error().message,
@@ -313,7 +340,11 @@ std::vector<TracePoint> parse_points(const Json& args, const std::string& projec
             if (next != lines.begin()) near = "line " + std::to_string(*(next - 1));
             if (next != lines.end()) near += (near.empty() ? "line " : " and line ") + std::to_string(*next);
             if (near.empty()) near = "none: the file has no statements";
-            bad(at + "/line", tp.file + ":" + std::to_string(tp.line) + " has no statement to stop on (blank, a comment, the middle of a statement or a declaration header). Nearest lines that do: " + near + ".",
+            bad(at + "/line",
+                tp.file + ":" + std::to_string(tp.line) +
+                    " has no statement to stop on (blank, a comment, the middle of a statement or a declaration "
+                    "header). Nearest lines that do: " +
+                    near + ".",
                 "Pick one of those lines; a statement starts a line such as 'this.x = 1;' or 'if (...) {'.");
         }
         tp.resolvedLine = tp.line;
@@ -321,10 +352,13 @@ std::vector<TracePoint> parse_points(const Json& args, const std::string& projec
         tp.condition = string_field(p, "condition", at);
         tp.log = string_field(p, "log", at);
         if (auto w = p.find("watch"); w != p.end() && !w->is_null()) {
-            if (!w->is_array()) bad(at + "/watch", "must be an array of JavaScript expressions.", "Example: [\"this.body.velocity\",\"dt\"].");
+            if (!w->is_array())
+                bad(at + "/watch", "must be an array of JavaScript expressions.",
+                    "Example: [\"this.body.velocity\",\"dt\"].");
             for (std::size_t k = 0; k < w->size(); ++k) {
                 if (!(*w)[k].is_string())
-                    bad(at + "/watch/" + std::to_string(k), "must be a string (a JavaScript expression).", "Example: \"this.body.velocity\".");
+                    bad(at + "/watch/" + std::to_string(k), "must be a string (a JavaScript expression).",
+                        "Example: \"this.body.velocity\".");
                 tp.watch.push_back((*w)[k].get<std::string>());
             }
         }
@@ -337,8 +371,10 @@ Json run_trace(const Json& args, const std::string& projectDir) {
     tooling_detail::require_project_dir(projectDir, "script.trace");
     check_keys(args, "", {"points", "frames", "input", "scene", "maxHits", "depth"});
     const int frames = int_arg(args, "frames", kDefaultFrames, 1, 1000000, "Run a few hundred frames, e.g. 300.");
-    const int maxHits = int_arg(args, "maxHits", kDefaultMaxHits, 1, 100000, "A few dozen hits are enough to see a pattern; use a condition to narrow.");
-    const int depth = int_arg(args, "depth", kDefaultDepth, 0, kMaxDepth, "0 = previews only, 1 = one level of fields (the default), up to 6.");
+    const int maxHits = int_arg(args, "maxHits", kDefaultMaxHits, 1, 100000,
+                                "A few dozen hits are enough to see a pattern; use a condition to narrow.");
+    const int depth = int_arg(args, "depth", kDefaultDepth, 0, kMaxDepth,
+                              "0 = previews only, 1 = one level of fields (the default), up to 6.");
     const std::string input = tooling_detail::arg_string(args, "input", false);
     const std::string scene = tooling_detail::arg_string(args, "scene", false);
 
@@ -357,23 +393,29 @@ Json run_trace(const Json& args, const std::string& projectDir) {
         auto states = client->apply(f, &used);
         for (std::size_t k = 0; k < states.size(); ++k)
             if (!states[k].verified)
-                bad("/points/" + std::to_string(used[k]) + "/line", f + ":" + std::to_string(client->points[static_cast<std::size_t>(used[k])].line) + ": " + states[k].message,
+                bad("/points/" + std::to_string(used[k]) + "/line",
+                    f + ":" + std::to_string(client->points[static_cast<std::size_t>(used[k])].line) + ": " +
+                        states[k].message,
                     "Pick a line that starts a statement.");
     }
 
     // The run starts its own engine; a process that already has a GPU device (the editor, a window) gets one without graphics,
     // because sokol allows one device per process. Scripts do not need the renderer to run (only to read camera helpers).
-    EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, scene, !gfx_device_active(), RenderMode::OnDemand);
+    EngineConfig cfg =
+        tooling_detail::headless_engine_config(projectDir, scene, !gfx_device_active(), RenderMode::OnDemand);
     cfg.scriptDebugger = debugger;
     HeadlessRunOptions ho;
     ho.frames = frames;
     ho.failOnScriptError = false;
-    ho.failOnWatchdogCut = false;  // the cut is in the report's problems, and the trace so far is what the caller asked for
+    ho.failOnWatchdogCut =
+        false;  // the cut is in the report's problems, and the trace so far is what the caller asked for
     if (!input.empty()) ho.inputReplayPath = tooling_detail::project_path(projectDir, input);
     Json report;
     const int code = run_headless(cfg, ho, &report);
     if (code != 0 || !report.contains("frames")) {
-        throw CommandError("failed", "The traced run did not finish cleanly (exit code " + std::to_string(code) + "): " + report.value("error", std::string("see problems")),
+        throw CommandError("failed",
+                           "The traced run did not finish cleanly (exit code " + std::to_string(code) +
+                               "): " + report.value("error", std::string("see problems")),
                            "Run 'factoria run --headless --frames " + std::to_string(frames) + "' to see the problem.");
     }
 
@@ -382,8 +424,11 @@ Json run_trace(const Json& args, const std::string& projectDir) {
         if (report.contains(key) && report[key].is_array())
             for (const Json& e : report[key]) errors.push_back(e);
     for (const Json& e : client->errors) errors.push_back(e);
-    return Json::object({{"hits", client->hits}, {"logs", client->logs}, {"errors", errors},
-                         {"framesRun", report.value("frames", 0)}, {"truncated", client->truncated}});
+    return Json::object({{"hits", client->hits},
+                         {"logs", client->logs},
+                         {"errors", errors},
+                         {"framesRun", report.value("frames", 0)},
+                         {"truncated", client->truncated}});
 }
 
 }  // namespace
@@ -393,7 +438,8 @@ void register_script_trace_commands(CommandRegistry& registry, const std::string
     c.name = "script.trace";
     c.category = "script";
     c.readOnly = true;
-    c.summary = "Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run.";
+    c.summary = "Debug scripts: run the game headless and record the stack, locals and watch expressions each time "
+                "chosen lines run.";
     c.description =
         "The way to find out WHY a script misbehaves without an IDE. Runs the project headless for `frames` "
         "fixed steps (a second engine in this process, fake platform, in-memory storage, fixed dt: the same "
@@ -404,8 +450,7 @@ void register_script_trace_commands(CommandRegistry& registry, const std::string
         "`watch` expressions evaluated at every hit, `log` a message with {expression} parts that turns the "
         "point into a logpoint (it writes into `logs` and records no hit; cheaper than a hit with locals). "
         "Example: {\"points\":[{\"file\":\"scripts/player.js\",\"line\":17,\"condition\":\"dt > "
-        "0\",\"watch\":[\"this.body.velocity\"]}],\"frames\":120,\"maxHits\":5}."
-        FA_COMMAND_DETAILS
+        "0\",\"watch\":[\"this.body.velocity\"]}],\"frames\":120,\"maxHits\":5}." FA_COMMAND_DETAILS
         "Returns {hits: [{point (index in points), frame (0-based fixed frame), file, line, function (e.g. "
         "Player.onUpdate), stack (innermost first, \"fn file:line\"), locals: {name: value}, watch: "
         "{expression: value}}], logs: [{frame, file, line, text}], errors (script errors raised during the "
@@ -429,8 +474,7 @@ void register_script_trace_commands(CommandRegistry& registry, const std::string
         "depth":{"type":"integer","default":1,"minimum":0,"maximum":6,"description":"How far objects in locals and watch are expanded into JSON (0 = previews only; nested objects beyond the depth are previews). An object shows at most 100 entries."}}})");
     registry.add(c, [projectDir](const Json& a) { return run_trace(a, projectDir); });
     // script.trace runs the scripts in a headless engine inside this process and writes nothing.
-    declare_command_capabilities(registry, {
-        {"script.trace", capability_sets::reads()}});
+    declare_command_capabilities(registry, {{"script.trace", capability_sets::reads()}});
 }
 
 }  // namespace fa

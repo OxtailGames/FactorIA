@@ -33,7 +33,8 @@ TEST_CASE("list_models: Anthropic GET /v1/models with the API key") {
         [&](const HttpRequest& req) {
             seen = req;
             return json_response(
-                200, R"({"data":[{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-01-01T00:00:00Z"},
+                200,
+                R"({"data":[{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-01-01T00:00:00Z"},
                         {"type":"model","id":"claude-haiku-4-5-20251001","display_name":"Claude Haiku 4.5"},{"type":"model"}],
                         "has_more":false,"first_id":"claude-opus-5-5","last_id":"claude-haiku-4-5-20251001"})");
         },
@@ -77,17 +78,21 @@ TEST_CASE("list_models: Anthropic falls back to the ant token; no credentials te
 
 TEST_CASE("list_models: a rejected key and a reply without models are errors that say what to do") {
     ProviderConfig cfg = default_config().providers["anthropic"];
-    auto rejected = list_models(cfg, models_runtime(
-        [](const HttpRequest&) {
-            return json_response(401, R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})");
-        },
-        {{"ANTHROPIC_API_KEY", "sk-ant-test-key-0000000000"}}));
+    auto rejected = list_models(
+        cfg, models_runtime(
+                 [](const HttpRequest&) {
+                     return json_response(
+                         401,
+                         R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})");
+                 },
+                 {{"ANTHROPIC_API_KEY", "sk-ant-test-key-0000000000"}}));
     REQUIRE_FALSE(rejected.ok());
     CHECK(rejected.error().message.find("authentication_error") != std::string::npos);
     CHECK(rejected.error().hint.find("key") != std::string::npos);
 
-    auto odd = list_models(cfg, models_runtime([](const HttpRequest&) { return json_response(200, "<html>proxy</html>"); },
-                                               {{"ANTHROPIC_API_KEY", "sk-ant-test-key-0000000000"}}));
+    auto odd =
+        list_models(cfg, models_runtime([](const HttpRequest&) { return json_response(200, "<html>proxy</html>"); },
+                                        {{"ANTHROPIC_API_KEY", "sk-ant-test-key-0000000000"}}));
     REQUIRE_FALSE(odd.ok());
     CHECK(odd.error().message.find("\"data\"") != std::string::npos);
 }
@@ -97,7 +102,9 @@ TEST_CASE("list_models: OpenAI-compatible GET /models, sorted, with the key when
     auto rt = models_runtime(
         [&](const HttpRequest& req) {
             seen = req;
-            return json_response(200, R"({"object":"list","data":[{"id":"openai/gpt-5","object":"model"},{"id":"anthropic/claude-opus-5"}]})");
+            return json_response(
+                200,
+                R"({"object":"list","data":[{"id":"openai/gpt-5","object":"model"},{"id":"anthropic/claude-opus-5"}]})");
         },
         {{"OPENROUTER_API_KEY", "sk-or-test-key-0000000000"}});
     auto models = list_models(default_config().providers["openrouter"], rt);
@@ -113,9 +120,9 @@ TEST_CASE("list_models: OpenAI-compatible GET /models, sorted, with the key when
     // A local server needs no key and must fail fast when it is not running.
     HttpRequest local;
     auto ollama = list_models(default_config().providers["ollama"], models_runtime([&](const HttpRequest& req) {
-        local = req;
-        return json_response(200, R"({"data":[{"id":"llama3.2:latest"}]})");
-    }));
+                                  local = req;
+                                  return json_response(200, R"({"data":[{"id":"llama3.2:latest"}]})");
+                              }));
     REQUIRE(ollama);
     CHECK((*ollama)[0].id == "llama3.2:latest");
     CHECK(local.url == "http://localhost:11434/v1/models");
@@ -136,7 +143,8 @@ TEST_CASE("list_models: OpenAI-compatible errors teach") {
 
     HttpResponse refused;
     refused.error = "Could not connect to server";
-    auto down = list_models(default_config().providers["lmstudio"], models_runtime([&](const HttpRequest&) { return refused; }));
+    auto down = list_models(default_config().providers["lmstudio"],
+                            models_runtime([&](const HttpRequest&) { return refused; }));
     REQUIRE_FALSE(down.ok());
     CHECK(down.error().message.find("Could not connect") != std::string::npos);
 

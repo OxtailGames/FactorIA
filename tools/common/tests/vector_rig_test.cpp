@@ -41,11 +41,15 @@ const Json* entity_named(const Json& node, const std::string& name) {
     return nullptr;
 }
 
-Json read_prefab(const AssetsProject& p, const std::string& rel = "prefabs/hero.prefab.json") { return parse_json(read_all(p.file(rel)), rel).value(); }
+Json read_prefab(const AssetsProject& p, const std::string& rel = "prefabs/hero.prefab.json") {
+    return parse_json(read_all(p.file(rel)), rel).value();
+}
 
 bool contains(const std::string& t, const std::string& n) { return t.find(n) != std::string::npos; }
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 struct Hero {
     AssetsProject p;
@@ -80,7 +84,8 @@ TEST_CASE("vector.to_rig: parts, hierarchy, pivots and bone lengths of a crafted
     CHECK(std::abs(head["pivot"][1].get<double>() - 76) < 0.01);
     CHECK(part_of(h.r, "torso")["pivotFrom"] == "default");
     CHECK(part_of(h.r, "arm_lower_r")["pivotFrom"] == "overlap");
-    const Json lower = part_of(h.r, "arm_lower_r");  // overlaps the upper arm from y 125 down: its joint is its top end, on its own axis
+    const Json lower = part_of(
+        h.r, "arm_lower_r");  // overlaps the upper arm from y 125 down: its joint is its top end, on its own axis
     CHECK(std::abs(lower["pivot"][0].get<double>() - 136) < 0.01);
     CHECK(std::abs(lower["pivot"][1].get<double>() - 125) < 0.01);
     CHECK(part_of(h.r, "leg_l")["pivot"][1] == 180);
@@ -146,7 +151,8 @@ TEST_CASE("vector.to_rig: the rest pose is the SVG, pixel for pixel, and the sid
 TEST_CASE("vector.to_rig: pivots from the argument, the data-pivot attribute and angle limits") {
     std::string svg = kHero;
     const std::string from = "<g id=\"arm_upper_l\">";
-    svg.replace(svg.find(from), from.size(), "<g id=\"arm_upper_l\" data-pivot=\"63 87\" data-min-angle=\"-45\" data-max-angle=\"120\">");
+    svg.replace(svg.find(from), from.size(),
+                "<g id=\"arm_upper_l\" data-pivot=\"63 87\" data-min-angle=\"-45\" data-max-angle=\"120\">");
     Hero h(Json{{"pivots", {{"leg_l", {81, 182}}}}}, svg.c_str());
     CHECK(part_of(h.r, "arm_upper_l")["pivotFrom"] == "data-pivot");
     CHECK(part_of(h.r, "arm_upper_l")["pivot"][0] == 63);
@@ -162,13 +168,17 @@ TEST_CASE("vector.to_rig: pivots from the argument, the data-pivot attribute and
     CHECK(h.r["restPose"]["matches"] == true);
 }
 
-TEST_CASE("vector.to_rig: running it again keeps names and additions, reports renamed or removed parts, and prune removes them") {
+TEST_CASE("vector.to_rig: running it again keeps names and additions, reports renamed or removed parts, and prune "
+          "removes them") {
     Hero h;
     // the user adds an Animator on the root and a collider-like extra child under a part
     Json prefab = read_prefab(h.p);
-    prefab["entity"]["components"]["Animator"] = Json{{"clips", {{"wave", "anim/hero_wave.anim.json"}}}, {"clip", "wave"}};
+    prefab["entity"]["components"]["Animator"] =
+        Json{{"clips", {{"wave", "anim/hero_wave.anim.json"}}}, {"clip", "wave"}};
     for (Json& c : prefab["entity"]["children"]) {
-        if (c["name"] == "torso") c["children"].push_back(Json{{"name", "hitbox"}, {"components", {{"Transform", {{"position", {0, 5, 0}}}}}}});
+        if (c["name"] == "torso")
+            c["children"].push_back(
+                Json{{"name", "hitbox"}, {"components", {{"Transform", {{"position", {0, 5, 0}}}}}}});
     }
     write_all(h.p.file("prefabs/hero.prefab.json"), prefab.dump(2));
     const Json first = h.r;
@@ -190,8 +200,9 @@ TEST_CASE("vector.to_rig: running it again keeps names and additions, reports re
     std::string svg = kHero;
     svg.replace(svg.find("id=\"leg_r\""), 10, "id=\"leg_right\"");
     write_all(h.p.file("assets/art/hero.svg"), svg);
-    write_all(h.p.file("anim/hero_wave.anim.json"),
-              R"({"format":"factoria.anim/1","duration":1,"tracks":[{"path":"torso/leg_r","component":"Transform","field":"rotation.z","keys":[{"t":0,"value":0},{"t":1,"value":10}]}]})");
+    write_all(
+        h.p.file("anim/hero_wave.anim.json"),
+        R"({"format":"factoria.anim/1","duration":1,"tracks":[{"path":"torso/leg_r","component":"Transform","field":"rotation.z","keys":[{"t":0,"value":0},{"t":1,"value":10}]}]})");
     const Json renamed = h.p.ok("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"pixelsPerUnit", 4}});
     CHECK(renamed["removed"] == Json::array({"leg_r"}));
     CHECK(renamed["added"] == Json::array({"leg_right"}));
@@ -200,7 +211,8 @@ TEST_CASE("vector.to_rig: running it again keeps names and additions, reports re
     CHECK(entity_named(read_prefab(h.p)["entity"], "leg_r") != nullptr);
     CHECK(entity_named(read_prefab(h.p)["entity"], "leg_l") != nullptr);
 
-    const Json pruned = h.p.ok("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"pixelsPerUnit", 4}, {"prune", true}});
+    const Json pruned =
+        h.p.ok("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"pixelsPerUnit", 4}, {"prune", true}});
     CHECK(entity_named(read_prefab(h.p)["entity"], "leg_r") == nullptr);
     CHECK(entity_named(read_prefab(h.p)["entity"], "leg_right") != nullptr);
     CHECK(entity_named(read_prefab(h.p)["entity"], "hitbox") != nullptr);
@@ -223,13 +235,15 @@ TEST_CASE("vector.to_rig: the rig is stale when the SVG changes, and assets.rege
 TEST_CASE("vector.to_rig: errors name the argument, the fix and the closest id") {
     AssetsProject p;
     write_all(p.file("assets/art/hero.svg"), kHero);
-    CommandResult r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"parents", {{"hand_l", "arm_lower_l"}}}});
+    CommandResult r =
+        p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"parents", {{"hand_l", "arm_lower_l"}}}});
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_of(r), "/parents/hand_l"));
     r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"parents", {{"head", "arm_lower_lft"}}}});
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_of(r), "arm_lower_l"));
-    r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"parents", {{"torso", "head"}}}});  // head is inside torso: a cycle
+    r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"},
+                                     {"parents", {{"torso", "head"}}}});  // head is inside torso: a cycle
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_of(r), "its own ancestor"));
     r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"layout", "atlass"}});
@@ -240,7 +254,9 @@ TEST_CASE("vector.to_rig: errors name the argument, the fix and the closest id")
     r = p.call("vector.to_rig", Json{{"source", "assets/art/hero.svg"}, {"pivots", {{"hed", {1, 2}}}}});
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_of(r), "head"));
-    write_all(p.file("assets/art/flat.svg"), R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect id="g12" width="5" height="5"/></svg>)");
+    write_all(
+        p.file("assets/art/flat.svg"),
+        R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect id="g12" width="5" height="5"/></svg>)");
     r = p.call("vector.to_rig", Json{{"source", "assets/art/flat.svg"}});
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_of(r), "no group with an id"));
@@ -261,8 +277,9 @@ TEST_CASE("vector.to_rig: dryRun writes nothing and a part drawn around another 
     CHECK_FALSE(p.exists("prefabs/hero.prefab.json"));
     CHECK_FALSE(p.exists("assets/art/hero_parts.png"));
     // a shape outside every part is reported and not in the rig
-    write_all(p.file("assets/art/loose.svg"),
-              R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g id="a"><rect width="30" height="30" fill="red"/></g><rect y="80" width="100" height="20" fill="green"/></svg>)");
+    write_all(
+        p.file("assets/art/loose.svg"),
+        R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g id="a"><rect width="30" height="30" fill="red"/></g><rect y="80" width="100" height="20" fill="green"/></svg>)");
     const Json l = p.ok("vector.to_rig", Json{{"source", "assets/art/loose.svg"}});
     CHECK(has_warning(l, "belong to no part"));
     CHECK(l["restPose"]["matches"] == false);

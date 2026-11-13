@@ -80,13 +80,16 @@ struct PureDerived : PureBase {
 };
 FA_CRASH_FUNCTION void fa_crash_child_pure_call() { PureDerived derived; }
 #ifdef _DEBUG
-FA_CRASH_FUNCTION void fa_crash_child_runtime_check() { _ASSERTE(g_stop == 1 && "the runtime check of the crash test"); }
+FA_CRASH_FUNCTION void fa_crash_child_runtime_check() {
+    _ASSERTE(g_stop == 1 && "the runtime check of the crash test");
+}
 #endif
 #endif
 
 int main(int argc, char** argv) {
     if (argc != 3) {
-        std::fprintf(stderr, "usage: fa_crash_child <report folder> <clean|null-write|abort|uncaught|stack-overflow>\n");
+        std::fprintf(stderr,
+                     "usage: fa_crash_child <report folder> <clean|null-write|abort|uncaught|stack-overflow>\n");
         return 2;
     }
     no_crash_dialogs();
@@ -100,13 +103,19 @@ int main(int argc, char** argv) {
     const std::string mode = argv[2];
     FA_INFO("crashtest", "about to crash: {}", mode);
     if (mode == "clean") return 0;
-    if (mode == "null-write") fa_crash_child_null_write();
-    else if (mode == "abort") fa_crash_child_abort();
-    else if (mode == "uncaught") fa_crash_child_uncaught();
-    else if (mode == "stack-overflow") return fa_crash_child_recurse(0);
+    if (mode == "null-write")
+        fa_crash_child_null_write();
+    else if (mode == "abort")
+        fa_crash_child_abort();
+    else if (mode == "uncaught")
+        fa_crash_child_uncaught();
+    else if (mode == "stack-overflow")
+        return fa_crash_child_recurse(0);
 #ifdef _MSC_VER
-    else if (mode == "invalid-parameter") fa_crash_child_invalid_parameter();
-    else if (mode == "pure-call") fa_crash_child_pure_call();
+    else if (mode == "invalid-parameter")
+        fa_crash_child_invalid_parameter();
+    else if (mode == "pure-call")
+        fa_crash_child_pure_call();
     else if (mode == "fault-printed") {
         fa::report_runtime_checks_without_dialogs();  // replaces the crash reporter's filter
         fa_crash_child_null_write();

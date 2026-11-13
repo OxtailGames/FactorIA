@@ -99,8 +99,16 @@ bool fa_sapp_display_size(int* w, int* h) {
 // ---- monitors -----------------------------------------------------------------------------------------------------------
 #include <stdio.h>
 #if defined(_SAPP_WIN32)
-typedef struct { HMONITOR h; RECT r; bool primary; char name[64]; } fa_win_mon;
-typedef struct { fa_win_mon m[16]; int n; } fa_win_mons;
+typedef struct {
+    HMONITOR h;
+    RECT r;
+    bool primary;
+    char name[64];
+} fa_win_mon;
+typedef struct {
+    fa_win_mon m[16];
+    int n;
+} fa_win_mons;
 
 static BOOL CALLBACK fa_win_enum(HMONITOR h, HDC dc, LPRECT r, LPARAM param) {
     (void)dc;
@@ -140,12 +148,43 @@ static void fa_win_collect(fa_win_mons* list) {
 #elif defined(_SAPP_LINUX)
 // XRandR is loaded at run time, so a machine without libXrandr (or a build without its headers) still runs: it then has one
 // monitor, the whole X screen. Layouts are the ones libXrandr documents (X11/extensions/Xrandr.h).
-typedef struct { Time timestamp, configTimestamp; int ncrtc; XID* crtcs; int noutput; XID* outputs; int nmode; void* modes; } fa_xrr_resources;
-typedef struct { Time timestamp; int x, y; unsigned int width, height; XID mode; unsigned short rotation; int noutput; XID* outputs;
-                 unsigned short rotations; int npossible; XID* possible; } fa_xrr_crtc;
-typedef struct { Time timestamp; XID crtc; char* name; int nameLen; unsigned long mm_width, mm_height; unsigned short connection;
-                 unsigned short subpixel_order; int ncrtc; XID* crtcs; int nclone; XID* clones; int nmode; int npreferred;
-                 XID* modes; } fa_xrr_output;
+typedef struct {
+    Time timestamp, configTimestamp;
+    int ncrtc;
+    XID* crtcs;
+    int noutput;
+    XID* outputs;
+    int nmode;
+    void* modes;
+} fa_xrr_resources;
+typedef struct {
+    Time timestamp;
+    int x, y;
+    unsigned int width, height;
+    XID mode;
+    unsigned short rotation;
+    int noutput;
+    XID* outputs;
+    unsigned short rotations;
+    int npossible;
+    XID* possible;
+} fa_xrr_crtc;
+typedef struct {
+    Time timestamp;
+    XID crtc;
+    char* name;
+    int nameLen;
+    unsigned long mm_width, mm_height;
+    unsigned short connection;
+    unsigned short subpixel_order;
+    int ncrtc;
+    XID* crtcs;
+    int nclone;
+    XID* clones;
+    int nmode;
+    int npreferred;
+    XID* modes;
+} fa_xrr_output;
 
 typedef struct {
     int x, y, w, h;  // physical pixels
@@ -176,7 +215,8 @@ static bool fa_xrr_load(void) {
     *(void**)&fa_XRRFreeOutputInfo = dlsym(fa_xrr_lib, "XRRFreeOutputInfo");
     *(void**)&fa_XRRGetOutputPrimary = dlsym(fa_xrr_lib, "XRRGetOutputPrimary");
     if (!fa_XRRGetScreenResourcesCurrent || !fa_XRRGetCrtcInfo || !fa_XRRGetOutputInfo || !fa_XRRFreeScreenResources ||
-        !fa_XRRFreeCrtcInfo || !fa_XRRFreeOutputInfo || !fa_XRRGetOutputPrimary) return false;
+        !fa_XRRFreeCrtcInfo || !fa_XRRFreeOutputInfo || !fa_XRRGetOutputPrimary)
+        return false;
     state = 1;
     return true;
 }
@@ -298,7 +338,8 @@ bool fa_sapp_move_to_monitor(int index) {
     HWND hwnd = _sapp.win32.hwnd;
     if (_sapp.fullscreen) {
         // sokol's full screen window is a WS_POPUP: it only has to cover the other monitor.
-        SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                     SWP_NOACTIVATE | SWP_FRAMECHANGED);
     } else {
         if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
         RECT w;

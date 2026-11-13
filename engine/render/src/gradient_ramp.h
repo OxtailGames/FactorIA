@@ -49,7 +49,9 @@ public:
     // The v texture coordinate of the middle of row `row`.
     static float row_v(int row) { return (float(row) + 0.5f) / float(kRampRows); }
     // The u texture coordinate that reads the texel centre of position g in 0..1 (clamped), so g = 0 and 1 give the end colours.
-    static float u_of(float g) { return (0.5f + std::clamp(g, 0.0f, 1.0f) * float(kRampWidth - 1)) / float(kRampWidth); }
+    static float u_of(float g) {
+        return (0.5f + std::clamp(g, 0.0f, 1.0f) * float(kRampWidth - 1)) / float(kRampWidth);
+    }
     // The texture the ramp shapes draw with. It has no GPU image until the first acquire() and sync().
     TextureAsset* texture() { return &tex_; }
     // Uploads the rows baked since the last call (the image is made again). Call after the gather, before drawing.

@@ -22,9 +22,10 @@ namespace fa {
 
 // ------------------------------------------------------------------------------------------------------------- solvers --
 struct TwoBoneResult {
-    bool reached = true;   // the target was inside the limb's reach (min..max); false = the limb is straight (or folded) towards it
-    float error = 0.0f;    // distance from the end of the chain to the target after solving
-    Vec3 end{};            // where the end bone's head is after solving, model space
+    bool reached =
+        true;  // the target was inside the limb's reach (min..max); false = the limb is straight (or folded) towards it
+    float error = 0.0f;  // distance from the end of the chain to the target after solving
+    Vec3 end{};          // where the end bone's head is after solving, model space
 };
 // Turns `root` and `mid` so the head of `end` reaches `target` (model space). `mid` must be a child of `root` and `end` a child of
 // `mid`. The mid joint bends towards `pole` (a point in model space; the plane of root, target and pole); with no pole it keeps the
@@ -36,16 +37,17 @@ Result<TwoBoneResult> solve_two_bone(const SkeletonAsset& skeleton, Pose& pose, 
                                      const std::optional<Quat>& endRotation = std::nullopt);
 
 struct LookAtParams {
-    Vec3 forward{0, 0, 1};     // the bone's own axis that looks at the target (its local axis: the model's axes at rest)
-    float yawLimit = 70.0f;    // degrees the aim may turn left or right from the animated aim, 0..180
+    Vec3 forward{0, 0, 1};   // the bone's own axis that looks at the target (its local axis: the model's axes at rest)
+    float yawLimit = 70.0f;  // degrees the aim may turn left or right from the animated aim, 0..180
     float pitchLimit = 45.0f;  // degrees up or down, 0..90
     float weight = 1.0f;       // 0..1: how much of the turn is applied
     float maxTurn = 0.0f;      // radians the turn offset may change in this call (0 = no limit: the aim snaps)
 };
 struct LookAtResult {
     bool clamped = false;  // the target is outside the limits: the bone aims as far as they allow
-    float yaw = 0.0f;      // degrees turned from the animated aim (as applied: the weight and turn speed count); positive turns +Z towards +X (character-left)
-    float pitch = 0.0f;    // degrees turned up (positive) or down
+    float yaw =
+        0.0f;  // degrees turned from the animated aim (as applied: the weight and turn speed count); positive turns +Z towards +X (character-left)
+    float pitch = 0.0f;  // degrees turned up (positive) or down
 };
 // Turns `bone` so its `forward` axis points at `target` (model space), within the limits measured from the aim the animation gave
 // it. `state` carries the turn between calls (identity at first): with `maxTurn` it moves towards the wanted turn at that speed,
@@ -60,8 +62,8 @@ struct GroundHit {
     Vec3 point{};
     Vec3 normal{0, 1, 0};
 };
-using GroundRaycast =
-    std::function<std::optional<GroundHit>(Vec3 origin, Vec3 direction, float maxDistance, std::int32_t mask, Entity ignore)>;
+using GroundRaycast = std::function<std::optional<GroundHit>(Vec3 origin, Vec3 direction, float maxDistance,
+                                                             std::int32_t mask, Entity ignore)>;
 
 // Solves the IK3D of every entity that has an Animator (after update_animators): copies the animated pose, applies the solvers in
 // order, writes the Animator's palettes. `ground` answers the foot rays (null = no ground: foot solvers leave their feet alone).

@@ -93,14 +93,16 @@ std::atomic<std::uint64_t> g_nextTag{1};
 bool is_sound(const std::string& ext) { return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa"; }
 
 bool is_binary_asset(const std::string& ext) {
-    static const char* const kExt[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2", ".gltf", ".glb", ".obj", ".wav",
-                                       ".ogg", ".mp3", ".qoa", ".ttf", ".otf", ".mp4", ".bin"};
+    static const char* const kExt[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2", ".gltf", ".glb",
+                                       ".obj", ".wav", ".ogg",  ".mp3", ".qoa", ".ttf", ".otf",  ".mp4",  ".bin"};
     return std::find(std::begin(kExt), std::end(kExt), ext) != std::end(kExt);
 }
 
 bool is_script(const std::string& ext) { return ext == ".js" || ext == ".mjs"; }
 
-bool is_json_asset(const std::string& path) { return ends_with(path, ".prefab.json") || ends_with(path, ".material.json"); }
+bool is_json_asset(const std::string& path) {
+    return ends_with(path, ".prefab.json") || ends_with(path, ".material.json");
+}
 
 // The string literals of a script (no escapes handled: file paths do not have them).
 void collect_literals(const std::string& text, std::vector<std::string>& out) {
@@ -118,7 +120,8 @@ void collect_literals(const std::string& text, std::vector<std::string>& out) {
 
 // Every string in `j`: the candidates for project files worth reading ahead.
 void collect_strings(const Json& j, std::vector<std::string>& out) {
-    if (j.is_string()) out.push_back(j.get<std::string>());
+    if (j.is_string())
+        out.push_back(j.get<std::string>());
     else if (j.is_array() || j.is_object())
         for (const Json& v : j) collect_strings(v, out);
 }
@@ -190,8 +193,10 @@ ScanResult scan_files(const std::vector<std::string>& roots, bool isScene, Backg
             const std::string dir = fs::parent(path);
             for (const std::string& lit : literals) {
                 if (starts_with(lit, "./") || starts_with(lit, "../"))
-                    consider(dir.empty() ? lit : fs::join(dir, lit), is_script(to_lower(fs::extension(lit))) || ends_with(lit, ".json"));
-                else consider(lit, false);
+                    consider(dir.empty() ? lit : fs::join(dir, lit),
+                             is_script(to_lower(fs::extension(lit))) || ends_with(lit, ".json"));
+                else
+                    consider(lit, false);
             }
             continue;
         }
@@ -210,7 +215,8 @@ ScanResult scan_files(const std::vector<std::string>& roots, bool isScene, Backg
             for (const char* key : {"buffers", "images"})
                 if (parsed->contains(key) && (*parsed)[key].is_array())
                     for (const Json& e : (*parsed)[key])
-                        if (e.is_object() && e.contains("uri") && e["uri"].is_string()) uris.push_back(e["uri"].get<std::string>());
+                        if (e.is_object() && e.contains("uri") && e["uri"].is_string())
+                            uris.push_back(e["uri"].get<std::string>());
             for (const std::string& u : uris) consider(dir.empty() ? u : fs::join(dir, u), true);
         } else {
             std::vector<std::string> strings;
@@ -266,21 +272,23 @@ Json BackgroundLoader::Update::to_json() const {
                          {"hint", hint}});
 }
 
-BackgroundLoader::BackgroundLoader(jobs::Owner* jobs, LoadTrace::Owner traceOwner) : io_(jobs, traceOwner), traceOwner_(traceOwner) {}
+BackgroundLoader::BackgroundLoader(jobs::Owner* jobs, LoadTrace::Owner traceOwner)
+    : io_(jobs, traceOwner), traceOwner_(traceOwner) {}
 
 BackgroundLoader::~BackgroundLoader() {
     stop(nullptr);
     collect_orphans(true);  // the engine waited for its jobs: every item has ended
 }
 
-Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props, Origin origin,
-                                    LoadTrace* trace) {
+Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props,
+                                    Origin origin, LoadTrace* trace) {
     const char* api = kind_name(kind);
     std::vector<std::string> roots;
     if (paths.empty())
         return make_error(std::string(api) + ": no file was given",
-                          kind == Kind::Assets ? "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"]."
-                                               : "Pass the project-relative path of a scene file, e.g. \"scenes/level1.scene.json\".");
+                          kind == Kind::Assets
+                              ? "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"]."
+                              : "Pass the project-relative path of a scene file, e.g. \"scenes/level1.scene.json\".");
     for (const std::string& p : paths) {
         auto n = fs::normalize_checked(p);
         if (!n) return make_error(std::string(api) + ": " + n.error().message, n.error().hint);
@@ -288,14 +296,16 @@ Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& p
         if (kind != Kind::Assets) {
             if (!fs::exists(path) || fs::is_directory(path)) {
                 std::vector<std::string> scenes = fs::list("scenes", true, ".json");
-                return make_error(std::string(api) + ": scene '" + p + "' does not exist. " + did_you_mean(path, scenes),
+                return make_error(std::string(api) + ": scene '" + p + "' does not exist. " +
+                                      did_you_mean(path, scenes),
                                   std::string("Pass the project-relative path of a scene file, e.g. ") + api +
                                       "(\"scenes/level1.scene.json\").");
             }
         } else {
             const std::string ext = to_lower(fs::extension(path));
             if (fs::exists(path) && fs::is_directory(path))
-                return make_error("assets.preload: '" + p + "' is a folder, not a file", "List the files: fs.list in a tool, or name each one.");
+                return make_error("assets.preload: '" + p + "' is a folder, not a file",
+                                  "List the files: fs.list in a tool, or name each one.");
             if (!file_or_twin_exists(path, ext)) {
                 // Suggestions from the folder it names first (assets/, sounds/, ...), or from assets/ for a bare name.
                 const std::size_t slash = path.find('/');
@@ -412,7 +422,8 @@ bool BackgroundLoader::front_ready(const Job& job) const {
 }
 
 void BackgroundLoader::hold(Job& job, const std::string& path) {
-    if (!job.warmed.insert(path).second) warm_release(path);  // the job holds this file already: one reference is enough
+    if (!job.warmed.insert(path).second)
+        warm_release(path);  // the job holds this file already: one reference is enough
 }
 
 void BackgroundLoader::drop(const std::string& path) { warm_release(path); }
@@ -455,8 +466,10 @@ void BackgroundLoader::take_scan(Job& job, Renderer* renderer, Audio* audio) {
             u.trivial = audio->clip_loaded(path);
         }
         // Models after everything else: the textures they name are in the cache when they are uploaded.
-        if (u.kind == UnitKind::Render && rk == Renderer::BackgroundKind::Model) models.push_back(std::move(u));
-        else job.units.push_back(std::move(u));
+        if (u.kind == UnitKind::Render && rk == Renderer::BackgroundKind::Model)
+            models.push_back(std::move(u));
+        else
+            job.units.push_back(std::move(u));
     }
     for (Unit& m : models) job.units.push_back(std::move(m));
     job.total = 1 + int(job.units.size());
@@ -572,7 +585,11 @@ BackgroundLoader::Update BackgroundLoader::update_of(const Job& job) const {
 }
 
 Json BackgroundLoader::job_status(const Job& job) const {
-    const char* state = job.cancelled ? "cancelled" : !job.error.empty() ? "failed" : job.finished() ? "done" : job.scanned ? "loading" : "scanning";
+    const char* state = job.cancelled        ? "cancelled"
+                        : !job.error.empty() ? "failed"
+                        : job.finished()     ? "done"
+                        : job.scanned        ? "loading"
+                                             : "scanning";
     Json paths = Json::array();
     for (const std::string& p : job.roots) paths.push_back(p);
     Json j = Json::object({{"id", job.id},
@@ -640,8 +657,9 @@ void BackgroundLoader::cancel_origin(Origin origin, LoadTrace* trace) {
     for (const Job& j : jobs_)
         if (j.origin == origin) ids.push_back(j.id);
     for (int id : ids) cancel(id, trace);
-    pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const Update& u) { return u.origin == origin; }),
-                   pending_.end());
+    pending_.erase(
+        std::remove_if(pending_.begin(), pending_.end(), [&](const Update& u) { return u.origin == origin; }),
+        pending_.end());
 }
 
 void BackgroundLoader::stop(LoadTrace* trace) {
@@ -676,7 +694,8 @@ BackgroundLoader::Frame BackgroundLoader::tick(Renderer* renderer, Audio* audio,
     if (jobs_.empty()) return frame;
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
-    const std::uint64_t uploadCap = budget.uploadMB <= 0 ? 0 : std::uint64_t(std::min(budget.uploadMB, 1.0e6) * 1024.0 * 1024.0);
+    const std::uint64_t uploadCap =
+        budget.uploadMB <= 0 ? 0 : std::uint64_t(std::min(budget.uploadMB, 1.0e6) * 1024.0 * 1024.0);
     auto spent = [&] {
         if (budget.exact) return frame.units >= budget.units;
         if (uploadCap > 0 && frame.uploadedBytes >= uploadCap) return true;
@@ -696,7 +715,8 @@ BackgroundLoader::Frame BackgroundLoader::tick(Renderer* renderer, Audio* audio,
                 break;
             }
             run_unit(job, renderer, audio, frame.uploadedBytes);
-            if (job.scanned) submit_units(job, renderer);  // refill what the IO thread works on (all of it after the scan)
+            if (job.scanned)
+                submit_units(job, renderer);  // refill what the IO thread works on (all of it after the scan)
             touched.insert(job.id);
             worked = true;
             ++frame.units;

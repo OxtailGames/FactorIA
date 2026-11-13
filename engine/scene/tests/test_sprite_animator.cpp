@@ -10,7 +10,8 @@ using namespace fa;
 
 namespace {
 std::shared_ptr<const assets::Sheet> test_sheet() {
-    return assets::parse_sheet(Json::parse(R"({"columns":4,"rows":2,"frameWidth":14,"frameHeight":14,"frames":7,"padding":1,"pivot":[0.5,1],
+    return assets::parse_sheet(
+        Json::parse(R"({"columns":4,"rows":2,"frameWidth":14,"frameHeight":14,"frames":7,"padding":1,"pivot":[0.5,1],
         "clips":[{"name":"spin","firstFrame":0,"lastFrame":3,"fps":10,"loop":true},
                  {"name":"pop","firstFrame":4,"lastFrame":6,"fps":10,"loop":false,"pivot":[0.25,0.75]}]})"));
 }
@@ -115,7 +116,8 @@ TEST_CASE("sprite animator: a clip that does not loop ends once and clipEnded is
     CHECK(pr.ends == 1);
 }
 
-TEST_CASE("sprite animator: loopMode once stops a looping clip, loop loops a non-looping one, inherit keeps the clip's flag") {
+TEST_CASE("sprite animator: loopMode once stops a looping clip, loop loops a non-looping one, inherit keeps the clip's "
+          "flag") {
     SpriteAnimator once;
     once.clip = "spin";  // looping clip, frames 0..3
     once.loopMode = SpriteLoopMode::Once;
@@ -192,7 +194,7 @@ TEST_CASE("sprite animator: the sheet pivot counts from the top, only for a spri
     Vec2 p = sprite_effective_pivot(s, a, plan);
     CHECK(p.x == doctest::Approx(0.5f));
     CHECK(p.y == doctest::Approx(0.0f));  // [0.5, 1] from the top-left is the bottom edge: Sprite.pivot y 0
-    a.clip = "pop";  // the clip's own pivot [0.25, 0.75] wins
+    a.clip = "pop";                       // the clip's own pivot [0.25, 0.75] wins
     plan = resolve_sprite_animator(a, "t.png", test_sheet());
     p = sprite_effective_pivot(s, a, plan);
     CHECK(p.x == doctest::Approx(0.25f));
@@ -234,14 +236,18 @@ struct EventRig {
 }  // namespace
 
 TEST_CASE("sprite animator events: a frame fires once per pass, with its game event and its feel actions") {
-    EventRig r("spin", R"([{"frame":2,"name":"hit","data":{"hand":"left"},"feel":{"action":"sound","path":"audio/hit.wav"}}])");
+    EventRig r("spin",
+               R"([{"frame":2,"name":"hit","data":{"hand":"left"},"feel":{"action":"sound","path":"audio/hit.wav"}}])");
     for (int i = 0; i < 12; ++i) r.step(0.1f);  // 3 loops of the 4 frames
     CHECK(r.game_frames() == std::vector<int>{2, 2, 2});
     CHECK(r.sounds() == 3);
 }
 
-TEST_CASE("sprite animator events: a long frame time skips no event, in order, and a nameless event sends no game event") {
-    EventRig r("spin", R"([{"frame":1,"feel":{"action":"sound","path":"audio/a.wav"}},{"frame":3,"name":"end"},{"frame":0,"name":"start"}])");
+TEST_CASE(
+    "sprite animator events: a long frame time skips no event, in order, and a nameless event sends no game event") {
+    EventRig r(
+        "spin",
+        R"([{"frame":1,"feel":{"action":"sound","path":"audio/a.wav"}},{"frame":3,"name":"end"},{"frame":0,"name":"start"}])");
     r.step(0.05f);  // frame 0
     CHECK(r.game_frames() == std::vector<int>{0});
     r.world.events().game.clear();
@@ -252,12 +258,14 @@ TEST_CASE("sprite animator events: a long frame time skips no event, in order, a
     CHECK(r.sounds() == 2);
 }
 
-TEST_CASE("sprite animator events: pingpong shows its middle frames twice, a rewind fires nothing for the jump, clip scopes an event") {
+TEST_CASE("sprite animator events: pingpong shows its middle frames twice, a rewind fires nothing for the jump, clip "
+          "scopes an event") {
     EventRig p("spin", R"([{"frame":2,"name":"mid"},{"clip":"pop","frame":4,"name":"pop"}])");
     p.a->mode = SpriteAnimMode::PingPong;
     p.plan = resolve_sprite_animator(*p.a, "t.png", test_sheet());
     for (int i = 0; i < 12; ++i) p.step(0.1f);  // two passes of 0 1 2 3 2 1
-    CHECK(p.game_frames() == std::vector<int>{2, 2, 2, 2});  // frame 2 is shown twice per pass; the event of clip "pop" never fires
+    CHECK(p.game_frames() ==
+          std::vector<int>{2, 2, 2, 2});  // frame 2 is shown twice per pass; the event of clip "pop" never fires
     EventRig r("spin", R"([{"frame":2,"name":"mid"}])");
     for (int i = 0; i < 3; ++i) r.step(0.1f);
     CHECK(r.game_frames().size() == 1);
@@ -276,18 +284,20 @@ TEST_CASE("sprite animator events: a clip that does not loop fires each frame on
 
 TEST_CASE("sprite animator events: the checks name the pointer, the key and the fix") {
     const auto sheet = test_sheet();
-    auto issues = check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"},{"frme":2,"name":"b"},{"frame":-1,"name":"c"},
-        {"frame":1},{"frame":1,"clip":"spn","name":"d"},{"frame":2,"feel":{"action":"flsh"}},5])"), "/events", sheet);
+    auto issues =
+        check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"},{"frme":2,"name":"b"},{"frame":-1,"name":"c"},
+        {"frame":1},{"frame":1,"clip":"spn","name":"d"},{"frame":2,"feel":{"action":"flsh"}},5])"),
+                            "/events", sheet);
     auto has = [&](const std::string& pointer, const std::string& word) {
         for (const ClipIssue& i : issues)
             if (i.pointer == pointer && (i.message + " " + i.hint).find(word) != std::string::npos) return true;
         return false;
     };
-    CHECK(has("/events/1/frme", "frame"));        // did you mean
+    CHECK(has("/events/1/frme", "frame"));  // did you mean
     CHECK(has("/events/1/frame", "needs"));
     CHECK(has("/events/2/frame", "whole number"));
-    CHECK(has("/events/3", "name"));              // neither name nor feel
-    CHECK(has("/events/4/clip", "spin"));         // the sheet's clips
+    CHECK(has("/events/3", "name"));       // neither name nor feel
+    CHECK(has("/events/4/clip", "spin"));  // the sheet's clips
     CHECK(has("/events/5/feel", "flash"));
     CHECK(has("/events/6", "object"));
     CHECK(check_sprite_events(Json::parse(R"([{"frame":1,"name":"a"}])"), "/events", sheet).empty());
@@ -295,7 +305,9 @@ TEST_CASE("sprite animator events: the checks name the pointer, the key and the 
 }
 
 TEST_CASE("sprite animator events: wrong JSON types are said once and skipped, never thrown in the frame loop") {
-    EventRig r("spin", R"([{"frame":"two","name":"a"},{"frame":1,"name":5},{"frame":1,"clip":3,"name":"b"},{"frame":1,"feel":{"action":5}},
+    EventRig r(
+        "spin",
+        R"([{"frame":"two","name":"a"},{"frame":1,"name":5},{"frame":1,"clip":3,"name":"b"},{"frame":1,"feel":{"action":5}},
                            {"frame":1,"data":7,"name":"c"},{"frame":1,"feel":9},4,{"frame":1,"name":"ok"}])");
     CHECK_NOTHROW([&] {
         for (int i = 0; i < 12; ++i) r.step(0.1f);  // 3 loops of the 4 frames

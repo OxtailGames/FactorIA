@@ -36,10 +36,12 @@ struct DebugFrameRec {
     int mid = 0;          // module id, 0 = unknown
     int fid = -1;         // index into info->functions, -1 for a module frame
     int stmt = -1;        // the last statement hook this frame passed (index into info->statements), -1 none yet
-    int bpLine = 0;       // line of a breakpoint that already stopped here (another statement of that line does not stop again)
-    int bpK = -1;         // the statement it stopped at
+    int bpLine =
+        0;  // line of a breakpoint that already stopped here (another statement of that line does not stop again)
+    int bpK = -1;  // the statement it stopped at
     bool isModule = false;
-    JSValue closure = JS_UNDEFINED;     // `(x) => eval(x)` made when the frame was entered (the module scope for a module frame)
+    JSValue closure =
+        JS_UNDEFINED;  // `(x) => eval(x)` made when the frame was entered (the module scope for a module frame)
     JSValue modClosure = JS_UNDEFINED;  // the module's closure, for the Module scope
 };
 DebugFrameRec* debug_frame_of(JSValueConst v);  // nullptr when v is not a frame object
@@ -95,7 +97,7 @@ struct ScriptDebugger::Impl {
     std::vector<JSValue> stack;  // owned references to frame record objects, outermost first
     size_t entryBase = 0;        // stack size when the host entered JS the last time
     bool inPause = false;
-    int suppress = 0;            // > 0: hooks do not stop (a condition or logpoint is being evaluated)
+    int suppress = 0;  // > 0: hooks do not stop (a condition or logpoint is being evaluated)
     StepMode step = StepMode::None;
     size_t stepDepth = 0;
     std::unordered_map<int, int> hitCounts;
@@ -130,9 +132,9 @@ struct ScriptDebugger::Impl {
         Entry(Entry&& o) noexcept : d(o.d), saved(o.saved), savedBase(o.savedBase) { o.d = nullptr; }
         ~Entry();
     };
-    void frame_start();                                       // dispatch_platform: terminate and poll
+    void frame_start();  // dispatch_platform: terminate and poll
     bool interrupt_requested() const { return terminating.load(std::memory_order_relaxed); }
-    std::string map_stack(const std::string& stack) const;    // instrumented columns -> original
+    std::string map_stack(const std::string& stack) const;  // instrumented columns -> original
     void map_location(const std::string& file, int line, int& column) const;
     void on_console(int level, const std::string& text);
     void on_error(const ScriptError& e);

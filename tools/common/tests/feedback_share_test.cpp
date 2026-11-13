@@ -45,9 +45,14 @@ struct Share {
 
     Share() {
         const std::string home = dir.sub("home");
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.now = [this] { return clock; };
-        env.sleep = [this](double s) { sleeps.push_back(s); clock += static_cast<std::int64_t>(s); };
+        env.sleep = [this](double s) {
+            sleeps.push_back(s);
+            clock += static_cast<std::int64_t>(s);
+        };
         env.makeUuid = [] { return std::string("11111111-2222-4333-8444-555555555555"); };
         env.defaultEndpoint = "https://feedback.example.test";
         env.githubClientId = "client-id-1";
@@ -66,12 +71,16 @@ struct Share {
     // A project with a feedback file holding one entry (FB-0001) that has a share.
     std::string project() {
         const std::string p = dir.sub("game");
-        testing::write_all(p + "/factoria.json", R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/crypt_level.scene.json"})");
-        testing::write_all(p + "/scenes/crypt_level.scene.json",
-                           R"({"entities":[{"name":"Sir Aldric","components":{"Transform":{}}},{"name":"Gloomfang","components":{"Transform":{}}}]})");
+        testing::write_all(
+            p + "/factoria.json",
+            R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/crypt_level.scene.json"})");
+        testing::write_all(
+            p + "/scenes/crypt_level.scene.json",
+            R"({"entities":[{"name":"Sir Aldric","components":{"Transform":{}}},{"name":"Gloomfang","components":{"Transform":{}}}]})");
         return p;
     }
-    std::string feedback_file(const std::string& proj, const Json& share = Json(), const std::string& title = "No one-way platforms") {
+    std::string feedback_file(const std::string& proj, const Json& share = Json(),
+                              const std::string& title = "No one-way platforms") {
         const std::string file = proj + "/ENGINE_FEEDBACK.json";
         Json doc = create_empty_feedback("Lantern Keep", "9.9.9");
         FeedbackInput in;
@@ -89,7 +98,8 @@ struct Share {
         return file;
     }
     static Json good_share() {
-        return Json::parse(R"({"title":"No one-way platforms","missing":"Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool).","workaround":"A script disables the collider while the body moves up."})");
+        return Json::parse(
+            R"({"title":"No one-way platforms","missing":"Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool).","workaround":"A script disables the collider while the body moves up."})");
     }
     Json answer_ok(const std::vector<std::pair<std::string, std::string>>& results) {  // {localId, status}
         Json arr = Json::array();
@@ -120,7 +130,9 @@ std::string clean(const std::string& text, const ProjectNames& project = {}) {
 
 TEST_CASE("share sanitizer: paths, file names, URLs and e-mail addresses come out") {
     std::vector<Removal> removed;
-    const std::string out = sanitize_text("missing", "See scripts/aldric_jump.js and C:\\Users\\ana\\game\\a.png or https://example.com/x, mail ana@example.com about it.",
+    const std::string out = sanitize_text("missing",
+                                          "See scripts/aldric_jump.js and C:\\Users\\ana\\game\\a.png or "
+                                          "https://example.com/x, mail ana@example.com about it.",
                                           engine_names(), {}, removed);
     CHECK(out.find("scripts") == std::string::npos);
     CHECK(out.find("aldric") == std::string::npos);
@@ -137,7 +149,8 @@ TEST_CASE("share sanitizer: paths, file names, URLs and e-mail addresses come ou
 TEST_CASE("share sanitizer: a bare file name goes, an engine member with a dot stays") {
     CHECK(clean("The player.js script and hero.png both fail.").find(".js") == std::string::npos);
     CHECK(clean("The player.js script and hero.png both fail.").find(".png") == std::string::npos);
-    const std::string kept = clean("Collider2D.oneWay would help, and Body.mat is not a file; also the command scene.spawn.");
+    const std::string kept =
+        clean("Collider2D.oneWay would help, and Body.mat is not a file; also the command scene.spawn.");
     CHECK(kept.find("Collider2D.oneWay") != std::string::npos);
     CHECK(kept.find("scene.spawn") != std::string::npos);
     CHECK(clean("Use and/or a 16/9 ratio.").find("and/or") != std::string::npos);
@@ -146,8 +159,9 @@ TEST_CASE("share sanitizer: a bare file name goes, an engine member with a dot s
 TEST_CASE("share sanitizer: quoted text goes unless it names the engine") {
     std::vector<Removal> removed;
     const std::string out = sanitize_text("missing",
-        "The line \"Welcome to Ashfall\" and 'secret level' show, but `Collider2D` and \"scene.spawn\" and \u00abForgotten Crypt\u00bb differ.",
-        engine_names(), {}, removed);
+                                          "The line \"Welcome to Ashfall\" and 'secret level' show, but `Collider2D` "
+                                          "and \"scene.spawn\" and \u00abForgotten Crypt\u00bb differ.",
+                                          engine_names(), {}, removed);
     CHECK(out.find("Ashfall") == std::string::npos);
     CHECK(out.find("secret level") == std::string::npos);
     CHECK(out.find("Forgotten") == std::string::npos);
@@ -162,23 +176,32 @@ TEST_CASE("share sanitizer: quoted text goes unless it names the engine") {
 TEST_CASE("share sanitizer: the project's own names are removed, the engine's are kept") {
     Share s;
     const ProjectNames project = collect_project_names(s.project());
-    auto has = [&](const char* n) { return std::find(project.names.begin(), project.names.end(), n) != project.names.end(); };
+    auto has = [&](const char* n) {
+        return std::find(project.names.begin(), project.names.end(), n) != project.names.end();
+    };
     CHECK(has("Lantern Keep"));
     CHECK(has("Sir Aldric"));
     CHECK(has("Gloomfang"));
     CHECK(has("crypt_level"));
-    const std::string out = clean("In Lantern Keep, Sir Aldric and gloomfang walk on crypt level floors; Transform and Collider2D stay.", project);
+    const std::string out =
+        clean("In Lantern Keep, Sir Aldric and gloomfang walk on crypt level floors; Transform and Collider2D stay.",
+              project);
     CHECK(out.find("Lantern") == std::string::npos);
     CHECK(out.find("Aldric") == std::string::npos);
     CHECK(out.find("loomfang") == std::string::npos);
     CHECK(out.find("Transform") != std::string::npos);
     CHECK(out.find("Collider2D") != std::string::npos);
-    CHECK(clean("The Player has a Transform", project).find("Player") != std::string::npos);  // too generic to be a secret
+    CHECK(clean("The Player has a Transform", project).find("Player") !=
+          std::string::npos);  // too generic to be a secret
 }
 
 TEST_CASE("share sanitizer: control characters and long runs") {
     std::vector<Removal> removed;
-    const std::string out = sanitize_text("missing", std::string("a\x01" "b\xE2\x80\x8B" "c wwwwwwwwwwwwwwww end\nnext"), engine_names(), {}, removed);
+    const std::string out = sanitize_text("missing",
+                                          std::string("a\x01"
+                                                      "b\xE2\x80\x8B"
+                                                      "c wwwwwwwwwwwwwwww end\nnext"),
+                                          engine_names(), {}, removed);
     CHECK(out == "abc www end next");
     std::set<std::string> kinds;
     for (const Removal& r : removed) kinds.insert(r.kind);
@@ -207,7 +230,8 @@ TEST_CASE("share sanitizer: share_sanitize checks the limits after cleaning") {
         CHECK(ok.fields()["suggestion"] == "Add Collider2D.oneWay (bool).");
     }
     SUBCASE("too short after cleaning") {
-        const SanitizedShare r = run("No one-way platforms", "Fix \"the Emberfall secret ending\" at scripts/boss/ending_cutscene.js please");
+        const SanitizedShare r = run("No one-way platforms",
+                                     "Fix \"the Emberfall secret ending\" at scripts/boss/ending_cutscene.js please");
         CHECK_FALSE(r.ok);
         CHECK(r.reason().find("too short after cleaning") != std::string::npos);
         CHECK(r.reason().find("quote") != std::string::npos);
@@ -235,7 +259,7 @@ TEST_CASE("share sanitizer: the engine's names come from the registries and the 
     CHECK(names.has("Collider2D"));
     CHECK_FALSE(names.has("hoverMode"));
     CHECK(names.has("feedback.report"));
-    CHECK(names.has("scene.spawn"));  // from the published command list even without that registry
+    CHECK(names.has("scene.spawn"));                // from the published command list even without that registry
     CHECK(names.token_ok("Collider2D.hoverMode"));  // a proposed member of an engine type
     CHECK_FALSE(names.token_ok("Aldric.js"));
 }
@@ -305,7 +329,9 @@ TEST_CASE("share settings: the endpoint override wins and loses its trailing sla
 }
 
 TEST_CASE("share settings: the config folder follows FACTORIA_AI_CONFIG like ai.json") {
-    UserConfigEnv env = [](const std::string& n) -> std::string { return n == "FACTORIA_AI_CONFIG" ? "/tmp/x/ai.json" : ""; };
+    UserConfigEnv env = [](const std::string& n) -> std::string {
+        return n == "FACTORIA_AI_CONFIG" ? "/tmp/x/ai.json" : "";
+    };
     CHECK(user_config_dir(env) == "/tmp/x");
 }
 
@@ -417,7 +443,11 @@ TEST_CASE("share queue: always queues, writes shared pending, and an entry is in
 TEST_CASE("share queue: an entry whose share is refused by the sanitizer is marked rejected and not queued") {
     Share s;
     const std::string proj = s.project();
-    const std::string file = s.feedback_file(proj, Json::parse(R"({"title":"The ending of Lantern Keep","missing":"\"Sir Aldric\" scripts/ending.js crypt_level \"Gloomfang\""})"), "Ending problem here");
+    const std::string file = s.feedback_file(
+        proj,
+        Json::parse(
+            R"({"title":"The ending of Lantern Keep","missing":"\"Sir Aldric\" scripts/ending.js crypt_level \"Gloomfang\""})"),
+        "Ending problem here");
     s.mode(ShareMode::Always);
     auto q = share_queue(s.env, file, proj, engine_names());
     REQUIRE(q.ok());
@@ -467,7 +497,8 @@ TEST_CASE("share skip: a left-out entry leaves the outbox, reads skipped, and is
     s.mode(ShareMode::Ask);
     REQUIRE(share_queue(s.env, file, proj, engine_names()).ok());
     REQUIRE(load_outbox(s.env).items.size() == 1);
-    CHECK(share_skip(s.env, file, {"FB-0001", "FB-9999"}, "left out in the Send window").ok());  // an unknown id is ignored
+    CHECK(share_skip(s.env, file, {"FB-0001", "FB-9999"}, "left out in the Send window")
+              .ok());  // an unknown id is ignored
     CHECK(load_outbox(s.env).items.empty());
     const Json shared = load_feedback(file).value()["entries"][0]["shared"];
     CHECK(shared["status"] == "skipped");
@@ -520,7 +551,11 @@ TEST_CASE("share flush: the request has the headers, the endpoint and the body o
     const HttpRequest& r = q.s.requests[0];
     CHECK(r.method == "POST");
     CHECK(r.url == "https://feedback.example.test/v1/reports");
-    auto header = [&](const std::string& n) { for (auto& [k, v] : r.headers) if (k == n) return v; return std::string("<none>"); };
+    auto header = [&](const std::string& n) {
+        for (auto& [k, v] : r.headers)
+            if (k == n) return v;
+        return std::string("<none>");
+    };
     CHECK(header("X-Factoria-Install") == "11111111-2222-4333-8444-555555555555");
     CHECK(header("Authorization") == "<none>");  // anonymous
     CHECK(header("Content-Type") == "application/json");
@@ -615,8 +650,10 @@ TEST_CASE("share flush: a rejected entry keeps the server's code and reason and 
 
 TEST_CASE("share flush: 429 waits for Retry-After and backs off") {
     Queued q;
-    q.s.script = {reply(429, Json::object({{"ok", false}, {"error", Json::object({{"code", "rate_limited"}, {"message", "slow down"}})}}),
-                        {{"retry-after", "7200"}})};
+    q.s.script = {reply(
+        429,
+        Json::object({{"ok", false}, {"error", Json::object({{"code", "rate_limited"}, {"message", "slow down"}})}}),
+        {{"retry-after", "7200"}})};
     const FlushResult f = share_flush(q.s.env);
     CHECK(f.outcome == "rate_limited");
     CHECK(f.retryLater == 1);
@@ -634,7 +671,8 @@ TEST_CASE("share flush: 429 waits for Retry-After and backs off") {
 
 TEST_CASE("share flush: 403 banned refuses the entries without detail and stops retrying them") {
     Queued q;
-    q.s.script = {reply(403, Json::object({{"ok", false}, {"error", Json::object({{"code", "banned"}, {"message", "no"}})}}))};
+    q.s.script = {
+        reply(403, Json::object({{"ok", false}, {"error", Json::object({{"code", "banned"}, {"message", "no"}})}}))};
     const FlushResult f = share_flush(q.s.env);
     CHECK(f.outcome == "banned");
     CHECK(load_outbox(q.s.env).items.empty());
@@ -664,7 +702,8 @@ TEST_CASE("share flush: a transport failure keeps the entry and backs off 1 min,
     CHECK(share_flush(q.s.env).sent == 1);
 }
 
-TEST_CASE("share flush: 500, a non-JSON answer and a missing result are retried; a 400 is refused with the server's message") {
+TEST_CASE("share flush: 500, a non-JSON answer and a missing result are retried; a 400 is refused with the server's "
+          "message") {
     {
         Queued q;
         q.s.script = {reply(500, Json::object())};
@@ -687,7 +726,9 @@ TEST_CASE("share flush: 500, a non-JSON answer and a missing result are retried;
     }
     {
         Queued q;
-        q.s.script = {reply(400, Json::object({{"ok", false}, {"error", Json::object({{"code", "bad_request"}, {"message", "unknown format"}})}}))};
+        q.s.script = {reply(
+            400, Json::object({{"ok", false},
+                               {"error", Json::object({{"code", "bad_request"}, {"message", "unknown format"}})}}))};
         const FlushResult f = share_flush(q.s.env);
         CHECK(f.rejected == 1);
         CHECK(q.shared()["reason"] == "unknown format");
@@ -698,11 +739,12 @@ TEST_CASE("share flush: at most 20 entries per request") {
     Share s;
     const std::string proj = s.project();
     Json doc = create_empty_feedback("g", "9.9.9");
-    const char* topics[25] = {"gradient fills", "tilemap collisions", "bone attachments", "shadow cascades", "audio ducking",
-                              "gamepad rumble", "text outlines", "particle trails", "scene streaming", "path smoothing",
-                              "ragdoll joints", "decal projection", "cloth simulation", "voice chat", "save encryption",
-                              "camera shake", "water reflections", "inventory grids", "dialogue trees", "terrain brushes",
-                              "network replay", "sprite atlases", "light cookies", "rope physics", "mesh decimation"};
+    const char* topics[25] = {
+        "gradient fills", "tilemap collisions", "bone attachments", "shadow cascades", "audio ducking",
+        "gamepad rumble", "text outlines",      "particle trails",  "scene streaming", "path smoothing",
+        "ragdoll joints", "decal projection",   "cloth simulation", "voice chat",      "save encryption",
+        "camera shake",   "water reflections",  "inventory grids",  "dialogue trees",  "terrain brushes",
+        "network replay", "sprite atlases",     "light cookies",    "rope physics",    "mesh decimation"};
     const auto& cats = feedback_categories();
     for (int i = 0; i < 25; ++i) {
         FeedbackInput in;
@@ -711,8 +753,9 @@ TEST_CASE("share flush: at most 20 entries per request") {
         in.title = std::string("No built-in ") + topics[i];
         in.missing = std::string("The engine has no ") + topics[i] + " feature";
         in.workaround = "wrote a script by hand";
-        in.share = Json::object({{"title", std::string("No built-in ") + topics[i]},
-                                 {"missing", std::string("The engine has no ") + topics[i] + " feature, so every game builds it again."}});
+        in.share = Json::object(
+            {{"title", std::string("No built-in ") + topics[i]},
+             {"missing", std::string("The engine has no ") + topics[i] + " feature, so every game builds it again."}});
         auto added = add_feedback_entry(doc, in);
         REQUIRE(added.ok());
         REQUIRE_FALSE(added->merged);
@@ -730,7 +773,10 @@ TEST_CASE("share flush: at most 20 entries per request") {
         for (const Json& e : body["entries"]) results.push_back({e["localId"].get<std::string>(), "accepted"});
         return reply(200, s.answer_ok(results));
     };
-    s.env.transport = [&](const HttpRequest& r) { s.requests.push_back(r); return answer(r); };
+    s.env.transport = [&](const HttpRequest& r) {
+        s.requests.push_back(r);
+        return answer(r);
+    };
     FlushOptions all;
     all.oneBatch = false;
     const FlushResult f = share_flush(s.env, all);
@@ -757,10 +803,15 @@ TEST_CASE("feedback.report: share and reviewed are stored; the answer tells what
     const std::string proj = s.project();
     CommandRegistry registry;
     register_feedback_commands(registry, proj);
-    const Json cloth_share = Json::parse(R"({"title":"No cloth simulation","missing":"Nothing simulates cloth that drapes over bodies and folds.","suggestion":"Add a cloth solver.","workaround":"A script moves a sprite chain by hand."})");
-    Json args = Json::object({{"category", "physics"}, {"severity", "major"}, {"title", "No cloth simulation"},
-                              {"missing", "Nothing simulates cloth that drapes over bodies"}, {"workaround", "toggled a collider in a script"},
-                              {"share", cloth_share}, {"reviewed", true}});
+    const Json cloth_share = Json::parse(
+        R"({"title":"No cloth simulation","missing":"Nothing simulates cloth that drapes over bodies and folds.","suggestion":"Add a cloth solver.","workaround":"A script moves a sprite chain by hand."})");
+    Json args = Json::object({{"category", "physics"},
+                              {"severity", "major"},
+                              {"title", "No cloth simulation"},
+                              {"missing", "Nothing simulates cloth that drapes over bodies"},
+                              {"workaround", "toggled a collider in a script"},
+                              {"share", cloth_share},
+                              {"reviewed", true}});
     SUBCASE("unset: recorded, and the answer says how the USER turns sharing on") {
         auto r = registry.call("feedback.report", args);
         REQUIRE(r.ok);
@@ -817,7 +868,8 @@ TEST_CASE("feedback.report: share and reviewed are stored; the answer tells what
     }
     SUBCASE("a share that fails the sanitizer is reported, never thrown") {
         s.mode(ShareMode::Always);
-        args["share"] = Json::object({{"title", "Ashfall ending cutscene"}, {"missing", "\"The Ashfall ending cutscene\" in scripts/ending.js is missing"}});
+        args["share"] = Json::object({{"title", "Ashfall ending cutscene"},
+                                      {"missing", "\"The Ashfall ending cutscene\" in scripts/ending.js is missing"}});
         auto r = registry.call("feedback.report", args);
         REQUIRE(r.ok);
         CHECK(r.result["share"]["status"] == "rejected");
@@ -859,7 +911,8 @@ TEST_CASE("feedback.report: merging keeps the longer share and reviewed") {
     a.reviewed = false;
     REQUIRE(add_feedback_entry(doc, a).ok());
     FeedbackInput b = a;
-    b.share = Json::object({{"title", "No one-way platforms"}, {"missing", "Collider2D has no one-way option for bodies."}});
+    b.share =
+        Json::object({{"title", "No one-way platforms"}, {"missing", "Collider2D has no one-way option for bodies."}});
     b.reviewed = true;
     auto r = add_feedback_entry(doc, b);
     REQUIRE(r.ok());
@@ -881,9 +934,11 @@ TEST_CASE("feedback share commands: preview, status and share") {
     s.feedback_file(proj);
     CommandRegistry registry;
     register_feedback_commands(registry, proj);
-    for (const char* name : {"feedback.share_preview", "feedback.share_status", "feedback.share", "feedback.check_fixed"})
+    for (const char* name :
+         {"feedback.share_preview", "feedback.share_status", "feedback.share", "feedback.check_fixed"})
         CHECK(registry.has(name));
-    for (const char* name : {"feedback.set_mode", "feedback.sharing", "feedback.share_mode"}) CHECK_FALSE(registry.has(name));
+    for (const char* name : {"feedback.set_mode", "feedback.sharing", "feedback.share_mode"})
+        CHECK_FALSE(registry.has(name));
 
     auto pv = registry.call("feedback.share_preview", Json::object());
     REQUIRE(pv.ok);
@@ -921,8 +976,11 @@ TEST_CASE("share sign-in: the device flow, the exchange, and sign-out") {
     s.env.transport = [&](const HttpRequest& r) {
         s.requests.push_back(r);
         if (r.url == "https://github.com/login/device/code")
-            return reply(200, Json::object({{"device_code", "dc-1"}, {"user_code", "ABCD-1234"}, {"verification_uri", "https://github.com/login/device"},
-                                            {"expires_in", 900}, {"interval", 5}}));
+            return reply(200, Json::object({{"device_code", "dc-1"},
+                                            {"user_code", "ABCD-1234"},
+                                            {"verification_uri", "https://github.com/login/device"},
+                                            {"expires_in", 900},
+                                            {"interval", 5}}));
         if (r.url == "https://github.com/login/oauth/access_token") {
             static int polls = 0;
             ++polls;
@@ -943,9 +1001,14 @@ TEST_CASE("share sign-in: the device flow, the exchange, and sign-out") {
     REQUIRE(s.requests.size() == 5);
     CHECK(s.requests[0].body == "client_id=client-id-1");
     CHECK(s.requests[0].body.find("scope") == std::string::npos);
-    auto header = [](const HttpRequest& q, const std::string& n) { for (auto& [k, v] : q.headers) if (k == n) return v; return std::string(); };
+    auto header = [](const HttpRequest& q, const std::string& n) {
+        for (auto& [k, v] : q.headers)
+            if (k == n) return v;
+        return std::string();
+    };
     CHECK(header(s.requests[0], "Accept") == "application/json");
-    CHECK(s.requests[1].body.find("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code") != std::string::npos);
+    CHECK(s.requests[1].body.find("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code") !=
+          std::string::npos);
     CHECK(s.requests[1].body.find("device_code=dc-1") != std::string::npos);
     CHECK(s.requests[4].url == "https://feedback.example.test/v1/auth/github");
     CHECK(Json::parse(s.requests[4].body)["githubToken"] == "gho_secret");
@@ -968,25 +1031,44 @@ TEST_CASE("share sign-in: the device flow, the exchange, and sign-out") {
 
 TEST_CASE("share sign-in: refusal, expiry, no client id, an unreachable server") {
     Share s;
-    auto device = [&] { return reply(200, Json::object({{"device_code", "dc"}, {"user_code", "U"}, {"expires_in", 20}, {"interval", 5}})); };
+    auto device = [&] {
+        return reply(200,
+                     Json::object({{"device_code", "dc"}, {"user_code", "U"}, {"expires_in", 20}, {"interval", 5}}));
+    };
     SUBCASE("access_denied") {
-        s.env.transport = [&](const HttpRequest& r) { return r.url.find("device/code") != std::string::npos ? device() : reply(200, Json::object({{"error", "access_denied"}})); };
+        s.env.transport = [&](const HttpRequest& r) {
+            return r.url.find("device/code") != std::string::npos
+                       ? device()
+                       : reply(200, Json::object({{"error", "access_denied"}}));
+        };
         auto r = github_sign_in(s.env, nullptr);
         REQUIRE_FALSE(r.ok());
         CHECK(r.error().message.find("refused") != std::string::npos);
     }
     SUBCASE("expired_token") {
-        s.env.transport = [&](const HttpRequest& r) { return r.url.find("device/code") != std::string::npos ? device() : reply(200, Json::object({{"error", "expired_token"}})); };
+        s.env.transport = [&](const HttpRequest& r) {
+            return r.url.find("device/code") != std::string::npos
+                       ? device()
+                       : reply(200, Json::object({{"error", "expired_token"}}));
+        };
         CHECK(github_sign_in(s.env, nullptr).error().message.find("expired") != std::string::npos);
     }
     SUBCASE("never authorized: stops when the code's lifetime is over") {
-        s.env.transport = [&](const HttpRequest& r) { return r.url.find("device/code") != std::string::npos ? device() : reply(200, Json::object({{"error", "authorization_pending"}})); };
+        s.env.transport = [&](const HttpRequest& r) {
+            return r.url.find("device/code") != std::string::npos
+                       ? device()
+                       : reply(200, Json::object({{"error", "authorization_pending"}}));
+        };
         auto r = github_sign_in(s.env, nullptr);
         REQUIRE_FALSE(r.ok());
         CHECK(s.sleeps.size() <= 5);
     }
     SUBCASE("cancelled between polls") {
-        s.env.transport = [&](const HttpRequest& r) { return r.url.find("device/code") != std::string::npos ? device() : reply(200, Json::object({{"error", "authorization_pending"}})); };
+        s.env.transport = [&](const HttpRequest& r) {
+            return r.url.find("device/code") != std::string::npos
+                       ? device()
+                       : reply(200, Json::object({{"error", "authorization_pending"}}));
+        };
         CHECK_FALSE(github_sign_in(s.env, nullptr, [] { return true; }).ok());
     }
     SUBCASE("no client id in this build") {
@@ -1004,8 +1086,12 @@ TEST_CASE("share sign-in: refusal, expiry, no client id, an unreachable server")
     SUBCASE("the feedback server refuses the token") {
         s.env.transport = [&](const HttpRequest& r) {
             if (r.url.find("device/code") != std::string::npos) return device();
-            if (r.url.find("access_token") != std::string::npos) return reply(200, Json::object({{"access_token", "t"}}));
-            return reply(401, Json::object({{"ok", false}, {"error", Json::object({{"code", "invalid_token"}, {"message", "GitHub did not accept the token"}})}}));
+            if (r.url.find("access_token") != std::string::npos)
+                return reply(200, Json::object({{"access_token", "t"}}));
+            return reply(401,
+                         Json::object({{"ok", false},
+                                       {"error", Json::object({{"code", "invalid_token"},
+                                                               {"message", "GitHub did not accept the token"}})}}));
         };
         auto r = github_sign_in(s.env, nullptr);
         REQUIRE_FALSE(r.ok());
@@ -1095,7 +1181,8 @@ TEST_CASE("share per project: one project's never does not stop another project'
     const std::string a = s.project();
     const std::string fileA = s.feedback_file(a);
     const std::string b = s.dir.sub("game2");
-    testing::write_all(b + "/factoria.json", R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
+    testing::write_all(b + "/factoria.json",
+                       R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
     const std::string fileB = s.feedback_file(b);
     s.mode(ShareMode::Always);
     REQUIRE(share_queue(s.env, fileA, a, engine_names()).ok());
@@ -1131,10 +1218,12 @@ TEST_CASE("share per project: the folder of a feedback file is the nearest proje
     CHECK(share_project_key(share_project_dir_of_file(proj + "/ENGINE_FEEDBACK.json")) == share_project_key(proj));
 }
 
-TEST_CASE("share per project: an old file without `projects` reads as before; unknown keys and bad values are kept or ignored") {
+TEST_CASE("share per project: an old file without `projects` reads as before; unknown keys and bad values are kept or "
+          "ignored") {
     Share s;
     const std::string proj = s.project();
-    testing::write_all(share_settings_path(s.env), R"({"mode":"ask","installId":"11111111-2222-4333-8444-555555555555","future":{"a":1}})");
+    testing::write_all(share_settings_path(s.env),
+                       R"({"mode":"ask","installId":"11111111-2222-4333-8444-555555555555","future":{"a":1}})");
     ShareSettings st = load_share_settings(s.env);
     CHECK(st.mode == ShareMode::Ask);
     CHECK(st.projects.empty());
@@ -1182,7 +1271,8 @@ struct TwoProjects {
         a = s.project();
         fileA = s.feedback_file(a);
         b = s.dir.sub("game2");
-        testing::write_all(b + "/factoria.json", R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
+        testing::write_all(b + "/factoria.json",
+                           R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"s.scene.json"})");
         fileB = s.feedback_file(b);
     }
     Outbox box() { return load_outbox(s.env); }
@@ -1216,7 +1306,8 @@ TEST_CASE("share per project: a queued item remembers its project, and its mode 
     CHECK(t.item(t.box(), t.fileB)->projectKey == share_project_key(t.b));
 }
 
-TEST_CASE("share per project: the default `always` never confirms or sends the items of a project set to ask or never") {
+TEST_CASE(
+    "share per project: the default `always` never confirms or sends the items of a project set to ask or never") {
     TwoProjects t;
     t.s.mode(ShareMode::Ask);
     REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
@@ -1244,7 +1335,8 @@ TEST_CASE("share per project: the default `always` never confirms or sends the i
     CHECK(t.box().items.size() == 2);
 }
 
-TEST_CASE("share per project: a default `always` does not confirm a project's waiting items; `never` does not drop a project set to always") {
+TEST_CASE("share per project: a default `always` does not confirm a project's waiting items; `never` does not drop a "
+          "project set to always") {
     TwoProjects t;
     t.s.mode(ShareMode::Ask);
     REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
@@ -1272,7 +1364,8 @@ TEST_CASE("share per project: a default `always` does not confirm a project's wa
     CHECK(load_feedback(t.fileA).value()["entries"][0]["shared"]["status"] == "skipped");
 }
 
-TEST_CASE("share per project: from always to ask the queued items wait again; clearing under a default of never drops them") {
+TEST_CASE(
+    "share per project: from always to ask the queued items wait again; clearing under a default of never drops them") {
     TwoProjects t;
     t.s.mode(ShareMode::Never);
     REQUIRE(set_project_share_mode(t.s.env, t.a, ShareMode::Always).ok());
@@ -1303,7 +1396,8 @@ TEST_CASE("share per project: from always to ask the queued items wait again; cl
     CHECK(t.box().items[0].state == OutboxState::Waiting);
 }
 
-TEST_CASE("share per project: an item written without a project (an older version) waits for a yes and gets its key then") {
+TEST_CASE(
+    "share per project: an item written without a project (an older version) waits for a yes and gets its key then") {
     TwoProjects t;
     t.s.mode(ShareMode::Always);
     // The outbox as the version before the project key wrote it: a queued item with no "project".
@@ -1312,8 +1406,12 @@ TEST_CASE("share per project: an item written without a project (an older versio
     it.file = t.fileA;
     it.localId = "FB-0001";
     it.state = OutboxState::Queued;
-    it.entry = Json::object({{"localId", "FB-0001"}, {"category", "physics"}, {"severity", "major"}, {"title", "No one-way platforms"},
-                              {"missing", "Collider2D has no one-way option, so a body cannot pass up through a platform."}});
+    it.entry =
+        Json::object({{"localId", "FB-0001"},
+                      {"category", "physics"},
+                      {"severity", "major"},
+                      {"title", "No one-way platforms"},
+                      {"missing", "Collider2D has no one-way option, so a body cannot pass up through a platform."}});
     box.items.push_back(it);
     REQUIRE(save_outbox(t.s.env, box).ok());
     Outbox back = t.box();
@@ -1373,11 +1471,12 @@ TEST_CASE("share per project: a mode changed while a flush is running is honored
     Share s;
     const std::string proj = s.project();
     Json doc = create_empty_feedback("g", "9.9.9");
-    const char* topics[25] = {"gradient fills", "tilemap collisions", "bone attachments", "shadow cascades", "audio ducking",
-                              "gamepad rumble", "text outlines", "particle trails", "scene streaming", "path smoothing",
-                              "ragdoll joints", "decal projection", "cloth simulation", "voice chat", "save encryption",
-                              "camera shake", "water reflections", "inventory grids", "dialogue trees", "terrain brushes",
-                              "network replay", "sprite atlases", "light cookies", "rope physics", "mesh decimation"};
+    const char* topics[25] = {
+        "gradient fills", "tilemap collisions", "bone attachments", "shadow cascades", "audio ducking",
+        "gamepad rumble", "text outlines",      "particle trails",  "scene streaming", "path smoothing",
+        "ragdoll joints", "decal projection",   "cloth simulation", "voice chat",      "save encryption",
+        "camera shake",   "water reflections",  "inventory grids",  "dialogue trees",  "terrain brushes",
+        "network replay", "sprite atlases",     "light cookies",    "rope physics",    "mesh decimation"};
     const auto& cats = feedback_categories();
     for (int i = 0; i < 25; ++i) {
         FeedbackInput in;
@@ -1386,8 +1485,9 @@ TEST_CASE("share per project: a mode changed while a flush is running is honored
         in.title = std::string("No built-in ") + topics[i];
         in.missing = std::string("The engine has no ") + topics[i] + " feature";
         in.workaround = "wrote a script by hand";
-        in.share = Json::object({{"title", in.title},
-                                 {"missing", std::string("The engine has no ") + topics[i] + " feature, so every game builds it again."}});
+        in.share = Json::object(
+            {{"title", in.title},
+             {"missing", std::string("The engine has no ") + topics[i] + " feature, so every game builds it again."}});
         REQUIRE(add_feedback_entry(doc, in).ok());
     }
     const std::string file = proj + "/ENGINE_FEEDBACK.json";
@@ -1399,7 +1499,8 @@ TEST_CASE("share per project: a mode changed while a flush is running is honored
     const int queued = q->queued;
     s.env.transport = [&](const HttpRequest& r) {
         s.requests.push_back(r);
-        if (s.requests.size() == 1) REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Ask).ok());  // the user switches while it is sent
+        if (s.requests.size() == 1)
+            REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Ask).ok());  // the user switches while it is sent
         Json body = parse_json(r.body, "b").value();
         std::vector<std::pair<std::string, std::string>> results;
         for (const Json& e : body["entries"]) results.push_back({e["localId"].get<std::string>(), "accepted"});
@@ -1412,23 +1513,27 @@ TEST_CASE("share per project: a mode changed while a flush is running is honored
     CHECK(f.sent == 20);
     const Outbox box = load_outbox(s.env);
     CHECK(box.items.size() == std::size_t(queued - 20));
-    for (const OutboxItem& it : box.items) CHECK(it.state == OutboxState::Waiting);  // and the switch (to waiting) was not undone by the flush
+    for (const OutboxItem& it : box.items)
+        CHECK(it.state == OutboxState::Waiting);  // and the switch (to waiting) was not undone by the flush
 }
 
 TEST_CASE("share per project: keys are UTF-8 and survive a round trip, also for a folder with accents") {
     Share s;
     const std::string accented = "jue\xc3\xb1o \xc3\xa0 la carta";  // n with tilde and a with grave, as UTF-8 bytes
-    const std::filesystem::path dir = s.dir.path / std::filesystem::path(std::u8string(
-        reinterpret_cast<const char8_t*>(accented.data()), accented.size()));
+    const std::filesystem::path dir =
+        s.dir.path /
+        std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(accented.data()), accented.size()));
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     REQUIRE_FALSE(ec);
-    testing::write_all(dir / "factoria.json", R"({"name":"Accents","id":"com.acme.accents","version":"0.1.0","mainScene":"s.scene.json"})");
+    testing::write_all(dir / "factoria.json",
+                       R"({"name":"Accents","id":"com.acme.accents","version":"0.1.0","mainScene":"s.scene.json"})");
     const std::string proj = dir.string();
     const std::string key = share_project_key(proj);
     const std::string lowered = to_lower(accented);  // Windows keys are lower case (ASCII letters only)
     CHECK(key.size() > lowered.size());
-    CHECK(key.compare(key.size() - lowered.size(), lowered.size(), lowered) == 0);  // the key ends with the folder name, in UTF-8
+    CHECK(key.compare(key.size() - lowered.size(), lowered.size(), lowered) ==
+          0);                                          // the key ends with the folder name, in UTF-8
     CHECK(key.find("\xc3\xb1") != std::string::npos);  // the n with tilde, as UTF-8 bytes
     CHECK(key.find("\xc3\xa0") != std::string::npos);  // the a with grave
     REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Always).ok());
@@ -1462,14 +1567,16 @@ TEST_CASE("share per project: the same folder listed twice keeps the most restri
     Share s;
     const std::string proj = s.project();
     const std::string key = share_project_key(proj);
-    testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"},
-                                                                  {"projects", Json::object({{key, "always"}, {key + "/", "never"}})}}).dump());
+    testing::write_all(
+        share_settings_path(s.env),
+        Json::object({{"mode", "always"}, {"projects", Json::object({{key, "always"}, {key + "/", "never"}})}}).dump());
     ShareSettings st = load_share_settings(s.env);
     REQUIRE(st.projects.size() == 1);
     CHECK(effective_share_mode(st, proj) == ShareMode::Never);
     CHECK(st.warning.find("more than once") != std::string::npos);
-    testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"},
-                                                                  {"projects", Json::object({{key, "ask"}, {key + "//", "always"}})}}).dump());
+    testing::write_all(
+        share_settings_path(s.env),
+        Json::object({{"mode", "always"}, {"projects", Json::object({{key, "ask"}, {key + "//", "always"}})}}).dump());
     CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Ask);
     // The next save writes one entry.
     REQUIRE(set_project_share_mode(s.env, proj, ShareMode::Ask).ok());
@@ -1491,7 +1598,8 @@ TEST_CASE("share per project: the status names a project given as `.`") {
 namespace {
 void set_old_mtime(const std::string& path, int secondsAgo) {
     std::error_code ec;
-    std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now() - std::chrono::seconds(secondsAgo), ec);
+    std::filesystem::last_write_time(
+        path, std::filesystem::file_time_type::clock::now() - std::chrono::seconds(secondsAgo), ec);
     REQUIRE_FALSE(ec);
 }
 }  // namespace
@@ -1504,7 +1612,8 @@ TEST_CASE("share lock: a busy lock makes the others fail after the wait, with a 
     {
         ShareLock first(s.env);
         REQUIRE(first.held());
-        lockPath = first.file();  // the path itself: path() is UTF-8 text, which Windows does not read back as the same name
+        lockPath =
+            first.file();  // the path itself: path() is UTF-8 text, which Windows does not read back as the same name
         CHECK(std::filesystem::exists(lockPath));
         // The same thread may take it again (nested use).
         ShareLock nested(s.env);
@@ -1555,7 +1664,8 @@ TEST_CASE("share lock: a lock file left by a dead process is taken over after th
     std::filesystem::remove(lockPath, ec);
 }
 
-TEST_CASE("share lock: a stale lock is taken over by a mode change, and a mode change made during a request is not undone by it") {
+TEST_CASE("share lock: a stale lock is taken over by a mode change, and a mode change made during a request is not "
+          "undone by it") {
     TwoProjects t;
     t.s.env.lockWaitSec = 5.0;
     t.s.env.lockStaleSec = 2.0;
@@ -1624,7 +1734,8 @@ TEST_CASE("share lock: an item queued by always is not sent when its project is 
     CHECK(t.s.requests.size() == 1);
 }
 
-TEST_CASE("share lock: the editor's mid-request change to never drops what was not sent, and the sent batch is still recorded") {
+TEST_CASE("share lock: the editor's mid-request change to never drops what was not sent, and the sent batch is still "
+          "recorded") {
     TwoProjects t;
     t.s.mode(ShareMode::Always);
     REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
@@ -1697,7 +1808,8 @@ TEST_CASE("share per project: clearing a project's ask while the default is alwa
     CHECK(t.box().items[0].confirmedBy == "always");
 }
 
-TEST_CASE("share keys: a key stored through a symlink or in another case is found; an unresolvable folder reads as ask") {
+TEST_CASE(
+    "share keys: a key stored through a symlink or in another case is found; an unresolvable folder reads as ask") {
     Share s;
     const std::string proj = s.project();
     const std::string key = share_project_key(proj);
@@ -1736,7 +1848,8 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
         }
         // Written by hand with an upper-case spelling that is not what the key function would write (keys are lower-cased
         // where paths ignore case: this one keeps the case, as an older version or an editor could write it).
-        testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"}, {"projects", Json::object({{swapped, "never"}})}}).dump());
+        testing::write_all(share_settings_path(s.env),
+                           Json::object({{"mode", "always"}, {"projects", Json::object({{swapped, "never"}})}}).dump());
         CHECK(effective_share_mode(load_share_settings(s.env), proj) == ShareMode::Never);
     }
     SUBCASE("NFD against NFC (macOS)") {
@@ -1751,7 +1864,9 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
             MESSAGE("skipped: this volume does not treat NFC and NFD names as one folder");
             return;
         }
-        testing::write_all(share_settings_path(s.env), Json::object({{"mode", "always"}, {"projects", Json::object({{spelledNfd, "never"}})}}).dump());
+        testing::write_all(
+            share_settings_path(s.env),
+            Json::object({{"mode", "always"}, {"projects", Json::object({{spelledNfd, "never"}})}}).dump());
         const ShareSettings st = load_share_settings(s.env);
         CHECK(effective_share_mode(st, folder) == ShareMode::Never);
         CHECK(effective_share_mode(st, spelledNfd) == ShareMode::Never);
@@ -1769,7 +1884,8 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
         std::filesystem::permissions(parent, std::filesystem::perms::none, std::filesystem::perm_options::replace, ec);
         const bool blocked = !ec && !std::filesystem::exists(parent + "/inner", ec) && ec;
         if (!blocked) {
-            std::filesystem::permissions(parent, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+            std::filesystem::permissions(parent, std::filesystem::perms::owner_all,
+                                         std::filesystem::perm_options::replace, ec);
             MESSAGE("skipped: this user can read a folder without permission (running as root?)");
             return;
         }
@@ -1777,7 +1893,8 @@ TEST_CASE("share keys: a key stored through a symlink or in another case is foun
         CHECK(st.mode == ShareMode::Always);
         CHECK(effective_share_mode(st, parent + "/inner") == ShareMode::Ask);
         CHECK(std::string(effective_share_source(st, parent + "/inner")) == "unresolved");
-        std::filesystem::permissions(parent, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, ec);
+        std::filesystem::permissions(parent, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace,
+                                     ec);
         CHECK(effective_share_mode(st, parent + "/inner") == ShareMode::Always);  // readable again: the default
 #endif
     }
@@ -1819,10 +1936,12 @@ TEST_CASE("share: the status names and the outbox file are UTF-8, and an outbox 
         MESSAGE("skipped: the system code page cannot hold the accented folder name");
         return;
     }
-    const std::string accented = "Ca\xc3\xb1" "\xc3\xb3n";  // the folder name as UTF-8
+    const std::string accented = "Ca\xc3\xb1"
+                                 "\xc3\xb3n";  // the folder name as UTF-8
     const std::string proj = folder.native;
-    testing::write_all(std::filesystem::path(proj) / "factoria.json",
-                       R"({"name":"Ca\u00f1\u00f3n","id":"com.acme.canyon","version":"0.1.0","mainScene":"s.scene.json"})");
+    testing::write_all(
+        std::filesystem::path(proj) / "factoria.json",
+        R"({"name":"Ca\u00f1\u00f3n","id":"com.acme.canyon","version":"0.1.0","mainScene":"s.scene.json"})");
     const Json st = share_status(s.env, proj);
     const std::string dir = st["project"]["dir"].get<std::string>();
     CHECK(dir.find(accented) != std::string::npos);
@@ -1854,7 +1973,8 @@ void write_outbox_with_file(const Share& s, const std::string& storedFile) {
 }
 }  // namespace
 
-TEST_CASE("share outbox: a file name stored as UTF-8 opens the file, and one an older version wrote in the code page is used as it is") {
+TEST_CASE("share outbox: a file name stored as UTF-8 opens the file, and one an older version wrote in the code page "
+          "is used as it is") {
     Share s;
     SUBCASE("UTF-8 text names the file whatever the platform's narrow encoding is") {
         const AccentedFolder folder(s.dir);
@@ -1867,10 +1987,12 @@ TEST_CASE("share outbox: a file name stored as UTF-8 opens the file, and one an 
         std::error_code ec;
         const Outbox box = load_outbox(s.env);
         REQUIRE(box.items.size() == 1);
-        CHECK(std::filesystem::exists(std::filesystem::path(box.items[0].file), ec));  // in memory it is the narrow string that opens it
+        CHECK(std::filesystem::exists(std::filesystem::path(box.items[0].file),
+                                      ec));  // in memory it is the narrow string that opens it
         CHECK(box.items[0].file == folder.native + "/ENGINE_FEEDBACK.json");
     }
-    SUBCASE("an older version stored the code page text: invalid UTF-8 became U+FFFD in the file, and is kept as written") {
+    SUBCASE(
+        "an older version stored the code page text: invalid UTF-8 became U+FFFD in the file, and is kept as written") {
         const std::string legacy = "Ca\xef\xbf\xbd\xef\xbf\xbdn/ENGINE_FEEDBACK.json";
         write_outbox_with_file(s, legacy);
         const Outbox box = load_outbox(s.env);
@@ -1903,13 +2025,14 @@ TEST_CASE("share lock: many threads take over one stale lock, and only one holds
             ++held;
             const int now = ++inside;
             int seen = maxInside.load();
-            while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {}
+            while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(15));
             --inside;
         });
     for (std::thread& t : threads) t.join();
-    CHECK(held.load() == kThreads);       // every waiter got it in the end
-    CHECK(maxInside.load() == 1);         // never two at once: the takeover is one waiter at a time
+    CHECK(held.load() == kThreads);  // every waiter got it in the end
+    CHECK(maxInside.load() == 1);    // never two at once: the takeover is one waiter at a time
     CHECK_FALSE(std::filesystem::exists(lockPath));
     // No file of a takeover is left behind.
     int leftovers = 0;
@@ -1957,7 +2080,8 @@ TEST_CASE("share lock: a lock file dated far in the future counts as stale, one 
     std::filesystem::remove(lockPath, ec);
 }
 
-TEST_CASE("share lock: a lock file that reads empty for a moment is still deleted by its holder, and one that holds another token is not") {
+TEST_CASE("share lock: a lock file that reads empty for a moment is still deleted by its holder, and one that holds "
+          "another token is not") {
     Share s;
     s.env.lockStaleSec = 600.0;
     std::filesystem::path file;
@@ -1979,7 +2103,8 @@ TEST_CASE("share lock: a lock file that reads empty for a moment is still delete
         lock.reset();  // reads "" first, then the token: deletes the file
         restore.join();
         if (restoredAt - begin > std::chrono::milliseconds(120)) {
-            MESSAGE("skipped: this machine is so loaded that the file was restored after the holder's retries (" << (restoredAt - begin).count() << ")");
+            MESSAGE("skipped: this machine is so loaded that the file was restored after the holder's retries ("
+                    << (restoredAt - begin).count() << ")");
             std::error_code ec;
             std::filesystem::remove(file, ec);
             return;
@@ -1996,7 +2121,8 @@ TEST_CASE("share lock: a lock file that reads empty for a moment is still delete
     std::filesystem::remove(file, ec);
 }
 
-TEST_CASE("share lock: the same folder under another spelling is the same lock for one thread (it does not wait for itself)") {
+TEST_CASE("share lock: the same folder under another spelling is the same lock for one thread (it does not wait for "
+          "itself)") {
     Share s;
     s.env.lockStaleSec = 600.0;
     s.env.lockWaitSec = 0.5;  // a nested lock that waited for its outer one would fail after this
@@ -2088,7 +2214,8 @@ TEST_CASE("share lock: ShareWaitCap shortens the wait of this thread for its lif
 }
 
 TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail with an error and change nothing") {
-    testing::ScratchShareHome globalHome;  // the feedback file functions below lock under share_env(): a scratch one, not the busy one of `t`
+    testing::ScratchShareHome
+        globalHome;  // the feedback file functions below lock under share_env(): a scratch one, not the busy one of `t`
     TwoProjects t;
     t.s.mode(ShareMode::Ask);
     REQUIRE(share_queue(t.s.env, t.fileA, t.a, engine_names()).ok());
@@ -2096,7 +2223,9 @@ TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail w
     REQUIRE(t.box().items[0].state == OutboxState::Waiting);
     const std::string key = t.box().items[0].key;
     const std::string outboxBefore = testing::read_all(t.box().path);
-    auto entry_status = [&] { return load_feedback(t.fileA).value()["entries"][0]["shared"]["status"].get<std::string>(); };
+    auto entry_status = [&] {
+        return load_feedback(t.fileA).value()["entries"][0]["shared"]["status"].get<std::string>();
+    };
     REQUIRE(entry_status() == "pending");
 
     // Another process holds the lock (a fresh file, not stale).
@@ -2121,7 +2250,8 @@ TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail w
 
     // A deleted entry must never stay sendable: delete_feedback_file runs the discard first and stops when it fails.
     REQUIRE(update_feedback_file(t.fileA, "FB-0001", "wont-fix", "").ok());
-    const auto del = delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
+    const auto del =
+        delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
     CHECK_FALSE(del.ok());
     CHECK(load_feedback(t.fileA).value()["entries"].size() == 1);  // the entry is still in the file
     CHECK(t.box().items.size() == 1);
@@ -2135,7 +2265,8 @@ TEST_CASE("share lock: skip, drop, confirm and discard with the lock busy fail w
     std::filesystem::remove(lockPath, ec);
     CHECK(share_confirm(t.s.env, {key}).value_or(-1) == 1);
     CHECK(share_drop(t.s.env, {key}).value_or(-1) == 0);  // it is queued now, not waiting
-    const auto del2 = delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
+    const auto del2 =
+        delete_feedback_file(t.fileA, "FB-0001", [&] { return share_discard(t.s.env, t.fileA, {"FB-0001"}); });
     CHECK(del2.ok());
     CHECK(t.box().items.empty());
     CHECK(load_feedback(t.fileA).value()["entries"].empty());
@@ -2188,7 +2319,8 @@ TEST_CASE("share flush: when the lock stays busy after a request, what was sent 
     CHECK(t.box().items.empty());
 }
 
-TEST_CASE("share flush: when the lock stays busy after a 429, the backoff the server asked for is kept and written later") {
+TEST_CASE(
+    "share flush: when the lock stays busy after a 429, the backoff the server asked for is kept and written later") {
     TwoProjects t;
     t.s.env.lockStaleSec = 600.0;
     t.s.env.lockWaitSec = 0.1;  // the patient wait is five times this
@@ -2199,8 +2331,11 @@ TEST_CASE("share flush: when the lock stays busy after a 429, the backoff the se
     t.s.env.transport = [&](const HttpRequest& r) {
         t.s.requests.push_back(r);
         ++posts;
-        testing::write_all(lockPath, "another process");  // it takes the lock while the request is on its way, and keeps it
-        return reply(429, Json::object({{"ok", false}, {"error", Json::object({{"code", "rate_limited"}, {"message", "slow down"}})}}),
+        testing::write_all(lockPath,
+                           "another process");  // it takes the lock while the request is on its way, and keeps it
+        return reply(429,
+                     Json::object({{"ok", false},
+                                   {"error", Json::object({{"code", "rate_limited"}, {"message", "slow down"}})}}),
                      {{"retry-after", "7200"}});
     };
     FlushOptions fo;

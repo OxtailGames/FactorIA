@@ -39,7 +39,9 @@ struct PackedEntry {
     std::uint16_t method = 99;
 };
 
-std::uint64_t rd64(const std::string& s, std::size_t at) { return rd32(s, at) | (static_cast<std::uint64_t>(rd32(s, at + 4)) << 32); }
+std::uint64_t rd64(const std::string& s, std::size_t at) {
+    return rd32(s, at) | (static_cast<std::uint64_t>(rd32(s, at + 4)) << 32);
+}
 
 // Reads a zip of stored entries through its ZIP64 end of central directory (an MSIX package always has one) and its central
 // directory; the local headers are checked against it.
@@ -62,7 +64,8 @@ std::vector<PackedEntry> read_zip(const std::string& bytes) {
         REQUIRE(rd32(bytes, at) == 0x02014b50);
         PackedEntry e;
         e.method = static_cast<std::uint16_t>(rd16(bytes, at + 10));
-        const std::uint32_t size = rd32(bytes, at + 24), nameLen = rd16(bytes, at + 28), extra = rd16(bytes, at + 30), comment = rd16(bytes, at + 32);
+        const std::uint32_t size = rd32(bytes, at + 24), nameLen = rd16(bytes, at + 28), extra = rd16(bytes, at + 30),
+                            comment = rd16(bytes, at + 32);
         const std::uint32_t local = rd32(bytes, at + 42);
         e.name = bytes.substr(at + 46, nameLen);
         REQUIRE(rd32(bytes, local) == 0x04034b50);
@@ -79,7 +82,8 @@ std::vector<PackedEntry> read_zip(const std::string& bytes) {
 std::string raw_sha256_base64(std::string_view data) {
     const std::string hex = sha256_hex(data);
     std::string raw;
-    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) raw += static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16));
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+        raw += static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16));
     return base64_encode(raw.data(), raw.size());
 }
 
@@ -203,8 +207,8 @@ TEST_CASE("msix: every block of AppxBlockMap.xml is the SHA-256 of 64 KiB of its
         ++files;
         std::string back = name;
         std::replace(back.begin(), back.end(), '/', '\\');
-        const std::string open = "<File Name=\"" + back + "\" Size=\"" + std::to_string(e->data.size()) + "\" LfhSize=\"" +
-                                 std::to_string(e->headerSize) + "\">";
+        const std::string open = "<File Name=\"" + back + "\" Size=\"" + std::to_string(e->data.size()) +
+                                 "\" LfhSize=\"" + std::to_string(e->headerSize) + "\">";
         INFO(name);
         const std::size_t at = map.find(open);
         REQUIRE(at != std::string::npos);
@@ -314,7 +318,8 @@ TEST_CASE("msix: other platforms do not take the msix format") {
 TEST_CASE("msix settings: parse, save and the teaching errors") {
     auto j = parse_json(R"({"export": {"windows": {"format": "msix", "msix": {"identityName": "12345Studio.SpaceDodge",
         "publisher": "CN=ABC", "publisherDisplayName": "Studio", "version": "2.3.4.0", "backgroundColor": "#112233",
-        "languages": ["en-us", "es-es"]}}}})", "test");
+        "languages": ["en-us", "es-es"]}}}})",
+                        "test");
     REQUIRE(j.ok());
     auto p = parse_export_settings(*j);
     CHECK(p.errors.empty());
@@ -334,19 +339,24 @@ TEST_CASE("msix settings: parse, save and the teaching errors") {
 
     // Saving writes it back and reading again gives the same settings.
     testing::TempDir tmp;
-    testing::write_all(tmp.sub("factoria.json"), R"({"format": "factoria.project/1", "name": "X", "id": "com.example.x", "version": "1.0.0"})");
+    testing::write_all(tmp.sub("factoria.json"),
+                       R"({"format": "factoria.project/1", "name": "X", "id": "com.example.x", "version": "1.0.0"})");
     REQUIRE(save_export_settings(tmp.str(), p.settings).ok());
     auto back = load_export_settings(tmp.str());
     REQUIRE_MESSAGE(back.ok(), (back.ok() ? "" : back.error().to_string()));
     CHECK(back->windows.format == "msix");
     CHECK(back->windows.msix == p.settings.windows.msix);
 
-    auto bad = parse_json(R"({"export": {"windows": {"format": "msx", "msix": {"identityName": "a b", "publisher": "Studio",
-        "version": "1.2", "backgroundColor": "red", "minVersion": "10", "languages": "en-us"}}}})", "test");
+    auto bad =
+        parse_json(R"({"export": {"windows": {"format": "msx", "msix": {"identityName": "a b", "publisher": "Studio",
+        "version": "1.2", "backgroundColor": "red", "minVersion": "10", "languages": "en-us"}}}})",
+                   "test");
     REQUIRE(bad.ok());
     auto pe = parse_export_settings(*bad);
-    for (const char* ptr : {"/export/windows/format", "/export/windows/msix/identityName", "/export/windows/msix/publisher", "/export/windows/msix/version",
-                            "/export/windows/msix/backgroundColor", "/export/windows/msix/minVersion", "/export/windows/msix/languages"}) {
+    for (const char* ptr :
+         {"/export/windows/format", "/export/windows/msix/identityName", "/export/windows/msix/publisher",
+          "/export/windows/msix/version", "/export/windows/msix/backgroundColor", "/export/windows/msix/minVersion",
+          "/export/windows/msix/languages"}) {
         INFO(ptr);
         const ExportSettingsIssue* found = nullptr;
         for (const auto& i : pe.errors)
@@ -369,7 +379,8 @@ TEST_CASE("msix settings: validate warns when msix is chosen and the identity is
     ValidationReport r = validate_project(dir);
     CHECK(r.ok);
     bool warned = false;
-    for (const auto& w : r.warnings) warned = warned || (w.pointer == "/export/windows/msix" && has_text(w.message, "identityName"));
+    for (const auto& w : r.warnings)
+        warned = warned || (w.pointer == "/export/windows/msix" && has_text(w.message, "identityName"));
     CHECK(warned);
 
     json_merge(*j, *parse_json(kIdentity));

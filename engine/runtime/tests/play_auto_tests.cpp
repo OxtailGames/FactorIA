@@ -51,7 +51,9 @@ struct AutoProject {
         if (!folder.empty()) dir /= folder;
         stdfs::create_directories(dir / "scenes");
         stdfs::create_directories(dir / "scripts");
-        write("factoria.json", R"({"format":"factoria.project/1","name":"Auto","id":"com.example.auto","mainScene":"scenes/main.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Auto","id":"com.example.auto","mainScene":"scenes/main.scene.json",
             "display":{"width":128,"height":128},"physics":{"fixedHz":60,"pixelsPerMeter":100},
             "input":{"actions":{"move_left":["A"],"move_right":["D"],"jump":["Space"]}}})");
         std::string entities = R"({"id":"cam","components":{"Camera":{}}},
@@ -61,7 +63,9 @@ struct AutoProject {
         if (ground)
             entities += R"(,{"id":"g","components":{"Transform":{"position":[0,-10,0]},"RigidBody2D":{"type":"static"},
               "Collider2D":{"shape":"box","size":[4000,20]}}})";
-        write("scenes/main.scene.json", std::string(R"({"format":"factoria.scene/1","settings":{"gravity2D":[0,-980]},"entities":[)") + entities + "]}");
+        write("scenes/main.scene.json",
+              std::string(R"({"format":"factoria.scene/1","settings":{"gravity2D":[0,-980]},"entities":[)") + entities +
+                  "]}");
         write("scripts/player.js", kPlayerScript);
         if (hook) write("scripts/autoplay.js", hook);
     }
@@ -69,7 +73,9 @@ struct AutoProject {
         std::error_code ec;
         stdfs::remove_all(root, ec);
     }
-    void write(const char* rel, const std::string& text) const { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); }
+    void write(const char* rel, const std::string& text) const {
+        REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok());
+    }
     EngineConfig config(bool graphics = false) const {
         EngineConfig c;
         c.projectDir = dir.generic_string();
@@ -77,12 +83,14 @@ struct AutoProject {
         return c;
     }
     Json read_session(const Json& result) const {
-        auto j = load_json_file((dir / ".factoria" / "sessions" / result["session"].get<std::string>() / "session.json").generic_string());
+        auto j = load_json_file(
+            (dir / ".factoria" / "sessions" / result["session"].get<std::string>() / "session.json").generic_string());
         REQUIRE(j.ok());
         return j.value();
     }
     Json read_input(const Json& result) const {
-        auto j = load_json_file((dir / ".factoria" / "sessions" / result["session"].get<std::string>() / "input.json").generic_string());
+        auto j = load_json_file(
+            (dir / ".factoria" / "sessions" / result["session"].get<std::string>() / "input.json").generic_string());
         REQUIRE(j.ok());
         return j.value();
     }
@@ -100,11 +108,21 @@ Json run(const AutoProject& p, PlayAutoOptions o = {}) {
 // The numbers a second run must reproduce (everything but the session name and the frame times).
 Json stable(const Json& r) {
     Json phases = Json::array();
-    for (const Json& ph : r["phases"]) phases.push_back(Json::object({{"name", ph["name"]}, {"kind", ph["kind"]}, {"time", ph["time"]}}));
+    for (const Json& ph : r["phases"])
+        phases.push_back(Json::object({{"name", ph["name"]}, {"kind", ph["kind"]}, {"time", ph["time"]}}));
     Json problems = Json::array();
-    for (const Json& m : r["problems"]) problems.push_back(Json::object({{"kind", m["kind"]}, {"step", m["step"]}, {"time", m["time"]}, {"note", m["note"]}}));
-    return Json::object({{"ended", r["ended"]}, {"endedWhy", r["endedWhy"]}, {"score", r["score"]}, {"gameSeconds", r["gameSeconds"]},
-                         {"steps", r["steps"]}, {"frames", r["frames"]}, {"bot", r["bot"]}, {"phases", phases}, {"problems", problems}});
+    for (const Json& m : r["problems"])
+        problems.push_back(
+            Json::object({{"kind", m["kind"]}, {"step", m["step"]}, {"time", m["time"]}, {"note", m["note"]}}));
+    return Json::object({{"ended", r["ended"]},
+                         {"endedWhy", r["endedWhy"]},
+                         {"score", r["score"]},
+                         {"gameSeconds", r["gameSeconds"]},
+                         {"steps", r["steps"]},
+                         {"frames", r["frames"]},
+                         {"bot", r["bot"]},
+                         {"phases", phases},
+                         {"problems", problems}});
 }
 
 bool notes_contain(const Json& r, const std::string& text) {
@@ -183,7 +201,8 @@ TEST_CASE("play.auto: without a hook the explorer plays and says so") {
     CHECK(notes_contain(r, "no scripts/autoplay.js"));
     CHECK(p.read_input(r)["frames"].size() > 0);  // it pressed something
 
-    const Json withHook = run(AutoProject(true, kWalkHook), {.seconds = 2});  // the default (useHook) plays a hook that exists
+    const Json withHook =
+        run(AutoProject(true, kWalkHook), {.seconds = 2});  // the default (useHook) plays a hook that exists
     CHECK(withHook["bot"] == "hook");
     AutoProject h(true, kWalkHook);
     PlayAutoOptions o;
@@ -210,7 +229,8 @@ TEST_CASE("play.auto: the recorded input replays to the same state, at any speed
 
         HeadlessRunOptions h;
         h.frames = r["frames"].get<int>();
-        h.inputReplayPath = (p.dir / ".factoria" / "sessions" / r["session"].get<std::string>() / "input.json").generic_string();
+        h.inputReplayPath =
+            (p.dir / ".factoria" / "sessions" / r["session"].get<std::string>() / "input.json").generic_string();
         h.stateOutPath = (p.dir / "state.json").generic_string();
         EngineConfig c = p.config();
         c.seed = 1;
@@ -286,9 +306,11 @@ export default class P extends Behaviour { onUpdate() { throw new Error("boom");
 
 TEST_CASE("play.auto: a screen nobody can leave is a menu soft lock") {
     AutoProject p(true, "import { game } from \"factoria\";\ngame.autoplay(() => []);\n");
-    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+    p.write("scenes/main.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
         {"id":"title","components":{"Transform":{"position":[0,0,0]},"Script":{"path":"scripts/title.js"}}}]})");
-    p.write("scripts/title.js", "import { Behaviour } from \"factoria\";\nexport default class T extends Behaviour {}\n");
+    p.write("scripts/title.js",
+            "import { Behaviour } from \"factoria\";\nexport default class T extends Behaviour {}\n");
     PlayAutoOptions o;
     o.seconds = 30;
     o.stuckSeconds = 2;
@@ -299,7 +321,8 @@ TEST_CASE("play.auto: a screen nobody can leave is a menu soft lock") {
 }
 
 TEST_CASE("play.auto: game.phase marks a stage and can end the run") {
-    AutoProject p(true, "import { game } from \"factoria\";\ngame.autoplay((bot) => { if (bot.time > 0.5) game.phase(\"victory\", { ends: \"won\" }); return [\"move_right\"]; });\n");
+    AutoProject p(true, "import { game } from \"factoria\";\ngame.autoplay((bot) => { if (bot.time > 0.5) "
+                        "game.phase(\"victory\", { ends: \"won\" }); return [\"move_right\"]; });\n");
     PlayAutoOptions o;
     o.seconds = 30;
     const Json r = run(p, o);
@@ -391,7 +414,8 @@ TEST_CASE("play.auto: a project folder with accents gives UTF-8 paths that exist
     const std::string dump = r.dump();  // throws on a byte sequence that is not UTF-8
     CHECK_FALSE(dump.empty());
     const std::string dir = r["dir"].get<std::string>();
-    CHECK(dir.find("Ca\xC3\xB1\xC3\xB3n ni\xC3\xB1o") != std::string::npos);  // the folder's name as UTF-8, not the code page's version
+    CHECK(dir.find("Ca\xC3\xB1\xC3\xB3n ni\xC3\xB1o") !=
+          std::string::npos);  // the folder's name as UTF-8, not the code page's version
     std::error_code ec;
     CHECK(stdfs::exists(fs::os_path(fs::path_from_utf8(dir)) / "session.json", ec));
     CHECK(stdfs::exists(fs::os_path(fs::path_from_utf8(dir)) / "input.json", ec));
@@ -501,9 +525,10 @@ namespace {
 void label_project(AutoProject& p, int every) {
     p.write("scenes/main.scene.json", std::string(kEmptyScene) + R"({"id":"cam","components":{"Camera":{}}},
         {"id":"t","components":{"Transform":{"position":[0,0,0]},"Text":{"text":"turn 0"},"Script":{"path":"scripts/turns.js"}}}]})");
-    p.write("scripts/turns.js", std::string("import { Behaviour } from \"factoria\";\nexport default class T extends Behaviour {\n"
-                                           "  onUpdate() { this.n = (this.n || 0) + 1; if (this.n % ") + std::to_string(every) +
-                                           " === 0) this.entity.get(\"Text\").text = \"turn \" + this.n; }\n}\n");
+    p.write("scripts/turns.js",
+            std::string("import { Behaviour } from \"factoria\";\nexport default class T extends Behaviour {\n"
+                        "  onUpdate() { this.n = (this.n || 0) + 1; if (this.n % ") +
+                std::to_string(every) + " === 0) this.entity.get(\"Text\").text = \"turn \" + this.n; }\n}\n");
 }
 }  // namespace
 
@@ -542,10 +567,13 @@ TEST_CASE("play.auto: the replay command quotes a scene path with spaces") {
     CHECK(r.value()["replay"].get<std::string>().find("--scene \"scenes/my level.scene.json\"") != std::string::npos);
 }
 
-TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play.report {phase} shows one (needs a graphics device)") {
+TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play.report {phase} shows one (needs a "
+          "graphics device)") {
     // A folder with accents: the pictures are taken inside the project, with project-relative paths (no code page in between).
-    AutoProject p(true, "import { game } from \"factoria\";\n"
-                        "let n = 0;\ngame.autoplay((bot) => { if (n < 45) game.phase(\"stage \" + (++n)); return [\"move_right\"]; });\n",
+    AutoProject p(true,
+                  "import { game } from \"factoria\";\n"
+                  "let n = 0;\ngame.autoplay((bot) => { if (n < 45) game.phase(\"stage \" + (++n)); return "
+                  "[\"move_right\"]; });\n",
                   stdfs::path(u8"proyecto-José ñandú"));
     PlayAutoOptions o;
     o.seconds = 3;
@@ -590,7 +618,8 @@ TEST_CASE("play.auto: pictures per phase and at the end, the cap of 40, and play
     CHECK(stdfs::exists(fs::path_from_utf8(rep.result["$image"]["path"].get<std::string>()), ec));
 }
 
-TEST_CASE("play.auto: the names of automatic sessions, and the pruning keeps the newest and never touches a person's sessions") {
+TEST_CASE("play.auto: the names of automatic sessions, and the pruning keeps the newest and never touches a person's "
+          "sessions") {
     CHECK(is_auto_play_session_name("20260131-142500-auto"));
     CHECK(is_auto_play_session_name("20260131-142500-auto-2"));
     CHECK(is_auto_play_session_name("20260131-142500-auto-12"));
@@ -608,13 +637,14 @@ TEST_CASE("play.auto: the names of automatic sessions, and the pruning keeps the
     } restore{rootBefore};
     fs::set_project_root(p.dir);
     const stdfs::path sessions = p.dir / ".factoria" / "sessions";
-    const std::vector<std::string> names = {"20260101-100000-auto", "20260101-100001-auto", "20260101-100002", "20260101-100003-auto",
-                                            "20260101-100004-auto-2", "20260101-100005-auto"};
+    const std::vector<std::string> names = {"20260101-100000-auto", "20260101-100001-auto",   "20260101-100002",
+                                            "20260101-100003-auto", "20260101-100004-auto-2", "20260101-100005-auto"};
     for (const std::string& n : names) {
         stdfs::create_directories(sessions / n);
         REQUIRE(fs::write_text((sessions / n / "session.json").generic_string(), "{}").ok());
     }
-    stdfs::create_directories(sessions / "20260101-090000-auto");  // no session.json: not a session, so not pruned either
+    stdfs::create_directories(sessions /
+                              "20260101-090000-auto");  // no session.json: not a session, so not pruned either
     CHECK(prune_auto_play_sessions(10) == 0);
     CHECK(play_session_names().size() == names.size());
     CHECK(prune_auto_play_sessions(2) == 3);  // five automatic sessions, the two newest stay
@@ -643,7 +673,8 @@ TEST_CASE("play.auto: prune never deletes the spared session, even when its name
     }
     CHECK(is_auto_play_session_name("20260101-100003-auto"));
     CHECK_FALSE(is_auto_play_session_name("aaa-auto"));  // not a name play.auto gives: a person's folder, untouched
-    CHECK(prune_auto_play_sessions(2, "20260101-100000-auto") == 1);  // the spared one and the newest stay: keep 2 in all
+    CHECK(prune_auto_play_sessions(2, "20260101-100000-auto") ==
+          1);  // the spared one and the newest stay: keep 2 in all
     CHECK(stdfs::exists(sessions / "20260101-100000-auto"));
     CHECK(stdfs::exists(sessions / "20260101-100002-auto"));
     CHECK_FALSE(stdfs::exists(sessions / "20260101-100001-auto"));
@@ -653,7 +684,8 @@ TEST_CASE("play.auto: prune never deletes the spared session, even when its name
     CHECK(stdfs::exists(sessions / "aaa-auto"));
 }
 
-TEST_CASE("play.auto: the scratch folders of a run that was killed are deleted by the next run, and a live run's are not") {
+TEST_CASE(
+    "play.auto: the scratch folders of a run that was killed are deleted by the next run, and a live run's are not") {
     const std::string own = std::to_string(
 #if defined(_WIN32)
         _getpid()
@@ -673,11 +705,12 @@ TEST_CASE("play.auto: the scratch folders of a run that was killed are deleted b
     }
     std::error_code ec;
     stdfs::last_write_time(mineOld, stdfs::file_time_type::clock::now() - std::chrono::hours(3), ec);
-    const bool aged = !ec;  // the time of a folder cannot be set everywhere (MinGW under Wine): then that part is skipped
+    const bool aged =
+        !ec;  // the time of a folder cannot be set everywhere (MinGW under Wine): then that part is skipped
     if (!aged) MESSAGE("last_write_time on a folder failed (" << ec.message() << "): the age rule is not checked");
     (void)run(p);
     CHECK_FALSE(stdfs::exists(dead));
     if (aged) CHECK_FALSE(stdfs::exists(mineOld));  // older than an hour
-    CHECK(stdfs::exists(mine));           // this process, young: another run of it may be using it
+    CHECK(stdfs::exists(mine));                     // this process, young: another run of it may be using it
     CHECK(stdfs::exists(other));
 }

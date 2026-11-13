@@ -93,16 +93,20 @@ void Editor::anim_select_clip(const std::string& wanted) {
     if (owner.is_null()) return;
     const Animator* a = world().get<Animator>(owner);
     if (!a || !a->clips.is_object() || a->clips.empty()) return;
-    if (!wanted.empty() && a->clips.contains(wanted)) anim_.clipName = wanted;
-    else if (!a->clip.empty() && a->clips.contains(a->clip)) anim_.clipName = a->clip;
-    else anim_.clipName = a->clips.begin().key();
+    if (!wanted.empty() && a->clips.contains(wanted))
+        anim_.clipName = wanted;
+    else if (!a->clip.empty() && a->clips.contains(a->clip))
+        anim_.clipName = a->clip;
+    else
+        anim_.clipName = a->clips.begin().key();
 }
 
 std::string Editor::anim_clip_path() {
     const Entity owner = anim_owner();
     if (owner.is_null() || anim_.clipName.empty()) return {};
     const Animator* a = world().get<Animator>(owner);
-    if (!a || !a->clips.is_object() || !a->clips.contains(anim_.clipName) || !a->clips[anim_.clipName].is_string()) return {};
+    if (!a || !a->clips.is_object() || !a->clips.contains(anim_.clipName) || !a->clips[anim_.clipName].is_string())
+        return {};
     return a->clips[anim_.clipName].get<std::string>();
 }
 
@@ -141,13 +145,16 @@ void Editor::anim_pose() {
         collect_bones(w, owner, bones);
         const TypeInfo* tt = TypeRegistry::global().find("Transform");
         for (Entity b : bones)
-            if (const Transform* t = w.get<Transform>(b); t && tt) anim_.boneRest.push_back({w.id_of(b), field_to_json(*tt->field("position"), t), field_to_json(*tt->field("rotation"), t),
+            if (const Transform* t = w.get<Transform>(b); t && tt)
+                anim_.boneRest.push_back({w.id_of(b), field_to_json(*tt->field("position"), t),
+                                          field_to_json(*tt->field("rotation"), t),
                                           field_to_json(*tt->field("scale"), t)});
     }
     const double t = std::clamp(anim_.playhead, 0.0, double((*clip)->duration));
     const CommandResult r = engine_->commands().call(
         "anim.pose", Json::object({{"entity", anim_.ownerId}, {"clip", anim_.clipName}, {"t", t}}));
-    if (Animator* again = w.get<Animator>(owner)) {  // anim.pose pauses the Animator on the clip: the scene must not say so
+    if (Animator* again =
+            w.get<Animator>(owner)) {  // anim.pose pauses the Animator on the clip: the scene must not say so
         again->clip = anim_.savedClip;
         again->time = anim_.savedTime;
         again->playing = anim_.savedPlaying;
@@ -167,7 +174,8 @@ void Editor::anim_unpose() {
     anim_.posed = false;
     anim_.ghosts.clear();
     anim_.ghostKey.clear();
-    if (!engine_ || anim_.posedGeneration != world().scene_generation()) return;  // the world was replaced: nothing to undo
+    if (!engine_ || anim_.posedGeneration != world().scene_generation())
+        return;  // the world was replaced: nothing to undo
     World& w = world();
     const Entity owner = w.find_by_id(anim_.posedOwner);
     if (owner.is_null() || !w.alive(owner) || !w.has<Animator>(owner)) return;
@@ -206,11 +214,14 @@ bool Editor::anim_edit(const std::string& key, const std::vector<ModelCall>& cal
             problem = call.first + ": " + command_error_text(r.error);
             break;
         }
-        if (undoArgs.is_null() && r.result.is_object() && r.result.contains("undo") && r.result["undo"].contains("args"))
-            undoArgs = r.result["undo"]["args"];  // the first call's undo holds the clip as it was before the whole edit
+        if (undoArgs.is_null() && r.result.is_object() && r.result.contains("undo") &&
+            r.result["undo"].contains("args"))
+            undoArgs =
+                r.result["undo"]["args"];  // the first call's undo holds the clip as it was before the whole edit
     }
     if (!undoArgs.is_null()) {
-        const bool coalesce = key == lastEditKey_ && (time_ - lastEditTime_) < 0.8 && !undo_.empty() && is_clip_entry(undo_.back());
+        const bool coalesce =
+            key == lastEditKey_ && (time_ - lastEditTime_) < 0.8 && !undo_.empty() && is_clip_entry(undo_.back());
         if (!coalesce) {
             undo_.push_back(Json::object({{"$clip", undoArgs}}));
             if (undo_.size() > 100) undo_.erase(undo_.begin());
@@ -230,7 +241,8 @@ void Editor::anim_apply_clip_undo(const Json& entry, bool forward) {
     const Json& args = entry["$clip"];
     const CommandResult r = engine_->commands().call("anim.restore", args);
     if (!r.ok) {
-        notify("Could not " + std::string(forward ? "redo" : "undo") + " the clip edit: " + command_error_text(r.error), 2);
+        notify("Could not " + std::string(forward ? "redo" : "undo") + " the clip edit: " + command_error_text(r.error),
+               2);
         return;
     }
     if (r.result.is_object() && r.result.contains("undo") && r.result["undo"].contains("args")) {
@@ -262,14 +274,18 @@ bool Editor::anim_new_clip(const std::string& name, double duration, bool loop, 
     if (name.empty() || name.find('/') != std::string::npos || name.find('\\') != std::string::npos)
         return fail("A clip name is a plain word without '/': it becomes the file name and the key in Animator.clips.");
     const Animator* a = world().get<Animator>(owner);
-    if (a && a->clips.is_object() && a->clips.contains(name)) return fail("The Animator already has a clip called '" + name + "'.");
+    if (a && a->clips.is_object() && a->clips.contains(name))
+        return fail("The Animator already has a clip called '" + name + "'.");
     const std::string path = "anim/" + name + ".anim.json";
     const std::string stamp = std::to_string(uiFrame_);
-    if (!anim_edit("anim:new:" + stamp, {{"anim.create_clip", Json::object({{"path", path}, {"duration", duration}, {"loop", loop}})}}, error))
+    if (!anim_edit("anim:new:" + stamp,
+                   {{"anim.create_clip", Json::object({{"path", path}, {"duration", duration}, {"loop", loop}})}},
+                   error))
         return false;
     std::string err;
-    const CommandResult r = edit_command("anim:new-ref:" + stamp, "scene.set_component",
-                                         field_edit_args(anim_.ownerId, "Animator", "clips", Json::object({{name, path}}), true), &err);
+    const CommandResult r =
+        edit_command("anim:new-ref:" + stamp, "scene.set_component",
+                     field_edit_args(anim_.ownerId, "Animator", "clips", Json::object({{name, path}}), true), &err);
     if (!r.ok) return fail("The clip file was written but the Animator could not take it: " + err);
     project_files_changed();
     anim_select_clip(name);
@@ -282,7 +298,9 @@ bool Editor::anim_new_clip(const std::string& name, double duration, bool loop, 
 // none of the record mode's business (the caller then runs it as usual).
 bool Editor::anim_record_edit(const std::string& key, const Json& args, CommandResult& out, std::string* error) {
     if (!anim_recording() || play_ != PlayState::Edit || !args.is_object() || args.value("merge", false)) return false;
-    if (!args.contains("id") || !args["id"].is_string() || !args.contains("component") || !args["component"].is_string()) return false;
+    if (!args.contains("id") || !args["id"].is_string() || !args.contains("component") ||
+        !args["component"].is_string())
+        return false;
     if (!args.contains("fields") || !args["fields"].is_object()) return false;
     anim_refresh_owner();
     const Entity owner = anim_owner();
@@ -321,7 +339,9 @@ bool Editor::anim_record_edit(const std::string& key, const Json& args, CommandR
         std::string err;
         if (!anim_edit(key, record_calls(path, **clip, *part, changes, at), &err)) {
             out.ok = false;
-            out.error = Json::object({{"message", err}, {"hint", "Record mode writes keys with anim.set_keys; the clip file could not take this one."}});
+            out.error = Json::object(
+                {{"message", err},
+                 {"hint", "Record mode writes keys with anim.set_keys; the clip file could not take this one."}});
             if (error) *error = err;
             return true;
         }
@@ -347,12 +367,15 @@ SkinBox Editor::sprite_local_box(Entity e) {
     if (size.x <= 0 || size.y <= 0) {
         Vec2 base{32.0f, 32.0f};
         if (!s->texture.empty()) {
-            if (s->region.w > 0 && s->region.h > 0) base = {s->region.w, s->region.h};
-            else if (const VisualMeasure m = visual_measure(); m.textureSize) base = m.textureSize(s->texture);
+            if (s->region.w > 0 && s->region.h > 0)
+                base = {s->region.w, s->region.h};
+            else if (const VisualMeasure m = visual_measure(); m.textureSize)
+                base = m.textureSize(s->texture);
         }
         size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
     }
-    return SkinBox{-s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x, (1.0f - s->pivot.y) * size.y};
+    return SkinBox{-s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x,
+                   (1.0f - s->pivot.y) * size.y};
 }
 
 void Editor::anim_update_onion(Renderer& r) {
@@ -368,8 +391,8 @@ void Editor::anim_update_onion(Renderer& r) {
     auto clip = load_anim_clip(path);
     if (!clip.ok()) return;
     World& w = world();
-    const std::string key = std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}", u.ownerId, u.clipName, u.playhead, u.onionBefore, u.onionAfter,
-                                        u.onionFrames, u.fps, (*clip)->mtime, w.scene_generation());
+    const std::string key = std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}", u.ownerId, u.clipName, u.playhead, u.onionBefore,
+                                        u.onionAfter, u.onionFrames, u.fps, (*clip)->mtime, w.scene_generation());
     if (key == u.ghostKey) return;
     u.ghostKey = key;
     u.ghosts.clear();
@@ -428,7 +451,8 @@ void Editor::anim_update_onion(Renderer& r) {
                     q.texture = texture;
                     for (int k = 0; k < 4; ++k) {
                         q.corner[k] = to_world(mesh.position[cell[std::size_t(k)]]);
-                        q.uv[k] = Vec2{u0 + (u1 - u0) * mesh.uv[cell[std::size_t(k)]].x, v0 + (v1 - v0) * mesh.uv[cell[std::size_t(k)]].y};
+                        q.uv[k] = Vec2{u0 + (u1 - u0) * mesh.uv[cell[std::size_t(k)]].x,
+                                       v0 + (v1 - v0) * mesh.uv[cell[std::size_t(k)]].y};
                     }
                     pose.quads.push_back(q);
                 }
@@ -460,18 +484,23 @@ void Editor::anim_draw_onion(ImDrawList* dl, Renderer& r) {
     const int maxSide = std::max(1, std::max(anim_.onionBefore, anim_.onionAfter));
     for (const OnionPose& pose : anim_.ghosts) {
         // Further from the playhead = fainter. Before the playhead red, after it green, like the usual onion skin.
-        const int distance = 1 + int(std::lround(std::fabs(pose.t - anim_.playhead) * double(anim_.fps) / double(std::max(1, anim_.onionFrames)))) - 1;
+        const int distance = 1 +
+                             int(std::lround(std::fabs(pose.t - anim_.playhead) * double(anim_.fps) /
+                                             double(std::max(1, anim_.onionFrames)))) -
+                             1;
         const float fade = 1.0f - 0.65f * float(std::min(distance, maxSide) - 1) / float(std::max(1, maxSide));
-        const ImU32 tint = pose.side < 0 ? IM_COL32(255, 120, 110, int(110 * fade)) : IM_COL32(110, 255, 140, int(110 * fade));
-        const ImU32 edge = pose.side < 0 ? IM_COL32(255, 120, 110, int(190 * fade)) : IM_COL32(110, 255, 140, int(190 * fade));
+        const ImU32 tint =
+            pose.side < 0 ? IM_COL32(255, 120, 110, int(110 * fade)) : IM_COL32(110, 255, 140, int(110 * fade));
+        const ImU32 edge =
+            pose.side < 0 ? IM_COL32(255, 120, 110, int(190 * fade)) : IM_COL32(110, 255, 140, int(190 * fade));
         for (const OnionQuad& q : pose.quads) {
             ImVec2 p[4];
             for (int k = 0; k < 4; ++k) p[k] = to_vp(q.corner[k]);
             if (!q.texture.empty()) {
                 if (const TextureEntry* tex = texture_for(q.texture)) {
-                    dl->AddImageQuad(ImTextureRef(ImTextureID(ui::texture_from_view(tex->view, true))), p[0], p[1], p[2], p[3],
-                                     ImVec2(q.uv[0].x, q.uv[0].y), ImVec2(q.uv[1].x, q.uv[1].y), ImVec2(q.uv[2].x, q.uv[2].y),
-                                     ImVec2(q.uv[3].x, q.uv[3].y), tint);
+                    dl->AddImageQuad(ImTextureRef(ImTextureID(ui::texture_from_view(tex->view, true))), p[0], p[1],
+                                     p[2], p[3], ImVec2(q.uv[0].x, q.uv[0].y), ImVec2(q.uv[1].x, q.uv[1].y),
+                                     ImVec2(q.uv[2].x, q.uv[2].y), ImVec2(q.uv[3].x, q.uv[3].y), tint);
                     ++anim_.onionDrawn;
                     continue;
                 }

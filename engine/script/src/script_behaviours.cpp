@@ -111,7 +111,8 @@ void Impl::create_behaviour(Entity e, const std::string& path, const Json& props
         JS_FreeValue(ctx, cls);
         ScriptError err;
         err.file = path;
-        err.message = "module '" + path + "' has no default export class. Add: export default class MyScript extends Behaviour { ... }";
+        err.message = "module '" + path +
+                      "' has no default export class. Add: export default class MyScript extends Behaviour { ... }";
         fail(err);
         return;
     }
@@ -122,14 +123,19 @@ void Impl::create_behaviour(Entity e, const std::string& path, const Json& props
         JS_FreeValue(ctx, cls);
         ScriptError err;
         err.file = path;
-        err.message = "the default export of '" + path + "' must extend Behaviour. Write: import { Behaviour } from \"factoria\"; export default class X extends Behaviour { ... }";
+        err.message = "the default export of '" + path +
+                      "' must extend Behaviour. Write: import { Behaviour } from \"factoria\"; export default class X "
+                      "extends Behaviour { ... }";
         fail(err);
         return;
     }
     JSValue nameV = JS_GetPropertyStr(ctx, cls, "name");
     if (JS_IsString(nameV)) {
         const char* s = JS_ToCString(ctx, nameV);
-        if (s) { b->className = s; JS_FreeCString(ctx, s); }
+        if (s) {
+            b->className = s;
+            JS_FreeCString(ctx, s);
+        }
     }
     JS_FreeValue(ctx, nameV);
 
@@ -214,12 +220,14 @@ std::vector<std::string> Impl::check_props(const std::string& modulePath, const 
     if (!ns) return {ns.error().message};
     JsVal nsv(ctx, *ns);
     JsVal cls(ctx, JS_GetPropertyStr(ctx, nsv.get(), "default"));
-    if (!JS_IsFunction(ctx, cls.get())) return {"module '" + path + "' has no default export class (export default class X extends Behaviour)"};
+    if (!JS_IsFunction(ctx, cls.get()))
+        return {"module '" + path + "' has no default export class (export default class X extends Behaviour)"};
     JsVal propsV(ctx, from_json(props));
     JsVal pathV(ctx, JS_NewString(ctx, path.c_str()));
     JsVal fn(ctx, JS_GetPropertyStr(ctx, hooks.get(), "checkProps"));
     bool failed = false;
-    JSValue r = call("checking props of " + path, "", fn.get(), hooks.get(), {cls.get(), propsV.get(), pathV.get()}, &failed);
+    JSValue r =
+        call("checking props of " + path, "", fn.get(), hooks.get(), {cls.get(), propsV.get(), pathV.get()}, &failed);
     JsVal res(ctx, r);
     int64_t n = 0;
     if (!failed && JS_IsArray(res.get())) JS_GetLength(ctx, res.get(), &n);
@@ -227,7 +235,10 @@ std::vector<std::string> Impl::check_props(const std::string& modulePath, const 
         JsVal item(ctx, JS_GetPropertyUint32(ctx, res.get(), static_cast<uint32_t>(i)));
         if (JS_IsString(item.get())) {
             const char* c = JS_ToCString(ctx, item.get());
-            if (c) { out.emplace_back(c); JS_FreeCString(ctx, c); }
+            if (c) {
+                out.emplace_back(c);
+                JS_FreeCString(ctx, c);
+            }
         }
     }
     return out;
@@ -268,8 +279,9 @@ void Impl::resolve_waiting_refs(bool tick) {
         }
         if (tick && ++w.ticks >= kDeferredRefTicks) {
             fa::log(LogLevel::Warn, "script",
-                    "world.spawn: " + w.ref.pointer + ": no entity with id '" + w.ref.id + "' appeared for '" + w.ref.type->name + "." +
-                        w.ref.field->name + "'; the field stays empty. Spawn that entity, or set the field with entity.set(...).");
+                    "world.spawn: " + w.ref.pointer + ": no entity with id '" + w.ref.id + "' appeared for '" +
+                        w.ref.type->name + "." + w.ref.field->name +
+                        "'; the field stays empty. Spawn that entity, or set the field with entity.set(...).");
             continue;
         }
         keep.push_back(std::move(w));
@@ -345,7 +357,8 @@ void Impl::run_callbacks(const char* method, float dt, bool pausedOnly) {
         }
         bool failed = false;
         std::string label = b.path + "#" + method;
-        JSValue r = call_method(label, W.id_of(b.entity), b.instance.get(), method, {JS_NewFloat64(ctx, dt)}, &failed, &b);
+        JSValue r =
+            call_method(label, W.id_of(b.entity), b.instance.get(), method, {JS_NewFloat64(ctx, dt)}, &failed, &b);
         JS_FreeValue(ctx, r);
         if (failed && lastCallTimedOut) {
             b.faulted = true;
@@ -364,7 +377,10 @@ void Impl::dispatch(const char* method, Entity self, std::initializer_list<JSVal
         const Script* s = W.get<Script>(self);
         if (s && s->enabled && W.active_in_hierarchy(self)) {
             update_activation(*b);
-            if (b->dead) { for (JSValue a : args) JS_FreeValue(ctx, a); return; }
+            if (b->dead) {
+                for (JSValue a : args) JS_FreeValue(ctx, a);
+                return;
+            }
             JSValue r = call_method(b->path + "#" + method, W.id_of(self), b->instance.get(), method, args, nullptr, b);
             JS_FreeValue(ctx, r);
         }
@@ -403,9 +419,13 @@ void ScriptSystem::dispatch_events() {
                     I.dispatch(method, self, {otherObj});
                 } else {
                     JSValue args[8] = {JS_NewBool(ctx, is2d),
-                                       JS_NewFloat64(ctx, ev.point.x), JS_NewFloat64(ctx, ev.point.y), JS_NewFloat64(ctx, ev.point.z),
-                                       JS_NewFloat64(ctx, ev.normal.x * sgn), JS_NewFloat64(ctx, ev.normal.y * sgn),
-                                       JS_NewFloat64(ctx, ev.normal.z * sgn), JS_NewFloat64(ctx, ev.impulse)};
+                                       JS_NewFloat64(ctx, ev.point.x),
+                                       JS_NewFloat64(ctx, ev.point.y),
+                                       JS_NewFloat64(ctx, ev.point.z),
+                                       JS_NewFloat64(ctx, ev.normal.x * sgn),
+                                       JS_NewFloat64(ctx, ev.normal.y * sgn),
+                                       JS_NewFloat64(ctx, ev.normal.z * sgn),
+                                       JS_NewFloat64(ctx, ev.impulse)};
                     JSValue infoFn = JS_GetPropertyStr(ctx, I.hooks.get(), "makeInfo");
                     JSValue info = I.call("collision info", "", infoFn, I.hooks.get(),
                                           {args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]});
@@ -440,7 +460,8 @@ void ScriptSystem::dispatch_events() {
         }
     }
     if (!W.events().game.empty() || !W.events().collisions.empty()) {
-        log(LogLevel::Warn, "script", "world events keep re-emitting events; dropping the remainder (check for an emit loop)");
+        log(LogLevel::Warn, "script",
+            "world events keep re-emitting events; dropping the remainder (check for an emit loop)");
     }
     W.events().clear();
     I.run_jobs();

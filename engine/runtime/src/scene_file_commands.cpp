@@ -88,15 +88,18 @@ void strip_instance_state(const World& w, Entity e, Json& j, bool isRoot, const 
         Json kept = Json::array();
         for (const Json& tag : j["tags"]) {
             if (tag.is_string() && starts_with(tag.get<std::string>(), kTilemapTagPrefix)) {
-                add_note(notes, "Tag '" + tag.get<std::string>() +
-                                    "' was not saved: scene.import_ascii adds it to the objects it places, and a prefab "
-                                    "carrying it would be destroyed when that map is re-imported.");
+                add_note(notes,
+                         "Tag '" + tag.get<std::string>() +
+                             "' was not saved: scene.import_ascii adds it to the objects it places, and a prefab "
+                             "carrying it would be destroyed when that map is re-imported.");
                 continue;
             }
             kept.push_back(tag);
         }
-        if (kept.empty()) j.erase("tags");
-        else j["tags"] = kept;
+        if (kept.empty())
+            j.erase("tags");
+        else
+            j["tags"] = kept;
     }
 
     // Entity fields pointing outside the saved tree would dangle in every instance.
@@ -118,9 +121,10 @@ void strip_instance_state(const World& w, Entity e, Json& j, bool isRoot, const 
         if (j.contains("components") && j["components"].is_object() && j["components"].contains("Transform")) {
             Json& tf = j["components"]["Transform"];
             if (tf.is_object() && tf.contains("position")) {
-                add_note(notes, "Transform.position " + tf["position"].dump() +
-                                    " of the root was not saved: it is where this instance stands, not part of the prefab "
-                                    "(children keep their positions relative to the root).");
+                add_note(notes,
+                         "Transform.position " + tf["position"].dump() +
+                             " of the root was not saved: it is where this instance stands, not part of the prefab "
+                             "(children keep their positions relative to the root).");
                 tf.erase("position");
                 if (tf.empty()) j["components"].erase("Transform");
             }
@@ -158,9 +162,11 @@ Json prefab_save(Engine::Impl& I, const Json& a) {
         const std::string suggestion = suggest_prefab_path(path, fallback);
         if (ends_with(to_lower(path), kSceneExt))
             bad_arg("'path' is '" + rawPath + "', a scene file name, but prefab.save writes prefabs.",
-                    "Use scene.save to save the whole running world as a scene, or name the prefab '" + suggestion + "'.");
+                    "Use scene.save to save the whole running world as a scene, or name the prefab '" + suggestion +
+                        "'.");
         bad_arg("'path' must end in " + std::string(kPrefabExt) + ", got '" + rawPath + "'.",
-                "Use '" + suggestion + "'. Prefabs live in prefabs/ so that project.info and project.validate find them.");
+                "Use '" + suggestion +
+                    "'. Prefabs live in prefabs/ so that project.info and project.validate find them.");
     }
     const bool overwrite = a.value("overwrite", false);
     const bool existed = fs::exists(path);
@@ -235,11 +241,13 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
     const Json& paths = a["paths"];
     if (!paths.is_array() || paths.empty())
         bad_arg("'paths' must be a non-empty array of project-relative files or folders.",
-                "Pass e.g. [\"scenes\", \"prefabs/enemy.prefab.json\"], or 'all': true for every scene and prefab of the project.");
+                "Pass e.g. [\"scenes\", \"prefabs/enemy.prefab.json\"], or 'all': true for every scene and prefab of "
+                "the project.");
     for (std::size_t i = 0; i < paths.size(); ++i) {
         const std::string what = "paths[" + std::to_string(i) + "]";
         if (!paths[i].is_string())
-            bad_arg(what + " must be a string, got " + describe_json_value(paths[i]), "Example: \"paths\": [\"scenes\"].");
+            bad_arg(what + " must be a string, got " + describe_json_value(paths[i]),
+                    "Example: \"paths\": [\"scenes\"].");
         const std::string rel = project_relative(paths[i].get<std::string>(), what);
         if (fs::is_directory(rel)) {
             searched.push_back(rel);
@@ -251,8 +259,9 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
                             "; to format all of them pass a folder instead.");
             files.insert(rel);
         } else {
-            throw CommandError("not_found", what + " '" + rel + "' does not exist. " + did_you_mean(rel, project_scene_files("")),
-                               "Pass scene/prefab files or folders of the project; project.info lists the scenes and prefabs.");
+            throw CommandError(
+                "not_found", what + " '" + rel + "' does not exist. " + did_you_mean(rel, project_scene_files("")),
+                "Pass scene/prefab files or folders of the project; project.info lists the scenes and prefabs.");
         }
     }
     return files;
@@ -260,7 +269,8 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
 
 Json scene_format(Engine::Impl& I, const Json& a) {
     const bool check = a.value("check", false);
-    const bool strict = a.value("strict", false);  // only meaningful with `check`: without it the files are fixed, not listed
+    const bool strict =
+        a.value("strict", false);       // only meaningful with `check`: without it the files are fixed, not listed
     std::vector<std::string> searched;  // folders searched, for the note when nothing was found
     const bool all = a.value("all", false);
     if (all && a.contains("paths"))
@@ -273,8 +283,10 @@ Json scene_format(Engine::Impl& I, const Json& a) {
         std::size_t unreadable = 0;
         for (const std::string& f : select_files(Json::object(), searchedAll)) {
             auto layout = canonical_scene_layout(f);
-            if (!layout.ok()) ++unreadable;
-            else if (!layout->same) wouldChange.push_back(f);
+            if (!layout.ok())
+                ++unreadable;
+            else if (!layout->same)
+                wouldChange.push_back(f);
         }
         constexpr std::size_t kListed = 5;
         std::string list;
@@ -282,11 +294,16 @@ Json scene_format(Engine::Impl& I, const Json& a) {
         if (wouldChange.size() > kListed) list += ", and " + std::to_string(wouldChange.size() - kListed) + " more";
         throw CommandError(
             "paths_required",
-            "scene.format without 'paths' would rewrite the whole project, so it wrote nothing: " + std::to_string(wouldChange.size()) +
-                " scene/prefab file(s) would change" + (list.empty() ? std::string() : ": " + list) +
-                (unreadable ? " (" + std::to_string(unreadable) + " more are not valid JSON and would be skipped)" : std::string()) + ".",
-            "Pass the files or folders you edited, e.g. scene.format {\"paths\":[\"scenes/level1.scene.json\"]}, or \"all\": true to "
-            "rewrite every scene and prefab of the project; \"check\": true only lists the files that are not canonical.");
+            "scene.format without 'paths' would rewrite the whole project, so it wrote nothing: " +
+                std::to_string(wouldChange.size()) + " scene/prefab file(s) would change" +
+                (list.empty() ? std::string() : ": " + list) +
+                (unreadable ? " (" + std::to_string(unreadable) + " more are not valid JSON and would be skipped)"
+                            : std::string()) +
+                ".",
+            "Pass the files or folders you edited, e.g. scene.format {\"paths\":[\"scenes/level1.scene.json\"]}, or "
+            "\"all\": true to "
+            "rewrite every scene and prefab of the project; \"check\": true only lists the files that are not "
+            "canonical.");
     }
     // Without `check` the files are WRITTEN: every path the caller names is confined first (inside the project, outside the
     // managed folders), before any file is touched.
@@ -327,14 +344,17 @@ Json scene_format(Engine::Impl& I, const Json& a) {
             list += (i ? ", " : "") + notCanonical[i].get<std::string>();
         if (notCanonical.size() > kListed) list += ", and " + std::to_string(notCanonical.size() - kListed) + " more";
         throw CommandError("not_canonical",
-                           std::to_string(notCanonical.size()) + " scene/prefab file(s) are not in the canonical layout: " + list + ".",
+                           std::to_string(notCanonical.size()) +
+                               " scene/prefab file(s) are not in the canonical layout: " + list + ".",
                            "Run scene.format without 'check' on them (factoria call scene.format '{\"paths\":[...]}', "
                            "or '{\"all\":true}' for the whole project) to rewrite them; only whitespace changes.");
     }
 
     Json out = Json::object();
-    if (check) out["notCanonical"] = notCanonical;
-    else out["formatted"] = formatted;
+    if (check)
+        out["notCanonical"] = notCanonical;
+    else
+        out["formatted"] = formatted;
     out["unchanged"] = unchanged;
     out["errors"] = errors;
     if (files.empty()) {
@@ -343,7 +363,8 @@ Json scene_format(Engine::Impl& I, const Json& a) {
             if (!where.empty()) where += ", ";
             where += s.empty() ? std::string("the project") : "'" + s + "'";
         }
-        out["notes"] = Json::array({"No " + std::string(kSceneExt) + " or " + kPrefabExt + " files found in " + where + "."});
+        out["notes"] =
+            Json::array({"No " + std::string(kSceneExt) + " or " + kPrefabExt + " files found in " + where + "."});
     }
     return out;
 }
@@ -359,8 +380,7 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "{\"prefab\":path}, a scene entity {\"prefab\":path} or a scene.import_ascii legend. `id` is the id "
          "(or name) of an entity of the running world; the whole tree below it is saved with every "
          "component's non-default serialized fields (runtime state such as velocities and animation time is "
-         "not). Example: prefab.save {\"id\":\"enemy_3\",\"path\":\"prefabs/enemy.prefab.json\"}"
-         FA_COMMAND_DETAILS
+         "not). Example: prefab.save {\"id\":\"enemy_3\",\"path\":\"prefabs/enemy.prefab.json\"}" FA_COMMAND_DETAILS
          "A prefab describes the reusable thing, not this instance, so the file does NOT carry: the ids "
          "(every instantiation gets fresh ones; an id stays only where another entity of the saved tree "
          "points at it through an Entity field, so those references survive); the root's Transform.position "
@@ -396,8 +416,7 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "ones; `all` true formats the whole project (skipping folders that start with '.', node_modules and "
          "a top-level build/). With `check` true nothing is written: the files that are not canonical are "
          "listed (the whole project when `paths` is absent; use it in CI or to review). Example: "
-         "scene.format {\"paths\":[\"prefabs\"],\"check\":true}"
-         FA_COMMAND_DETAILS
+         "scene.format {\"paths\":[\"prefabs\"],\"check\":true}" FA_COMMAND_DETAILS
          "A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; "
          "the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, "
          "line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, "
@@ -419,9 +438,9 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
 
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
-        {"prefab.save", capability_sets::writes_project()},
-        {"scene.format", capability_sets::writes_project()},
-    });
+                                                 {"prefab.save", capability_sets::writes_project()},
+                                                 {"scene.format", capability_sets::writes_project()},
+                                             });
 }
 
 }  // namespace fa

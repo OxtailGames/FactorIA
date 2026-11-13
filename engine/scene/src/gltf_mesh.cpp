@@ -51,21 +51,33 @@ struct Group {
 Result<GltfMesh> read_gltf_mesh(const std::string& path) {
     const std::string lower = to_lower(path);
     if (!ends_with(lower, ".glb") && !ends_with(lower, ".gltf"))
-        return make_error(std::format("'{}' is not a .glb or .gltf file", path), "Give a glTF 2.0 file, e.g. \"assets/models/robot.glb\". An OBJ or FBX goes through assets.import first.");
+        return make_error(
+            std::format("'{}' is not a .glb or .gltf file", path),
+            "Give a glTF 2.0 file, e.g. \"assets/models/robot.glb\". An OBJ or FBX goes through assets.import first.");
     auto bytes = fs::read_bytes(path);
-    if (!bytes) return make_error(std::format("cannot read '{}': {}", path, bytes.error().message), "Give a project-relative path to a file that exists, e.g. \"assets/models/robot.glb\".");
+    if (!bytes)
+        return make_error(std::format("cannot read '{}': {}", path, bytes.error().message),
+                          "Give a project-relative path to a file that exists, e.g. \"assets/models/robot.glb\".");
+    return read_gltf_mesh_bytes(*bytes, path);
+}
+
+Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, const std::string& path) {
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
-    if (cgltf_parse(&opts, bytes->data(), bytes->size(), &data) != cgltf_result_success)
-        return make_error(std::format("cgltf could not parse '{}'", path), "The file must be a valid glTF 2.0 (.gltf or .glb) file; export it again from the tool that made it.");
+    if (cgltf_parse(&opts, bytes.data(), bytes.size(), &data) != cgltf_result_success)
+        return make_error(
+            std::format("cgltf could not parse '{}'", path),
+            "The file must be a valid glTF 2.0 (.gltf or .glb) file; export it again from the tool that made it.");
     struct Guard {
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
     if (cgltf_load_buffers(&opts, data, path.c_str()) != cgltf_result_success)
-        return make_error(std::format("cannot load the buffers of '{}'", path), "External .bin files must sit next to the .gltf and inside the project.");
+        return make_error(std::format("cannot load the buffers of '{}'", path),
+                          "External .bin files must sit next to the .gltf and inside the project.");
 
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
     GltfMesh out;
     const std::string dir = directory_of(fs::normalize(path));
 
@@ -82,7 +94,8 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
         mm.name = name;
         const cgltf_pbr_metallic_roughness& pbr = m->pbr_metallic_roughness;
         if (m->has_pbr_metallic_roughness) {
-            mm.color = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
+            mm.color = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2],
+                             pbr.base_color_factor[3]};
             mm.metallic = pbr.metallic_factor;
             mm.roughness = pbr.roughness_factor;
             const cgltf_image* image = pbr.base_color_texture.texture ? pbr.base_color_texture.texture->image : nullptr;
@@ -93,15 +106,21 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                     decoded.push_back('\0');
                     cgltf_decode_uri(decoded.data());
                     const std::string joined = fs::normalize(dir + decoded.data());
-                    if (joined.empty()) out.warnings.push_back(std::format("material '{}': its texture '{}' is outside the project, so the material keeps its colour only", name, uri));
-                    else mm.texture = joined;
+                    if (joined.empty())
+                        out.warnings.push_back(std::format("material '{}': its texture '{}' is outside the project, so "
+                                                           "the material keeps its colour only",
+                                                           name, uri));
+                    else
+                        mm.texture = joined;
                 } else if (image->buffer_view || (image->uri && std::strncmp(image->uri, "data:", 5) == 0)) {
                     GltfEmbeddedImage emb;
                     emb.material = out.materials.size();
                     const std::string mime = image->mime_type ? image->mime_type : "";
-                    emb.extension = mime.find("jpeg") != std::string::npos || mime.find("jpg") != std::string::npos ? "jpg" : "png";
+                    emb.extension =
+                        mime.find("jpeg") != std::string::npos || mime.find("jpg") != std::string::npos ? "jpg" : "png";
                     if (image->buffer_view) {
-                        const auto* src = static_cast<const std::uint8_t*>(image->buffer_view->buffer->data) + image->buffer_view->offset;
+                        const auto* src = static_cast<const std::uint8_t*>(image->buffer_view->buffer->data) +
+                                          image->buffer_view->offset;
                         emb.bytes.assign(src, src + image->buffer_view->size);
                     } else {
                         const char* comma = std::strchr(image->uri, ',');
@@ -110,10 +129,13 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                             void* decodedData = nullptr;
                             cgltf_options o{};
                             // base64: size = 3/4 of the text minus padding
-                            const cgltf_size padding = b64.size() >= 2 ? (b64[b64.size() - 1] == '=') + (b64[b64.size() - 2] == '=') : 0;
+                            const cgltf_size padding =
+                                b64.size() >= 2 ? (b64[b64.size() - 1] == '=') + (b64[b64.size() - 2] == '=') : 0;
                             const cgltf_size size = (b64.size() * 3) / 4 - padding;
-                            if (cgltf_load_buffer_base64(&o, size, b64.c_str(), &decodedData) == cgltf_result_success && decodedData) {
-                                emb.bytes.assign(static_cast<std::uint8_t*>(decodedData), static_cast<std::uint8_t*>(decodedData) + size);
+                            if (cgltf_load_buffer_base64(&o, size, b64.c_str(), &decodedData) == cgltf_result_success &&
+                                decodedData) {
+                                emb.bytes.assign(static_cast<std::uint8_t*>(decodedData),
+                                                 static_cast<std::uint8_t*>(decodedData) + size);
                                 std::free(decodedData);
                             }
                         }
@@ -133,7 +155,7 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
     bool allNormals = true, anyUvs = false, allUvs = true, anyColors = false, allColors = true;
     std::vector<Group> groups;
     std::vector<std::string> plusParts;  // part names with a "+" already warned about
-    std::size_t skipped = 0, skinned = 0;
+    std::size_t skipped = 0, skinned = 0, indexTotal = 0;
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
         if (!node.mesh) continue;
@@ -142,8 +164,10 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
         float world[16];
         cgltf_node_transform_world(&node, world);
         // normal matrix: the inverse transpose of the upper 3x3; uniform scale and rotation are the common case, a general matrix is handled
-        float m3[9] = {world[0], world[4], world[8], world[1], world[5], world[9], world[2], world[6], world[10]};  // rows = columns of the column-major matrix
-        const float det = m3[0] * (m3[4] * m3[8] - m3[5] * m3[7]) - m3[1] * (m3[3] * m3[8] - m3[5] * m3[6]) + m3[2] * (m3[3] * m3[7] - m3[4] * m3[6]);
+        float m3[9] = {world[0], world[4], world[8], world[1], world[5],
+                       world[9], world[2], world[6], world[10]};  // rows = columns of the column-major matrix
+        const float det = m3[0] * (m3[4] * m3[8] - m3[5] * m3[7]) - m3[1] * (m3[3] * m3[8] - m3[5] * m3[6]) +
+                          m3[2] * (m3[3] * m3[7] - m3[4] * m3[6]);
         const bool mirrored = det < 0;
         float inv[9] = {};
         if (std::fabs(det) > 1e-20f) {
@@ -167,12 +191,22 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
             for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
                 const cgltf_attribute& at = prim.attributes[a];
                 if (at.index != 0) continue;
-                if (at.type == cgltf_attribute_type_position) pos = at.data;
-                else if (at.type == cgltf_attribute_type_normal) nrm = at.data;
-                else if (at.type == cgltf_attribute_type_texcoord) uv = at.data;
-                else if (at.type == cgltf_attribute_type_color) col = at.data;
+                if (at.type == cgltf_attribute_type_position)
+                    pos = at.data;
+                else if (at.type == cgltf_attribute_type_normal)
+                    nrm = at.data;
+                else if (at.type == cgltf_attribute_type_texcoord)
+                    uv = at.data;
+                else if (at.type == cgltf_attribute_type_color)
+                    col = at.data;
             }
             if (!pos || pos->count == 0) continue;
+            // Nodes may share one mesh, so a few thousand bytes of file can place millions of vertices: stop before the arrays grow.
+            if (positions.size() / 3 + pos->count > kMaxProceduralVertices)
+                return make_error(
+                    std::format("'{}' has more than the {} vertices a mesh can hold once every node is placed", path,
+                                kMaxProceduralVertices),
+                    "Decimate it in the tool that made it, or split it into several files.");
             const auto base = std::uint32_t(positions.size() / 3);
             for (cgltf_size i = 0; i < pos->count; ++i) {
                 float p[3] = {0, 0, 0};
@@ -187,7 +221,11 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                     float y = inv[1] * n[0] + inv[4] * n[1] + inv[7] * n[2];
                     float z = inv[2] * n[0] + inv[5] * n[1] + inv[8] * n[2];
                     const float l = std::sqrt(x * x + y * y + z * z);
-                    if (l > 1e-12f) { x /= l; y /= l; z /= l; }
+                    if (l > 1e-12f) {
+                        x /= l;
+                        y /= l;
+                        z /= l;
+                    }
                     normals.insert(normals.end(), {x, y, z});
                 }
                 if (uv) {
@@ -206,23 +244,42 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                 }
             }
             if (!nrm) allNormals = false;
-            if (uv) anyUvs = true; else allUvs = false;
-            if (col) anyColors = true; else allColors = false;
-            if (!nrm) normals.insert(normals.end(), pos->count * 3, 0.0f);  // keeps the arrays the same length; dropped below when any primitive had none
+            if (uv)
+                anyUvs = true;
+            else
+                allUvs = false;
+            if (col)
+                anyColors = true;
+            else
+                allColors = false;
+            if (!nrm)
+                normals.insert(normals.end(), pos->count * 3,
+                               0.0f);  // keeps the arrays the same length; dropped below when any primitive had none
 
             const std::size_t material = material_of(prim.material);
             const std::string part = primitive_part(data, prim);
-            if (part.find('+') != std::string::npos && std::find(plusParts.begin(), plusParts.end(), part) == plusParts.end()) {
+            if (part.find('+') != std::string::npos &&
+                std::find(plusParts.begin(), plusParts.end(), part) == plusParts.end()) {
                 plusParts.push_back(part);
-                out.warnings.push_back(std::format("the part name \"{}\" contains \"+\", which joins the names of merged parts (rig.bake mergeParts), so model.game_ready's collider.part cannot pick it on its own; "
-                                                   "rename it in the file's primitive extras (e.g. \"{}\")", part, replace_all(part, "+", "_")));
+                out.warnings.push_back(
+                    std::format("the part name \"{}\" contains \"+\", which joins the names of merged parts (rig.bake "
+                                "mergeParts), so model.game_ready's collider.part cannot pick it on its own; "
+                                "rename it in the file's primitive extras (e.g. \"{}\")",
+                                part, replace_all(part, "+", "_")));
             }
-            auto it = std::find_if(groups.begin(), groups.end(), [&](const Group& g) { return g.material == material && g.part == part; });
+            auto it = std::find_if(groups.begin(), groups.end(),
+                                   [&](const Group& g) { return g.material == material && g.part == part; });
             if (it == groups.end()) {
                 groups.push_back({material, part, {}});
                 it = groups.end() - 1;
             }
             const cgltf_size count = prim.indices ? prim.indices->count : pos->count;
+            indexTotal += count - count % 3;
+            if (indexTotal > kMaxProceduralIndices)
+                return make_error(
+                    std::format("'{}' has more than the {} triangles a mesh can hold once every node is placed", path,
+                                kMaxProceduralIndices / 3),
+                    "Decimate it in the tool that made it, or split it into several files.");
             for (cgltf_size i = 0; i + 2 < count; i += 3) {
                 std::uint32_t t[3];
                 for (int k = 0; k < 3; ++k) {
@@ -234,12 +291,19 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
             }
         }
     }
-    if (skipped > 0) out.warnings.push_back(std::format("{} primitive(s) are not triangles (points or lines) and were skipped", skipped));
-    if (skinned > 0) out.warnings.push_back("the file is skinned: the mesh is read in its bind pose and the skeleton and animations are not kept");
+    if (skipped > 0)
+        out.warnings.push_back(
+            std::format("{} primitive(s) are not triangles (points or lines) and were skipped", skipped));
+    if (skinned > 0)
+        out.warnings.push_back(
+            "the file is skinned: the mesh is read in its bind pose and the skeleton and animations are not kept");
     if (positions.empty() || groups.empty())
-        return make_error(std::format("'{}' contains no triangle meshes", path), "Export the model with at least one mesh made of triangles.");
+        return make_error(std::format("'{}' contains no triangle meshes", path),
+                          "Export the model with at least one mesh made of triangles.");
     if (positions.size() / 3 > kMaxProceduralVertices)
-        return make_error(std::format("'{}' has {} vertices, more than the {} a mesh can hold", path, positions.size() / 3, kMaxProceduralVertices), "Decimate it in the tool that made it, or split it into several files.");
+        return make_error(std::format("'{}' has {} vertices, more than the {} a mesh can hold", path,
+                                      positions.size() / 3, kMaxProceduralVertices),
+                          "Decimate it in the tool that made it, or split it into several files.");
 
     MeshInput in;
     in.positions = std::move(positions);
@@ -265,7 +329,9 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
         out.submeshMaterial.push_back(g.material);
     }
     if (in.indices.size() > kMaxProceduralIndices)
-        return make_error(std::format("'{}' has {} triangles, more than the {} a mesh can hold", path, in.indices.size() / 3, kMaxProceduralIndices / 3), "Decimate it in the tool that made it, or split it into several files.");
+        return make_error(std::format("'{}' has {} triangles, more than the {} a mesh can hold", path,
+                                      in.indices.size() / 3, kMaxProceduralIndices / 3),
+                          "Decimate it in the tool that made it, or split it into several files.");
     auto built = build_mesh_data(in);
     if (!built) return make_error(std::format("'{}': {}", path, built.error().message), built.error().hint);
     out.data = std::move(*built);

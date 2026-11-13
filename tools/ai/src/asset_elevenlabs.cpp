@@ -19,7 +19,8 @@ constexpr const char* kFormat = "?output_format=mp3_44100_128";  // available on
 
 }  // namespace
 
-Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel) {
+Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                     const CancelFlag* cancel) {
     auto key = asset_api_key(cfg, rt);
     if (!key) return key.error();
 
@@ -29,7 +30,8 @@ Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetReque
     switch (req.kind) {
         case MediaKind::Sound:
             if (req.seconds != 0 && (req.seconds < 0.5 || req.seconds > 30)) {
-                return make_error("ElevenLabs sound effects last 0.5 to 30 seconds, not " + std::format("{}", req.seconds),
+                return make_error("ElevenLabs sound effects last 0.5 to 30 seconds, not " +
+                                      std::format("{}", req.seconds),
                                   "Pass `seconds` between 0.5 and 30, or leave it out to let the model choose.");
             }
             if (model.empty()) model = "eleven_text_to_sound_v2";
@@ -49,11 +51,15 @@ Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetReque
             if (req.seconds > 0) body["music_length_ms"] = static_cast<long long>(std::llround(req.seconds * 1000));
             break;
         case MediaKind::Voice: {
-            const bool idLooksRight = !req.voice.empty() && req.voice.find_first_not_of(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") == std::string::npos;
+            const bool idLooksRight =
+                !req.voice.empty() &&
+                req.voice.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") ==
+                    std::string::npos;
             if (!idLooksRight) {
-                return make_error(req.voice.empty() ? "ElevenLabs needs a voice id to speak with" : "'" + req.voice + "' is not an ElevenLabs voice id",
-                                  "Set assets.voice.voice in ai.json or pass `voice`: the id of a voice from your ElevenLabs voice library "
+                return make_error(req.voice.empty() ? "ElevenLabs needs a voice id to speak with"
+                                                    : "'" + req.voice + "' is not an ElevenLabs voice id",
+                                  "Set assets.voice.voice in ai.json or pass `voice`: the id of a voice from your "
+                                  "ElevenLabs voice library "
                                   "(elevenlabs.io/app/voice-library, or GET /v1/voices).");
             }
             if (model.empty()) model = "eleven_multilingual_v2";

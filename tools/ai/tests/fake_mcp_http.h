@@ -18,21 +18,22 @@ inline std::string header_of(const HttpRequest& r, const std::string& name) {
 struct FakeHttpServer {
     bool sse = false;
     bool sendSessionId = true;
-    int status = 200;                 // answer every request with this status when not 200
-    std::string wwwAuthenticate;      // sent with a 401
+    int status = 200;             // answer every request with this status when not 200
+    std::string wwwAuthenticate;  // sent with a 401
     std::string sessionId = "sess-1";
-    int pages = 1;                    // tools/list is split in this many pages
+    int pages = 1;  // tools/list is split in this many pages
     std::vector<HttpRequest> requests;
     int initializes = 0;
     int deletes = 0;
-    bool forgetSessionOnce = false;   // the next request carrying a session id gets 404
+    bool forgetSessionOnce = false;  // the next request carrying a session id gets 404
 
     HttpTransport transport() {
         return [this](const HttpRequest& req) { return handle(req); };
     }
 
     static Json text_result(const std::string& text, bool isError = false) {
-        return Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
+        return Json::object(
+            {{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
     }
 
     HttpResponse reply(const Json& message, const std::string& extraHeader = {}) const {
@@ -41,7 +42,8 @@ struct FakeHttpServer {
         if (sse) {
             r.headers["content-type"] = "text/event-stream";
             r.body = "event: ping\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{}}\n\n"
-                     "event: message\ndata: " + message.dump() + "\n\n";
+                     "event: message\ndata: " +
+                     message.dump() + "\n\n";
         } else {
             r.headers["content-type"] = "application/json";
             r.body = message.dump();
@@ -84,9 +86,10 @@ struct FakeHttpServer {
         std::string newSession;
         if (method == "initialize") {
             ++initializes;
-            result = Json::object({{"protocolVersion", "2025-06-18"},
-                                   {"capabilities", Json::object({{"tools", Json::object()}})},
-                                   {"serverInfo", Json::object({{"name", "fake"}, {"title", "Fake Scenario"}, {"version", "1.2.0"}})}});
+            result = Json::object(
+                {{"protocolVersion", "2025-06-18"},
+                 {"capabilities", Json::object({{"tools", Json::object()}})},
+                 {"serverInfo", Json::object({{"name", "fake"}, {"title", "Fake Scenario"}, {"version", "1.2.0"}})}});
             if (sendSessionId) newSession = sessionId + "-" + std::to_string(initializes);
         } else if (method == "tools/list") {
             const std::string cursor = params.value("cursor", std::string());
@@ -95,28 +98,42 @@ struct FakeHttpServer {
                                                     {"description", "Page " + std::to_string(page) + " tool."},
                                                     {"inputSchema", Json::object({{"type", "object"}})}})});
             if (page == 0) {
-                tools.push_back(Json::object({{"name", "generate image"}, {"description", "Makes an image."}}));  // no inputSchema
+                tools.push_back(
+                    Json::object({{"name", "generate image"}, {"description", "Makes an image."}}));  // no inputSchema
             }
             result = Json::object({{"tools", tools}});
             if (page + 1 < pages) result["nextCursor"] = std::to_string(page + 1);
         } else if (method == "tools/call") {
             const std::string name = params.value("name", std::string());
             const Json args = params.contains("arguments") ? params["arguments"] : Json::object();
-            if (name == "tool_0") result = text_result("called " + name + " with " + args.dump());
-            else if (name == "failing") result = text_result("no credits left", true);
+            if (name == "tool_0")
+                result = text_result("called " + name + " with " + args.dump());
+            else if (name == "failing")
+                result = text_result("no credits left", true);
             else if (name == "picture")
-                result = Json::object({{"content", Json::array({Json::object({{"type", "image"}, {"mimeType", "image/png"}, {"data", "QUJD"}}),
-                                                                Json::object({{"type", "image"}, {"mimeType", "image/tiff"}, {"data", "QUJD"}}),
-                                                                Json::object({{"type", "resource_link"}, {"name", "result"}, {"uri", "https://cdn.example/a.png"}})})}});
-            else if (name == "structured") result = Json::object({{"structuredContent", Json::object({{"id", 7}})}});
+                result = Json::object(
+                    {{"content",
+                      Json::array({Json::object({{"type", "image"}, {"mimeType", "image/png"}, {"data", "QUJD"}}),
+                                   Json::object({{"type", "image"}, {"mimeType", "image/tiff"}, {"data", "QUJD"}}),
+                                   Json::object({{"type", "resource_link"},
+                                                 {"name", "result"},
+                                                 {"uri", "https://cdn.example/a.png"}})})}});
+            else if (name == "structured")
+                result = Json::object({{"structuredContent", Json::object({{"id", 7}})}});
             else if (name == "structured_twice")  // the same result as text for older clients, and a short summary
-                result = Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", "{\"id\": 8}"}}),
-                                                                Json::object({{"type", "text"}, {"text", "One id."}})})},
-                                       {"structuredContent", Json::object({{"id", 8}})}});
+                result =
+                    Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", "{\"id\": 8}"}}),
+                                                           Json::object({{"type", "text"}, {"text", "One id."}})})},
+                                  {"structuredContent", Json::object({{"id", 8}})}});
             else
-                return reply(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32602}, {"message", "Unknown tool " + name}})}}));
+                return reply(
+                    Json::object({{"jsonrpc", "2.0"},
+                                  {"id", id},
+                                  {"error", Json::object({{"code", -32602}, {"message", "Unknown tool " + name}})}}));
         } else {
-            return reply(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32601}, {"message", "no " + method}})}}));
+            return reply(Json::object({{"jsonrpc", "2.0"},
+                                       {"id", id},
+                                       {"error", Json::object({{"code", -32601}, {"message", "no " + method}})}}));
         }
         return reply(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"result", result}}), newSession);
     }

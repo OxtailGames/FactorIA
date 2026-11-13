@@ -44,7 +44,7 @@ TEST_CASE("golden check: a missing golden fails and writes nothing; update mode 
     CHECK(missing.verdict == GoldenVerdict::Missing);
     CHECK_FALSE(missing.ok());
     CHECK(missing.message.find("FA_UPDATE_GOLDENS=1") != std::string::npos);  // the message says how to create it
-    CHECK_FALSE(stdfs::exists(t.golden));                                      // ... and a test run did not create it
+    CHECK_FALSE(stdfs::exists(t.golden));                                     // ... and a test run did not create it
 
     const GoldenResult wrote = compare_golden(img, t.golden, GoldenLimits{}, true);
     CHECK(wrote.verdict == GoldenVerdict::Wrote);
@@ -79,9 +79,9 @@ TEST_CASE("golden check: one very wrong pixel passes the mean error but is caugh
 
     const GoldenLimits limits;
     const GoldenResult r = compare_golden(img, t.golden, limits, false);
-    CHECK(r.diff.meanError < limits.maxMeanError);              // the mean alone would pass ...
-    CHECK(r.differingShare < limits.maxDifferingShare);         // ... and so would the share of pixels (one pixel)
-    CHECK(r.diff.maxError > limits.maxPixelError);              // the largest error does not
+    CHECK(r.diff.meanError < limits.maxMeanError);       // the mean alone would pass ...
+    CHECK(r.differingShare < limits.maxDifferingShare);  // ... and so would the share of pixels (one pixel)
+    CHECK(r.diff.maxError > limits.maxPixelError);       // the largest error does not
     CHECK(r.verdict == GoldenVerdict::TooDifferent);
 }
 
@@ -109,7 +109,8 @@ TEST_CASE("golden check: one inverted pixel passes the edge limits but fails the
     REQUIRE(save_png(golden, fs::path_to_utf8(t.golden)).ok());
 
     Image img = golden;
-    for (int c = 0; c < 3; ++c) img.rgba[(100 * 320 + 160) * 4 + c] = 255 - 20;  // a glyph pixel that flipped: 20 -> 235
+    for (int c = 0; c < 3; ++c)
+        img.rgba[(100 * 320 + 160) * 4 + c] = 255 - 20;  // a glyph pixel that flipped: 20 -> 235
 
     // Text, thin lines and nearest-sampled edges use golden_edge_limits(): a single pixel may differ completely there ...
     const GoldenResult edge = compare_golden(img, t.golden, golden_edge_limits(), false);
@@ -146,8 +147,10 @@ TEST_CASE("golden check: FA_UPDATE_GOLDENS wins over the old FA_UPDATE_GOLDEN na
 #ifdef _WIN32
             _putenv_s(name, value ? value : "");
 #else
-            if (value) setenv(name, value, 1);
-            else unsetenv(name);
+            if (value)
+                setenv(name, value, 1);
+            else
+                unsetenv(name);
 #endif
         }
     } env;

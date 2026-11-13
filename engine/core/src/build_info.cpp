@@ -54,8 +54,8 @@ std::string find_build_version(std::string_view bytes) {
     for (std::size_t at = bytes.find(prefix); at != std::string_view::npos; at = bytes.find(prefix, at + 1)) {
         std::size_t i = at + prefix.size();
         const std::size_t start = i;
-        while (i < bytes.size() && (std::isalnum(static_cast<unsigned char>(bytes[i])) || bytes[i] == '-' || bytes[i] == '.' ||
-                                    bytes[i] == '+'))
+        while (i < bytes.size() && (std::isalnum(static_cast<unsigned char>(bytes[i])) || bytes[i] == '-' ||
+                                    bytes[i] == '.' || bytes[i] == '+'))
             ++i;
         if (i < bytes.size() && bytes[i] == ';' && i > start) return std::string(bytes.substr(start, i - start));
     }

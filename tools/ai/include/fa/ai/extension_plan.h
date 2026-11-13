@@ -31,9 +31,9 @@ struct ExtensionSupport {
 ExtensionSupport extension_support(const ProviderConfig& provider);
 
 struct ExtensionContext {
-    std::string projectDir;   // "" = no project (only the user's entries)
-    ExtensionEnv env;         // HOME / CLAUDE_CONFIG_DIR lookups; null = the process environment
-    std::string trustPath;    // ai-trust.json; "" = nothing is trusted
+    std::string projectDir;      // "" = no project (only the user's entries)
+    ExtensionEnv env;            // HOME / CLAUDE_CONFIG_DIR lookups; null = the process environment
+    std::string trustPath;       // ai-trust.json; "" = nothing is trusted
     bool dropStaleTrust = true;  // a trust record for a file that changed is removed (false for read-only reports)
 };
 
@@ -42,8 +42,10 @@ struct ExtensionItem {
     ExtensionKind kind = ExtensionKind::Plugin;
     std::string name;
     std::string source;  // "user" or "project"
-    std::string target;  // the folder / zip it resolved to ("name@marketplace" -> its install folder); "" when it did not
-    std::vector<std::string> dirs;  // plugin: the folder; skill: each skill folder found (one, or one per skill of a folder of skills)
+    std::string
+        target;  // the folder / zip it resolved to ("name@marketplace" -> its install folder); "" when it did not
+    std::vector<std::string>
+        dirs;  // plugin: the folder; skill: each skill folder found (one, or one per skill of a folder of skills)
     bool enabled = true;
     bool trusted = true;  // false: from a project, runs a program, and the project is not trusted
     std::string problem;  // why this entry cannot be loaded at all ("" when fine)
@@ -60,9 +62,10 @@ struct ExtensionPlan {
     // The skills no entry names (the engine's, ~/.factoria/skills, <project>/skills) that the role is offered, for a provider that
     // takes skill folders. They are not an extension the user configured, so they do not make the plan non-empty or get a note.
     std::vector<std::string> implicitSkillDirs;
-    Json hooks;                           // merged events object; null when there are none
-    std::vector<HookSource> hookSources;  // the same hooks entry by entry, for FactorIA's own loop (make_hook_set); filled for every provider that takes hooks
-    bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
+    Json hooks;  // merged events object; null when there are none
+    std::vector<HookSource>
+        hookSources;  // the same hooks entry by entry, for FactorIA's own loop (make_hook_set); filled for every provider that takes hooks
+    bool userPluginsOff = false;  // inheritUserPlugins false and the provider honours it
     // Claude Code only: the project's .claude/settings*.json runs a program or widens what the AI may do and the project is not trusted, so the run starts
     // without the project and local setting sources. `untrustedSettings` says what would have run (ClaudeProjectSettings::describe).
     bool projectSettingsOff = false;
@@ -86,9 +89,10 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
 // enabled "hooks" entries of the user and of the project, whatever their roles (a role says which AI loads an entry, and a command
 // is called by people and scripts too). A project's entry that needs trust and is not trusted is left out and listed in `skipped`.
 struct CommandHookConfig {
-    HookSet set;                        // only the command events
-    std::vector<ExtensionItem> skipped; // entries not used, each with problem + fix
-    std::vector<std::string> inheritEnv;  // "inheritEnv" of ai.json: variables the hook commands inherit besides the base list
+    HookSet set;                         // only the command events
+    std::vector<ExtensionItem> skipped;  // entries not used, each with problem + fix
+    std::vector<std::string>
+        inheritEnv;  // "inheritEnv" of ai.json: variables the hook commands inherit besides the base list
 };
 CommandHookConfig load_command_hooks(const AiConfig& cfg, const ExtensionContext& ctx);
 
@@ -112,8 +116,9 @@ Result<std::vector<std::string>> write_agents_skills(const std::string& skillsRo
 struct ProjectTrustState {
     ProjectExtensions extensions;
     ClaudeProjectSettings claude;
-    bool needsTrust = false;  // something in the project needs trust (a plugin or hooks entry, or something in .claude/settings*.json that needs trust)
-    bool trusted = false;     // the user trusted exactly these files
+    bool needsTrust =
+        false;  // something in the project needs trust (a plugin or hooks entry, or something in .claude/settings*.json that needs trust)
+    bool trusted = false;  // the user trusted exactly these files
 };
 ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale);
 

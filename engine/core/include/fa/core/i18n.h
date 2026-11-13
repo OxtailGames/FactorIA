@@ -35,12 +35,13 @@ std::string base_language(std::string_view tag);
 // The language of the project that suits the user's languages (system order, best first), or "" when none does:
 // exact tag, then language + script (zh-CN and zh-SG are zh-Hans, zh-TW, zh-HK and zh-MO zh-Hant), then the base
 // language, then another variant of the same base language whose script does not clash ("pt" for a project with "pt-BR").
-std::string best_language_match(const std::vector<std::string>& systemLanguages, const std::vector<std::string>& projectLanguages);
+std::string best_language_match(const std::vector<std::string>& systemLanguages,
+                                const std::vector<std::string>& projectLanguages);
 
 // ---- Plural forms (CLDR cardinal rules) --------------------------------------------------------------------------------
 enum class PluralCategory : std::uint8_t { Zero, One, Two, Few, Many, Other };
-const char* plural_category_name(PluralCategory category);                    // "zero" .. "other"
-bool parse_plural_category(std::string_view name, PluralCategory& out);       // exact lower-case names
+const char* plural_category_name(PluralCategory category);               // "zero" .. "other"
+bool parse_plural_category(std::string_view name, PluralCategory& out);  // exact lower-case names
 // The form `count` takes in `language` (a tag: only the language and, for Portuguese, the region matter). Written for en, es,
 // pt, fr, de, it, nl, ru, uk, pl, cs, ar, he, ja, zh, ko, tr; ca, sv, nb, da, fi, sk and the other languages without a
 // rule of their own follow the English one (one / other), vi, th, id, ms have a single form. A number with decimals is
@@ -65,12 +66,13 @@ bool is_gender_code(std::string_view code);  // "f", "m" or "n"
 std::vector<std::string> gender_forms(std::string_view language);
 
 struct StringEntry {
-    std::string text;                                  // a plain string (also the "text" of a gendered one)
-    std::map<PluralCategory, std::string> forms;       // a plural entry (non-empty): one text per category, always has Other
-    std::map<std::string, std::string> selects;        // a select entry (non-empty): "f", "m", "n", "other"; always has "other"
-    std::string gender;                                // "f", "m", "n" for a gendered string, else ""
-    std::string pointer;                               // where the TEXT of the entry is in the file: "/menu/play", "/coins" (a plural
-                                                       // or select entry: the object), "/ship/light/text" (a gendered string)
+    std::string text;                             // a plain string (also the "text" of a gendered one)
+    std::map<PluralCategory, std::string> forms;  // a plural entry (non-empty): one text per category, always has Other
+    std::map<std::string, std::string>
+        selects;          // a select entry (non-empty): "f", "m", "n", "other"; always has "other"
+    std::string gender;   // "f", "m", "n" for a gendered string, else ""
+    std::string pointer;  // where the TEXT of the entry is in the file: "/menu/play", "/coins" (a plural
+                          // or select entry: the object), "/ship/light/text" (a gendered string)
     bool plural() const { return !forms.empty(); }
     bool select() const { return !selects.empty(); }
     bool gendered() const { return !gender.empty(); }

@@ -23,13 +23,20 @@ namespace {
 double bounce_out(double t) {
     const double n1 = 7.5625, d1 = 2.75;
     if (t < 1 / d1) return n1 * t * t;
-    if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
-    if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
+    if (t < 2 / d1) {
+        t -= 1.5 / d1;
+        return n1 * t * t + 0.75;
+    }
+    if (t < 2.5 / d1) {
+        t -= 2.25 / d1;
+        return n1 * t * t + 0.9375;
+    }
     t -= 2.625 / d1;
     return n1 * t * t + 0.984375;
 }
 
-constexpr const char* kFamilies[] = {"quad", "cubic", "quart", "quint", "sine", "expo", "circ", "back", "elastic", "bounce"};
+constexpr const char* kFamilies[] = {"quad", "cubic", "quart", "quint",   "sine",
+                                     "expo", "circ",  "back",  "elastic", "bounce"};
 constexpr int kFamilyCount = 10;
 
 // The "In" curve of family `f`: the definitions of EASE_IN in factoria.js.
@@ -42,9 +49,15 @@ double ease_in(int f, double t) {
         case 4: return 1 - det::f64::cos(t * 3.14159265358979323846 / 2);
         case 5: return t == 0 ? 0 : det::f64::pow(2.0, 10 * t - 10);
         case 6: return 1 - std::sqrt(1 - t * t);
-        case 7: { const double c1 = 1.70158; return (c1 + 1) * t * t * t - c1 * t * t; }
+        case 7: {
+            const double c1 = 1.70158;
+            return (c1 + 1) * t * t * t - c1 * t * t;
+        }
         case 8:
-            return t == 0 ? 0 : t == 1 ? 1 : -det::f64::pow(2.0, 10 * t - 10) * det::f64::sin((t * 10 - 10.75) * (2 * 3.14159265358979323846 / 3));
+            return t == 0   ? 0
+                   : t == 1 ? 1
+                            : -det::f64::pow(2.0, 10 * t - 10) *
+                                  det::f64::sin((t * 10 - 10.75) * (2 * 3.14159265358979323846 / 3));
         default: return 1 - bounce_out(1 - t);
     }
 }
@@ -107,15 +120,23 @@ int kind_channels(FieldKind k) {
         case FieldKind::Float: return 1;
         case FieldKind::Vec2: return 2;
         case FieldKind::Vec3: return 3;
-        case FieldKind::Vec4: case FieldKind::Color: return 4;
+        case FieldKind::Vec4:
+        case FieldKind::Color: return 4;
         default: return 0;
     }
 }
 bool animatable(FieldKind k) {
     switch (k) {
-        case FieldKind::Bool: case FieldKind::Int: case FieldKind::Float: case FieldKind::Vec2: case FieldKind::Vec3:
-        case FieldKind::Vec4: case FieldKind::Color: case FieldKind::Rect: case FieldKind::Enum: case FieldKind::Asset:
-            return true;
+        case FieldKind::Bool:
+        case FieldKind::Int:
+        case FieldKind::Float:
+        case FieldKind::Vec2:
+        case FieldKind::Vec3:
+        case FieldKind::Vec4:
+        case FieldKind::Color:
+        case FieldKind::Rect:
+        case FieldKind::Enum:
+        case FieldKind::Asset: return true;
         default: return false;
     }
 }
@@ -162,10 +183,38 @@ bool read_value(const ClipTrack& tr, const Json& j, std::array<float, 4>& out, s
     if (tr.channel >= 0 || tr.info->kind == FieldKind::Float) return read_floats(j, 1, out, why);
     std::string err;
     switch (tr.info->kind) {
-        case FieldKind::Vec2: { Vec2 v; if (json_to(j, v, &err)) { out = {v.x, v.y, 0, 0}; return true; } break; }
-        case FieldKind::Vec3: { Vec3 v; if (json_to(j, v, &err)) { out = {v.x, v.y, v.z, 0}; return true; } break; }
-        case FieldKind::Vec4: { Vec4 v; if (json_to(j, v, &err)) { out = {v.x, v.y, v.z, v.w}; return true; } break; }
-        case FieldKind::Color: { Color v; if (json_to(j, v, &err)) { out = {v.r, v.g, v.b, v.a}; return true; } break; }
+        case FieldKind::Vec2: {
+            Vec2 v;
+            if (json_to(j, v, &err)) {
+                out = {v.x, v.y, 0, 0};
+                return true;
+            }
+            break;
+        }
+        case FieldKind::Vec3: {
+            Vec3 v;
+            if (json_to(j, v, &err)) {
+                out = {v.x, v.y, v.z, 0};
+                return true;
+            }
+            break;
+        }
+        case FieldKind::Vec4: {
+            Vec4 v;
+            if (json_to(j, v, &err)) {
+                out = {v.x, v.y, v.z, v.w};
+                return true;
+            }
+            break;
+        }
+        case FieldKind::Color: {
+            Color v;
+            if (json_to(j, v, &err)) {
+                out = {v.r, v.g, v.b, v.a};
+                return true;
+            }
+            break;
+        }
         default: break;
     }
     *why = err;
@@ -189,7 +238,8 @@ void split_path(const std::string& path, std::vector<std::string>& out, bool* ba
 void parse_track(Parser& p, const Json& j, const std::string& ptr, float duration, ClipAsset& clip) {
     if (!j.is_object()) {
         p.err(ptr, "a track is an object, got " + describe_json_value(j),
-              "Write {\"path\": \"body/arm\", \"component\": \"Transform\", \"field\": \"rotation.z\", \"keys\": [{\"t\": 0, \"value\": 0}]}.");
+              "Write {\"path\": \"body/arm\", \"component\": \"Transform\", \"field\": \"rotation.z\", \"keys\": "
+              "[{\"t\": 0, \"value\": 0}]}.");
         return;
     }
     p.unknown_keys(j, ptr, {"path", "component", "field", "keys"});
@@ -199,7 +249,8 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
     // ---- path
     if (auto it = j.find("path"); it != j.end() && !it->is_string()) {
         p.err(ptr + "/path", "path must be a string, got " + describe_json_value(*it),
-              "Names of the entities from the one that plays the clip down, joined with '/': \"body/arm_l/hand\", or \"\" for the entity itself.");
+              "Names of the entities from the one that plays the clip down, joined with '/': \"body/arm_l/hand\", or "
+              "\"\" for the entity itself.");
         ok = false;
     } else if (it != j.end()) {
         tr.path = it->get<std::string>();
@@ -217,7 +268,8 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
     tr.component = "Transform";
     if (auto it = j.find("component"); it != j.end()) {
         if (!it->is_string()) {
-            p.err(ptr + "/component", "component must be a string, got " + describe_json_value(*it), "Write the component name: \"Transform\", \"Sprite\".");
+            p.err(ptr + "/component", "component must be a string, got " + describe_json_value(*it),
+                  "Write the component name: \"Transform\", \"Sprite\".");
             ok = false;
         } else {
             tr.component = it->get<std::string>();
@@ -229,18 +281,23 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
         if (!tr.type) {
             const std::string s = reg.suggest(tr.component);
             p.err(ptr + "/component", "unknown component '" + tr.component + "'",
-                  s.empty() ? "Component names are PascalCase: Transform, Sprite, Shape2D..." : "Did you mean '" + s + "'?");
+                  s.empty() ? "Component names are PascalCase: Transform, Sprite, Shape2D..."
+                            : "Did you mean '" + s + "'?");
             ok = false;
         } else if (tr.type->name == "EntityInfo") {
-            p.err(ptr + "/component", "EntityInfo cannot be animated (id, name, tags and active belong to the entity itself)",
+            p.err(ptr + "/component",
+                  "EntityInfo cannot be animated (id, name, tags and active belong to the entity itself)",
                   "To hide a part animate Sprite.color.a, or its Transform.scale.");
             ok = false;
         }
     }
     auto fit = j.find("field");
     if (fit == j.end() || !fit->is_string() || fit->get<std::string>().empty()) {
-        p.err(ptr + "/field", fit == j.end() ? "a track needs a field" : "field must be a non-empty string, got " + describe_json_value(*fit),
-              "Write the field of the component, with a channel for one component of a vector: \"position\", \"rotation.z\", \"color.a\".");
+        p.err(ptr + "/field",
+              fit == j.end() ? "a track needs a field"
+                             : "field must be a non-empty string, got " + describe_json_value(*fit),
+              "Write the field of the component, with a channel for one component of a vector: \"position\", "
+              "\"rotation.z\", \"color.a\".");
         ok = false;
     } else {
         tr.spelled = fit->get<std::string>();
@@ -260,24 +317,26 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
             ok = false;
         } else if (!animatable(tr.info->kind) || !tr.info->serialized || tr.info->readOnly) {
             const std::vector<std::string> names = animatable_fields(*tr.type);
-            std::string why = tr.info->readOnly ? "it is read-only"
+            std::string why = tr.info->readOnly      ? "it is read-only"
                               : !tr.info->serialized ? "it is runtime state, not part of the scene"
-                                                     : std::string("a ") + field_kind_name(tr.info->kind) + " cannot be interpolated or switched by a clip";
+                                                     : std::string("a ") + field_kind_name(tr.info->kind) +
+                                                           " cannot be interpolated or switched by a clip";
             p.err(ptr + "/field", std::format("{}.{} cannot be animated: {}", tr.component, name, why),
                   names.empty() ? std::string("This component has no animatable field.")
                                 : "Animatable fields of " + tr.component + ": " + join(names, ", ") + ".");
             ok = false;
         } else {
             const FieldKind kind = tr.info->kind;
-            tr.stepped = kind == FieldKind::Bool || kind == FieldKind::Int || kind == FieldKind::Enum || kind == FieldKind::Asset ||
-                         kind == FieldKind::Rect;
+            tr.stepped = kind == FieldKind::Bool || kind == FieldKind::Int || kind == FieldKind::Enum ||
+                         kind == FieldKind::Asset || kind == FieldKind::Rect;
             tr.channels = tr.stepped ? 0 : kind_channels(kind);
             if (!sub.empty()) {
                 const int n = kind_channels(kind);
                 const char* letters = channel_letters(kind);
                 if (tr.stepped || n <= 1) {
-                    p.err(ptr + "/field", std::format("{}.{} is {} and has no components, so '.{}' does not apply", tr.component, name,
-                                                      field_kind_name(kind), sub),
+                    p.err(ptr + "/field",
+                          std::format("{}.{} is {} and has no components, so '.{}' does not apply", tr.component, name,
+                                      field_kind_name(kind), sub),
                           "Write the field alone: \"" + name + "\".");
                     ok = false;
                 } else {
@@ -286,7 +345,8 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
                         if (sub[0] == letters[i]) ch = i;
                     if (ch < 0) {
                         p.err(ptr + "/field", std::format("'{}' is not a component of {}.{}", sub, tr.component, name),
-                              std::string("The components of a ") + field_kind_name(kind) + " are " + std::string(letters, std::size_t(n)) + ": \"" + name + "." + letters[0] + "\".");
+                              std::string("The components of a ") + field_kind_name(kind) + " are " +
+                                  std::string(letters, std::size_t(n)) + ": \"" + name + "." + letters[0] + "\".");
                         ok = false;
                     } else {
                         tr.channel = ch;
@@ -301,7 +361,10 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
     // ---- keys
     auto kit = j.find("keys");
     if (kit == j.end() || !kit->is_array() || kit->empty()) {
-        p.err(ptr + "/keys", kit == j.end() ? "a track needs `keys`" : kit->is_array() ? "a track needs at least one key" : "keys must be an array, got " + describe_json_value(*kit),
+        p.err(ptr + "/keys",
+              kit == j.end()    ? "a track needs `keys`"
+              : kit->is_array() ? "a track needs at least one key"
+                                : "keys must be an array, got " + describe_json_value(*kit),
               "Write [{\"t\": 0, \"value\": 0}, {\"t\": 1, \"value\": 90}]: t in seconds, value of the field's type.");
         ok = false;
     }
@@ -312,7 +375,8 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
         const Json& kj = (*kit)[k];
         const std::string kp = ptr + "/keys/" + std::to_string(k);
         if (!kj.is_object()) {
-            p.err(kp, "a key is an object, got " + describe_json_value(kj), "Write {\"t\": 0.5, \"value\": 10, \"interp\": \"linear\"}.");
+            p.err(kp, "a key is an object, got " + describe_json_value(kj),
+                  "Write {\"t\": 0.5, \"value\": 10, \"interp\": \"linear\"}.");
             continue;
         }
         p.unknown_keys(kj, kp, {"t", "value", "interp", "in", "out"});
@@ -320,29 +384,40 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
         bool keyOk = true;
         float t = 0;
         if (auto it = kj.find("t"); it == kj.end() || !read_number(*it, t)) {
-            p.err(kp + "/t", it == kj.end() ? "a key needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it), "Write t in seconds from the start of the clip: 0.25.");
+            p.err(kp + "/t",
+                  it == kj.end() ? "a key needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it),
+                  "Write t in seconds from the start of the clip: 0.25.");
             keyOk = false;
         } else if (t < 0) {
-            p.err(kp + "/t", std::format("t is {}: a key cannot be before the start of the clip", t), "Keys are at 0 or later.");
+            p.err(kp + "/t", std::format("t is {}: a key cannot be before the start of the clip", t),
+                  "Keys are at 0 or later.");
             keyOk = false;
         } else if (t > duration + 1e-6f) {
             p.err(kp + "/t", std::format("t is {}, past the clip's duration {}", t, duration),
                   std::format("Raise `duration` to at least {} or move the key earlier.", t));
             keyOk = false;
         } else if (!tr.keys.empty() && t <= tr.keys.back().t) {
-            p.err(kp + "/t", std::format("t is {}, not after the previous key (t {}): keys must be in ascending order of t", t, tr.keys.back().t),
-                  "Sort the keys by t, one key per time; to jump to another value use two keys a frame apart or interp \"step\".");
+            p.err(kp + "/t",
+                  std::format("t is {}, not after the previous key (t {}): keys must be in ascending order of t", t,
+                              tr.keys.back().t),
+                  "Sort the keys by t, one key per time; to jump to another value use two keys a frame apart or interp "
+                  "\"step\".");
             keyOk = false;
         }
         key.t = t;
 
         if (auto it = kj.find("value"); it == kj.end()) {
-            p.err(kp + "/value", "a key needs `value`", "The value has the type of " + tr.component + "." + tr.spelled + " (" + field_kind_name(tr.info->kind) + ").");
+            p.err(kp + "/value", "a key needs `value`",
+                  "The value has the type of " + tr.component + "." + tr.spelled + " (" +
+                      field_kind_name(tr.info->kind) + ").");
             keyOk = false;
         } else if (tr.stepped) {
             DefaultObject def(*tr.type);
             if (tr.info->kind == FieldKind::Int && !it->is_number_integer()) {
-                p.err(kp + "/value", "value must be an integer for " + tr.component + "." + tr.field + ", got " + describe_json_value(*it), {});
+                p.err(kp + "/value",
+                      "value must be an integer for " + tr.component + "." + tr.field + ", got " +
+                          describe_json_value(*it),
+                      {});
                 keyOk = false;
             } else if (auto r = field_from_json(*tr.info, def.get(), *it); !r) {
                 p.err(kp + "/value", r.error().message, r.error().hint);
@@ -353,8 +428,9 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
         } else {
             std::string why;
             if (!read_value(tr, *it, key.value, &why)) {
-                p.err(kp + "/value", "value " + why + " for " + tr.component + "." + tr.spelled + " (" +
-                                         (tr.channel >= 0 ? "number" : field_kind_name(tr.info->kind)) + ")",
+                p.err(kp + "/value",
+                      "value " + why + " for " + tr.component + "." + tr.spelled + " (" +
+                          (tr.channel >= 0 ? "number" : field_kind_name(tr.info->kind)) + ")",
                       tr.channel >= 0 || tr.info->kind == FieldKind::Float ? "Write a number: 0.5."
                       : tr.info->kind == FieldKind::Color ? "Write [r, g, b, a] (0..1), \"#rrggbb\" or a colour name."
                                                           : "Write an array of numbers, one per component.");
@@ -364,17 +440,24 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
 
         if (auto it = kj.find("interp"); it != kj.end()) {
             std::string name = it->is_string() ? it->get<std::string>() : std::string();
-            if (name == "linear") key.interp = ClipInterp::Linear;
-            else if (name == "step") key.interp = ClipInterp::Step;
-            else if (name == "bezier") key.interp = ClipInterp::Bezier;
-            else if (auto pos = std::find(clip_ease_names().begin(), clip_ease_names().end(), name); pos != clip_ease_names().end()) {
+            if (name == "linear")
+                key.interp = ClipInterp::Linear;
+            else if (name == "step")
+                key.interp = ClipInterp::Step;
+            else if (name == "bezier")
+                key.interp = ClipInterp::Bezier;
+            else if (auto pos = std::find(clip_ease_names().begin(), clip_ease_names().end(), name);
+                     pos != clip_ease_names().end()) {
                 key.interp = ClipInterp::Ease;
                 key.ease = int(pos - clip_ease_names().begin());
             } else {
                 std::vector<std::string> all{"linear", "step", "bezier"};
                 all.insert(all.end(), clip_ease_names().begin() + 1, clip_ease_names().end());
-                p.err(kp + "/interp", it->is_string() ? "unknown interp '" + name + "'" : "interp must be a string, got " + describe_json_value(*it),
-                      (it->is_string() ? did_you_mean(name, all, 6) + " " : std::string()) + "Valid: " + kInterpHelp + ".");
+                p.err(kp + "/interp",
+                      it->is_string() ? "unknown interp '" + name + "'"
+                                      : "interp must be a string, got " + describe_json_value(*it),
+                      (it->is_string() ? did_you_mean(name, all, 6) + " " : std::string()) + "Valid: " + kInterpHelp +
+                          ".");
                 keyOk = false;
             }
         }
@@ -385,16 +468,22 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
             std::array<float, 4>& dst = tan[0] == 'i' ? key.inTan : key.outTan;
             std::string why;
             if (tr.stepped) {
-                p.err(kp + "/" + tan, std::string("tangents do not apply: ") + tr.component + "." + tr.field + " only steps", "Leave `in` and `out` out.");
+                p.err(kp + "/" + tan,
+                      std::string("tangents do not apply: ") + tr.component + "." + tr.field + " only steps",
+                      "Leave `in` and `out` out.");
                 keyOk = false;
             } else if (!read_floats(*it, tr.channels, dst, &why)) {
-                p.err(kp + "/" + tan, std::string("tangent ") + why, "A tangent is the slope of the curve in field units per second, shaped like the value.");
+                p.err(kp + "/" + tan, std::string("tangent ") + why,
+                      "A tangent is the slope of the curve in field units per second, shaped like the value.");
                 keyOk = false;
             } else {
                 (tan[0] == 'i' ? in : out) = true;
             }
         }
-        if (!keyOk) { ok = false; continue; }
+        if (!keyOk) {
+            ok = false;
+            continue;
+        }
         tr.keys.push_back(std::move(key));
         hasIn.push_back(in);
         hasOut.push_back(out);
@@ -408,7 +497,8 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
             std::array<float, 4> slope{};
             if (i > 0 && i + 1 < tr.keys.size()) {
                 const float dt = tr.keys[i + 1].t - tr.keys[i - 1].t;
-                for (std::size_t c = 0; c < 4; ++c) slope[c] = dt > 1e-9f ? (tr.keys[i + 1].value[c] - tr.keys[i - 1].value[c]) / dt : 0.0f;
+                for (std::size_t c = 0; c < 4; ++c)
+                    slope[c] = dt > 1e-9f ? (tr.keys[i + 1].value[c] - tr.keys[i - 1].value[c]) / dt : 0.0f;
             }
             if (!hasIn[i]) tr.keys[i].inTan = slope;
             if (!hasOut[i]) tr.keys[i].outTan = slope;
@@ -419,9 +509,11 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
     for (const ClipTrack& o : clip.tracks) {
         if (o.path != tr.path || o.component != tr.component || o.field != tr.field) continue;
         if (o.channel >= 0 && tr.channel >= 0 && o.channel != tr.channel) continue;
-        p.err(ptr + "/field", std::format("{}.{} on {} is already driven by an earlier track ({})", tr.component, tr.spelled,
-                                  tr.path.empty() ? std::string("the entity itself") : "'" + tr.path + "'", o.spelled),
-              "Put all keys of a channel in ONE track, or drive different channels (\"rotation.z\" and \"rotation.x\") in separate tracks.");
+        p.err(ptr + "/field",
+              std::format("{}.{} on {} is already driven by an earlier track ({})", tr.component, tr.spelled,
+                          tr.path.empty() ? std::string("the entity itself") : "'" + tr.path + "'", o.spelled),
+              "Put all keys of a channel in ONE track, or drive different channels (\"rotation.z\" and \"rotation.x\") "
+              "in separate tracks.");
         return;
     }
 
@@ -437,12 +529,14 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
 
 }  // namespace
 
-bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out, std::vector<ClipIssue>& issues) {
+bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out,
+                     std::vector<ClipIssue>& issues) {
     auto it = event.find("feel");
     if (it == event.end()) return true;
     const std::string fp = pointer + "/feel";
-    const std::string example = "Write {\"action\": \"hitStop\", \"duration\": 0.06} or an array of such objects; the actions are " +
-                                join(feel_action_names(), ", ") + " (docs/GAME_FEEL.md, \"Effects as data\").";
+    const std::string example =
+        "Write {\"action\": \"hitStop\", \"duration\": 0.06} or an array of such objects; the actions are " +
+        join(feel_action_names(), ", ") + " (docs/GAME_FEEL.md, \"Effects as data\").";
     bool ok = true;
     auto one = [&](const Json& a, const std::string& ap) {
         if (auto r = feel_check_action(a); !r.ok()) {
@@ -461,7 +555,8 @@ bool read_event_feel(const Json& event, const std::string& pointer, std::vector<
     } else if (it->is_object()) {
         one(*it, fp);
     } else {
-        issues.push_back({fp, "feel must be an action object or an array of them, got " + describe_json_value(*it), example});
+        issues.push_back(
+            {fp, "feel must be an action object or an array of them, got " + describe_json_value(*it), example});
         ok = false;
     }
     return ok;
@@ -471,26 +566,33 @@ std::vector<ClipIssue> check_animator_event(const Json& ev, const std::string& e
     std::vector<ClipIssue> issues;
     if (!ev.is_object()) {
         issues.push_back({ep, "an Animator event is an object, got " + describe_json_value(ev),
-                          "Write {\"clip\": \"Walk\", \"time\": 0.25, \"name\": \"footstep\"} or {\"clip\": \"Attack\", \"time\": 0.3, \"feel\": {\"action\": \"hitStop\"}}."});
+                          "Write {\"clip\": \"Walk\", \"time\": 0.25, \"name\": \"footstep\"} or {\"clip\": "
+                          "\"Attack\", \"time\": 0.3, \"feel\": {\"action\": \"hitStop\"}}."});
         return issues;
     }
     const std::vector<std::string> allowed = {"clip", "time", "name", "feel"};
     for (auto it = ev.begin(); it != ev.end(); ++it)
         if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-            issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "', so it is ignored", did_you_mean(it.key(), allowed)});
+            issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "', so it is ignored",
+                              did_you_mean(it.key(), allowed)});
     if (const auto it = ev.find("clip"); it == ev.end())
-        issues.push_back({ep + "/clip", "the event has no `clip`, so it never fires", "Name the clip it belongs to, e.g. \"clip\": \"Walk\"."});
+        issues.push_back({ep + "/clip", "the event has no `clip`, so it never fires",
+                          "Name the clip it belongs to, e.g. \"clip\": \"Walk\"."});
     else if (!it->is_string() || it->get<std::string>().empty())
-        issues.push_back({ep + "/clip", "clip must be the name of a clip, got " + describe_json_value(*it), "Write the clip's name as a string, e.g. \"Walk\"."});
+        issues.push_back({ep + "/clip", "clip must be the name of a clip, got " + describe_json_value(*it),
+                          "Write the clip's name as a string, e.g. \"Walk\"."});
     if (const auto it = ev.find("time"); it != ev.end() && (!it->is_number() || it->get<double>() < 0.0))
-        issues.push_back({ep + "/time", "time must be a number of seconds from 0, got " + describe_json_value(*it), "Write the time in seconds from the start of the clip, e.g. 0.25."});
+        issues.push_back({ep + "/time", "time must be a number of seconds from 0, got " + describe_json_value(*it),
+                          "Write the time in seconds from the start of the clip, e.g. 0.25."});
     if (const auto it = ev.find("name"); it != ev.end() && (!it->is_string() || it->get<std::string>().empty()))
-        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*it), "The name is the game event world.on(name, fn) listens to."});
+        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*it),
+                          "The name is the game event world.on(name, fn) listens to."});
     std::vector<Json> feel;
     read_event_feel(ev, ep, feel, issues);
     if (!ev.contains("name") && !ev.contains("feel"))
         issues.push_back({ep, "the event needs `name` or `feel`, so it does nothing",
-                          "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md, \"Effects as data\")."});
+                          "`name` sends the game event world.on(name, fn) listens to; `feel` runs game feel actions "
+                          "(docs/GAME_FEEL.md, \"Effects as data\")."});
     return issues;
 }
 
@@ -520,8 +622,10 @@ bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, con
     bool ok = ev.is_object();
     if (ok) {
         ok = typed("clip", is_str) && typed("name", is_str) && typed("feel", is_feel);
-        if (sprite) ok = ok && typed("data", is_obj) && ev.contains("frame") && is_num(ev["frame"]);
-        else ok = ok && typed("time", is_num);
+        if (sprite)
+            ok = ok && typed("data", is_obj) && ev.contains("frame") && is_num(ev["frame"]);
+        else
+            ok = ok && typed("time", is_num);
     }
     if (ok) return true;
     FeelState& fs = w.feel();
@@ -531,8 +635,10 @@ bool inline_event_usable(World& w, Entity e, bool sprite, std::size_t index, con
     const std::string key = std::format("inline-event|{}|{}|{}", component, w.id_of(e), base);
     if (fs.warnedClipActions.count(key) || fs.warnedClipActions.size() >= 64) return false;
     fs.warnedClipActions.insert(key);
-    const std::vector<ClipIssue> issues = sprite ? check_sprite_event(ev, base, nullptr) : check_animator_event(ev, base);
-    std::string text = std::format("{} '{}' skips the event {}: it has the wrong JSON type", component, w.id_of(e), base);
+    const std::vector<ClipIssue> issues =
+        sprite ? check_sprite_event(ev, base, nullptr) : check_animator_event(ev, base);
+    std::string text =
+        std::format("{} '{}' skips the event {}: it has the wrong JSON type", component, w.id_of(e), base);
     std::size_t shown = 0;
     for (const ClipIssue& i : issues) {
         if (shown++ == 3) break;
@@ -546,7 +652,8 @@ bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool
                      std::vector<ClipIssue>& issues) {
     if (!ej.is_object()) {
         issues.push_back({ep, "an event is an object, got " + describe_json_value(ej),
-                          "Write {\"t\": 0.25, \"name\": \"footstep\", \"data\": {}} or {\"t\": 0.25, \"feel\": {\"action\": \"hitStop\"}}."});
+                          "Write {\"t\": 0.25, \"name\": \"footstep\", \"data\": {}} or {\"t\": 0.25, \"feel\": "
+                          "{\"action\": \"hitStop\"}}."});
         return false;
     }
     bool ok = true;
@@ -557,11 +664,14 @@ bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool
         ok = false;  // the file is rejected as before: a misspelt key would otherwise silently lose the event's data
     }
     if (auto it = ej.find("t"); it == ej.end() || !read_number(*it, ev.t)) {
-        issues.push_back({ep + "/t", it == ej.end() ? "an event needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it),
-                          "Write t in seconds from the start of the clip."});
+        issues.push_back(
+            {ep + "/t",
+             it == ej.end() ? "an event needs `t`" : "t must be a number of seconds, got " + describe_json_value(*it),
+             "Write t in seconds from the start of the clip."});
         ok = false;
     } else if (ev.t < 0 || (durationKnown && ev.t > duration + 1e-6f)) {
-        issues.push_back({ep + "/t", std::format("t is {}, outside the clip (0 to {})", ev.t, duration), "Move the event inside the clip, or raise `duration`."});
+        issues.push_back({ep + "/t", std::format("t is {}, outside the clip (0 to {})", ev.t, duration),
+                          "Move the event inside the clip, or raise `duration`."});
         ok = false;
     }
     ev.feel.clear();
@@ -577,18 +687,21 @@ bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool
         }
     } else if (!hasFeel) {
         issues.push_back({ep + "/name", "an event needs `name` or `feel`",
-                          "The name is the game event world.on(name, fn) listens to; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+                          "The name is the game event world.on(name, fn) listens to; `feel` runs game feel actions "
+                          "(docs/GAME_FEEL.md)."});
         ok = false;
     }
     if (auto it = ej.find("data"); it != ej.end()) {
         if (!it->is_object()) {
-            issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*it), "Write {\"foot\": \"left\"}."});
+            issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*it),
+                              "Write {\"foot\": \"left\"}."});
             ok = false;
         } else {
             for (const char* reserved : {"id", "clip", "time"})
                 if (it->contains(reserved)) {
                     issues.push_back({ep + "/data/" + reserved,
-                                      std::string("data cannot use the key '") + reserved + "': the engine sends {id, clip, time} with every clip event",
+                                      std::string("data cannot use the key '") + reserved +
+                                          "': the engine sends {id, clip, time} with every clip event",
                                       "Rename the key."});
                     ok = false;
                 }
@@ -598,7 +711,8 @@ bool read_clip_event(const Json& ej, const std::string& ep, float duration, bool
     return ok;
 }
 
-Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::string_view fileView, std::vector<ClipIssue>* issuesOut) {
+Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::string_view fileView,
+                                                         std::vector<ClipIssue>* issuesOut) {
     Parser p;
     p.file = std::string(fileView);
     auto clip = std::make_shared<ClipAsset>();
@@ -607,47 +721,63 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
     auto fail = [&]() -> Result<std::shared_ptr<const ClipAsset>> {
         if (issuesOut) *issuesOut = p.issues;
         const ClipIssue& first = p.issues.front();
-        std::string msg = (p.file.empty() ? "<anim clip>" : p.file) + " " + (first.pointer.empty() ? "/" : first.pointer) + ": " + first.message;
-        if (p.issues.size() > 1) msg += std::format(" (and {} more problem{})", p.issues.size() - 1, p.issues.size() == 2 ? "" : "s");
+        std::string msg = (p.file.empty() ? "<anim clip>" : p.file) + " " +
+                          (first.pointer.empty() ? "/" : first.pointer) + ": " + first.message;
+        if (p.issues.size() > 1)
+            msg += std::format(" (and {} more problem{})", p.issues.size() - 1, p.issues.size() == 2 ? "" : "s");
         return make_error(msg, first.hint);
     };
 
     if (!json.is_object()) {
         p.err("", "a clip file must be a JSON object, got " + describe_json_value(json),
-              "Start from {\"format\": \"factoria.anim/1\", \"duration\": 1, \"loop\": true, \"tracks\": []} (schemas/anim.schema.json).");
+              "Start from {\"format\": \"factoria.anim/1\", \"duration\": 1, \"loop\": true, \"tracks\": []} "
+              "(schemas/anim.schema.json).");
         return fail();
     }
     p.unknown_keys(json, "", {"$schema", "format", "doc", "duration", "loop", "tracks", "events"});
-    if (auto it = json.find("format"); it == json.end() || !it->is_string() || it->get<std::string>() != "factoria.anim/1")
-        p.err("/format", it == json.end() ? "missing `format`" : "format is " + describe_json_value(*it) + ", expected \"factoria.anim/1\"",
+    if (auto it = json.find("format");
+        it == json.end() || !it->is_string() || it->get<std::string>() != "factoria.anim/1")
+        p.err("/format",
+              it == json.end() ? "missing `format`"
+                               : "format is " + describe_json_value(*it) + ", expected \"factoria.anim/1\"",
               (it != json.end() && it->is_string() && it->get<std::string>() == "factoria.anim3d/1")
-                  ? "This is a 3D bone clip (it drives the bones of a skinned .rig.glb): put it in the `clips` of an Animator whose model is that rig, "
+                  ? "This is a 3D bone clip (it drives the bones of a skinned .rig.glb): put it in the `clips` of an "
+                    "Animator whose model is that rig, "
                     "or read it with anim3d.info. A 2D clip drives fields of entities and says \"factoria.anim/1\"."
                   : "Add \"format\": \"factoria.anim/1\" at the top of the file.");
     if (auto it = json.find("doc"); it != json.end() && it->is_string()) clip->doc = it->get<std::string>();
     float duration = 0;
     bool durationOk = true;
     if (auto it = json.find("duration"); it == json.end() || !read_number(*it, duration) || duration < 0) {
-        p.err("/duration", it == json.end() ? "missing `duration`" : "duration must be a number of seconds, 0 or more, got " + describe_json_value(*it),
+        p.err("/duration",
+              it == json.end() ? "missing `duration`"
+                               : "duration must be a number of seconds, 0 or more, got " + describe_json_value(*it),
               "Add \"duration\": 1.2, the length of the clip in seconds (the time of its last key or later).");
         durationOk = false;
     }
     clip->duration = duration;
     if (auto it = json.find("loop"); it != json.end()) {
-        if (!it->is_boolean()) p.err("/loop", "loop must be true or false, got " + describe_json_value(*it), "true repeats the clip, false stops on its last pose.");
-        else clip->loop = it->get<bool>();
+        if (!it->is_boolean())
+            p.err("/loop", "loop must be true or false, got " + describe_json_value(*it),
+                  "true repeats the clip, false stops on its last pose.");
+        else
+            clip->loop = it->get<bool>();
     }
 
     auto tit = json.find("tracks");
     if (tit == json.end() || !tit->is_array()) {
-        p.err("/tracks", tit == json.end() ? "missing `tracks`" : "tracks must be an array, got " + describe_json_value(*tit), "Write \"tracks\": [] for a clip with no animated field yet.");
+        p.err("/tracks",
+              tit == json.end() ? "missing `tracks`" : "tracks must be an array, got " + describe_json_value(*tit),
+              "Write \"tracks\": [] for a clip with no animated field yet.");
     } else if (durationOk) {
-        for (std::size_t i = 0; i < tit->size(); ++i) parse_track(p, (*tit)[i], "/tracks/" + std::to_string(i), duration, *clip);
+        for (std::size_t i = 0; i < tit->size(); ++i)
+            parse_track(p, (*tit)[i], "/tracks/" + std::to_string(i), duration, *clip);
     }
 
     if (auto eit = json.find("events"); eit != json.end()) {
         if (!eit->is_array()) {
-            p.err("/events", "events must be an array, got " + describe_json_value(*eit), "Write [{\"t\": 0.25, \"name\": \"footstep\"}].");
+            p.err("/events", "events must be an array, got " + describe_json_value(*eit),
+                  "Write [{\"t\": 0.25, \"name\": \"footstep\"}].");
         } else {
             for (std::size_t i = 0; i < eit->size(); ++i) {
                 const Json& ej = (*eit)[i];
@@ -655,7 +785,8 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
                 ClipEvent ev;
                 if (read_clip_event(ej, ep, duration, durationOk, ev, p.issues)) clip->events.push_back(std::move(ev));
             }
-            std::stable_sort(clip->events.begin(), clip->events.end(), [](const ClipEvent& a, const ClipEvent& b) { return a.t < b.t; });
+            std::stable_sort(clip->events.begin(), clip->events.end(),
+                             [](const ClipEvent& a, const ClipEvent& b) { return a.t < b.t; });
         }
     }
 
@@ -694,8 +825,10 @@ Result<std::shared_ptr<const ClipAsset>> load_anim_clip(std::string_view pathVie
         if (it != clip_cache().end() && it->second.mtime == mtime && it->second.size == size) return it->second.asset;
     }
     auto text = fs::read_text(path);
-    if (!text) return make_error(path + ": cannot read the clip: " + text.error().message,
-                                 text.error().hint.empty() ? "Clips are *.anim.json files; check the path in Animator.clips." : text.error().hint);
+    if (!text)
+        return make_error(path + ": cannot read the clip: " + text.error().message,
+                          text.error().hint.empty() ? "Clips are *.anim.json files; check the path in Animator.clips."
+                                                    : text.error().hint);
     auto json = parse_json(*text, path);
     if (!json) return json.error();
     auto parsed = parse_anim_clip(*json, path, issues);
@@ -724,9 +857,15 @@ Result<Entity> resolve_clip_path(const World& world, Entity root, std::string_vi
             if (next.is_null() && world.info(c).name == seg) next = c;
         }
         if (next.is_null()) {
-            std::string where = walked.empty() ? "'" + (world.info(root).name.empty() ? world.info(root).id : world.info(root).name) + "'" : "'" + walked + "'";
+            std::string where =
+                walked.empty()
+                    ? "'" + (world.info(root).name.empty() ? world.info(root).id : world.info(root).name) + "'"
+                    : "'" + walked + "'";
             std::string hint;
-            if (names.empty()) hint = "The entity " + where + " has no children. Parts are child entities; names are the EntityInfo name (`name`), joined with '/'.";
+            if (names.empty())
+                hint = "The entity " + where +
+                       " has no children. Parts are child entities; names are the EntityInfo name (`name`), joined "
+                       "with '/'.";
             else {
                 hint = did_you_mean(seg, names);
                 // A name that exists deeper in the tree: say where.
@@ -780,7 +919,8 @@ void sample_clip_track(const ClipTrack& tr, float time, std::array<float, 4>& ou
         if (time >= K.back().t) {
             i = K.size() - 1;
         } else {
-            const auto it = std::upper_bound(K.begin(), K.end(), time, [](float t, const ClipKey& k) { return t < k.t; });
+            const auto it =
+                std::upper_bound(K.begin(), K.end(), time, [](float t, const ClipKey& k) { return t < k.t; });
             i = std::size_t(it - K.begin()) - 1;
             hold = false;
         }
@@ -790,7 +930,10 @@ void sample_clip_track(const ClipTrack& tr, float time, std::array<float, 4>& ou
         if (raw) *raw = &a.raw;
         return;
     }
-    if (hold || a.interp == ClipInterp::Step) { out = a.value; return; }
+    if (hold || a.interp == ClipInterp::Step) {
+        out = a.value;
+        return;
+    }
     const ClipKey& b = K[i + 1];
     const float span = b.t - a.t;
     const float f = span > 1e-9f ? (time - a.t) / span : 1.0f;

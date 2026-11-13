@@ -19,25 +19,36 @@ using namespace util;
 namespace {
 
 const char* kSystem =
-    "You check one engine-feedback entry before it is shared with the developers of the FactorIA game engine. The entry was "
-    "written while building a game; its `share` text is the same gap written for the engine developer, who must never learn what "
+    "You check one engine-feedback entry before it is shared with the developers of the FactorIA game engine. The "
+    "entry was "
+    "written while building a game; its `share` text is the same gap written for the engine developer, who must never "
+    "learn what "
     "the game is about.\n"
     "Decide three things, using ONLY the engine reference you are given (command list and documentation excerpts):\n"
-    "1. real: is the gap real? It is not real when the engine reference shows the thing exists or works as the entry wants.\n"
-    "2. aboutEngine: is it about the engine (a component, field, command, API, tool or document of FactorIA)? It is not when it "
+    "1. real: is the gap real? It is not real when the engine reference shows the thing exists or works as the entry "
+    "wants.\n"
+    "2. aboutEngine: is it about the engine (a component, field, command, API, tool or document of FactorIA)? It is "
+    "not when it "
     "is a bug or wish of the game itself, of its content or of a third-party tool.\n"
-    "3. notPossibleYet: is it really impossible today? It is possible already when an existing command, component field or API "
+    "3. notPossibleYet: is it really impossible today? It is possible already when an existing command, component "
+    "field or API "
     "does what the entry asks for; name it in `use`.\n"
-    "Then check the text: `share` must use engine terms only (names of components, fields, commands and APIs that exist or that "
-    "the entry proposes) and nothing about the game: no game, character, level, scene, entity, asset or script names, no file names "
-    "or paths, no quotes from the game, no story. title 8-120 characters, missing 20-1500 and at least 4 words, suggestion and "
-    "workaround at most 1500. If it needs a rewrite to follow that, give the rewritten text in `share`; if it is fine, leave `share` "
+    "Then check the text: `share` must use engine terms only (names of components, fields, commands and APIs that "
+    "exist or that "
+    "the entry proposes) and nothing about the game: no game, character, level, scene, entity, asset or script names, "
+    "no file names "
+    "or paths, no quotes from the game, no story. title 8-120 characters, missing 20-1500 and at least 4 words, "
+    "suggestion and "
+    "workaround at most 1500. If it needs a rewrite to follow that, give the rewritten text in `share`; if it is fine, "
+    "leave `share` "
     "null. Never invent engine names.\n"
     "Answer with ONE JSON object and nothing else:\n"
-    "{\"real\":{\"ok\":true,\"why\":\"\"},\"aboutEngine\":{\"ok\":true,\"why\":\"\"},\"notPossibleYet\":{\"ok\":true,\"why\":\"\",\"use\":\"\"},"
+    "{\"real\":{\"ok\":true,\"why\":\"\"},\"aboutEngine\":{\"ok\":true,\"why\":\"\"},\"notPossibleYet\":{\"ok\":true,"
+    "\"why\":\"\",\"use\":\"\"},"
     "\"share\":null,\"fix\":\"\"}\n"
     "`why` is one sentence, filled in when ok is false (or when it helps). `share` is {\"title\":..., \"missing\":..., "
-    "\"suggestion\":..., \"workaround\":...} or null. `fix` says what the author should change when a check failed (empty on a pass).";
+    "\"suggestion\":..., \"workaround\":...} or null. `fix` says what the author should change when a check failed "
+    "(empty on a pass).";
 
 std::string field_of(const Json& share, const char* key) { return share.is_object() ? str(share, key) : std::string(); }
 
@@ -49,8 +60,10 @@ std::set<std::string> words_of(const std::string& text) {
         cur.clear();
     };
     for (unsigned char c : text) {
-        if (std::isalnum(c)) cur.push_back(static_cast<char>(std::tolower(c)));
-        else flush();
+        if (std::isalnum(c))
+            cur.push_back(static_cast<char>(std::tolower(c)));
+        else
+            flush();
     }
     flush();
     return out;
@@ -59,8 +72,9 @@ std::set<std::string> words_of(const std::string& text) {
 // The engine reference the model works from: every command name by area, the commands whose name, summary or details share words with
 // the entry (with their summaries), and the documentation passages that match the entry.
 std::string engine_reference(CommandRegistry& registry, const Json& entry, const Json& share) {
-    const std::string text = field_of(share, "title") + " " + field_of(share, "missing") + " " + field_of(share, "suggestion") + " " +
-                             str(entry, "title") + " " + str(entry, "missing") + " " + str(entry, "suggestion");
+    const std::string text = field_of(share, "title") + " " + field_of(share, "missing") + " " +
+                             field_of(share, "suggestion") + " " + str(entry, "title") + " " + str(entry, "missing") +
+                             " " + str(entry, "suggestion");
     const std::set<std::string> words = words_of(text);
 
     std::ostringstream out;
@@ -69,7 +83,8 @@ std::string engine_reference(CommandRegistry& registry, const Json& entry, const
     for (const CommandInfo* c : registry.list()) {
         if (c->name.rfind("ai.", 0) == 0 || c->name.rfind("feedback.", 0) == 0) continue;
         const std::size_t dot = c->name.find('.');
-        byArea[dot == std::string::npos ? c->name : c->name.substr(0, dot)].push_back(dot == std::string::npos ? c->name : c->name.substr(dot + 1));
+        byArea[dot == std::string::npos ? c->name : c->name.substr(0, dot)].push_back(
+            dot == std::string::npos ? c->name : c->name.substr(dot + 1));
         int score = 0;
         // Name and summary say what the command is; `details` is where a long description keeps what it also does (and how), so
         // a command can be the answer to a gap its name does not hint at: a word there counts too, less.
@@ -140,9 +155,10 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
     const bool candidate = candidateShare.is_object();
     const Json* shareJson = candidate ? &candidateShare : child(*entry, "share");
     if (!shareJson || !shareJson->is_object())
-        throw CommandError("no_share", "Entry " + id + " has no `share` text, so there is nothing to review.",
-                           "Write it first: feedback.report with `share` (engine terms only), or pass the text to review as `share`. "
-                           "An entry without `share` is never sent.");
+        throw CommandError(
+            "no_share", "Entry " + id + " has no `share` text, so there is nothing to review.",
+            "Write it first: feedback.report with `share` (engine terms only), or pass the text to review as `share`. "
+            "An entry without `share` is never sent.");
     const Json share = *shareJson;
 
     // The deterministic part: what the sanitizer would send. A text it refuses is a failed review whatever the model says.
@@ -164,25 +180,31 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
     user << "The author's own words (about the game; do not copy names from them): title: " << str(*entry, "title")
          << "; missing: " << str(*entry, "missing") << "; suggestion: " << str(*entry, "suggestion") << "\n\n";
     user << "## The share text to check\n" << dump_pretty(share) << "\n";
-    if (!current.ok) user << "\nThe automatic sanitizer refuses this text: " << current.reason() << "\n";
+    if (!current.ok)
+        user << "\nThe automatic sanitizer refuses this text: " << current.reason() << "\n";
     else if (!current.removed.empty()) {
-        user << "\nThe automatic sanitizer would cut these parts out (they look like names, paths or quotes from the game):";
+        user << "\nThe automatic sanitizer would cut these parts out (they look like names, paths or quotes from the "
+                "game):";
         for (const Removal& r : current.removed) user << " [" << r.field << ": " << r.text << "]";
         user << "\nRewrite `share` without them if the text still says what is missing.\n";
     }
     auto answer = (*model)(kSystem, user.str());
     if (!answer.ok())
-        throw CommandError("review_failed", "The " + modelInfo.role + " model did not answer: " + answer.error().message,
-                           answer.error().hint.empty() ? "Check `factoria ai providers` for the role '" + modelInfo.role + "'." : answer.error().hint);
+        throw CommandError(
+            "review_failed", "The " + modelInfo.role + " model did not answer: " + answer.error().message,
+            answer.error().hint.empty() ? "Check `factoria ai providers` for the role '" + modelInfo.role + "'."
+                                        : answer.error().hint);
     const Json reply = parse(json_object_in(*answer));
     if (!reply.is_object())
-        throw CommandError("review_failed", "The " + modelInfo.role + " model did not answer with the JSON object the review needs.",
-                           "Run ai.review_feedback again, or pick a stronger model for the role (docs/AI_PROVIDERS.md).");
+        throw CommandError(
+            "review_failed", "The " + modelInfo.role + " model did not answer with the JSON object the review needs.",
+            "Run ai.review_feedback again, or pick a stronger model for the role (docs/AI_PROVIDERS.md).");
 
     auto verdict = [&](const char* key) {
         const Json* c = child(reply, key);
         const bool ok = c && c->is_object() ? flag(*c, "ok", false) : false;
-        const std::string why = c && c->is_object() ? str(*c, "why") : std::string("the model gave no answer for this check");
+        const std::string why =
+            c && c->is_object() ? str(*c, "why") : std::string("the model gave no answer for this check");
         return std::make_pair(ok, why);
     };
     const auto [realOk, realWhy] = verdict("real");
@@ -200,10 +222,12 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
         FeedbackShareEdit probe;
         probe.share = *rw;
         const SanitizedShare san = sanitize_share(*rw, engine, project);
-        if (!san.ok) rewriteProblem = "The rewrite the model proposed is refused by the sanitizer: " + san.reason();
+        if (!san.ok)
+            rewriteProblem = "The rewrite the model proposed is refused by the sanitizer: " + san.reason();
         else if (field_of(*rw, "title").size() < static_cast<std::size_t>(kShareTitleMin) ||
                  field_of(*rw, "title").size() > static_cast<std::size_t>(kShareTitleMax))
-            rewriteProblem = "The rewrite the model proposed has a title outside " + std::to_string(kShareTitleMin) + "-" + std::to_string(kShareTitleMax) + " characters.";
+            rewriteProblem = "The rewrite the model proposed has a title outside " + std::to_string(kShareTitleMin) +
+                             "-" + std::to_string(kShareTitleMax) + " characters.";
         else {
             finalShare = *rw;
             finalSan = san;
@@ -233,9 +257,11 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
     if (!pass) {
         std::string fix = str(reply, "fix");
         if (fix.empty())
-            fix = !finalSan.ok ? "Rewrite the share text in engine terms only (component, field and command names), without names, paths or quotes from the game."
+            fix = !finalSan.ok  ? "Rewrite the share text in engine terms only (component, field and command names), "
+                                  "without names, paths or quotes from the game."
                   : !possibleOk ? "Use what the engine already has; report again only if it does not do what you need."
-                                : "Do not share this entry: remove its `share` (the panel's Not shared, or feedback.report without it).";
+                                : "Do not share this entry: remove its `share` (the panel's Not shared, or "
+                                  "feedback.report without it).";
         out["fix"] = fix;
         out["message"] = "The share text of " + id + " did not pass; it was not changed and stays unreviewed.";
         if (candidate) out["stored"] = false;
@@ -260,9 +286,11 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
     out["rewritten"] = rewritten;
     out["reviewed"] = true;
     out["share"] = finalShare;
-    out["message"] = rewritten ? "Passed. The share text was rewritten in engine terms and the entry is marked reviewed."
-                               : "Passed. The share text is fine as it is and the entry is marked reviewed.";
-    out["note"] = "Nothing was sent. Whether and when entries leave this machine depends on the sharing mode, which only a person sets.";
+    out["message"] = rewritten
+                         ? "Passed. The share text was rewritten in engine terms and the entry is marked reviewed."
+                         : "Passed. The share text is fine as it is and the entry is marked reviewed.";
+    out["note"] = "Nothing was sent. Whether and when entries leave this machine depends on the sharing mode, which "
+                  "only a person sets.";
     return out;
 }
 

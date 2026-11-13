@@ -1,0 +1,9 @@
+# AddressSanitizer suppressions (FA_SANITIZE=address;undefined). Read through ASAN_OPTIONS=suppressions=...
+# Policy: only reports raised inside system libraries we neither build nor can fix, each with its reason; a finding in our own
+# code is fixed, never listed. Format: interceptor_via_lib:<library the intercepted call comes from>
+#
+# macOS: CoreGraphics' PDF parser (pdf_lexer_scan) calls strndup() on a buffer that is not NUL-terminated, while an editor
+# window builds a SwiftUI/AppKit control from a vector image of the system asset catalog (CoreUI named vector image). The read
+# is inside Apple's code, before any of ours runs; ASan's strndup interceptor reports it, and it killed every editor
+# autotest and every test that starts the editor window.
+interceptor_via_lib:CoreGraphics

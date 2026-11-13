@@ -63,7 +63,8 @@ namespace {
 // inside the player (builtin:serif, ...) among the bundled files; a player finds them in the game folder, where the export puts
 // them. A static initializer, because there is no startup function all these programs share.
 [[maybe_unused]] const bool kFontSourceInstalled = [] {
-    set_builtin_font_source([](std::string_view file) { return bundled_read("engine/render/assets/fonts/extra/" + std::string(file)); });
+    set_builtin_font_source(
+        [](std::string_view file) { return bundled_read("engine/render/assets/fonts/extra/" + std::string(file)); });
     return true;
 }();
 }  // namespace

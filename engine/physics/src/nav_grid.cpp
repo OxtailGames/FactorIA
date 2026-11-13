@@ -150,7 +150,8 @@ void NavGrid::make_links() {
     links_.assign(spans_.size() * 8, -1);
     for (int s = 0; s < int(spans_.size()); ++s) {
         const int ix = cell_x(spans_[std::size_t(s)].cell), iz = cell_z(spans_[std::size_t(s)].cell);
-        for (int d = 0; d < 4; ++d) links_[std::size_t(s) * 8 + std::size_t(d)] = pick_neighbour(s, ix + kDx[d], iz + kDz[d]);
+        for (int d = 0; d < 4; ++d)
+            links_[std::size_t(s) * 8 + std::size_t(d)] = pick_neighbour(s, ix + kDx[d], iz + kDz[d]);
     }
     // Diagonals only when both sides are walkable too: a path never cuts a corner.
     for (int s = 0; s < int(spans_.size()); ++s) {
@@ -286,7 +287,8 @@ int NavGrid::neighbours(int s, int dir, int out[2]) const {
         const int d = pick_in_cell(s, c, true, false);
         if (d >= 0) out[n++] = d;
     }
-    if (dir >= 4 && n > bakedCount) {  // a diagonal step needs both sides to be walkable too: a path never cuts a corner
+    if (dir >= 4 &&
+        n > bakedCount) {  // a diagonal step needs both sides to be walkable too: a path never cuts a corner
         int tmp[2];
         if (neighbours(s, kDiagA[dir - 4], tmp) == 0 || neighbours(s, kDiagB[dir - 4], tmp) == 0) n = bakedCount;
     }
@@ -319,7 +321,8 @@ int NavGrid::nearest_span(Vec3 p, float reachDown, float reachUp, float maxDist,
             if (ix < 0 || iz < 0 || ix >= p_.nx || iz >= p_.nz) continue;
             const int c = iz * p_.nx + ix;
             each_in_cell(c, [&](int s) {
-                if (staticOnly ? (std::size_t(s) >= spans_.size() || spans_[std::size_t(s)].erodedBase) : !usable(s)) return;
+                if (staticOnly ? (std::size_t(s) >= spans_.size() || spans_[std::size_t(s)].erodedBase) : !usable(s))
+                    return;
                 const Vec3 q = center(s);
                 if (q.y < p.y - reachDown - kEps || q.y > p.y + reachUp + kEps) return;
                 const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z));

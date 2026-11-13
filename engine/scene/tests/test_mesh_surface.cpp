@@ -48,7 +48,7 @@ TEST_CASE("mesh surface: the model matrix moves, stretches and turns the surface
     CHECK(h.uv.x == doctest::Approx(0.75f));
     CHECK(h.uv.y == doctest::Approx(0.25f));
     const Mat4 turned = Mat4::trs({0, 0, 0}, {0, 60, 0}, {2, 1, 1});  // turned 60 degrees about y
-    const Vec3 corner = turned.transform_point({0.5f, 0.5f, 0});     // the top-right corner, in the world
+    const Vec3 corner = turned.transform_point({0.5f, 0.5f, 0});      // the top-right corner, in the world
     h = hit_of(**s, turned, corner * 0.98f + Vec3{0, 0, 5}, kDown);
     CHECK(h.uv.x == doctest::Approx(0.98f).epsilon(0.05f));
 }

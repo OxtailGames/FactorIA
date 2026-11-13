@@ -27,12 +27,13 @@
 namespace fa::render {
 
 struct ShaderBuildStats {
-    int programs = 0;          // shader programs made
-    int stages = 0;            // vertex / fragment stages that came through the cache layer (D3D11 only)
-    int cacheHits = 0;         // stages whose bytecode came from the disk cache
-    int cacheMisses = 0;       // stages with no cache file: compiled and stored
-    int cacheStale = 0;        // stages whose cache file was made for another key: compiled and stored again
-    int cacheDamaged = 0;      // stages whose cache file was damaged (cut short, bad checksum, ...): compiled and stored again
+    int programs = 0;     // shader programs made
+    int stages = 0;       // vertex / fragment stages that came through the cache layer (D3D11 only)
+    int cacheHits = 0;    // stages whose bytecode came from the disk cache
+    int cacheMisses = 0;  // stages with no cache file: compiled and stored
+    int cacheStale = 0;   // stages whose cache file was made for another key: compiled and stored again
+    int cacheDamaged =
+        0;  // stages whose cache file was damaged (cut short, bad checksum, ...): compiled and stored again
     int cacheStored = 0;       // files written
     int cacheStoreFailed = 0;  // files that could not be written (the game runs without them)
     double createMs = 0;       // wall time spent in make_shader
@@ -40,15 +41,16 @@ struct ShaderBuildStats {
 };
 
 // Compiles one stage to bytecode: returns false and sets `error` when it cannot (the caller lets sokol compile and report).
-using StageCompiler = std::function<bool(const sg_shader_function& fn, std::vector<std::uint8_t>& bytecode, std::string& error)>;
+using StageCompiler =
+    std::function<bool(const sg_shader_function& fn, std::vector<std::uint8_t>& bytecode, std::string& error)>;
 
 // The bytecode of one stage through the cache: a Hit returns the cached bytes; a Miss, Stale or Damaged file compiles with
 // `compile` and stores the result. `keyBase` says what every blob of this run depends on ("d3d11|<version>|<flags>"); the
 // source, entry and target are added to it. Returns false when the stage could not be compiled. `cache` may be disabled
 // (then it only compiles). Counts into `stats`.
-bool cached_stage_bytecode(const std::filesystem::path& cacheDir, std::string_view keyBase, std::string_view label, std::string_view stage,
-                           const sg_shader_function& fn, const StageCompiler& compile, std::vector<std::uint8_t>& out,
-                           ShaderBuildStats& stats);
+bool cached_stage_bytecode(const std::filesystem::path& cacheDir, std::string_view keyBase, std::string_view label,
+                           std::string_view stage, const sg_shader_function& fn, const StageCompiler& compile,
+                           std::vector<std::uint8_t>& out, ShaderBuildStats& stats);
 
 // A cache file name for a program label and stage: letters, digits, '.', '_' and '-' only, bounded, unique per label.
 // `variant` (a few hex characters of the hash of the whole cache key: engine version, flags, source) is appended, so two

@@ -29,7 +29,8 @@ TEST_CASE("det math: sin and cos stay within 2 ulp / 1e-7 of the C library over 
         CHECK(s == fa::det::sin(x));
         CHECK(c == fa::det::cos(x));
     }
-    CHECK(worst < 1.2e-7);  // half an ulp at 1 is 6e-8: the result is the float nearest the exact value, give or take one
+    CHECK(worst <
+          1.2e-7);  // half an ulp at 1 is 6e-8: the result is the float nearest the exact value, give or take one
     for (float x : {1e3f, 12345.678f, -54321.0f, 1e5f, 3e5f, 1e7f, -2.5e9f}) {
         CHECK(std::fabs(double(fa::det::sin(x)) - std::sin(double(x))) < 1e-6);
         CHECK(std::fabs(double(fa::det::cos(x)) - std::cos(double(x))) < 1e-6);
@@ -69,7 +70,11 @@ TEST_CASE("det math: atan2, asin and acos stay close to the C library") {
 // The exact bits of a handful of results. If this fails on a platform, that platform computes + - * / sqrt differently
 // (FP contraction on? fast-math? x87 arithmetic?), and the physics replay hash cannot match the other platforms either.
 TEST_CASE("det math: exact bit patterns") {
-    struct Case { const char* what; float got; std::uint32_t bits; };
+    struct Case {
+        const char* what;
+        float got;
+        std::uint32_t bits;
+    };
     float s1, c1, s2, c2;
     fa::det::sin_cos(1.0f, s1, c1);
     fa::det::sin_cos(-123.456f, s2, c2);

@@ -10,6 +10,7 @@
 #include <unistd.h>
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -139,7 +140,6 @@ TEST_CASE("process runner: timeout") {
     CHECK(r->timedOut);
 }
 
-
 TEST_CASE("process runner: a program still open for writing (ETXTBSY) starts once the writer closes it") {
     // Linux refuses to exec a file that is open for writing ("Text file busy"); macOS does not, and the test passes there too.
     // The launcher tries three times, 10 ms apart, in the child: the writer closes the file after 5 ms.
@@ -170,7 +170,7 @@ TEST_CASE("process runner: a program still open for writing (ETXTBSY) starts onc
 TEST_CASE("process: onStart gives the pid, process_tree sees the program and what it started, and sees it end") {
     ProcessOptions po;
     po.argv = {"/bin/sh", "-c", "sleep 3 & wait"};
-    long long pid = 0;
+    std::atomic<long long> pid{0};  // written by run_process on this thread, read by the watcher thread
     std::vector<ProcessEntry> during;
     po.onStart = [&](long long p) { pid = p; };
     po.onStdoutLine = [](std::string_view) {};
@@ -217,7 +217,8 @@ TEST_CASE("process: endWithChild returns when the program exits although a desce
 
 // Regression: on macOS proc_listallpids returns a count, which was read as bytes, so the list kept only the newest ~50
 // pids and an older process (the editor's agent) looked gone as soon as many processes had started after it.
-TEST_CASE("process: process_tree finds this process and its parent among many newer processes, process_alive asks the OS") {
+TEST_CASE(
+    "process: process_tree finds this process and its parent among many newer processes, process_alive asks the OS") {
     std::vector<pid_t> kids;
     for (int i = 0; i < 80; ++i) {
         const pid_t k = fork();
@@ -283,13 +284,16 @@ TEST_CASE("process: newSession gives the program a session of its own (no contro
         CHECK(r->exitCode == 0);
         REQUIRE(childPid > 0);
         CHECK(childGroup == childPid);  // its own group either way: a cancel signals the whole tree
-        if (newSession) CHECK(childSid == childPid);  // a session leader
-        else CHECK(childSid == getsid(0));
+        if (newSession)
+            CHECK(childSid == childPid);  // a session leader
+        else
+            CHECK(childSid == getsid(0));
     }
 }
 
 // (Without a terminal at all, e.g. on CI, /dev/tty cannot be opened with or without newSession: the session check is what proves it.)
-TEST_CASE("process: newSession program reads the stdin text, leads a session that is not ours, and cannot open /dev/tty") {
+TEST_CASE(
+    "process: newSession program reads the stdin text, leads a session that is not ours, and cannot open /dev/tty") {
     ProcessOptions po;
     po.argv = {"sh", "-c", "read pw; echo \"got:$pw\"; (: < /dev/tty) 2>/dev/null && echo tty || echo notty; exit 3"};
     po.stdinText = "secret\n";
@@ -356,7 +360,8 @@ TEST_CASE("process: a cancel reaches a grandchild, with and without newSession")
     }
 }
 
-TEST_CASE("process: a program that ignores SIGTERM, and its grandchild, are killed after the grace period (newSession)") {
+TEST_CASE(
+    "process: a program that ignores SIGTERM, and its grandchild, are killed after the grace period (newSession)") {
     auto run = run_and_cancel("trap '' TERM; sleep 30 & echo $!; wait", true);
     CHECK(run.result.cancelled);
     REQUIRE(run.grandchild > 1);

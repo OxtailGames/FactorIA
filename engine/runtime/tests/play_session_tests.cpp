@@ -43,10 +43,14 @@ struct Fixture {
     Engine engine;
     Fixture() {
         stdfs::create_directories(dir / "scenes");
-        auto w = [&](const char* rel, const char* text) { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); };
-        w("factoria.json", R"({"format":"factoria.project/1","name":"Sessions","id":"com.example.sessions","mainScene":"scenes/main.scene.json",
+        auto w = [&](const char* rel, const char* text) {
+            REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok());
+        };
+        w("factoria.json",
+          R"({"format":"factoria.project/1","name":"Sessions","id":"com.example.sessions","mainScene":"scenes/main.scene.json",
             "display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
-        w("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+        w("scenes/main.scene.json",
+          R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
         EngineConfig c;
         c.projectDir = dir.generic_string();
         c.headless = true;
@@ -76,7 +80,8 @@ struct Fixture {
             s.profile = prof.to_json();
         }
         keep_worst_spike(s.spikes, PlaySpike{77, 50.0, 12, Json::object({{"drawCalls", 5}})});
-        s.logs.push_back(Json::object({{"seq", 1}, {"frame", 80}, {"level", "error"}, {"category", "script"}, {"message", "boom"}}));
+        s.logs.push_back(
+            Json::object({{"seq", 1}, {"frame", 80}, {"level", "error"}, {"category", "script"}, {"message", "boom"}}));
         s.input = Json::parse(R"({"frames":{"3":{"keys":{"Space":true}},"9":{"keys":{"Space":false}}}})");
         if (withMark) {
             s.marks.push_back(PlayMark{77, 1.3, "the HUD overlaps the score", "mark-1.png"});

@@ -30,14 +30,18 @@ TEST_CASE("ui layout: column places children with spacing, padding and cross-axi
     Entity a = t.button("a", {0, 0}, {100, 20}, p), b = t.button("b", {5, 5}, {60, 30}, p);
     t.ui.layout(t.w, t.design, {});
     // inner box x 110..290, y 60..; align center (default): a is 100 wide, b is 60 wide
-    CHECK(t.rect(a).x == doctest::Approx(150)); CHECK(t.rect(a).y == doctest::Approx(60));
-    CHECK(t.rect(b).x == doctest::Approx(170)); CHECK(t.rect(b).y == doctest::Approx(90));
+    CHECK(t.rect(a).x == doctest::Approx(150));
+    CHECK(t.rect(a).y == doctest::Approx(60));
+    CHECK(t.rect(b).x == doctest::Approx(170));
+    CHECK(t.rect(b).y == doctest::Approx(90));
     panel.align = UiAlign::Start;
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(a).x == doctest::Approx(110)); CHECK(t.rect(b).x == doctest::Approx(110));
+    CHECK(t.rect(a).x == doctest::Approx(110));
+    CHECK(t.rect(b).x == doctest::Approx(110));
     panel.align = UiAlign::End;
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(a).x == doctest::Approx(190)); CHECK(t.rect(b).x == doctest::Approx(230));
+    CHECK(t.rect(a).x == doctest::Approx(190));
+    CHECK(t.rect(b).x == doctest::Approx(230));
     // main axis: the run is 20 + 10 + 30 = 60 high in an inner height of 130
     panel.justify = UiAlign::Center;
     t.ui.layout(t.w, t.design, {});
@@ -62,12 +66,17 @@ TEST_CASE("ui layout: row, grid and children that are not widgets") {
     Entity label = t.w.create("label", "label");
     t.w.set_parent(label, p);
     Text& txt = t.w.add<Text>(label);
-    txt.text = "abcd"; txt.fontSize = 10; txt.space = RenderSpace::Screen; txt.pivot = {0, 1};
+    txt.text = "abcd";
+    txt.fontSize = 10;
+    txt.space = RenderSpace::Screen;
+    txt.pivot = {0, 1};
     Entity hidden = t.button("hidden", {0, 0}, {10, 10}, p);
     t.w.set_active(hidden, false);
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(a).x == doctest::Approx(0));  CHECK(t.rect(a).y == doctest::Approx(0));
-    CHECK(t.rect(b).x == doctest::Approx(55)); CHECK(t.rect(b).y == doctest::Approx(0));
+    CHECK(t.rect(a).x == doctest::Approx(0));
+    CHECK(t.rect(a).y == doctest::Approx(0));
+    CHECK(t.rect(b).x == doctest::Approx(55));
+    CHECK(t.rect(b).y == doctest::Approx(0));
     const Vec3 lp = t.w.world_matrix(label).translation();
     CHECK(lp.x == doctest::Approx(90));  // 55 + 30 + 5
     CHECK(lp.y == doctest::Approx(0));
@@ -79,8 +88,10 @@ TEST_CASE("ui layout: row, grid and children that are not widgets") {
     panel.align = UiAlign::Start;
     t.ui.layout(t.w, t.design, {});
     // cells: widest child 50 (a), tallest 40 (b); three children in 2 columns
-    CHECK(t.rect(a).x == doctest::Approx(10));  CHECK(t.rect(a).y == doctest::Approx(10));
-    CHECK(t.rect(b).x == doctest::Approx(70));  CHECK(t.rect(b).y == doctest::Approx(10));
+    CHECK(t.rect(a).x == doctest::Approx(10));
+    CHECK(t.rect(a).y == doctest::Approx(10));
+    CHECK(t.rect(b).x == doctest::Approx(70));
+    CHECK(t.rect(b).y == doctest::Approx(10));
     CHECK(t.w.world_matrix(label).translation().x == doctest::Approx(10));
     CHECK(t.w.world_matrix(label).translation().y == doctest::Approx(60));
     panel.align = UiAlign::Center;  // inside the cell
@@ -96,22 +107,35 @@ TEST_CASE("ui layout: fit sizes the panel to its content, nested panels are size
     Entity a = t.button("a", {0, 0}, {100, 20}, inner), b = t.button("b", {0, 0}, {60, 30}, inner);
     Panel& o = *t.w.get<Panel>(outer);
     Panel& i = *t.w.get<Panel>(inner);
-    i.layout = UiLayout::Column; i.fit = true; i.spacing = 10; i.padding = {10, 10, 10, 10};
-    o.layout = UiLayout::Row; o.fit = true; o.spacing = 4; o.padding = {5, 5, 5, 5}; o.align = UiAlign::Start;
+    i.layout = UiLayout::Column;
+    i.fit = true;
+    i.spacing = 10;
+    i.padding = {10, 10, 10, 10};
+    o.layout = UiLayout::Row;
+    o.fit = true;
+    o.spacing = 4;
+    o.padding = {5, 5, 5, 5};
+    o.align = UiAlign::Start;
     Entity c = t.button("c", {0, 0}, {40, 90}, outer);
     t.ui.layout(t.w, t.design, {});
-    CHECK(i.size.x == doctest::Approx(120)); CHECK(i.size.y == doctest::Approx(80));   // 100 + 2*10, 20+10+30 + 2*10
-    CHECK(o.size.x == doctest::Approx(5 + 120 + 4 + 40 + 5)); CHECK(o.size.y == doctest::Approx(90 + 10));
+    CHECK(i.size.x == doctest::Approx(120));
+    CHECK(i.size.y == doctest::Approx(80));  // 100 + 2*10, 20+10+30 + 2*10
+    CHECK(o.size.x == doctest::Approx(5 + 120 + 4 + 40 + 5));
+    CHECK(o.size.y == doctest::Approx(90 + 10));
     // the pivot [0, 1] keeps the top-left corner of the fitted box on the position
-    CHECK(t.rect(outer).x == doctest::Approx(20)); CHECK(t.rect(outer).y == doctest::Approx(20));
-    CHECK(t.rect(inner).x == doctest::Approx(25)); CHECK(t.rect(inner).y == doctest::Approx(25));
-    CHECK(t.rect(a).x == doctest::Approx(25 + 10 + 0)); CHECK(t.rect(a).y == doctest::Approx(35));
+    CHECK(t.rect(outer).x == doctest::Approx(20));
+    CHECK(t.rect(outer).y == doctest::Approx(20));
+    CHECK(t.rect(inner).x == doctest::Approx(25));
+    CHECK(t.rect(inner).y == doctest::Approx(25));
+    CHECK(t.rect(a).x == doctest::Approx(25 + 10 + 0));
+    CHECK(t.rect(a).y == doctest::Approx(35));
     CHECK(t.rect(b).y == doctest::Approx(65));
     CHECK(t.rect(c).x == doctest::Approx(5 + 20 + 120 + 4));
     // a centred pivot keeps the centre fixed
     t.w.get<Panel>(outer)->pivot = {0.5f, 0.5f};
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(outer).center().x == doctest::Approx(20)); CHECK(t.rect(outer).center().y == doctest::Approx(20));
+    CHECK(t.rect(outer).center().x == doctest::Approx(20));
+    CHECK(t.rect(outer).center().y == doctest::Approx(20));
 }
 
 TEST_CASE("ui layout: anchor and pivot place a widget in the screen") {
@@ -120,9 +144,12 @@ TEST_CASE("ui layout: anchor and pivot place a widget in the screen") {
     Button& b = *t.w.get<Button>(e);
     b.anchor = {0.5f, 0.5f};
     b.pivot = {0.5f, 0.5f};
-    CHECK(t.rect(e).x == doctest::Approx(110)); CHECK(t.rect(e).y == doctest::Approx(70));
-    b.anchor = {1, 1}; b.pivot = {1, 0};  // bottom-right corner of the widget on the bottom-right corner of the screen
-    CHECK(t.rect(e).x == doctest::Approx(220)); CHECK(t.rect(e).y == doctest::Approx(140));
+    CHECK(t.rect(e).x == doctest::Approx(110));
+    CHECK(t.rect(e).y == doctest::Approx(70));
+    b.anchor = {1, 1};
+    b.pivot = {1, 0};  // bottom-right corner of the widget on the bottom-right corner of the screen
+    CHECK(t.rect(e).x == doctest::Approx(220));
+    CHECK(t.rect(e).y == doctest::Approx(140));
     CHECK(visual_footprints(t.w, e).size() == 1);
     CHECK(std::string(visual_footprints(t.w, e)[0].component) == "Button");
 }
@@ -188,7 +215,8 @@ TEST_CASE("ui focus: set_focus validates, reset clears") {
 TEST_CASE("ui navigation: nearest widget in the pressed direction, no wrap") {
     Ui t;
     // 2 x 2 grid plus one far below
-    Entity tl = t.button("tl", {0, 0}), tr = t.button("tr", {100, 0}), bl = t.button("bl", {0, 40}), br = t.button("br", {100, 40});
+    Entity tl = t.button("tl", {0, 0}), tr = t.button("tr", {100, 0}), bl = t.button("bl", {0, 40}),
+           br = t.button("br", {100, 40});
     Entity low = t.button("low", {0, 120});
     t.ui.set_focus(t.w, tl);
     t.events();
@@ -225,15 +253,19 @@ TEST_CASE("ui navigation: a held direction repeats after 0.4 s, then every 0.1 s
     std::vector<Entity> col;
     for (int i = 0; i < 12; ++i) col.push_back(t.button(("b" + std::to_string(i)).c_str(), {0, float(i) * 30}));
     t.ui.set_focus(t.w, col[0]);
-    auto index = [&] { for (int i = 0; i < 12; ++i) if (t.ui.focused() == col[std::size_t(i)]) return i; return -1; };
+    auto index = [&] {
+        for (int i = 0; i < 12; ++i)
+            if (t.ui.focused() == col[std::size_t(i)]) return i;
+        return -1;
+    };
     t.in.on_key(Key::Down, true);
     t.frame();
-    CHECK(index() == 1);   // the press itself
-    t.frame(19);           // 0.30 s held
+    CHECK(index() == 1);  // the press itself
+    t.frame(19);          // 0.30 s held
     CHECK(index() == 1);
-    t.frame(11);           // 0.47 s held: the first repeat came at 0.4 s
+    t.frame(11);  // 0.47 s held: the first repeat came at 0.4 s
     CHECK(index() == 2);
-    t.frame(30);           // 0.94 s held: about one step per 0.1 s since 0.4 s
+    t.frame(30);  // 0.94 s held: about one step per 0.1 s since 0.4 s
     CHECK(index() >= 6);
     CHECK(index() <= 8);
     t.in.on_key(Key::Down, false);
@@ -243,7 +275,8 @@ TEST_CASE("ui navigation: a held direction repeats after 0.4 s, then every 0.1 s
 }
 
 // ------------------------------------------------------------------------------------------------------ widgets --
-TEST_CASE("ui button: ui_submit on the focused button clicks (keys and pad), mouse clicks, interactable false is inert") {
+TEST_CASE(
+    "ui button: ui_submit on the focused button clicks (keys and pad), mouse clicks, interactable false is inert") {
     Ui t;
     Entity a = t.button("a", {0, 0}), b = t.button("b", {100, 0});
     t.w.get<Button>(a)->autoFocus = true;
@@ -339,24 +372,29 @@ TEST_CASE("ui slider: left / right change the value by step, clamp, snap; the mo
     CHECK(s.value == doctest::Approx(0.0f));  // clamped at min
     t.events();
     t.tap_key(Key::Left);
-    CHECK(t.events().empty());                // no change, no event
-    s.min = 0; s.max = 10; s.step = 3; s.value = 6;
+    CHECK(t.events().empty());  // no change, no event
+    s.min = 0;
+    s.max = 10;
+    s.step = 3;
+    s.value = 6;
     t.tap_key(Key::Right);
     CHECK(s.value == doctest::Approx(9.0f));
     t.tap_key(Key::Right);
-    CHECK(s.value == doctest::Approx(10.0f)); // the largest value is the end of the range even off the step grid
-    s.step = 0;                               // continuous: (max - min) / 20 per press
+    CHECK(s.value == doctest::Approx(10.0f));  // the largest value is the end of the range even off the step grid
+    s.step = 0;                                // continuous: (max - min) / 20 per press
     s.value = 5;
     t.tap_key(Key::Right);
     CHECK(s.value == doctest::Approx(5.5f));
     // mouse: no label, so the track covers 8 + 8 px inside 85% of the width
-    s.min = 0; s.max = 1; s.step = 0.1f;
+    s.min = 0;
+    s.max = 1;
+    s.step = 0.1f;
     const auto [left, right] = ui_slider_track(s, t.rect(e));
     t.events();
     t.in.on_mouse_move({left + (right - left) * 0.73f, 20});
     t.in.on_mouse_button(MouseButton::Left, true);
     t.frame();
-    CHECK(s.value == doctest::Approx(0.7f));          // snapped to the step
+    CHECK(s.value == doctest::Approx(0.7f));                  // snapped to the step
     t.in.on_mouse_move({left + (right - left) * 0.2f, 100});  // dragging may leave the widget vertically
     t.frame();
     CHECK(s.value == doctest::Approx(0.2f));
@@ -378,30 +416,34 @@ TEST_CASE("ui slider: set_slider is a drag to a value: clamped, snapped, focused
     CHECK(t.ui.set_slider(t.w, e, 0.73f) == doctest::Approx(0.7f));  // snapped to step 0.1
     CHECK(t.events() == V{"ui.focus:s", "ui.change:s=0.7"});
     CHECK(t.ui.focused() == e);
-    CHECK(t.ui.set_slider(t.w, e, 0.7f) == doctest::Approx(0.7f));   // already there: no event
+    CHECK(t.ui.set_slider(t.w, e, 0.7f) == doctest::Approx(0.7f));  // already there: no event
     CHECK(t.events().empty());
-    CHECK(t.ui.set_slider(t.w, e, 5.0f) == doctest::Approx(1.0f));   // clamped to max
+    CHECK(t.ui.set_slider(t.w, e, 5.0f) == doctest::Approx(1.0f));  // clamped to max
     CHECK(t.events() == V{"ui.change:s=1.0"});
-    s.value = 0.2f;                                                   // a script's own write sends nothing
+    s.value = 0.2f;  // a script's own write sends nothing
     t.frame();
     CHECK(t.events().empty());
-    s.min = 0; s.max = 10; s.step = 3;
-    CHECK(t.ui.set_slider(t.w, e, 9.9f) == doctest::Approx(10.0f));   // the end of the range even off the grid
+    s.min = 0;
+    s.max = 10;
+    s.step = 3;
+    CHECK(t.ui.set_slider(t.w, e, 9.9f) == doctest::Approx(10.0f));  // the end of the range even off the grid
 }
 
 TEST_CASE("ui slider: format writes the value as a pattern: {v}, {v:N}, {percent}, braces; formatKey translates it") {
     Slider s;
-    CHECK(ui_slider_value_text(s, 0.6f) == "60%");                    // default for 0..1
-    s.min = 0.4f; s.max = 2.5f;
+    CHECK(ui_slider_value_text(s, 0.6f) == "60%");  // default for 0..1
+    s.min = 0.4f;
+    s.max = 2.5f;
     CHECK(ui_slider_value_text(s, 1.0f) == "1");
     CHECK(ui_slider_value_text(s, 1.25f) == "1.25");
     s.format = "{v}x";
     CHECK(ui_slider_value_text(s, 1.2f) == "1.2x");
     s.format = "{v:1}x ({percent}%)";
     CHECK(ui_slider_value_text(s, 1.0f) == "1.0x (100%)");
-    s.min = 0.3f; s.max = 1.0f;
+    s.min = 0.3f;
+    s.max = 1.0f;
     s.format = "{percent}%";
-    CHECK(ui_slider_value_text(s, 0.3f) == "30%");                    // value x 100, not the place in the range
+    CHECK(ui_slider_value_text(s, 0.3f) == "30%");  // value x 100, not the place in the range
     s.format = "{{v}} = {v:3} {oops} {v:9}";
     CHECK(ui_slider_value_text(s, 0.5f) == "{v} = 0.500 {oops} {v:9}");
 
@@ -418,8 +460,8 @@ TEST_CASE("ui slider: format writes the value as a pattern: {v}, {v:N}, {percent
     Slider& vs = w.add<Slider>(e);
     vs.formatKey = "slider.pct";
     localize_entity(w, e, i18n);
-    CHECK(vs.format == "{percent}%");                                 // the placeholders survive the translation
-    i18n.set_language("fr");
+    CHECK(vs.format == "{percent}%");  // the placeholders survive the translation
+    REQUIRE(i18n.set_language("fr").ok());
     localize_entity(w, e, i18n);
     CHECK(vs.format == "{percent} %");
     CHECK(ui_slider_value_text(vs, 0.25f) == "25 %");
@@ -443,12 +485,12 @@ TEST_CASE("ui scroll list shrink: inside a fit column the list is as tall as its
     Entity back = t.button("back", {0, 0}, {240, 56}, col);
     for (int i = 0; i < 3; ++i) t.button(("item" + std::to_string(i)).c_str(), {0, 0}, {300, 40}, list);
     t.ui.layout(t.w, t.design, {});
-    CHECK(l.size.y == doctest::Approx(8 + 3 * 40 + 2 * 4 + 8));       // content: padding + items + gaps
-    CHECK(p.size.y == doctest::Approx(16 + l.size.y + 12 + 56 + 16)); // the panel is short too
+    CHECK(l.size.y == doctest::Approx(8 + 3 * 40 + 2 * 4 + 8));        // content: padding + items + gaps
+    CHECK(p.size.y == doctest::Approx(16 + l.size.y + 12 + 56 + 16));  // the panel is short too
     CHECK(t.rect(col).h < 720.0f / 2);
     for (int i = 3; i < 40; ++i) t.button(("item" + std::to_string(i)).c_str(), {0, 0}, {300, 40}, list);
     t.ui.layout(t.w, t.design, {});
-    CHECK(l.size.y == doctest::Approx(720 - 32 - 12 - 56));           // stops at the room left
+    CHECK(l.size.y == doctest::Approx(720 - 32 - 12 - 56));  // stops at the room left
     CHECK(t.rect(col).y + t.rect(col).h <= 720.5f);
     CHECK(t.rect(back).y + t.rect(back).h <= t.rect(col).y + t.rect(col).h);
     // Two lists: the short one takes what it needs, the long one the rest. fill wins over shrink.
@@ -463,7 +505,7 @@ TEST_CASE("ui scroll list shrink: inside a fit column the list is as tall as its
     l2.fill = true;
     t.ui.layout(t.w, t.design, {});
     CHECK(l.size.y + l2.size.y == doctest::Approx(720 - 32 - 24 - 56).epsilon(0.01));
-    CHECK(l.size.y == doctest::Approx(l2.size.y).epsilon(0.01));      // both need more than half: equal share
+    CHECK(l.size.y == doctest::Approx(l2.size.y).epsilon(0.01));  // both need more than half: equal share
 }
 
 TEST_CASE("ui textfield: typing, backspace with repeat, maxLength in code points, Enter submits, Space types a space") {
@@ -474,7 +516,9 @@ TEST_CASE("ui textfield: typing, backspace with repeat, maxLength in code points
     f.maxLength = 5;
     t.frame();
     t.events();
-    for (char32_t c : std::u32string(U"ab\x01" U"c\x7f")) t.in.on_text(c);  // control characters are skipped
+    for (char32_t c : std::u32string(U"ab\x01"
+                                     U"c\x7f"))
+        t.in.on_text(c);  // control characters are skipped
     t.frame();
     CHECK(f.text == "abc");
     CHECK(t.events() == V{"ui.change:f=\"abc\""});  // one event for the frame
@@ -613,7 +657,7 @@ TEST_CASE("ui.state lists the widgets in reading order with their state") {
     CHECK(st["focused"] == "play");
     CHECK(st["hovered"] == "play");
     REQUIRE(st["widgets"].size() == 4);
-    CHECK(st["widgets"][0]["id"] == "name");   // top, then left
+    CHECK(st["widgets"][0]["id"] == "name");  // top, then left
     CHECK(st["widgets"][0]["kind"] == "TextField");
     CHECK(st["widgets"][0]["text"] == "Ann");
     CHECK(st["widgets"][1]["id"] == "play");
@@ -654,22 +698,23 @@ TEST_CASE("ui actions: the defaults are installed unless the project defines the
 }
 
 // ------------------------------------------------------------------------------------------------ on-screen gamepad --
-TEST_CASE("on-screen gamepad: a stick and a button feed the pad actions, several fingers at once, and keep their fingers") {
+TEST_CASE(
+    "on-screen gamepad: a stick and a button feed the pad actions, several fingers at once, and keep their fingers") {
     Ui t;
     t.in.set_actions(ui_with_default_actions(Json::parse(R"({
         "move_left": ["A", "GamepadLeftStickLeft"], "move_right": ["D", "GamepadLeftStickRight"],
         "move_up": ["GamepadLeftStickUp"], "aim_right": ["GamepadRightStickRight"],
         "jump": ["Space", "GamepadA"], "fire": ["MouseLeft", "Touch"]})")));
-    t.in.set_gamepad_deadzone(0.0f);  // the raw stick values reach the actions
+    t.in.set_gamepad_deadzone(0.0f);                                      // the raw stick values reach the actions
     const Entity stick = t.add<TouchStick>("stick", {10, 80}, {80, 80});  // centre (50, 120), radius 40
     const Entity jump = t.add<TouchButton>("jump", {240, 100}, {60, 60});
     t.frame();
     CHECK_FALSE(t.w.get<TouchStick>(stick)->shown);  // touchOnly: hidden until the player touches the screen
     REQUIRE(t.in.touch_controls().size() == 2);
 
-    t.in.on_touch_begin(1, {50, 120});  // the stick's centre
-    t.in.on_touch_move(1, {90, 120});   // its right edge: full tilt
-    t.in.on_touch_begin(2, {270, 130}); // a second finger on the button
+    t.in.on_touch_begin(1, {50, 120});   // the stick's centre
+    t.in.on_touch_move(1, {90, 120});    // its right edge: full tilt
+    t.in.on_touch_begin(2, {270, 130});  // a second finger on the button
     CHECK(t.in.action_value("move_right") == doctest::Approx(1.0f));
     CHECK(t.in.action_value("move_left") == 0.0f);
     CHECK(t.in.action_value("aim_right") == 0.0f);  // the left stick, not the right one
@@ -733,7 +778,8 @@ TEST_CASE("ui navigation: widgets in the beam win; the nearest in the half-plane
     Ui t;
     // A row of tabs above a wide button that overlaps the first tab: its centre is nearer to t1 than t2 is, so the
     // half-plane search alone sends Right from t1 down to it (LK/FB-0033). t2 is in t1's beam, the button is not.
-    Entity t1 = t.button("t1", {0, 0}, {60, 20}), t2 = t.button("t2", {120, 0}, {60, 20}), t3 = t.button("t3", {240, 0}, {60, 20});
+    Entity t1 = t.button("t1", {0, 0}, {60, 20}), t2 = t.button("t2", {120, 0}, {60, 20}),
+           t3 = t.button("t3", {240, 0}, {60, 20});
     Entity wide = t.button("wide", {0, 35}, {100, 20});
     t.ui.set_focus(t.w, t1);
     t.tap_key(Key::Right);
@@ -940,7 +986,8 @@ TEST_CASE("ui scroll list fill: a column with a fill list stays inside the scree
     }
 }
 
-TEST_CASE("ui scroll list fill: a column without fit gives the list the rest of its own height; other parents are ignored") {
+TEST_CASE(
+    "ui scroll list fill: a column without fit gives the list the rest of its own height; other parents are ignored") {
     Ui t;
     Entity col = t.add<Panel>("col", {0, 0}, {200, 150});
     Panel& p = *t.w.get<Panel>(col);
@@ -1027,7 +1074,8 @@ TEST_CASE("ui tree: widgets under a plain entity click, drag, focus and hit-test
 // ------------------------------------------------------------------------------- right-to-left layouts --
 TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
     Ui t;
-    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
+    t.w.set_ui_mirror_rtl(
+        false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 100});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Row;
@@ -1048,7 +1096,7 @@ TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(a).x == doctest::Approx(230));  // 280 - 50
     CHECK(t.rect(b).x == doctest::Approx(195));  // 230 - 5 - 30
-    panel.direction = UiDirection::Ltr;  // an explicit ltr ignores the language
+    panel.direction = UiDirection::Ltr;          // an explicit ltr ignores the language
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(a).x == doctest::Approx(10));
     panel.direction = UiDirection::Rtl;  // an explicit rtl ignores it too
@@ -1061,7 +1109,8 @@ TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-
 
 TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in English and right in Arabic") {
     Ui t;
-    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
+    t.w.set_ui_mirror_rtl(
+        false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 200});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Column;
@@ -1088,21 +1137,22 @@ TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in
 }
 
 // ----------------------------------------------------------------------------------- mirrored screens --
-TEST_CASE("ui mirror: a right-to-left language flips the rectangles about the middle of the screen, mirror false stays") {
+TEST_CASE(
+    "ui mirror: a right-to-left language flips the rectangles about the middle of the screen, mirror false stays") {
     Ui t;
     Entity a = t.button("a", {10, 20}, {100, 30});
     Entity b = t.button("b", {10, 60}, {100, 30});
     t.w.get<Button>(b)->mirror = false;
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(a).x == doctest::Approx(10));       // English: as authored
+    CHECK(t.rect(a).x == doctest::Approx(10));  // English: as authored
     t.w.set_rtl(true);
     t.ui.layout(t.w, t.design, {});
     CHECK(t.w.ui_mirror());
     CHECK(t.rect(a).x == doctest::Approx(320 - 10 - 100));  // the mirror image: same size, other side
     CHECK(t.rect(a).w == doctest::Approx(100));
-    CHECK(t.rect(a).y == doctest::Approx(20));       // only x flips
-    CHECK(t.rect(b).x == doctest::Approx(10));       // mirror false: where it is written
-    t.w.set_ui_mirror_rtl(false);                    // the option off: nothing is mirrored
+    CHECK(t.rect(a).y == doctest::Approx(20));  // only x flips
+    CHECK(t.rect(b).x == doctest::Approx(10));  // mirror false: where it is written
+    t.w.set_ui_mirror_rtl(false);               // the option off: nothing is mirrored
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(a).x == doctest::Approx(10));
     // anchor.x and pivot.x flip: a button anchored to the right edge sits at the left edge
@@ -1184,7 +1234,8 @@ TEST_CASE("ui mirror: a Toggle's label sits left of its box and a Slider's label
     const Rect tm = t.rect(tg);
     const Rect lm = ui_label(t.w, tg, tm)->zone;
     CHECK(lm.x + lm.w <= tm.x + tm.w);
-    CHECK(lm.x - tm.x == doctest::Approx((tr.x + tr.w) - (lt.x + lt.w)));  // the zone is the mirror image of the English one
+    CHECK(lm.x - tm.x ==
+          doctest::Approx((tr.x + tr.w) - (lt.x + lt.w)));  // the zone is the mirror image of the English one
     CHECK(lm.w == doctest::Approx(lt.w));
     CHECK(ui_mirrored(t.w, tg));
     t.w.get<Toggle>(tg)->mirror = false;
@@ -1203,7 +1254,7 @@ TEST_CASE("ui mirror: a Panel row in a mirrored screen keeps its children inside
     t.w.set_rtl(true);
     t.ui.layout(t.w, t.design, {});
     const Rect pr = t.rect(p);
-    CHECK(pr.x == doctest::Approx(320 - 10 - 200));  // the panel is mirrored
+    CHECK(pr.x == doctest::Approx(320 - 10 - 200));                    // the panel is mirrored
     CHECK(t.rect(a).x + t.rect(a).w == doctest::Approx(pr.x + pr.w));  // the first child at the panel's right edge
     CHECK(t.rect(b).x + t.rect(b).w == doctest::Approx(t.rect(a).x - 10));
     CHECK(t.rect(b).x >= pr.x);
@@ -1277,7 +1328,8 @@ Entity auto_button(Ui& t, const char* id, Vec2 design, Entity parent) {
 
 }  // namespace
 
-TEST_CASE("ui fallbackLayout: a fit column taller than the screen becomes a row, and a column again when the text shrinks") {
+TEST_CASE(
+    "ui fallbackLayout: a fit column taller than the screen becomes a row, and a column again when the text shrinks") {
     Ui t;  // 320 x 180
     Entity col = fit_panel(t, "col", UiLayout::Column, UiLayout::Row);
     Entity a = auto_button(t, "a", {100, 50}, col), b = auto_button(t, "b", {100, 50}, col);
@@ -1309,7 +1361,8 @@ TEST_CASE("ui fallbackLayout: level-select shape, rows stack first and then the 
         Entity title = t.button(w ? "title2" : "title1", {0, 0}, {150, 30}, world);
         (void)title;
         rows[w] = fit_panel(t, w ? "row2" : "row1", UiLayout::Row, UiLayout::Column, world);
-        for (int i = 0; i < 3; ++i) btns[w][i] = auto_button(t, ("b" + std::to_string(w) + std::to_string(i)).c_str(), {100, 40}, rows[w]);
+        for (int i = 0; i < 3; ++i)
+            btns[w][i] = auto_button(t, ("b" + std::to_string(w) + std::to_string(i)).c_str(), {100, 40}, rows[w]);
     }
     t.ui.layout(t.w, t.design, measure_at(1.0f));  // rows 320 x 45: everything fits
     CHECK_FALSE(t.w.get<Panel>(rows[0])->usingFallback);
@@ -1353,7 +1406,8 @@ TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is
     t.w.get<Button>(a)->text = "Hola\nHola";
     Entity list = t.add<ScrollList>("list", {0, 0}, {100, 100}, col);
     t.w.get<ScrollList>(list)->fill = true;
-    t.ui.layout(t.w, t.design, measure_at(2.0f));  // the button is ~131 tall: the list gets its 64 px minimum, 205 in all
+    t.ui.layout(t.w, t.design,
+                measure_at(2.0f));  // the button is ~131 tall: the list gets its 64 px minimum, 205 in all
     CHECK(t.w.get<Panel>(col)->usingFallback);
     CHECK(t.rect(list).y == doctest::Approx(t.rect(a).y));
     CHECK(t.rect(list).x > t.rect(a).x);
@@ -1362,7 +1416,8 @@ TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is
 
 // ---- Button.icon (M31.17) --------------------------------------------------------------------------------------------------
 
-TEST_CASE("ui button icon: an icon-top label sits under the icon, a click on the icon presses the button, the fitted size counts it") {
+TEST_CASE("ui button icon: an icon-top label sits under the icon, a click on the icon presses the button, the fitted "
+          "size counts it") {
     Ui t;
     Entity b = t.button("b", {100, 100}, {200, 120});
     Button& btn = *t.w.get<Button>(b);
@@ -1375,7 +1430,7 @@ TEST_CASE("ui button icon: an icon-top label sits under the icon, a click on the
     const Vec2 label{58.0f, 28.0f};
     const UiButtonContent c = ui_button_content(btn, r, label);
     CHECK(c.icon.w == doctest::Approx(40));
-    CHECK(c.icon.x + c.icon.w * 0.5f == doctest::Approx(r.x + r.w * 0.5f));  // centred across
+    CHECK(c.icon.x + c.icon.w * 0.5f == doctest::Approx(r.x + r.w * 0.5f));    // centred across
     CHECK(c.labelPos.y == doctest::Approx(c.icon.y + 40 + kUiButtonIconGap));  // the label under the icon
     CHECK(c.labelPos.y + label.y <= r.y + r.h);
     CHECK(c.icon.y >= r.y);
@@ -1420,7 +1475,8 @@ TEST_CASE("ui button icon: autoSize grows the button to hold the icon and the la
 
 // ---- text that fits (M26.6) ------------------------------------------------------------------------------------------------
 
-TEST_CASE("text fit: a German label in a fixed button shrinks at 200 % text, stays inside and never goes under minFontSize") {
+TEST_CASE(
+    "text fit: a German label in a fixed button shrinks at 200 % text, stays inside and never goes under minFontSize") {
     Ui t;
     t.design = {1280, 720};
     Entity b = t.button("b", {10, 10}, {200, 48});
@@ -1442,10 +1498,10 @@ TEST_CASE("text fit: a German label in a fixed button shrinks at 200 % text, sta
     CHECK_FALSE(fit->fit.overflow);
     CHECK(fit->fit.shrunk);
     CHECK(fit->fit.px < 48);
-    CHECK(fit->fit.px >= 8 * 2);                       // minFontSize is scaled with the text size
-    CHECK(fit->fit.size.x <= r.w - 16 + 0.5f);          // inside the button's margins
+    CHECK(fit->fit.px >= 8 * 2);                // minFontSize is scaled with the text size
+    CHECK(fit->fit.size.x <= r.w - 16 + 0.5f);  // inside the button's margins
     CHECK(fit->fit.size.y <= r.h - 8 + 0.5f);
-    CHECK(fit->fit.size.x > r.w - 16 - 8);              // ... and the largest quarter-pixel size that does
+    CHECK(fit->fit.size.x > r.w - 16 - 8);  // ... and the largest quarter-pixel size that does
     CHECK_FALSE(ui_text_overflowed(t.w, b, t.design, m));
     // At 100 % the label fits at its own size: nothing shrinks.
     btn.size = {220, 48};
@@ -1474,9 +1530,9 @@ TEST_CASE("text fit: maxTextScale caps the growth of a heading and of a label, a
     heading.maxTextScale = 1.3f;
     CHECK(approx_text_size(heading, 2.0f).y == doctest::Approx(40 * 1.3f * 1.2f));
     CHECK(approx_text_size(heading, 3.0f).y == doctest::Approx(40 * 1.3f * 1.2f));
-    CHECK(approx_text_size(heading, 1.0f).y == doctest::Approx(40 * 1.2f));      // below the cap: the player's size
+    CHECK(approx_text_size(heading, 1.0f).y == doctest::Approx(40 * 1.2f));  // below the cap: the player's size
     CHECK(approx_text_size(heading, 0.5f).y == doctest::Approx(40 * 0.5f * 1.2f));
-    heading.space = RenderSpace::World;                                         // world space never scales
+    heading.space = RenderSpace::World;  // world space never scales
     CHECK(approx_text_size(heading, 2.0f).y == doctest::Approx(40 * 1.2f));
     CHECK(effective_text_scale(2.0f, 0.0f) == 2.0f);
     CHECK(effective_text_scale(2.0f, 1.3f) == 1.3f);
@@ -1544,7 +1600,8 @@ TEST_CASE("text fit: a long Toggle label wraps at maxWidth and the toggle grows 
     CHECK_FALSE(fit->fit.overflow);
 }
 
-TEST_CASE("text fit: a Toggle's box follows the font size, so a two-line label keeps the box and autoShrink fits the label") {
+TEST_CASE(
+    "text fit: a Toggle's box follows the font size, so a two-line label keeps the box and autoShrink fits the label") {
     Ui t;
     t.design = {1280, 720};
     Entity tg = t.add<Toggle>("tg", {10, 10}, {240, 40});
@@ -1560,7 +1617,7 @@ TEST_CASE("text fit: a Toggle's box follows the font size, so a two-line label k
     t.ui.layout(t.w, t.design, measure_at(1.0f));
     CHECK(toggle.size.y > 60);  // several lines
     CHECK(ui_toggle_box_side(toggle, toggle.size.y, 1.0f) == doctest::Approx(oneLineBox));
-    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 2.0f) > oneLineBox);  // it grows with the text size
+    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 2.0f) > oneLineBox);      // it grows with the text size
     CHECK(ui_toggle_box_side(toggle, 20.0f, 1.0f) == doctest::Approx(8.0f));  // never past the height minus 12
     // a short word in a roomy maxWidth: measured by its own width, not overflowed
     toggle.autoSize = false;
@@ -1753,7 +1810,8 @@ TEST_CASE("ui widget_at: the topmost widget, a Panel, nothing over empty space o
     CHECK(at(50, 169) == rows[2]);
     sl.scroll = 30;
     t.ui.layout(t.w, t.design, {});
-    CHECK(at(50, 125) == rows[1]);  // the part of row 0 above the list is clipped; row 1 spans 110..130 and shows from 120
+    CHECK(at(50, 125) ==
+          rows[1]);  // the part of row 0 above the list is clipped; row 1 spans 110..130 and shows from 120
     CHECK(at(50, 100) == kNullEntity);
 }
 
@@ -1859,7 +1917,8 @@ TEST_CASE("ui focus: set_focus(null) holds over frames until a navigation press,
 // ------------------------------------------------------------------------------------------------ interface scale --
 // ui.scale (World::set_ui_scale, ui_rect.h): the UI is laid out in a screen of design size / k and drawn k times as big, so
 // the anchor does not move, every size, offset, padding and spacing is k times as big and the children stay inside.
-TEST_CASE("ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 times as big and its children stay inside") {
+TEST_CASE(
+    "ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 times as big and its children stay inside") {
     Ui t;
     Entity p = t.add<Panel>("p", {20, 10}, {200, 120});
     Panel& panel = *t.w.get<Panel>(p);
@@ -1877,16 +1936,22 @@ TEST_CASE("ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 tim
     t.w.set_ui_scale(1.5f);
     t.ui.layout(t.w, t.design, {});
     const Rect p2 = t.rect(p), a2 = t.rect(a), b2 = t.rect(b);
-    CHECK(p2.x == doctest::Approx(1.5f * p1.x)); CHECK(p2.y == doctest::Approx(1.5f * p1.y));
-    CHECK(p2.w == doctest::Approx(1.5f * p1.w)); CHECK(p2.h == doctest::Approx(1.5f * p1.h));
-    CHECK(a2.x - p2.x == doctest::Approx(1.5f * 10));          // padding
+    CHECK(p2.x == doctest::Approx(1.5f * p1.x));
+    CHECK(p2.y == doctest::Approx(1.5f * p1.y));
+    CHECK(p2.w == doctest::Approx(1.5f * p1.w));
+    CHECK(p2.h == doctest::Approx(1.5f * p1.h));
+    CHECK(a2.x - p2.x == doctest::Approx(1.5f * 10));  // padding
     CHECK(a2.y - p2.y == doctest::Approx(1.5f * 12));
-    CHECK(b2.y - (a2.y + a2.h) == doctest::Approx(1.5f * 10)); // spacing
-    CHECK(a2.w == doctest::Approx(1.5f * 100)); CHECK(a2.h == doctest::Approx(1.5f * 20));
-    CHECK(b2.w == doctest::Approx(1.5f * 60));  CHECK(b2.h == doctest::Approx(1.5f * 30));
-    for (const Rect& child : {a2, b2}) {                       // the children stay inside the panel
-        CHECK(child.x >= p2.x - 0.01f); CHECK(child.y >= p2.y - 0.01f);
-        CHECK(child.x + child.w <= p2.x + p2.w + 0.01f); CHECK(child.y + child.h <= p2.y + p2.h + 0.01f);
+    CHECK(b2.y - (a2.y + a2.h) == doctest::Approx(1.5f * 10));  // spacing
+    CHECK(a2.w == doctest::Approx(1.5f * 100));
+    CHECK(a2.h == doctest::Approx(1.5f * 20));
+    CHECK(b2.w == doctest::Approx(1.5f * 60));
+    CHECK(b2.h == doctest::Approx(1.5f * 30));
+    for (const Rect& child : {a2, b2}) {  // the children stay inside the panel
+        CHECK(child.x >= p2.x - 0.01f);
+        CHECK(child.y >= p2.y - 0.01f);
+        CHECK(child.x + child.w <= p2.x + p2.w + 0.01f);
+        CHECK(child.y + child.h <= p2.y + p2.h + 0.01f);
     }
     // the layout rectangles, in UI units, did not change
     CHECK(ui_layout_rect(t.w, a, t.design)->w == doctest::Approx(100));
@@ -1895,7 +1960,8 @@ TEST_CASE("ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 tim
     // 0.5 shrinks the same way, and back to 1 gives the first rectangles
     t.w.set_ui_scale(0.5f);
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(a).w == doctest::Approx(50)); CHECK(t.rect(a).x - t.rect(p).x == doctest::Approx(5));
+    CHECK(t.rect(a).w == doctest::Approx(50));
+    CHECK(t.rect(a).x - t.rect(p).x == doctest::Approx(5));
     t.w.set_ui_scale(1.0f);
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(b).y == doctest::Approx(b1.y));
@@ -2026,12 +2092,15 @@ TEST_CASE("ui scale: a fit Panel with minSize keeps it at ui.scale 1.5 and the c
     CHECK(pr.w == doctest::Approx(600));
     for (Entity c : {a, b}) {
         const Rect r = t.rect(c);
-        CHECK(r.x >= pr.x - 0.01f); CHECK(r.x + r.w <= pr.x + pr.w + 0.01f);
-        CHECK(r.y >= pr.y - 0.01f); CHECK(r.y + r.h <= pr.y + pr.h + 0.01f);
+        CHECK(r.x >= pr.x - 0.01f);
+        CHECK(r.x + r.w <= pr.x + pr.w + 0.01f);
+        CHECK(r.y >= pr.y - 0.01f);
+        CHECK(r.y + r.h <= pr.y + pr.h + 0.01f);
     }
 }
 
-TEST_CASE("ui scale: autoSize and text overflow are measured in UI units, so a label's box grows with k and still fits") {
+TEST_CASE(
+    "ui scale: autoSize and text overflow are measured in UI units, so a label's box grows with k and still fits") {
     Ui t;
     t.design = {1280, 720};
     Entity b = t.button("b", {10, 10}, {240, 56});
@@ -2052,7 +2121,9 @@ TEST_CASE("ui scale: autoSize and text overflow are measured in UI units, so a l
 // ------------------------------------------------------------------------------------------------------ tooltips --
 TEST_CASE("tooltip placement: below and right of the pointer, flipped and pushed to stay inside the screen") {
     const Vec2 screen{1280, 720}, size{300, 80};
-    auto inside = [&](Vec2 at) { return at.x >= 4 && at.y >= 4 && at.x + size.x <= screen.x - 4 + 0.01f && at.y + size.y <= screen.y - 4 + 0.01f; };
+    auto inside = [&](Vec2 at) {
+        return at.x >= 4 && at.y >= 4 && at.x + size.x <= screen.x - 4 + 0.01f && at.y + size.y <= screen.y - 4 + 0.01f;
+    };
     const Vec2 mid = ui_tooltip_place({640, 360}, size, screen, 16);
     CHECK(mid.x == doctest::Approx(656));
     CHECK(mid.y == doctest::Approx(382));
@@ -2077,7 +2148,9 @@ TEST_CASE("tooltip content: a string, or {title, lines}; an empty line is skippe
     CHECK(plain->title.empty());
     REQUIRE(plain->lines.size() == 1);
     CHECK(plain->lines[0].text == "Gold: 120");
-    auto rich = ui_tooltip_text(Json::parse(R"({"title":"Mill","lines":["Makes flour","",{"text":"low stock","color":"#ff0000"}]})"), nullptr, &err);
+    auto rich = ui_tooltip_text(
+        Json::parse(R"({"title":"Mill","lines":["Makes flour","",{"text":"low stock","color":"#ff0000"}]})"), nullptr,
+        &err);
     REQUIRE(rich);
     CHECK(rich->title == "Mill");
     REQUIRE(rich->lines.size() == 2);
@@ -2145,7 +2218,10 @@ TEST_CASE("tooltips: a script function can give the text, and showTooltip stays 
     const Vec2 c = t.rect(a).center();
     int asked = 0;
     UiTooltipHooks hooks;
-    hooks.widget = [&](Entity) { ++asked; return Json::parse(R"({"title":"T","lines":["x"]})"); };
+    hooks.widget = [&](Entity) {
+        ++asked;
+        return Json::parse(R"({"title":"T","lines":["x"]})");
+    };
     hooks.world = [&](Vec2 p) { return p.x > 600 ? Json("world") : Json(nullptr); };
     t.ui.set_tooltip_hooks(hooks);
     t.ui.set_script_tooltip(a, true);
@@ -2201,7 +2277,7 @@ TEST_CASE("ui Panel.modal: only its widgets get the pointer, the focus and the w
     t.frame();
     CHECK(t.ui.focused() == yes);  // the focus left the widget outside, into the modal (its first widget)
     t.events();
-    t.in.on_mouse_move({20, 20});          // over the button under the modal
+    t.in.on_mouse_move({20, 20});  // over the button under the modal
     t.frame();
     CHECK(t.ui.hovered() == kNullEntity);
     CHECK(t.ui.pointer_over_ui());
@@ -2259,7 +2335,7 @@ TEST_CASE("Chart: the sample under the pointer is written to the component and s
     CHECK(ev[0]["value"].get<double>() == 10.0);
     CHECK(c.hoverIndex == 0);
     t.frame();
-    CHECK(chart_events().empty());  // the same sample: nothing new
+    CHECK(chart_events().empty());       // the same sample: nothing new
     t.ui.set_pointer({100, 60}, false);  // slot 1 (63 .. 110)... x = 100 is in slot 1
     t.frame();
     ev = chart_events();
@@ -2324,7 +2400,7 @@ TEST_CASE("CameraView: press, drag and release send ui.viewPointer with the poin
     CHECK(ev[0]["dx"].get<float>() == 15.0f);
     CHECK(ev[0]["dy"].get<float>() == -4.0f);
     t.frame();
-    CHECK(view_events(t).empty());  // no move, no event
+    CHECK(view_events(t).empty());   // no move, no event
     t.in.on_mouse_move({300, 150});  // the drag goes on outside the view: u and v leave 0..1
     t.frame();
     ev = view_events(t);
@@ -2341,7 +2417,8 @@ TEST_CASE("CameraView: press, drag and release send ui.viewPointer with the poin
     (void)view;
 }
 
-TEST_CASE("CameraView: a press outside, pointerEvents off or an inactive view send nothing; a press elsewhere never drags it") {
+TEST_CASE("CameraView: a press outside, pointerEvents off or an inactive view send nothing; a press elsewhere never "
+          "drags it") {
     Ui t;
     Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
     t.in.on_mouse_move({200, 150});
@@ -2362,14 +2439,15 @@ TEST_CASE("CameraView: a press outside, pointerEvents off or an inactive view se
     CHECK(view_events(t).empty());
 }
 
-TEST_CASE("CameraView: a Button over it keeps the click, a view under a modal Panel hears nothing, a ScrollList clips it") {
+TEST_CASE(
+    "CameraView: a Button over it keeps the click, a view under a modal Panel hears nothing, a ScrollList clips it") {
     Ui t;
     t.add<CameraView>("view", {20, 20}, {100, 80});
     Entity over = t.button("over", {30, 30}, {40, 20});
     t.w.get<Button>(over)->layer = 500;
     t.click({40, 40});
     CHECK(view_events(t).empty());
-    t.click({100, 90});  // the part of the view the button does not cover
+    t.click({100, 90});                 // the part of the view the button does not cover
     CHECK(view_events(t).size() == 2);  // down and up
     t.w.events().game.clear();
 
@@ -2388,7 +2466,8 @@ TEST_CASE("CameraView: a Button over it keeps the click, a view under a modal Pa
     CHECK(view_events(t).empty());
 }
 
-TEST_CASE("CameraView: the wheel over it is sent and consumed (captureWheel); off, it scrolls the list under it as before") {
+TEST_CASE(
+    "CameraView: the wheel over it is sent and consumed (captureWheel); off, it scrolls the list under it as before") {
     Ui t;
     Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
     t.in.on_mouse_move({60, 60});
@@ -2446,7 +2525,7 @@ TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its pic
     t.w.set_rtl(true);
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(view).x == doctest::Approx(320 - 20 - 100));  // the rectangle is on the other side (200 .. 300)
-    t.in.on_mouse_move({200 + 20, 40});  // 20 px from the view's left edge, which is on screen
+    t.in.on_mouse_move({200 + 20, 40});                        // 20 px from the view's left edge, which is on screen
     t.in.on_mouse_button(MouseButton::Left, true);
     t.frame();
     auto ev = view_events(t);

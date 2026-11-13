@@ -37,7 +37,9 @@ float axis_of(Vec3 v, int a) { return a == 0 ? v.x : a == 1 ? v.y : v.z; }
 void set_axis(Vec3& v, int a, float f) { (a == 0 ? v.x : a == 1 ? v.y : v.z) = f; }
 
 bool is_tail_name(const std::string& s) { return s.size() > 5 && s.compare(s.size() - 5, 5, ".tail") == 0; }
-std::string bone_of(const std::string& landmark) { return is_tail_name(landmark) ? landmark.substr(0, landmark.size() - 5) : landmark; }
+std::string bone_of(const std::string& landmark) {
+    return is_tail_name(landmark) ? landmark.substr(0, landmark.size() - 5) : landmark;
+}
 
 RigSource weaker(RigSource a, RigSource b) { return int(a) > int(b) ? a : b; }
 
@@ -74,7 +76,8 @@ std::vector<PartInfo> gather_parts(const MeshData& mesh) {
         }
         p->triangles += (end > sm.start ? end - sm.start : 0) / 3;
     }
-    parts.erase(std::remove_if(parts.begin(), parts.end(), [](const PartInfo& p) { return p.triangles == 0; }), parts.end());
+    parts.erase(std::remove_if(parts.begin(), parts.end(), [](const PartInfo& p) { return p.triangles == 0; }),
+                parts.end());
     return parts;
 }
 
@@ -146,32 +149,49 @@ std::vector<RigIssue> rig_check_doc(const RigDoc& doc) {
     if (doc.templateName == "generic") {
         std::set<std::string> seen = {"root"};
         for (const RigGenericBone& g : doc.bones) {
-            if (g.name == "root") issues.push_back({g.pointer + "/name", "'root' is the bone every rig has; a generic rig lists the others", "Name this bone something else (the root is added for you), or leave it out."});
+            if (g.name == "root")
+                issues.push_back({g.pointer + "/name",
+                                  "'root' is the bone every rig has; a generic rig lists the others",
+                                  "Name this bone something else (the root is added for you), or leave it out."});
             else if (!g.name.empty() && !seen.insert(g.name).second)
-                issues.push_back({g.pointer + "/name", "two bones are called '" + g.name + "'", "Give every bone its own name."});
-            if (!g.parent.empty() && g.parent != "root" && !std::any_of(doc.bones.begin(), doc.bones.end(), [&](const RigGenericBone& o) { return &o != &g && o.name == g.parent; }))
-                issues.push_back({g.pointer + "/parent", "bone '" + g.name + "' hangs from '" + g.parent + "', which is not a bone of the rig", did_you_mean(g.parent, names)});
+                issues.push_back(
+                    {g.pointer + "/name", "two bones are called '" + g.name + "'", "Give every bone its own name."});
+            if (!g.parent.empty() && g.parent != "root" &&
+                !std::any_of(doc.bones.begin(), doc.bones.end(),
+                             [&](const RigGenericBone& o) { return &o != &g && o.name == g.parent; }))
+                issues.push_back({g.pointer + "/parent",
+                                  "bone '" + g.name + "' hangs from '" + g.parent + "', which is not a bone of the rig",
+                                  did_you_mean(g.parent, names)});
             else if (!g.parent.empty() && g.parent != "root") {
-                const auto at = std::find_if(doc.bones.begin(), doc.bones.end(), [&](const RigGenericBone& o) { return o.name == g.parent; });
+                const auto at = std::find_if(doc.bones.begin(), doc.bones.end(),
+                                             [&](const RigGenericBone& o) { return o.name == g.parent; });
                 if (at != doc.bones.end() && at >= doc.bones.begin() + (&g - doc.bones.data()))
-                    issues.push_back({g.pointer + "/parent", "bone '" + g.name + "' hangs from '" + g.parent + "', which is listed after it", "List parents before their children."});
+                    issues.push_back({g.pointer + "/parent",
+                                      "bone '" + g.name + "' hangs from '" + g.parent + "', which is listed after it",
+                                      "List parents before their children."});
             }
         }
     }
     if (bones.size() > kRigMaxBones)
-        issues.push_back({"", std::format("the rig has {} bones; a skin may have at most {}", bones.size(), kRigMaxBones), "Lower the spine, neck or tail options, or list fewer bones."});
+        issues.push_back({"",
+                          std::format("the rig has {} bones; a skin may have at most {}", bones.size(), kRigMaxBones),
+                          "Lower the spine, neck or tail options, or list fewer bones."});
     for (std::size_t i = 0; i < doc.parts.size(); ++i)
         if (std::find(names.begin(), names.end(), doc.parts[i].first) == names.end())
-            issues.push_back({"/parts/" + doc.parts[i].first, "'" + doc.parts[i].first + "' is not a bone of the " + doc.templateName + " rig",
+            issues.push_back({"/parts/" + doc.parts[i].first,
+                              "'" + doc.parts[i].first + "' is not a bone of the " + doc.templateName + " rig",
                               did_you_mean(doc.parts[i].first, names)});
     for (const auto& [name, v] : doc.landmarks) {
         (void)v;
         if (std::find(landmarkNames.begin(), landmarkNames.end(), name) != landmarkNames.end()) continue;
         std::string hint;
         if (is_tail_name(name) && std::find(names.begin(), names.end(), bone_of(name)) != names.end())
-            hint = "Only a bone with no children has a tail landmark (the others end where their child begins): move the joint of the child instead.";
-        else hint = did_you_mean(name, landmarkNames);
-        issues.push_back({"/landmarks/" + name, "'" + name + "' is not a landmark of the " + doc.templateName + " rig", hint});
+            hint = "Only a bone with no children has a tail landmark (the others end where their child begins): move "
+                   "the joint of the child instead.";
+        else
+            hint = did_you_mean(name, landmarkNames);
+        issues.push_back(
+            {"/landmarks/" + name, "'" + name + "' is not a landmark of the " + doc.templateName + " rig", hint});
     }
     const std::vector<RigIssue> skinIssues = rig_check_skin(doc, names);
     issues.insert(issues.end(), skinIssues.begin(), skinIssues.end());
@@ -260,12 +280,14 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
         const std::vector<RigIssue> issues = rig_check_doc(doc);
         if (!issues.empty()) {
             std::string message = (issues[0].pointer.empty() ? "" : issues[0].pointer + ": ") + issues[0].message;
-            if (issues.size() > 1) message += std::format(" (and {} more problem{})", issues.size() - 1, issues.size() == 2 ? "" : "s");
+            if (issues.size() > 1)
+                message += std::format(" (and {} more problem{})", issues.size() - 1, issues.size() == 2 ? "" : "s");
             return make_error(message, issues[0].hint);
         }
     }
     if (mesh.positions.size() < 9)
-        return make_error("the model has no geometry to fit a rig to", "Check the model document: `model.bake` must produce a mesh with triangles.");
+        return make_error("the model has no geometry to fit a rig to",
+                          "Check the model document: `model.bake` must produce a mesh with triangles.");
     Frame f;
     f.bmin = Vec3{1e30f, 1e30f, 1e30f};
     f.bmax = Vec3{-1e30f, -1e30f, -1e30f};
@@ -276,7 +298,8 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
     }
     if (f.bmax.y - f.bmin.y < 1e-5f)
         return make_error("the model has no height (all its points are at y = " + std::format("{:.4g}", f.bmin.y) + ")",
-                          "A rig expects a model standing on +Y. Check the model's rotation, or use the generic template with landmarks.");
+                          "A rig expects a model standing on +Y. Check the model's rotation, or use the generic "
+                          "template with landmarks.");
     f.W = std::max(f.bmax.x - f.bmin.x, 1e-4f);
     f.H = f.bmax.y - f.bmin.y;
     f.D = std::max(f.bmax.z - f.bmin.z, 1e-4f);
@@ -298,11 +321,15 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
         return -1;
     };
 
-    const bool armsOut = doc.optionString("pose", "auto") == "out" || (doc.optionString("pose", "auto") == "auto" && f.W / f.H > 0.75f);
-    const bool wingsSpread = doc.optionString("pose", "auto") == "spread" || (doc.optionString("pose", "auto") == "auto" && f.W > f.D);
+    const bool armsOut =
+        doc.optionString("pose", "auto") == "out" || (doc.optionString("pose", "auto") == "auto" && f.W / f.H > 0.75f);
+    const bool wingsSpread =
+        doc.optionString("pose", "auto") == "spread" || (doc.optionString("pose", "auto") == "auto" && f.W > f.D);
     std::vector<std::string> warnings;
     std::vector<TBone> tbones = build_template(doc, armsOut, wingsSpread);
-    if (tbones.size() > kRigMaxBones) return make_error(std::format("the rig has {} bones; a skin may have at most {}", tbones.size(), kRigMaxBones), "Lower the spine, neck or tail options.");
+    if (tbones.size() > kRigMaxBones)
+        return make_error(std::format("the rig has {} bones; a skin may have at most {}", tbones.size(), kRigMaxBones),
+                          "Lower the spine, neck or tail options.");
 
     std::vector<Work> W(tbones.size());
     std::map<std::string, int> indexOf;
@@ -313,7 +340,10 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
     for (std::size_t i = 0; i < W.size(); ++i) {
         if (!W[i].t.parent.empty()) {
             auto it = indexOf.find(W[i].t.parent);
-            if (it == indexOf.end() || it->second >= int(i)) return make_error("internal: template bone '" + W[i].t.name + "' has a parent that is not listed before it", "Report this as an engine bug.");
+            if (it == indexOf.end() || it->second >= int(i))
+                return make_error("internal: template bone '" + W[i].t.name +
+                                      "' has a parent that is not listed before it",
+                                  "Report this as an engine bug.");
             W[i].parentIdx = it->second;
             W[std::size_t(it->second)].leaf = false;
             if (W[std::size_t(it->second)].mainChild < 0) W[std::size_t(it->second)].mainChild = int(i);
@@ -333,7 +363,12 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
                 region.clear();
                 for (const std::string& n : names) {
                     const int p = find_part(n);
-                    if (p < 0) return make_error("/parts/" + bone + ": the model has no part '" + n + "'", partNames.empty() ? "The model has no named parts: name the nodes of the model document with `part`." : did_you_mean(n, partNames));
+                    if (p < 0)
+                        return make_error(
+                            "/parts/" + bone + ": the model has no part '" + n + "'",
+                            partNames.empty()
+                                ? "The model has no named parts: name the nodes of the model document with `part`."
+                                : did_you_mean(n, partNames));
                     region.push_back(p);
                 }
             }
@@ -351,14 +386,18 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
         const bool negative = axis[0] == '-';
         const float length = axis_of(hi, a) - axis_of(lo, a);
         if (length < 1e-4f)
-            return make_error("the " + doc.templateName + " has no length along " + axis, "Choose the axis the model is longest along (`options.axis`), or give landmarks.");
+            return make_error("the " + doc.templateName + " has no length along " + axis,
+                              "Choose the axis the model is longest along (`options.axis`), or give landmarks.");
         Vec3 base = (lo + hi) * 0.5f, dir{0, 0, 0};
         set_axis(base, a, negative ? axis_of(hi, a) : axis_of(lo, a));
         set_axis(dir, a, negative ? -1.0f : 1.0f);
         Vec3 ext = hi - lo;
         for (int k = 0; k < 3; ++k)
             if (k != a && axis_of(ext, k) > length * 1.01f) {
-                warnings.push_back(std::format("the model is longer along {} than along {}: the chain follows {}. Set options.axis to \"{}\" if it should follow that.", "xyz"[k], axis, axis, std::string(axis_of(ext, k) > 0 ? "+" : "-") + "xyz"[k]));
+                warnings.push_back(std::format("the model is longer along {} than along {}: the chain follows {}. Set "
+                                               "options.axis to \"{}\" if it should follow that.",
+                                               "xyz"[k], axis, axis,
+                                               std::string(axis_of(ext, k) > 0 ? "+" : "-") + "xyz"[k]));
                 break;
             }
         const RigSource src = region.empty() ? RigSource::Geometry : RigSource::Part;
@@ -392,7 +431,9 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
             for (const Hint& h : W[i].t.hints)
                 if (find_part(h.exact) < 0)
                     return make_error(std::format("/bones/{}/part: the model has no part '{}'", i - 1, h.exact),
-                                      partNames.empty() ? "The model has no named parts: give the nodes of the model document a `part` (model.info lists them)." : did_you_mean(h.exact, partNames));
+                                      partNames.empty() ? "The model has no named parts: give the nodes of the model "
+                                                          "document a `part` (model.info lists them)."
+                                                        : did_you_mean(h.exact, partNames));
     }
 
     // ---- which parts are which bone
@@ -417,7 +458,8 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
                 const PartInfo& p = parts[pi];
                 if (!tokens_match(h, p) || spec_of(h) != p.maxSpec) continue;
                 bool straddle = false;
-                if (h.exact.empty() && !side_compatible(w.t.side.empty() ? char(0) : w.t.side[0], p, f, straddle)) continue;
+                if (h.exact.empty() && !side_compatible(w.t.side.empty() ? char(0) : w.t.side[0], p, f, straddle))
+                    continue;
                 w.hintParts[hi].push_back(int(pi));
                 all.insert(int(pi));
             }
@@ -432,7 +474,9 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
             const int p = find_part(n);
             if (p < 0)
                 return make_error("/parts/" + bone + ": the model has no part '" + n + "'",
-                                  partNames.empty() ? "The model has no named parts: give the nodes of the model document a `part` (model.info lists them), or use `landmarks`." : did_you_mean(n, partNames));
+                                  partNames.empty() ? "The model has no named parts: give the nodes of the model "
+                                                      "document a `part` (model.info lists them), or use `landmarks`."
+                                                    : did_you_mean(n, partNames));
             forced.push_back(p);
         }
         if (w.t.hints.empty()) {
@@ -558,7 +602,9 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
                 Vec3 a, b;
                 RigSource sa, sb;
                 if (!landmark_pos(w.t.lerpA, a, sa) || !landmark_pos(w.t.lerpB, b, sb))
-                    return make_error("internal: bone '" + w.t.name + "' lies between landmarks that are not placed yet", "Report this as an engine bug.");
+                    return make_error("internal: bone '" + w.t.name +
+                                          "' lies between landmarks that are not placed yet",
+                                      "Report this as an engine bug.");
                 w.head = lerp(a, b, w.t.lerpT);
                 w.headSource = weaker(sa, sb);
             } else if (w.t.hasAbs) {
@@ -634,47 +680,67 @@ Result<RigFit> fit_rig(const RigDoc& doc, const MeshData& mesh) {
 
     // ---- what the fit noticed
     if (parts.empty() && doc.templateName != "tail" && doc.templateName != "chain")
-        warnings.push_back("The model has no named parts, so the joints come from the model's bounds and the template's proportions. Name the nodes of the model document with `part` "
+        warnings.push_back("The model has no named parts, so the joints come from the model's bounds and the "
+                           "template's proportions. Name the nodes of the model document with `part` "
                            "(\"head\", \"torso\", \"arm_l\"...) or give `landmarks` to put them where they belong.");
     for (const PartInfo& p : parts)
         if (p.straddlesRejected && !usedParts.count(p.name))
-            warnings.push_back("Part '" + p.name + "' covers both sides of the symmetry plane, so it was not used for a left or right bone. Split it into two parts named with _l and _r, "
-                                                    "or put the joints with `landmarks`.");
+            warnings.push_back("Part '" + p.name +
+                               "' covers both sides of the symmetry plane, so it was not used for a left or right "
+                               "bone. Split it into two parts named with _l and _r, "
+                               "or put the joints with `landmarks`.");
     for (const PartInfo& p : parts)
         if (p.side && usedParts.count(p.name)) {
             const float cx = (p.bmin.x + p.bmax.x) * 0.5f - f.x0;
             if ((p.side == 'l' && cx < -0.05f * f.W) || (p.side == 'r' && cx > 0.05f * f.W))
-                warnings.push_back("Part '" + p.name + "' is named for the " + (p.side == 'l' ? "left" : "right") + " but sits on the " + (cx < 0 ? "-X" : "+X") +
-                                   " side: character-left is +X (the character looks towards +Z). The name wins; rename the part or the model if this is a mistake.");
+                warnings.push_back("Part '" + p.name + "' is named for the " + (p.side == 'l' ? "left" : "right") +
+                                   " but sits on the " + (cx < 0 ? "-X" : "+X") +
+                                   " side: character-left is +X (the character looks towards +Z). The name wins; "
+                                   "rename the part or the model if this is a mistake.");
         }
     for (const std::string& name : fit.unusedParts)
-        if (std::find_if(warnings.begin(), warnings.end(), [&](const std::string& w) { return w.find("Part '" + name + "' covers") == 0; }) == warnings.end())
-            warnings.push_back("Part '" + name + "' matched no bone of the " + doc.templateName + " template. If it should move with one, name it in `parts` (for example {\"<bone>\": [\"" + name + "\"]}); `rig.templates {name: \"" + doc.templateName + "\"}` lists the words it recognises.");
+        if (std::find_if(warnings.begin(), warnings.end(), [&](const std::string& w) {
+                return w.find("Part '" + name + "' covers") == 0;
+            }) == warnings.end())
+            warnings.push_back(
+                "Part '" + name + "' matched no bone of the " + doc.templateName +
+                " template. If it should move with one, name it in `parts` (for example {\"<bone>\": [\"" + name +
+                "\"]}); `rig.templates {name: \"" + doc.templateName + "\"}` lists the words it recognises.");
     if (fit.estimated > 0 && !parts.empty()) {
-        std::vector<std::string> first(estimatedNames.begin(), estimatedNames.begin() + std::min<std::size_t>(estimatedNames.size(), 8));
-        warnings.push_back(std::format("{} landmark{} estimated from the template's proportions: {}{}. Name the parts that hold them or give `landmarks` to be sure.", fit.estimated,
-                                       fit.estimated == 1 ? " was" : "s were", join(first, ", "), estimatedNames.size() > first.size() ? ", ..." : ""));
+        std::vector<std::string> first(estimatedNames.begin(),
+                                       estimatedNames.begin() + std::min<std::size_t>(estimatedNames.size(), 8));
+        warnings.push_back(std::format("{} landmark{} estimated from the template's proportions: {}{}. Name the parts "
+                                       "that hold them or give `landmarks` to be sure.",
+                                       fit.estimated, fit.estimated == 1 ? " was" : "s were", join(first, ", "),
+                                       estimatedNames.size() > first.size() ? ", ..." : ""));
     }
     {
         const Vec3 pad{0.15f * f.W, 0.15f * f.H, 0.15f * f.D};
         std::vector<std::string> outside;
         for (const RigBoneFit& b : fit.bones) {
             const Vec3 p = b.head;
-            if (p.x < f.bmin.x - pad.x || p.x > f.bmax.x + pad.x || p.y < f.bmin.y - pad.y || p.y > f.bmax.y + pad.y || p.z < f.bmin.z - pad.z || p.z > f.bmax.z + pad.z)
+            if (p.x < f.bmin.x - pad.x || p.x > f.bmax.x + pad.x || p.y < f.bmin.y - pad.y || p.y > f.bmax.y + pad.y ||
+                p.z < f.bmin.z - pad.z || p.z > f.bmax.z + pad.z)
                 outside.push_back(b.name);
         }
         if (!outside.empty())
-            warnings.push_back("Joint" + std::string(outside.size() == 1 ? " " : "s ") + join(outside, ", ") + " lie" + (outside.size() == 1 ? "s" : "") +
-                               " well outside the model's bounds: check the `landmarks` (they are in the model's space after its gameReady origin) and the symmetryX.");
+            warnings.push_back("Joint" + std::string(outside.size() == 1 ? " " : "s ") + join(outside, ", ") + " lie" +
+                               (outside.size() == 1 ? "s" : "") +
+                               " well outside the model's bounds: check the `landmarks` (they are in the model's space "
+                               "after its gameReady origin) and the symmetryX.");
     }
     fit.warnings = std::move(warnings);
 
     if (doc.strict && fit.estimated > 0) {
-        std::vector<std::string> first(estimatedNames.begin(), estimatedNames.begin() + std::min<std::size_t>(estimatedNames.size(), 10));
-        return make_error(std::format("the rig is strict and {} landmark{} could only be estimated from proportions: {}{}", fit.estimated, fit.estimated == 1 ? "" : "s", join(first, ", "),
-                                      estimatedNames.size() > first.size() ? ", ..." : ""),
-                          "Name the model parts that hold them (`rig.templates {name: \"" + doc.templateName + "\"}` lists the words each bone looks for), map parts with `parts`, "
-                          "or place the joints with `landmarks`; or set strict to false.");
+        std::vector<std::string> first(estimatedNames.begin(),
+                                       estimatedNames.begin() + std::min<std::size_t>(estimatedNames.size(), 10));
+        return make_error(
+            std::format("the rig is strict and {} landmark{} could only be estimated from proportions: {}{}",
+                        fit.estimated, fit.estimated == 1 ? "" : "s", join(first, ", "),
+                        estimatedNames.size() > first.size() ? ", ..." : ""),
+            "Name the model parts that hold them (`rig.templates {name: \"" + doc.templateName +
+                "\"}` lists the words each bone looks for), map parts with `parts`, "
+                "or place the joints with `landmarks`; or set strict to false.");
     }
     return fit;
 }
@@ -699,7 +765,10 @@ Json rig_fit_to_json(const RigFit& fit) {
                            {"bounds", Json::object({{"min", to_json(fit.bmin)}, {"max", to_json(fit.bmax)}})},
                            {"symmetryX", to_json(fit.symmetryX)},
                            {"symmetrySource", fit.symmetrySource},
-                           {"landmarks", Json::object({{"override", fit.overrides}, {"part", fit.fromParts}, {"geometry", fit.fromGeometry}, {"estimated", fit.estimated}})},
+                           {"landmarks", Json::object({{"override", fit.overrides},
+                                                       {"part", fit.fromParts},
+                                                       {"geometry", fit.fromGeometry},
+                                                       {"estimated", fit.estimated}})},
                            {"unusedParts", fit.unusedParts},
                            {"warnings", fit.warnings}});
     return j;

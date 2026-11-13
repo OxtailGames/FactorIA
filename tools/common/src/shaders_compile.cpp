@@ -33,12 +33,15 @@ Json ShaderIssue::to_json() const {
 
 std::string ShaderIssue::to_string() const {
     std::string out = file;
-    if (line > 0) out += ":" + std::to_string(line) + ":" + std::to_string(std::max(column, 1));
-    else if (!pointer.empty()) out += "#" + pointer;
+    if (line > 0)
+        out += ":" + std::to_string(line) + ":" + std::to_string(std::max(column, 1));
+    else if (!pointer.empty())
+        out += "#" + pointer;
     out += ": error: " + message;
     if (!source.empty() && line > 0) {
         const std::string num = std::to_string(line);
-        out += "\n  " + num + " | " + source + "\n  " + std::string(num.size(), ' ') + " | " + std::string(std::size_t(std::max(column, 1) - 1), ' ') + "^";
+        out += "\n  " + num + " | " + source + "\n  " + std::string(num.size(), ' ') + " | " +
+               std::string(std::size_t(std::max(column, 1) - 1), ' ') + "^";
     }
     if (!hint.empty()) out += "\n  hint: " + hint;
     return out;
@@ -54,16 +57,18 @@ std::string shader_template_hash() {
     return template_files().empty() ? std::string() : mesh_template_hash();
 }
 
-std::string shader_cache_path(const std::string& projectDir, const GeneratedShader& generated, std::string_view snippet, const std::string& slang) {
+std::string shader_cache_path(const std::string& projectDir, const GeneratedShader& generated, std::string_view snippet,
+                              const std::string& slang) {
     std::string key = generated.top;
     const std::string templateHash = shader_template_hash();
-    for (std::string_view part : {snippet, std::string_view(templateHash), std::string_view(slang), std::string_view(kSetupSokolShdcCommit),
-                                  std::string_view(FA_ENGINE_VERSION)}) {
+    for (std::string_view part : {snippet, std::string_view(templateHash), std::string_view(slang),
+                                  std::string_view(kSetupSokolShdcCommit), std::string_view(FA_ENGINE_VERSION)}) {
         key += '\x01';
         key += part;
     }
     for (const std::string& d : generated.defines) key += '\x01' + d;
-    return (stdfs::path(projectDir) / ".factoria" / "shader-cache" / (sha256_hex(key) + "." + slang + ".shader")).string();
+    return (stdfs::path(projectDir) / ".factoria" / "shader-cache" / (sha256_hex(key) + "." + slang + ".shader"))
+        .string();
 }
 
 namespace {
@@ -72,7 +77,8 @@ std::optional<Json> read_cached_twin(const std::string& path, const std::string&
     auto text = tooling_detail::read_file(path);
     if (!text) return std::nullopt;
     auto parsed = parse_json(*text, path);
-    if (!parsed.ok() || !parsed->is_object() || parsed->value("format", std::string()) != kShaderTwinFormat || parsed->value("slang", std::string()) != slang)
+    if (!parsed.ok() || !parsed->is_object() || parsed->value("format", std::string()) != kShaderTwinFormat ||
+        parsed->value("slang", std::string()) != slang)
         return std::nullopt;
     return std::move(parsed.value());
 }
@@ -125,8 +131,8 @@ std::string message_token(const std::string& message) {
 struct MapContext {
     const MaterialDef& material;
     const GeneratedShader& generated;
-    const std::string& snippet;       // normalized
-    const std::string& stripped;      // comment-blanked snippet
+    const std::string& snippet;   // normalized
+    const std::string& stripped;  // comment-blanked snippet
     const std::string& projectDir;
 };
 
@@ -163,7 +169,8 @@ std::string field_hint(const std::string& token, const std::string& source, cons
         const std::string var = source.substr(b, e - b);
         if (!var.empty()) {
             static const std::regex decl(R"(\b(SurfaceInput|Surface|VertexData)\s+(\w+))");
-            for (auto it = std::sregex_iterator(ctx.stripped.begin(), ctx.stripped.end(), decl); it != std::sregex_iterator(); ++it)
+            for (auto it = std::sregex_iterator(ctx.stripped.begin(), ctx.stripped.end(), decl);
+                 it != std::sregex_iterator(); ++it)
                 if ((*it)[2] == var) typeName = (*it)[1];
         }
     }
@@ -177,21 +184,49 @@ std::string field_hint(const std::string& token, const std::string& source, cons
             for (const std::string& name : f2)
                 if (std::find(fields.begin(), fields.end(), name) == fields.end()) fields.push_back(name);
     }
-    static const std::vector<std::pair<std::string, std::string>> aliases = {
-        {"colour", "albedo"}, {"color", "albedo"}, {"diffuse", "albedo"}, {"basecolor", "albedo"}, {"base", "albedo"}, {"opacity", "alpha"},
-        {"transparency", "alpha"}, {"emissive", "emission"}, {"glow", "emission"}, {"emit", "emission"}, {"ao", "occlusion"},
-        {"ambientocclusion", "occlusion"}, {"rough", "roughness"}, {"metal", "metallic"}, {"metalness", "metallic"}, {"normals", "normal"},
-        {"normal", "world_normal"}, {"position", "world_pos"}, {"pos", "world_pos"}, {"worldpos", "world_pos"}, {"worldposition", "world_pos"},
-        {"world_position", "world_pos"}, {"texcoord", "uv"}, {"texcoords", "uv"}, {"uv0", "uv"}, {"viewdir", "view_dir"},
-        {"view", "view_dir"}, {"tangent", "world_tangent"}, {"worldnormal", "world_normal"}, {"frontfacing", "front_facing"}, {"isfrontface", "front_facing"}};
+    static const std::vector<std::pair<std::string, std::string>> aliases = {{"colour", "albedo"},
+                                                                             {"color", "albedo"},
+                                                                             {"diffuse", "albedo"},
+                                                                             {"basecolor", "albedo"},
+                                                                             {"base", "albedo"},
+                                                                             {"opacity", "alpha"},
+                                                                             {"transparency", "alpha"},
+                                                                             {"emissive", "emission"},
+                                                                             {"glow", "emission"},
+                                                                             {"emit", "emission"},
+                                                                             {"ao", "occlusion"},
+                                                                             {"ambientocclusion", "occlusion"},
+                                                                             {"rough", "roughness"},
+                                                                             {"metal", "metallic"},
+                                                                             {"metalness", "metallic"},
+                                                                             {"normals", "normal"},
+                                                                             {"normal", "world_normal"},
+                                                                             {"position", "world_pos"},
+                                                                             {"pos", "world_pos"},
+                                                                             {"worldpos", "world_pos"},
+                                                                             {"worldposition", "world_pos"},
+                                                                             {"world_position", "world_pos"},
+                                                                             {"texcoord", "uv"},
+                                                                             {"texcoords", "uv"},
+                                                                             {"uv0", "uv"},
+                                                                             {"viewdir", "view_dir"},
+                                                                             {"view", "view_dir"},
+                                                                             {"tangent", "world_tangent"},
+                                                                             {"worldnormal", "world_normal"},
+                                                                             {"frontfacing", "front_facing"},
+                                                                             {"isfrontface", "front_facing"}};
     std::string lower = to_lower(token), flat;
     for (char c : lower)
         if (c != '_') flat += c;
     std::string best;
     for (const auto& [alias, canonical] : aliases)
-        if ((alias == lower || alias == flat) && std::find(fields.begin(), fields.end(), canonical) != fields.end()) { best = canonical; break; }
+        if ((alias == lower || alias == flat) && std::find(fields.begin(), fields.end(), canonical) != fields.end()) {
+            best = canonical;
+            break;
+        }
     if (best.empty()) best = closest_match(token, fields);
-    return (best.empty() ? std::string() : "did you mean " + best + "? ") + where + " has the fields: " + join(fields, ", ") + ".";
+    return (best.empty() ? std::string() : "did you mean " + best + "? ") + where +
+           " has the fields: " + join(fields, ", ") + ".";
 }
 
 // Names that other materials of the project declare (param or texture) -> the first material that does.
@@ -214,24 +249,30 @@ std::vector<std::string> engine_names() {
         static const std::regex re(R"(\bfa_\w+)");
         for (const auto& [file, content] : template_files()) {
             const std::string text = blank_comments(content);
-            for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it) found.insert(it->str());
+            for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it)
+                found.insert(it->str());
         }
         return std::vector<std::string>(found.begin(), found.end());
     }();
     return names;
 }
 
-constexpr const char* kPrefixRule = "Names starting with fa_ belong to the engine: the snippet may read the ones the contract lists (fa_time, fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
-constexpr const char* kSignatures = "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void vertex(inout VertexData v) { ... }  (optional)";
+constexpr const char* kPrefixRule =
+    "Names starting with fa_ belong to the engine: the snippet may read the ones the contract lists (fa_time, "
+    "fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
+constexpr const char* kSignatures = "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
+                                    "vertex(inout VertexData v) { ... }  (optional)";
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     // A field written without its struct.
     for (const auto& [n, fields] : contract_structs())
         if (std::find(fields.begin(), fields.end(), token) != fields.end())
-            return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " + (n == "VertexData" ? "vertex" : "surface") + "().";
+            return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " +
+                   (n == "VertexData" ? "vertex" : "surface") + "().";
     if (token.rfind("fa_", 0) == 0) {
         const std::string best = closest_match(token, engine_names());
-        return best.empty() ? std::string("No engine value is called ") + token + "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal()."
+        return best.empty() ? std::string("No engine value is called ") + token +
+                                  "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal()."
                             : "did you mean " + best + "?";
     }
     std::vector<std::string> names;
@@ -240,12 +281,17 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     const std::string best = closest_match(token, names);
     if (!best.empty()) return "did you mean " + best + "? This material declares: " + join(names, ", ") + ".";
     if (const std::string other = declared_by_other_material(token, ctx); !other.empty())
-        return "`" + token + "` is declared by " + other + ", not by this material. Add it to \"params\" or \"textures\" in " + ctx.material.path + " (each material declares its own).";
-    return "Declare `" + token + "` in \"params\" (or \"textures\") of " + ctx.material.path + ", or declare it in the snippet." +
-           (names.empty() ? std::string(" This material declares no params or textures.") : " This material declares: " + join(names, ", ") + ".");
+        return "`" + token + "` is declared by " + other +
+               ", not by this material. Add it to \"params\" or \"textures\" in " + ctx.material.path +
+               " (each material declares its own).";
+    return "Declare `" + token + "` in \"params\" (or \"textures\") of " + ctx.material.path +
+           ", or declare it in the snippet." +
+           (names.empty() ? std::string(" This material declares no params or textures.")
+                          : " This material declares: " + join(names, ", ") + ".");
 }
 
-std::string hint_for(const std::string& message, const std::string& token, const std::string& source, const MapContext& ctx) {
+std::string hint_for(const std::string& message, const std::string& token, const std::string& source,
+                     const MapContext& ctx) {
     if (message.find("no such field in structure") != std::string::npos) return field_hint(token, source, ctx);
     if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx);
     if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("texture", 0) == 0) {
@@ -253,21 +299,29 @@ std::string hint_for(const std::string& message, const std::string& token, const
         for (const MaterialTexture& t : ctx.material.textures) {
             std::regex use(token + R"(\s*\(\s*)" + t.name + R"(\s*,)");
             if (std::regex_search(source, use))
-                return "textures and samplers are separate: write " + token + "(sampler2D(" + t.name + ", " + t.name + "_smp), uv) instead of " + token + "(" + t.name + ", uv).";
+                return "textures and samplers are separate: write " + token + "(sampler2D(" + t.name + ", " + t.name +
+                       "_smp), uv) instead of " + token + "(" + t.name + ", uv).";
         }
-        return "Texture lookups take a combined sampler built from the texture and its sampler: " + token + "(sampler2D(name, name_smp), uv), with a vec2 uv.";
+        return "Texture lookups take a combined sampler built from the texture and its sampler: " + token +
+               "(sampler2D(name, name_smp), uv), with a vec2 uv.";
     }
     if (message.find("redefinition") != std::string::npos && token.rfind("fa_", 0) == 0) return kPrefixRule;
     if (message.find("redefinition") != std::string::npos) {
         for (const MaterialParam& p : ctx.material.params)
-            if (p.name == token) return "`" + token + "` is already a global: it is a param of this material (declared in " + ctx.material.path + "). Use it directly, or rename the local variable.";
+            if (p.name == token)
+                return "`" + token + "` is already a global: it is a param of this material (declared in " +
+                       ctx.material.path + "). Use it directly, or rename the local variable.";
         for (const MaterialTexture& t : ctx.material.textures)
-            if (t.name == token || t.name + "_smp" == token) return "`" + token + "` is already declared by the texture \"" + t.name + "\" of this material. Rename the local variable.";
+            if (t.name == token || t.name + "_smp" == token)
+                return "`" + token + "` is already declared by the texture \"" + t.name +
+                       "\" of this material. Rename the local variable.";
     }
     if (message.find("syntax error") != std::string::npos)
-        return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or '}' just above.";
+        return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
+               "'}' just above.";
     if (message.find("cannot convert from") != std::string::npos)
-        return "GLSL does not convert types by itself: write vec3(x) to widen a float, use .rgb or .xyz to narrow a vec4, and write float literals with a dot (1.0, not 1).";
+        return "GLSL does not convert types by itself: write vec3(x) to widen a float, use .rgb or .xyz to narrow a "
+               "vec4, and write float literals with a dot (1.0, not 1).";
     return {};
 }
 
@@ -278,29 +332,41 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
     if (token == "surface" || token == "vertex")
-        issue.hint = std::string("The engine calls ") + token + "() from its template, so the snippet must define it with exactly this signature: " + kSignatures + ".";
+        issue.hint = std::string("The engine calls ") + token +
+                     "() from its template, so the snippet must define it with exactly this signature: " + kSignatures +
+                     ".";
     else if (token == "main")
-        issue.hint = "The engine owns main(): the snippet defines surface() (and vertex()) and must not define main. Remove it.";
+        issue.hint =
+            "The engine owns main(): the snippet defines surface() (and vertex()) and must not define main. Remove it.";
     else
-        issue.hint = std::string("The engine template could not be built from the snippet, so the snippet broke the contract: define ") + kSignatures +
-                     ", and do not declare names starting with fa_ or main(). Run `factoria call docs.read '{\"path\":\"docs/SHADERS.md\"}'` for the contract once it is documented.";
+        issue.hint =
+            std::string(
+                "The engine template could not be built from the snippet, so the snippet broke the contract: define ") +
+            kSignatures +
+            ", and do not declare names starting with fa_ or main(). Run `factoria call docs.read "
+            "'{\"path\":\"docs/SHADERS.md\"}'` for the contract once it is documented.";
 }
 
 std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, const MapContext& ctx) {
     std::vector<ShaderIssue> out;
-    const bool hasOther = std::any_of(diags.begin(), diags.end(), [](const Diagnostic& d) { return d.message.find("missing #endif") == std::string::npos; });
+    const bool hasOther = std::any_of(diags.begin(), diags.end(), [](const Diagnostic& d) {
+        return d.message.find("missing #endif") == std::string::npos;
+    });
     for (const Diagnostic& d : diags) {
         if (hasOther && d.message.find("missing #endif") != std::string::npos) continue;  // follows the real error
         ShaderIssue issue;
         const std::string token = message_token(d.message);
         issue.message = d.message;
         const std::string base = stdfs::path(d.file).filename().string();
-        if (base == "top.glsl" && d.line >= 1 && d.line <= int(ctx.generated.snippetLine.size()) && ctx.generated.snippetLine[d.line - 1] > 0) {
+        if (base == "top.glsl" && d.line >= 1 && d.line <= int(ctx.generated.snippetLine.size()) &&
+            ctx.generated.snippetLine[d.line - 1] > 0) {
             const int sl = ctx.generated.snippetLine[d.line - 1];
             issue.file = ctx.material.shader;
             issue.line = sl;
             issue.source = line_text(ctx.snippet, sl);
-            std::size_t p = token.empty() ? std::string::npos : find_word(issue.source, token, d.message.find("no such field") != std::string::npos);
+            std::size_t p = token.empty()
+                                ? std::string::npos
+                                : find_word(issue.source, token, d.message.find("no such field") != std::string::npos);
             if (p == std::string::npos) {
                 p = issue.source.find_first_not_of(" \t");
                 if (p == std::string::npos) p = 0;
@@ -319,34 +385,44 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
     // The same mistake found by both stages is reported once; the follow-ups of an unknown name on its line are noise.
     std::vector<ShaderIssue> unique;
     for (ShaderIssue& i : out) {
-        const bool dup = std::any_of(unique.begin(), unique.end(), [&](const ShaderIssue& u) { return u.file == i.file && u.line == i.line && u.message == i.message; });
+        const bool dup = std::any_of(unique.begin(), unique.end(), [&](const ShaderIssue& u) {
+            return u.file == i.file && u.line == i.line && u.message == i.message;
+        });
         if (!dup) unique.push_back(std::move(i));
     }
     std::vector<ShaderIssue> result;
     for (const ShaderIssue& i : unique) {
-        const bool root = i.message.find("undeclared identifier") != std::string::npos || i.message.find("no such field") != std::string::npos;
-        const bool shadowed = !root && i.line > 0 &&
-                              std::any_of(unique.begin(), unique.end(), [&](const ShaderIssue& u) {
-                                  return u.line == i.line && (u.message.find("undeclared identifier") != std::string::npos || u.message.find("no such field") != std::string::npos);
-                              });
+        const bool root = i.message.find("undeclared identifier") != std::string::npos ||
+                          i.message.find("no such field") != std::string::npos;
+        const bool shadowed =
+            !root && i.line > 0 && std::any_of(unique.begin(), unique.end(), [&](const ShaderIssue& u) {
+                return u.line == i.line && (u.message.find("undeclared identifier") != std::string::npos ||
+                                            u.message.find("no such field") != std::string::npos);
+            });
         if (!shadowed) result.push_back(i);
     }
     return result;
 }
 
 // Problems the author can be told about without starting a compiler.
-std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g, const std::string& snippet, const std::string& stripped) {
+std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g,
+                                          const std::string& snippet, const std::string& stripped) {
     std::vector<ShaderIssue> out;
     if (!g.hasSurface) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the snippet defines no surface() function";
-        i.hint = std::string("Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: ") + kSignatures + ".";
+        i.hint =
+            std::string(
+                "Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. "
+                "s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: ") +
+            kSignatures + ".";
         out.push_back(std::move(i));
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.
     static const std::regex decl(R"(\b([A-Za-z_]\w*)\s+(fa_\w*)\s*(?=[;=\[(,)]))");
-    static const std::set<std::string> notTypes = {"return", "else", "case", "discard", "break", "continue", "do", "if", "while", "for", "switch", "default"};
+    static const std::set<std::string> notTypes = {"return", "else", "case",  "discard", "break",  "continue",
+                                                   "do",     "if",   "while", "for",     "switch", "default"};
     for (auto it = std::sregex_iterator(stripped.begin(), stripped.end(), decl); it != std::sregex_iterator(); ++it) {
         const std::smatch& m = *it;
         if (notTypes.count(m[1])) continue;
@@ -380,12 +456,14 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
 }
 
 // The twins of the requested slangs from sokol-shdc's reflection YAML and the source files it points to.
-Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText, const MaterialDef& material,
-                                                const std::vector<std::string>& slangs, std::vector<ShaderIssue>& issues) {
+Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText,
+                                                const MaterialDef& material, const std::vector<std::string>& slangs,
+                                                std::vector<ShaderIssue>& issues) {
     auto yaml = parse_shdc_yaml(yamlText);
     if (!yaml.ok()) return yaml.error();
     if (!yaml->is_object() || !yaml->contains("shaders") || !(*yaml)["shaders"].is_array())
-        return make_error("the reflection file of sokol-shdc has no \"shaders\" list", "Install the pinned sokol-shdc (`factoria setup shaders`).");
+        return make_error("the reflection file of sokol-shdc has no \"shaders\" list",
+                          "Install the pinned sokol-shdc (`factoria setup shaders`).");
     Json paramNames = Json::array(), textureNames = Json::array();
     for (const MaterialParam& p : material.params) paramNames.push_back(p.name);
     for (const MaterialTexture& t : material.textures) textureNames.push_back(t.name);
@@ -395,8 +473,12 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
     for (const Json& shader : (*yaml)["shaders"]) {
         const std::string slang = shader.value("slang", std::string());
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
-        Json twin = Json::object({{"format", kShaderTwinFormat}, {"engine", FA_ENGINE_VERSION}, {"template", shader_template_hash()},
-                                  {"slang", slang}, {"params", paramNames}, {"textures", textureNames}});
+        Json twin = Json::object({{"format", kShaderTwinFormat},
+                                  {"engine", FA_ENGINE_VERSION},
+                                  {"template", shader_template_hash()},
+                                  {"slang", slang},
+                                  {"params", paramNames},
+                                  {"textures", textureNames}});
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
@@ -405,20 +487,25 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
-            const std::string vsText = read_output_file(work, vf.value("path", std::string())), fsText = read_output_file(work, ff.value("path", std::string()));
+            const std::string vsText = read_output_file(work, vf.value("path", std::string())),
+                              fsText = read_output_file(work, ff.value("path", std::string()));
             if (vsText.empty() || fsText.empty())
                 return make_error("sokol-shdc did not write the " + slang + " source of program '" + name + "'",
-                                  "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` prints its errors).");
+                                  "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
+                                  "prints its errors).");
             if (!vertexTextureReported)
                 for (const Json& view : prog.value("views", Json::array())) {
                     const Json tex = view.value("texture", Json::object());
                     const std::string tname = tex.value("name", std::string());
                     if (tex.value("stage", std::string()) == "vertex" &&
-                        std::any_of(material.textures.begin(), material.textures.end(), [&](const MaterialTexture& t) { return t.name == tname; })) {
+                        std::any_of(material.textures.begin(), material.textures.end(),
+                                    [&](const MaterialTexture& t) { return t.name == tname; })) {
                         ShaderIssue i;
                         i.file = material.shader;
-                        i.message = "the texture '" + tname + "' is sampled in vertex(), but textures can only be read in the fragment stage";
-                        i.hint = "Read textures in surface(), or compute the displacement from fa_time and params in vertex(). Vertex-stage textures are not supported yet.";
+                        i.message = "the texture '" + tname +
+                                    "' is sampled in vertex(), but textures can only be read in the fragment stage";
+                        i.hint = "Read textures in surface(), or compute the displacement from fa_time and params in "
+                                 "vertex(). Vertex-stage textures are not supported yet.";
                         issues.push_back(std::move(i));
                         vertexTextureReported = true;
                     }
@@ -429,17 +516,22 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         twins[slang] = std::move(twin);
     }
     for (const std::string& s : slangs)
-        if (!twins.count(s)) return make_error("sokol-shdc wrote no reflection for the dialect " + s, "Run `factoria setup shaders` to install the pinned sokol-shdc.");
+        if (!twins.count(s))
+            return make_error("sokol-shdc wrote no reflection for the dialect " + s,
+                              "Run `factoria setup shaders` to install the pinned sokol-shdc.");
     return twins;
 }
 
 struct TempWork {
     stdfs::path path;
-    std::optional<Error> error;  // set when no scratch folder could be made (then `path` is empty and nothing is deleted)
+    std::optional<Error>
+        error;  // set when no scratch folder could be made (then `path` is empty and nothing is deleted)
     TempWork() {
         auto dir = fs::make_temp_dir("fa_shader");
-        if (dir.ok()) path = *dir;
-        else error = dir.error();
+        if (dir.ok())
+            path = *dir;
+        else
+            error = dir.error();
     }
     ~TempWork() {
         if (path.empty()) return;
@@ -451,14 +543,17 @@ struct TempWork {
 }  // namespace
 
 std::string sokol_shdc_missing_hint(const SetupContext& context) {
-    std::string hint = "Run `factoria setup shaders` to install it (a pinned sokol-tools-bin commit, " + std::string(kSetupSokolShdcCommit).substr(0, 7) +
+    std::string hint = "Run `factoria setup shaders` to install it (a pinned sokol-tools-bin commit, " +
+                       std::string(kSetupSokolShdcCommit).substr(0, 7) +
                        "), or set the environment variable SOKOL_SHDC to the path of sokol-shdc.";
     if (context.host_os() == "windows")
-        hint += " Windows Defender may have quarantined sokol-shdc.exe as a false positive: restore it from Windows Security > Protection history, or point SOKOL_SHDC at a copy you trust.";
+        hint += " Windows Defender may have quarantined sokol-shdc.exe as a false positive: restore it from Windows "
+                "Security > Protection history, or point SOKOL_SHDC at a copy you trust.";
     return hint;
 }
 
-Result<ShaderCompileResult> compile_material(const std::string& projectDir, const std::string& materialPath, const ShaderCompileOptions& options) {
+Result<ShaderCompileResult> compile_material(const std::string& projectDir, const std::string& materialPath,
+                                             const ShaderCompileOptions& options) {
     ShaderCompileResult res;
     if (options.dialects.empty())
         res.dialects = shader_dialects();
@@ -482,14 +577,17 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     if (!mp.ok()) return res;
 
     auto raw = tooling_detail::read_file(stdfs::path(projectDir) / res.material.shader);
-    if (!raw) return make_error("cannot read the snippet '" + res.material.shader + "' of " + materialPath, "Check the \"shader\" path of the material.");
+    if (!raw)
+        return make_error("cannot read the snippet '" + res.material.shader + "' of " + materialPath,
+                          "Check the \"shader\" path of the material.");
     const std::string snippet = normalize_snippet(*raw);
     const std::string stripped = blank_comments(snippet);
     res.generated = generate_material_shader(res.material, snippet);
     res.errors = precheck_snippet(res.material, res.generated, snippet, stripped);
     if (!res.errors.empty()) return res;
     if (shader_template_hash().empty())
-        return make_error("this factoria build has no mesh shader template (engine/render/shaders/*_common.glsl)", "Rebuild factoria from the full source tree so the template is embedded.");
+        return make_error("this factoria build has no mesh shader template (engine/render/shaders/*_common.glsl)",
+                          "Rebuild factoria from the full source tree so the template is embedded.");
 
     // What the cache already has.
     std::vector<std::string> missing;
@@ -509,17 +607,23 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
 
     const std::string tool = find_sokol_shdc(options.setup);
     if (tool.empty())
-        return make_error("sokol-shdc, the shader compiler, was not found, so the snippet '" + res.material.shader + "' cannot be compiled",
-                          sokol_shdc_missing_hint(options.setup) + " A material whose twin is in .factoria/shader-cache needs no compiler.");
+        return make_error("sokol-shdc, the shader compiler, was not found, so the snippet '" + res.material.shader +
+                              "' cannot be compiled",
+                          sokol_shdc_missing_hint(options.setup) +
+                              " A material whose twin is in .factoria/shader-cache needs no compiler.");
 
     TempWork work;
     if (work.error) return *work.error;
-    bool written = tooling_detail::write_file(work.path / "top.glsl", res.generated.top) && tooling_detail::write_file(work.path / "out" / ".keep", "");
-    for (const auto& [name, content] : template_files()) written = written && tooling_detail::write_file(work.path / name, content);
-    if (!written) return make_error("cannot write to the temporary folder " + work.path.string(), "Check the free disk space.");
+    bool written = tooling_detail::write_file(work.path / "top.glsl", res.generated.top) &&
+                   tooling_detail::write_file(work.path / "out" / ".keep", "");
+    for (const auto& [name, content] : template_files())
+        written = written && tooling_detail::write_file(work.path / name, content);
+    if (!written)
+        return make_error("cannot write to the temporary folder " + work.path.string(), "Check the free disk space.");
 
     ProcessOptions po;
-    po.argv = {tool, "--input", "top.glsl", "--output", "out/m", "--format", "bare_yaml", "--errfmt", "gcc", "--slang", join(missing, ":"), "--no-log-cmdline"};
+    po.argv = {tool,       "--input", "top.glsl", "--output",         "out/m",           "--format", "bare_yaml",
+               "--errfmt", "gcc",     "--slang",  join(missing, ":"), "--no-log-cmdline"};
     if (!res.generated.defines.empty()) {
         po.argv.push_back("--defines");
         po.argv.push_back(join(res.generated.defines, ":"));
@@ -529,9 +633,13 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     po.cancel = options.setup.cancel;
     auto ran = options.setup.run_process_with(po);
     if (!ran.ok())
-        return make_error("could not start sokol-shdc (" + tool + "): " + ran.error().message,
-                          (ran.error().hint.empty() ? "Check that the file exists and is executable." : ran.error().hint) + " " + sokol_shdc_missing_hint(options.setup));
-    if (ran->timedOut) return make_error("sokol-shdc did not finish in 120 seconds", "Run it by hand on the generated top file to see where it hangs.");
+        return make_error(
+            "could not start sokol-shdc (" + tool + "): " + ran.error().message,
+            (ran.error().hint.empty() ? "Check that the file exists and is executable." : ran.error().hint) + " " +
+                sokol_shdc_missing_hint(options.setup));
+    if (ran->timedOut)
+        return make_error("sokol-shdc did not finish in 120 seconds",
+                          "Run it by hand on the generated top file to see where it hangs.");
 
     if (ran->exitCode != 0) {
         MapContext ctx{res.material, res.generated, snippet, stripped, projectDir};
@@ -539,9 +647,11 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         if (res.errors.empty()) {
             ShaderIssue i;
             i.file = res.material.shader;
-            i.message = "sokol-shdc failed (exit code " + std::to_string(ran->exitCode) + ") without a message it can be mapped to the snippet from: " +
+            i.message = "sokol-shdc failed (exit code " + std::to_string(ran->exitCode) +
+                        ") without a message it can be mapped to the snippet from: " +
                         std::string(trim(ran->stderrText.empty() ? ran->stdoutText : ran->stderrText));
-            i.hint = "Run `factoria setup shaders` to be sure the pinned sokol-shdc is used, and report the message if it persists.";
+            i.hint = "Run `factoria setup shaders` to be sure the pinned sokol-shdc is used, and report the message if "
+                     "it persists.";
             res.errors.push_back(std::move(i));
         }
         return res;
@@ -550,9 +660,12 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     std::string yamlText;
     std::error_code ec;
     for (const auto& e : stdfs::directory_iterator(work.path / "out", ec))
-        if (e.path().filename().string().ends_with("_reflection.yaml")) yamlText = tooling_detail::read_file(e.path()).value_or(std::string());
+        if (e.path().filename().string().ends_with("_reflection.yaml"))
+            yamlText = tooling_detail::read_file(e.path()).value_or(std::string());
     if (yamlText.empty())
-        return make_error("sokol-shdc succeeded but wrote no reflection file", "The pinned sokol-shdc writes it with --format bare_yaml; reinstall it with `factoria setup shaders`.");
+        return make_error(
+            "sokol-shdc succeeded but wrote no reflection file",
+            "The pinned sokol-shdc writes it with --format bare_yaml; reinstall it with `factoria setup shaders`.");
     auto twins = build_twins(work.path, yamlText, res.material, missing, res.errors);
     if (!twins.ok()) return twins.error();
     if (!res.errors.empty()) return res;

@@ -14,7 +14,8 @@ namespace {
 
 struct TempProject {
     stdfs::path dir = fs::make_temp_dir("fa_ai_project_edit").value();
-    stdfs::path home = fs::make_temp_dir("fa_ai_project_edit_home").value();  // where ai.json and ai-trust.json would be: never the real ~/.factoria
+    stdfs::path home = fs::make_temp_dir("fa_ai_project_edit_home")
+                           .value();  // where ai.json and ai-trust.json would be: never the real ~/.factoria
     ~TempProject() {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
@@ -183,17 +184,17 @@ TEST_CASE("a reload keeps the asset routes and the site lists that were edited, 
     }
     routes["music"] = ai::AssetRoute{"openai", "typed", ""};  // typed by the person
     const auto keptRoutes = ai_routes_keep_edits(routes, shown, now);
-    CHECK(keptRoutes.at("music").model == "typed");   // edited: stays
+    CHECK(keptRoutes.at("music").model == "typed");       // edited: stays
     CHECK(keptRoutes.at("image").model == "file-model");  // not edited: the file's value
     CHECK(keptRoutes.at("sound").provider == "elevenlabs");
 
     ai::AssetSources sources = shown.assetSources;
     sources.models.push_back({"typed.org", "note"});
     const ai::AssetSources keptSources = ai_sources_keep_edits(sources, shown, now);
-    CHECK(keptSources.models.size() == 1);   // edited list stays
-    CHECK(keptSources.images.size() == 2);   // untouched list: the file's
+    CHECK(keptSources.models.size() == 1);  // edited list stays
+    CHECK(keptSources.images.size() == 2);  // untouched list: the file's
     CHECK(keptSources.fonts.size() == 1);
-    CHECK(keptSources.onlyListed);           // the switch was not touched
+    CHECK(keptSources.onlyListed);  // the switch was not touched
     // The person switched "only these sites" on while the file (now) says off: theirs stays.
     ai::AiConfig fileOff = shown;
     sources.onlyListed = true;

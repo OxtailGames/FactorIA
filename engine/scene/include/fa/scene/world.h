@@ -39,10 +39,10 @@ struct CollisionEvent {
     enum class Phase : std::int32_t { Begin, End };
     Phase phase = Phase::Begin;
     Entity a, b;
-    bool trigger = false;   // true if either collider is a trigger/sensor
-    Vec3 point{};           // contact point (world), Begin only
-    Vec3 normal{};          // from a to b, Begin only
-    float impulse = 0.0f;   // approximate impact strength, Begin only
+    bool trigger = false;  // true if either collider is a trigger/sensor
+    Vec3 point{};          // contact point (world), Begin only
+    Vec3 normal{};         // from a to b, Begin only
+    float impulse = 0.0f;  // approximate impact strength, Begin only
 };
 
 // Free-form gameplay events (scripts: world.emit("coin_collected", {...})).
@@ -55,7 +55,10 @@ struct GameEvent {
 struct WorldEvents {
     std::vector<CollisionEvent> collisions;
     std::vector<GameEvent> game;
-    void clear() { collisions.clear(); game.clear(); }
+    void clear() {
+        collisions.clear();
+        game.clear();
+    }
 };
 
 class ComponentPool;  // defined in src/component_pool.h
@@ -101,12 +104,32 @@ public:
     Result<void> set_id(Entity e, std::string_view newId);
 
     // ------------------------------------------------------- typed components
-    template <class T> T& add(Entity e) { return *static_cast<T*>(add(e, type_of<T>())); }
-    template <class T> T& set(Entity e, T value) { T& c = add<T>(e); c = std::move(value); return c; }
-    template <class T> T* get(Entity e) { return static_cast<T*>(get(e, type_of<T>())); }
-    template <class T> const T* get(Entity e) const { return static_cast<const T*>(get(e, type_of<T>())); }
-    template <class T> bool has(Entity e) const { return get(e, type_of<T>()) != nullptr; }
-    template <class T> void remove(Entity e) { remove(e, type_of<T>()); }
+    template <class T>
+    T& add(Entity e) {
+        return *static_cast<T*>(add(e, type_of<T>()));
+    }
+    template <class T>
+    T& set(Entity e, T value) {
+        T& c = add<T>(e);
+        c = std::move(value);
+        return c;
+    }
+    template <class T>
+    T* get(Entity e) {
+        return static_cast<T*>(get(e, type_of<T>()));
+    }
+    template <class T>
+    const T* get(Entity e) const {
+        return static_cast<const T*>(get(e, type_of<T>()));
+    }
+    template <class T>
+    bool has(Entity e) const {
+        return get(e, type_of<T>()) != nullptr;
+    }
+    template <class T>
+    void remove(Entity e) {
+        remove(e, type_of<T>());
+    }
 
     // Calls fn(Entity, Ts&...) for every alive entity having all Ts (active or
     // not — systems check active_in_hierarchy themselves). Safe to add/remove
@@ -117,7 +140,7 @@ public:
         for (Entity e : entities_with(types[0])) {
             if (!alive(e)) continue;
             auto ptrs = std::tuple<Ts*...>{get<Ts>(e)...};
-            if (((std::get<Ts*>(ptrs) == nullptr) || ...)) continue;
+            if ((!std::get<Ts*>(ptrs) || ...)) continue;
             fn(e, *std::get<Ts*>(ptrs)...);
         }
     }
@@ -126,8 +149,8 @@ public:
     void* add(Entity e, const TypeInfo& type);  // default-constructs, or returns the existing one
     void* get(Entity e, const TypeInfo& type);
     const void* get(Entity e, const TypeInfo& type) const;
-    void remove(Entity e, const TypeInfo& type);  // EntityInfo/Transform cannot be removed
-    std::vector<const TypeInfo*> components_of(Entity e) const;  // registration order
+    void remove(Entity e, const TypeInfo& type);                    // EntityInfo/Transform cannot be removed
+    std::vector<const TypeInfo*> components_of(Entity e) const;     // registration order
     std::vector<Entity> entities_with(const TypeInfo* type) const;  // insertion order snapshot
 
     // ------------------------------------------------------------- hierarchy
@@ -206,8 +229,14 @@ public:
 
     std::uint64_t frame() const { return frame_; }
     double time() const { return time_; }  // simulated seconds since scene start
-    void advance_clock(double dt) { time_ += dt; ++frame_; }
-    void reset_clock() { time_ = 0; frame_ = 0; }
+    void advance_clock(double dt) {
+        time_ += dt;
+        ++frame_;
+    }
+    void reset_clock() {
+        time_ = 0;
+        frame_ = 0;
+    }
 
     // Source scene path this world was loaded from ("" if built in code).
     const std::string& scene_path() const { return scenePath_; }
@@ -238,13 +267,14 @@ public:
 
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
-    int on_destroy(EntityCallback cb);   // called right before an entity is erased
+    int on_destroy(EntityCallback cb);  // called right before an entity is erased
     void remove_observer(int id);
 
     template <class T>
     static const TypeInfo& type_of() {
         const TypeInfo* t = TypeRegistry::global().of<T>();
-        FA_ASSERT(t != nullptr, "component type not registered (did you call ensure_builtin_components / register it?)");
+        FA_ASSERT(t != nullptr,
+                  "component type not registered (did you call ensure_builtin_components / register it?)");
         return *t;
     }
 

@@ -27,16 +27,17 @@ struct curl_slist;
 using CURLcode = int;
 
 // The CURLOPT_ numbers: type base (LONG 0, OBJECTPOINT 10000, FUNCTIONPOINT 20000, OFF_T 30000) plus the option's number.
-constexpr int kOptWriteData = 10001, kOptUrl = 10002, kOptErrorBuffer = 10010, kOptPostFields = 10015, kOptUserAgent = 10018,
-              kOptHttpHeader = 10023, kOptHeaderData = 10029, kOptCustomRequest = 10036, kOptWriteFunction = 20011,
-              kOptHeaderFunction = 20079, kOptNoBody = 44, kOptPost = 47, kOptFollowLocation = 52, kOptPostFieldSize = 60,
-              kOptMaxRedirs = 68, kOptNoSignal = 99, kOptTimeoutMs = 155, kOptConnectTimeoutMs = 156, kOptAcceptEncoding = 10102,
-              kOptProtocols = 181, kOptRedirProtocols = 182, kOptProtocolsStr = 10318, kOptRedirProtocolsStr = 10319;
+constexpr int kOptWriteData = 10001, kOptUrl = 10002, kOptErrorBuffer = 10010, kOptPostFields = 10015,
+              kOptUserAgent = 10018, kOptHttpHeader = 10023, kOptHeaderData = 10029, kOptCustomRequest = 10036,
+              kOptWriteFunction = 20011, kOptHeaderFunction = 20079, kOptNoBody = 44, kOptPost = 47,
+              kOptFollowLocation = 52, kOptPostFieldSize = 60, kOptMaxRedirs = 68, kOptNoSignal = 99,
+              kOptTimeoutMs = 155, kOptConnectTimeoutMs = 156, kOptAcceptEncoding = 10102, kOptProtocols = 181,
+              kOptRedirProtocols = 182, kOptProtocolsStr = 10318, kOptRedirProtocolsStr = 10319;
 constexpr int kInfoResponseCode = 0x200000 + 2;
 constexpr int kCurlOk = 0, kCurlUnsupportedProtocol = 1, kCurlCouldntResolveHost = 6, kCurlCouldntConnect = 7,
               kCurlTimedOut = 28, kCurlSslConnectError = 35, kCurlTooManyRedirects = 47, kCurlUnknownOption = 48,
-              kCurlSslPeerCertificate = 51, kCurlSslCertProblem = 58, kCurlSslCipher = 59, kCurlPeerFailedVerification = 60,
-              kCurlSslCacertBadfile = 77, kCurlSslIssuerError = 83;
+              kCurlSslPeerCertificate = 51, kCurlSslCertProblem = 58, kCurlSslCipher = 59,
+              kCurlPeerFailedVerification = 60, kCurlSslCacertBadfile = 77, kCurlSslIssuerError = 83;
 constexpr long kProtoHttp = 1, kProtoHttps = 2;
 
 struct Curl {
@@ -59,9 +60,13 @@ const Curl& curl() {
         Curl k;
         const char* names[] = {
 #if defined(__APPLE__)
-            "libcurl.4.dylib", "libcurl.dylib",
+            "libcurl.4.dylib",
+            "libcurl.dylib",
 #else
-            "libcurl.so.4", "libcurl-gnutls.so.4", "libcurl-nss.so.4", "libcurl.so",
+            "libcurl.so.4",
+            "libcurl-gnutls.so.4",
+            "libcurl-nss.so.4",
+            "libcurl.so",
 #endif
         };
         for (const char* name : names)
@@ -80,8 +85,8 @@ const Curl& curl() {
         k.easy_strerror = reinterpret_cast<const char* (*)(CURLcode)>(sym("curl_easy_strerror"));
         k.slist_append = reinterpret_cast<curl_slist* (*)(curl_slist*, const char*)>(sym("curl_slist_append"));
         k.slist_free_all = reinterpret_cast<void (*)(curl_slist*)>(sym("curl_slist_free_all"));
-        if (!k.global_init || !k.easy_init || !k.easy_cleanup || !k.easy_setopt || !k.easy_perform || !k.easy_getinfo || !k.easy_strerror ||
-            !k.slist_append || !k.slist_free_all) {
+        if (!k.global_init || !k.easy_init || !k.easy_cleanup || !k.easy_setopt || !k.easy_perform || !k.easy_getinfo ||
+            !k.easy_strerror || !k.slist_append || !k.slist_free_all) {
             dlclose(k.lib);
             k = Curl{};
             k.reason = "the libcurl on this computer lacks functions the engine needs";
@@ -107,7 +112,8 @@ std::string lower(std::string s) {
 
 std::string trim(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
-    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) s.remove_suffix(1);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n'))
+        s.remove_suffix(1);
     return std::string(s);
 }
 
@@ -126,7 +132,8 @@ extern "C" std::size_t fa_curl_header(char* data, std::size_t size, std::size_t 
     auto* t = static_cast<Transfer*>(user);
     const std::size_t n = size * count;
     const std::string_view line(data, n);
-    if (line.rfind("HTTP/", 0) == 0) {  // a new response (a redirect's, then the final one): its headers replace the earlier ones
+    if (line.rfind("HTTP/", 0) ==
+        0) {  // a new response (a redirect's, then the final one): its headers replace the earlier ones
         t->headers.clear();
         return n;
     }
@@ -164,7 +171,8 @@ HttpResponse perform(const Curl& c, const HttpRequest& req) {
     transfer.maxBytes = req.maxResponseBytes;
     char errbuf[256] = {0};
     curl_slist* headerList = nullptr;
-    for (const auto& [name, value] : req.headers) headerList = c.slist_append(headerList, (name + ": " + value).c_str());
+    for (const auto& [name, value] : req.headers)
+        headerList = c.slist_append(headerList, (name + ": " + value).c_str());
     headerList = c.slist_append(headerList, "Expect:");  // no 100-continue round trip for bodies over 1 MB
 
     const long timeoutMs = static_cast<long>(std::max(1.0, req.timeoutSec * 1000.0));
@@ -176,8 +184,10 @@ HttpResponse perform(const Curl& c, const HttpRequest& req) {
     c.easy_setopt(h, kOptFollowLocation, 1L);
     c.easy_setopt(h, kOptMaxRedirs, static_cast<long>(kHttpMaxRedirects));
     // Only http(s) at all, and redirects only to https://; the first request is whatever the game's URL says (http:// only for loopback: checked by the caller).
-    if (c.easy_setopt(h, kOptProtocolsStr, "http,https") == kCurlUnknownOption) c.easy_setopt(h, kOptProtocols, kProtoHttp | kProtoHttps);
-    if (c.easy_setopt(h, kOptRedirProtocolsStr, "https") == kCurlUnknownOption) c.easy_setopt(h, kOptRedirProtocols, kProtoHttps);
+    if (c.easy_setopt(h, kOptProtocolsStr, "http,https") == kCurlUnknownOption)
+        c.easy_setopt(h, kOptProtocols, kProtoHttp | kProtoHttps);
+    if (c.easy_setopt(h, kOptRedirProtocolsStr, "https") == kCurlUnknownOption)
+        c.easy_setopt(h, kOptRedirProtocols, kProtoHttps);
     c.easy_setopt(h, kOptAcceptEncoding, "");  // every encoding libcurl can undo
     c.easy_setopt(h, kOptUserAgent, "FactorIA/" FA_ENGINE_VERSION);
     c.easy_setopt(h, kOptHttpHeader, headerList);
@@ -216,7 +226,8 @@ HttpResponse perform(const Curl& c, const HttpRequest& req) {
     }
     const std::string host = host_of(req.url);
     if (transfer.tooLarge)
-        return failure("the response from " + host + " is longer than " + std::to_string(req.maxResponseBytes / 1024) + " KB",
+        return failure("the response from " + host + " is longer than " + std::to_string(req.maxResponseBytes / 1024) +
+                           " KB",
                        "http.fetch is for small texts (JSON, configuration); ask the server for less data.");
     switch (code) {
         case kCurlTimedOut:
@@ -234,15 +245,17 @@ HttpResponse perform(const Curl& c, const HttpRequest& req) {
         case kCurlSslCacertBadfile:
         case kCurlSslIssuerError:
             return failure("the secure connection to " + host + " failed: " + detail,
-                           "The server's certificate is not trusted by this computer (an expired certificate, a wrong clock, or a proxy "
+                           "The server's certificate is not trusted by this computer (an expired certificate, a wrong "
+                           "clock, or a proxy "
                            "that rewrites traffic).");
         case kCurlTooManyRedirects:
-            return failure("the request to " + host + " was redirected more than " + std::to_string(kHttpMaxRedirects) + " times", "");
+            return failure("the request to " + host + " was redirected more than " + std::to_string(kHttpMaxRedirects) +
+                               " times",
+                           "");
         case kCurlUnsupportedProtocol:
             return failure("the request to " + host + " was redirected to a URL that is not https://: " + detail,
                            "Redirects are only followed to https:// addresses.");
-        default:
-            break;
+        default: break;
     }
     return failure("the request to " + host + " failed: " + detail, "Check the connection, and that the server is up.");
 }
@@ -256,14 +269,18 @@ public:
     }
     void send(HttpRequest request, HttpDone done) override {
         if (!curl().ok()) {
-            done(failure("http.fetch is not available: " + unavailable_reason(), "Games that use the network should handle this and carry on offline."));
+            done(failure("http.fetch is not available: " + unavailable_reason(),
+                         "Games that use the network should handle this and carry on offline."));
             return;
         }
         // One thread per request, detached: it holds only copies, so it outlives the client and the engine safely.
         try {
-            std::thread([request = std::move(request), done = std::move(done)]() mutable { done(perform(curl(), request)); }).detach();
+            std::thread([request = std::move(request), done = std::move(done)]() mutable {
+                done(perform(curl(), request));
+            }).detach();
         } catch (const std::system_error& e) {
-            done(failure(std::string("could not start a request thread: ") + e.what(), "Too many requests are running at once."));
+            done(failure(std::string("could not start a request thread: ") + e.what(),
+                         "Too many requests are running at once."));
         }
     }
 };

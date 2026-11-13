@@ -92,11 +92,13 @@ HttpResponse java_error(const JavaError& e, const std::string& host, double time
         return failure("could not connect to " + host, "The server may be down, or the player offline.");
     if (e.cls.rfind("javax.net.ssl.", 0) == 0 || e.cls.find("Certificate") != std::string::npos)
         return failure("the secure connection to " + host + " failed: " + e.message,
-                       "The server's certificate is not trusted by this device (an expired certificate, a wrong clock, or a proxy that "
+                       "The server's certificate is not trusted by this device (an expired certificate, a wrong clock, "
+                       "or a proxy that "
                        "rewrites traffic).");
     if (is("java.lang.SecurityException"))
-        return failure("the game is not allowed to use the network: " + e.message,
-                       "The app needs the INTERNET permission: declare the hosts in factoria.json \"network\" and export again.");
+        return failure(
+            "the game is not allowed to use the network: " + e.message,
+            "The app needs the INTERNET permission: declare the hosts in factoria.json \"network\" and export again.");
     return failure("the request to " + host + " failed: " + (e.message.empty() ? e.cls : e.message),
                    "Check the connection, and that the server is up.");
 }
@@ -122,7 +124,8 @@ HttpResponse perform(const HttpRequest& req) {
     const jmethodID setMethod = env->GetMethodID(connClass, "setRequestMethod", "(Ljava/lang/String;)V");
     const jmethodID setConnectTimeout = env->GetMethodID(connClass, "setConnectTimeout", "(I)V");
     const jmethodID setReadTimeout = env->GetMethodID(connClass, "setReadTimeout", "(I)V");
-    const jmethodID setProperty = env->GetMethodID(connClass, "setRequestProperty", "(Ljava/lang/String;Ljava/lang/String;)V");
+    const jmethodID setProperty =
+        env->GetMethodID(connClass, "setRequestProperty", "(Ljava/lang/String;Ljava/lang/String;)V");
     const jmethodID setDoOutput = env->GetMethodID(connClass, "setDoOutput", "(Z)V");
     const jmethodID setFollow = env->GetMethodID(connClass, "setInstanceFollowRedirects", "(Z)V");
     const jmethodID getOutputStream = env->GetMethodID(connClass, "getOutputStream", "()Ljava/io/OutputStream;");
@@ -136,11 +139,13 @@ HttpResponse perform(const HttpRequest& req) {
     const jmethodID closeStream = env->GetMethodID(streamClass, "close", "()V");
     const jmethodID writeBytes = env->GetMethodID(outClass, "write", "([B)V");
     const jmethodID closeOut = env->GetMethodID(outClass, "close", "()V");
-    if (env->ExceptionCheck() || !newUrl || !openConnection || !getUrl || !getProtocol || !setMethod || !setConnectTimeout ||
-        !setReadTimeout || !setProperty || !setDoOutput || !setFollow || !getOutputStream || !getResponseCode || !getInputStream ||
-        !getErrorStream || !getHeaderKey || !getHeaderValue || !disconnect || !readBytes || !closeStream || !writeBytes || !closeOut) {
+    if (env->ExceptionCheck() || !newUrl || !openConnection || !getUrl || !getProtocol || !setMethod ||
+        !setConnectTimeout || !setReadTimeout || !setProperty || !setDoOutput || !setFollow || !getOutputStream ||
+        !getResponseCode || !getInputStream || !getErrorStream || !getHeaderKey || !getHeaderValue || !disconnect ||
+        !readBytes || !closeStream || !writeBytes || !closeOut) {
         env->ExceptionClear();
-        return failure("the Java networking classes are not what the engine expects", "This Android version is not supported.");
+        return failure("the Java networking classes are not what the engine expects",
+                       "This Android version is not supported.");
     }
 
     jobject conn = nullptr;
@@ -209,7 +214,8 @@ HttpResponse perform(const HttpRequest& req) {
             return finish(std::move(result));
         }
         jbyteArray bytes = env->NewByteArray(static_cast<jsize>(req.body.size()));
-        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(req.body.size()), reinterpret_cast<const jbyte*>(req.body.data()));
+        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(req.body.size()),
+                                reinterpret_cast<const jbyte*>(req.body.data()));
         env->CallVoidMethod(out, writeBytes, bytes);
         env->DeleteLocalRef(bytes);
         const bool writeFailed = env->ExceptionCheck();
@@ -232,7 +238,8 @@ HttpResponse perform(const HttpRequest& req) {
     // An https:// request must have ended on https://.
     if (req.url.rfind("https://", 0) == 0) {
         if (jobject finalUrl = env->CallObjectMethod(conn, getUrl)) {
-            const std::string protocol = to_std(env, static_cast<jstring>(env->CallObjectMethod(finalUrl, getProtocol)));
+            const std::string protocol =
+                to_std(env, static_cast<jstring>(env->CallObjectMethod(finalUrl, getProtocol)));
             env->DeleteLocalRef(finalUrl);
             env->ExceptionClear();
             if (protocol != "https")
@@ -269,7 +276,8 @@ HttpResponse perform(const HttpRequest& req) {
             }
             if (n < 0) break;
             if (r.body.size() + static_cast<std::size_t>(n) > req.maxResponseBytes) {
-                result = failure("the response from " + host + " is longer than " + std::to_string(req.maxResponseBytes / 1024) + " KB",
+                result = failure("the response from " + host + " is longer than " +
+                                     std::to_string(req.maxResponseBytes / 1024) + " KB",
                                  "http.fetch is for small texts (JSON, configuration); ask the server for less data.");
                 failed = true;
                 break;
@@ -292,12 +300,17 @@ class AndroidHttpClient final : public HttpClient {
 public:
     std::string name() const override { return "httpurlconnection"; }
     bool available() const override { return android_activity() != nullptr; }
-    std::string unavailable_reason() const override { return available() ? std::string() : "the Android activity is not running"; }
+    std::string unavailable_reason() const override {
+        return available() ? std::string() : "the Android activity is not running";
+    }
     void send(HttpRequest request, HttpDone done) override {
         try {
-            std::thread([request = std::move(request), done = std::move(done)]() mutable { done(perform(request)); }).detach();
+            std::thread([request = std::move(request), done = std::move(done)]() mutable {
+                done(perform(request));
+            }).detach();
         } catch (const std::system_error& e) {
-            done(failure(std::string("could not start a request thread: ") + e.what(), "Too many requests are running at once."));
+            done(failure(std::string("could not start a request thread: ") + e.what(),
+                         "Too many requests are running at once."));
         }
     }
 };

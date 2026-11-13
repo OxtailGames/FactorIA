@@ -26,7 +26,6 @@ void write_file(const fsys::path& path, const std::string& text) {
     std::ofstream(path, std::ios::binary) << text;
 }
 
-
 ToolCall call(const std::string& id, const std::string& name, Json input = Json::object()) {
     ToolCall c;
     c.id = id;
@@ -36,7 +35,8 @@ ToolCall call(const std::string& id, const std::string& name, Json input = Json:
 }
 
 // {"PreToolUse":[{"matcher":m,"hooks":[{"type":"command","command":c}]}]}
-Json command_hook(const std::string& event, const std::string& matcher, const std::string& command, double timeout = 0) {
+Json command_hook(const std::string& event, const std::string& matcher, const std::string& command,
+                  double timeout = 0) {
     Json h = Json::object({{"type", "command"}, {"command", command}});
     if (timeout > 0) h["timeout"] = timeout;
     Json group = Json::object({{"hooks", Json::array({h})}});
@@ -169,21 +169,25 @@ TEST_CASE("hooks: how an answer is read for each decision") {
         apply_hook_answer(event, Json::parse(json), "h: x", out, rec);
         return out;
     };
-    HookOutcome pre = read(HookEvent::PreToolUse,
-                           R"({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no rm"}})");
+    HookOutcome pre = read(
+        HookEvent::PreToolUse,
+        R"({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no rm"}})");
     CHECK(pre.blocked);
     CHECK(pre.reason == "no rm");
     CHECK(pre.blockedBy == "h: x");
-    CHECK(read(HookEvent::PreToolUse, R"({"decision":"block","reason":"old style"})").blocked);  // the deprecated spelling still works
+    CHECK(read(HookEvent::PreToolUse, R"({"decision":"block","reason":"old style"})")
+              .blocked);  // the deprecated spelling still works
     CHECK(read(HookEvent::PreToolUse, R"({"hookSpecificOutput":{"permissionDecision":"allow"}})").allowed);
     HookOutcome upd = read(HookEvent::PreToolUse, R"({"hookSpecificOutput":{"updatedInput":{"limit":9}}})");
     REQUIRE(upd.updatedInput);
     CHECK((*upd.updatedInput)["limit"] == 9);
 
-    HookOutcome ctx = read(HookEvent::UserPromptSubmit, R"({"hookSpecificOutput":{"additionalContext":"today is monday"}})");
+    HookOutcome ctx =
+        read(HookEvent::UserPromptSubmit, R"({"hookSpecificOutput":{"additionalContext":"today is monday"}})");
     CHECK_FALSE(ctx.blocked);
     CHECK(ctx.context == std::vector<std::string>{"today is monday"});
-    HookOutcome stop = read(HookEvent::PostToolUse, R"({"continue":false,"stopReason":"enough","systemMessage":"hello"})");
+    HookOutcome stop =
+        read(HookEvent::PostToolUse, R"({"continue":false,"stopReason":"enough","systemMessage":"hello"})");
     CHECK(stop.stop);
     CHECK(stop.stopReason == "enough");
     CHECK(stop.systemMessages == std::vector<std::string>{"hello"});
@@ -193,7 +197,8 @@ TEST_CASE("hooks: how an answer is read for each decision") {
     CHECK(read(HookEvent::Stop, R"({"decision":"block","reason":"run the tests"})").blocked);
 }
 
-TEST_CASE("validate_hooks: js handlers, timeouts, the engine events and the match alias; Claude Code gets no engine events") {
+TEST_CASE(
+    "validate_hooks: js handlers, timeouts, the engine events and the match alias; Claude Code gets no engine events") {
     CHECK(validate_hooks(js_hook("PreToolUse", "", "hooks/guard.js"), "/hooks"));
     CHECK(validate_hooks(command_hook("beforeCommand", "scene.*", "echo", 5), "/hooks"));
     Json alias = command_hook("beforeCommand", "", "echo");
@@ -213,7 +218,8 @@ TEST_CASE("validate_hooks: js handlers, timeouts, the engine events and the matc
     REQUIRE_FALSE(bad_matcher);
     CHECK(has(bad_matcher.error().message + bad_matcher.error().hint, "regular expression"));
 
-    Json both = merged(command_hook("beforeCommand", "scene.*", "echo a"), js_hook("PreToolUse", "scene_*", "hooks/g.js"));
+    Json both =
+        merged(command_hook("beforeCommand", "scene.*", "echo a"), js_hook("PreToolUse", "scene_*", "hooks/g.js"));
     both["beforeCommand"][0]["match"] = both["beforeCommand"][0]["matcher"];
     both["beforeCommand"][0].erase("matcher");
     Json cc = hooks_for_claude_code(both, "/bin/factoria", "/proj");
@@ -229,17 +235,24 @@ TEST_CASE("validate_hooks: js handlers, timeouts, the engine events and the matc
 
 TEST_CASE("JS hook module: blocks a tool, adds context, runs without trust and is sandboxed") {
     HookHarness h;
-    write_file(h.proj.path / "hooks" / "guard.js",
-               "export function PreToolUse(input) {\n"
-               "  if (input.tool_name === 'project_validate') return { decision: 'block', reason: 'js says no to ' + input.tool_name };\n"
-               "}\n"
-               "export function SessionStart() { return { hookSpecificOutput: { additionalContext: 'js context' } }; }\n");
+    write_file(
+        h.proj.path / "hooks" / "guard.js",
+        "export function PreToolUse(input) {\n"
+        "  if (input.tool_name === 'project_validate') return { decision: 'block', reason: 'js says no to ' + "
+        "input.tool_name };\n"
+        "}\n"
+        "export function SessionStart() { return { hookSpecificOutput: { additionalContext: 'js context' } }; }\n");
     // from a project's extensions file: a JS hook starts no program, so it needs no trust
-    write_file(h.proj.path / ".factoria" / "extensions.json",
-               Json::object({{"hooks", Json::object({{"guard", Json::object({{"hooks", merged(js_hook("PreToolUse", "", "hooks/guard.js"),
-                                                                                              js_hook("SessionStart", "", "hooks/guard.js"))}})}})}})
-                   .dump());
-    h.provider->script = {tool_response({call("t1", "project_validate"), call("t2", "scene_list_entities")}), text_response("done")};
+    write_file(
+        h.proj.path / ".factoria" / "extensions.json",
+        Json::object(
+            {{"hooks",
+              Json::object(
+                  {{"guard", Json::object({{"hooks", merged(js_hook("PreToolUse", "", "hooks/guard.js"),
+                                                            js_hook("SessionStart", "", "hooks/guard.js"))}})}})}})
+            .dump());
+    h.provider->script = {tool_response({call("t1", "project_validate"), call("t2", "scene_list_entities")}),
+                          text_response("done")};
     auto r = h.run("go");
     REQUIRE(r.ok);
     const std::string results = h.tool_result_text(1);
@@ -254,7 +267,8 @@ TEST_CASE("JS hook module: blocks a tool, adds context, runs without trust and i
     CHECK(lines[0]["failed"] == false);
 }
 
-TEST_CASE("JS hook module: a module that throws, one that never ends and one that reaches outside are reported, not silent") {
+TEST_CASE(
+    "JS hook module: a module that throws, one that never ends and one that reaches outside are reported, not silent") {
     HookHarness h;
     write_file(h.proj.path / "hooks" / "boom.js", "export function PreToolUse() { throw new Error('exploded'); }\n");
     write_file(h.proj.path / "hooks" / "loop.js", "export function PostToolUse() { while (true) {} }\n");
@@ -297,7 +311,8 @@ TEST_CASE("hook_js: a module outside hooks/ and a missing handler teach") {
 
 TEST_CASE("session: SessionStart and UserPromptSubmit add context to the first message; SessionEnd runs at the end") {
     HookHarness h;
-    h.add("ctx", merged(merged(command_hook("SessionStart", "startup", R"(echo '{"hookSpecificOutput":{"additionalContext":"branch is main"}}')"),
+    h.add("ctx", merged(merged(command_hook("SessionStart", "startup",
+                                            R"(echo '{"hookSpecificOutput":{"additionalContext":"branch is main"}}')"),
                                command_hook("UserPromptSubmit", "", "echo the date is fixed")),
                         command_hook("SessionEnd", "", R"(cat > "$FACTORIA_PROJECT_DIR/end.json")")));
     h.provider->script = {text_response("hi")};
@@ -318,13 +333,14 @@ TEST_CASE("session: SessionStart and UserPromptSubmit add context to the first m
     CHECK(lines.size() == 3);
     const auto user = transcript_lines(r.transcriptPath, "user");
     REQUIRE_FALSE(user.empty());
-    CHECK(user[0]["text"] == "Hello model");           // the log keeps what the user wrote
+    CHECK(user[0]["text"] == "Hello model");  // the log keeps what the user wrote
     CHECK(has(user[0].value("hookContext", std::string()), "branch is main"));
 }
 
 TEST_CASE("session: a UserPromptSubmit hook that blocks ends the run before the model is asked") {
     HookHarness h;
-    h.add("guard", command_hook("UserPromptSubmit", "", R"(echo '{"decision":"block","reason":"no secrets in prompts"}')"));
+    h.add("guard",
+          command_hook("UserPromptSubmit", "", R"(echo '{"decision":"block","reason":"no secrets in prompts"}')"));
     h.provider->script = {text_response("never")};
     auto r = h.run("my password is hunter2");
     REQUIRE_FALSE(r.ok);
@@ -333,16 +349,25 @@ TEST_CASE("session: a UserPromptSubmit hook that blocks ends the run before the 
     CHECK(h.provider->requests.empty());
 }
 
-TEST_CASE("session: PreToolUse block (JSON and exit 2) with the reason, updatedInput, and a matcher that spares other tools") {
+TEST_CASE("session: PreToolUse block (JSON and exit 2) with the reason, updatedInput, and a matcher that spares other "
+          "tools") {
     HookHarness h;
-    h.add("pre", merged(merged(merged(command_hook("PreToolUse", "project_validate",
-                                                   R"(echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"not now"}}')"),
-                                   command_hook("PreToolUse", "game_screenshot", "echo 'screenshots are off' >&2; exit 2")),
-                               command_hook("PreToolUse", "scene_list_entities", R"(echo '{"hookSpecificOutput":{"updatedInput":{"limit":7}}}')")),
-                        Json::object()));
-    h.provider->script = {tool_response({call("a", "project_validate"), call("b", "game_screenshot"),
-                                         call("c", "scene_list_entities", Json::object({{"limit", 1}})), call("d", "test_touch")}),
-                          text_response("ok")};
+    h.add(
+        "pre",
+        merged(
+            merged(
+                merged(
+                    command_hook(
+                        "PreToolUse", "project_validate",
+                        R"(echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"not now"}}')"),
+                    command_hook("PreToolUse", "game_screenshot", "echo 'screenshots are off' >&2; exit 2")),
+                command_hook("PreToolUse", "scene_list_entities",
+                             R"(echo '{"hookSpecificOutput":{"updatedInput":{"limit":7}}}')")),
+            Json::object()));
+    h.provider->script = {
+        tool_response({call("a", "project_validate"), call("b", "game_screenshot"),
+                       call("c", "scene_list_entities", Json::object({{"limit", 1}})), call("d", "test_touch")}),
+        text_response("ok")};
     auto r = h.run("go");
     REQUIRE(r.ok);
     const std::string results = h.tool_result_text(1);
@@ -358,9 +383,12 @@ TEST_CASE("session: PreToolUse block (JSON and exit 2) with the reason, updatedI
 
 TEST_CASE("session: PreToolUse sees the command a tool_call wrapper names") {
     HookHarness h;
-    h.add("pre", command_hook("PreToolUse", "scene_list_entities", R"(echo '{"decision":"block","reason":"wrapped"}')"));
-    h.provider->script = {tool_response({call("a", "tool_call", Json::object({{"command", "scene.list_entities"}, {"arguments", Json::object()}}))}),
-                          text_response("ok")};
+    h.add("pre",
+          command_hook("PreToolUse", "scene_list_entities", R"(echo '{"decision":"block","reason":"wrapped"}')"));
+    h.provider->script = {
+        tool_response({call("a", "tool_call",
+                            Json::object({{"command", "scene.list_entities"}, {"arguments", Json::object()}}))}),
+        text_response("ok")};
     CommandInfo big;  // enough deferred definitions for the catalog to pay off
     big.name = "zzz.big";
     big.summary = "A command with a long description.";
@@ -372,16 +400,24 @@ TEST_CASE("session: PreToolUse sees the command a tool_call wrapper names") {
     so.env = fake_env({{"HOME", h.home.str()}});
     so.extensionsTrustPath = (h.home.path / "ai-trust.json").string();
     AgentSession s(h.registry, h.cfg, so);
-    s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(h.provider); });
+    s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(h.provider);
+    });
     REQUIRE(s.run("go").ok);
     CHECK(has(h.tool_result_text(1), "wrapped"));
 }
 
 TEST_CASE("session: PostToolUse adds context and feedback to the result, PostToolUseFailure sees the error") {
     HookHarness h;
-    h.add("post", merged(command_hook("PostToolUse", "scene_list_entities", R"(echo '{"decision":"block","reason":"too few entities","hookSpecificOutput":{"additionalContext":"remember the limit"}}')"),
-                         command_hook("PostToolUseFailure", "", R"(cat > "$FACTORIA_PROJECT_DIR/failure.json")")));
-    h.provider->script = {tool_response({call("a", "scene_list_entities"), call("b", "project_validate")}), text_response("ok")};
+    h.add(
+        "post",
+        merged(
+            command_hook(
+                "PostToolUse", "scene_list_entities",
+                R"(echo '{"decision":"block","reason":"too few entities","hookSpecificOutput":{"additionalContext":"remember the limit"}}')"),
+            command_hook("PostToolUseFailure", "", R"(cat > "$FACTORIA_PROJECT_DIR/failure.json")")));
+    h.provider->script = {tool_response({call("a", "scene_list_entities"), call("b", "project_validate")}),
+                          text_response("ok")};
     auto r = h.run("go");
     REQUIRE(r.ok);
     const std::string results = h.tool_result_text(1);
@@ -399,7 +435,11 @@ TEST_CASE("session: a Stop hook that blocks makes the model continue (capped); c
     {
         HookHarness h;
         // refuses the first end only
-        h.add("stop", command_hook("Stop", "", R"(if [ -f "$FACTORIA_PROJECT_DIR/once" ]; then exit 0; fi; touch "$FACTORIA_PROJECT_DIR/once"; echo '{"decision":"block","reason":"run the tests first"}')"));
+        h.add(
+            "stop",
+            command_hook(
+                "Stop", "",
+                R"(if [ -f "$FACTORIA_PROJECT_DIR/once" ]; then exit 0; fi; touch "$FACTORIA_PROJECT_DIR/once"; echo '{"decision":"block","reason":"run the tests first"}')"));
         h.provider->script = {text_response("done"), text_response("tests run")};
         auto r = h.run("go");
         REQUIRE(r.ok);
@@ -429,7 +469,8 @@ TEST_CASE("session: a Stop hook that blocks makes the model continue (capped); c
     }
 }
 
-TEST_CASE("session: a hook that times out or exits with another code is reported with what to do, and the run goes on") {
+TEST_CASE(
+    "session: a hook that times out or exits with another code is reported with what to do, and the run goes on") {
     HookHarness h;
     h.add("slow", command_hook("PreToolUse", "scene_list_entities", "sleep 5", 0.3));
     h.add("broken", command_hook("PostToolUse", "", "echo 'bad config' >&2; exit 1"));
@@ -467,11 +508,14 @@ TEST_CASE("session: hook runs appear in ai.session_timeline") {
     CHECK(tl["totals"]["hook"]["byHook"][0]["hook"] == "PostToolUse slow");
 }
 
-TEST_CASE("the trust gate: a project's hook program runs only after the user trusts the project; a JS hook needs no trust") {
+TEST_CASE(
+    "the trust gate: a project's hook program runs only after the user trusts the project; a JS hook needs no trust") {
     HookHarness h;
-    const Json hooks = merged(command_hook("PreToolUse", "project_validate", R"(echo '{"decision":"block","reason":"program"}')"),
-                              Json::object());
-    write_file(h.proj.path / ".factoria" / "extensions.json", Json::object({{"hooks", Json::object({{"proj", Json::object({{"hooks", hooks}})}})}}).dump());
+    const Json hooks =
+        merged(command_hook("PreToolUse", "project_validate", R"(echo '{"decision":"block","reason":"program"}')"),
+               Json::object());
+    write_file(h.proj.path / ".factoria" / "extensions.json",
+               Json::object({{"hooks", Json::object({{"proj", Json::object({{"hooks", hooks}})}})}}).dump());
     h.provider->script = {tool_response({call("a", "project_validate")}), text_response("ok")};
     REQUIRE(h.run("go").ok);
     CHECK_FALSE(has(h.tool_result_text(1), "program"));  // untrusted: it did not run
@@ -519,9 +563,11 @@ struct CommandHookHarness {
 TEST_CASE("beforeCommand blocks a command for a caller that is not an AI; afterCommand sees what it returned") {
     CommandHookHarness h;
     h.cfg.extensions.entries.push_back(hooks_entry(
-        "cmd", merged(merged(command_hook("beforeCommand", "project.*", R"(echo '{"decision":"block","reason":"freeze"}')"),
-                             command_hook("afterCommand", "scene.list_entities", R"(cat > "$FACTORIA_PROJECT_DIR/after.json")")),
-                      command_hook("beforeCommand", "test.touch", R"(echo '{"hookSpecificOutput":{"updatedInput":{"x":1}}}')"))));
+        "cmd",
+        merged(
+            merged(command_hook("beforeCommand", "project.*", R"(echo '{"decision":"block","reason":"freeze"}')"),
+                   command_hook("afterCommand", "scene.list_entities", R"(cat > "$FACTORIA_PROJECT_DIR/after.json")")),
+            command_hook("beforeCommand", "test.touch", R"(echo '{"hookSpecificOutput":{"updatedInput":{"x":1}}}')"))));
     h.install();
 
     auto blocked = h.registry.call("project.validate");
@@ -548,10 +594,12 @@ TEST_CASE("beforeCommand blocks a command for a caller that is not an AI; afterC
     CHECK(h.touched == 1);
 }
 
-TEST_CASE("command hooks: a failing hook is reported on the result and never silent; none configured means no interceptor work") {
+TEST_CASE("command hooks: a failing hook is reported on the result and never silent; none configured means no "
+          "interceptor work") {
     {
         CommandHookHarness h;
-        h.cfg.extensions.entries.push_back(hooks_entry("bad", command_hook("afterCommand", "scene.*", "echo oops >&2; exit 3")));
+        h.cfg.extensions.entries.push_back(
+            hooks_entry("bad", command_hook("afterCommand", "scene.*", "echo oops >&2; exit 3")));
         h.install();
         auto r = h.registry.call("scene.list_entities");
         REQUIRE(r.ok);  // the command itself succeeded
@@ -579,11 +627,18 @@ TEST_CASE("command hooks: a failing hook is reported on the result and never sil
 TEST_CASE("command hooks: a JS module hooks beforeCommand, and a project's program hook waits for trust") {
     CommandHookHarness h;
     write_file(h.proj.path / "hooks" / "gate.js",
-               "export function beforeCommand(input) { if (input.command === 'project.validate') return { decision: 'block', reason: 'js gate' }; }\n");
-    write_file(h.proj.path / ".factoria" / "extensions.json",
-               Json::object({{"hooks", Json::object({{"gate", Json::object({{"hooks", js_hook("beforeCommand", "project.*", "hooks/gate.js")}})},
-                                                     {"prog", Json::object({{"hooks", command_hook("beforeCommand", "test.touch", R"(echo '{"decision":"block","reason":"prog"}')")}})}})}})
-                   .dump());
+               "export function beforeCommand(input) { if (input.command === 'project.validate') return { decision: "
+               "'block', reason: 'js gate' }; }\n");
+    write_file(
+        h.proj.path / ".factoria" / "extensions.json",
+        Json::object(
+            {{"hooks",
+              Json::object(
+                  {{"gate", Json::object({{"hooks", js_hook("beforeCommand", "project.*", "hooks/gate.js")}})},
+                   {"prog",
+                    Json::object({{"hooks", command_hook("beforeCommand", "test.touch",
+                                                         R"(echo '{"decision":"block","reason":"prog"}')")}})}})}})
+            .dump());
     h.install();
     auto js = h.registry.call("project.validate");
     REQUIRE_FALSE(js.ok);
@@ -592,19 +647,48 @@ TEST_CASE("command hooks: a JS module hooks beforeCommand, and a project's progr
     CHECK(prog.ok);  // the project's program is not trusted
 }
 
+TEST_CASE("command hooks: the registry owns the interceptor and the hooks' state goes with it (no ownership cycle)") {
+    // The interceptor's lambdas own the State; the State used to own the interceptor back, so every registry that installed hooks
+    // (register_ai_commands does, for every caller) leaked the State with the configuration loader it holds. LeakSanitizer found it.
+    auto token = std::make_shared<int>(1);
+    std::weak_ptr<int> watch = token;
+    {
+        CommandRegistry registry;
+        CommandHooksOptions opt;
+        opt.refreshSeconds = 0;
+        opt.loadConfig = [token]() -> Result<AiConfig> { return AiConfig{}; };
+        token.reset();
+        // The CommandHooks the call returns is dropped at once: the registry's interceptor alone keeps the State alive.
+        std::shared_ptr<CommandHooks> hooks = install_command_hooks(registry, std::move(opt));
+        if (!hooks) return;  // a process started by a hook (FACTORIA_IN_HOOK) installs nothing
+        const auto first = hooks->interceptor();
+        CHECK(hooks->interceptor() == first);  // while the interceptor lives, the same one is given again
+        hooks.reset();
+        CHECK_FALSE(watch.expired());
+        CHECK_FALSE(registry.call("no.such.command", Json::object())
+                        .ok);  // a call through the registry runs its interceptor: nothing dangles
+    }
+    CHECK(watch.expired());
+}
+
 TEST_CASE("ai.hooks and ai.hooks_test: the report, a sample run, and the teaching errors") {
     CommandHookHarness h;
     h.cfg.extensions.entries.push_back(hooks_entry(
-        "guard", merged(command_hook("PreToolUse", "scene_spawn", R"(echo '{"decision":"block","reason":"no spawning"}')"),
-                        Json::parse(R"({"PreCompact":[{"hooks":[{"type":"command","command":"echo x"}]}],"Stop":[{"hooks":[{"type":"http","url":"http://localhost/x"}]}]})"))));
+        "guard",
+        merged(
+            command_hook("PreToolUse", "scene_spawn", R"(echo '{"decision":"block","reason":"no spawning"}')"),
+            Json::parse(
+                R"({"PreCompact":[{"hooks":[{"type":"command","command":"echo x"}]}],"Stop":[{"hooks":[{"type":"http","url":"http://localhost/x"}]}]})"))));
     h.install();
     const CommandInfo* info = h.registry.info("ai.hooks");
     REQUIRE(info);
     CHECK(info->readOnly);
     CHECK_FALSE(info->description.empty());
 
-    auto test = h.registry.call("ai.hooks_test", Json::object({{"event", "PreToolUse"}, {"match", "scene_spawn"},
-                                                                {"input", Json::object({{"tool_name", "scene_spawn"}})}}));
+    auto test =
+        h.registry.call("ai.hooks_test", Json::object({{"event", "PreToolUse"},
+                                                       {"match", "scene_spawn"},
+                                                       {"input", Json::object({{"tool_name", "scene_spawn"}})}}));
     REQUIRE(test.ok);
     CHECK(test.result["groups"] == 1);
     CHECK(test.result["outcome"]["blocked"] == true);
@@ -627,7 +711,8 @@ TEST_CASE("ai.hooks and ai.hooks_test: the report, a sample run, and the teachin
     CHECK(has(bad.error.dump(), "Did you mean 'PreToolUse'"));
 }
 
-TEST_CASE("command hooks run with the base environment, their own variables and the user's inheritEnv, not the editor's secrets") {
+TEST_CASE("command hooks run with the base environment, their own variables and the user's inheritEnv, not the "
+          "editor's secrets") {
     struct Var {
         std::string name, old;
         bool had = false;
@@ -639,8 +724,10 @@ TEST_CASE("command hooks run with the base environment, their own variables and 
             ::setenv(name.c_str(), value, 1);
         }
         ~Var() {
-            if (had) ::setenv(name.c_str(), old.c_str(), 1);
-            else ::unsetenv(name.c_str());
+            if (had)
+                ::setenv(name.c_str(), old.c_str(), 1);
+            else
+                ::unsetenv(name.c_str());
         }
     };
     Var secret("FACTORIA_TEST_SECRET", "hunter2");
@@ -648,7 +735,8 @@ TEST_CASE("command hooks run with the base environment, their own variables and 
     Var key("ANTHROPIC_API_KEY", "sk-ant-secret");
     Var listed("FACTORIA_TEST_LISTED", "visible");
     Var prefixed("MYTOOL_TOKEN", "tool-token");
-    Var proxy("HTTPS_PROXY", "http://proxy.example:3128");  // like every program the AI starts, a hook gets proxies and certificates
+    Var proxy("HTTPS_PROXY",
+              "http://proxy.example:3128");  // like every program the AI starts, a hook gets proxies and certificates
     Var cert("SSL_CERT_FILE", "/etc/company-ca.pem");
 
     HookHarness h;

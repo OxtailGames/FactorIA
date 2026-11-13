@@ -16,7 +16,9 @@ namespace {
 
 constexpr std::size_t kMaxListedPieces = 20;
 
-std::uint64_t edge_key(std::uint32_t a, std::uint32_t b) { return a < b ? (std::uint64_t(a) << 32) | b : (std::uint64_t(b) << 32) | a; }
+std::uint64_t edge_key(std::uint32_t a, std::uint32_t b) {
+    return a < b ? (std::uint64_t(a) << 32) | b : (std::uint64_t(b) << 32) | a;
+}
 
 struct CellKey {
     std::int64_t x, y, z;
@@ -45,7 +47,8 @@ ModelMesh to_model_mesh(const MeshData& d) {
     }
     if (d.colors.size() == n * 4) {
         m.colors.resize(n);
-        for (std::size_t v = 0; v < n; ++v) m.colors[v] = {d.colors[v * 4], d.colors[v * 4 + 1], d.colors[v * 4 + 2], d.colors[v * 4 + 3]};
+        for (std::size_t v = 0; v < n; ++v)
+            m.colors[v] = {d.colors[v * 4], d.colors[v * 4 + 1], d.colors[v * 4 + 2], d.colors[v * 4 + 3]};
     }
     for (std::size_t s = 0; s < d.submeshes.size(); ++s) {
         const MeshSubmesh& sm = d.submeshes[s];
@@ -59,7 +62,8 @@ ModelMesh to_model_mesh(const MeshData& d) {
 }
 
 Vec3 face_cross(const ModelMesh& m, std::size_t t) {
-    const Vec3 a = m.positions[m.indices[t * 3]], b = m.positions[m.indices[t * 3 + 1]], c = m.positions[m.indices[t * 3 + 2]];
+    const Vec3 a = m.positions[m.indices[t * 3]], b = m.positions[m.indices[t * 3 + 1]],
+               c = m.positions[m.indices[t * 3 + 2]];
     return cross(b - a, c - a);
 }
 
@@ -138,14 +142,26 @@ struct EdgeUse {
 Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelCleanOptions& o) {
     ModelCleanResult result;
     ModelCleanReport& rep = result.report;
-    if (o.upAxis != "y" && o.upAxis != "z") return make_error("upAxis '" + o.upAxis + "' is not y or z", "Use \"y\" (glTF and the engine) or \"z\" (Blender and CAD exports).");
+    if (o.upAxis != "y" && o.upAxis != "z")
+        return make_error("upAxis '" + o.upAxis + "' is not y or z",
+                          "Use \"y\" (glTF and the engine) or \"z\" (Blender and CAD exports).");
     if (o.origin != "keep" && o.origin != "center" && o.origin != "bottom" && o.origin != "bottom_center")
-        return make_error("origin '" + o.origin + "' is not one of keep, center, bottom, bottom_center", "\"bottom_center\" puts the origin at the middle of the model's feet.");
-    if (o.height && o.scale) return make_error("give `height` or `scale`, not both", "`height` scales to a size in metres; `scale` multiplies by a factor.");
-    if (o.height && !(*o.height > 0.0001 && *o.height < 100000)) return make_error("height must be between 0.0001 and 100000 metres", "A person is 1.8, a door 2.1, a house 8.");
-    if (o.scale && !(*o.scale > 1e-6 && *o.scale < 1e6)) return make_error("scale must be between 0.000001 and 1000000", "A model exported in centimetres needs 0.01; in millimetres 0.001.");
-    if (o.minPieceSize < 0 || o.minPieceSize > 1) return make_error("minPieceSize must be between 0 and 1", "It is a fraction of the biggest piece's size: 0.02 removes pieces under 2% of it.");
-    if (o.remeshCells < 16 || o.remeshCells > 400) return make_error("remeshCells must be between 16 and 400", "The cells along the longest side; 128 is a good start, more is slower and finer.");
+        return make_error("origin '" + o.origin + "' is not one of keep, center, bottom, bottom_center",
+                          "\"bottom_center\" puts the origin at the middle of the model's feet.");
+    if (o.height && o.scale)
+        return make_error("give `height` or `scale`, not both",
+                          "`height` scales to a size in metres; `scale` multiplies by a factor.");
+    if (o.height && !(*o.height > 0.0001 && *o.height < 100000))
+        return make_error("height must be between 0.0001 and 100000 metres", "A person is 1.8, a door 2.1, a house 8.");
+    if (o.scale && !(*o.scale > 1e-6 && *o.scale < 1e6))
+        return make_error("scale must be between 0.000001 and 1000000",
+                          "A model exported in centimetres needs 0.01; in millimetres 0.001.");
+    if (o.minPieceSize < 0 || o.minPieceSize > 1)
+        return make_error("minPieceSize must be between 0 and 1",
+                          "It is a fraction of the biggest piece's size: 0.02 removes pieces under 2% of it.");
+    if (o.remeshCells < 16 || o.remeshCells > 400)
+        return make_error("remeshCells must be between 16 and 400",
+                          "The cells along the longest side; 128 is a good start, more is slower and finer.");
 
     ModelMesh m = to_model_mesh(source);
     if (m.empty()) return make_error("the mesh has no triangles", "Give a mesh that draws at least one triangle.");
@@ -163,7 +179,9 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         Vec3 lo{}, hi{};
         m.bounds(lo, hi);
         for (const Vec3& p : m.positions)
-            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return make_error("the mesh has a position that is NaN or infinite", "Export the model again; the tool that made it wrote a broken vertex.");
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+                return make_error("the mesh has a position that is NaN or infinite",
+                                  "Export the model again; the tool that made it wrote a broken vertex.");
     }
 
     // ---- weld -------------------------------------------------------------------------------------------------------------------------
@@ -177,7 +195,10 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         std::unordered_map<CellKey, std::vector<std::uint32_t>, CellHash> grid;
         grid.reserve(n0);
         const float inv = 1.0f / weld;
-        auto cell_of = [&](Vec3 p) { return CellKey{std::int64_t(std::floor(double(p.x) * inv)), std::int64_t(std::floor(double(p.y) * inv)), std::int64_t(std::floor(double(p.z) * inv))}; };
+        auto cell_of = [&](Vec3 p) {
+            return CellKey{std::int64_t(std::floor(double(p.x) * inv)), std::int64_t(std::floor(double(p.y) * inv)),
+                           std::int64_t(std::floor(double(p.z) * inv))};
+        };
         for (std::size_t v = 0; v < n0; ++v) {
             const Vec3 p = m.positions[v];
             const CellKey c = cell_of(p);
@@ -214,7 +235,9 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
             auto& list = outs[r];
             std::int64_t same = -1;
             for (std::uint32_t o2 : list) {
-                if (hasUvs && (std::fabs(w.uvs[o2].x - m.uvs[v].x) > 1e-5f || std::fabs(w.uvs[o2].y - m.uvs[v].y) > 1e-5f)) continue;
+                if (hasUvs &&
+                    (std::fabs(w.uvs[o2].x - m.uvs[v].x) > 1e-5f || std::fabs(w.uvs[o2].y - m.uvs[v].y) > 1e-5f))
+                    continue;
                 if (hasCol && dot(w.colors[o2] - m.colors[v], w.colors[o2] - m.colors[v]) > 4e-6f) continue;
                 if (dot(w.normals[o2], m.normals[v]) < 0.9999f) continue;
                 same = o2;
@@ -253,7 +276,8 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
             }
             std::array<std::uint32_t, 3> sorted = {tp[0], tp[1], tp[2]};
             std::sort(sorted.begin(), sorted.end());
-            const std::uint64_t key = (std::uint64_t(sorted[0]) * 0x9E3779B97F4A7C15ull) ^ (std::uint64_t(sorted[1]) << 21) ^ (std::uint64_t(sorted[2]) << 42) ^ sorted[2];
+            const std::uint64_t key = (std::uint64_t(sorted[0]) * 0x9E3779B97F4A7C15ull) ^
+                                      (std::uint64_t(sorted[1]) << 21) ^ (std::uint64_t(sorted[2]) << 42) ^ sorted[2];
             auto& bucket = seen[key];
             if (std::find(bucket.begin(), bucket.end(), sorted) != bucket.end()) {
                 ++rep.duplicatesRemoved;
@@ -264,7 +288,10 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
             w.triParts.push_back(m.triParts[t]);
         }
     }
-    if (w.empty()) return make_error("every triangle is degenerate after welding", "The mesh has no surface: check that the file holds real geometry and that `weldDistance` is not larger than the model's details.");
+    if (w.empty())
+        return make_error("every triangle is degenerate after welding",
+                          "The mesh has no surface: check that the file holds real geometry and that `weldDistance` is "
+                          "not larger than the model's details.");
     m = std::move(w);
     compact(m, &topo);
 
@@ -312,7 +339,8 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
                     drop[i] = 1;
                     ++rep.removedPieceCount;
                     rep.removedPieceTriangles += pieces[i].triangles;
-                    if (rep.removedPieces.size() < kMaxListedPieces) rep.removedPieces.push_back({pieces[i].triangles, d, (pieces[i].lo + pieces[i].hi) * 0.5f});
+                    if (rep.removedPieces.size() < kMaxListedPieces)
+                        rep.removedPieces.push_back({pieces[i].triangles, d, (pieces[i].lo + pieces[i].hi) * 0.5f});
                 }
             }
             if (rep.removedPieceCount > 0) {
@@ -381,7 +409,8 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         std::vector<double> volume(pieceCount, 0);
         std::vector<char> hasBoundary(pieceCount, 0);
         for (std::size_t t = 0; t < tris; ++t) {
-            Vec3 a = m.positions[m.indices[t * 3]], b = m.positions[m.indices[t * 3 + 1]], c = m.positions[m.indices[t * 3 + 2]];
+            Vec3 a = m.positions[m.indices[t * 3]], b = m.positions[m.indices[t * 3 + 1]],
+                 c = m.positions[m.indices[t * 3 + 2]];
             if (state[t] == 1) std::swap(b, c);
             volume[pieceOfTri[t]] += double(dot(a, cross(b, c))) / 6.0;
             for (int k = 0; k < 3; ++k)
@@ -406,14 +435,21 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         double factor = 1;
         rep.scaleReason = "none";
         if (o.height) {
-            if (size.y < 1e-9f) return make_error("the model has no height to scale (it is flat in Y)", "If it was exported with Z up, pass \"upAxis\": \"z\"; or use `scale` with a factor.");
+            if (size.y < 1e-9f)
+                return make_error(
+                    "the model has no height to scale (it is flat in Y)",
+                    "If it was exported with Z up, pass \"upAxis\": \"z\"; or use `scale` with a factor.");
             factor = *o.height / double(size.y);
             rep.scaleReason = std::format("height {:g} m (the model was {:.4g} m tall)", *o.height, double(size.y));
         } else if (o.scale) {
             factor = *o.scale;
             rep.scaleReason = std::format("factor {:g}", *o.scale);
         } else if (size.y < 0.02f || size.y > 50.0f) {
-            rep.warnings.push_back(std::format("the model is {:.4g} m tall, which is not a size anything in a game usually has. If that is a unit mistake, pass `height` (metres, e.g. 1.8 for a person) or `scale` (0.01 for centimetres, 0.001 for millimetres).", double(size.y)));
+            rep.warnings.push_back(
+                std::format("the model is {:.4g} m tall, which is not a size anything in a game usually has. If that "
+                            "is a unit mistake, pass `height` (metres, e.g. 1.8 for a person) or `scale` (0.01 for "
+                            "centimetres, 0.001 for millimetres).",
+                            double(size.y)));
         }
         if (factor != 1) {
             const float f = float(factor);
@@ -427,9 +463,12 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         Vec3 l{}, h{};
         m.bounds(l, h);
         Vec3 offset{};
-        if (o.origin == "center") offset = (l + h) * -0.5f;
-        else if (o.origin == "bottom") offset = {0, -l.y, 0};
-        else if (o.origin == "bottom_center") offset = {-(l.x + h.x) * 0.5f, -l.y, -(l.z + h.z) * 0.5f};
+        if (o.origin == "center")
+            offset = (l + h) * -0.5f;
+        else if (o.origin == "bottom")
+            offset = {0, -l.y, 0};
+        else if (o.origin == "bottom_center")
+            offset = {-(l.x + h.x) * 0.5f, -l.y, -(l.z + h.z) * 0.5f};
         if (offset != Vec3{}) {
             for (Vec3& p : m.positions) p = p + offset;
         }
@@ -444,7 +483,9 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
         ModelRemeshInfo info;
         auto remeshed = model_remesh_mesh(m, o.remeshVoxel, o.remeshCells, groupMaterial, o.textureSampler, &info);
         if (!remeshed) return make_error("remesh: " + remeshed.error().message, remeshed.error().hint);
-        if (remeshed->empty()) return make_error("remesh: the distance field has no surface", "The model is smaller than one cell: lower `remeshVoxel` or raise `remeshCells`.");
+        if (remeshed->empty())
+            return make_error("remesh: the distance field has no surface",
+                              "The model is smaller than one cell: lower `remeshVoxel` or raise `remeshCells`.");
         m = std::move(*remeshed);
         rep.remeshed = true;
         rep.remeshVoxel = info.voxel;
@@ -502,7 +543,9 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
                     d.uvs[v] = {a[0], a[1]};
                     a += 2;
                 }
-                if (hasCol) d.colors[v] = {clamp(a[0], 0.0f, 1.0f), clamp(a[1], 0.0f, 1.0f), clamp(a[2], 0.0f, 1.0f), clamp(a[3], 0.0f, 1.0f)};
+                if (hasCol)
+                    d.colors[v] = {clamp(a[0], 0.0f, 1.0f), clamp(a[1], 0.0f, 1.0f), clamp(a[2], 0.0f, 1.0f),
+                                   clamp(a[3], 0.0f, 1.0f)};
             }
             d.indices = r.indices;
             d.triParts = r.triParts;
@@ -512,11 +555,18 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
             rep.reachedTarget = m.triangle_count() <= o.targetTriangles + o.targetTriangles / 20 + 2;
             if (!rep.reachedTarget) {
                 if (rep.remeshed)
-                    rep.warnings.push_back(std::format("the decimation stopped at {} triangles, above the target of {}: the surface is a thin shell (an open sheet remeshes into one), and collapsing it further would pinch its two sides together. Close the holes in the source, or lower `remeshCells` / raise `remeshVoxel` for a coarser surface.",
-                                                       m.triangle_count(), o.targetTriangles));
+                    rep.warnings.push_back(
+                        std::format("the decimation stopped at {} triangles, above the target of {}: the surface is a "
+                                    "thin shell (an open sheet remeshes into one), and collapsing it further would "
+                                    "pinch its two sides together. Close the holes in the source, or lower "
+                                    "`remeshCells` / raise `remeshVoxel` for a coarser surface.",
+                                    m.triangle_count(), o.targetTriangles));
                 else
-                    rep.warnings.push_back(std::format("the decimation stopped at {} triangles, above the target of {}: the open borders and thin parts of the surface stay where they are. A remesh (`remesh`: true) closes the surface so it can go lower.", m.triangle_count(),
-                                                       o.targetTriangles));
+                    rep.warnings.push_back(
+                        std::format("the decimation stopped at {} triangles, above the target of {}: the open borders "
+                                    "and thin parts of the surface stay where they are. A remesh (`remesh`: true) "
+                                    "closes the surface so it can go lower.",
+                                    m.triangle_count(), o.targetTriangles));
             }
         } else {
             rep.warnings.push_back("the decimation removed every triangle, so it was skipped");
@@ -559,8 +609,11 @@ Result<ModelCleanResult> model_import_clean(const MeshData& source, const ModelC
     result.mesh = std::move(*data);
     if (rep.statsAfter.nonManifoldEdges > 0 || rep.statsAfter.boundaryEdges > 0) {
         if (!o.remesh)
-            rep.warnings.push_back(std::format("the cleaned surface still has {} open edge(s) and {} non-manifold edge(s) (holes, or three or more triangles on one edge). That is fine for drawing; for a solid that booleans, a collider or a decimation to a low budget accept, pass `remesh`: true.",
-                                               rep.statsAfter.boundaryEdges, rep.statsAfter.nonManifoldEdges));
+            rep.warnings.push_back(
+                std::format("the cleaned surface still has {} open edge(s) and {} non-manifold edge(s) (holes, or "
+                            "three or more triangles on one edge). That is fine for drawing; for a solid that "
+                            "booleans, a collider or a decimation to a low budget accept, pass `remesh`: true.",
+                            rep.statsAfter.boundaryEdges, rep.statsAfter.nonManifoldEdges));
     }
     return result;
 }
@@ -570,21 +623,47 @@ Json model_clean_report_json(const ModelCleanReport& r) {
     auto vec = [&](Vec3 v) { return Json::array({rnd(v.x), rnd(v.y), rnd(v.z)}); };
     Json pieces = Json::array();
     for (const ModelCleanPiece& p : r.removedPieces)
-        pieces.push_back(Json::object({{"triangles", p.triangles}, {"diagonal", rnd(p.diagonal)}, {"center", vec(p.center)}}));
+        pieces.push_back(
+            Json::object({{"triangles", p.triangles}, {"diagonal", rnd(p.diagonal)}, {"center", vec(p.center)}}));
     auto surface = [&](const ModelMeshStats& s) {
-        return Json::object({{"vertices", s.vertices}, {"triangles", s.triangles}, {"closed", s.closed()}, {"boundaryEdges", s.boundaryEdges}, {"nonManifoldEdges", s.nonManifoldEdges},
+        return Json::object({{"vertices", s.vertices},
+                             {"triangles", s.triangles},
+                             {"closed", s.closed()},
+                             {"boundaryEdges", s.boundaryEdges},
+                             {"nonManifoldEdges", s.nonManifoldEdges},
                              {"degenerateTriangles", s.degenerateTriangles}});
     };
-    Json out = Json::object({{"before", Json::object({{"vertices", r.verticesBefore}, {"triangles", r.trianglesBefore}, {"size", vec(r.sizeBefore)}, {"surface", surface(r.statsBefore)}})},
-                             {"after", Json::object({{"vertices", r.verticesAfter}, {"triangles", r.trianglesAfter}, {"size", vec(r.sizeAfter)}, {"surface", surface(r.statsAfter)}})},
-                             {"weld", Json::object({{"verticesMerged", r.verticesWelded}, {"degenerateTrianglesRemoved", r.degenerateRemoved}, {"duplicateTrianglesRemoved", r.duplicatesRemoved}})},
-                             {"pieces", Json::object({{"found", r.pieces}, {"removed", r.removedPieceCount}, {"trianglesRemoved", r.removedPieceTriangles}, {"list", pieces}})},
-                             {"trianglesReoriented", r.trianglesReoriented},
-                             {"nonManifoldEdgesFixed", r.statsBefore.nonManifoldEdges > r.statsAfter.nonManifoldEdges ? r.statsBefore.nonManifoldEdges - r.statsAfter.nonManifoldEdges : 0},
-                             {"scale", Json::object({{"factor", rnd(r.scaleFactor)}, {"reason", r.scaleReason}})},
-                             {"origin", Json::object({{"offset", vec(r.offset)}})}});
-    if (r.remeshed) out["remesh"] = Json::object({{"voxel", rnd(r.remeshVoxel)}, {"rawTriangles", r.remeshRawTriangles}, {"texturesToVertexColors", r.texturesToColors}});
-    if (r.decimated) out["decimate"] = Json::object({{"from", r.trianglesBeforeDecimate}, {"to", r.trianglesAfter}, {"maxError", rnd(r.decimateError)}, {"reachedTarget", r.reachedTarget}});
+    Json out =
+        Json::object({{"before", Json::object({{"vertices", r.verticesBefore},
+                                               {"triangles", r.trianglesBefore},
+                                               {"size", vec(r.sizeBefore)},
+                                               {"surface", surface(r.statsBefore)}})},
+                      {"after", Json::object({{"vertices", r.verticesAfter},
+                                              {"triangles", r.trianglesAfter},
+                                              {"size", vec(r.sizeAfter)},
+                                              {"surface", surface(r.statsAfter)}})},
+                      {"weld", Json::object({{"verticesMerged", r.verticesWelded},
+                                             {"degenerateTrianglesRemoved", r.degenerateRemoved},
+                                             {"duplicateTrianglesRemoved", r.duplicatesRemoved}})},
+                      {"pieces", Json::object({{"found", r.pieces},
+                                               {"removed", r.removedPieceCount},
+                                               {"trianglesRemoved", r.removedPieceTriangles},
+                                               {"list", pieces}})},
+                      {"trianglesReoriented", r.trianglesReoriented},
+                      {"nonManifoldEdgesFixed", r.statsBefore.nonManifoldEdges > r.statsAfter.nonManifoldEdges
+                                                    ? r.statsBefore.nonManifoldEdges - r.statsAfter.nonManifoldEdges
+                                                    : 0},
+                      {"scale", Json::object({{"factor", rnd(r.scaleFactor)}, {"reason", r.scaleReason}})},
+                      {"origin", Json::object({{"offset", vec(r.offset)}})}});
+    if (r.remeshed)
+        out["remesh"] = Json::object({{"voxel", rnd(r.remeshVoxel)},
+                                      {"rawTriangles", r.remeshRawTriangles},
+                                      {"texturesToVertexColors", r.texturesToColors}});
+    if (r.decimated)
+        out["decimate"] = Json::object({{"from", r.trianglesBeforeDecimate},
+                                        {"to", r.trianglesAfter},
+                                        {"maxError", rnd(r.decimateError)},
+                                        {"reachedTarget", r.reachedTarget}});
     if (!r.warnings.empty()) out["warnings"] = r.warnings;
     return out;
 }

@@ -43,11 +43,16 @@ struct Game {
     }
     // The main scene gets a Sprite per texture.
     void sprites(const std::vector<std::string>& textures) {
-        Json entities = Json::array({Json::object({{"id", "camera"}, {"components", Json::object({{"Camera", Json::object({{"primary", true}})}})}})});
+        Json entities = Json::array({Json::object(
+            {{"id", "camera"}, {"components", Json::object({{"Camera", Json::object({{"primary", true}})}})}})});
         int n = 0;
         for (const std::string& t : textures)
-            entities.push_back(Json::object({{"id", "s" + std::to_string(n++)}, {"components", Json::object({{"Sprite", Json::object({{"texture", t}})}})}}));
-        REQUIRE(save_json_file(dir + "/scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", entities}})).ok());
+            entities.push_back(
+                Json::object({{"id", "s" + std::to_string(n++)},
+                              {"components", Json::object({{"Sprite", Json::object({{"texture", t}})}})}}));
+        REQUIRE(save_json_file(dir + "/scenes/main.scene.json",
+                               Json::object({{"format", "factoria.scene/1"}, {"entities", entities}}))
+                    .ok());
     }
     std::vector<ValidationIssue> warnings(const std::string& file) const {
         std::vector<ValidationIssue> found;
@@ -151,15 +156,16 @@ TEST_CASE("validate: the files that ship are compared with the limits of the sto
 TEST_CASE("validate: a Sprite texture whose corners are one opaque colour is probably a background") {
     Game g;
     Image withBackground = make_image(16, 16, kRed);  // a red background...
-    fill_rect(withBackground, 5, 5, 6, 6, kBlue);      // ...with a blue character in the middle
+    fill_rect(withBackground, 5, 5, 6, 6, kBlue);     // ...with a blue character in the middle
     write_png(stdfs::path(g.dir) / "assets/hero.png", withBackground);
     write_png(stdfs::path(g.dir) / "assets/cutout.png", [] {
         Image img = make_image(16, 16, kClear);
         fill_rect(img, 5, 5, 6, 6, kBlue);
         return img;
     }());
-    write_png(stdfs::path(g.dir) / "assets/block.png", make_image(16, 16, kRed));  // one flat colour: a placeholder rectangle
-    write_png(stdfs::path(g.dir) / "assets/unused.png", withBackground);           // no Sprite draws it
+    write_png(stdfs::path(g.dir) / "assets/block.png",
+              make_image(16, 16, kRed));                                  // one flat colour: a placeholder rectangle
+    write_png(stdfs::path(g.dir) / "assets/unused.png", withBackground);  // no Sprite draws it
     write_png(stdfs::path(g.dir) / "assets/gone.png", make_image(16, 16, kClear));
     g.sprites({"assets/hero.png", "assets/cutout.png", "assets/block.png", "assets/gone.png", "assets/missing.png"});
 
@@ -195,7 +201,8 @@ TEST_CASE("validate: a missing build of an optional plugin for this computer is 
         Game g(Json::array({std::string(runtime_platform())}));
         auto project = load_json_file(g.dir + "/factoria.json");
         REQUIRE(project.ok());
-        (*project)["plugins"] = Json::object({{"native", Json::object({{"path", "plugins/native"}, {"optional", optional}})}});
+        (*project)["plugins"] =
+            Json::object({{"native", Json::object({{"path", "plugins/native"}, {"optional", optional}})}});
         REQUIRE(save_json_file(g.dir + "/factoria.json", *project).ok());
         const ValidationReport r = g.report();
         auto about_plugin = [](const std::vector<ValidationIssue>& v) -> const ValidationIssue* {

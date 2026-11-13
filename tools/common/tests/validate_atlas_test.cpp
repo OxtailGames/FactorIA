@@ -45,13 +45,16 @@ TEST_CASE("validate: textures of an atlas group are fine for sprites and particl
     auto scene = load_json_file((dir / "scenes/main.scene.json").string());
     REQUIRE(scene.ok());
     auto add = [&](const char* id, const char* type, const char* fields) {
-        (*scene)["entities"].push_back(Json::object({{"id", id}, {"components", Json::object({{type, Json::parse(fields)}})}}));
+        (*scene)["entities"].push_back(
+            Json::object({{"id", id}, {"components", Json::object({{type, Json::parse(fields)}})}}));
     };
     add("hero", "Sprite", R"({"texture": "assets/hero.png"})");
     add("sparks", "ParticleEmitter", R"({"texture": "assets/hero.png"})");
-    add("map", "Tilemap", R"({"tileset": "assets/tiles.png", "tileSize": [32, 32], "width": 1, "height": 1, "tiles": [0]})");
+    add("map", "Tilemap",
+        R"({"tileset": "assets/tiles.png", "tileSize": [32, 32], "width": 1, "height": 1, "tiles": [0]})");
     add("box", "MeshRenderer", R"({"mesh": "cube", "texture": "assets/hero.png"})");
-    add("free-map", "Tilemap", R"({"tileset": "assets/free.png", "tileSize": [8, 8], "width": 1, "height": 1, "tiles": [0]})");
+    add("free-map", "Tilemap",
+        R"({"tileset": "assets/free.png", "tileSize": [8, 8], "width": 1, "height": 1, "tiles": [0]})");
     REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
 
     const ValidationReport r = validate_project(dir.string());

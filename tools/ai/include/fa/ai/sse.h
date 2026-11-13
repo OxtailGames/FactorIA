@@ -39,13 +39,17 @@ public:
 
 private:
     void handle_line(std::string_view line) {
-        if (line.empty()) { dispatch(); return; }
+        if (line.empty()) {
+            dispatch();
+            return;
+        }
         if (line[0] == ':') return;  // comment / keep-alive
         auto colon = line.find(':');
         std::string_view field = line.substr(0, colon);
         std::string_view value = colon == std::string_view::npos ? std::string_view{} : line.substr(colon + 1);
         if (!value.empty() && value[0] == ' ') value.remove_prefix(1);
-        if (field == "event") event_ = std::string(value);
+        if (field == "event")
+            event_ = std::string(value);
         else if (field == "data") {
             if (hasData_) data_.push_back('\n');
             data_.append(value);

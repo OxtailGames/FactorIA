@@ -93,8 +93,10 @@ std::string label_of(const World& w, Entity e) {
 // An angle in degrees in (-180, 180]. fmod is exact, so this is the same bits everywhere.
 float wrap180(float a) {
     a = std::fmod(a, 360.0f);
-    if (a > 180.0f) a -= 360.0f;
-    else if (a <= -180.0f) a += 360.0f;
+    if (a > 180.0f)
+        a -= 360.0f;
+    else if (a <= -180.0f)
+        a += 360.0f;
     return a;
 }
 
@@ -140,21 +142,24 @@ SkinBones skin_resolve_bones(const World& w, Entity owner, const SpriteSkin& ski
     SkinBones out;
     if (!skin.bones.is_array()) {
         if (!skin.bones.is_null())
-            out.problems.push_back("SpriteSkin.bones must be an array of bone ids or names, e.g. [\"hip\", \"spine\"]; it is " +
-                                   std::string(skin.bones.type_name()) + ".");
+            out.problems.push_back(
+                "SpriteSkin.bones must be an array of bone ids or names, e.g. [\"hip\", \"spine\"]; it is " +
+                std::string(skin.bones.type_name()) + ".");
         return out;
     }
     std::vector<std::string> candidates;
     bool candidatesBuilt = false;
     const std::size_t count = std::min<std::size_t>(skin.bones.size(), std::size_t(kMaxSkinBones));
     if (skin.bones.size() > count)
-        out.problems.push_back("SpriteSkin.bones names " + std::to_string(skin.bones.size()) + " bones; a skin uses at most " +
-                               std::to_string(kMaxSkinBones) + " and the rest are left out. Split the sprite in two.");
+        out.problems.push_back("SpriteSkin.bones names " + std::to_string(skin.bones.size()) +
+                               " bones; a skin uses at most " + std::to_string(kMaxSkinBones) +
+                               " and the rest are left out. Split the sprite in two.");
     for (std::size_t i = 0; i < count; ++i) {
         const Json& j = skin.bones[i];
         if (!j.is_string()) {
             out.entities.push_back(kNullEntity);
-            out.problems.push_back("SpriteSkin.bones[" + std::to_string(i) + "] must be a string (the id or name of a Bone2D entity); it is " +
+            out.problems.push_back("SpriteSkin.bones[" + std::to_string(i) +
+                                   "] must be a string (the id or name of a Bone2D entity); it is " +
                                    std::string(j.type_name()) + ".");
             continue;
         }
@@ -175,13 +180,19 @@ SkinBones skin_resolve_bones(const World& w, Entity owner, const SpriteSkin& ski
                 for (Entity b : w.entities_with(&World::type_of<Bone2D>())) {
                     const EntityInfo& info = w.info(b);
                     for (const std::string& s : {info.name, info.id})
-                        if (!s.empty() && std::find(candidates.begin(), candidates.end(), s) == candidates.end()) candidates.push_back(s);
+                        if (!s.empty() && std::find(candidates.begin(), candidates.end(), s) == candidates.end())
+                            candidates.push_back(s);
                 }
             }
-            out.problems.push_back("SpriteSkin.bones[" + std::to_string(i) + "] '" + want + "' matches no Bone2D entity (an id anywhere, or a name or a path of "
-                                   "names under '" + label_of(w, owner) + "' or one of its parents), so that bone is left out. " +
-                                   (candidates.empty() ? std::string("The scene has no Bone2D yet: add a Bone2D component to the entities of the skeleton.")
-                                                       : did_you_mean(want, candidates)));
+            out.problems.push_back(
+                "SpriteSkin.bones[" + std::to_string(i) + "] '" + want +
+                "' matches no Bone2D entity (an id anywhere, or a name or a path of "
+                "names under '" +
+                label_of(w, owner) + "' or one of its parents), so that bone is left out. " +
+                (candidates.empty()
+                     ? std::string(
+                           "The scene has no Bone2D yet: add a Bone2D component to the entities of the skeleton.")
+                     : did_you_mean(want, candidates)));
         }
         out.entities.push_back(found);
     }
@@ -213,10 +224,14 @@ bool skin_is_bound(const World& w, Entity e) {
 
 Result<void> skin_bind(World& w, Entity e) {
     SpriteSkin* skin = w.get<SpriteSkin>(e);
-    if (!skin) return make_error("Entity '" + label_of(w, e) + "' has no SpriteSkin to bind.", "Add a SpriteSkin component (and a Sprite) to it first.");
+    if (!skin)
+        return make_error("Entity '" + label_of(w, e) + "' has no SpriteSkin to bind.",
+                          "Add a SpriteSkin component (and a Sprite) to it first.");
     const SkinBones bones = skin_resolve_bones(w, e, *skin);
     if (bones.entities.empty())
-        return make_error("SpriteSkin on '" + label_of(w, e) + "' has no bones to bind.", "Set SpriteSkin.bones to the ids or names of the Bone2D entities, e.g. [\"hip\", \"spine\"].");
+        return make_error(
+            "SpriteSkin on '" + label_of(w, e) + "' has no bones to bind.",
+            "Set SpriteSkin.bones to the ids or names of the Bone2D entities, e.g. [\"hip\", \"spine\"].");
     for (const std::string& p : bones.problems) return make_error(p, "Fix SpriteSkin.bones, then bind again.");
     bool ok = true;
     const Affine2 inv = world_affine(w, e).inverse(&ok);
@@ -283,8 +298,8 @@ std::shared_ptr<const AlphaPlane> alpha_plane(OutlineCache& c, const std::string
 }
 
 std::string grid_key(const std::string& path, int x, int y, int w, int h, int cols, int rows) {
-    return path + "|" + std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(w) + "," + std::to_string(h) + "|" +
-           std::to_string(cols) + "x" + std::to_string(rows);
+    return path + "|" + std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(w) + "," +
+           std::to_string(h) + "|" + std::to_string(cols) + "x" + std::to_string(rows);
 }
 
 }  // namespace
@@ -320,7 +335,8 @@ std::shared_ptr<const OutlineGrid> sprite_outline_grid(const std::string& textur
     if (texture.empty()) return full(true, {});  // a solid colour quad is opaque everywhere
     OutlineCache& cache = outline_cache();
     std::lock_guard<std::mutex> lock(cache.mutex);
-    const std::string key = grid_key(texture, int(region.x), int(region.y), int(region.w), int(region.h), columns, rows);
+    const std::string key =
+        grid_key(texture, int(region.x), int(region.y), int(region.w), int(region.h), columns, rows);
     if (auto it = cache.grids.find(key); it != cache.grids.end()) return it->second;
     const std::shared_ptr<const AlphaPlane> plane = alpha_plane(cache, texture);
     std::shared_ptr<const OutlineGrid> result;
@@ -340,8 +356,12 @@ std::shared_ptr<const OutlineGrid> sprite_outline_grid(const std::string& textur
         for (int y = 0; y < rh; ++y) {
             int row = 0;
             for (int x = 0; x < rw; ++x) {
-                row += plane->a[std::size_t(ry + y) * std::size_t(plane->w) + std::size_t(rx + x)] >= kOutlineAlphaThreshold ? 1 : 0;
-                sum[std::size_t(y + 1) * stride + std::size_t(x + 1)] = sum[std::size_t(y) * stride + std::size_t(x + 1)] + row;
+                row += plane->a[std::size_t(ry + y) * std::size_t(plane->w) + std::size_t(rx + x)] >=
+                               kOutlineAlphaThreshold
+                           ? 1
+                           : 0;
+                sum[std::size_t(y + 1) * stride + std::size_t(x + 1)] =
+                    sum[std::size_t(y) * stride + std::size_t(x + 1)] + row;
             }
         }
         auto g = std::make_shared<OutlineGrid>();
@@ -353,10 +373,13 @@ std::shared_ptr<const OutlineGrid> sprite_outline_grid(const std::string& textur
         for (int r = 0; r < rows; ++r)
             for (int c = 0; c < columns; ++c) {
                 // The cell's pixels plus one pixel around, so linear filtering at the edge of a shape is not cut.
-                const int x0 = std::max(0, (c * rw) / columns - 1), x1 = std::min(rw, ((c + 1) * rw + columns - 1) / columns + 1);
-                const int y0 = std::max(0, (r * rh) / rows - 1), y1 = std::min(rh, ((r + 1) * rh + rows - 1) / rows + 1);
-                const int n = sum[std::size_t(y1) * stride + std::size_t(x1)] - sum[std::size_t(y0) * stride + std::size_t(x1)] -
-                              sum[std::size_t(y1) * stride + std::size_t(x0)] + sum[std::size_t(y0) * stride + std::size_t(x0)];
+                const int x0 = std::max(0, (c * rw) / columns - 1),
+                          x1 = std::min(rw, ((c + 1) * rw + columns - 1) / columns + 1);
+                const int y0 = std::max(0, (r * rh) / rows - 1),
+                          y1 = std::min(rh, ((r + 1) * rh + rows - 1) / rows + 1);
+                const int n =
+                    sum[std::size_t(y1) * stride + std::size_t(x1)] - sum[std::size_t(y0) * stride + std::size_t(x1)] -
+                    sum[std::size_t(y1) * stride + std::size_t(x0)] + sum[std::size_t(y0) * stride + std::size_t(x0)];
                 if (n > 0) {
                     g->keep[std::size_t(r) * std::size_t(columns) + std::size_t(c)] = 1;
                     ++kept;
@@ -386,9 +409,13 @@ void invalidate_sprite_outlines(std::string_view texture) {
 }
 
 // ---------------------------------------------------------------------------------------------------------- weights --
-std::vector<VertexWeights> auto_skin_weights(const std::vector<Vec2>& vertices, const std::vector<std::pair<Vec2, Vec2>>& segments) {
+std::vector<VertexWeights> auto_skin_weights(const std::vector<Vec2>& vertices,
+                                             const std::vector<std::pair<Vec2, Vec2>>& segments) {
     std::vector<VertexWeights> out(vertices.size());
-    struct Candidate { float weight; int bone; };
+    struct Candidate {
+        float weight;
+        int bone;
+    };
     std::vector<Candidate> cand;
     for (std::size_t v = 0; v < vertices.size(); ++v) {
         const Vec2 p = vertices[v];
@@ -435,7 +462,9 @@ VertexWeights parse_explicit_weights(const Json& entry, std::size_t boneCount) {
     for (std::size_t i = 0; i + 1 < entry.size() && vw.count < kMaxBonesPerVertex; i += 2) {
         if (!entry[i].is_number() || !entry[i + 1].is_number()) continue;
         const double bone = entry[i].get<double>(), weight = entry[i + 1].get<double>();
-        if (!(bone >= 0.0) || bone != std::floor(bone) || std::size_t(bone) >= boneCount || !(weight > 0.0) || !std::isfinite(weight)) continue;
+        if (!(bone >= 0.0) || bone != std::floor(bone) || std::size_t(bone) >= boneCount || !(weight > 0.0) ||
+            !std::isfinite(weight))
+            continue;
         vw.bone[std::size_t(vw.count)] = std::uint8_t(bone);
         vw.weight[std::size_t(vw.count)] = float(weight);
         total += float(weight);
@@ -453,8 +482,8 @@ VertexWeights parse_explicit_weights(const Json& entry, std::size_t boneCount) {
 struct SkinSetup {
     int columns = 0, rows = 0;
     std::shared_ptr<const OutlineGrid> outline;
-    std::vector<Vec2> rest;               // full grid, after Sprite.vertexOffsets
-    std::vector<Affine2> bind;            // per bone (empty when not bound)
+    std::vector<Vec2> rest;     // full grid, after Sprite.vertexOffsets
+    std::vector<Affine2> bind;  // per bone (empty when not bound)
     SkinBones bones;
     std::string problem;
 };
@@ -466,15 +495,21 @@ bool setup_skin(const World& w, Entity e, const Sprite& s, const SkinBox& box, S
         skin_outline_dimensions(box, skin->outlineDetail, out.columns, out.rows);
         out.outline = sprite_outline_grid(s.texture, s.region, out.columns, out.rows);
         if (!out.outline->traced)
-            out.problem = "SpriteSkin.outline on '" + label_of(w, e) + "': " + out.outline->problem + ". The full grid is drawn instead.";
+            out.problem = "SpriteSkin.outline on '" + label_of(w, e) + "': " + out.outline->problem +
+                          ". The full grid is drawn instead.";
     } else if (!sprite_mesh_grid(s, out.columns, out.rows)) {
         if (problem) {
             *problem = s.meshColumns > 0 && s.meshRows > 0
-                           ? "The Sprite '" + label_of(w, e) + "' has meshColumns " + std::to_string(s.meshColumns) + " x meshRows " + std::to_string(s.meshRows) +
-                                 ": more than " + std::to_string(kMaxSpriteMeshCells) + " cells (at most " + std::to_string(kMaxSpriteMeshSide) +
-                                 " per side), so its SpriteSkin has no mesh and it is drawn as a plain quad. Use fewer cells (8 x 8 is plenty for a limb)."
-                           : "SpriteSkin on '" + label_of(w, e) + "' needs a mesh to deform, and the Sprite has none, so it is drawn as a plain quad. Set Sprite.meshColumns "
-                             "and Sprite.meshRows (e.g. 6 and 6) or SpriteSkin.outline = true.";
+                           ? "The Sprite '" + label_of(w, e) + "' has meshColumns " + std::to_string(s.meshColumns) +
+                                 " x meshRows " + std::to_string(s.meshRows) + ": more than " +
+                                 std::to_string(kMaxSpriteMeshCells) + " cells (at most " +
+                                 std::to_string(kMaxSpriteMeshSide) +
+                                 " per side), so its SpriteSkin has no mesh and it is drawn as a plain quad. Use fewer "
+                                 "cells (8 x 8 is plenty for a limb)."
+                           : "SpriteSkin on '" + label_of(w, e) +
+                                 "' needs a mesh to deform, and the Sprite has none, so it is drawn as a plain quad. "
+                                 "Set Sprite.meshColumns "
+                                 "and Sprite.meshRows (e.g. 6 and 6) or SpriteSkin.outline = true.";
         }
         return false;
     }
@@ -505,12 +540,15 @@ std::vector<VertexWeights> weights_of_vertices(const World& w, Entity e, const S
     if (skin.weights.is_array()) {
         std::vector<VertexWeights> out(gridIndex.size());
         for (std::size_t i = 0; i < gridIndex.size(); ++i)
-            if (gridIndex[i] < skin.weights.size()) out[i] = parse_explicit_weights(skin.weights[gridIndex[i]], boneCount);
+            if (gridIndex[i] < skin.weights.size())
+                out[i] = parse_explicit_weights(skin.weights[gridIndex[i]], boneCount);
         return out;
     }
-    if (!(skin.weights.is_string() && skin.weights.get_ref<const std::string&>() == "auto") && !skin.weights.is_null()) {
-        problem += (problem.empty() ? "" : " ") + std::string("SpriteSkin.weights on '") + label_of(w, e) +
-                   "' must be \"auto\" or an array with one [bone, weight, ...] entry per grid vertex; \"auto\" is used.";
+    if (!(skin.weights.is_string() && skin.weights.get_ref<const std::string&>() == "auto") &&
+        !skin.weights.is_null()) {
+        problem +=
+            (problem.empty() ? "" : " ") + std::string("SpriteSkin.weights on '") + label_of(w, e) +
+            "' must be \"auto\" or an array with one [bone, weight, ...] entry per grid vertex; \"auto\" is used.";
     }
     std::vector<std::pair<Vec2, Vec2>> segs(boneCount, {Vec2{NAN, NAN}, Vec2{NAN, NAN}});
     for (std::size_t i = 0; i < boneCount; ++i) {
@@ -525,7 +563,8 @@ std::vector<VertexWeights> weights_of_vertices(const World& w, Entity e, const S
 
 }  // namespace
 
-bool build_skin_mesh(const World& w, Entity e, const Sprite& s, const SkinBox& box, SkinMesh& out, std::string* problem) {
+bool build_skin_mesh(const World& w, Entity e, const Sprite& s, const SkinBox& box, SkinMesh& out,
+                     std::string* problem) {
     out = {};
     if (problem) problem->clear();
     SkinSetup setup;
@@ -541,9 +580,11 @@ bool build_skin_mesh(const World& w, Entity e, const Sprite& s, const SkinBox& b
     std::vector<std::array<std::uint32_t, 4>> cells;
     for (int r = 0; r < setup.rows; ++r)
         for (int c = 0; c < setup.columns; ++c) {
-            if (setup.outline && !setup.outline->keep[std::size_t(r) * std::size_t(setup.columns) + std::size_t(c)]) continue;
-            const std::size_t corner[4] = {std::size_t(r) * stride + std::size_t(c), std::size_t(r + 1) * stride + std::size_t(c),
-                                           std::size_t(r + 1) * stride + std::size_t(c + 1), std::size_t(r) * stride + std::size_t(c + 1)};
+            if (setup.outline && !setup.outline->keep[std::size_t(r) * std::size_t(setup.columns) + std::size_t(c)])
+                continue;
+            const std::size_t corner[4] = {
+                std::size_t(r) * stride + std::size_t(c), std::size_t(r + 1) * stride + std::size_t(c),
+                std::size_t(r + 1) * stride + std::size_t(c + 1), std::size_t(r) * stride + std::size_t(c + 1)};
             std::array<std::uint32_t, 4> cell{};
             for (int k = 0; k < 4; ++k) {
                 if (remap[corner[k]] < 0) {
@@ -588,7 +629,8 @@ bool build_skin_mesh(const World& w, Entity e, const Sprite& s, const SkinBox& b
                 if (vw.count == 0) continue;
                 const Vec2 p = out.position[v];
                 Vec2 acc{0, 0};
-                for (int j = 0; j < vw.count; ++j) acc += k[vw.bone[std::size_t(j)]].apply(p) * vw.weight[std::size_t(j)];
+                for (int j = 0; j < vw.count; ++j)
+                    acc += k[vw.bone[std::size_t(j)]].apply(p) * vw.weight[std::size_t(j)];
                 out.position[v] = acc;
             }
         }
@@ -600,13 +642,17 @@ bool build_skin_mesh(const World& w, Entity e, const Sprite& s, const SkinBox& b
 Result<Json> skin_auto_weights(const World& w, Entity e, const SkinBox& box) {
     const Sprite* s = w.get<Sprite>(e);
     if (!s || !w.has<SpriteSkin>(e))
-        return make_error("Entity '" + label_of(w, e) + "' needs a Sprite and a SpriteSkin to have weights.", "Add both components, then set Sprite.meshColumns / meshRows.");
+        return make_error("Entity '" + label_of(w, e) + "' needs a Sprite and a SpriteSkin to have weights.",
+                          "Add both components, then set Sprite.meshColumns / meshRows.");
     SkinSetup setup;
     std::string problem;
-    if (!setup_skin(w, e, *s, box, setup, &problem)) return make_error(problem.empty() ? "The skin has no mesh." : problem);
-    if (setup.bones.entities.empty()) return make_error("SpriteSkin on '" + label_of(w, e) + "' has no bones.", "Set SpriteSkin.bones first.");
+    if (!setup_skin(w, e, *s, box, setup, &problem))
+        return make_error(problem.empty() ? "The skin has no mesh." : problem);
+    if (setup.bones.entities.empty())
+        return make_error("SpriteSkin on '" + label_of(w, e) + "' has no bones.", "Set SpriteSkin.bones first.");
     if (setup.bind.size() != setup.bones.entities.size())
-        return make_error("SpriteSkin on '" + label_of(w, e) + "' is not bound yet, and automatic weights are measured from the bind pose.",
+        return make_error("SpriteSkin on '" + label_of(w, e) +
+                              "' is not bound yet, and automatic weights are measured from the bind pose.",
                           "Let the engine bind it (it does when the scene loads), or call skin_bind.");
     std::vector<std::size_t> all(setup.rest.size());
     for (std::size_t i = 0; i < all.size(); ++i) all[i] = i;
@@ -681,13 +727,17 @@ void solve_ccd(World& w, const std::vector<Entity>& chain, Vec2 target) {
 
 Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
     const IK2D* ikp = w.get<IK2D>(e);
-    if (!ikp) return make_error("Entity '" + label_of(w, e) + "' has no IK2D.", "Add an IK2D component to the last bone of the chain.");
+    if (!ikp)
+        return make_error("Entity '" + label_of(w, e) + "' has no IK2D.",
+                          "Add an IK2D component to the last bone of the chain.");
     const IK2D ik = *ikp;
     if (!w.has<Bone2D>(e))
-        return make_error("IK2D on '" + label_of(w, e) + "' needs a Bone2D on the same entity: it is the tip of the chain.",
+        return make_error("IK2D on '" + label_of(w, e) +
+                              "' needs a Bone2D on the same entity: it is the tip of the chain.",
                           "Add a Bone2D (length = how far the bone reaches along +X) to the entity.");
     if (!w.alive(ik.target))
-        return make_error("IK2D on '" + label_of(w, e) + "' has no target to reach.", "Set IK2D.target to the id of an entity, e.g. the foot marker the leg should follow.");
+        return make_error("IK2D on '" + label_of(w, e) + "' has no target to reach.",
+                          "Set IK2D.target to the id of an entity, e.g. the foot marker the leg should follow.");
     const bool two = ik.solver == IKSolver::TwoBone;
     const int wanted = two ? 2 : std::max(1, ik.chainLength);
     std::vector<Entity> chain{e};
@@ -697,13 +747,17 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
         chain.push_back(p);
     }
     if (two && chain.size() < 2)
-        return make_error("IK2D on '" + label_of(w, e) + "' uses the twoBone solver, which turns this bone and its parent, and the parent has no Bone2D.",
-                          "Put the IK2D on the lower bone of a two-bone chain (the shin, the forearm) whose parent entity is the upper bone with a Bone2D, "
-                          "or use solver ccd for a chain of one or more bones.");
+        return make_error(
+            "IK2D on '" + label_of(w, e) +
+                "' uses the twoBone solver, which turns this bone and its parent, and the parent has no Bone2D.",
+            "Put the IK2D on the lower bone of a two-bone chain (the shin, the forearm) whose parent entity is the "
+            "upper bone with a Bone2D, "
+            "or use solver ccd for a chain of one or more bones.");
     if (!two && int(chain.size()) < wanted)
-        return make_error("IK2D on '" + label_of(w, e) + "' has chainLength " + std::to_string(wanted) + " but only " + std::to_string(chain.size()) +
-                              " bone(s) up its parents have a Bone2D.",
-                          "Lower chainLength to " + std::to_string(chain.size()) + ", or add the Bone2D components the chain is missing.");
+        return make_error("IK2D on '" + label_of(w, e) + "' has chainLength " + std::to_string(wanted) + " but only " +
+                              std::to_string(chain.size()) + " bone(s) up its parents have a Bone2D.",
+                          "Lower chainLength to " + std::to_string(chain.size()) +
+                              ", or add the Bone2D components the chain is missing.");
     Vec2 target = w.world_position(ik.target).xy();
     if (ground && ik.groundMask != 0) {
         // Planted feet: aim at the floor under the target, keeping the swing lift above the rest height.
@@ -719,8 +773,10 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
         const float reach = std::max(0.0f, ik.groundReach);
         const auto hit = ground({target.x, target.y + reach}, {target.x, target.y - reach}, ik.groundMask, root);
         if (IK2D* live = w.get<IK2D>(e)) {
-            if (hit) live->groundHit = true;
-            else if (!live->groundHit && live->groundMisses < 1000000) ++live->groundMisses;
+            if (hit)
+                live->groundHit = true;
+            else if (!live->groundHit && live->groundMisses < 1000000)
+                ++live->groundMisses;
         }
         if (hit) {
             const float rest = w.world_position(root).y + ik.groundRest;
@@ -730,8 +786,10 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
 
     std::vector<float> before(chain.size());
     for (std::size_t i = 0; i < chain.size(); ++i) before[i] = rotation_z(w, chain[i]);
-    if (two) solve_two_bone(w, e, chain[1], ik, target);
-    else solve_ccd(w, chain, target);
+    if (two)
+        solve_two_bone(w, e, chain[1], ik, target);
+    else
+        solve_ccd(w, chain, target);
     const float weight = std::clamp(ik.weight, 0.0f, 1.0f);
     for (std::size_t i = 0; i < chain.size(); ++i) {
         const float solved = rotation_z(w, chain[i]);
@@ -749,11 +807,14 @@ void update_ik2d(World& w, const GroundRaycast2D& ground) {
         if (ik->groundMask == 0) ik->groundMisses = 0;  // switched off (e.g. in the air): the count starts again
         if (ground && ik->groundMask != 0 && !ik->groundHit && ik->groundMisses >= 300 && !ik->warnedGround) {
             ik->warnedGround = true;
-            FA_WARN("animation",
-                    "IK2D on '{}' has groundMask {} but its ground ray has hit nothing in {} solves. Check that the character is not simply in the air (switch groundMask to 0 there), that the "
-                    "terrain's collider is on a layer in groundMask, that it is within groundReach ({}) of the target, and that it is not a child of the character's own "
-                    "RigidBody2D entity (the character's colliders are ignored). groundMask 0 turns ground snapping off.",
-                    label_of(w, e), ik->groundMask, ik->groundMisses, ik->groundReach);
+            FA_WARN(
+                "animation",
+                "IK2D on '{}' has groundMask {} but its ground ray has hit nothing in {} solves. Check that the "
+                "character is not simply in the air (switch groundMask to 0 there), that the "
+                "terrain's collider is on a layer in groundMask, that it is within groundReach ({}) of the target, and "
+                "that it is not a child of the character's own "
+                "RigidBody2D entity (the character's colliders are ignored). groundMask 0 turns ground snapping off.",
+                label_of(w, e), ik->groundMask, ik->groundMisses, ik->groundReach);
         }
         if (!r.ok() && !ik->warned) {
             ik->warned = true;

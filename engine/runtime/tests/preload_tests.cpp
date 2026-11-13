@@ -130,7 +130,8 @@ TEST_CASE("preload: a loading screen keeps running while the level is read, then
 TEST_CASE("preload: scene.load of a preloaded scene reads no file") {
     TempProject p;
     p.write("factoria.json", std::string(kProject).replace(std::string(kProject).find("loading"), 7, "idle"));
-    p.write("scenes/idle.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+    p.write("scenes/idle.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);

@@ -129,8 +129,8 @@ Path rect_path(double x, double y, double w, double h, double rx, double ry);
 // ---- fitting ------------------------------------------------------------------------------------------------------
 
 struct FitOptions {
-    double tolerance = 0.1;      // the largest distance between the fitted curve and the points
-    double cornerAngle = 28;     // degrees of direction change at a vertex above which it stays a sharp corner
+    double tolerance = 0.1;   // the largest distance between the fitted curve and the points
+    double cornerAngle = 28;  // degrees of direction change at a vertex above which it stays a sharp corner
 };
 // Lines and cubic Beziers through the polylines: corners stay corners, straight stretches become single lines, curved stretches
 // become as few cubics as the tolerance allows. Closed rings stay closed.
@@ -158,9 +158,11 @@ std::vector<Poly> normalize(const std::vector<Poly>& rings, bool evenOdd, const 
 // piece the grid flips would otherwise cancel the piece it overlaps). No holes except the ones the pieces leave. Used by the stroker.
 std::vector<Poly> union_pieces(const std::vector<Poly>& pieces, const ClipGrid& g);
 // `subject` op `clip`, both already clean. Subtract is subject minus clip. Throws CommandError for coordinates too large for the grid.
-std::vector<Poly> boolean_op(BoolOp op, const std::vector<Poly>& subject, const std::vector<Poly>& clip, const ClipGrid& g);
+std::vector<Poly> boolean_op(BoolOp op, const std::vector<Poly>& subject, const std::vector<Poly>& clip,
+                             const ClipGrid& g);
 // The outline of the area grown by `delta` (negative shrinks).
-std::vector<Poly> offset_rings(const std::vector<Poly>& rings, double delta, Join join, double miterLimit, double arcTol, const ClipGrid& g);
+std::vector<Poly> offset_rings(const std::vector<Poly>& rings, double delta, Join join, double miterLimit,
+                               double arcTol, const ClipGrid& g);
 
 struct StrokeStyle {
     double width = 1;

@@ -61,7 +61,8 @@ VecNearest vector_nearest_on_path(const VecNodePath& path, VecPoint p);
 Result<void> vector_node_move(VecNodePath& path, int subpath, int node, VecPoint to, bool handlesFollow = true);
 // Moves one handle. `link` Auto follows the node: a Smooth node keeps the other handle on the same line (its own length), a
 // Symmetric node mirrors it, a Corner leaves it. Moving a handle onto its anchor removes it.
-Result<void> vector_handle_move(VecNodePath& path, int subpath, int node, bool out, VecPoint to, VecHandleLink link = VecHandleLink::Auto);
+Result<void> vector_handle_move(VecNodePath& path, int subpath, int node, bool out, VecPoint to,
+                                VecHandleLink link = VecHandleLink::Auto);
 // Splits segment `segment` at `t` with a new node (the curve keeps its shape). Returns the new node's index.
 Result<int> vector_node_insert(VecNodePath& path, int subpath, int segment, double t);
 // Removes a node. keepShape rescales the handles of the neighbours so the curve stays close to what it was. A subpath left with one
@@ -79,7 +80,8 @@ Result<void> vector_subpath_close(VecNodePath& path, int subpath);
 Result<void> vector_subpath_reverse(VecNodePath& path, int subpath);
 // Adds a node at the end (or the start) of an open subpath; `subpath` == path.size() starts a new one. With `out` the node is
 // smooth: its out handle is there and its in handle is the mirror image (the pen tool's drag).
-Result<void> vector_node_append(VecNodePath& path, int subpath, VecPoint at, const VecPoint* out = nullptr, bool atEnd = true);
+Result<void> vector_node_append(VecNodePath& path, int subpath, VecPoint at, const VecPoint* out = nullptr,
+                                bool atEnd = true);
 
 // The operations of vector.nodes, in order, on `path`: [{"op": "move", "subpath": 0, "node": 2, "to": [x, y]}, ...] (docs/VECTOR.md).
 Result<void> vector_nodes_apply(VecNodePath& path, const Json& ops);
@@ -97,44 +99,45 @@ struct VecRect {
 
 // One drawable element: a shape (path, rect, circle, ellipse, line, polyline, polygon) or a group (g, a, switch).
 struct VecItem {
-    int index = -1;                 // in VecScene::items
-    int parent = -1;                // an item, or -1 for a child of the root <svg>
-    int depth = 0;                  // 0 for a child of the root
-    std::vector<int> children;      // items, in document order
-    std::string tag;                // "path", "g"...
-    std::string id;                 // "" when it has none
-    std::string ref;                // what vector.* commands take to pick it: the id, else a selector that picks exactly this element
+    int index = -1;             // in VecScene::items
+    int parent = -1;            // an item, or -1 for a child of the root <svg>
+    int depth = 0;              // 0 for a child of the root
+    std::vector<int> children;  // items, in document order
+    std::string tag;            // "path", "g"...
+    std::string id;             // "" when it has none
+    std::string ref;  // what vector.* commands take to pick it: the id, else a selector that picks exactly this element
     bool isGroup = false;
-    bool hidden = false;            // display="none" on it
-    bool locked = false;            // data-locked="true" on it
+    bool hidden = false;  // display="none" on it
+    bool locked = false;  // data-locked="true" on it
     bool hiddenByAncestor = false, lockedByAncestor = false;
-    std::string fill, stroke;       // the CSS value with inheritance ("" = the SVG default: black fill, no stroke)
-    std::string fillRule;           // "nonzero" or "evenodd"
-    double strokeWidth = 0;         // in the element's own units, with inheritance
-    double opacity = 1;             // its own `opacity`
-    std::string transform;          // its own transform attribute
-    std::string shapeKind;          // data-fa-shape: the vector.shape kind that drew it, "" for any other element
-    std::string shapeArgs;          // data-fa-args: the arguments of that kind as JSON text ("" when there is none)
-    VecRect bounds;                 // geometry in the drawing space (a group: the union of its shapes); empty when there is no shape
-    VecRect visualBounds;           // bounds with half the stroke
+    std::string fill, stroke;  // the CSS value with inheritance ("" = the SVG default: black fill, no stroke)
+    std::string fillRule;      // "nonzero" or "evenodd"
+    double strokeWidth = 0;    // in the element's own units, with inheritance
+    double opacity = 1;        // its own `opacity`
+    std::string transform;     // its own transform attribute
+    std::string shapeKind;     // data-fa-shape: the vector.shape kind that drew it, "" for any other element
+    std::string shapeArgs;     // data-fa-args: the arguments of that kind as JSON text ("" when there is none)
+    VecRect bounds;  // geometry in the drawing space (a group: the union of its shapes); empty when there is no shape
+    VecRect visualBounds;  // bounds with half the stroke
     bool hasBounds = false;
-    bool closed = false;            // shapes: every subpath is closed
+    bool closed = false;  // shapes: every subpath is closed
     int nodeCount = 0;
     bool curves = false;
-    VecNodePath nodes;              // shapes: the outline in the drawing space (transform applied)
-    std::vector<std::vector<VecPoint>> rings;   // shapes: the outline flattened, one polyline per subpath (drawing space)
+    VecNodePath nodes;  // shapes: the outline in the drawing space (transform applied)
+    std::vector<std::vector<VecPoint>>
+        rings;  // shapes: the outline flattened, one polyline per subpath (drawing space)
     std::vector<bool> ringClosed;
-    std::string problem;            // a shape that could not be read: why
+    std::string problem;  // a shape that could not be read: why
 };
 
 struct VecScene {
-    VecRect canvas;                 // the viewBox (or the size the SVG declares)
+    VecRect canvas;  // the viewBox (or the size the SVG declares)
     double declaredWidth = 0, declaredHeight = 0;
-    std::vector<VecItem> items;     // document order: a parent comes before its children
-    int unnamed = 0;                // drawable elements with no id
+    std::vector<VecItem> items;  // document order: a parent comes before its children
+    int unnamed = 0;             // drawable elements with no id
     std::vector<std::string> warnings;
-    int find(const std::string& ref) const;                 // the item with this id or ref, -1 when none
-    std::vector<int> roots() const;                          // the items directly under the root <svg>
+    int find(const std::string& ref) const;  // the item with this id or ref, -1 when none
+    std::vector<int> roots() const;          // the items directly under the root <svg>
     bool is_descendant(int item, int ancestor) const;
     // The outermost group of `item` below `context` (a group, or -1 for the root): what a click selects at that level of the tree; the
     // item itself when its parent is `context`.
@@ -155,6 +158,7 @@ std::vector<int> vector_shapes_in_rect(const VecScene& scene, const VecRect& box
 // The SVG drawn by the engine's rasterizer (the same as assets.rasterize_svg and the previews of the vector.* commands): straight-alpha
 // RGBA, transparent where nothing is drawn. `region` is the part of the drawing space to show (null = the whole canvas) and the
 // picture is `width` x `height` pixels. The warnings are things the rasterizer does not draw.
-Result<Image> vector_rasterize(const std::string& svg, const VecRect* region, int width, int height, std::vector<std::string>* warnings = nullptr);
+Result<Image> vector_rasterize(const std::string& svg, const VecRect* region, int width, int height,
+                               std::vector<std::string>* warnings = nullptr);
 
 }  // namespace fa

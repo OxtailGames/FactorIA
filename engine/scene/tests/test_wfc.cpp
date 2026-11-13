@@ -52,7 +52,8 @@ struct Run {
     std::string message, hint;
 };
 
-Run generate(std::shared_ptr<const wfc::PatternModel> model, int w, int h, std::uint64_t seed, bool periodic = false, int maxAttempts = 10) {
+Run generate(std::shared_ptr<const wfc::PatternModel> model, int w, int h, std::uint64_t seed, bool periodic = false,
+             int maxAttempts = 10) {
     wfc::GenerateOptions go;
     go.width = w;
     go.height = h;
@@ -64,7 +65,8 @@ Run generate(std::shared_ptr<const wfc::PatternModel> model, int w, int h, std::
     Run r;
     r.ok = (*g)->run() == wfc::GenStatus::Done;
     r.stats = (*g)->stats();
-    if (r.ok) r.cells = (*g)->output();
+    if (r.ok)
+        r.cells = (*g)->output();
     else {
         r.message = (*g)->failure_message();
         r.hint = (*g)->failure_hint();
@@ -80,7 +82,8 @@ std::set<std::string> windows(const std::vector<int>& cells, int w, int h, int n
         for (int x = 0; x < xs; ++x) {
             std::string key;
             for (int dy = 0; dy < n; ++dy)
-                for (int dx = 0; dx < n; ++dx) key += char('0' + cells[std::size_t((y + dy) % h) * std::size_t(w) + std::size_t((x + dx) % w)]);
+                for (int dx = 0; dx < n; ++dx)
+                    key += char('0' + cells[std::size_t((y + dy) % h) * std::size_t(w) + std::size_t((x + dx) % w)]);
             out.insert(key);
         }
     return out;
@@ -95,7 +98,9 @@ std::set<std::string> learnable(const Rows& rows, int n, int symmetry, bool wrap
         for (int x = 0; x < xs; ++x) {
             std::vector<int> p;
             for (int dy = 0; dy < n; ++dy)
-                for (int dx = 0; dx < n; ++dx) p.push_back(s.cells[std::size_t((y + dy) % s.height) * std::size_t(s.width) + std::size_t((x + dx) % s.width)]);
+                for (int dx = 0; dx < n; ++dx)
+                    p.push_back(s.cells[std::size_t((y + dy) % s.height) * std::size_t(s.width) +
+                                        std::size_t((x + dx) % s.width)]);
             std::vector<std::vector<int>> forms;
             auto rot = [&](const std::vector<int>& q) {
                 std::vector<int> r(q.size());
@@ -138,29 +143,24 @@ std::uint64_t fingerprint(const std::vector<int>& cells) {
 }
 
 const Rows kRooms = {
-    "..........",
-    ".##.......",
-    ".##...#...",
-    "......#...",
-    "..#.......",
-    "..#...##..",
-    "..........",
-    "...#......",
+    "..........", ".##.......", ".##...#...", "......#...", "..#.......", "..#...##..", "..........", "...#......",
 };
 
 constexpr std::uint64_t FINGERPRINT_ROOMS = 1276986090499406791ull;
 constexpr std::uint64_t FINGERPRINT_TILED = 17566608511428345258ull;
 
 const Rows kMap16 = {
-    "................", "..####..........", "..#..#....##....", "..#..#....##....", "..####..........", "................",
-    "......#.........", "......#....###..", "...........#.#..", "...........###..", "..##............", "..##......#.....",
+    "................", "..####..........", "..#..#....##....", "..#..#....##....",
+    "..####..........", "................", "......#.........", "......#....###..",
+    "...........#.#..", "...........###..", "..##............", "..##......#.....",
     "................", "....#......#....", "................", "................",
 };
 
 const Rows kRing = {"#####", "#...#", "#.#.#", "#...#", "#####"};
 
 std::vector<Terrain> grass_water() {
-    auto t = parse_terrains(Json::parse(R"([{"name":"grass","mode":"basic16","first":0},{"name":"water","mode":"basic16","first":16}])"));
+    auto t = parse_terrains(
+        Json::parse(R"([{"name":"grass","mode":"basic16","first":0},{"name":"water","mode":"basic16","first":16}])"));
     REQUIRE(t.ok());
     return *t;
 }
@@ -188,7 +188,8 @@ TEST_CASE("wfc overlapping: symmetry adds exactly the rotated and mirrored patte
         CHECK_MESSAGE(model->pattern_count() == allowed.size(), "symmetry " << symmetry);
         Run r = generate(model, 20, 20, 3);
         REQUIRE_MESSAGE(r.ok, r.message);
-        for (const std::string& w : windows(r.cells, 20, 20, 2, false)) CHECK_MESSAGE(allowed.count(w) == 1, "symmetry " << symmetry);
+        for (const std::string& w : windows(r.cells, 20, 20, 2, false))
+            CHECK_MESSAGE(allowed.count(w) == 1, "symmetry " << symmetry);
     }
     CHECK(overlapping(kRooms, 3, 8, false)->pattern_count() > overlapping(kRooms, 3, 1, false)->pattern_count());
 }
@@ -469,7 +470,8 @@ TEST_CASE("wfc: errors teach") {
     auto huge = wfc::Generator::create(model, big);
     REQUIRE_FALSE(huge.ok());
     CHECK(has(message(huge.error()), "MB"));
-    CHECK(wfc::estimate_generator_memory(*model, 64, 64, false) < wfc::estimate_generator_memory(*model, 128, 128, false));
+    CHECK(wfc::estimate_generator_memory(*model, 64, 64, false) <
+          wfc::estimate_generator_memory(*model, 128, 128, false));
 }
 
 TEST_CASE("wfc: 64 x 64 from a 16 x 16 sample with n = 3 is quick") {
@@ -499,7 +501,8 @@ wfc::GenerateOptions options_for(int w, int h, std::uint64_t seed, int maxAttemp
     return go;
 }
 
-std::unique_ptr<wfc::Generator> make_generator(std::shared_ptr<const wfc::PatternModel> model, wfc::GenerateOptions go) {
+std::unique_ptr<wfc::Generator> make_generator(std::shared_ptr<const wfc::PatternModel> model,
+                                               wfc::GenerateOptions go) {
     auto g = wfc::Generator::create(std::move(model), std::move(go));
     REQUIRE_MESSAGE(g.ok(), (g.ok() ? std::string() : g.error().to_string()));
     return std::move(*g);
@@ -633,8 +636,10 @@ TEST_CASE("wfc constraints: counts, a missed minimum pins the missing cells and 
     auto go = options_for(20, 14, 2, 400);
     go.counts.push_back({{1}, 0, 0, "wall"});
     auto none = make_generator(model, go);
-    if (none->run() == wfc::GenStatus::Done) CHECK(count_of(none->output(), 1) == 0);
-    else CHECK(none->failure_message().find("at most 0") != std::string::npos);
+    if (none->run() == wfc::GenStatus::Done)
+        CHECK(count_of(none->output(), 1) == 0);
+    else
+        CHECK(none->failure_message().find("at most 0") != std::string::npos);
 }
 
 TEST_CASE("wfc constraints: the same constraints and seed give the same grid; pins are derived from the seed") {
@@ -795,7 +800,7 @@ TEST_CASE("wfc work: accept's own cost counts toward maxWork") {
     int calls = 0;
     go.accept = [&](const std::vector<int>&, std::string& why, std::int64_t& work) {
         ++calls;
-        work += 50000;   // an expensive check
+        work += 50000;  // an expensive check
         why = "never good enough";
         return false;
     };
@@ -803,7 +808,7 @@ TEST_CASE("wfc work: accept's own cost counts toward maxWork") {
     CHECK(g->run() == wfc::GenStatus::Failed);
     CHECK(g->failure().workLimit);
     CHECK(calls >= 1);
-    CHECK(calls < 10);   // the cap stopped the retries long before maxAttempts
+    CHECK(calls < 10);  // the cap stopped the retries long before maxAttempts
 }
 
 TEST_CASE("wfc memory: the estimate saturates and is checked before anything is allocated") {
@@ -854,7 +859,7 @@ TEST_CASE("wfc phases: a step ends within one chunk of its budget, even while an
 
 TEST_CASE("wfc phases: the first flush of a fresh attempt (every cell dirty) is cut into chunks on a big grid") {
     auto model = overlapping(kMap16, 3, 1, true);
-    auto go = options_for(256, 256, 3, 1);   // 65536 cells: far more than one chunk of 16384
+    auto go = options_for(256, 256, 3, 1);  // 65536 cells: far more than one chunk of 16384
     go.periodic = true;
     auto g = make_generator(model, go);
     std::int64_t before = 0, widest = 0;
@@ -867,7 +872,7 @@ TEST_CASE("wfc phases: the first flush of a fresh attempt (every cell dirty) is 
         ++steps;
     }
     REQUIRE(g->stats().observations > 0);
-    CHECK(g->stats().heapPeak >= 65536u);   // every cell did get its entry
+    CHECK(g->stats().heapPeak >= 65536u);  // every cell did get its entry
     // 65536 cells in one piece would be 65536 units (stamps) and again as many (entries); a chunk is about 16384
     CHECK(widest <= 2 * 16384 + 4096);
     CHECK(steps > 4 * 4);
@@ -885,7 +890,8 @@ TEST_CASE("wfc check: a GridCheck runs in pieces, counts its work and can refuse
         }
         Verdict step(std::int64_t chunk, std::string& why, std::int64_t& work) override {
             ++steps;
-            const std::size_t to = std::min(grid->size(), seen + std::size_t(std::min<std::int64_t>(chunk, 100)));   // 100 cells at a time
+            const std::size_t to =
+                std::min(grid->size(), seen + std::size_t(std::min<std::int64_t>(chunk, 100)));  // 100 cells at a time
             work += std::int64_t(to - seen);
             seen = to;
             if (seen < grid->size()) return Verdict::More;
@@ -905,8 +911,8 @@ TEST_CASE("wfc check: a GridCheck runs in pieces, counts its work and can refuse
     }
     REQUIRE_MESSAGE(g->status() == wfc::GenStatus::Done, g->failure_message());
     CHECK(count_of(g->output(), 1) >= 40);
-    CHECK(check->begun == g->stats().attempts - g->stats().contradictions);   // asked once per finished grid
-    CHECK(check->steps >= check->begun * 6);                                  // 600 cells, 100 per call: it said More five times each
+    CHECK(check->begun == g->stats().attempts - g->stats().contradictions);  // asked once per finished grid
+    CHECK(check->steps >= check->begun * 6);  // 600 cells, 100 per call: it said More five times each
     CHECK(g->stats().attempts == g->stats().contradictions + g->stats().rejected + 1);
 
     // the same level whether stepped finely or run
@@ -948,7 +954,8 @@ TEST_CASE("wfc constraints: pinMissing false leaves a missed minimum to the retr
         auto off = make_generator(rareModel, go);
         off->run();
         pinnedOff += off->stats().pinned;
-        if (off->status() == wfc::GenStatus::Done) CHECK(count_of(off->output(), 2) >= 3);   // a grid with 3 turned up by chance
+        if (off->status() == wfc::GenStatus::Done)
+            CHECK(count_of(off->output(), 2) >= 3);  // a grid with 3 turned up by chance
     }
     CHECK(pinned > 0);
     CHECK(pinnedOff == 0);
@@ -1021,13 +1028,13 @@ TEST_CASE("wfc progress: follows the solver inside an attempt and never goes dow
         const double p = g->progress();
         CHECK(p >= last);
         CHECK(p < 1.0);
-        if (p > last && p < 0.8 && last > 0) inside = true;   // moved within the first attempt
+        if (p > last && p < 0.8 && last > 0) inside = true;  // moved within the first attempt
         last = p;
         attemptsSeen = g->stats().attempts;
     }
     CHECK(inside);
     CHECK(attemptsSeen >= 5);
-    CHECK(last > 0.85);   // the later attempts moved it too
+    CHECK(last > 0.85);  // the later attempts moved it too
     CHECK(g->progress() == 1.0);
 }
 
@@ -1061,7 +1068,7 @@ TEST_CASE("wfc finish: a GridFinish changes the finished grid in pieces and can 
     CHECK(mark->seed == g->stats().seedUsed);
     CHECK(g->output()[0] == 1);
     CHECK(g->output()[97] == 1);
-    CHECK(g->stats().symbolCounts[1] == count_of(g->output(), 1));   // counted after the finish
+    CHECK(g->stats().symbolCounts[1] == count_of(g->output(), 1));  // counted after the finish
 
     struct Never : wfc::GridFinish {
         void begin(std::vector<int>&, std::uint64_t) override {}

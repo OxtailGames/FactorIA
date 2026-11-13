@@ -9,9 +9,12 @@ using namespace fa::testing;
 
 namespace {
 
-const Rgba kRed{255, 0, 0, 255}, kGreen{0, 255, 0, 255}, kBlue{0, 0, 255, 255}, kYellow{255, 255, 0, 255}, kWhite{255, 255, 255, 255};
+const Rgba kRed{255, 0, 0, 255}, kGreen{0, 255, 0, 255}, kBlue{0, 0, 255, 255}, kYellow{255, 255, 0, 255},
+    kWhite{255, 255, 255, 255};
 
-void frame(const AssetsProject& p, const std::string& name, int w, int h, Rgba c) { write_png(p.file("art/" + name + ".png"), make_image(w, h, c)); }
+void frame(const AssetsProject& p, const std::string& name, int w, int h, Rgba c) {
+    write_png(p.file("art/" + name + ".png"), make_image(w, h, c));
+}
 
 Json pack(const AssetsProject& p, Json extra = Json::object()) {
     Json args = {{"folder", "art"}, {"out", "assets/atlas.png"}, {"table", "data/atlas.json"}};
@@ -21,18 +24,22 @@ Json pack(const AssetsProject& p, Json extra = Json::object()) {
 
 Json table(const AssetsProject& p) { return parse_json(read_all(p.file("data/atlas.json")), "atlas.json").value(); }
 
-std::array<int, 4> rect_of(const Json& t, const std::string& name) { return t["frames"][name]["rect"].get<std::array<int, 4>>(); }
+std::array<int, 4> rect_of(const Json& t, const std::string& name) {
+    return t["frames"][name]["rect"].get<std::array<int, 4>>();
+}
 
 // The frame's pixels, found where the table says, must be the picture that was in the folder (and its padding the edge repeated).
 void check_frame(const AssetsProject& p, const Json& t, const std::string& name, Rgba c) {
     const Image atlas = read_png(p.file("assets/atlas.png"));
     const auto r = rect_of(t, name);
     for (int y = r[1] - 2; y < r[1] + r[3] + 2; ++y)
-        for (int x = r[0] - 2; x < r[0] + r[2] + 2; ++x) CHECK_MESSAGE(get(atlas, x, y) == c, name << " at " << x << "," << y);
+        for (int x = r[0] - 2; x < r[0] + r[2] + 2; ++x)
+            CHECK_MESSAGE(get(atlas, x, y) == c, name << " at " << x << "," << y);
 }
 
 bool overlap(const std::array<int, 4>& a, const std::array<int, 4>& b, int pad) {
-    return a[0] - pad < b[0] + b[2] + pad && b[0] - pad < a[0] + a[2] + pad && a[1] - pad < b[1] + b[3] + pad && b[1] - pad < a[1] + a[3] + pad;
+    return a[0] - pad < b[0] + b[2] + pad && b[0] - pad < a[0] + a[2] + pad && a[1] - pad < b[1] + b[3] + pad &&
+           b[1] - pad < a[1] + a[3] + pad;
 }
 
 }  // namespace
@@ -70,7 +77,8 @@ TEST_CASE("assets.pack_atlas: a folder of frames packs into one PNG whose table 
             if (std::string(a) != b) CHECK_FALSE(overlap(rect_of(t, a), rect_of(t, b), 2));
 
     // The same folder again changes nothing, byte for byte.
-    const std::string pngBefore = read_all(p.file("assets/atlas.png")), tableBefore = read_all(p.file("data/atlas.json"));
+    const std::string pngBefore = read_all(p.file("assets/atlas.png")),
+                      tableBefore = read_all(p.file("data/atlas.json"));
     const Json again = pack(p);
     CHECK(again["written"] == false);
     CHECK(again["kept"] == 3);
@@ -81,7 +89,8 @@ TEST_CASE("assets.pack_atlas: a folder of frames packs into one PNG whose table 
 TEST_CASE("assets.pack_atlas: adding an image keeps the others in place") {
     AssetsProject p;
     const std::vector<std::pair<std::string, Rgba>> first = {{"a", kRed}, {"b", kGreen}, {"c", kBlue}};
-    for (std::size_t i = 0; i < first.size(); ++i) frame(p, first[i].first, 40 + int(i) * 10, 50 - int(i) * 10, first[i].second);
+    for (std::size_t i = 0; i < first.size(); ++i)
+        frame(p, first[i].first, 40 + int(i) * 10, 50 - int(i) * 10, first[i].second);
     pack(p);
     const Json before = table(p);
 
@@ -104,7 +113,8 @@ TEST_CASE("assets.pack_atlas: adding an image keeps the others in place") {
     const Json grown = pack(p);
     CHECK(grown["kept"] == 4);
     const Json big = table(p);
-    CHECK(big["size"][0].get<int>() * big["size"][1].get<int>() > after["size"][0].get<int>() * after["size"][1].get<int>());
+    CHECK(big["size"][0].get<int>() * big["size"][1].get<int>() >
+          after["size"][0].get<int>() * after["size"][1].get<int>());
     for (const char* n : {"a", "b", "c", "d"}) CHECK(rect_of(big, n) == rect_of(after, n));
     check_frame(p, big, "extra11", kWhite);
 
@@ -137,23 +147,34 @@ TEST_CASE("assets.pack_atlas: keys of the table that are not the packer's stay, 
 
 TEST_CASE("assets.pack_atlas: errors say what to change") {
     AssetsProject p;
-    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}}).error["message"].get<std::string>().find("does not exist") != std::string::npos);
+    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}})
+              .error["message"]
+              .get<std::string>()
+              .find("does not exist") != std::string::npos);
     std::filesystem::create_directories(p.file("art"));
-    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}}).error["message"].get<std::string>().find("no images") != std::string::npos);
+    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}})
+              .error["message"]
+              .get<std::string>()
+              .find("no images") != std::string::npos);
     frame(p, "big", 200, 200, kRed);
     CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "a.jpg"}}).ok == false);
-    const CommandResult tooBig = p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}, {"maxSize", 128}});
+    const CommandResult tooBig =
+        p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}, {"maxSize", 128}});
     REQUIRE_FALSE(tooBig.ok);
     CHECK(tooBig.error["hint"].get<std::string>().find("maxSize") != std::string::npos);
     frame(p, "s1", 100, 100, kRed);
     frame(p, "s2", 100, 100, kRed);
     frame(p, "s3", 100, 100, kRed);
     std::filesystem::remove(p.file("art/big.png"));
-    const CommandResult full = p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}, {"maxSize", 128}});
+    const CommandResult full =
+        p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}, {"maxSize", 128}});
     REQUIRE_FALSE(full.ok);
     CHECK(full.error["message"].get<std::string>().find("do not fit") != std::string::npos);
     frame(p, "dup", 8, 8, kRed);
     write_png(p.file("art/dup.jpg.png"), make_image(8, 8, kRed));
     write_all(p.file("art/pivots.json"), R"({"dup": [1]})");
-    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}}).error["message"].get<std::string>().find("pivot") != std::string::npos);
+    CHECK(p.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/a.png"}})
+              .error["message"]
+              .get<std::string>()
+              .find("pivot") != std::string::npos);
 }

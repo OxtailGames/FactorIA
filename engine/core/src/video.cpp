@@ -6,7 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+// MSVC: no warnings from the vendored implementation compiled here (its flow-analysis warnings, such as C4701
+// and C4702, are reported in this file under /WX; external/ is not edited).
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
 #include <pl_mpeg.h>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include "fa/core/video.h"
 
@@ -57,10 +65,11 @@ VideoDecoder::~VideoDecoder() = default;
 Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(std::shared_ptr<const std::vector<std::uint8_t>> bytes,
                                                          std::string_view name) {
     const std::string label(name);
-    const std::string convert =
-        "the engine plays MPEG-1 video with MP2 audio in an .mpg; convert any other video with `factoria call assets.import "
-        "'{\"source\":\"movie.mp4\"}'` (needs ffmpeg: `factoria setup ffmpeg`), or by hand: `ffmpeg -i in.mp4 -c:v mpeg1video "
-        "-c:a mp2 -f mpeg out.mpg`";
+    const std::string convert = "the engine plays MPEG-1 video with MP2 audio in an .mpg; convert any other video with "
+                                "`factoria call assets.import "
+                                "'{\"source\":\"movie.mp4\"}'` (needs ffmpeg: `factoria setup ffmpeg`), or by hand: "
+                                "`ffmpeg -i in.mp4 -c:v mpeg1video "
+                                "-c:a mp2 -f mpeg out.mpg`";
     if (!bytes || bytes->size() < 16)
         return Error{"Video '" + label + "' is empty or too short to be a video file.", convert};
 
@@ -71,7 +80,8 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(std::shared_ptr<const s
     im.plm = plm_create_with_memory(const_cast<std::uint8_t*>(im.bytes->data()), im.bytes->size(), FALSE);
     if (!im.plm) return Error{"Video '" + label + "': the decoder could not be created (out of memory).", ""};
     if (!plm_has_headers(im.plm) || plm_get_num_video_streams(im.plm) < 1)
-        return Error{"Video '" + label + "' is not an MPEG-1 video in an MPEG program stream (.mpg): no video header was found.",
+        return Error{"Video '" + label +
+                         "' is not an MPEG-1 video in an MPEG program stream (.mpg): no video header was found.",
                      convert};
 
     VideoInfo& in = d->info_;
@@ -79,8 +89,8 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(std::shared_ptr<const s
     in.height = plm_get_height(im.plm);
     in.fps = plm_get_framerate(im.plm);
     if (in.width <= 0 || in.height <= 0 || in.width > kMaxDimension || in.height > kMaxDimension || !(in.fps > 0))
-        return Error{"Video '" + label + "' has an unusable picture size or frame rate (" + std::to_string(in.width) + "x" +
-                         std::to_string(in.height) + ", " + std::to_string(in.fps) + " fps).",
+        return Error{"Video '" + label + "' has an unusable picture size or frame rate (" + std::to_string(in.width) +
+                         "x" + std::to_string(in.height) + ", " + std::to_string(in.fps) + " fps).",
                      "keep videos between 1x1 and 8192x8192 pixels"};
     const std::uint64_t pictures = count_pictures(const_cast<std::uint8_t*>(im.bytes->data()), im.bytes->size());
     if (pictures == 0) return Error{"Video '" + label + "' has no pictures in its video stream.", convert};
@@ -110,7 +120,8 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(std::shared_ptr<const s
             },
             d.get());
     if (!d->seek(0))
-        return Error{"Video '" + label + "': no picture could be decoded from it (corrupt or truncated file).", convert};
+        return Error{"Video '" + label + "': no picture could be decoded from it (corrupt or truncated file).",
+                     convert};
     return d;
 }
 
@@ -191,8 +202,10 @@ void VideoDecoder::on_audio(const float* interleaved, std::size_t frames, double
         // The first block of an epoch need not start exactly where the epoch does: pad a late start, drop an early one.
         const double offset = blockTime - epochStart_;
         const auto n = std::uint64_t(std::llround(std::fabs(offset) * info_.sampleRate));
-        if (offset > 0) pad_audio_to(n);
-        else audioSkip_ = n;
+        if (offset > 0)
+            pad_audio_to(n);
+        else
+            audioSkip_ = n;
     }
     if (audioSkip_ > 0) {
         const std::uint64_t drop = std::min<std::uint64_t>(audioSkip_, frames);

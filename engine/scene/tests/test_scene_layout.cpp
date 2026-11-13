@@ -40,39 +40,38 @@ const char* kLevelScene = R"({
   ]
 })";
 
-const char* kLevelText =
-    "{\n"
-    "  \"format\": \"factoria.scene/1\",\n"
-    "  \"settings\": {\n"
-    "    \"gravity2D\": [0.0, -980.0],\n"
-    "    \"gravity3D\": [0.0, -9.81, 0.0]\n"
-    "  },\n"
-    "  \"entities\": [\n"
-    "    {\n"
-    "      \"id\": \"level\",\n"
-    "      \"name\": \"Level\",\n"
-    "      \"tags\": [\"terrain\", \"solid\"],\n"
-    "      \"components\": {\n"
-    "        \"Transform\": {\n"
-    "          \"position\": [10.5, -20.0, 0.0]\n"
-    "        },\n"
-    "        \"Tilemap\": {\n"
-    "          \"tileset\": \"assets/tiles.png\",\n"
-    "          \"tileSize\": [32.0, 32.0],\n"
-    "          \"columns\": 8,\n"
-    "          \"width\": 4,\n"
-    "          \"height\": 3,\n"
-    "          \"tiles\": [\n"
-    "            -1, -1, -1, -1,\n"
-    "            -1,  2, 10, -1,\n"
-    "             0,  1,  1,  0\n"
-    "          ],\n"
-    "          \"solidTiles\": [0, 1, 2, 10]\n"
-    "        }\n"
-    "      }\n"
-    "    }\n"
-    "  ]\n"
-    "}\n";
+const char* kLevelText = "{\n"
+                         "  \"format\": \"factoria.scene/1\",\n"
+                         "  \"settings\": {\n"
+                         "    \"gravity2D\": [0.0, -980.0],\n"
+                         "    \"gravity3D\": [0.0, -9.81, 0.0]\n"
+                         "  },\n"
+                         "  \"entities\": [\n"
+                         "    {\n"
+                         "      \"id\": \"level\",\n"
+                         "      \"name\": \"Level\",\n"
+                         "      \"tags\": [\"terrain\", \"solid\"],\n"
+                         "      \"components\": {\n"
+                         "        \"Transform\": {\n"
+                         "          \"position\": [10.5, -20.0, 0.0]\n"
+                         "        },\n"
+                         "        \"Tilemap\": {\n"
+                         "          \"tileset\": \"assets/tiles.png\",\n"
+                         "          \"tileSize\": [32.0, 32.0],\n"
+                         "          \"columns\": 8,\n"
+                         "          \"width\": 4,\n"
+                         "          \"height\": 3,\n"
+                         "          \"tiles\": [\n"
+                         "            -1, -1, -1, -1,\n"
+                         "            -1,  2, 10, -1,\n"
+                         "             0,  1,  1,  0\n"
+                         "          ],\n"
+                         "          \"solidTiles\": [0, 1, 2, 10]\n"
+                         "        }\n"
+                         "      }\n"
+                         "    }\n"
+                         "  ]\n"
+                         "}\n";
 
 }  // namespace
 
@@ -150,18 +149,21 @@ TEST_CASE("scene layout: tiles without a usable width keep the wrapped scalar la
     Json rowsJson = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"m","components":{
         "Tilemap":{"width":3,"height":2,"tiles":[[0,1,2],[3,4,5]]}}}]})");
     std::string rowsText = dump_scene_json(rowsJson);
-    CHECK(rowsText.find("\"tiles\": [\n            [0, 1, 2],\n            [3, 4, 5]\n          ]") != std::string::npos);
+    CHECK(rowsText.find("\"tiles\": [\n            [0, 1, 2],\n            [3, 4, 5]\n          ]") !=
+          std::string::npos);
     CHECK(Json::parse(rowsText) == rowsJson);
 }
 
 TEST_CASE("scene layout: long scalar arrays in other fields wrap instead of making one giant line") {
     Json values = Json::array();
     for (int i = 0; i < 200; ++i) values.push_back(i * 3 - 100);
-    Json scene = Json::object({{"format", "factoria.scene/1"},
-                               {"entities", Json::array({Json::object({{"id", "e"},
-                                                                       {"components",
-                                                                        Json::object({{"Script",
-                                                                                       Json::object({{"props", Json::object({{"data", values}})}})}})}})})}});
+    Json scene = Json::object(
+        {{"format", "factoria.scene/1"},
+         {"entities",
+          Json::array({Json::object(
+              {{"id", "e"},
+               {"components",
+                Json::object({{"Script", Json::object({{"props", Json::object({{"data", values}})}})}})}})})}});
     std::string text = dump_scene_json(scene);
     std::size_t lineStart = 0;
     std::size_t lines = 0;
@@ -172,7 +174,7 @@ TEST_CASE("scene layout: long scalar arrays in other fields wrap instead of maki
         ++lines;
         lineStart = lineEnd + 1;
     }
-    CHECK(lines > 10);   // wrapped over several lines
-    CHECK(lines < 80);   // but not one number per line
+    CHECK(lines > 10);  // wrapped over several lines
+    CHECK(lines < 80);  // but not one number per line
     CHECK(Json::parse(text) == scene);
 }

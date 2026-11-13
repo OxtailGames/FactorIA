@@ -87,8 +87,8 @@ Json TestReport::to_json() const {
     if (!otherLogs.empty()) j["logs"] = logs_json(otherLogs);
     Json errs = Json::array();
     for (const auto& e : loadErrors) {
-        errs.push_back(Json::object({{"file", e.file}, {"line", e.line}, {"column", e.column},
-                                     {"message", e.message}, {"stack", e.stack}}));
+        errs.push_back(Json::object(
+            {{"file", e.file}, {"line", e.line}, {"column", e.column}, {"message", e.message}, {"stack", e.stack}}));
     }
     j["loadErrors"] = std::move(errs);
     j["summary"] = summary();
@@ -105,7 +105,9 @@ std::string TestReport::summary() const {
     }
     for (const auto& e : loadErrors) s += "  ERROR " + e.to_string() + "\n";
     s += std::format("{} passed, {} failed", passed, failed);
-    if (const auto n = std::count_if(cases.begin(), cases.end(), [](const TestCaseResult& c) { return !c.passed && c.loggedError; }); n > 0)
+    if (const auto n = std::count_if(cases.begin(), cases.end(),
+                                     [](const TestCaseResult& c) { return !c.passed && c.loggedError; });
+        n > 0)
         s += std::format(" ({} because the game logged an error or an expected error never came)", n);
     if (!loadErrors.empty()) s += std::format(", {} file(s) failed to load", loadErrors.size());
     return s;
@@ -142,7 +144,9 @@ JSModuleDef* loader_cb(JSContext* ctx, const char* name, void* opaque) {
     return I->load_module(name);
 }
 
-int interrupt_cb(JSRuntime*, void* opaque) { return static_cast<ScriptSystem::Impl*>(opaque)->check_interrupt() ? 1 : 0; }
+int interrupt_cb(JSRuntime*, void* opaque) {
+    return static_cast<ScriptSystem::Impl*>(opaque)->check_interrupt() ? 1 : 0;
+}
 
 // Like Node: a rejection counts as unhandled only if still unhandled once the job queue has drained (run_jobs), so
 // `p.then(() => store.call()).catch(...)` is fine: the store promise gets its handler one microtask later.
@@ -183,7 +187,9 @@ double ScriptSystem::Impl::thread_cpu_seconds() {
 #if defined(_WIN32)
     FILETIME creation, exit, kernel, user;
     if (!GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user)) return 0;
-    auto to_s = [](const FILETIME& f) { return static_cast<double>((static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime) * 1e-7; };
+    auto to_s = [](const FILETIME& f) {
+        return static_cast<double>((static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime) * 1e-7;
+    };
     return to_s(kernel) + to_s(user);
 #else
     timespec ts{};
@@ -199,8 +205,10 @@ std::string ScriptSystem::Impl::limit_text(double seconds) const {
 
 std::string ScriptWatchdogCut::to_string() const {
     std::string s = "the script watchdog stopped ";
-    if (!script.empty() && callback != script) s += "'" + callback + "' of " + script;
-    else s += "'" + callback + "'";
+    if (!script.empty() && callback != script)
+        s += "'" + callback + "' of " + script;
+    else
+        s += "'" + callback + "'";
     return s + " (" + limit + ")";
 }
 
@@ -220,8 +228,9 @@ void ScriptSystem::Impl::record_cut(const std::string& label, const std::string&
     // replay would have, and the user has to see which script did it.
     if (cutCount <= 50)
         log(LogLevel::Error, "script",
-            c.to_string() + ": the rest of the callback did not run, so this run is not valid (a replay of it would differ "
-                           "on a faster or slower machine). Fix the loop or make the work cheaper");
+            c.to_string() +
+                ": the rest of the callback did not run, so this run is not valid (a replay of it would differ "
+                "on a faster or slower machine). Fix the loop or make the work cheaper");
     if (cuts.size() >= kMaxCuts) {
         cuts.erase(cuts.begin());
         ++droppedCuts;
@@ -256,7 +265,8 @@ bool ScriptSystem::Impl::check_interrupt() {
 
 void ScriptSystem::Impl::run_jobs() {
     if (!rt) return;
-    ProfBehaviourScope prof(kProfOtherName, kProfNoPath);  // promise jobs (and flushing their rejections) belong to no behaviour
+    ProfBehaviourScope prof(kProfOtherName,
+                            kProfNoPath);  // promise jobs (and flushing their rejections) belong to no behaviour
     for (int guardCount = 0; guardCount < 100000; ++guardCount) {
         JSContext* jctx = nullptr;
         auto entry = debug_entry(*this);
@@ -366,14 +376,17 @@ std::string hint_for(const std::string& msg) {
     // "'x' has no 'y'. ... Its members: a, b, ..." lists names: a member called null or undefined is not a null value.
     if (has(" has no '") && has("Its members:")) return "";
     if (has("was destroyed")) return "Check entity.alive before using an entity that may have been destroyed.";
-    if (has("took too long")) return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
+    if (has("took too long"))
+        return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
     // "not a function" comes first: the message of a call the player lacks says both, and the name to check is the useful part.
     if (has("not a function"))
         return "Check the method name against `factoria api` / types/factoria.d.ts, and that the object is not null "
                "(entity.get(name) returns null when the component is missing).";
     if (has("older than the game's engine"))
-        return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and export again, "
-               "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from the same build\"); "
+        return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and "
+               "export again, "
+               "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from "
+               "the same build\"); "
                "for the web, `cmake --build --preset web-release` and export: it prefers build/web-release.";
     if (has("cannot read property") || has("null") || has("undefined"))
         return "A value was null/undefined. world.find(id) and entity.get(name) return null when nothing matches; "
@@ -432,8 +445,8 @@ void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
     }
     // TypeError: not a function, at `scene.preload(...)` where `scene` is one of the engine's objects without that member.
     // QuickJS does not name the callee: it is read from the source line, at the column of the property access.
-    if (message.find("not a function") == std::string::npos || e.line <= 0 || e.column <= 0 || e.file.empty() || e.file[0] == '<' ||
-        !JS_IsObject(factoria.get()))
+    if (message.find("not a function") == std::string::npos || e.line <= 0 || e.column <= 0 || e.file.empty() ||
+        e.file[0] == '<' || !JS_IsObject(factoria.get()))
         return;
     auto text = fs::read_text(e.file);
     if (!text) return;
@@ -457,7 +470,8 @@ void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
         JS_FreeAtom(ctx, atom);
         if (has == 0) {
             const std::vector<std::string> members = own_member_names(ctx, api);
-            message += " (the engine's '" + object + "' from \"factoria\" has no '" + method + "', if " + object + " is that object" +
+            message += " (the engine's '" + object + "' from \"factoria\" has no '" + method + "', if " + object +
+                       " is that object" +
                        (members.empty() ? std::string() : ". " + did_you_mean(method, members, 40)) + tail + ")";
         }
     }
@@ -533,7 +547,8 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
                                  JSValueConst thisVal, std::initializer_list<JSValue> args, bool* failed,
                                  double limitSeconds, bool quiet, CapMode mode) {
     if (failed) *failed = false;
-    CapModeScope capMode_(*this, mode);  // fa.call from this callback runs with the set of its kind (script_capabilities.cpp)
+    CapModeScope capMode_(*this,
+                          mode);  // fa.call from this callback runs with the set of its kind (script_capabilities.cpp)
     double limit = limitSeconds < 0 ? callbackLimit : limitSeconds;
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard(label, limit);
@@ -629,7 +644,7 @@ Json ScriptSystem::Impl::to_json(JSValueConst v) {
     if (JS_IsUndefined(s)) return Json(nullptr);
     size_t len = 0;
     const char* text = JS_ToCStringLen(ctx, &len, s);
-    Json j = Json::parse(std::string_view(text ? text : "null", text ? len : 4), nullptr, false);
+    Json j = parse_json_lenient(std::string_view(text ? text : "null", text ? len : 4));
     if (text) JS_FreeCString(ctx, text);
     JS_FreeValue(ctx, s);
     if (j.is_discarded()) return Json(nullptr);
@@ -641,7 +656,8 @@ JSValue ScriptSystem::Impl::from_json(const Json& j) {
         case Json::value_t::null: return JS_NULL;
         case Json::value_t::boolean: return JS_NewBool(ctx, j.get<bool>());
         case Json::value_t::number_integer: return JS_NewInt64(ctx, j.get<long long>());
-        case Json::value_t::number_unsigned: return JS_NewInt64(ctx, static_cast<long long>(j.get<unsigned long long>()));
+        case Json::value_t::number_unsigned:
+            return JS_NewInt64(ctx, static_cast<long long>(j.get<unsigned long long>()));
         case Json::value_t::number_float: return JS_NewFloat64(ctx, j.get<double>());
         case Json::value_t::string: {
             const std::string& s = j.get_ref<const std::string&>();
@@ -673,7 +689,8 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
     // check_syntax compiles under the name "<syntax>/<project path>": resolve imports as for the real module.
     const bool syntaxBase = basePath.rfind("<syntax>/", 0) == 0;
     if (syntaxBase) basePath = basePath.substr(9);
-    bool baseIsProject = !basePath.empty() && basePath[0] != '<' && basePath != "factoria" && basePath != "factoria:test";
+    bool baseIsProject =
+        !basePath.empty() && basePath[0] != '<' && basePath != "factoria" && basePath != "factoria:test";
     std::string joined;
     if (spec.rfind("./", 0) == 0 || spec.rfind("../", 0) == 0) {
         if (!baseIsProject) {
@@ -703,12 +720,14 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
         if (dir.find('*') != std::string::npos || pattern.find("**") != std::string::npos ||
             fs::extension(pattern) != ".json") {
             if (err)
-                *err = std::format("cannot resolve import \"{}\"{}: a glob import takes `*` in the file name only and names "
-                                   "JSON data, like \"../data/dialogue/*.json\" (no `**`, no `*` in a folder, no other extension)",
-                                   spec, baseIsProject ? " in '" + basePath + "'" : std::string());
+                *err = std::format(
+                    "cannot resolve import \"{}\"{}: a glob import takes `*` in the file name only and names "
+                    "JSON data, like \"../data/dialogue/*.json\" (no `**`, no `*` in a folder, no other extension)",
+                    spec, baseIsProject ? " in '" + basePath + "'" : std::string());
             return {};
         }
-    } else if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
+    } else if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js"))
+        path += ".js";
     if (baseIsProject && !syntaxBase) {
         importers[path].insert(basePath);
     }
@@ -744,7 +763,8 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
             return nullptr;
         }
         std::string src = "export default " + *text + ";";
-        JSValue jf = JS_Eval(ctx, src.c_str(), src.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        JSValue jf =
+            JS_Eval(ctx, src.c_str(), src.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
         if (JS_IsException(jf)) return nullptr;
         auto* jm = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(jf));
         JS_FreeValue(ctx, jf);
@@ -762,13 +782,15 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
             JS_ThrowReferenceError(ctx, "Cannot load module '%s'", file.c_str());
             JSValue exc = JS_GetException(ctx);
             const std::string message = why + " (hint: " + hint + ")";
-            JS_DefinePropertyValueStr(ctx, exc, "message", JS_NewString(ctx, message.c_str()), JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+            JS_DefinePropertyValueStr(ctx, exc, "message", JS_NewString(ctx, message.c_str()),
+                                      JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
             JS_Throw(ctx, exc);
             return nullptr;
         };
         auto payload = script_bytecode_payload(*text, file);
         if (!payload.ok()) return fail(payload.error().message, payload.error().hint);
-        func = JS_ReadObject(ctx, reinterpret_cast<const uint8_t*>(payload->data()), payload->size(), JS_READ_OBJ_BYTECODE);
+        func = JS_ReadObject(ctx, reinterpret_cast<const uint8_t*>(payload->data()), payload->size(),
+                             JS_READ_OBJ_BYTECODE);
         if (JS_IsException(func)) {
             JSValue exc = JS_GetException(ctx);
             const char* what = JS_ToCString(ctx, exc);
@@ -800,8 +822,9 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
                 info = std::make_shared<const ScriptDebugInfo>(std::move(r.value().info));
             } else {
                 mid = 0;
-                D.client.output("stderr", "debugger: cannot instrument " + project + ": " + r.error().message +
-                                              "; running it without breakpoints",
+                D.client.output("stderr",
+                                "debugger: cannot instrument " + project + ": " + r.error().message +
+                                    "; running it without breakpoints",
                                 project, 0);
             }
         }
@@ -821,13 +844,21 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
 // order, of the parsed files directly in that folder. The module is "imported" by every matched file, so editing one reloads it
 // (a file added later is seen on the next start). In an exported game the folder listing comes from game.pak.
 JSModuleDef* ScriptSystem::Impl::load_glob_module(const std::string& name, const std::string& file) {
-    auto matches = [](std::string_view pat, std::string_view str) {  // `*` = any run of characters (greedy with backtracking)
+    auto matches = [](std::string_view pat,
+                      std::string_view str) {  // `*` = any run of characters (greedy with backtracking)
         size_t p = 0, s = 0, star = std::string_view::npos, mark = 0;
         while (s < str.size()) {
-            if (p < pat.size() && pat[p] == '*') { star = p++; mark = s; }
-            else if (p < pat.size() && pat[p] == str[s]) { ++p; ++s; }
-            else if (star != std::string_view::npos) { p = star + 1; s = ++mark; }
-            else return false;
+            if (p < pat.size() && pat[p] == '*') {
+                star = p++;
+                mark = s;
+            } else if (p < pat.size() && pat[p] == str[s]) {
+                ++p;
+                ++s;
+            } else if (star != std::string_view::npos) {
+                p = star + 1;
+                s = ++mark;
+            } else
+                return false;
         }
         while (p < pat.size() && pat[p] == '*') ++p;
         return p == pat.size();
@@ -936,7 +967,8 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
             JS_FreeValue(ctx, JS_GetException(ctx));
         } else {
             JS_FreeValue(ctx, pre);
-            std::vector<std::string> order;  // post-order: a module comes after everything it imports, source order among siblings
+            std::vector<std::string>
+                order;  // post-order: a module comes after everything it imports, source order among siblings
             std::set<std::string> seen{name};
             std::function<void(const std::string&)> visit = [&](const std::string& from) {
                 auto edges = moduleImports.find(from);
@@ -1054,7 +1086,8 @@ void reserve_class_ids(JSRuntime* rt) {
 // ---------------------------------------------------------------------------------------------------------------------
 bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     host = &h;
-    host->drop_script_jobs(wfcJobIds);  // jobs of an earlier context: their handles are gone and nothing would step them
+    host->drop_script_jobs(
+        wfcJobIds);  // jobs of an earlier context: their handles are gone and nothing would step them
     host->drop_script_background_loads();  // and its background loads: no update may reach a handle that is gone
     wfcJobIds.clear();
     ensure_builtin_components();
@@ -1082,7 +1115,8 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
 
     JSValue N = JS_NewObject(ctx);
     install_natives(N);
-    JS_SetPropertyStr(ctx, N, "exportedPlayer", JS_NewBool(ctx, exportedPlayer));  // the prelude adds its read checks unless true
+    JS_SetPropertyStr(ctx, N, "exportedPlayer",
+                      JS_NewBool(ctx, exportedPlayer));  // the prelude adds its read checks unless true
     native = JsVal(ctx, N);
 
     std::string_view src = embedded_script("factoria.js");
@@ -1113,7 +1147,8 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
 
     // Global conveniences.
     JSValue global = JS_GetGlobalObject(ctx);
-    JS_DefinePropertyValueStr(ctx, global, "factoria", JS_DupValue(ctx, factoria.get()), JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
+    JS_DefinePropertyValueStr(ctx, global, "factoria", JS_DupValue(ctx, factoria.get()),
+                              JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
     JS_FreeValue(ctx, global);
 
     if (debugger) debugger->impl().attach(*this);
@@ -1136,9 +1171,12 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         };
         UiTooltipHooks th;
         th.widget = [this, ask](Entity e) {
-            return ask("ui.setTooltip function", "tooltipFor", JS_NewFloat64(ctx, static_cast<double>(e.bits())), JS_UNDEFINED);
+            return ask("ui.setTooltip function", "tooltipFor", JS_NewFloat64(ctx, static_cast<double>(e.bits())),
+                       JS_UNDEFINED);
         };
-        th.world = [this, ask](Vec2 p) { return ask("ui.setWorldTooltip function", "worldTooltip", JS_NewFloat64(ctx, p.x), JS_NewFloat64(ctx, p.y)); };
+        th.world = [this, ask](Vec2 p) {
+            return ask("ui.setWorldTooltip function", "worldTooltip", JS_NewFloat64(ctx, p.x), JS_NewFloat64(ctx, p.y));
+        };
         ui->set_tooltip_hooks(std::move(th));
         // Drop targets that are functions (ui.setDropTarget(widget, fn)): asked while a drag is over them.
         UiDropHooks dh;
@@ -1146,7 +1184,8 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
             if (!initialized) return false;
             ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
             JSValue info = from_json(drag);
-            JSValue r = call_method("ui.setDropTarget function", "", hooks.get(), "dropAccepts", {JS_NewFloat64(ctx, static_cast<double>(e.bits())), info});
+            JSValue r = call_method("ui.setDropTarget function", "", hooks.get(), "dropAccepts",
+                                    {JS_NewFloat64(ctx, static_cast<double>(e.bits())), info});
             const bool ok = JS_ToBool(ctx, r) > 0;
             JS_FreeValue(ctx, r);
             JS_FreeValue(ctx, info);
@@ -1156,7 +1195,8 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
             if (!initialized) return false;
             ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
             JSValue info = from_json(drag);
-            JSValue r = call_method("ui.setWorldDropTarget function", "", hooks.get(), "worldDropAccepts", {info, JS_UNDEFINED});
+            JSValue r = call_method("ui.setWorldDropTarget function", "", hooks.get(), "worldDropAccepts",
+                                    {info, JS_UNDEFINED});
             const bool ok = JS_ToBool(ctx, r) > 0;
             JS_FreeValue(ctx, r);
             JS_FreeValue(ctx, info);
@@ -1168,7 +1208,9 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     // A project tool edited on disk (or a module it imports) runs with its new code, not the version loaded earlier
     // in a long session (editor MCP, `factoria mcp`). Done between commands: reloading replaces the tool commands.
     host->commands().set_before_call([this](std::string_view name) {
-        if (!initialized || tools.empty() || name.size() < 9 || name.rfind("project", 0) != 0 || (name[7] != '.' && name[7] != '_')) return;
+        if (!initialized || tools.empty() || name.size() < 9 || name.rfind("project", 0) != 0 ||
+            (name[7] != '.' && name[7] != '_'))
+            return;
         if (!tools.count("project." + std::string(name.substr(8)))) return;
         owner->reload_changed_modules();
     });
@@ -1179,7 +1221,9 @@ void ScriptSystem::Impl::shutdown() {
     if (!initialized && !rt) return;
     storage_drain();  // a setAsync write still running finishes before the process can end
     unregister_tools();
-    if (host) host->drop_script_jobs(wfcJobIds);  // the JS handles that would cancel the tilemap.generate jobs die with the context
+    if (host)
+        host->drop_script_jobs(
+            wfcJobIds);  // the JS handles that would cancel the tilemap.generate jobs die with the context
     if (host) host->drop_script_background_loads();  // so do the handles of its background loads
     wfcJobIds.clear();
     if (host) host->commands().set_before_call({});
@@ -1190,12 +1234,16 @@ void ScriptSystem::Impl::shutdown() {
             ui->set_tooltip_hooks({});
             ui->set_drop_hooks({});
         }
-    runtimeTextures.clear();  // the handles die with the context; the renderer frees its copies with its own asset cache
+    runtimeTextures
+        .clear();        // the handles die with the context; the renderer frees its copies with its own asset cache
     behaviours.clear();  // JsVal destructors free values
     byEntity.clear();
     namespaces.clear();
     tools.clear();
-    for (auto& r : pendingRejections) { JS_FreeValue(ctx, r.promise); JS_FreeValue(ctx, r.reason); }
+    for (auto& r : pendingRejections) {
+        JS_FreeValue(ctx, r.promise);
+        JS_FreeValue(ctx, r.reason);
+    }
     pendingRejections.clear();
     guards.clear();
     hooks.reset();
@@ -1255,8 +1303,10 @@ void ScriptSystem::deliver_background_loads(const Json& updates) {
 
 Json platform_answer_json(const PlatformAnswer& a) {
     Json j = Json::object({{"id", a.id}, {"method", a.method}, {"ok", a.ok}});
-    if (a.ok) j["result"] = a.result;
-    else j["error"] = Json::object({{"code", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
+    if (a.ok)
+        j["result"] = a.result;
+    else
+        j["error"] = Json::object({{"code", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
     return j;
 }
 
@@ -1264,15 +1314,20 @@ void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
     if (I.debugger) I.debugger->impl().frame_start();  // terminate request, then the client's poll
-    I.storageWriter.pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
+    I.storageWriter
+        .pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
     if (std::vector<storage_files::Job> done = I.storageWriter.take_done(); !done.empty()) {
         Json list = Json::array();
         for (const storage_files::Job& j : done) {
             auto m = I.storageMeta.find(j.key);
-            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.bytes < 0) m->second.bytes = static_cast<std::int64_t>(j.bytes);
+            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.bytes < 0)
+                m->second.bytes = static_cast<std::int64_t>(j.bytes);
             if (j.persist) {
-                if (j.ok) fs::user_dir_changed();
-                else log(LogLevel::Warn, "script", "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
+                if (j.ok)
+                    fs::user_dir_changed();
+                else
+                    log(LogLevel::Warn, "script",
+                        "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
             }
             list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
         }
@@ -1333,7 +1388,8 @@ void ScriptSystem::dispatch_gamepads() {
     const std::vector<GamepadEvent> events = I.host->input().take_gamepad_events();
     if (!I.initialized || events.empty()) return;
     for (const GamepadEvent& e : events) {
-        Json data = Json::object({{"slot", e.slot}, {"id", e.info.id}, {"name", e.info.name}, {"type", gamepad_type_name(e.info.type)}});
+        Json data = Json::object(
+            {{"slot", e.slot}, {"id", e.info.id}, {"name", e.info.name}, {"type", gamepad_type_name(e.info.type)}});
         I.host->world().events().game.push_back(
             GameEvent{e.connected ? "app.gamepadConnected" : "app.gamepadDisconnected", std::move(data), kNullEntity});
     }
@@ -1347,7 +1403,8 @@ void ScriptSystem::update(float dt) {
     impl_->host->speech().update();
     impl_->sync();
     float scaled = static_cast<float>(dt * scale);
-    impl_->service_call("serviceTick", {JS_NewFloat64(impl_->ctx, dt)});  // analytics and remote config: the engine clock, never scaled
+    impl_->service_call(
+        "serviceTick", {JS_NewFloat64(impl_->ctx, dt)});  // analytics and remote config: the engine clock, never scaled
     if (impl_->quitDeferred) impl_->update_quit_wait(dt);
     if (scale > 0.0) {
         {
@@ -1372,8 +1429,10 @@ void ScriptSystem::fixed_update(float dt) {
 void ScriptSystem::late_update(float dt) {
     if (!impl_->initialized) return;
     const double scale = time_scale();
-    if (scale > 0.0) impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * scale), false);
-    else impl_->run_callbacks("onLateUpdate", dt, true);
+    if (scale > 0.0)
+        impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * scale), false);
+    else
+        impl_->run_callbacks("onLateUpdate", dt, true);
     impl_->run_jobs();
 }
 
@@ -1440,7 +1499,8 @@ std::vector<std::string> ScriptSystem::reload_changed_modules() {
         if (it == I.moduleMtime.end() || it->second != fs::modified_time(f)) stale.push_back(f);
     }
     for (const std::string& f : stale) {
-        I.moduleMtime[f] = fs::modified_time(f);  // before the reload: a module that fails to load is not retried until it changes again
+        I.moduleMtime[f] = fs::modified_time(
+            f);  // before the reload: a module that fails to load is not retried until it changes again
         I.reload_module(f);
     }
     return stale;
@@ -1475,7 +1535,9 @@ std::vector<std::string> ScriptSystem::check_hooks(std::string_view modulePath) 
 }
 
 Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
-std::string ScriptSystem::typescript_declarations(const SinceFn& since) const { return impl_->typescript_declarations(since); }
+std::string ScriptSystem::typescript_declarations(const SinceFn& since) const {
+    return impl_->typescript_declarations(since);
+}
 std::vector<std::string> ScriptSystem::script_api_keys() const { return impl_->script_api_keys(); }
 
 double ScriptSystem::time_scale() const { return impl_->timeScale * impl_->host->world().feel().hit_stop_factor(); }
@@ -1501,7 +1563,8 @@ std::string ScriptSystem::set_date(std::string_view iso, std::optional<int> utcO
 
 void ScriptSystem::set_clock_date(const CalendarDate& now) {
     Impl& I = *impl_;
-    const bool newDay = now.year != I.date.year || now.month != I.date.month || now.day != I.date.day;  // not a change of offset or time
+    const bool newDay = now.year != I.date.year || now.month != I.date.month ||
+                        now.day != I.date.day;  // not a change of offset or time
     I.date = now;
     if (!newDay || !I.initialized) return;
     I.host->world().events().game.push_back(GameEvent{"app.dayChanged", Json::object(), kNullEntity});
@@ -1533,12 +1596,14 @@ void ScriptSystem::app_event(AppLifecycle event) {
         case AppLifecycle::Suspend: {
             if (I.appSuspended) return;
             I.appSuspended = true;
-            send("app.suspend");  // first, so a script can open its own pause menu: that pause is then the one that stays
+            send(
+                "app.suspend");  // first, so a script can open its own pause menu: that pause is then the one that stays
             I.storage_drain();  // a storage.setAsync still waiting is on disk before the app can be killed (or the web page hidden)
             I.service_call("serviceSuspend", {});  // sends the analytics events that wait
             const Json settings = I.host->project_settings();
             const bool pauseOnSuspend = !settings.is_object() || !settings.contains("pauseOnSuspend") ||
-                                        !settings["pauseOnSuspend"].is_boolean() || settings["pauseOnSuspend"].get<bool>();
+                                        !settings["pauseOnSuspend"].is_boolean() ||
+                                        settings["pauseOnSuspend"].get<bool>();
             if (pauseOnSuspend) {
                 if (I.timeScale > 0.0) {
                     I.scaleBeforeSuspend = I.timeScale;

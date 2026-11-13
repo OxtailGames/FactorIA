@@ -28,17 +28,18 @@ struct Item {
     // Platform-neutral keyboard shortcut shown beside the label, e.g. "Ctrl+S" or "Ctrl+Shift+Z". "Ctrl" is the main
     // modifier: it reads "Cmd" on macOS (shortcut_label) and is the Command key of a native menu item.
     std::string shortcut;
-    std::string macShortcut;      // when set, replaces `shortcut` on macOS (Redo is Cmd+Shift+Z there)
+    std::string macShortcut;  // when set, replaces `shortcut` on macOS (Redo is Cmd+Shift+Z there)
     bool enabled = true;
-    bool checked = false;         // a check mark before the label
+    bool checked = false;  // a check mark before the label
     // True for the shortcuts that must reach a focused text field instead (Save, Undo, Redo): the native menu disables
     // them while a text box has the keyboard, so Cmd+Z undoes the typing and not the scene.
     bool yieldsToText = false;
     std::string tooltip;
-    std::function<std::string()> tooltipFn;  // evaluated only when the tooltip is wanted (hover, menu opening); wins over `tooltip`
-    std::string atName;           // the autotest's handle for this item (menu:file...); empty = not tracked
-    std::function<void()> action; // an Action: what a click does
-    std::vector<Item> children;   // a Menu: its items
+    std::function<std::string()>
+        tooltipFn;       // evaluated only when the tooltip is wanted (hover, menu opening); wins over `tooltip`
+    std::string atName;  // the autotest's handle for this item (menu:file...); empty = not tracked
+    std::function<void()> action;  // an Action: what a click does
+    std::vector<Item> children;    // a Menu: its items
     // A Menu whose items are built only when it opens (a file listing must not run every frame). Used instead of `children`.
     std::function<std::vector<Item>()> lazyChildren;
 

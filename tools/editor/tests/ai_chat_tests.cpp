@@ -362,7 +362,8 @@ TEST_CASE("unique_file_name never reuses a name and keeps names plain ASCII") {
     write_file(tmp.dir / "shot-2.png", "x");
     CHECK(unique_file_name(tmp.str(), "shot.png") == "shot-3.png");
     CHECK(unique_file_name(tmp.str(), "my shot (1).PNG") == "my_shot__1_.png");
-    CHECK(unique_file_name(tmp.str(), "\xC3\xB1" "and\xC3\xBA.jpg") == "__and__.jpg");
+    CHECK(unique_file_name(tmp.str(), "\xC3\xB1"
+                                      "and\xC3\xBA.jpg") == "__and__.jpg");
 }
 
 TEST_CASE("attaching copies the picture into the project, never touching what is there") {
@@ -528,11 +529,18 @@ TEST_CASE("revert_line tells the AI what the user reverted since its last messag
 }
 
 namespace {
-void put16(std::vector<std::uint8_t>& v, std::uint32_t x) { v.push_back(x & 0xFF); v.push_back((x >> 8) & 0xFF); }
-void put32(std::vector<std::uint8_t>& v, std::uint32_t x) { put16(v, x & 0xFFFF); put16(v, x >> 16); }
+void put16(std::vector<std::uint8_t>& v, std::uint32_t x) {
+    v.push_back(x & 0xFF);
+    v.push_back((x >> 8) & 0xFF);
+}
+void put32(std::vector<std::uint8_t>& v, std::uint32_t x) {
+    put16(v, x & 0xFFFF);
+    put16(v, x >> 16);
+}
 
 // BITMAPINFOHEADER (40 bytes) + pixels. bottom-up rows unless height is given negative.
-std::vector<std::uint8_t> dib(int w, int h, int bpp, std::uint32_t compression, const std::vector<std::uint8_t>& pixels) {
+std::vector<std::uint8_t> dib(int w, int h, int bpp, std::uint32_t compression,
+                              const std::vector<std::uint8_t>& pixels) {
     std::vector<std::uint8_t> v;
     put32(v, 40);
     put32(v, static_cast<std::uint32_t>(w));
@@ -550,21 +558,24 @@ std::vector<std::uint8_t> dib(int w, int h, int bpp, std::uint32_t compression, 
 TEST_CASE("image_from_dib reads the bitmaps a Windows screenshot puts on the clipboard") {
     SUBCASE("24 bits per pixel, bottom-up, rows padded to 4 bytes") {
         // 2x2: bottom row first (BGR): blue, white | padding 2 bytes; top row: red, green
-        const std::vector<std::uint8_t> px = {255, 0, 0, 255, 255, 255, 0, 0,   //
-                                              0, 0, 255, 0, 255, 0, 0, 0};
+        const std::vector<std::uint8_t> px = {255, 0, 0,   255, 255, 255, 0, 0,  //
+                                              0,   0, 255, 0,   255, 0,   0, 0};
         const auto bytes = dib(2, 2, 24, 0, px);
         const Image img = image_from_dib(bytes.data(), bytes.size());
         REQUIRE(img.width == 2);
         REQUIRE(img.height == 2);
-        const auto at = [&](int x, int y) { return std::vector<int>{img.rgba[(y * 2 + x) * 4], img.rgba[(y * 2 + x) * 4 + 1], img.rgba[(y * 2 + x) * 4 + 2], img.rgba[(y * 2 + x) * 4 + 3]}; };
+        const auto at = [&](int x, int y) {
+            return std::vector<int>{img.rgba[(y * 2 + x) * 4], img.rgba[(y * 2 + x) * 4 + 1],
+                                    img.rgba[(y * 2 + x) * 4 + 2], img.rgba[(y * 2 + x) * 4 + 3]};
+        };
         CHECK(at(0, 0) == std::vector<int>{255, 0, 0, 255});      // top-left: red
         CHECK(at(1, 0) == std::vector<int>{0, 255, 0, 255});      // top-right: green
         CHECK(at(0, 1) == std::vector<int>{0, 0, 255, 255});      // bottom-left: blue
         CHECK(at(1, 1) == std::vector<int>{255, 255, 255, 255});  // bottom-right: white
     }
     SUBCASE("top-down (negative height)") {
-        const std::vector<std::uint8_t> px = {0, 0, 255, 0, 255, 0, 0, 0,   // top row: red, green
-                                              255, 0, 0, 255, 255, 255, 0, 0};
+        const std::vector<std::uint8_t> px = {0,   0, 255, 0,   255, 0,   0, 0,  // top row: red, green
+                                              255, 0, 0,   255, 255, 255, 0, 0};
         const auto bytes = dib(2, -2, 24, 0, px);
         const Image img = image_from_dib(bytes.data(), bytes.size());
         REQUIRE(img.height == 2);
@@ -623,11 +634,11 @@ TEST_CASE("RunUsage keeps every agent's running totals apart and settles them in
         u.outputTokens = out;
         return u;
     };
-    run.update("", usage(100, 10), 0.10);           // the orchestrator
-    run.update("run-1", usage(1000, 100), 0.50);    // a worker
+    run.update("", usage(100, 10), 0.10);         // the orchestrator
+    run.update("run-1", usage(1000, 100), 0.50);  // a worker
     CHECK(run.usage().inputTokens == 1100);
     CHECK(run.cost() == doctest::Approx(0.60));
-    run.update("", usage(150, 20), 0.15);           // the orchestrator again: replaces its own entry only
+    run.update("", usage(150, 20), 0.15);  // the orchestrator again: replaces its own entry only
     CHECK(run.usage().inputTokens == 1150);
     CHECK(run.usage().outputTokens == 120);
     CHECK(run.cost() == doctest::Approx(0.65));

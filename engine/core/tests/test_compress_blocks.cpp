@@ -41,7 +41,9 @@ Bytes read_file(const std::string& path) {
 }
 
 Bytes repo_file(const char* relative) { return read_file(std::string(FA_REPO_ROOT "/") + relative); }
-Bytes fixture(const char* name) { return read_file(std::string(FA_REPO_ROOT "/engine/core/tests/data/codecs/") + name); }
+Bytes fixture(const char* name) {
+    return read_file(std::string(FA_REPO_ROOT "/engine/core/tests/data/codecs/") + name);
+}
 
 Bytes random_bytes(std::size_t n, std::uint64_t seed) {
     Rng r(seed);
@@ -52,9 +54,10 @@ Bytes random_bytes(std::size_t n, std::uint64_t seed) {
 
 // Words from a small vocabulary, a plausible text.
 Bytes text_bytes(std::size_t n, std::uint64_t seed) {
-    static const char* const words[] = {"the", "entity", "component", "scene", "player", "moves", "to", "position",
-                                        "and", "plays", "a", "sound", "when", "health", "reaches", "zero", "level",
-                                        "engine", "frame", "update", "of", "camera", "sprite", "tile", "script"};
+    static const char* const words[] = {"the",      "entity", "component", "scene",  "player", "moves",  "to",
+                                        "position", "and",    "plays",     "a",      "sound",  "when",   "health",
+                                        "reaches",  "zero",   "level",     "engine", "frame",  "update", "of",
+                                        "camera",   "sprite", "tile",      "script"};
     Rng r(seed);
     std::string s;
     while (s.size() < n) {
@@ -135,8 +138,7 @@ void roundtrip(const Input& in, Codec codec, int level) {
     CHECK_MESSAGE(block.size() <= compress_bound(codec, in.data.size()),
                   in.name << " " << codec_name(codec) << " L" << level << ": bound " << block.size());
     auto out = decompress(codec, block, in.data.size());
-    REQUIRE_MESSAGE(out.ok(), in.name << " " << codec_name(codec) << " L" << level << ": "
-                                      << err_text(out));
+    REQUIRE_MESSAGE(out.ok(), in.name << " " << codec_name(codec) << " L" << level << ": " << err_text(out));
     CHECK_MESSAGE(out.value() == in.data, in.name << " " << codec_name(codec) << " L" << level << " differs");
     // Deterministic: compressing again gives the same bytes.
     CHECK(must_compress(in.data, codec, level) == block);
@@ -330,7 +332,8 @@ TEST_CASE("zstd: malformed headers and tables are errors that say why") {
     {
         const std::uint32_t h = 1u | (static_cast<std::uint32_t>(131073) << 3);
         Bytes f = with_header(0x20 | 0x80, {0x01, 0x00, 0x02, 0x00}, {});
-        f.insert(f.end(), {static_cast<std::uint8_t>(h), static_cast<std::uint8_t>(h >> 8), static_cast<std::uint8_t>(h >> 16)});
+        f.insert(f.end(),
+                 {static_cast<std::uint8_t>(h), static_cast<std::uint8_t>(h >> 8), static_cast<std::uint8_t>(h >> 16)});
         f.resize(f.size() + 131073, 'x');
         CHECK_FALSE(decompress(Codec::Zstd, f, 131073).ok());
     }
@@ -348,9 +351,9 @@ TEST_CASE("zstd: malformed headers and tables are errors that say why") {
     CHECK(why_not(body({1, 0xC0, 0xFF}), 200).find("repeat") != std::string::npos);
     CHECK(why_not(body({1, 0x80, 0x0F, 0xFF, 0xFF, 0xFF}), 200).find("accuracy") != std::string::npos);
     CHECK_FALSE(decompress(Codec::Zstd, body({1, 0x80, 0x00, 0x00, 0x00, 0xFF}), 200).ok());  // does not add up
-    CHECK_FALSE(decompress(Codec::Zstd, body({1, 0x00}), 200).ok());                              // no bitstream
-    CHECK_FALSE(decompress(Codec::Zstd, body({1, 0x00, 0x00}), 200).ok());                        // no end mark
-    CHECK_FALSE(decompress(Codec::Zstd, body({200, 0x00, 0xFF, 0xFF, 0xFF}), 200).ok());         // cut short
+    CHECK_FALSE(decompress(Codec::Zstd, body({1, 0x00}), 200).ok());                          // no bitstream
+    CHECK_FALSE(decompress(Codec::Zstd, body({1, 0x00, 0x00}), 200).ok());                    // no end mark
+    CHECK_FALSE(decompress(Codec::Zstd, body({200, 0x00, 0xFF, 0xFF, 0xFF}), 200).ok());      // cut short
     // literals: treeless without an earlier tree, Huffman weights too large / all zero / not a complete code
     auto huf = [&](std::uint8_t type, const Bytes& tree) {
         // single stream, 10 literals, compressed size = tree + 2 stream bytes
@@ -364,11 +367,12 @@ TEST_CASE("zstd: malformed headers and tables are errors that say why") {
         return small_frame(200, compressed_block(b));
     };
     CHECK(why_not(huf(3, {}), 200).find("no earlier block") != std::string::npos);
-    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {129, 0xFF}), 200).ok());   // weights 15, 15
-    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {129, 0x00}), 200).ok());   // all zero
-    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {130, 0x13, 0x30}), 200).ok());  // 1, 3, 3, (implied): not a power of two
-    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {}), 200).ok());            // tree missing
-    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {20, 1, 2, 3}), 200).ok()); // FSE weights cut short
+    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {129, 0xFF}), 200).ok());  // weights 15, 15
+    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {129, 0x00}), 200).ok());  // all zero
+    CHECK_FALSE(
+        decompress(Codec::Zstd, huf(2, {130, 0x13, 0x30}), 200).ok());      // 1, 3, 3, (implied): not a power of two
+    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {}), 200).ok());             // tree missing
+    CHECK_FALSE(decompress(Codec::Zstd, huf(2, {20, 1, 2, 3}), 200).ok());  // FSE weights cut short
 }
 
 TEST_CASE("zstd and lz4: truncation and bit flips are errors or other data, never a crash") {
@@ -457,13 +461,15 @@ Bytes lz4_frame_data(const Bytes& f, std::size_t total) {
     std::size_t at = 6 + ((flg & 0x08) ? 8 : 0) + 1;
     Bytes data;
     while (at + 4 <= f.size()) {
-        std::uint32_t size = f[at] | (f[at + 1] << 8) | (f[at + 2] << 16) | (static_cast<std::uint32_t>(f[at + 3]) << 24);
+        std::uint32_t size =
+            f[at] | (f[at + 1] << 8) | (f[at + 2] << 16) | (static_cast<std::uint32_t>(f[at + 3]) << 24);
         at += 4;
         if (size == 0) break;
         const bool stored = (size & 0x80000000u) != 0;
         size &= 0x7FFFFFFFu;
         REQUIRE(at + size <= f.size());
-        const Bytes blk(f.begin() + static_cast<std::ptrdiff_t>(at), f.begin() + static_cast<std::ptrdiff_t>(at + size));
+        const Bytes blk(f.begin() + static_cast<std::ptrdiff_t>(at),
+                        f.begin() + static_cast<std::ptrdiff_t>(at + size));
         at += size + ((flg & 0x10) ? 4 : 0);
         if (stored) {
             data.insert(data.end(), blk.begin(), blk.end());
@@ -533,8 +539,8 @@ TEST_CASE("zstd: round trip through the zstd command line tool when it is on the
         }
         // zstd -> ours
         for (int level : {1, 3, 19}) {
-            const std::string cmd = "zstd -q -" + std::to_string(level) + " -f -o \"" + packed + "\" \"" + raw +
-                                    "\" > /dev/null 2>&1";
+            const std::string cmd =
+                "zstd -q -" + std::to_string(level) + " -f -o \"" + packed + "\" \"" + raw + "\" > /dev/null 2>&1";
             REQUIRE(std::system(cmd.c_str()) == 0);
             auto out = decompress(Codec::Zstd, read_file(packed), input.size());
             REQUIRE_MESSAGE(out.ok(), err_text(out));

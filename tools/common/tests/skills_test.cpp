@@ -18,12 +18,6 @@ namespace {
 
 bool has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
 
-std::string messages(const std::vector<SkillProblem>& problems) {
-    std::string out;
-    for (const SkillProblem& p : problems) out += p.file + ":" + std::to_string(p.line) + ": " + p.message + " | " + p.hint + "\n";
-    return out;
-}
-
 }  // namespace
 
 TEST_CASE("skills: names follow the Agent Skills rules and a fix is suggested") {
@@ -39,7 +33,9 @@ TEST_CASE("skills: names follow the Agent Skills rules and a fix is suggested") 
 }
 
 TEST_CASE("skills: frontmatter is parsed, block scalars and quotes included") {
-    auto r = parse_skill_md("---\nname: gdd\ndescription: \"Game design: read first\"\nlicense: MIT\n---\n# Body\ntext\n", "skills/gdd/SKILL.md");
+    auto r =
+        parse_skill_md("---\nname: gdd\ndescription: \"Game design: read first\"\nlicense: MIT\n---\n# Body\ntext\n",
+                       "skills/gdd/SKILL.md");
     REQUIRE(r.ok());
     CHECK(r->name == "gdd");
     CHECK(r->description == "Game design: read first");
@@ -76,7 +72,8 @@ TEST_CASE("skills: a SKILL.md that cannot be used says where, what and how to fi
     REQUIRE_FALSE(bad.ok());
     CHECK(has(bad.error().message + bad.error().hint, "bad-name"));
 
-    auto longDesc = parse_skill_md("---\nname: a\ndescription: " + std::string(1025, 'x') + "\n---\nbody", "skills/a/SKILL.md");
+    auto longDesc =
+        parse_skill_md("---\nname: a\ndescription: " + std::string(1025, 'x') + "\n---\nbody", "skills/a/SKILL.md");
     REQUIRE_FALSE(longDesc.ok());
     CHECK(has(longDesc.error().message, "1025"));
 
@@ -107,7 +104,8 @@ TEST_CASE("skills: check_skill_folder finds the problems of a folder") {
     REQUIRE(bare.size() == 1);
     CHECK(bare[0].warning);
 
-    testing::write_all(tmp.path / "keys" / "SKILL.md", "---\nname: keys\ndescription: d\nallowed-tool: Read\n---\nbody\n");
+    testing::write_all(tmp.path / "keys" / "SKILL.md",
+                       "---\nname: keys\ndescription: d\nallowed-tool: Read\n---\nbody\n");
     auto keys = check_skill_folder(tmp.sub("keys"), "skills/keys");
     REQUIRE(keys.size() == 1);
     CHECK(keys[0].warning);
@@ -120,8 +118,10 @@ TEST_CASE("skills: the template parses back and quotes a description YAML would 
         auto r = parse_skill_md(skill_template("my-skill", description), "SKILL.md");
         REQUIRE(r.ok());
         CHECK(r->name == "my-skill");
-        if (std::string(description).size()) CHECK(r->description == description);
-        else CHECK_FALSE(r->description.empty());
+        if (std::string(description).size())
+            CHECK(r->description == description);
+        else
+            CHECK_FALSE(r->description.empty());
     }
 }
 
@@ -165,7 +165,8 @@ TEST_CASE("validate: a project's skills are checked with teaching errors") {
     };
     CHECK(count("skills/", true) == 0);  // no skills folder is fine
 
-    testing::write_all(tmp.path / "game" / "skills" / "enemies" / "SKILL.md", "---\nname: enemies\ndescription: How enemies work. Read before adding one.\n---\nbody\n");
+    testing::write_all(tmp.path / "game" / "skills" / "enemies" / "SKILL.md",
+                       "---\nname: enemies\ndescription: How enemies work. Read before adding one.\n---\nbody\n");
     CHECK(count("skills/", true) == 0);
     CHECK(count("skills/", false) == 0);
 
@@ -179,7 +180,9 @@ TEST_CASE("validate: a project's skills are checked with teaching errors") {
     CHECK(count("outside a skill folder", true) == 1);
 
     // A skill folder named by the project's extensions file is checked too.
-    testing::write_all(tmp.path / "game" / "guides" / "tone" / "SKILL.md", "---\nname: wrong\ndescription: d\n---\nbody\n");
-    testing::write_all(tmp.path / "game" / ".factoria" / "extensions.json", R"({"skills":{"guides":{"path":"guides"}}})");
+    testing::write_all(tmp.path / "game" / "guides" / "tone" / "SKILL.md",
+                       "---\nname: wrong\ndescription: d\n---\nbody\n");
+    testing::write_all(tmp.path / "game" / ".factoria" / "extensions.json",
+                       R"({"skills":{"guides":{"path":"guides"}}})");
     CHECK(count("does not match the folder name 'tone'", true) == 1);
 }

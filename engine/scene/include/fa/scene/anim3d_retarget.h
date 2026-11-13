@@ -28,8 +28,8 @@ namespace fa {
 
 struct RetargetOptions {
     bool plantFeet = true;  // solve the legs with a contact again, so they keep their feet planted
-    float scale = 0.0f;     // 0 = the ratio of the leg lengths; else the factor for root motion, ground speed and the feet
-    float fps = 30.0f;      // keys per second of the re-solved legs
+    float scale = 0.0f;  // 0 = the ratio of the leg lengths; else the factor for root motion, ground speed and the feet
+    float fps = 30.0f;   // keys per second of the re-solved legs
 };
 
 struct RetargetResult {
@@ -43,6 +43,7 @@ struct RetargetResult {
 };
 
 // Both rigs need bone roles (a rig.bake skeleton). Errors teach which rig lacks what.
-Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from, const Rig3D& to, const RetargetOptions& options = {});
+Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from, const Rig3D& to,
+                                       const RetargetOptions& options = {});
 
 }  // namespace fa

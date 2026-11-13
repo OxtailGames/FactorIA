@@ -62,17 +62,21 @@ bool identifier_like(std::string_view s) {
 // word "player" secret).
 const std::set<std::string>& generic_words() {
     static const std::set<std::string> w = {
-        "main", "index", "icon", "game", "scene", "scenes", "level", "levels", "player", "players", "enemy", "enemies",
-        "menu", "title", "button", "text", "image", "images", "sound", "sounds", "music", "audio", "sprite", "sprites",
-        "camera", "light", "lights", "hud", "background", "test", "tests", "script", "scripts", "asset", "assets",
-        "data", "config", "settings", "start", "end", "world", "map", "maps", "item", "items", "ground", "wall",
-        "walls", "door", "doors", "floor", "root", "none", "default", "empty", "new", "untitled", "example", "demo",
-        "sample", "prefab", "prefabs", "entity", "entities", "body", "bodies", "shape", "label", "panel", "bar",
-        "score", "lives", "life", "health", "timer", "coin", "coins", "goal", "spawn", "spawner", "manager", "controller",
-        "state", "input", "effect", "effects", "particle", "particles", "collider", "trigger", "platform", "platforms",
-        "tile", "tiles", "tilemap", "layer", "layers", "bullet", "bullets", "target", "box", "boxes", "ball", "name",
-        "id", "type", "value", "values", "list", "page", "pages", "screen", "view", "window", "dialog", "popup", "intro",
-        "outro", "credits", "options", "pause", "resume", "quit", "play", "load", "save", "back", "next", "yes", "no"};
+        "main",       "index",      "icon",     "game",    "scene",   "scenes",   "level",     "levels",   "player",
+        "players",    "enemy",      "enemies",  "menu",    "title",   "button",   "text",      "image",    "images",
+        "sound",      "sounds",     "music",    "audio",   "sprite",  "sprites",  "camera",    "light",    "lights",
+        "hud",        "background", "test",     "tests",   "script",  "scripts",  "asset",     "assets",   "data",
+        "config",     "settings",   "start",    "end",     "world",   "map",      "maps",      "item",     "items",
+        "ground",     "wall",       "walls",    "door",    "doors",   "floor",    "root",      "none",     "default",
+        "empty",      "new",        "untitled", "example", "demo",    "sample",   "prefab",    "prefabs",  "entity",
+        "entities",   "body",       "bodies",   "shape",   "label",   "panel",    "bar",       "score",    "lives",
+        "life",       "health",     "timer",    "coin",    "coins",   "goal",     "spawn",     "spawner",  "manager",
+        "controller", "state",      "input",    "effect",  "effects", "particle", "particles", "collider", "trigger",
+        "platform",   "platforms",  "tile",     "tiles",   "tilemap", "layer",    "layers",    "bullet",   "bullets",
+        "target",     "box",        "boxes",    "ball",    "name",    "id",       "type",      "value",    "values",
+        "list",       "page",       "pages",    "screen",  "view",    "window",   "dialog",    "popup",    "intro",
+        "outro",      "credits",    "options",  "pause",   "resume",  "quit",     "play",      "load",     "save",
+        "back",       "next",       "yes",      "no"};
     return w;
 }
 
@@ -80,19 +84,21 @@ const std::set<std::string>& generic_words() {
 
 const std::set<std::string>& strong_extensions() {
     static const std::set<std::string> e = {
-        "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "json5", "yaml", "yml", "toml", "xml", "html", "htm", "css", "md",
-        "txt", "csv", "tsv", "ini", "cfg", "conf", "png", "jpg", "jpeg", "gif", "bmp", "tga", "webp", "svg", "ico", "psd",
-        "ase", "aseprite", "wav", "ogg", "mp3", "flac", "qoa", "mp4", "webm", "mov", "avi", "glb", "gltf", "obj", "fbx",
-        "mtl", "blend", "ttf", "otf", "woff", "woff2", "zip", "tar", "gz", "7z", "rar", "exe", "dll", "dylib", "dmg",
-        "msi", "apk", "aab", "ipa", "pck", "cpp", "hpp", "mm", "py", "rb", "sh", "bat", "ps1", "lua", "java", "kt",
-        "swift", "pdf", "docx", "xlsx", "pptx", "tmx", "atlas", "sqlite", "sav"};
+        "js",    "mjs",  "cjs",  "ts",   "tsx",  "jsx",  "json",  "json5",    "yaml",  "yml",   "toml", "xml",  "html",
+        "htm",   "css",  "md",   "txt",  "csv",  "tsv",  "ini",   "cfg",      "conf",  "png",   "jpg",  "jpeg", "gif",
+        "bmp",   "tga",  "webp", "svg",  "ico",  "psd",  "ase",   "aseprite", "wav",   "ogg",   "mp3",  "flac", "qoa",
+        "mp4",   "webm", "mov",  "avi",  "glb",  "gltf", "obj",   "fbx",      "mtl",   "blend", "ttf",  "otf",  "woff",
+        "woff2", "zip",  "tar",  "gz",   "7z",   "rar",  "exe",   "dll",      "dylib", "dmg",   "msi",  "apk",  "aab",
+        "ipa",   "pck",  "cpp",  "hpp",  "mm",   "py",   "rb",    "sh",       "bat",   "ps1",   "lua",  "java", "kt",
+        "swift", "pdf",  "docx", "xlsx", "pptx", "tmx",  "atlas", "sqlite",   "sav"};
     return e;
 }
 // Real file extensions that are also ordinary words or names of engine members ("console.log", "Body.mat"): flagged only
 // when the part before the dot is not an engine name.
 const std::set<std::string>& weak_extensions() {
-    static const std::set<std::string> e = {"log", "doc", "app", "bin", "dat", "mat", "db", "lock", "go", "so", "cc", "c",
-                                            "h", "rs", "cmd", "cs", "scene", "prefab", "material", "xls", "ppt"};
+    static const std::set<std::string> e = {"log",  "doc", "app",   "bin",    "dat",      "mat", "db",
+                                            "lock", "go",  "so",    "cc",     "c",        "h",   "rs",
+                                            "cmd",  "cs",  "scene", "prefab", "material", "xls", "ppt"};
     return e;
 }
 const std::set<std::string>& domain_endings() {
@@ -102,17 +108,21 @@ const std::set<std::string>& domain_endings() {
 
 // "and/or" style pairs and fractions are prose, not paths.
 bool prose_slash(std::string_view core) {
-    static const std::set<std::string> pairs = {"and/or", "true/false", "on/off", "x/y", "input/output", "read/write",
-                                                "yes/no", "either/or", "he/she", "s/he", "w/o", "km/h", "i/o", "up/down",
-                                                "left/right", "min/max", "start/stop", "in/out", "pass/fail", "w/h",
-                                                "r/g/b", "x/y/z", "r/g/b/a", "width/height", "begin/end", "on/off/auto"};
+    static const std::set<std::string> pairs = {
+        "and/or",     "true/false", "on/off",       "x/y",       "input/output", "read/write", "yes/no",
+        "either/or",  "he/she",     "s/he",         "w/o",       "km/h",         "i/o",        "up/down",
+        "left/right", "min/max",    "start/stop",   "in/out",    "pass/fail",    "w/h",        "r/g/b",
+        "x/y/z",      "r/g/b/a",    "width/height", "begin/end", "on/off/auto"};
     const std::string lc = ascii_lower(core);
     if (pairs.count(lc)) return true;
     // 16/9, 60/30, 24/7
     std::size_t slash = lc.find('/');
     if (slash != std::string::npos && lc.find('/', slash + 1) == std::string::npos) {
-        auto digits = [](std::string_view p) { return !p.empty() && std::all_of(p.begin(), p.end(), [](unsigned char c) { return std::isdigit(c); }); };
-        if (digits(std::string_view(lc).substr(0, slash)) && digits(std::string_view(lc).substr(slash + 1))) return true;
+        auto digits = [](std::string_view p) {
+            return !p.empty() && std::all_of(p.begin(), p.end(), [](unsigned char c) { return std::isdigit(c); });
+        };
+        if (digits(std::string_view(lc).substr(0, slash)) && digits(std::string_view(lc).substr(slash + 1)))
+            return true;
     }
     return false;
 }
@@ -127,11 +137,13 @@ struct Cleaner {
 };
 
 bool trivial_word(std::string_view w) {
-    static const std::set<std::string> t = {"bool", "boolean", "int", "float", "string", "number", "true", "false", "null",
-                                            "undefined", "object", "array", "void", "vec2", "vec3", "vec4", "color"};
+    static const std::set<std::string> t = {"bool", "boolean", "int",  "float",     "string", "number",
+                                            "true", "false",   "null", "undefined", "object", "array",
+                                            "void", "vec2",    "vec3", "vec4",      "color"};
     if (w.empty()) return true;
     if (t.count(ascii_lower(w))) return true;
-    return std::all_of(w.begin(), w.end(), [](unsigned char c) { return std::isdigit(c) || c == '.' || c == '-' || c == '+'; });
+    return std::all_of(w.begin(), w.end(),
+                       [](unsigned char c) { return std::isdigit(c) || c == '.' || c == '-' || c == '+'; });
 }
 
 // A quoted text that the engine itself defines: every word is an engine name (or a plain type word), and at least one is.
@@ -151,7 +163,10 @@ bool engine_phrase(std::string_view inner, const EngineNames& engine) {
         while (e > b && std::strchr(",;:()[]{}<>.", word[e - 1])) --e;
         word = word.substr(b, e - b);
         if (word.empty()) continue;
-        if (engine.token_ok(word)) { anyEngine = true; continue; }
+        if (engine.token_ok(word)) {
+            anyEngine = true;
+            continue;
+        }
         if (trivial_word(word)) continue;
         return false;
     }
@@ -171,15 +186,36 @@ std::string strip_control(std::string_view s, Cleaner& cx) {
     };
     for (std::size_t i = 0; i < s.size();) {
         const unsigned char c = static_cast<unsigned char>(s[i]);
-        if (c == '\n' || c == '\r' || c == '\t') { out += ' '; ++i; continue; }
-        if (c < 0x20 || c == 0x7f) { drop(1, i); continue; }
-        if (c == 0xC2 && i + 1 < s.size() && static_cast<unsigned char>(s[i + 1]) >= 0x80 && static_cast<unsigned char>(s[i + 1]) <= 0x9F) { drop(2, i); continue; }
+        if (c == '\n' || c == '\r' || c == '\t') {
+            out += ' ';
+            ++i;
+            continue;
+        }
+        if (c < 0x20 || c == 0x7f) {
+            drop(1, i);
+            continue;
+        }
+        if (c == 0xC2 && i + 1 < s.size() && static_cast<unsigned char>(s[i + 1]) >= 0x80 &&
+            static_cast<unsigned char>(s[i + 1]) <= 0x9F) {
+            drop(2, i);
+            continue;
+        }
         if (c == 0xE2 && i + 2 < s.size()) {
             const unsigned char d = static_cast<unsigned char>(s[i + 1]), e = static_cast<unsigned char>(s[i + 2]);
-            if (d == 0x80 && ((e >= 0x8B && e <= 0x8F) || (e >= 0xA8 && e <= 0xAE))) { drop(3, i); continue; }  // zero width, bidi marks
-            if (d == 0x81 && e >= 0xA0 && e <= 0xAF) { drop(3, i); continue; }
+            if (d == 0x80 && ((e >= 0x8B && e <= 0x8F) || (e >= 0xA8 && e <= 0xAE))) {
+                drop(3, i);
+                continue;
+            }  // zero width, bidi marks
+            if (d == 0x81 && e >= 0xA0 && e <= 0xAF) {
+                drop(3, i);
+                continue;
+            }
         }
-        if (c == 0xEF && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0xBB && static_cast<unsigned char>(s[i + 2]) == 0xBF) { drop(3, i); continue; }
+        if (c == 0xEF && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0xBB &&
+            static_cast<unsigned char>(s[i + 2]) == 0xBF) {
+            drop(3, i);
+            continue;
+        }
         out += static_cast<char>(c);
         ++i;
     }
@@ -188,9 +224,17 @@ std::string strip_control(std::string_view s, Cleaner& cx) {
 
 // Step: quoted text other than engine names.
 std::string remove_quotes(const std::string& s, Cleaner& cx) {
-    struct Pair { const char* open; const char* close; };
-    static const Pair pairs[] = {{"```", "```"}, {"\"", "\""}, {"`", "`"}, {"\xC2\xAB", "\xC2\xBB"},
-                                 {"\xE2\x80\x9C", "\xE2\x80\x9D"}, {"\xE2\x80\x98", "\xE2\x80\x99"}, {"'", "'"}};
+    struct Pair {
+        const char* open;
+        const char* close;
+    };
+    static const Pair pairs[] = {{"```", "```"},
+                                 {"\"", "\""},
+                                 {"`", "`"},
+                                 {"\xC2\xAB", "\xC2\xBB"},
+                                 {"\xE2\x80\x9C", "\xE2\x80\x9D"},
+                                 {"\xE2\x80\x98", "\xE2\x80\x99"},
+                                 {"'", "'"}};
     std::string out;
     const std::size_t n = s.size();
     for (std::size_t i = 0; i < n;) {
@@ -202,10 +246,12 @@ std::string remove_quotes(const std::string& s, Cleaner& cx) {
             const std::size_t clen = std::strlen(p.close);
             if (p.open[0] == '\'' && olen == 1) {
                 // An apostrophe opens a quote only after a space or an opening bracket, and closes before a non-word char.
-                const bool opens = (i == 0 || std::strchr(" ([{<-:;,\"", s[i - 1])) && i + 1 < n && !is_space(static_cast<unsigned char>(s[i + 1]));
+                const bool opens = (i == 0 || std::strchr(" ([{<-:;,\"", s[i - 1])) && i + 1 < n &&
+                                   !is_space(static_cast<unsigned char>(s[i + 1]));
                 if (!opens) continue;
                 for (std::size_t j = i + 1; j < n; ++j)
-                    if (s[j] == '\'' && !is_space(static_cast<unsigned char>(s[j - 1])) && (j + 1 == n || !is_word_char(static_cast<unsigned char>(s[j + 1])))) {
+                    if (s[j] == '\'' && !is_space(static_cast<unsigned char>(s[j - 1])) &&
+                        (j + 1 == n || !is_word_char(static_cast<unsigned char>(s[j + 1])))) {
                         closeAt = j;
                         break;
                     }
@@ -235,15 +281,18 @@ std::string classify_token(std::string_view core, const EngineNames& engine) {
     const std::string lc = ascii_lower(core);
     if (lc.find("://") != std::string::npos || lc.rfind("www.", 0) == 0 || lc.rfind("mailto:", 0) == 0) return "url";
     if (const std::size_t at = core.find('@'); at != std::string_view::npos && at > 0 && at + 1 < core.size() &&
-                                              std::isalnum(static_cast<unsigned char>(core[at - 1])))
+                                               std::isalnum(static_cast<unsigned char>(core[at - 1])))
         return "email";
     if (engine.has(lc)) return "";
     if (core.find('/') != std::string_view::npos || core.find('\\') != std::string_view::npos || core[0] == '~') {
         std::vector<std::string> segs;
         std::string cur;
         for (char c : core) {
-            if (c == '/' || c == '\\') { segs.push_back(cur); cur.clear(); }
-            else cur += c;
+            if (c == '/' || c == '\\') {
+                segs.push_back(cur);
+                cur.clear();
+            } else
+                cur += c;
         }
         segs.push_back(cur);
         bool all = !segs.empty() && core[0] != '/' && core[0] != '\\' && core[0] != '~';
@@ -256,10 +305,16 @@ std::string classify_token(std::string_view core, const EngineNames& engine) {
     if (dot != std::string::npos && dot + 1 < lc.size()) {
         const std::string ext = lc.substr(dot + 1);
         const std::string base = lc.substr(0, dot);
-        if (dot == 0) return ext.size() >= 2 && std::all_of(ext.begin(), ext.end(), [](unsigned char c) { return std::isalpha(c); }) ? "file" : "";
+        if (dot == 0)
+            return ext.size() >= 2 &&
+                           std::all_of(ext.begin(), ext.end(), [](unsigned char c) { return std::isalpha(c); })
+                       ? "file"
+                       : "";
         if (strong_extensions().count(ext)) return "file";
         if (weak_extensions().count(ext) && !engine.token_ok(core)) return "file";
-        if (domain_endings().count(ext) && base.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-.") == std::string::npos) return "url";
+        if (domain_endings().count(ext) &&
+            base.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-.") == std::string::npos)
+            return "url";
     }
     return "";
 }
@@ -269,7 +324,10 @@ std::string remove_tokens(const std::string& s, Cleaner& cx) {
     std::string out;
     const std::size_t n = s.size();
     for (std::size_t i = 0; i < n;) {
-        if (is_space(static_cast<unsigned char>(s[i]))) { out += s[i++]; continue; }
+        if (is_space(static_cast<unsigned char>(s[i]))) {
+            out += s[i++];
+            continue;
+        }
         std::size_t j = i;
         while (j < n && !is_space(static_cast<unsigned char>(s[j]))) ++j;
         const std::string tok = s.substr(i, j - i);
@@ -279,7 +337,10 @@ std::string remove_tokens(const std::string& s, Cleaner& cx) {
         while (e > b && std::strchr(")]}>,;:!?.\"'`", tok[e - 1])) --e;
         const std::string core = tok.substr(b, e - b);
         const std::string kind = core.empty() ? std::string() : classify_token(core, cx.engine);
-        if (kind.empty()) { out += tok; continue; }
+        if (kind.empty()) {
+            out += tok;
+            continue;
+        }
         cx.note(kind, core);
         for (std::size_t k = e; k < tok.size(); ++k)
             if (std::strchr(".,;:!?", tok[k])) out += tok[k];  // the sentence punctuation after it stays
@@ -296,7 +357,9 @@ struct NamePatterns {
 void add_pattern(std::set<std::string>& set, const std::string& name, const EngineNames& engine) {
     std::string lc = ascii_lower(trim(name));
     if (lc.size() < 3) return;
-    if (std::all_of(lc.begin(), lc.end(), [](unsigned char c) { return std::isdigit(c) || c == '.' || c == '-' || c == '_'; })) return;
+    if (std::all_of(lc.begin(), lc.end(),
+                    [](unsigned char c) { return std::isdigit(c) || c == '.' || c == '-' || c == '_'; }))
+        return;
     if (engine.has(lc) || generic_words().count(lc)) return;
     set.insert(lc);
 }
@@ -309,9 +372,12 @@ NamePatterns build_patterns(const ProjectNames& project, const EngineNames& engi
         std::string spaced, camel;
         for (std::size_t k = 0; k < name.size(); ++k) {
             const char c = name[k];
-            if (c == '_' || c == '-') spaced += ' ';
+            if (c == '_' || c == '-')
+                spaced += ' ';
             else {
-                if (k > 0 && std::isupper(static_cast<unsigned char>(c)) && std::islower(static_cast<unsigned char>(name[k - 1]))) camel += ' ';
+                if (k > 0 && std::isupper(static_cast<unsigned char>(c)) &&
+                    std::islower(static_cast<unsigned char>(name[k - 1])))
+                    camel += ' ';
                 camel += c;
                 spaced += c;
             }
@@ -326,7 +392,9 @@ NamePatterns build_patterns(const ProjectNames& project, const EngineNames& engi
     NamePatterns out;
     for (const std::string& p : set) out.byFirst[p[0]].push_back(p);
     for (auto& [k, v] : out.byFirst)
-        std::sort(v.begin(), v.end(), [](const std::string& a, const std::string& b) { return a.size() != b.size() ? a.size() > b.size() : a < b; });
+        std::sort(v.begin(), v.end(), [](const std::string& a, const std::string& b) {
+            return a.size() != b.size() ? a.size() > b.size() : a < b;
+        });
     return out;
 }
 
@@ -384,21 +452,35 @@ std::string tidy(std::string s) {
             if (close) {
                 std::size_t k = i + 1;
                 while (k < t.size() && t[k] == ' ') ++k;
-                if (k < t.size() && t[k] == close) { i = k; changed = true; continue; }
+                if (k < t.size() && t[k] == close) {
+                    i = k;
+                    changed = true;
+                    continue;
+                }
             }
-            if ((c == '"' || c == '`') && i + 1 < t.size() && t[i + 1] == c) { ++i; changed = true; continue; }
+            if ((c == '"' || c == '`') && i + 1 < t.size() && t[i + 1] == c) {
+                ++i;
+                changed = true;
+                continue;
+            }
             u += c;
         }
         // space before , . ; : ! ?
         std::string v;
         for (std::size_t i = 0; i < u.size(); ++i) {
-            if (u[i] == ' ' && i + 1 < u.size() && std::strchr(",.;:!?", u[i + 1])) { changed = true; continue; }
+            if (u[i] == ' ' && i + 1 < u.size() && std::strchr(",.;:!?", u[i + 1])) {
+                changed = true;
+                continue;
+            }
             v += u[i];
         }
         // ",," and ", ," -> ","
         std::string w;
         for (std::size_t i = 0; i < v.size(); ++i) {
-            if (v[i] == ',' && !w.empty() && w.back() == ',') { changed = true; continue; }
+            if (v[i] == ',' && !w.empty() && w.back() == ',') {
+                changed = true;
+                continue;
+            }
             w += v[i];
         }
         // leading punctuation
@@ -423,7 +505,10 @@ std::string limit_runs(const std::string& s, Cleaner& cx) {
         std::size_t run = 1;
         while (s.compare(i + run * len, len, ch) == 0 && i + (run + 1) * len <= s.size()) ++run;
         if (run > 8) {
-            if (!noted) { cx.note("repeat", "a character repeated " + std::to_string(run) + " times"); noted = true; }
+            if (!noted) {
+                cx.note("repeat", "a character repeated " + std::to_string(run) + " times");
+                noted = true;
+            }
             for (int k = 0; k < 3; ++k) out += ch;
         } else {
             for (std::size_t k = 0; k < run; ++k) out += ch;
@@ -457,8 +542,12 @@ std::size_t word_count(std::string_view s) {
     std::size_t n = 0;
     bool in = false;
     for (unsigned char c : s) {
-        if (is_space(c)) in = false;
-        else if (!in) { in = true; ++n; }
+        if (is_space(c))
+            in = false;
+        else if (!in) {
+            in = true;
+            ++n;
+        }
     }
     return n;
 }
@@ -469,7 +558,8 @@ std::string removal_summary(const std::vector<Removal>& removed, const std::stri
         if (r.field == field) ++counts[r.kind];
     if (counts.empty()) return {};
     std::string out;
-    for (const auto& [kind, n] : counts) out += (out.empty() ? "" : ", ") + std::to_string(n) + " " + kind + (n > 1 ? "s" : "");
+    for (const auto& [kind, n] : counts)
+        out += (out.empty() ? "" : ", ") + std::to_string(n) + " " + kind + (n > 1 ? "s" : "");
     return " (removed: " + out + ")";
 }
 
@@ -517,8 +607,10 @@ EngineNames collect_engine_names(const CommandRegistry* registry) {
     if (registry) {
         for (const CommandInfo* c : registry->list()) {
             add_dotted(c->name);
-            if (c->inputSchema.is_object() && c->inputSchema.contains("properties") && c->inputSchema["properties"].is_object())
-                for (auto it = c->inputSchema["properties"].begin(); it != c->inputSchema["properties"].end(); ++it) add(it.key());
+            if (c->inputSchema.is_object() && c->inputSchema.contains("properties") &&
+                c->inputSchema["properties"].is_object())
+                for (auto it = c->inputSchema["properties"].begin(); it != c->inputSchema["properties"].end(); ++it)
+                    add(it.key());
         }
     }
     // What the engine has published: components, fields, commands and the scripting API (also the commands of a registry
@@ -530,7 +622,8 @@ EngineNames collect_engine_names(const CommandRegistry* registry) {
                 if (!section->is_object()) continue;
                 for (auto it = section->begin(); it != section->end(); ++it) {
                     std::string key = it.key();
-                    if (const std::size_t colon = key.find(':'); colon != std::string::npos) key = key.substr(colon + 1);
+                    if (const std::size_t colon = key.find(':'); colon != std::string::npos)
+                        key = key.substr(colon + 1);
                     add_dotted(key);
                 }
             }
@@ -547,8 +640,10 @@ void collect_entity_names(const Json& node, std::set<std::string>& out, int dept
     if (node.is_object()) {
         const bool entity = node.contains("components") && node["components"].is_object();
         for (auto it = node.begin(); it != node.end(); ++it) {
-            if (entity && (it.key() == "name" || it.key() == "id") && it->is_string()) out.insert(it->get<std::string>());
-            else collect_entity_names(*it, out, depth + 1);
+            if (entity && (it.key() == "name" || it.key() == "id") && it->is_string())
+                out.insert(it->get<std::string>());
+            else
+                collect_entity_names(*it, out, depth + 1);
         }
     } else if (node.is_array()) {
         for (const Json& v : node) collect_entity_names(v, out, depth + 1);
@@ -585,11 +680,14 @@ ProjectNames collect_project_names(const std::string& projectDir) {
             }
         }
     }
-    static const std::set<std::string> skipDirs = {"build", "node_modules", "types", "dist", "export", "out", "external", "platforms"};
-    static const std::set<std::string> skipFiles = {"factoria.json", "assets.json", "jsconfig.json", "readme", "agents", "claude",
-                                                    "engine_feedback", "package", "tsconfig"};
+    static const std::set<std::string> skipDirs = {"build",  "node_modules", "types",    "dist",
+                                                   "export", "out",          "external", "platforms"};
+    static const std::set<std::string> skipFiles = {"factoria.json",   "assets.json", "jsconfig.json",
+                                                    "readme",          "agents",      "claude",
+                                                    "engine_feedback", "package",     "tsconfig"};
     std::size_t files = 0;
-    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string fname = it->path().filename().string();
         if (it->is_directory(ec)) {
             if (fname.empty() || fname[0] == '.' || skipDirs.count(fname)) it.disable_recursion_pending();
@@ -609,13 +707,17 @@ ProjectNames collect_project_names(const std::string& projectDir) {
         if (!text) continue;
         auto parsed = parse_json(*text, fname);
         if (!parsed.ok()) continue;
-        if (scene) collect_entity_names(*parsed, names);
-        else collect_locale_keys(*parsed, {}, names);
+        if (scene)
+            collect_entity_names(*parsed, names);
+        else
+            collect_locale_keys(*parsed, {}, names);
     }
     ProjectNames out;
     for (const std::string& n : names)
         if (!trim(n).empty()) out.names.push_back(n);
-    std::sort(out.names.begin(), out.names.end(), [](const std::string& a, const std::string& b) { return a.size() != b.size() ? a.size() > b.size() : a < b; });
+    std::sort(out.names.begin(), out.names.end(), [](const std::string& a, const std::string& b) {
+        return a.size() != b.size() ? a.size() > b.size() : a < b;
+    });
     return out;
 }
 
@@ -644,8 +746,8 @@ Json SanitizedShare::removed_json() const {
     return arr;
 }
 
-std::string sanitize_text(std::string_view field, std::string_view text, const EngineNames& engine, const ProjectNames& project,
-                          std::vector<Removal>& removed) {
+std::string sanitize_text(std::string_view field, std::string_view text, const EngineNames& engine,
+                          const ProjectNames& project, std::vector<Removal>& removed) {
     Cleaner cx{engine, std::string(field), removed};
     return clean_field(cx, text, build_patterns(project, engine));
 }
@@ -669,7 +771,12 @@ SanitizedShare sanitize_share(const Json& share, const EngineNames& engine, cons
         }
         return it->get<std::string>();
     };
-    struct Spec { const char* key; bool required; int min, max; std::string* dest; };
+    struct Spec {
+        const char* key;
+        bool required;
+        int min, max;
+        std::string* dest;
+    };
     const Spec specs[] = {{"title", true, kShareTitleMin, kShareTitleMax, &out.title},
                           {"missing", true, kShareMissingMin, kShareMissingMax, &out.missing},
                           {"suggestion", false, 0, kShareSuggestionMax, &out.suggestion},
@@ -685,13 +792,13 @@ SanitizedShare sanitize_share(const Json& share, const EngineNames& engine, cons
         const std::size_t len = code_points(cleaned);
         const std::string summary = removal_summary(out.removed, spec.key);
         if (len > std::size_t(spec.max)) {
-            out.problems.push_back(std::string(spec.key) + " is too long (" + std::to_string(len) + " characters, at most " +
-                                   std::to_string(spec.max) + "): shorten it");
+            out.problems.push_back(std::string(spec.key) + " is too long (" + std::to_string(len) +
+                                   " characters, at most " + std::to_string(spec.max) + "): shorten it");
             continue;
         }
         if (len < std::size_t(spec.min)) {
-            out.problems.push_back(std::string(spec.key) + " is too short after cleaning (" + std::to_string(len) + " characters, needs at least " +
-                                   std::to_string(spec.min) + ")" + summary +
+            out.problems.push_back(std::string(spec.key) + " is too short after cleaning (" + std::to_string(len) +
+                                   " characters, needs at least " + std::to_string(spec.min) + ")" + summary +
                                    ": say it in engine terms without names, paths or quotes from the game");
             continue;
         }

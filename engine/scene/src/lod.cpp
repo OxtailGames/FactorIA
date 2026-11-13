@@ -10,7 +10,9 @@ const std::string& lod_mesh(const MeshRenderer& mr, float distance) {
         if (!e.is_object()) continue;
         auto m = e.find("mesh");
         auto d = e.find("distance");
-        if (m == e.end() || !m->is_string() || m->get_ref<const std::string&>().empty() || d == e.end() || !d->is_number()) continue;
+        if (m == e.end() || !m->is_string() || m->get_ref<const std::string&>().empty() || d == e.end() ||
+            !d->is_number())
+            continue;
         const float at = d->get<float>();
         if (at <= distance && at >= best) {  // the farthest entry already reached
             best = at;

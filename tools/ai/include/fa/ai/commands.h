@@ -13,9 +13,9 @@ namespace fa::ai {
 
 // One ai.run call, as the callbacks below see it.
 struct AiRunInfo {
-    std::string id;        // "run-1", "run-2"...: unique in this process, ties a run's events and its end together
-    std::string role;      // the role the run uses: orchestrator|worker|fast|artist|audio
-    std::string task;      // the task text the caller gave
+    std::string id;    // "run-1", "run-2"...: unique in this process, ties a run's events and its end together
+    std::string role;  // the role the run uses: orchestrator|worker|fast|artist|audio
+    std::string task;  // the task text the caller gave
 };
 
 struct AiCommandOptions {

@@ -77,7 +77,8 @@ TEST_CASE("audio: buses, master volume, pan and fades") {
     fx.audio.set_bus_volume("sfx", 0.5f);
     CHECK(fx.audio.bus_volume("sfx") == 0.5f);
     CHECK(fx.audio.bus_volume("nope") == -1.0f);
-    CHECK(measure(p).peak(1000) == doctest::Approx(0.25f).epsilon(0.03));  // a bus volume ramps over about 10 ms: measure after it
+    CHECK(measure(p).peak(1000) ==
+          doctest::Approx(0.25f).epsilon(0.03));  // a bus volume ramps over about 10 ms: measure after it
     PlayParams ui;
     ui.bus = "ui";
     CHECK(measure(ui).peak() == doctest::Approx(0.5f).epsilon(0.03));
@@ -182,7 +183,8 @@ TEST_CASE("audio: reload_clip moves a playing voice into the new clip's loop poi
     write_sine_wav(fx.dir / "sounds/sine.wav", 0.5);
     set_loop(0.1, 0.4);
     fx.audio.reload_clip("sounds/sine.wav");
-    const double pos = AudioTestAccess::voice_position(fx.audio, looping);  // the null device applies the command at once
+    const double pos =
+        AudioTestAccess::voice_position(fx.audio, looping);  // the null device applies the command at once
     CHECK(pos >= 0.1 * kRate - 1.0);
     CHECK(pos < 0.4 * kRate);
     // A voice that does not loop and was past the new clip's end is put at its end.
@@ -193,7 +195,8 @@ TEST_CASE("audio: reload_clip moves a playing voice into the new clip's loop poi
     CHECK(fx.audio.is_playing(looping));
 }
 
-TEST_CASE("audio: a feel sound plays on its bus with the entity that asked for it; a clip that cannot play is not tried again in the scene") {
+TEST_CASE("audio: a feel sound plays on its bus with the entity that asked for it; a clip that cannot play is not "
+          "tried again in the scene") {
     Fixture fx;
     World world;
     const Entity hero = world.create("hero", "hero");
@@ -215,7 +218,7 @@ TEST_CASE("audio: a feel sound plays on its bus with the entity that asked for i
     log = fx.audio.play_log();
     int failed = 0;
     for (const AudioEvent& ev : log) failed += ev.ok ? 0 : 1;
-    CHECK(failed == 1);   // the first try is logged; the other two never reach the decoder
+    CHECK(failed == 1);  // the first try is logged; the other two never reach the decoder
     CHECK(world.feel().failedSounds.count("sounds/not_there.wav") == 1);
 
     // a new scene tries again (the file may exist by now)
@@ -238,9 +241,15 @@ TEST_CASE("audio: AudioSource playOnStart through a World") {
     fx.audio.update(world, 1.0f / 60.0f);
     CHECK(world.get<AudioSource>(e)->playing);
     CHECK(fx.audio.stats()["activeVoices"] == 1);
-    for (int i = 0; i < 30; ++i) { fx.audio.update(world, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+    for (int i = 0; i < 30; ++i) {
+        fx.audio.update(world, 1.0f / 60.0f);
+        fx.audio.advance_null_device(1.0 / 60.0);
+    }
     CHECK(world.get<AudioSource>(e)->playing);
-    for (int i = 0; i < 60; ++i) { fx.audio.update(world, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+    for (int i = 0; i < 60; ++i) {
+        fx.audio.update(world, 1.0f / 60.0f);
+        fx.audio.advance_null_device(1.0 / 60.0);
+    }
     // non-looping clip ended -> engine cleared `playing`, and it does not restart
     CHECK_FALSE(world.get<AudioSource>(e)->playing);
     fx.audio.update(world, 1.0f / 60.0f);
@@ -282,7 +291,10 @@ TEST_CASE("audio: spatial sources pan and attenuate relative to the listener") {
     auto measure = [&](Vec3 pos) {
         world.get<Transform>(s)->position = pos;
         fx.audio.start_recording();
-        for (int i = 0; i < 12; ++i) { fx.audio.update(world, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        for (int i = 0; i < 12; ++i) {
+            fx.audio.update(world, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         return fx.finish("out/sp.wav");
     };
     Recording near = measure({0, 0, 0});
@@ -340,7 +352,7 @@ TEST_CASE("audio: rolloff curves") {
     CHECK(audio_spatial_gain(AudioRolloff::Inverse, 20, 100, 10) == doctest::Approx(0.5f));
     CHECK(audio_spatial_gain(AudioRolloff::Inverse, 20, 100, 10, 2.0f) == doctest::Approx(1.0f / 3.0f));
     CHECK(audio_spatial_gain(AudioRolloff::Inverse, 10, 100) == doctest::Approx(0.5f));  // r = 100 / 20 = 5
-    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 100, 100, 10) == 0.0f);               // cut at the range
+    CHECK(audio_spatial_gain(AudioRolloff::Inverse, 100, 100, 10) == 0.0f);              // cut at the range
     // exponential: (d / r) ^ -k
     CHECK(audio_spatial_gain(AudioRolloff::Exponential, 20, 100, 10) == doctest::Approx(0.5f));
     CHECK(audio_spatial_gain(AudioRolloff::Exponential, 20, 100, 10, 2.0f) == doctest::Approx(0.25f));
@@ -360,9 +372,15 @@ TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
     World world;
     Entity listener = world.create("ear", "ear");
     world.add<AudioListener>(listener);
-    struct Case { AudioRolloff r; float ref, k; };
-    const Case cases[] = {{AudioRolloff::Linear, 0, 1}, {AudioRolloff::Linear, 20, 1}, {AudioRolloff::Inverse, 10, 1},
-                          {AudioRolloff::Inverse, 0, 2}, {AudioRolloff::Exponential, 10, 1.5f}};
+    struct Case {
+        AudioRolloff r;
+        float ref, k;
+    };
+    const Case cases[] = {{AudioRolloff::Linear, 0, 1},
+                          {AudioRolloff::Linear, 20, 1},
+                          {AudioRolloff::Inverse, 10, 1},
+                          {AudioRolloff::Inverse, 0, 2},
+                          {AudioRolloff::Exponential, 10, 1.5f}};
     for (const Case& c : cases) {
         PlayParams pp;
         pp.volume = 1.0f;
@@ -385,7 +403,10 @@ TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
         src.rolloffFactor = c.k;
         w2.get<Transform>(s)->position = {40, 0, 0};
         const std::size_t before = fx.audio.play_log().size();
-        for (int i = 0; i < 3; ++i) { fx.audio.update(w2, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        for (int i = 0; i < 3; ++i) {
+            fx.audio.update(w2, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         REQUIRE(fx.audio.play_log().size() == before + 1);
         CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
         fx.audio.update(world, 1.0f / 60.0f);  // back to the first World: the next w2 may reuse this one's address
@@ -411,7 +432,10 @@ TEST_CASE("audio: play_at and AudioSource use the same rolloff") {
         src.refDistance = 10.0f;
         w3.get<Transform>(s)->position = {60, 0, 0};
         const std::size_t before = fx.audio.play_log().size();
-        for (int i = 0; i < 3; ++i) { fx.audio.update(w3, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        for (int i = 0; i < 3; ++i) {
+            fx.audio.update(w3, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         REQUIRE(fx.audio.play_log().size() == before + 1);
         CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaPlay));
         fx.audio.update(world, 1.0f / 60.0f);
@@ -444,8 +468,13 @@ TEST_CASE("audio: null device mixing is deterministic") {
     auto run = [] {
         Fixture fx;
         fx.audio.start_recording();
-        PlayParams a; a.pitch = 1.37f; a.pan = 0.3f;
-        PlayParams b; b.loop = true; b.pitch = 0.81f; b.volume = 0.4f;
+        PlayParams a;
+        a.pitch = 1.37f;
+        a.pan = 0.3f;
+        PlayParams b;
+        b.loop = true;
+        b.pitch = 0.81f;
+        b.volume = 0.4f;
         fx.audio.play("sounds/sine.wav", a);
         fx.audio.play("sounds/sine.wav", b);
         fx.run(2.0);
@@ -611,10 +640,12 @@ TEST_CASE("audio: music layers start on the same sample and stay aligned across 
     fx.write_assets(R"({"format": "factoria.assets/1", "assets": {
         "sounds/ramp_s1.wav": {"import": {"stream": "always"}}, "sounds/ramp_s2.wav": {"import": {"stream": "always"}},
         "sounds/ramp_w1.wav": {"import": {"stream": "never"}}, "sounds/ramp_w2.wav": {"import": {"stream": "never"}}}})");
-    for (const char* n : {"ramp_s1", "ramp_s2", "ramp_w1", "ramp_w2"}) write_ramp_wav(fx.dir / (std::string("sounds/") + n + ".wav"), 0.7);
+    for (const char* n : {"ramp_s1", "ramp_s2", "ramp_w1", "ramp_w2"})
+        write_ramp_wav(fx.dir / (std::string("sounds/") + n + ".wav"), 0.7);
 
     for (const char* kind : {"w", "s"}) {
-        const std::string a = std::string("sounds/ramp_") + kind + "1.wav", b = std::string("sounds/ramp_") + kind + "2.wav";
+        const std::string a = std::string("sounds/ramp_") + kind + "1.wav",
+                          b = std::string("sounds/ramp_") + kind + "2.wav";
         // Both layers at level 1 play the same clip: the mix must be exactly twice one layer.
         MusicLayer la{"a", a, 1.0f}, lb{"b", b, 0.0f};
         fx.audio.stop_all();
@@ -631,7 +662,8 @@ TEST_CASE("audio: music layers start on the same sample and stay aligned across 
         Recording both = fx.finish();
         REQUIRE(both.frames() == alone.frames());
         float worst = 0;
-        for (std::size_t i = 0; i < both.frames(); ++i) worst = std::max(worst, std::fabs(both.l[i] - 2.0f * alone.l[i]));
+        for (std::size_t i = 0; i < both.frames(); ++i)
+            worst = std::max(worst, std::fabs(both.l[i] - 2.0f * alone.l[i]));
         INFO("kind " << kind);
         CHECK(worst < 0.001f);
         CHECK(alone.peak() > 0.1f);
@@ -642,10 +674,12 @@ TEST_CASE("audio: music layers start on the same sample and stay aligned across 
 TEST_CASE("audio: setLayer fades a layer, stop_music stops every layer, a bad layer plays nothing") {
     Fixture fx;
     write_sine_wav(fx.dir / "sounds/hi.wav", 1.0, 880.0);
-    CHECK_FALSE(fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/missing.wav", 1.0f}}, 0.6f, 0.0f));
+    CHECK_FALSE(
+        fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/missing.wav", 1.0f}}, 0.6f, 0.0f));
     CHECK(fx.audio.stats()["activeVoices"] == 0);
 
-    REQUIRE(fx.audio.play_music_layers({{"base", "sounds/sine.wav", 1.0f}, {"lead", "sounds/hi.wav", 0.0f}}, 1.0f, 0.0f));
+    REQUIRE(
+        fx.audio.play_music_layers({{"base", "sounds/sine.wav", 1.0f}, {"lead", "sounds/hi.wav", 0.0f}}, 1.0f, 0.0f));
     CHECK(fx.audio.stats()["activeVoices"] == 2);
     auto log = fx.audio.play_log();
     REQUIRE(log.size() >= 2);
@@ -670,7 +704,8 @@ TEST_CASE("audio: setLayer fades a layer, stop_music stops every layer, a bad la
 
 TEST_CASE("audio: layers are never evicted by a full mixer and a scene load keeps persisted layers") {
     Fixture fx;
-    REQUIRE(fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/sine.wav", 1.0f}}, 0.2f, 0.0f, true));
+    REQUIRE(
+        fx.audio.play_music_layers({{"a", "sounds/sine.wav", 1.0f}, {"b", "sounds/sine.wav", 1.0f}}, 0.2f, 0.0f, true));
     for (int i = 0; i < 100; ++i) fx.audio.play("sounds/sine.wav");
     CHECK(fx.audio.stats()["activeVoices"] == 64);
     fx.audio.on_scene_load();
@@ -693,7 +728,7 @@ TEST_CASE("audio: the mix is the same however it is cut into chunks (web AudioWo
         for (int i = 0; i < steps; ++i) fx.audio.advance_null_device(step);
         return fx.finish();
     };
-    Recording a = record(1.0 / 60.0, 120);     // 2 s in frames of 735
+    Recording a = record(1.0 / 60.0, 120);       // 2 s in frames of 735
     Recording b = record(512.0 / 44100.0, 172);  // chunks of 512 (about 2 s)
     REQUIRE(a.frames() > 80000);
     REQUIRE(b.frames() > 80000);
@@ -704,14 +739,16 @@ TEST_CASE("audio: the mix is the same however it is cut into chunks (web AudioWo
     CHECK(a.peak() > 0.3f);
 }
 
-TEST_CASE("audio: an AudioSource with variants picks one per play, never the last one twice, the same on every run with the same seed") {
+TEST_CASE("audio: an AudioSource with variants picks one per play, never the last one twice, the same on every run "
+          "with the same seed") {
     auto run = [](std::uint64_t seed, int plays) {
         Fixture fx;
         World world;
         world.rng().reseed(seed);
         Entity e = world.create("step", "step");
         AudioSource& src = world.add<AudioSource>(e);
-        src.clip = "sounds/step.wav";  // the variants (step_01.wav ...) do not exist: the play log still names what was picked
+        src.clip =
+            "sounds/step.wav";  // the variants (step_01.wav ...) do not exist: the play log still names what was picked
         src.variants = 4;
         std::vector<std::string> picked;
         for (int i = 0; i < plays; ++i) {

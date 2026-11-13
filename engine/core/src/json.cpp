@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -18,8 +20,11 @@ std::pair<int, int> line_col(std::string_view text, std::size_t offset) {
     offset = std::min(offset, text.size());
     int line = 1, col = 1;
     for (std::size_t i = 0; i < offset; ++i) {
-        if (text[i] == '\n') { ++line; col = 1; }
-        else ++col;
+        if (text[i] == '\n') {
+            ++line;
+            col = 1;
+        } else
+            ++col;
     }
     return {line, col};
 }
@@ -31,9 +36,11 @@ std::string parse_hint(std::string_view text, std::size_t offset, const std::str
     std::size_t prev = offset;
     while (prev > 0 && std::isspace(static_cast<unsigned char>(at(prev - 1)))) --prev;
     char before = prev > 0 ? at(prev - 1) : '\0';
-    if ((c == '}' || c == ']') && before == ',') return "Remove the trailing comma before '" + std::string(1, c) + "' (JSON does not allow it).";
+    if ((c == '}' || c == ']') && before == ',')
+        return "Remove the trailing comma before '" + std::string(1, c) + "' (JSON does not allow it).";
     if (c == '\'') return "JSON strings use double quotes (\"), not single quotes.";
-    if (c == '/') return "JSON does not allow comments; remove them (put notes in a \"_comment\" or \"description\" key).";
+    if (c == '/')
+        return "JSON does not allow comments; remove them (put notes in a \"_comment\" or \"description\" key).";
     if (what.find("end of input") != std::string::npos || offset >= text.size())
         return "The file ends too early: close every '{' / '[' and every string.";
     if (std::isalpha(static_cast<unsigned char>(c)) && (before == '{' || before == ','))
@@ -49,11 +56,14 @@ bool is_number(const Json& j) { return j.is_number(); }
 bool read_components(const Json& j, float* out, int n, const char* const* keys, int minArray, const char* form,
                      std::string* err) {
     auto fail = [&](const std::string& why) {
-        if (err) *err = std::string("expected ") + form + ", got " + describe_json_value(j) + (why.empty() ? "" : " (" + why + ")");
+        if (err)
+            *err = std::string("expected ") + form + ", got " + describe_json_value(j) +
+                   (why.empty() ? "" : " (" + why + ")");
         return false;
     };
     if (j.is_array()) {
-        if (int(j.size()) < minArray || int(j.size()) > n) return fail("array has " + std::to_string(j.size()) + " numbers");
+        if (int(j.size()) < minArray || int(j.size()) > n)
+            return fail("array has " + std::to_string(j.size()) + " numbers");
         for (std::size_t i = 0; i < j.size(); ++i) {
             if (!is_number(j[i])) return fail("element " + std::to_string(i) + " is not a number");
             out[i] = j[i].get<float>();
@@ -74,7 +84,10 @@ bool read_components(const Json& j, float* out, int n, const char* const* keys, 
     return fail("");
 }
 
-struct NamedColor { std::string_view name; Color color; };
+struct NamedColor {
+    std::string_view name;
+    Color color;
+};
 const std::array<NamedColor, 27> kColors = {{
     {"white", {1, 1, 1, 1}},
     {"black", {0, 0, 0, 1}},
@@ -112,6 +125,31 @@ int hex_digit(char c) {
     return -1;
 }
 
+// The offset of the first number outside the strings that does not fit in a double (strtod gives infinity), -1 if none.
+std::ptrdiff_t first_number_overflow(std::string_view text) {
+    bool inString = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            if (c == '\\')
+                ++i;
+            else if (c == '"')
+                inString = false;
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '-' || (c >= '0' && c <= '9')) {
+            std::size_t end = i + 1;
+            while (end < text.size() && (std::isdigit(static_cast<unsigned char>(text[end])) || text[end] == '.' ||
+                                         text[end] == 'e' || text[end] == 'E' || text[end] == '+' || text[end] == '-'))
+                ++end;
+            const std::string token(text.substr(i, end - i));
+            if (std::isinf(std::strtod(token.c_str(), nullptr))) return std::ptrdiff_t(i);
+            i = end - 1;
+        }
+    }
+    return -1;
+}
+
 }  // namespace
 
 std::string describe_json_value(const Json& j) {
@@ -132,7 +170,42 @@ std::string describe_json_value(const Json& j) {
     return kind + text;
 }
 
+std::ptrdiff_t json_nesting_overflow(std::string_view text, int limit) {
+    int depth = 0;
+    bool inString = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            if (c == '\\')
+                ++i;  // the escaped character, which may be a quote
+            else if (c == '"')
+                inString = false;
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '[' || c == '{') {
+            if (++depth > limit) return std::ptrdiff_t(i);
+        } else if ((c == ']' || c == '}') && depth > 0) {
+            --depth;
+        }
+    }
+    return -1;
+}
+
+Json parse_json_lenient(std::string_view text) {
+    if (json_nesting_overflow(text) >= 0) return Json(Json::value_t::discarded);
+    return Json::parse(text.begin(), text.end(), nullptr, false);
+}
+
 Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
+    // Before the parser builds anything: the library parses without recursion, but every later use of the value recurses.
+    if (const std::ptrdiff_t deep = json_nesting_overflow(text); deep >= 0) {
+        auto [line, col] = line_col(text, std::size_t(deep));
+        return make_error(std::string(sourceName) + ":" + std::to_string(line) + ":" + std::to_string(col) +
+                              ": invalid JSON: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels",
+                          "Arrays and objects may be nested at most " + std::to_string(kMaxJsonDepth) +
+                              " levels deep; a file this deep is almost always a runaway generator or a broken edit. "
+                              "Flatten the data (use ids to refer to other entries) or split it into several files.");
+    }
     try {
         return Json::parse(text.begin(), text.end());
     } catch (const Json::parse_error& e) {
@@ -145,6 +218,39 @@ Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
         std::string msg = std::string(sourceName) + ":" + std::to_string(line) + ":" + std::to_string(col) +
                           ": invalid JSON: " + what;
         return make_error(std::move(msg), parse_hint(text, byte, what));
+    } catch (const Json::exception& e) {
+        // Valid syntax the library cannot hold: a number outside the range of a double (1e999) is out_of_range.406, thrown
+        // from the parser itself. (Found by the fuzz target `json`.)
+        std::string what = e.what();
+        if (what.rfind("[json.exception.", 0) == 0)
+            if (const std::size_t close = what.find("] "); close != std::string::npos) what = what.substr(close + 2);
+        // Where: the library does not say. A number it cannot hold is the first token outside the strings that strtod
+        // turns into infinity (the same text fails the same way, so the first one is the one that threw).
+        std::string where(sourceName);
+        if (e.id == 406) {
+            if (const std::ptrdiff_t at = first_number_overflow(text); at >= 0) {
+                auto [line, col] = line_col(text, std::size_t(at));
+                where += ":" + std::to_string(line) + ":" + std::to_string(col);
+            }
+        }
+        std::string hint;
+        switch (e.id) {
+            case 406:
+                hint = "Write numbers inside the range of a double (about -1.8e308 to 1.8e308); a number such as 1e999 "
+                       "cannot be read.";
+                break;
+            case 407:
+                hint = "An integer is too large for the library to hold; write it as a decimal number inside the range "
+                       "of a double "
+                       "(or as a string if it is an id).";
+                break;
+            default:
+                hint = "The JSON reader refused a value that is valid syntax (error " + std::to_string(e.id) +
+                       "). Check the numbers and strings of the file; if they look right, report the file as an engine "
+                       "bug.";
+                break;
+        }
+        return make_error(where + ": invalid JSON: " + what, std::move(hint));
     }
 }
 
@@ -154,13 +260,9 @@ Result<Json> load_json_file(std::string_view path) {
     return parse_json(text.value(), path);
 }
 
-std::string dump_json(const Json& j) {
-    return j.dump(2, ' ', false, Json::error_handler_t::replace) + "\n";
-}
+std::string dump_json(const Json& j) { return j.dump(2, ' ', false, Json::error_handler_t::replace) + "\n"; }
 
-Result<void> save_json_file(std::string_view path, const Json& j) {
-    return fs::write_text(path, dump_json(j));
-}
+Result<void> save_json_file(std::string_view path, const Json& j) { return fs::write_text(path, dump_json(j)); }
 
 // ------------------------------------------------------- compact layout --
 namespace {
@@ -184,9 +286,12 @@ private:
 
     // `col` is the column where the value starts (after the indent and the "key": prefix of its line).
     void value(const Json& v, int depth, std::size_t col, const Json& parent) {
-        if (v.is_object()) object(v, depth);
-        else if (v.is_array()) array(v, depth, col, parent);
-        else out_ += scalar(v);
+        if (v.is_object())
+            object(v, depth);
+        else if (v.is_array())
+            array(v, depth, col, parent);
+        else
+            out_ += scalar(v);
     }
 
     void object(const Json& v, int depth) {
@@ -333,16 +438,25 @@ Result<void> save_json_file(std::string_view path, const Json& j, const JsonForm
 }
 
 bool json_to(const Json& j, bool& out, std::string* err) {
-    if (j.is_boolean()) { out = j.get<bool>(); return true; }
+    if (j.is_boolean()) {
+        out = j.get<bool>();
+        return true;
+    }
     if (err) *err = "expected true or false, got " + describe_json_value(j);
     return false;
 }
 
 bool json_to(const Json& j, int& out, std::string* err) {
-    if (j.is_number_integer() || j.is_number_unsigned()) { out = j.get<int>(); return true; }
+    if (j.is_number_integer() || j.is_number_unsigned()) {
+        out = j.get<int>();
+        return true;
+    }
     if (j.is_number_float()) {
         double d = j.get<double>();
-        if (d == std::floor(d) && std::fabs(d) < 2147483648.0) { out = int(d); return true; }
+        if (d == std::floor(d) && std::fabs(d) < 2147483648.0) {
+            out = int(d);
+            return true;
+        }
         if (err) *err = "expected an integer, got " + describe_json_value(j) + " (use a whole number)";
         return false;
     }
@@ -351,13 +465,19 @@ bool json_to(const Json& j, int& out, std::string* err) {
 }
 
 bool json_to(const Json& j, float& out, std::string* err) {
-    if (j.is_number()) { out = j.get<float>(); return true; }
+    if (j.is_number()) {
+        out = j.get<float>();
+        return true;
+    }
     if (err) *err = "expected a number, got " + describe_json_value(j);
     return false;
 }
 
 bool json_to(const Json& j, std::string& out, std::string* err) {
-    if (j.is_string()) { out = j.get<std::string>(); return true; }
+    if (j.is_string()) {
+        out = j.get<std::string>();
+        return true;
+    }
     if (err) *err = "expected a string, got " + describe_json_value(j);
     return false;
 }
@@ -388,8 +508,8 @@ bool json_to(const Json& j, Vec4& out, std::string* err) {
 
 bool json_to(const Json& j, Color& out, std::string* err) {
     static const char* const keys[] = {"r", "g", "b", "a"};
-    constexpr const char* form =
-        "[r, g, b(, a)] (0..1, or 0..255 when any channel is over 1), \"#rrggbb\", \"#rrggbbaa\" or a color name like \"red\"";
+    constexpr const char* form = "[r, g, b(, a)] (0..1, or 0..255 when any channel is over 1), \"#rrggbb\", "
+                                 "\"#rrggbbaa\" or a color name like \"red\"";
     if (j.is_string()) {
         if (parse_color(j.get<std::string>(), out)) return true;
         if (err) {
@@ -409,7 +529,8 @@ bool json_to(const Json& j, Color& out, std::string* err) {
         if (!read_components(j, v, 4, keys, 3, form, err)) return false;
         bool bytes = false;
         for (std::size_t i = 0; i < j.size(); ++i) bytes |= v[i] > 1.0f;
-        if (bytes) for (std::size_t i = 0; i < j.size(); ++i) v[i] /= 255.0f;  // 0..255 form
+        if (bytes)
+            for (std::size_t i = 0; i < j.size(); ++i) v[i] /= 255.0f;  // 0..255 form
     } else if (!read_components(j, v, 4, keys, 3, form, err)) {
         return false;
     }
@@ -453,7 +574,10 @@ bool parse_color(std::string_view text, Color& out) {
         return true;
     }
     for (const NamedColor& n : kColors) {
-        if (iequals(text, n.name)) { out = n.color; return true; }
+        if (iequals(text, n.name)) {
+            out = n.color;
+            return true;
+        }
     }
     return false;
 }
@@ -481,8 +605,10 @@ const Json* json_at(const Json& root, std::string_view pointer) {
 void json_merge(Json& target, const Json& patch) {
     if (patch.is_object() && target.is_object()) {
         for (auto it = patch.begin(); it != patch.end(); ++it) {
-            if (target.contains(it.key())) json_merge(target[it.key()], it.value());
-            else target[it.key()] = it.value();
+            if (target.contains(it.key()))
+                json_merge(target[it.key()], it.value());
+            else
+                target[it.key()] = it.value();
         }
     } else {
         target = patch;

@@ -73,12 +73,12 @@ TEST_CASE("video: contain keeps the aspect ratio with bars, cover fills and crop
         INFO("fit " << int(fit));
         CHECK(is_red(img.pixel(110, 60)));  // the middle is picture in every mode
         if (fit == VideoFit::Contain) {
-            CHECK(is_black(img.pixel(20, 60)));    // bar on the left: the picture is 100 wide, centred (60 .. 160)
-            CHECK(is_black(img.pixel(200, 60)));   // bar on the right
-            CHECK(is_red(img.pixel(70, 60)));      // the picture's left edge
-            CHECK(is_red(img.pixel(150, 60)));     // and its right edge
+            CHECK(is_black(img.pixel(20, 60)));   // bar on the left: the picture is 100 wide, centred (60 .. 160)
+            CHECK(is_black(img.pixel(200, 60)));  // bar on the right
+            CHECK(is_red(img.pixel(70, 60)));     // the picture's left edge
+            CHECK(is_red(img.pixel(150, 60)));    // and its right edge
         } else {
-            CHECK(is_red(img.pixel(20, 60)));      // fills the width
+            CHECK(is_red(img.pixel(20, 60)));  // fills the width
             CHECK(is_red(img.pixel(200, 60)));
         }
         if (fit == VideoFit::Cover) {
@@ -129,7 +129,7 @@ TEST_CASE("video: the background is left out when the opaque picture hides all o
     int opaque = 0, see_through = 0, square = 0, bars = 0;
     const Image a = draw(VideoFit::Stretch, 128, 1.0f, opaque);
     const Image b = draw(VideoFit::Stretch, 128, 0.999f, see_through);
-    draw(VideoFit::Contain, 128, 1.0f, square);            // a square picture in a square rectangle: covers it too
+    draw(VideoFit::Contain, 128, 1.0f, square);                // a square picture in a square rectangle: covers it too
     const Image c = draw(VideoFit::Contain, 200, 1.0f, bars);  // wider: bars on the sides
     CHECK(see_through == opaque + 1);  // the background is drawn under a picture that lets it through
     CHECK(square == opaque);

@@ -12,6 +12,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_mount, (const char* path), {
     const dir = UTF8ToString(path);
     const state = Module.faSave = { dir: dir, timer: 0, running: false, again: false, ok: false, dirty: false };
@@ -44,14 +45,19 @@ EM_JS(void, fa_web_idbfs_mount, (const char* path), {
         done();
     });
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_changed, (), {
     if (Module.faSave) Module.faSave.schedule();
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_flush_now, (), {
     if (Module.faSave) Module.faSave.now();
 });
+// clang-format on
 
 namespace {
 void (*g_done)() = nullptr;

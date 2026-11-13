@@ -75,13 +75,15 @@ struct ShareEnv {
     std::function<std::int64_t()> now;             // seconds since 1970; empty = the system clock
     std::function<void(double seconds)> sleep;     // empty = really sleep
     std::function<std::string()> makeUuid;         // empty = a random UUID v4 from the operating system
-    std::string defaultEndpoint = compiled_share_endpoint();               // "" = sharing is unavailable
-    std::string githubClientId = compiled_github_client_id();              // "" = GitHub sign-in is unavailable
-    std::string platform;                          // "" = the platform of this build (macos, windows, linux, other)
-    std::string engineVersion;                     // "" = FA_ENGINE_VERSION
-    double lockStaleSec = 10.0;                    // a lock file not refreshed for this long (or dated this far in the future) was left by a dead process: taken over
-    double lockWaitSec = 12.0;                     // the longest wait for a busy lock (more than lockStaleSec: a dead holder is always beaten).
-                                                   // The editor's UI thread uses 0.3 (ui_share_env in the editor): it never waits for seconds
+    std::string defaultEndpoint = compiled_share_endpoint();   // "" = sharing is unavailable
+    std::string githubClientId = compiled_github_client_id();  // "" = GitHub sign-in is unavailable
+    std::string platform;       // "" = the platform of this build (macos, windows, linux, other)
+    std::string engineVersion;  // "" = FA_ENGINE_VERSION
+    double lockStaleSec =
+        10.0;  // a lock file not refreshed for this long (or dated this far in the future) was left by a dead process: taken over
+    double lockWaitSec =
+        12.0;  // the longest wait for a busy lock (more than lockStaleSec: a dead holder is always beaten).
+               // The editor's UI thread uses 0.3 (ui_share_env in the editor): it never waits for seconds
 
     std::int64_t clock() const;
     std::string config_dir() const;
@@ -105,19 +107,19 @@ private:
 // ----------------------------------------------------------------------------------------------------------------- settings
 
 enum class ShareMode { Unset, Always, Ask, Never };
-const char* share_mode_name(ShareMode mode);                // "unset" | "always" | "ask" | "never"
+const char* share_mode_name(ShareMode mode);  // "unset" | "always" | "ask" | "never"
 std::optional<ShareMode> parse_share_mode(std::string_view name);
 
 struct ShareSettings {
     ShareMode mode = ShareMode::Unset;  // the default: what every project without its own choice follows
     // The projects that chose their own mode (always, ask or never), by share_project_key. Absent = follow `mode`.
     std::map<std::string, ShareMode> projects;
-    std::string installId;    // random UUID v4, created on the first send; tied to no project
-    std::string credential;   // from the GitHub sign-in; "" = anonymous
-    std::string login;        // GitHub login, shown to the user only
-    std::string endpoint;     // overrides the compiled-in one (tests, self-hosting)
-    std::string path;         // the file it was read from
-    std::string warning;      // the file existed but could not be read: it reads as unset
+    std::string installId;      // random UUID v4, created on the first send; tied to no project
+    std::string credential;     // from the GitHub sign-in; "" = anonymous
+    std::string login;          // GitHub login, shown to the user only
+    std::string endpoint;       // overrides the compiled-in one (tests, self-hosting)
+    std::string path;           // the file it was read from
+    std::string warning;        // the file existed but could not be read: it reads as unset
     Json raw = Json::object();  // the whole file: keys this version does not know are written back
 };
 
@@ -323,7 +325,7 @@ struct Removal {
 };
 
 struct SanitizedShare {
-    bool ok = false;          // false: the entry is not sent (see reason)
+    bool ok = false;  // false: the entry is not sent (see reason)
     std::string title, missing, suggestion, workaround;
     std::vector<Removal> removed;
     std::vector<std::string> problems;  // why it is not ok, one sentence each
@@ -350,9 +352,10 @@ Json build_share_payload(const ShareEnv& env, const std::vector<Json>& entries);
 enum class OutboxState { Queued, Waiting };  // Waiting: mode `ask`, the user has not confirmed it yet
 
 struct OutboxItem {
-    std::string key;      // share_project_key(file) + "#" + localId: an entry is in the outbox once
-    std::string file;     // the project's ENGINE_FEEDBACK.json (kept locally to write `shared` back; never sent). Stored in UTF-8
-                          // (a value an older version wrote in the system code page is read as it is)
+    std::string key;  // share_project_key(file) + "#" + localId: an entry is in the outbox once
+    std::string
+        file;  // the project's ENGINE_FEEDBACK.json (kept locally to write `shared` back; never sent). Stored in UTF-8
+               // (a value an older version wrote in the system code page is read as it is)
     // share_project_key of the project, stored when the entry was queued (written as "project"): the mode of the item is the
     // one of this key, never one worked out again later. "" = an item an older version queued: it waits for the user's
     // answer (state Waiting) whatever the mode.
@@ -364,7 +367,7 @@ struct OutboxItem {
     // checks it: an item of "always" is sent only while its project's mode is still always, else it goes back to
     // Waiting. "" for Waiting items; an older Queued item without the field reads as "always".
     std::string confirmedBy;
-    Json entry;           // the sanitized entry, as sent
+    Json entry;  // the sanitized entry, as sent
     int attempts = 0;
     std::int64_t queuedAt = 0;
     std::int64_t nextAttempt = 0;  // not before this time (seconds since 1970)
@@ -389,11 +392,11 @@ bool entry_is_shareable(const Json& entry);
 // -------------------------------------------------------------------------------------------------------- queue and send
 
 struct ShareEntryReport {
-    std::string id;           // FB-0003
-    std::string status;       // queued | waiting | sent | rejected | skipped | none
-    std::string reason;       // why not (rejected, skipped)
+    std::string id;      // FB-0003
+    std::string status;  // queued | waiting | sent | rejected | skipped | none
+    std::string reason;  // why not (rejected, skipped)
     Json removed = Json::array();
-    Json entry;               // the sanitized entry (when it passes)
+    Json entry;  // the sanitized entry (when it passes)
 };
 
 struct QueueResult {
@@ -451,8 +454,8 @@ Result<void> share_skip(const ShareEnv& env, const std::string& feedbackFile, co
                         const std::string& reason = "left out when sending feedback");
 
 // The preview: {mode, entries: [{id, ok, sent?, reason?, removed}], note}. Nothing is queued, sent or written.
-Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir, const EngineNames& engine,
-                   const std::vector<std::string>& ids = {});
+Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir,
+                   const EngineNames& engine, const std::vector<std::string>& ids = {});
 // {mode (the effective one for `projectDir`), default, project?{dir, name (both UTF-8), mode (own, "default" = follows), source}, available,
 // endpoint, signedIn, login?, warning?, howToFix?, howToTurnOn?, outbox{queued, waitingForConfirmation, blocked,
 // failed[]}, lastSend?}. `blocked`: items whose project's mode is never or not set up (they are not sent). Without
@@ -469,11 +472,11 @@ Json share_report_summary(const ShareEnv& env, const std::string& feedbackFile, 
 Result<void> share_discard(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids);
 
 struct VerdictResult {
-    int checked = 0;                  // shareIds asked about
-    int declined = 0;                 // entries the engine developer rejected since the last time: now rejected here
-    int restored = 0;                 // entries whose rejection was taken back: sent (and open) again
-    std::vector<std::string> changed; // their ids
-    std::string outcome;              // ok | idle | off | unavailable | unsupported | failed
+    int checked = 0;                   // shareIds asked about
+    int declined = 0;                  // entries the engine developer rejected since the last time: now rejected here
+    int restored = 0;                  // entries whose rejection was taken back: sent (and open) again
+    std::vector<std::string> changed;  // their ids
+    std::string outcome;               // ok | idle | off | unavailable | unsupported | failed
     std::string message;
 };
 // Asks the server (POST /v1/verdicts, authenticated by the installation header) what the engine developers decided about the
@@ -486,7 +489,8 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
 // Writes `shared` ({status, date, shareId?, reason?}) into entry `localId` of the feedback file (or its archive).
 // A null `shared` removes it.
 void write_entry_shared(const std::string& feedbackFile, const std::string& localId, const Json& shared);
-void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, const std::string& localId, const Json& shared);  // under `env`'s lock
+void write_entry_shared(const ShareEnv& env, const std::string& feedbackFile, const std::string& localId,
+                        const Json& shared);  // under `env`'s lock
 
 // ------------------------------------------------------------------------------------------------------------ GitHub sign-in
 

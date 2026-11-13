@@ -43,8 +43,8 @@ float music_layer_gain(float intensity, float threshold, float range);
 
 // What the device is, for choosing between live synthesis and stems (Engine::device_info()).
 struct MusicDeviceProfile {
-    std::string formFactor = "desktop";   // "desktop" | "phone" | "tablet"
-    std::string tier = "high";            // "low" | "medium" | "high"
+    std::string formFactor = "desktop";  // "desktop" | "phone" | "tablet"
+    std::string tier = "high";           // "low" | "medium" | "high"
     bool web = false;
 };
 
@@ -54,49 +54,49 @@ struct MusicDeviceProfile {
 // `stemsAvailable` is whether the song has stem files: auto without them is live, and an explicit "stems" without them is live
 // as well (the caller warns). `stemsStale` is MusicStemPlan::stale: the song is not the one the stems were rendered from, so "auto"
 // plays it live (a song edit is heard at once, as a live song's is) while an explicit "stems" still plays the files.
-MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable, std::string* why = nullptr,
-                             bool stemsStale = false);
+MusicMode music_resolve_mode(MusicMode mode, const MusicDeviceProfile& device, bool stemsAvailable,
+                             std::string* why = nullptr, bool stemsStale = false);
 
 // ---- The timeline ----------------------------------------------------------------------------------------------------------------
 
-struct MusicMark {            // a beat of the song (a strong beat: every beat, or every dotted quarter in compound time)
+struct MusicMark {  // a beat of the song (a strong beat: every beat, or every dotted quarter in compound time)
     double frame = 0.0;
-    std::int32_t bar = 1;     // 1-based bar of the song
-    std::int32_t beat = 1;    // 1-based beat of the bar
-    std::int32_t span = 0;    // index in MusicMap::spans of the section pass this beat is in
+    std::int32_t bar = 1;   // 1-based bar of the song
+    std::int32_t beat = 1;  // 1-based beat of the bar
+    std::int32_t span = 0;  // index in MusicMap::spans of the section pass this beat is in
     bool sectionStart = false;
 };
 
-struct MusicSpan {            // one play of a section
-    std::int32_t section = 0; // index in MusicMap::sections
-    std::int32_t pass = 0;    // 0-based repeat
+struct MusicSpan {                  // one play of a section
+    std::int32_t section = 0;       // index in MusicMap::sections
+    std::int32_t pass = 0;          // 0-based repeat
     double start = 0.0, end = 0.0;  // frames
     std::int32_t startBar = 1;      // 1-based
     std::int32_t bars = 0;
 };
 
 struct MusicSection {
-    std::string name, kind;   // kind: intro | loop | outro | section
+    std::string name, kind;  // kind: intro | loop | outro | section
     std::int32_t firstSpan = 0;
 };
 
 struct MusicMap {
-    double tempo = 120.0;               // quarter notes per minute
+    double tempo = 120.0;  // quarter notes per minute
     SongMeter meter;
     double barFrames = 0.0, beatFrames = 0.0;  // beatFrames: one strong beat
-    double musicEnd = 0.0;              // frame where the music (without the tail) ends
-    std::int64_t frames = 0;            // length of each stem
+    double musicEnd = 0.0;                     // frame where the music (without the tail) ends
+    std::int64_t frames = 0;                   // length of each stem
     std::vector<MusicSection> sections;
     std::vector<MusicSpan> spans;
-    std::vector<MusicMark> marks;       // sorted by frame
+    std::vector<MusicMark> marks;  // sorted by frame
     bool hasLoop = false;
     double loopStart = 0.0, loopEnd = 0.0;  // the loop sections, whole
-    double playEnd = 0.0;               // where a play-through stops (the end of the last outro, else the end of the clip)
-    double endFade = 0.0;               // frames of fade-out at playEnd (0 when the clip's own tail follows)
+    double playEnd = 0.0;  // where a play-through stops (the end of the last outro, else the end of the clip)
+    double endFade = 0.0;  // frames of fade-out at playEnd (0 when the clip's own tail follows)
 
-    int section_index(std::string_view name) const;       // -1 when unknown
+    int section_index(std::string_view name) const;  // -1 when unknown
     std::vector<std::string> section_names() const;
-    int span_at(double frame) const;                      // the span a frame is in (-1 outside the music)
+    int span_at(double frame) const;  // the span a frame is in (-1 outside the music)
     // 1-based bar and beat of a frame.
     void position(double frame, int& bar, int& beat) const;
 };
@@ -121,24 +121,25 @@ class MusicStemStream;  // src/music_stream.h (private): a stem that streams fro
 
 struct MusicStem {
     std::string name;
-    float threshold = 0.0f;          // intensity at which the stem is full
-    float scale = 1.0f;              // sample = pcm * scale (the 16-bit PCM is normalized to the stem's peak); 1 for a streamed stem
-    std::vector<std::int16_t> pcm;   // interleaved stereo, kMusicRate; empty for a streamed stem
+    float threshold = 0.0f;  // intensity at which the stem is full
+    float scale =
+        1.0f;  // sample = pcm * scale (the 16-bit PCM is normalized to the stem's peak); 1 for a streamed stem
+    std::vector<std::int16_t> pcm;  // interleaved stereo, kMusicRate; empty for a streamed stem
     // Set: the stem streams from its encoded file (a window of decoded chunks, kept ahead by decode jobs) and `pcm` is empty.
     std::shared_ptr<audio_detail::MusicStemStream> stream;
-    std::int64_t streamFrames = 0;   // the length of a streamed stem
+    std::int64_t streamFrames = 0;  // the length of a streamed stem
     std::size_t frames() const { return stream ? std::size_t(streamFrames) : pcm.size() / 2; }
-    std::size_t bytes() const;       // what the stem holds in memory: the PCM, or a streamed stem's window and encoded bytes
+    std::size_t bytes() const;  // what the stem holds in memory: the PCM, or a streamed stem's window and encoded bytes
 };
 
 struct MusicSource {
-    std::string path;                // the song
-    std::string mode;                // "live" | "stems": how it was made
+    std::string path;  // the song
+    std::string mode;  // "live" | "stems": how it was made
     MusicMap map;
     std::vector<MusicStem> stems;
-    bool layered = false;            // the stems are the song's layers (intensity does something)
-    std::size_t bytes() const;       // the memory of every stem (MusicStem::bytes)
-    bool streamed() const;           // the stems stream from their ogg files
+    bool layered = false;       // the stems are the song's layers (intensity does something)
+    std::size_t bytes() const;  // the memory of every stem (MusicStem::bytes)
+    bool streamed() const;      // the stems stream from their ogg files
     // Blocks in which the mixer found a streamed stem's chunk not decoded and played silence, and the frames of that silence, over the stems.
     std::uint64_t underrun_events() const;
     std::uint64_t underrun_frames() const;
@@ -153,7 +154,8 @@ MusicStem music_make_stem(std::string name, float threshold, const std::vector<f
 
 // Renders the song to a source: the song's layers as stems (the song as one stem when it declares none). Deterministic. Synchronous,
 // takes seconds for a long song: a windowed player runs it on a worker thread.
-Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, const SongTimeline& timeline, std::string path);
+Result<std::shared_ptr<MusicSource>> music_render_source(const SongDoc& song, const SongTimeline& timeline,
+                                                         std::string path);
 
 // One stem file of import.music.
 struct MusicStemFile {
@@ -164,7 +166,8 @@ struct MusicStemFile {
 struct MusicStemPlan {
     std::string mixPath;
     std::vector<MusicStemFile> files;
-    std::string stream = "auto";   // import.music.stream: "auto" (stems of 20 s or more stream), "always" or "never" (decode whole)
+    std::string stream =
+        "auto";  // import.music.stream: "auto" (stems of 20 s or more stream), "always" or "never" (decode whole)
     // The song file is not the one music.render rendered the stems from: the sha256 the mix entry recorded for it (provenance.recipe.inputs)
     // differs from the file's now. False when the entry records none or the song cannot be read.
     bool stale = false;
@@ -172,25 +175,27 @@ struct MusicStemPlan {
 MusicStemPlan music_stem_plan_of(std::string_view songPath);
 // Reads the stem files of `plan` (whole, into 16-bit PCM). Fails with a hint when a file is missing, the stems differ in length, or
 // they are shorter than the song now is (the song changed after music.render).
-Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const SongTimeline& timeline, std::string path, const MusicStemPlan& plan);
+Result<std::shared_ptr<MusicSource>> music_load_stems(const SongDoc& song, const SongTimeline& timeline,
+                                                      std::string path, const MusicStemPlan& plan);
 
 // Loads the song at `path` and makes its source in `mode` (live or stems; auto is taken as live): the whole step a player does when it
 // starts, and what a worker thread runs. `plan` is music_stem_plan_of(path), read on the game thread. When the stems cannot be used
 // the song is rendered live and `note` says why (empty otherwise).
-Result<std::shared_ptr<MusicSource>> music_load_source(std::string path, MusicMode mode, const MusicStemPlan& plan, std::string* note);
+Result<std::shared_ptr<MusicSource>> music_load_source(std::string path, MusicMode mode, const MusicStemPlan& plan,
+                                                       std::string* note);
 
 // A stinger: a short piece that plays over the music, from the next boundary on (Audio::music_play_stinger, MusicAPI.playStinger).
 struct MusicStingerSpec {
-    std::string clip;                 // an audio clip to play (its voice starts on the boundary's frame)
-    std::string section;              // or a section of the playing song, played with all its layers (set one of the two)
-    std::optional<MusicQuantize> quantize;   // when it starts (empty: the player's `quantize`)
-    float volume = 1.0f;              // 0..4, on top of the player's volume (a clip) or of the song (a section)
-    float tail = 1.5f;                // a section stinger: seconds of what rings after the section ends
-    std::string bus;                  // a clip stinger: the bus (empty: the player's)
-    float duck = 0.0f;                // 0..1: how much the music dips while the stinger plays (0 = it does not)
-    float duckAttack = 0.05f;         // seconds to dip
-    float duckHold = -1.0f;           // seconds the dip lasts before it recovers (negative: the length of the clip or section)
-    float duckRelease = 0.5f;         // seconds to come back
+    std::string clip;     // an audio clip to play (its voice starts on the boundary's frame)
+    std::string section;  // or a section of the playing song, played with all its layers (set one of the two)
+    std::optional<MusicQuantize> quantize;  // when it starts (empty: the player's `quantize`)
+    float volume = 1.0f;                    // 0..4, on top of the player's volume (a clip) or of the song (a section)
+    float tail = 1.5f;                      // a section stinger: seconds of what rings after the section ends
+    std::string bus;                        // a clip stinger: the bus (empty: the player's)
+    float duck = 0.0f;                      // 0..1: how much the music dips while the stinger plays (0 = it does not)
+    float duckAttack = 0.05f;               // seconds to dip
+    float duckHold = -1.0f;    // seconds the dip lasts before it recovers (negative: the length of the clip or section)
+    float duckRelease = 0.5f;  // seconds to come back
 };
 
 // What a music call scheduled (Audio::music_go_to_section, music_set_intensity, music_crossfade_to; the script and command results).
@@ -199,7 +204,7 @@ struct MusicStingerSpec {
 // the change cannot be placed yet (nothing plays, or the song is still loading): then the player's state says when it happened.
 struct MusicChange {
     std::optional<std::uint64_t> frame;
-    double time = 0.0;                       // seconds of the audio clock, frame / device rate
+    double time = 0.0;  // seconds of the audio clock, frame / device rate
     MusicQuantize quantize = MusicQuantize::None;
     Json to_json() const;
 };
@@ -225,10 +230,10 @@ struct MusicStatus {
     std::string bus = "music";
     std::vector<std::string> sections;  // the sections of the song (empty until it is loaded)
     std::vector<std::string> stems;
-    std::vector<float> stemGains;     // the gain each stem has now
-    int pending = 0;                  // quantized changes waiting for their boundary
-    int heads = 0;                    // playheads sounding (more than one during a transition)
-    std::string error;                // why it could not start
+    std::vector<float> stemGains;  // the gain each stem has now
+    int pending = 0;               // quantized changes waiting for their boundary
+    int heads = 0;                 // playheads sounding (more than one during a transition)
+    std::string error;             // why it could not start
     Json to_json() const;
 };
 

@@ -16,10 +16,19 @@ struct Hasher {
     std::uint64_t h = 1469598103934665603ull;
     void bytes(const void* p, std::size_t n) {
         const auto* b = static_cast<const unsigned char*>(p);
-        for (std::size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
+        for (std::size_t i = 0; i < n; ++i) {
+            h ^= b[i];
+            h *= 1099511628211ull;
+        }
     }
-    template <class T> void add(const T& v) { bytes(&v, sizeof(T)); }
-    void add(float v) { if (v == 0.0f) v = 0.0f; bytes(&v, sizeof v); }  // -0 == +0
+    template <class T>
+    void add(const T& v) {
+        bytes(&v, sizeof(T));
+    }
+    void add(float v) {
+        if (v == 0.0f) v = 0.0f;
+        bytes(&v, sizeof v);
+    }  // -0 == +0
 };
 
 float wrap_pi(float a) {
@@ -44,15 +53,30 @@ std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const 
     Hasher h;
     h.add(rb != nullptr);
     if (rb) {
-        h.add(rb->type); h.add(rb->gravityScale); h.add(rb->linearDamping); h.add(rb->angularDamping);
-        h.add(rb->fixedRotation); h.add(rb->bullet);
+        h.add(rb->type);
+        h.add(rb->gravityScale);
+        h.add(rb->linearDamping);
+        h.add(rb->angularDamping);
+        h.add(rb->fixedRotation);
+        h.add(rb->bullet);
     }
     h.add(col != nullptr);
     if (col) {
-        h.add(col->shape); h.add(col->size.x); h.add(col->size.y); h.add(col->radius);
-        h.add(col->offset.x); h.add(col->offset.y); h.add(col->isTrigger); h.add(col->friction);
-        h.add(col->restitution); h.add(col->density); h.add(col->oneWay); h.add(col->layer); h.add(col->mask);
-        h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
+        h.add(col->shape);
+        h.add(col->size.x);
+        h.add(col->size.y);
+        h.add(col->radius);
+        h.add(col->offset.x);
+        h.add(col->offset.y);
+        h.add(col->isTrigger);
+        h.add(col->friction);
+        h.add(col->restitution);
+        h.add(col->density);
+        h.add(col->oneWay);
+        h.add(col->layer);
+        h.add(col->mask);
+        h.add(scale_key(pose.scale.x));
+        h.add(scale_key(pose.scale.y));
     }
     return h.h;
 }
@@ -69,9 +93,14 @@ std::vector<int> read_solid(const Tilemap& tm) {
 // What forces a whole-body rebuild: everything about a Tilemap's collision except which tile is where.
 std::uint64_t hash_tilemap_layout(const Tilemap& tm, const TilemapSize& size, const WorldPose& pose) {
     Hasher h;
-    h.add(size.width); h.add(size.height); h.add(tm.tileSize.x); h.add(tm.tileSize.y);
-    h.add(int(tm.projection)); h.add(tilemap_ground_height(tm));  // the diamonds of an isometric map are not boxes
-    h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
+    h.add(size.width);
+    h.add(size.height);
+    h.add(tm.tileSize.x);
+    h.add(tm.tileSize.y);
+    h.add(int(tm.projection));
+    h.add(tilemap_ground_height(tm));  // the diamonds of an isometric map are not boxes
+    h.add(scale_key(pose.scale.x));
+    h.add(scale_key(pose.scale.y));
     if (tm.solidTiles.is_array())
         for (const Json& j : tm.solidTiles)
             if (j.is_number()) h.add(tile_index(int(j.get<double>())));
@@ -90,7 +119,8 @@ std::uint64_t cell_mix(int cell, int index) {
 std::uint64_t hash_tilemap_tiles(const Tilemap& tm, const TilemapSize& size) {
     std::uint64_t sum = 0;
     for (int r = 0; r < size.height; ++r)
-        for (int c = 0; c < size.width; ++c) sum += cell_mix(r * size.width + c, tile_index(tilemap_tile_at(tm, size, c, r)));
+        for (int c = 0; c < size.width; ++c)
+            sum += cell_mix(r * size.width + c, tile_index(tilemap_tile_at(tm, size, c, r)));
     return sum;
 }
 
@@ -347,8 +377,10 @@ void Physics2D::sync_entity(World& world, Entity e, RigidBody2D* rb, Collider2D*
 
     const bool active = world.active_in_hierarchy(e);
     if (active != b.enabled) {
-        if (active) b2Body_Enable(b.body);
-        else b2Body_Disable(b.body);
+        if (active)
+            b2Body_Enable(b.body);
+        else
+            b2Body_Disable(b.body);
         b.enabled = active;
     }
     if (!active) return;
@@ -413,7 +445,8 @@ void Physics2D::sync_tilemaps(World& world) {
                 // The edits explain the change exactly when applying them to the old hash gives the new one; any other
                 // difference (a whole-array write, a bypass) rebuilds the body.
                 std::uint64_t expected = old.tilesHash;
-                for (const TileEdit& ed : edits) expected += cell_mix(ed.cell, ed.newIndex) - cell_mix(ed.cell, ed.oldIndex);
+                for (const TileEdit& ed : edits)
+                    expected += cell_mix(ed.cell, ed.newIndex) - cell_mix(ed.cell, ed.oldIndex);
                 if (!edits.empty() && expected == tilesHash) {
                     patch = true;
                 } else {
@@ -425,7 +458,8 @@ void Physics2D::sync_tilemaps(World& world) {
         const bool active = world.active_in_hierarchy(e);
 
         const bool iso = tilemap_isometric(*tm);
-        const float tw = tm->tileSize.x * pose.scale.x, th = (iso ? tilemap_ground_height(*tm) : tm->tileSize.y) * pose.scale.y;
+        const float tw = tm->tileSize.x * pose.scale.x,
+                    th = (iso ? tilemap_ground_height(*tm) : tm->tileSize.y) * pose.scale.y;
         b2ShapeDef sd = b2DefaultShapeDef();
         sd.material.friction = 0.5f;
         sd.material.restitution = 0.0f;
@@ -436,7 +470,9 @@ void Physics2D::sync_tilemaps(World& world) {
         sd.enableHitEvents = true;
         // Horizontal runs per row, then identical runs of consecutive rows merged into taller boxes, over the cells
         // c0..c1 x r0..r1 for which `is_solid(c, r)` holds.
-        struct CellRun { int c0, c1, r0, r1; };
+        struct CellRun {
+            int c0, c1, r0, r1;
+        };
         auto make_runs = [&](int c0, int c1, int r0, int r1, auto&& is_solid) {
             std::vector<CellRun> runs;
             if (iso) {  // a diamond is its own shape: one per solid cell, nothing to merge
@@ -450,7 +486,10 @@ void Physics2D::sync_tilemaps(World& world) {
                 std::vector<std::size_t> curIdx;
                 int c = c0;
                 while (c <= c1) {
-                    if (!is_solid(c, r)) { ++c; continue; }
+                    if (!is_solid(c, r)) {
+                        ++c;
+                        continue;
+                    }
                     int start = c;
                     while (c <= c1 && is_solid(c, r)) ++c;
                     bool found = false;
@@ -477,7 +516,10 @@ void Physics2D::sync_tilemaps(World& world) {
                 // The diamond of tile (c, r): centre ((c - r) * tw / 2, -(c + r + 1) * th / 2) (tw, th = the footprint, scaled).
                 const float cx = float(run.c0 - run.r0) * tw * 0.5f, cy = -float(run.c0 + run.r0 + 1) * th * 0.5f;
                 const float hx = std::max(tw * 0.5f * inv, kMinHalf), hy = std::max(th * 0.5f * inv, kMinHalf);
-                const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy}, {cx * inv - hx, cy * inv}, {cx * inv, cy * inv - hy}, {cx * inv + hx, cy * inv}};
+                const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy},
+                                       {cx * inv - hx, cy * inv},
+                                       {cx * inv, cy * inv - hy},
+                                       {cx * inv + hx, cy * inv}};
                 const b2Hull hull = b2ComputeHull(pts, 4);
                 const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
                 b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
@@ -502,9 +544,12 @@ void Physics2D::sync_tilemaps(World& world) {
             // Only the boxes touching a changed tile are rebuilt: those boxes' cells plus the newly solid cells are
             // re-merged into runs, and the other boxes stay as they are.
             TileBody& tb = it->second;
-            auto is_solid_index = [&](int t) { return t >= 0 && std::binary_search(tb.solid.begin(), tb.solid.end(), t); };
+            auto is_solid_index = [&](int t) {
+                return t >= 0 && std::binary_search(tb.solid.begin(), tb.solid.end(), t);
+            };
             auto solid_at = [&](int c, int r) {
-                return is_solid_index(tile_index(tilemap_tile_at(*tm, size, c, r)));  // a flipped solid tile is still solid
+                return is_solid_index(
+                    tile_index(tilemap_tile_at(*tm, size, c, r)));  // a flipped solid tile is still solid
             };
             std::vector<std::pair<int, int>> changed;  // cells whose collision changed
             for (const TileEdit& ed : edits)
@@ -512,17 +557,30 @@ void Physics2D::sync_tilemaps(World& world) {
                     changed.push_back({ed.cell % tb.cols, ed.cell / tb.cols});
             if (!changed.empty()) {
                 int c0 = tb.cols, c1 = -1, r0 = tb.rows, r1 = -1;
-                auto grow = [&](int c, int r) { c0 = std::min(c0, c); c1 = std::max(c1, c); r0 = std::min(r0, r); r1 = std::max(r1, r); };
+                auto grow = [&](int c, int r) {
+                    c0 = std::min(c0, c);
+                    c1 = std::max(c1, c);
+                    r0 = std::min(r0, r);
+                    r1 = std::max(r1, r);
+                };
                 std::vector<bool> drop(tb.runs.size(), false);
                 for (std::size_t i = 0; i < tb.runs.size(); ++i)
                     for (const auto& [c, r] : changed)
-                        if (c >= tb.runs[i].c0 && c <= tb.runs[i].c1 && r >= tb.runs[i].r0 && r <= tb.runs[i].r1) { drop[i] = true; break; }
+                        if (c >= tb.runs[i].c0 && c <= tb.runs[i].c1 && r >= tb.runs[i].r0 && r <= tb.runs[i].r1) {
+                            drop[i] = true;
+                            break;
+                        }
                 for (std::size_t i = 0; i < tb.runs.size(); ++i)
-                    if (drop[i]) { grow(tb.runs[i].c0, tb.runs[i].r0); grow(tb.runs[i].c1, tb.runs[i].r1); }
+                    if (drop[i]) {
+                        grow(tb.runs[i].c0, tb.runs[i].r0);
+                        grow(tb.runs[i].c1, tb.runs[i].r1);
+                    }
                 for (const auto& [c, r] : changed) grow(c, r);
                 const int rw = c1 - c0 + 1, rh = r1 - r0 + 1;
                 std::vector<bool> region(std::size_t(rw) * std::size_t(rh), false);  // cell is part of the rebuilt area
-                auto mark = [&](int c, int r) { region[std::size_t(r - r0) * std::size_t(rw) + std::size_t(c - c0)] = true; };
+                auto mark = [&](int c, int r) {
+                    region[std::size_t(r - r0) * std::size_t(rw) + std::size_t(c - c0)] = true;
+                };
                 for (std::size_t i = 0; i < tb.runs.size(); ++i)
                     if (drop[i])
                         for (int r = tb.runs[i].r0; r <= tb.runs[i].r1; ++r)
@@ -555,7 +613,8 @@ void Physics2D::sync_tilemaps(World& world) {
             }
             const int w = size.width, hgt = size.height;
             auto is_solid = [&](int c, int r) {
-                const int t = tile_index(tilemap_tile_at(*tm, size, c, r));  // a flipped or rotated solid tile is still solid
+                const int t =
+                    tile_index(tilemap_tile_at(*tm, size, c, r));  // a flipped or rotated solid tile is still solid
                 return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
             };
             TileBody tb;
@@ -587,8 +646,10 @@ void Physics2D::sync_tilemaps(World& world) {
             tb.rotZ = pose.rotZ;
         }
         if (active != b2Body_IsEnabled(tb.body)) {
-            if (active) b2Body_Enable(tb.body);
-            else b2Body_Disable(tb.body);
+            if (active)
+                b2Body_Enable(tb.body);
+            else
+                b2Body_Disable(tb.body);
         }
     }
 }
@@ -616,7 +677,8 @@ void Physics2D::writeback(World& world, Entity e, Body& b, RigidBody2D* rb) {
     }
     if (rb) {
         b2Vec2 v = b2Body_GetLinearVelocity(b.body);
-        rb->velocity = {(v.x - b.carryVel.x) * ppm, (v.y - b.carryVel.y) * ppm};  // relative to the platform carrying it
+        rb->velocity = {(v.x - b.carryVel.x) * ppm,
+                        (v.y - b.carryVel.y) * ppm};  // relative to the platform carrying it
         rb->angularVelocity = degrees(b2Body_GetAngularVelocity(b.body));
         b.lastVel = rb->velocity;
         b.lastAngVel = rb->angularVelocity;
@@ -687,7 +749,8 @@ void Physics2D::collect_events(World& world) {
         }
         out.push_back(c);
     };
-    for (int i = 0; i < se.beginCount; ++i) sensor_event(se.beginEvents[i].sensorShapeId, se.beginEvents[i].visitorShapeId, CollisionEvent::Phase::Begin);
+    for (int i = 0; i < se.beginCount; ++i)
+        sensor_event(se.beginEvents[i].sensorShapeId, se.beginEvents[i].visitorShapeId, CollisionEvent::Phase::Begin);
     for (int i = 0; i < se.endCount; ++i) {
         // Shapes may already be destroyed; the lookup table still knows them for one more step.
         sensor_event(se.endEvents[i].sensorShapeId, se.endEvents[i].visitorShapeId, CollisionEvent::Phase::End);
@@ -699,9 +762,18 @@ namespace {
 b2AABB tight_aabb(b2ShapeId id) {
     const b2Transform xf = b2Body_GetTransform(b2Shape_GetBody(id));
     switch (b2Shape_GetType(id)) {
-        case b2_circleShape: { b2Circle c = b2Shape_GetCircle(id); return b2ComputeCircleAABB(&c, xf); }
-        case b2_capsuleShape: { b2Capsule c = b2Shape_GetCapsule(id); return b2ComputeCapsuleAABB(&c, xf); }
-        case b2_polygonShape: { b2Polygon p = b2Shape_GetPolygon(id); return b2ComputePolygonAABB(&p, xf); }
+        case b2_circleShape: {
+            b2Circle c = b2Shape_GetCircle(id);
+            return b2ComputeCircleAABB(&c, xf);
+        }
+        case b2_capsuleShape: {
+            b2Capsule c = b2Shape_GetCapsule(id);
+            return b2ComputeCapsuleAABB(&c, xf);
+        }
+        case b2_polygonShape: {
+            b2Polygon p = b2Shape_GetPolygon(id);
+            return b2ComputePolygonAABB(&p, xf);
+        }
         default: return b2Shape_GetAABB(id);
     }
 }
@@ -816,7 +888,8 @@ void Physics2D::find_carriers() {
             const bool weAreA = B2_ID_EQUALS(b2Shape_GetBody(c.shapeIdA), b.body);
             const b2ShapeId other = weAreA ? c.shapeIdB : c.shapeIdA;
             if (b2Body_GetType(b2Shape_GetBody(other)) != b2_kinematicBody || b2Shape_IsSensor(other)) continue;
-            const b2Vec2 up = weAreA ? b2Vec2{-c.manifold.normal.x, -c.manifold.normal.y} : c.manifold.normal;  // platform -> us
+            const b2Vec2 up =
+                weAreA ? b2Vec2{-c.manifold.normal.x, -c.manifold.normal.y} : c.manifold.normal;  // platform -> us
             float sep = c.manifold.points[0].separation;
             if (c.manifold.pointCount > 1) sep = std::min(sep, c.manifold.points[1].separation);
             if (up.y > 0.7f && sep <= 0.02f) b.carrier = entity_of(other);
@@ -834,7 +907,8 @@ float clamp_hinge_deg(float deg) { return std::clamp(deg, -178.0f, 178.0f); }
 void Physics2D::destroy_joint(std::uint64_t key) {
     auto it = joints_.find(key);
     if (it == joints_.end()) return;
-    if (B2_IS_NON_NULL(it->second.joint) && b2Joint_IsValid(it->second.joint)) b2DestroyJoint(it->second.joint);  // not after its body died
+    if (B2_IS_NON_NULL(it->second.joint) && b2Joint_IsValid(it->second.joint))
+        b2DestroyJoint(it->second.joint);  // not after its body died
     joints_.erase(it);
 }
 
@@ -861,7 +935,9 @@ void Physics2D::sync_joints(World& world) {
         if (!problem.empty()) {
             destroy_joint(key);
             if (jointWarned_.insert(key).second)
-                FA_WARN("physics", "Joint2D on '{}' is ignored: {}. Add a RigidBody2D to both entities, or leave `connected` empty to pin the joint to the world.",
+                FA_WARN("physics",
+                        "Joint2D on '{}' is ignored: {}. Add a RigidBody2D to both entities, or leave `connected` "
+                        "empty to pin the joint to the world.",
                         world.id_of(e), problem);
             continue;
         }
@@ -882,16 +958,35 @@ void Physics2D::sync_joints(World& world) {
 
         // What makes a different joint: rebuilt when it changes (the bodies themselves included, a rebuilt body loses its joints).
         Hasher sh;
-        sh.add(j->type); sh.add(j->connected.bits()); sh.add(j->collideConnected);
-        sh.add(j->anchor.x); sh.add(j->anchor.y); sh.add(j->connectedAnchor.x); sh.add(j->connectedAnchor.y);
-        sh.add(j->axis.x); sh.add(j->axis.y);
-        sh.add(scale_key(poseA.scale.x)); sh.add(scale_key(poseA.scale.y));
-        sh.add(scale_key(poseB.scale.x)); sh.add(scale_key(poseB.scale.y));
-        sh.add(bodyA.index1); sh.add(bodyA.generation); sh.add(bodyB.index1); sh.add(bodyB.generation);
+        sh.add(j->type);
+        sh.add(j->connected.bits());
+        sh.add(j->collideConnected);
+        sh.add(j->anchor.x);
+        sh.add(j->anchor.y);
+        sh.add(j->connectedAnchor.x);
+        sh.add(j->connectedAnchor.y);
+        sh.add(j->axis.x);
+        sh.add(j->axis.y);
+        sh.add(scale_key(poseA.scale.x));
+        sh.add(scale_key(poseA.scale.y));
+        sh.add(scale_key(poseB.scale.x));
+        sh.add(scale_key(poseB.scale.y));
+        sh.add(bodyA.index1);
+        sh.add(bodyA.generation);
+        sh.add(bodyB.index1);
+        sh.add(bodyB.generation);
         // What is applied to the live joint.
         Hasher th;
-        th.add(j->enableLimit); th.add(j->lowerLimit); th.add(j->upperLimit); th.add(j->enableMotor); th.add(j->motorSpeed);
-        th.add(j->maxMotorTorque); th.add(j->enableSpring); th.add(j->springHertz); th.add(j->dampingRatio); th.add(j->length);
+        th.add(j->enableLimit);
+        th.add(j->lowerLimit);
+        th.add(j->upperLimit);
+        th.add(j->enableMotor);
+        th.add(j->motorSpeed);
+        th.add(j->maxMotorTorque);
+        th.add(j->enableSpring);
+        th.add(j->springHertz);
+        th.add(j->dampingRatio);
+        th.add(j->length);
 
         auto it = joints_.find(key);
         if (it != joints_.end() && (it->second.shape != sh.h || !b2Joint_IsValid(it->second.joint))) {
@@ -901,7 +996,8 @@ void Physics2D::sync_joints(World& world) {
         if (it == joints_.end()) {
             const b2Vec2 lb{j->anchor.x * poseA.scale.x * inv, j->anchor.y * poseA.scale.y * inv};
             const b2Vec2 la = toWorld ? b2Vec2{j->connectedAnchor.x * inv, j->connectedAnchor.y * inv}
-                                      : b2Vec2{j->connectedAnchor.x * poseB.scale.x * inv, j->connectedAnchor.y * poseB.scale.y * inv};
+                                      : b2Vec2{j->connectedAnchor.x * poseB.scale.x * inv,
+                                               j->connectedAnchor.y * poseB.scale.y * inv};
             JointRec rec;
             rec.type = j->type;
             rec.referenceAngle = b2RelativeAngle(b2Body_GetRotation(bodyB), b2Body_GetRotation(bodyA));
@@ -910,7 +1006,10 @@ void Physics2D::sync_joints(World& world) {
             switch (j->type) {
                 case JointType2D::Revolute: {
                     b2RevoluteJointDef d = b2DefaultRevoluteJointDef();
-                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.bodyIdA = bodyA;
+                    d.bodyIdB = bodyB;
+                    d.localAnchorA = la;
+                    d.localAnchorB = lb;
                     d.referenceAngle = rec.referenceAngle;
                     d.collideConnected = j->collideConnected;
                     rec.joint = b2CreateRevoluteJoint(world_, &d);
@@ -918,7 +1017,10 @@ void Physics2D::sync_joints(World& world) {
                 }
                 case JointType2D::Prismatic: {
                     b2PrismaticJointDef d = b2DefaultPrismaticJointDef();
-                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.bodyIdA = bodyA;
+                    d.bodyIdB = bodyB;
+                    d.localAnchorA = la;
+                    d.localAnchorB = lb;
                     const Vec2 ax = length(j->axis) > 1e-6f ? normalize(j->axis) : Vec2{1, 0};
                     d.localAxisA = {ax.x, ax.y};
                     d.referenceAngle = rec.referenceAngle;
@@ -928,7 +1030,10 @@ void Physics2D::sync_joints(World& world) {
                 }
                 case JointType2D::Distance: {
                     b2DistanceJointDef d = b2DefaultDistanceJointDef();
-                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.bodyIdA = bodyA;
+                    d.bodyIdB = bodyB;
+                    d.localAnchorA = la;
+                    d.localAnchorB = lb;
                     d.length = j->length > 0.0f ? j->length * inv : rec.restLength;
                     d.collideConnected = j->collideConnected;
                     rec.joint = b2CreateDistanceJoint(world_, &d);
@@ -936,7 +1041,10 @@ void Physics2D::sync_joints(World& world) {
                 }
                 case JointType2D::Weld: {
                     b2WeldJointDef d = b2DefaultWeldJointDef();
-                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.bodyIdA = bodyA;
+                    d.bodyIdB = bodyB;
+                    d.localAnchorA = la;
+                    d.localAnchorB = lb;
                     d.referenceAngle = rec.referenceAngle;
                     d.collideConnected = j->collideConnected;
                     rec.joint = b2CreateWeldJoint(world_, &d);
@@ -1026,20 +1134,15 @@ void Physics2D::read_joints(World& world) {
         j->reactionForce = {f.x * ppm, f.y * ppm};
         j->reactionTorque = b2Joint_GetConstraintTorque(rec.joint) * ppm * ppm;
         switch (rec.type) {
-            case JointType2D::Revolute:
-                j->angle = degrees(b2RevoluteJoint_GetAngle(rec.joint));
-                break;
+            case JointType2D::Revolute: j->angle = degrees(b2RevoluteJoint_GetAngle(rec.joint)); break;
             case JointType2D::Weld: {
-                const float rel = b2RelativeAngle(b2Body_GetRotation(b2Joint_GetBodyB(rec.joint)), b2Body_GetRotation(b2Joint_GetBodyA(rec.joint)));
+                const float rel = b2RelativeAngle(b2Body_GetRotation(b2Joint_GetBodyB(rec.joint)),
+                                                  b2Body_GetRotation(b2Joint_GetBodyA(rec.joint)));
                 j->angle = degrees(wrap_pi(rel - rec.referenceAngle));
                 break;
             }
-            case JointType2D::Prismatic:
-                j->translation = b2PrismaticJoint_GetTranslation(rec.joint) * ppm;
-                break;
-            case JointType2D::Distance:
-                j->translation = b2DistanceJoint_GetCurrentLength(rec.joint) * ppm;
-                break;
+            case JointType2D::Prismatic: j->translation = b2PrismaticJoint_GetTranslation(rec.joint) * ppm; break;
+            case JointType2D::Distance: j->translation = b2DistanceJoint_GetCurrentLength(rec.joint) * ppm; break;
         }
     }
 }
@@ -1228,8 +1331,8 @@ constexpr float kOverlapEps = 0.1f * kCastSlop;  // distance at/below which Box2
 
 struct CastSizes {
     bool circle = true;
-    float r = 0.0f;       // meters
-    b2Vec2 half{0, 0};    // meters
+    float r = 0.0f;     // meters
+    b2Vec2 half{0, 0};  // meters
 };
 
 b2ShapeProxy box_proxy(b2Vec2 half, b2Vec2 c, float inset, float radius) {  // the box shrunk by `inset`, plus a radius
@@ -1427,9 +1530,12 @@ void Physics2D::debug_state(const World& world, Json& out) const {
     auto shape_json = [&](const LocalShape& s) {
         Json j = Json::object();
         j["kind"] = s.kind == LocalShape::Box ? "box" : (s.kind == LocalShape::Circle ? "circle" : "capsule");
-        if (s.kind == LocalShape::Box) j["size"] = Json::array({s.half.x * 2 * ppm, s.half.y * 2 * ppm});
-        else if (s.kind == LocalShape::Circle) j["radius"] = s.half.x * ppm;
-        else j["size"] = Json::array({s.half.x * 2 * ppm, (s.half.y + s.half.x) * 2 * ppm});
+        if (s.kind == LocalShape::Box)
+            j["size"] = Json::array({s.half.x * 2 * ppm, s.half.y * 2 * ppm});
+        else if (s.kind == LocalShape::Circle)
+            j["radius"] = s.half.x * ppm;
+        else
+            j["size"] = Json::array({s.half.x * 2 * ppm, (s.half.y + s.half.x) * 2 * ppm});
         j["offset"] = Json::array({s.offset.x * ppm, s.offset.y * ppm});
         j["trigger"] = s.trigger;
         return j;
@@ -1480,18 +1586,31 @@ void Physics2D::debug_shapes(const World& world, std::vector<Physics::DebugShape
                 b2Vec2 c = b2TransformPoint(xf, {s.offset.x, s.offset.y});
                 Vec3 center{c.x * ppm, c.y * ppm, 0.0f};
                 if (s.kind == LocalShape::Circle) {
-                    out.push_back({Physics::DebugShape::Circle, center, {s.half.x * 2 * ppm, s.half.x * 2 * ppm, 0}, rotDeg, s.trigger});
+                    out.push_back({Physics::DebugShape::Circle,
+                                   center,
+                                   {s.half.x * 2 * ppm, s.half.x * 2 * ppm, 0},
+                                   rotDeg,
+                                   s.trigger});
                 } else if (s.kind == LocalShape::Box) {
-                    out.push_back({Physics::DebugShape::Box, center, {s.half.x * 2 * ppm, s.half.y * 2 * ppm, 0}, rotDeg, s.trigger});
+                    out.push_back({Physics::DebugShape::Box,
+                                   center,
+                                   {s.half.x * 2 * ppm, s.half.y * 2 * ppm, 0},
+                                   rotDeg,
+                                   s.trigger});
                 } else {
-                    out.push_back({Physics::DebugShape::Box, center, {s.half.x * 2 * ppm, (s.half.y + s.half.x) * 2 * ppm, 0}, rotDeg, s.trigger});
+                    out.push_back({Physics::DebugShape::Box,
+                                   center,
+                                   {s.half.x * 2 * ppm, (s.half.y + s.half.x) * 2 * ppm, 0},
+                                   rotDeg,
+                                   s.trigger});
                 }
             }
         }
         auto tt = tiles_.find(e.bits());
         if (tt != tiles_.end()) {
             for (const Rect& r : tt->second.boxes) {
-                out.push_back({Physics::DebugShape::Box, {r.center().x, r.center().y, 0.0f}, {r.w, r.h, 0.0f}, 0.0f, false});
+                out.push_back(
+                    {Physics::DebugShape::Box, {r.center().x, r.center().y, 0.0f}, {r.w, r.h, 0.0f}, 0.0f, false});
             }
         }
     }

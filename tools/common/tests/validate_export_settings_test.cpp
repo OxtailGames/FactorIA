@@ -75,7 +75,8 @@ TEST_CASE("validate: icon files that are missing, unreadable or badly shaped") {
 
     auto missing = at(r.errors, "/icon");
     REQUIRE(missing.size() == 1);
-    CHECK(missing[0]->message == "the icon file 'assets/icn.png' does not exist");  // the location is not repeated in the message
+    CHECK(missing[0]->message ==
+          "the icon file 'assets/icn.png' does not exist");  // the location is not repeated in the message
     CHECK(missing[0]->hint.find("Did you mean 'assets/icon.png'?") != std::string::npos);
     CHECK(missing[0]->to_string().find("factoria.json#/icon: the icon file") == 0);
 
@@ -104,7 +105,8 @@ TEST_CASE("validate: wrong export values are reported once, with the settings' o
                            "ios": {"teamId": "nope"}}})");
     const ValidationReport r = validate_project(dir);
     CHECK_FALSE(r.ok);
-    for (const char* pointer : {"/icon", "/export/android/minSdk", "/export/android/targetSdk", "/export/android/format", "/export/ios/teamId"}) {
+    for (const char* pointer : {"/icon", "/export/android/minSdk", "/export/android/targetSdk",
+                                "/export/android/format", "/export/ios/teamId"}) {
         INFO("pointer ", pointer);
         auto found = at(r.errors, pointer);
         REQUIRE(found.size() == 1);  // the schema reports the same pointer; only one message survives

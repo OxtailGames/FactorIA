@@ -25,7 +25,8 @@ MeshData skin_rig_mesh(const Anim3DRigModel& model, const Pose& pose) {
             for (std::size_t i = 0; i < count && base + i < bind.vertex_count(); ++i) {
                 const std::size_t v = base + i;
                 const Vec3 p{bind.positions[v * 3], bind.positions[v * 3 + 1], bind.positions[v * 3 + 2]};
-                const Vec3 n = hasNormals ? Vec3{bind.normals[v * 3], bind.normals[v * 3 + 1], bind.normals[v * 3 + 2]} : Vec3{0, 1, 0};
+                const Vec3 n = hasNormals ? Vec3{bind.normals[v * 3], bind.normals[v * 3 + 1], bind.normals[v * 3 + 2]}
+                                          : Vec3{0, 1, 0};
                 Vec3 sp{}, sn{};
                 float total = 0.0f;
                 for (std::size_t k = 0; k < 4; ++k) {
@@ -69,7 +70,8 @@ MeshData skin_rig_mesh(const Anim3DRigModel& model, const Pose& pose) {
 std::array<float, 4> rotation_key_value(const Anim3DClip& clip, Quat delta) {
     delta = normalize(delta);
     if (clip.quat) {
-        if (delta.w < 0) delta = {-delta.x, -delta.y, -delta.z, -delta.w};  // the short way round: the same rotation, a stable sign
+        if (delta.w < 0)
+            delta = {-delta.x, -delta.y, -delta.z, -delta.w};  // the short way round: the same rotation, a stable sign
         return {delta.x, delta.y, delta.z, delta.w};
     }
     const Vec3 e = delta.to_euler_deg();
@@ -103,7 +105,8 @@ std::string mirror_bone_name(const std::string& bone) {
 
 Quat mirror_rotation(Quat q) { return {q.x, -q.y, -q.z, q.w}; }
 
-std::vector<Anim3DPoseKey> mirror_pose_keys(const Anim3DClip& clip, const Rig3D& rig, float time, const std::string& from) {
+std::vector<Anim3DPoseKey> mirror_pose_keys(const Anim3DClip& clip, const Rig3D& rig, float time,
+                                            const std::string& from) {
     const SkeletonAsset& sk = *rig.skeleton;
     const Anim3DBinding binding = bind_anim3d(clip, sk);
     Pose pose = rig.rest;
@@ -141,15 +144,17 @@ std::vector<Anim3DPoseKey> mirror_pose_keys(const Anim3DClip& clip, const Rig3D&
         if (std::find(names.begin(), names.end(), t.bone) == names.end()) names.push_back(t.bone);
     // Add the partners of animated bones (their own track may be missing: it starts from rest).
     for (const std::string& n : std::vector<std::string>(names))
-        if (std::find(names.begin(), names.end(), mirror_bone_name(n)) == names.end()) names.push_back(mirror_bone_name(n));
+        if (std::find(names.begin(), names.end(), mirror_bone_name(n)) == names.end())
+            names.push_back(mirror_bone_name(n));
 
     for (const std::string& bone : names) {
         const std::string side = bone_side(bone);
         const std::string partner = mirror_bone_name(bone);
-        if (side.empty() && from != "swap") continue;  // a bone on the mid plane mirrors only in a swap
-        if (!side.empty() && from == "left" && side != "r") continue;   // "left" fills the right bones from the left
+        if (side.empty() && from != "swap") continue;                  // a bone on the mid plane mirrors only in a swap
+        if (!side.empty() && from == "left" && side != "r") continue;  // "left" fills the right bones from the left
         if (!side.empty() && from == "right" && side != "l") continue;  // "right" fills the left bones from the right
-        for (Anim3DChannel ch : {Anim3DChannel::Rotation, Anim3DChannel::Translation, Anim3DChannel::Scale}) emit(bone, partner, ch);
+        for (Anim3DChannel ch : {Anim3DChannel::Rotation, Anim3DChannel::Translation, Anim3DChannel::Scale})
+            emit(bone, partner, ch);
     }
     // The values of a swap come from the sampled pose, which this function does not change, so the order above does not matter.
     return out;

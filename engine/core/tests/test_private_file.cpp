@@ -47,8 +47,8 @@ int leftovers(const stdfs::path& dir) {
 bool owner_only_acl(const stdfs::path& file, std::string& why) {
     PSECURITY_DESCRIPTOR sd = nullptr;
     PACL dacl = nullptr;
-    if (GetNamedSecurityInfoW(file.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl, nullptr, &sd) !=
-        ERROR_SUCCESS) {
+    if (GetNamedSecurityInfoW(file.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl, nullptr,
+                              &sd) != ERROR_SUCCESS) {
         why = "GetNamedSecurityInfoW failed";
         return false;
     }
@@ -77,7 +77,8 @@ bool owner_only_acl(const stdfs::path& file, std::string& why) {
             why = "the entry is not an allow entry";
         } else {
             auto* allowed = static_cast<ACCESS_ALLOWED_ACE*>(ace);
-            ok = EqualSid(reinterpret_cast<PSID>(&allowed->SidStart), reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid) != 0;
+            ok = EqualSid(reinterpret_cast<PSID>(&allowed->SidStart),
+                          reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid) != 0;
             if (!ok) why = "the entry is not the current user's";
         }
     }
@@ -87,7 +88,7 @@ bool owner_only_acl(const stdfs::path& file, std::string& why) {
 }
 #else
 bool owner_only_acl(const stdfs::path& file, std::string& why) {
-    struct stat st {};
+    struct stat st{};
     if (::stat(file.c_str(), &st) != 0) {
         why = "stat failed";
         return false;
@@ -153,12 +154,15 @@ TEST_CASE("write_private: writers at the same time never share a temporary file"
     for (int w = 0; w < 4; ++w) {
         writers.emplace_back([&, w] {
             for (int i = 0; i < 10; ++i)
-                if (!fs::write_private(file.generic_string(), "writer " + std::to_string(w) + " round " + std::to_string(i))) ++failed;
+                if (!fs::write_private(file.generic_string(),
+                                       "writer " + std::to_string(w) + " round " + std::to_string(i)))
+                    ++failed;
         });
     }
     for (auto& th : writers) th.join();
 #ifndef _WIN32
-    CHECK(failed == 0);  // on Windows a file another writer has open can refuse the replace: replace_file retries but gives up
+    CHECK(failed ==
+          0);  // on Windows a file another writer has open can refuse the replace: replace_file retries but gives up
 #endif
     auto last = fs::read_text(file.generic_string());
     REQUIRE(last);  // the next lines read it
@@ -186,7 +190,8 @@ TEST_CASE("make_private: restricts a file a tool created with the default permis
     CHECK_FALSE(missing.error().hint.empty());
 }
 
-TEST_CASE("make_temp_dir: a folder that already has the next name is never reused, and on POSIX the folder is owner-only") {
+TEST_CASE(
+    "make_temp_dir: a folder that already has the next name is never reused, and on POSIX the folder is owner-only") {
     const stdfs::path first = fs::make_temp_dir("fa_test_tmpdir").value();
     REQUIRE_FALSE(first.empty());
     REQUIRE(stdfs::is_directory(first));
@@ -211,7 +216,7 @@ TEST_CASE("make_temp_dir: a folder that already has the next name is never reuse
     CHECK(second.filename().string().rfind("fa_test_tmpdir_", 0) == 0);
 #ifndef _WIN32
     for (const stdfs::path& dir : {first, second}) {
-        struct stat st {};
+        struct stat st{};
         REQUIRE(::lstat(dir.c_str(), &st) == 0);
         CHECK(S_ISDIR(st.st_mode));
         CHECK((st.st_mode & 0777) == 0700);
@@ -262,8 +267,10 @@ struct ScopedTempEnv {
 #ifdef _WIN32
         _wputenv_s(name.c_str(), value.c_str());  // an empty value removes the variable
 #else
-        if (value.empty()) ::unsetenv(name.c_str());
-        else ::setenv(name.c_str(), value.c_str(), 1);
+        if (value.empty())
+            ::unsetenv(name.c_str());
+        else
+            ::setenv(name.c_str(), value.c_str(), 1);
 #endif
     }
 };
@@ -287,7 +294,9 @@ std::size_t entries_in(const stdfs::path& dir) {
 }  // namespace
 
 TEST_CASE("make_temp_dir: a temporary folder that does not exist yet is made") {
-    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_missing_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path holder =
+        stdfs::temp_directory_path() /
+        ("fa_test_missing_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const stdfs::path missing = holder / "not" / "yet";
     REQUIRE_FALSE(stdfs::exists(missing));
     {
@@ -301,8 +310,11 @@ TEST_CASE("make_temp_dir: a temporary folder that does not exist yet is made") {
     stdfs::remove_all(holder, ec);
 }
 
-TEST_CASE("make_temp_dir: a temporary folder that is a file gives a teaching error and nothing is written to the working directory") {
-    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_badbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+TEST_CASE("make_temp_dir: a temporary folder that is a file gives a teaching error and nothing is written to the "
+          "working directory") {
+    const stdfs::path holder =
+        stdfs::temp_directory_path() /
+        ("fa_test_badbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const stdfs::path cwd = holder / "cwd";
     std::error_code ec;
     REQUIRE(stdfs::create_directories(cwd, ec));
@@ -328,7 +340,8 @@ TEST_CASE("temp_base: an absolute folder that follows the environment, whether i
     auto base = fs::temp_base();
     REQUIRE_MESSAGE(base.ok(), (base.ok() ? "" : base.error().message));
     CHECK(base->is_absolute());
-    const stdfs::path holder = *base / ("fa_test_tempbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path holder =
+        *base / ("fa_test_tempbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const stdfs::path missing = holder / "not" / "yet";
     {
         ScopedTempEnv env(missing);
@@ -341,7 +354,9 @@ TEST_CASE("temp_base: an absolute folder that follows the environment, whether i
 
 #ifndef _WIN32
 TEST_CASE("temp_base: a relative TMPDIR is refused, not resolved against the working directory") {
-    const stdfs::path holder = *fs::temp_base() / ("fa_test_relbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path holder =
+        *fs::temp_base() /
+        ("fa_test_relbase_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::error_code ec;
     REQUIRE(stdfs::create_directories(holder, ec));
     {
@@ -360,7 +375,9 @@ TEST_CASE("temp_base: a relative TMPDIR is refused, not resolved against the wor
 #endif
 
 TEST_CASE("make_temp_dir: a FILE that has the next name is skipped, not an error") {
-    const stdfs::path holder = *fs::temp_base() / ("fa_test_filename_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path holder =
+        *fs::temp_base() /
+        ("fa_test_filename_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::error_code ec;
     REQUIRE(stdfs::create_directories(holder, ec));
     {
@@ -384,7 +401,9 @@ TEST_CASE("make_temp_dir: a FILE that has the next name is skipped, not an error
 }
 
 TEST_CASE("remove_tree refuses an empty path and touches nothing") {
-    const stdfs::path holder = stdfs::temp_directory_path() / ("fa_test_rmempty_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const stdfs::path holder =
+        stdfs::temp_directory_path() /
+        ("fa_test_rmempty_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::error_code ec;
     REQUIRE(stdfs::create_directories(holder, ec));
     {

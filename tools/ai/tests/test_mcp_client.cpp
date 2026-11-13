@@ -10,8 +10,8 @@ using namespace fa;
 using namespace fa::ai;
 using namespace fa::ai::test;
 
-
-TEST_CASE("mcp_tool_def_name: <server>__<tool>, characters a model API accepts, 64 at most, long names stay different") {
+TEST_CASE(
+    "mcp_tool_def_name: <server>__<tool>, characters a model API accepts, 64 at most, long names stay different") {
     CHECK(mcp_tool_def_name("scenario", "generate_image") == "scenario__generate_image");
     CHECK(mcp_tool_def_name("scenario", "generate image.v2") == "scenario__generate_image_v2");
     const std::string a = mcp_tool_def_name("srv", std::string(100, 'a') + "1");
@@ -34,7 +34,8 @@ TEST_CASE("mcp http: initialize, tools/list (paged), headers, session id, tool c
         REQUIRE((*client)->tools().size() == 3);  // two on page 0, one on page 1
         CHECK((*client)->tools()[0].name == "tool_0");
         CHECK((*client)->tools()[1].name == "generate image");
-        CHECK((*client)->tools()[1].inputSchema["type"] == "object");  // a missing schema becomes an empty object schema
+        CHECK((*client)->tools()[1].inputSchema["type"] ==
+              "object");  // a missing schema becomes an empty object schema
 
         // the first request is initialize, with the configured header and the content negotiation of Streamable HTTP
         REQUIRE(server.requests.size() >= 3);
@@ -72,7 +73,8 @@ TEST_CASE("mcp http: initialize, tools/list (paged), headers, session id, tool c
         CHECK(structured->text == "{\"id\":7}");
         auto twice = (*client)->call_tool("structured_twice", Json::object());
         REQUIRE(twice.ok());
-        CHECK(twice->text == "{\"id\":8}\nOne id.");  // structuredContent first, the text that repeats it as JSON skipped
+        CHECK(twice->text ==
+              "{\"id\":8}\nOne id.");  // structuredContent first, the text that repeats it as JSON skipped
 
         auto unknown = (*client)->call_tool("nope", Json::object());
         REQUIRE_FALSE(unknown.ok());
@@ -132,7 +134,8 @@ TEST_CASE("mcp http: refused credentials, OAuth servers, wrong address and unrea
     // the key itself is never in an error
     CHECK_FALSE(has(denied.error().message + denied.error().hint, "c2VjcmV0"));
 
-    server.wwwAuthenticate = "Bearer resource_metadata=\"https://mcp.example.com/.well-known/oauth-protected-resource\"";
+    server.wwwAuthenticate =
+        "Bearer resource_metadata=\"https://mcp.example.com/.well-known/oauth-protected-resource\"";
     auto oauth = McpClient::connect(http_server(), options);
     REQUIRE_FALSE(oauth.ok());
     CHECK(has(oauth.error().hint, "OAuth"));
@@ -182,7 +185,8 @@ TEST_CASE("mcp http: a cancelled call stops") {
     CHECK(has(call.error().message, "cancelled"));
 }
 
-TEST_CASE("McpToolSet: tools named <server>__<tool>, sorted, routed to their server; failing servers only give a note") {
+TEST_CASE(
+    "McpToolSet: tools named <server>__<tool>, sorted, routed to their server; failing servers only give a note") {
     FakeHttpServer server;
     ToolServer good;
     good.name = "scenario";
@@ -236,7 +240,8 @@ TEST_CASE("McpToolSet: tools named <server>__<tool>, sorted, routed to their ser
     CHECK_FALSE(r.isError);
     CHECK(has(r.content, "called tool_0"));
 
-    call.name = "scenario__generate_image";  // the server knows it as "generate image": the call reaches it with that name
+    call.name =
+        "scenario__generate_image";  // the server knows it as "generate image": the call reaches it with that name
     r = set.call(call);
     CHECK(r.isError);
     CHECK(has(r.content, "Unknown tool generate image"));

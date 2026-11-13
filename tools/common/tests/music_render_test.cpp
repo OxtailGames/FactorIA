@@ -20,11 +20,14 @@ namespace {
 const char* kSong = "assets/music/theme.song.json";
 const char* kWav = "assets/music/theme.wav";
 
-Json make_song(const AssetsProject& p) { return p.ok("music.create", {{"path", kSong}, {"picture", false}, {"arpeggio", false}}); }
+Json make_song(const AssetsProject& p) {
+    return p.ok("music.create", {{"path", kSong}, {"picture", false}, {"arpeggio", false}});
+}
 Json edit(const AssetsProject& p, const Json& ops) { return p.ok("music.edit", {{"path", kSong}, {"ops", ops}}); }
 
 std::uint32_t u32(const std::string& b, std::size_t at) {
-    return std::uint32_t(std::uint8_t(b[at])) | std::uint32_t(std::uint8_t(b[at + 1])) << 8 | std::uint32_t(std::uint8_t(b[at + 2])) << 16 | std::uint32_t(std::uint8_t(b[at + 3])) << 24;
+    return std::uint32_t(std::uint8_t(b[at])) | std::uint32_t(std::uint8_t(b[at + 1])) << 8 |
+           std::uint32_t(std::uint8_t(b[at + 2])) << 16 | std::uint32_t(std::uint8_t(b[at + 3])) << 24;
 }
 
 struct Wav {
@@ -82,14 +85,17 @@ bool changed_has(const Json& d, const std::string& text) {
 
 void set_style_music(const AssetsProject& p, const Json& lufs) {
     Json m = p.manifest();
-    if (lufs.is_null()) m.erase("style");
-    else m["style"] = Json::object({{"audio", Json::object({{"loudnessLufs", Json::object({{"music", lufs}})}})}});
+    if (lufs.is_null())
+        m.erase("style");
+    else
+        m["style"] = Json::object({{"audio", Json::object({{"loudnessLufs", Json::object({{"music", lufs}})}})}});
     write_all(p.file("assets.json"), m.dump(2) + "\n");
 }
 
 }  // namespace
 
-TEST_CASE("music.render: the whole song as a WAV whose loop points are the loop section's bars, in assets.json and the smpl chunk") {
+TEST_CASE("music.render: the whole song as a WAV whose loop points are the loop section's bars, in assets.json and the "
+          "smpl chunk") {
     AssetsProject p;
     make_song(p);  // intro 4 bars > loop 4 bars x2 > outro 4 bars
     const Json r = p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}});
@@ -105,8 +111,10 @@ TEST_CASE("music.render: the whole song as a WAV whose loop points are the loop 
     CHECK(w.frames() == r["frames"].get<std::size_t>());
     const double tempo = p.ok("music.info", {{"path", kSong}, {"picture", false}})["tempo"].get<double>();
     const double barFrames = 4.0 * 60.0 / tempo * 22050.0;  // 4/4
-    CHECK(double(r["loop"]["startFrame"].get<std::size_t>()) == doctest::Approx(4.0 * barFrames).epsilon(1.0 / (4.0 * barFrames)));
-    CHECK(double(r["loop"]["endFrame"].get<std::size_t>()) == doctest::Approx(12.0 * barFrames).epsilon(1.0 / (12.0 * barFrames)));
+    CHECK(double(r["loop"]["startFrame"].get<std::size_t>()) ==
+          doctest::Approx(4.0 * barFrames).epsilon(1.0 / (4.0 * barFrames)));
+    CHECK(double(r["loop"]["endFrame"].get<std::size_t>()) ==
+          doctest::Approx(12.0 * barFrames).epsilon(1.0 / (12.0 * barFrames)));
     REQUIRE(w.hasLoop);
     CHECK(w.loopStart == r["loop"]["startFrame"].get<std::uint32_t>());
     CHECK(w.loopEnd + 1 == r["loop"]["endFrame"].get<std::uint32_t>());
@@ -130,7 +138,8 @@ TEST_CASE("music.render: the whole song as a WAV whose loop points are the loop 
     CHECK(entry(p, kWav)["provenance"]["license"] == "CC-BY-4.0");
 
     // no loop: no points, anywhere
-    const Json once = p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}, {"loop", false}, {"out", "assets/music/once.wav"}});
+    const Json once = p.ok("music.render",
+                           {{"path", kSong}, {"sampleRate", 22050}, {"loop", false}, {"out", "assets/music/once.wav"}});
     CHECK_FALSE(once.contains("loop"));
     CHECK_FALSE(read_wav(read_all(p.file("assets/music/once.wav"))).hasLoop);
     CHECK_FALSE(entry(p, "assets/music/once.wav")["import"].contains("loopStart"));
@@ -147,7 +156,8 @@ TEST_CASE("music.render: ogg keeps the loop points in assets.json only, and the 
     CHECK(e["import"]["loopEnd"].get<double>() > e["import"]["loopStart"].get<double>());
 
     CHECK(p.call("music.render", {{"path", kSong}, {"format", "mp3"}}).ok == false);
-    CHECK(p.call("music.render", {{"path", kSong}, {"format", "ogg"}, {"out", "assets/music/x.wav"}}).error["code"] == "invalid_argument");
+    CHECK(p.call("music.render", {{"path", kSong}, {"format", "ogg"}, {"out", "assets/music/x.wav"}}).error["code"] ==
+          "invalid_argument");
     CHECK(p.call("music.render", {{"path", kSong}, {"out", "elsewhere/x.wav"}}).error["code"] == "invalid_argument");
     CHECK(p.call("music.render", {{"path", kSong}, {"sampleRate", 12345}}).ok == false);
     CHECK(p.call("music.render", {}).ok == false);
@@ -164,7 +174,10 @@ TEST_CASE("music.render: ogg keeps the loop points in assets.json only, and the 
 TEST_CASE("music.render: one stem per layer, same length and loop points, adding up to the mix; one recipe for all") {
     AssetsProject p;
     make_song(p);
-    edit(p, Json::array({{{"op", "set_layers"}, {"layers", {{"rhythm", Json::array({"drums", "bass"})}, {"harmony", {{"tracks", Json::array({"pad"})}, {"intensity", 0.6}}}}}}}));
+    edit(p, Json::array({{{"op", "set_layers"},
+                          {"layers",
+                           {{"rhythm", Json::array({"drums", "bass"})},
+                            {"harmony", {{"tracks", Json::array({"pad"})}, {"intensity", 0.6}}}}}}}));
     const Json info = p.ok("music.info", {{"path", kSong}, {"picture", false}});
     REQUIRE(info["layers"].size() == 2);
     CHECK(info["layers"][1]["intensity"] == 0.6);
@@ -188,7 +201,8 @@ TEST_CASE("music.render: one stem per layer, same length and loop points, adding
         for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += w.samples[i];
     }
     std::int64_t worst = 0;
-    for (std::size_t i = 0; i < sum.size(); ++i) worst = std::max<std::int64_t>(worst, std::llabs(sum[i] - mix.samples[i]));
+    for (std::size_t i = 0; i < sum.size(); ++i)
+        worst = std::max<std::int64_t>(worst, std::llabs(sum[i] - mix.samples[i]));
     CHECK(worst <= 3);  // each file is rounded to 16 bits on its own: at most one step per stem and one for the mix
 
     // assets.json: every file says what it is, and all share the recipe, so the regenerate group runs once
@@ -224,7 +238,9 @@ TEST_CASE("music.render: one stem per layer, same length and loop points, adding
     CHECK_FALSE(p.manifest()["assets"].contains("assets/music/theme.stem.harmony.wav"));
 
     // tracks and buses
-    CHECK(p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}, {"stems", "tracks"}, {"out", "assets/music/t.wav"}})["stems"].size() == 3);
+    CHECK(p.ok("music.render",
+               {{"path", kSong}, {"sampleRate", 22050}, {"stems", "tracks"}, {"out", "assets/music/t.wav"}})["stems"]
+              .size() == 3);
 }
 
 TEST_CASE("music.edit set_layers: it follows a renamed or removed track, and bad layers name the fix") {
@@ -238,20 +254,30 @@ TEST_CASE("music.edit set_layers: it follows a renamed or removed track, and bad
     edit(p, Json::array({{{"op", "remove_track"}, {"track", "drums"}}}));
     CHECK_FALSE(parse_json(read_all(p.file(kSong)), kSong).value().contains("layers"));
 
-    CommandResult bad = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"x", Json::array({"pda"})}}}}})}});
+    CommandResult bad = p.call(
+        "music.edit",
+        {{"path", kSong}, {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"x", Json::array({"pda"})}}}}})}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("pad") != std::string::npos);  // did you mean
-    CHECK(p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"other", Json::array({"pad"})}}}}})}}).ok == false);
-    CHECK(p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"nope", nullptr}}}}})}}).ok == false);
+    CHECK(p.call("music.edit",
+                 {{"path", kSong},
+                  {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"other", Json::array({"pad"})}}}}})}})
+              .ok == false);
+    CHECK(p.call("music.edit",
+                 {{"path", kSong}, {"ops", Json::array({{{"op", "set_layers"}, {"layers", {{"nope", nullptr}}}}})}})
+              .ok == false);
 }
 
-TEST_CASE("music.render: stale when the song, a sound patch, a SoundFont or the style's music loudness changes; regenerate makes it fresh") {
+TEST_CASE("music.render: stale when the song, a sound patch, a SoundFont or the style's music loudness changes; "
+          "regenerate makes it fresh") {
     AssetsProject p;
     make_song(p);
     p.ok("music.instrument", {{"name", "pluck"}, {"path", "assets/audio/my_pluck.sfx.json"}});
     write_sf2(p, "assets/audio/tiny.sf2");
     edit(p, Json::array({{{"op", "set_track"}, {"track", "pad"}, {"instrument", "assets/audio/my_pluck.sfx.json"}},
-                         {{"op", "set_track"}, {"track", "bass"}, {"instrument", {{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Sine"}}}}}));
+                         {{"op", "set_track"},
+                          {"track", "bass"},
+                          {"instrument", {{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Sine"}}}}}));
     p.ok("music.render", {{"path", kSong}, {"sampleRate", 22050}});
     p.ok("music.preview", {{"path", kSong}, {"sampleRate", 22050}, {"picture", false}});
     const Json recipe = entry(p, kWav)["provenance"]["recipe"];
@@ -287,7 +313,8 @@ TEST_CASE("music.render: stale when the song, a sound patch, a SoundFont or the 
     CHECK(changed_has(d, "style.audio.loudnessLufs.music"));
     CHECK(dry(p, "assets/music/theme.preview.wav")["stale"] == true);
     bool warned = false;
-    for (const ValidationIssue& w : validate_project(p.dir).warnings) warned = warned || w.message.find("'assets/music/theme.wav' is stale") != std::string::npos;
+    for (const ValidationIssue& w : validate_project(p.dir).warnings)
+        warned = warned || w.message.find("'assets/music/theme.wav' is stale") != std::string::npos;
     CHECK(warned);
     const std::string before = read_all(p.file(kWav));
     CHECK(p.ok("assets.regenerate", {{"stale", true}})["count"] == 2);
@@ -320,14 +347,16 @@ namespace {
 
 // A format-0 file: tempo 120, one note (middle C, velocity 90) lasting one quarter note, 480 ticks per quarter.
 std::string tiny_midi() {
-    const unsigned char bytes[] = {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xE0, 'M', 'T', 'r', 'k', 0, 0, 0, 20,
-                                   0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20, 0x00, 0x90, 0x3C, 0x5A, 0x83, 0x60, 0x80, 0x3C, 0x40, 0x00, 0xFF, 0x2F, 0x00};
+    const unsigned char bytes[] = {'M',  'T',  'h',  'd',  0,    0,    0,    6,    0,    0,    0,    1,    0x01, 0xE0,
+                                   'M',  'T',  'r',  'k',  0,    0,    0,    20,   0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1,
+                                   0x20, 0x00, 0x90, 0x3C, 0x5A, 0x83, 0x60, 0x80, 0x3C, 0x40, 0x00, 0xFF, 0x2F, 0x00};
     return std::string(reinterpret_cast<const char*>(bytes), sizeof bytes);
 }
 
 }  // namespace
 
-TEST_CASE("music.import_midi: a file becomes a valid song, assets.import takes a .mid, and errors name the byte offset") {
+TEST_CASE(
+    "music.import_midi: a file becomes a valid song, assets.import takes a .mid, and errors name the byte offset") {
     AssetsProject p;
     write_all(p.file("assets/music/tiny.mid"), tiny_midi());
     const Json r = p.ok("music.import_midi", {{"path", "assets/music/tiny.mid"}, {"license", "CC0"}});
@@ -339,17 +368,24 @@ TEST_CASE("music.import_midi: a file becomes a valid song, assets.import takes a
     CHECK(entry(p, "assets/music/tiny.song.json")["provenance"]["origin"] == "imported");
     CHECK(entry(p, "assets/music/tiny.song.json")["provenance"]["license"] == "CC0");
     p.ok("music.check", {{"path", "assets/music/tiny.song.json"}});
-    CHECK(p.ok("music.preview", {{"path", "assets/music/tiny.song.json"}, {"sampleRate", 22050}, {"picture", false}})["notes"] == 1);
+    CHECK(p.ok("music.preview",
+               {{"path", "assets/music/tiny.song.json"}, {"sampleRate", 22050}, {"picture", false}})["notes"] == 1);
 
     CHECK(p.call("music.import_midi", {{"path", "assets/music/tiny.mid"}}).error["code"] == "exists");
-    p.ok("music.import_midi", {{"path", "assets/music/tiny.mid"}, {"overwrite", true}, {"quantize", "16"}, {"out", "assets/music/other.song.json"}});
+    p.ok("music.import_midi", {{"path", "assets/music/tiny.mid"},
+                               {"overwrite", true},
+                               {"quantize", "16"},
+                               {"out", "assets/music/other.song.json"}});
     CHECK(p.exists("assets/music/other.song.json"));
-    CHECK(p.call("music.import_midi", {{"path", "assets/music/tiny.mid"}, {"quantize", "7"}, {"overwrite", true}}).ok == false);
+    CHECK(p.call("music.import_midi", {{"path", "assets/music/tiny.mid"}, {"quantize", "7"}, {"overwrite", true}}).ok ==
+          false);
     CHECK(p.call("music.import_midi", {{"path", "assets/music/tiny.png"}}).error["code"] == "invalid_argument");
     CHECK(p.call("music.import_midi", {{"path", "assets/music/missing.mid"}}).error["code"] == "not_found");
 
     // assets.import routes a .mid here
-    const Json imp = p.ok("assets.import", {{"source", "assets/music/tiny.mid"}, {"path", "assets/music/viaimport.song.json"}, {"author", "Ana"}});
+    const Json imp =
+        p.ok("assets.import",
+             {{"source", "assets/music/tiny.mid"}, {"path", "assets/music/viaimport.song.json"}, {"author", "Ana"}});
     CHECK(imp["importer"] == "midi");
     CHECK(imp["path"] == "assets/music/viaimport.song.json");
     CHECK(entry(p, "assets/music/viaimport.song.json")["provenance"]["author"] == "Ana");
@@ -378,7 +414,8 @@ TEST_CASE("music.export_midi: a format-1 file that music.import_midi reads back 
     CHECK(std::uint8_t(bytes[9]) == 1);  // format 1
     CHECK(r["tracks"] == 3);
 
-    const Json back = p.ok("music.import_midi", {{"path", "assets/music/theme.mid"}, {"out", "assets/music/back.song.json"}});
+    const Json back =
+        p.ok("music.import_midi", {{"path", "assets/music/theme.mid"}, {"out", "assets/music/back.song.json"}});
     const Json orig = p.ok("music.info", {{"path", kSong}, {"picture", false}});
     CHECK(back["notes"] == orig["notes"]);
     CHECK(back["bars"] == orig["bars"]);
@@ -388,6 +425,7 @@ TEST_CASE("music.export_midi: a format-1 file that music.import_midi reads back 
     CHECK(back["tracks"].size() == orig["tracks"].size());
 
     CHECK(p.call("music.export_midi", {{"path", kSong}}).error["code"] == "exists");
-    CHECK(p.call("music.export_midi", {{"path", kSong}, {"out", "assets/music/x.wav"}}).error["code"] == "invalid_argument");
+    CHECK(p.call("music.export_midi", {{"path", kSong}, {"out", "assets/music/x.wav"}}).error["code"] ==
+          "invalid_argument");
     p.ok("music.export_midi", {{"path", kSong}, {"overwrite", true}});
 }

@@ -28,7 +28,8 @@ std::string factoria_home(const ExportEnvLookup& env) {
 namespace {
 
 const std::vector<std::string>& component_ids() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg", "webplayer", "launcher"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake",  "xcode",     "appimage",
+                                                 "shaders", "vscode",  "ffmpeg", "webplayer", "launcher"};
     return ids;
 }
 
@@ -52,7 +53,8 @@ Json SetupComponent::to_json() const {
     j["problems"] = problems;
     j["installSizeMb"] = installSizeMb;
     Json lic = Json::array();
-    for (const SetupLicense& l : licenses) lic.push_back(Json::object({{"id", l.id}, {"title", l.title}, {"text", l.text}}));
+    for (const SetupLicense& l : licenses)
+        lic.push_back(Json::object({{"id", l.id}, {"title", l.title}, {"text", l.text}}));
     j["licenses"] = lic;
     j["canInstall"] = canInstall;
     return j;
@@ -108,16 +110,26 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
     st.host = ctx.host_os() + "-" + ctx.host_architecture();
     for (const std::string& id : component_ids()) {
         if (!component.empty() && component != id) continue;
-        if (id == "android") st.components.push_back(setup_detail::android_status(ctx, fetchLicenses));
-        else if (id == "players") st.components.push_back(setup_detail::players_status(ctx));
-        else if (id == "webplayer") st.components.push_back(setup_detail::webplayer_status(ctx));
-        else if (id == "cmake") st.components.push_back(setup_detail::cmake_status(ctx));
-        else if (id == "xcode") st.components.push_back(setup_detail::xcode_status(ctx));
-        else if (id == "appimage") st.components.push_back(setup_detail::appimage_status(ctx));
-        else if (id == "shaders") st.components.push_back(setup_detail::shaders_status(ctx));
-        else if (id == "vscode") st.components.push_back(setup_detail::vscode_status(ctx));
-        else if (id == "launcher") st.components.push_back(setup_detail::launcher_status(ctx));
-        else st.components.push_back(setup_detail::ffmpeg_status(ctx));
+        if (id == "android")
+            st.components.push_back(setup_detail::android_status(ctx, fetchLicenses));
+        else if (id == "players")
+            st.components.push_back(setup_detail::players_status(ctx));
+        else if (id == "webplayer")
+            st.components.push_back(setup_detail::webplayer_status(ctx));
+        else if (id == "cmake")
+            st.components.push_back(setup_detail::cmake_status(ctx));
+        else if (id == "xcode")
+            st.components.push_back(setup_detail::xcode_status(ctx));
+        else if (id == "appimage")
+            st.components.push_back(setup_detail::appimage_status(ctx));
+        else if (id == "shaders")
+            st.components.push_back(setup_detail::shaders_status(ctx));
+        else if (id == "vscode")
+            st.components.push_back(setup_detail::vscode_status(ctx));
+        else if (id == "launcher")
+            st.components.push_back(setup_detail::launcher_status(ctx));
+        else
+            st.components.push_back(setup_detail::ffmpeg_status(ctx));
     }
     return st;
 }
@@ -143,17 +155,22 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
     SetupResult r;
     r.report.component = options.component;
     r.code = "invalid_argument";
-    r.error = make_error("Unknown setup component '" + options.component + "'.", did_you_mean(options.component, component_ids()));
+    r.error = make_error("Unknown setup component '" + options.component + "'.",
+                         did_you_mean(options.component, component_ids()));
     return r;
 }
 
 // ---- what the export asks for ---------------------------------------------------------------------------------------
 
 std::string installed_player(const std::string& platform) { return installed_player(SetupContext{}, platform); }
-std::string installed_player(const SetupContext& context, const std::string& platform) { return setup_detail::installed_player_path(context, platform); }
+std::string installed_player(const SetupContext& context, const std::string& platform) {
+    return setup_detail::installed_player_path(context, platform);
+}
 std::string installed_mobile_dir() { return installed_mobile_dir(SetupContext{}); }
 std::string installed_mobile_dir(const SetupContext& context) { return setup_detail::installed_mobile_path(context); }
-AppImageTools installed_appimage_tools(const SetupContext& context) { return setup_detail::installed_appimage_path(context); }
+AppImageTools installed_appimage_tools(const SetupContext& context) {
+    return setup_detail::installed_appimage_path(context);
+}
 std::string find_cmake() { return find_cmake(SetupContext{}); }
 std::string find_cmake(const SetupContext& context) { return setup_detail::find_cmake_path(context); }
 
@@ -169,11 +186,13 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.status";
         info.category = "setup";
         info.readOnly = true;
-        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher.";
+        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other "
+                       "platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, "
+                       "ffmpeg, the FactorIA app launcher.";
         info.description =
             "Returns {home, host, components[]}; each component is {id, title, state, details, paths, "
-            "problems[], installSizeMb, licenses[], canInstall}. Example: {\"component\":\"android\"}."
-            FA_COMMAND_DETAILS
+            "problems[], installSizeMb, licenses[], canInstall}. Example: "
+            "{\"component\":\"android\"}." FA_COMMAND_DETAILS
             "Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player "
             "of the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of "
             "this factoria's version), `webplayer` (the web player built from the engine checkout this "
@@ -205,8 +224,10 @@ void register_setup_commands(CommandRegistry& registry) {
           }})");
         registry.add(info, [cache](const Json& args) {
             const std::string component = tooling_detail::arg_string(args, "component", false);
-            if (!component.empty() && std::find(component_ids().begin(), component_ids().end(), component) == component_ids().end())
-                throw CommandError("invalid_argument", "Unknown setup component '" + component + "'.", did_you_mean(component, component_ids()));
+            if (!component.empty() &&
+                std::find(component_ids().begin(), component_ids().end(), component) == component_ids().end())
+                throw CommandError("invalid_argument", "Unknown setup component '" + component + "'.",
+                                   did_you_mean(component, component_ids()));
             SetupContext ctx;
             ctx.cache = cache;
             return setup_status(ctx, component, tooling_detail::arg_bool(args, "fetchLicenses", true)).to_json();
@@ -218,18 +239,24 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.install";
         info.category = "setup";
         info.readOnly = false;
-        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or open Xcode's App Store page).";
+        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, "
+                       "the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or "
+                       "open Xcode's App Store page).";
         info.description =
-            "The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP client "
-            "or an AI agent gets `capability_denied`. Call setup.status and tell the user to press the editor's File > Set Up "
+            "The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP "
+            "client "
+            "or an AI agent gets `capability_denied`. Call setup.status and tell the user to press the editor's File > "
+            "Set Up "
             "This Computer... button or run `factoria setup <component>`. "
-            "Run by the user, it downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns "
+            "Run by the user, it downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and "
+            "returns "
             "{component, changed, steps[], paths, nextSteps[], warnings[], seconds}; every step says whether "
             "it was installed or skipped. Hundreds of megabytes (setup.status: installSizeMb), minutes. `android`: "
-            "JDK 21 and the Android SDK, saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES with "
+            "JDK 21 and the Android SDK, saved in ~/.factoria/export.json so `project.export` finds them. It REFUSES "
+            "with "
             "`license_required` until acceptLicenses is true, which only the user who has read the Android SDK license "
-            "(setup.status components[].licenses[].text) sets. Example: {\"component\":\"android\",\"acceptLicenses\":true}."
-            FA_COMMAND_DETAILS
+            "(setup.status components[].licenses[].text) sets. Example: "
+            "{\"component\":\"android\",\"acceptLicenses\":true}." FA_COMMAND_DETAILS
             "`android` in full: JDK 21 (Eclipse Temurin) and the Android SDK command-line tools, platform-tools, "
             "platform 36 and build-tools 35.0.0 (the SDK found on this computer is reused, except Unity Hub's). "
             "`players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, "
@@ -284,14 +311,17 @@ void register_setup_commands(CommandRegistry& registry) {
             ctx.cache = cache;
             ctx.progress = [](const std::string& line) { FA_INFO("setup", "{}", line); };
             SetupResult r = setup_install(o, ctx);
-            if (!r.ok) throw CommandError(r.code, r.error.message, r.error.hint, Json::object({{"steps", r.report.to_json()["steps"]}}));
+            if (!r.ok)
+                throw CommandError(r.code, r.error.message, r.error.hint,
+                                   Json::object({{"steps", r.report.to_json()["steps"]}}));
             return r.report.to_json();
         });
     }
     // setup.status probes the installed tools (process) and may fetch the Android license text (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
-    declare_command_capabilities(registry, {
-        {"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
-        {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}}});
+    declare_command_capabilities(
+        registry, {{"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
+                   {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process,
+                                                   Capability::Network}}});
 }
 
 }  // namespace fa

@@ -19,8 +19,8 @@ constexpr std::size_t kLogLineBytes = 320;
 constexpr std::size_t kHeaderBytes = 2048;
 constexpr std::size_t kMessageBytes = 400;
 
-constexpr int kMaxFrames = 64;  // lines of stack in a report
-constexpr int kMaxWalk = 4096;  // frames looked at (a recursion shows up as one frame repeated)
+constexpr int kMaxFrames = 64;              // lines of stack in a report
+constexpr int kMaxWalk = 4096;              // frames looked at (a recursion shows up as one frame repeated)
 constexpr std::size_t kMaxDirLength = 800;  // the report path is built in a buffer of 1024 units (bytes or wchar_t)
 
 struct Shared {
@@ -38,7 +38,8 @@ bool platform_install(const std::filesystem::path& dir, std::string& error);
 // False + `error` when the folder (`length` units of `unit`: "bytes", "characters") is too long for the report path.
 inline bool dir_length_ok(const std::filesystem::path& dir, std::size_t length, const char* unit, std::string& error) {
     if (length <= kMaxDirLength) return true;
-    error = "the crash report folder path is longer than " + std::to_string(kMaxDirLength) + " " + unit + ": " + dir.string();
+    error = "the crash report folder path is longer than " + std::to_string(kMaxDirLength) + " " + unit + ": " +
+            dir.string();
     return false;
 }
 
@@ -132,12 +133,29 @@ struct LineBuf {
     }
     // 2026-10-17T14:30:52Z
     void iso_time(const Civil& c) {
-        year(c.year); chr('-'); pad2(c.month); chr('-'); pad2(c.day); chr('T');
-        pad2(c.hour); chr(':'); pad2(c.minute); chr(':'); pad2(c.second); chr('Z');
+        year(c.year);
+        chr('-');
+        pad2(c.month);
+        chr('-');
+        pad2(c.day);
+        chr('T');
+        pad2(c.hour);
+        chr(':');
+        pad2(c.minute);
+        chr(':');
+        pad2(c.second);
+        chr('Z');
     }
     // 20261017T143052Z: the time in a file name
     void stamp(const Civil& c) {
-        year(c.year); pad2(c.month); pad2(c.day); chr('T'); pad2(c.hour); pad2(c.minute); pad2(c.second); chr('Z');
+        year(c.year);
+        pad2(c.month);
+        pad2(c.day);
+        chr('T');
+        pad2(c.hour);
+        pad2(c.minute);
+        pad2(c.second);
+        chr('Z');
     }
 };
 

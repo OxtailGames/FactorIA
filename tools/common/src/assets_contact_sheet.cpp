@@ -25,14 +25,16 @@ namespace {
 
 constexpr const char* kCommand = "assets.contact_sheet";
 constexpr int kMaxPaths = 48;
-constexpr int kMaxSize = 512;         // longest side of a cell, pixels
-constexpr int kMaxPicture = 2048;     // longest side of the picture returned to a model
-constexpr int kModelRender = 256;     // the thumbnail of a model is drawn this big, then scaled
-constexpr int kModelNative = 128;     // and shown this big when no size is asked
+constexpr int kMaxSize = 512;      // longest side of a cell, pixels
+constexpr int kMaxPicture = 2048;  // longest side of the picture returned to a model
+constexpr int kModelRender = 256;  // the thumbnail of a model is drawn this big, then scaled
+constexpr int kModelNative = 128;  // and shown this big when no size is asked
 constexpr float kFont = 13.0f;
 constexpr int kPad = 8;
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error(kCommand, pointer, what, hint); }
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
+    arg_error(kCommand, pointer, what, hint);
+}
 
 struct Background {
     std::string name;
@@ -40,9 +42,9 @@ struct Background {
 };
 
 struct Item {
-    std::string label;           // file name (with the frame)
-    std::vector<Image> sizes;    // one picture per size asked (or one at native size)
-    std::string info;            // "64x64"
+    std::string label;         // file name (with the frame)
+    std::vector<Image> sizes;  // one picture per size asked (or one at native size)
+    std::string info;          // "64x64"
 };
 
 Rgb8 rgb8(const Color& c) {
@@ -59,7 +61,8 @@ std::string base_name(const std::string& rel) {
 std::optional<Color> main_camera_clear(const std::string& projectDir) {
     auto project = load_json_file((stdfs::path(projectDir) / "factoria.json").generic_string());
     std::string sceneRel = "scenes/main.scene.json";
-    if (project.ok() && project->is_object() && project->contains("mainScene") && (*project)["mainScene"].is_string()) sceneRel = (*project)["mainScene"].get<std::string>();
+    if (project.ok() && project->is_object() && project->contains("mainScene") && (*project)["mainScene"].is_string())
+        sceneRel = (*project)["mainScene"].get<std::string>();
     auto scene = load_json_file((stdfs::path(projectDir) / sceneRel).generic_string());
     if (!scene.ok() || !scene->is_object() || !scene->contains("entities")) return std::nullopt;
     std::optional<Color> found;
@@ -67,7 +70,8 @@ std::optional<Color> main_camera_clear(const std::string& projectDir) {
         if (!list.is_array() || found) return;
         for (const Json& e : list) {
             if (!e.is_object() || found) continue;
-            if (e.contains("components") && e["components"].is_object() && e["components"].contains("Camera") && e["components"]["Camera"].is_object()) {
+            if (e.contains("components") && e["components"].is_object() && e["components"].contains("Camera") &&
+                e["components"]["Camera"].is_object()) {
                 const Json& cam = e["components"]["Camera"];
                 if (cam.value("primary", true) && cam.value("active", true)) {
                     Color c{0.08f, 0.08f, 0.12f, 1.0f};
@@ -113,11 +117,13 @@ Json model_scene(const std::string& rel, const MeshGeometry& geometry) {
                                                                {"clearColor", Json::array({0, 0, 0, 0})}})}})}});
     Json model = Json::object(
         {{"id", "thumb_model"},
-         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-centre.x, -centre.y, -centre.z})}})},
-                                      {"MeshRenderer", Json::object({{"mesh", rel}})}})}});
-    Json pivot = Json::object({{"id", "thumb_pivot"},
-                               {"components", Json::object({{"Transform", Json::object({{"rotation", Json::array({18, -32, 0})}})}})},
-                               {"children", Json::array({model})}});
+         {"components",
+          Json::object({{"Transform", Json::object({{"position", Json::array({-centre.x, -centre.y, -centre.z})}})},
+                        {"MeshRenderer", Json::object({{"mesh", rel}})}})}});
+    Json pivot = Json::object(
+        {{"id", "thumb_pivot"},
+         {"components", Json::object({{"Transform", Json::object({{"rotation", Json::array({18, -32, 0})}})}})},
+         {"children", Json::array({model})}});
     return Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({camera, pivot})}});
 }
 
@@ -126,14 +132,17 @@ std::vector<Image> render_models(const std::string& projectDir, const std::vecto
     std::vector<Json> scenes;
     for (const std::string& rel : rels) {
         auto geometry = load_mesh_geometry(rel);
-        if (!geometry.ok()) fail("invalid_argument", "'" + rel + "' cannot be read as a model: " + geometry.error().message, geometry.error().hint);
+        if (!geometry.ok())
+            fail("invalid_argument", "'" + rel + "' cannot be read as a model: " + geometry.error().message,
+                 geometry.error().hint);
         scenes.push_back(model_scene(rel, **geometry));
     }
     TempScene temp;
     const std::string sceneRel = ".factoria/tmp/contact_sheet.scene.json";
     temp.file = project_file(projectDir, sceneRel);
     std::string err;
-    if (!tooling_detail::write_file(temp.file, scenes.front().dump(2), &err)) fail("failed", "Cannot write the scene the thumbnails start from: " + err);
+    if (!tooling_detail::write_file(temp.file, scenes.front().dump(2), &err))
+        fail("failed", "Cannot write the scene the thumbnails start from: " + err);
     EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, sceneRel, true, RenderMode::OnDemand);
     cfg.width = kModelRender;
     cfg.height = kModelRender;
@@ -150,17 +159,21 @@ std::vector<Image> render_models(const std::string& projectDir, const std::vecto
     std::vector<Image> out;
     for (std::size_t i = 0; i < rels.size(); ++i) {
         std::string loadError;
-        if (!engine.load_scene_json(scenes[i], rels[i], &loadError)) fail("invalid_argument", "Cannot draw '" + rels[i] + "': " + loadError, "Check the model with factoria validate.");
+        if (!engine.load_scene_json(scenes[i], rels[i], &loadError))
+            fail("invalid_argument", "Cannot draw '" + rels[i] + "': " + loadError,
+                 "Check the model with factoria validate.");
         engine.step(1);
         Image img;
         if (!engine.capture_scaled(img, 1.0, &err)) {
-            if (err.find("No renderer") != std::string::npos) no_gpu_error(kCommand, err, "Without a GPU leave the .glb files out of `paths`.");
+            if (err.find("No renderer") != std::string::npos)
+                no_gpu_error(kCommand, err, "Without a GPU leave the .glb files out of `paths`.");
             fail("failed", "Cannot capture the thumbnail of '" + rels[i] + "': " + err);
         }
         for (std::size_t p = 0; p + 3 < img.rgba.size(); p += 4) {  // the GPU leaves premultiplied pixels
             const unsigned a = img.rgba[p + 3];
             if (a == 0 || a == 255) continue;
-            for (int k = 0; k < 3; ++k) img.rgba[p + k] = std::uint8_t(std::min(255u, (img.rgba[p + k] * 255u + a / 2) / a));
+            for (int k = 0; k < 3; ++k)
+                img.rgba[p + k] = std::uint8_t(std::min(255u, (img.rgba[p + k] * 255u + a / 2) / a));
         }
         out.push_back(std::move(img));
     }
@@ -171,12 +184,13 @@ std::vector<Image> render_models(const std::string& projectDir, const std::vecto
 
 Image cell_picture(const Image& src, double longest) {
     const double scale = longest / std::max(src.width, src.height);
-    return resize_area(src, std::max(1, int(std::lround(src.width * scale))), std::max(1, int(std::lround(src.height * scale))));
+    return resize_area(src, std::max(1, int(std::lround(src.width * scale))),
+                       std::max(1, int(std::lround(src.height * scale))));
 }
 
 struct Frames {
     std::vector<Image> frames;
-    int total = 1;     // frames the sheet has
+    int total = 1;  // frames the sheet has
     bool sheet = false;
 };
 
@@ -200,46 +214,65 @@ Frames cut_frames(const std::string& rel, const Image& img, bool all) {
 }
 
 Json contact_sheet_command(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.contact_sheet expects an object.", "Pass {\"paths\": [\"assets/hero.png\", \"assets/enemy.png\"]}.");
-    check_arg_keys(kCommand, a, "", {"paths", "backgrounds", "sizes", "greyscale", "columns", "allFrames", "path", "overwrite"});
+    if (!a.is_object())
+        fail("invalid_argument", "assets.contact_sheet expects an object.",
+             "Pass {\"paths\": [\"assets/hero.png\", \"assets/enemy.png\"]}.");
+    check_arg_keys(kCommand, a, "",
+                   {"paths", "backgrounds", "sizes", "greyscale", "columns", "allFrames", "path", "overwrite"});
 
     // ---- arguments ----
-    if (!a.contains("paths") || !a["paths"].is_array() || a["paths"].empty() || a["paths"].size() > std::size_t(kMaxPaths))
-        bad("/paths", std::format("expected a list of 1 to {} project paths.", kMaxPaths), "Example: {\"paths\": [\"assets/hero.png\", \"assets/enemy.png\"]}; assets.list shows the images of the project.");
+    if (!a.contains("paths") || !a["paths"].is_array() || a["paths"].empty() ||
+        a["paths"].size() > std::size_t(kMaxPaths))
+        bad("/paths", std::format("expected a list of 1 to {} project paths.", kMaxPaths),
+            "Example: {\"paths\": [\"assets/hero.png\", \"assets/enemy.png\"]}; assets.list shows the images of the "
+            "project.");
     std::vector<std::string> paths;
     for (std::size_t i = 0; i < a["paths"].size(); ++i) {
         const Json& p = a["paths"][i];
         const std::string at = "/paths/" + std::to_string(i);
         if (!p.is_string()) bad(at, "expected a project-relative path as a string.", "Example: \"assets/hero.png\".");
         auto norm = fs::normalize_checked(p.get<std::string>());
-        if (!norm.ok() || norm->empty()) bad(at, "'" + p.get<std::string>() + "' is not a path inside the project.", "Use a project-relative path such as \"assets/hero.png\".");
+        if (!norm.ok() || norm->empty())
+            bad(at, "'" + p.get<std::string>() + "' is not a path inside the project.",
+                "Use a project-relative path such as \"assets/hero.png\".");
         paths.push_back(*norm);
     }
     std::vector<double> sizes;
     if (a.contains("sizes") && !a["sizes"].is_null()) {
-        if (!a["sizes"].is_array() || a["sizes"].empty() || a["sizes"].size() > 6) bad("/sizes", "expected a list of 1 to 6 sizes in pixels.", "Example: [32, 64]: the longest side of each picture on the screen of the player, one column per size. Leave it out for the native size.");
+        if (!a["sizes"].is_array() || a["sizes"].empty() || a["sizes"].size() > 6)
+            bad("/sizes", "expected a list of 1 to 6 sizes in pixels.",
+                "Example: [32, 64]: the longest side of each picture on the screen of the player, one column per size. "
+                "Leave it out for the native size.");
         for (std::size_t i = 0; i < a["sizes"].size(); ++i) {
             const Json& s = a["sizes"][i];
             if (!s.is_number() || s.get<double>() < 4 || s.get<double>() > kMaxSize)
-                bad("/sizes/" + std::to_string(i), std::format("expected a number of pixels from 4 to {}.", kMaxSize), "It is the longest side of the picture as the player sees it: Sprite.size on screen times the render scale, e.g. 48.");
+                bad("/sizes/" + std::to_string(i), std::format("expected a number of pixels from 4 to {}.", kMaxSize),
+                    "It is the longest side of the picture as the player sees it: Sprite.size on screen times the "
+                    "render scale, e.g. 48.");
             sizes.push_back(s.get<double>());
         }
     }
     const bool greyscale = tooling_detail::arg_bool(a, "greyscale", true);
     const bool allFrames = tooling_detail::arg_bool(a, "allFrames", false);
     const int columns = int(tooling_detail::arg_int(a, "columns", 8));
-    if (columns < 1 || columns > 16) bad("/columns", "expected a whole number from 1 to 16.", "Cells per line before the sheet wraps to the next block of rows. Default 8.");
+    if (columns < 1 || columns > 16)
+        bad("/columns", "expected a whole number from 1 to 16.",
+            "Cells per line before the sheet wraps to the next block of rows. Default 8.");
     // The picture is kept only when the caller gives `path`: that needs writeProject, and the path is judged now, before any drawing.
     std::string outRel;
     stdfs::path outFile;
     if (a.contains("path") && !a["path"].is_null()) {
         if (!a["path"].is_string() || to_lower(fs::extension(a["path"].get<std::string>())) != ".png")
-            bad("/path", "expected a path ending in .png.", "Example: \"docs/review/enemies.png\". Leave it out to only look at the picture (no project file is written).");
+            bad("/path", "expected a path ending in .png.",
+                "Example: \"docs/review/enemies.png\". Leave it out to only look at the picture (no project file is "
+                "written).");
         outFile = caller_output_file(projectDir, a["path"].get<std::string>(), kCommand);
         outRel = output_spelling(a["path"].get<std::string>());
         if (!tooling_detail::arg_bool(a, "overwrite", false)) {
             std::error_code ec;
-            if (stdfs::exists(outFile, ec)) fail("exists", "'" + outRel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+            if (stdfs::exists(outFile, ec))
+                fail("exists", "'" + outRel + "' already exists.",
+                     "Pass overwrite: true to replace it, or choose another `path`.");
         }
     }
 
@@ -250,7 +283,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     };
     if (a.contains("backgrounds") && !a["backgrounds"].is_null()) {
         if (!a["backgrounds"].is_array() || a["backgrounds"].empty() || a["backgrounds"].size() > 6)
-            bad("/backgrounds", "expected a list of 1 to 6 colours.", "Example: [\"#ffffff\", \"#202028\", \"#3a7d44\"]. Leave it out for a light one, a dark one and the clear colour of the main camera.");
+            bad("/backgrounds", "expected a list of 1 to 6 colours.",
+                "Example: [\"#ffffff\", \"#202028\", \"#3a7d44\"]. Leave it out for a light one, a dark one and the "
+                "clear colour of the main camera.");
         for (std::size_t i = 0; i < a["backgrounds"].size(); ++i) {
             const Color c = colour_arg(kCommand, a["backgrounds"][i], "/backgrounds/" + std::to_string(i));
             if (seen.insert(hex_colour(c)).second) backgrounds.push_back({hex_colour(c), rgb8(c)});
@@ -267,11 +302,19 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     for (const std::string& rel : paths) {
         const std::string ext = to_lower(fs::extension(rel));
         std::error_code ec;
-        if (!stdfs::is_regular_file(project_file(projectDir, rel), ec)) fail("not_found", "'" + rel + "' does not exist.", "assets.list shows the images and models of the project.");
-        if (ext == ".glb") glbs.push_back(rel);
-        else if (ext == ".gltf") fail("invalid_argument", "'" + rel + "' is a .gltf: only .glb models are drawn in a contact sheet.", "Use assets.preview_in_scene for the .gltf, or assets.import to make a .glb.");
+        if (!stdfs::is_regular_file(project_file(projectDir, rel), ec))
+            fail("not_found", "'" + rel + "' does not exist.",
+                 "assets.list shows the images and models of the project.");
+        if (ext == ".glb")
+            glbs.push_back(rel);
+        else if (ext == ".gltf")
+            fail("invalid_argument", "'" + rel + "' is a .gltf: only .glb models are drawn in a contact sheet.",
+                 "Use assets.preview_in_scene for the .gltf, or assets.import to make a .glb.");
         else if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp" && ext != ".tga")
-            fail("invalid_argument", "'" + rel + "' is not a picture or a .glb model (" + (ext.empty() ? "no extension" : ext) + ").", "A contact sheet shows PNG (and JPG, BMP, TGA) images and .glb models. For sound use assets.spectrogram; for a font, a Text in a scene and game.screenshot.");
+            fail("invalid_argument",
+                 "'" + rel + "' is not a picture or a .glb model (" + (ext.empty() ? "no extension" : ext) + ").",
+                 "A contact sheet shows PNG (and JPG, BMP, TGA) images and .glb models. For sound use "
+                 "assets.spectrogram; for a font, a Text in a scene and game.screenshot.");
     }
     std::vector<Image> modelPictures;
     if (!glbs.empty()) {
@@ -297,9 +340,13 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
             Frames frames = cut_frames(rel, *loaded, allFrames);
             for (std::size_t i = 0; i < frames.frames.size(); ++i) {
                 pictures.push_back(std::move(frames.frames[i]));
-                labels.push_back(base_name(rel) + (frames.sheet && (allFrames || frames.total > 1) ? " f" + std::to_string(i) : ""));
+                labels.push_back(base_name(rel) +
+                                 (frames.sheet && (allFrames || frames.total > 1) ? " f" + std::to_string(i) : ""));
             }
-            if (frames.sheet && !allFrames && frames.total > 1) warnings.push_back(std::format("'{}' is a sprite sheet of {} frames: only frame 0 is shown. Pass allFrames: true to see all of them.", rel, frames.total));
+            if (frames.sheet && !allFrames && frames.total > 1)
+                warnings.push_back(std::format("'{}' is a sprite sheet of {} frames: only frame 0 is shown. Pass "
+                                               "allFrames: true to see all of them.",
+                                               rel, frames.total));
             info = std::format("{}x{}", pictures.front().width, pictures.front().height);
         }
         for (std::size_t i = 0; i < pictures.size(); ++i) {
@@ -310,7 +357,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
             const double nativeLongest = isModel ? kModelNative : std::max(src.width, src.height);
             if (sizes.empty()) {
                 if (nativeLongest > kMaxSize) {
-                    warnings.push_back(std::format("'{}' is {} px on its longest side: shown at {} px. Pass `sizes` to choose.", rel, int(nativeLongest), kMaxSize));
+                    warnings.push_back(
+                        std::format("'{}' is {} px on its longest side: shown at {} px. Pass `sizes` to choose.", rel,
+                                    int(nativeLongest), kMaxSize));
                     item.sizes.push_back(cell_picture(src, kMaxSize));
                 } else {
                     item.sizes.push_back(isModel ? cell_picture(src, kModelNative) : src);
@@ -331,7 +380,11 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     for (const Item& item : items)
         for (const Image& s : item.sizes)
             cells.push_back({&s, item.label, sizes.empty() ? item.info : std::format("{}x{}", s.width, s.height)});
-    if (cells.size() > 160) fail("invalid_argument", std::format("{} cells (pictures x sizes x frames) are too many for one picture; the most is 160.", cells.size()), "Split `paths` in two calls, or use fewer `sizes`, or leave out allFrames.");
+    if (cells.size() > 160)
+        fail("invalid_argument",
+             std::format("{} cells (pictures x sizes x frames) are too many for one picture; the most is 160.",
+                         cells.size()),
+             "Split `paths` in two calls, or use fewer `sizes`, or leave out allFrames.");
 
     struct Row {
         std::string name;
@@ -360,7 +413,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
         b.first = first;
         b.last = std::min(cells.size(), first + std::size_t(columns));
         for (std::size_t c = b.first; c < b.last; ++c) {
-            b.widths.push_back(std::max(cells[c].pic->width, std::max(text_width(cells[c].label, kFont), text_width(cells[c].info, kFont))) + 2 * kPad);
+            b.widths.push_back(std::max(cells[c].pic->width,
+                                        std::max(text_width(cells[c].label, kFont), text_width(cells[c].info, kFont))) +
+                               2 * kPad);
             b.cellH = std::max(b.cellH, cells[c].pic->height + 2 * kPad);
         }
         b.y = height;
@@ -393,7 +448,8 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
         }
         for (std::size_t r = 0; r < rows.size(); ++r) {
             const int y = b.y + headerH + int(r) * b.cellH;
-            const Rgb8 on = rows[r].bg.r + rows[r].bg.g + rows[r].bg.b > 3 * 128 ? Rgb8{20, 20, 24} : Rgb8{225, 225, 230};
+            const Rgb8 on =
+                rows[r].bg.r + rows[r].bg.g + rows[r].bg.b > 3 * 128 ? Rgb8{20, 20, 24} : Rgb8{225, 225, 230};
             fill_rect_rgb(sheet, 0, y, gutter, b.cellH, rows[r].bg);
             draw_text(sheet, kPad, y + kPad, rows[r].name, kFont, on);
         }
@@ -402,8 +458,11 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     double pictureScale = 1.0;
     if (std::max(sheet.width, sheet.height) > kMaxPicture) {
         pictureScale = double(kMaxPicture) / std::max(sheet.width, sheet.height);
-        sheet = resize_area(sheet, std::max(1, int(std::lround(sheet.width * pictureScale))), std::max(1, int(std::lround(sheet.height * pictureScale))));
-        warnings.push_back(std::format("The sheet was {} px wide or tall and is shown reduced to {}%: give fewer pictures, `sizes` or a smaller `columns` to see them as they are.", kMaxPicture, int(std::lround(pictureScale * 100))));
+        sheet = resize_area(sheet, std::max(1, int(std::lround(sheet.width * pictureScale))),
+                            std::max(1, int(std::lround(sheet.height * pictureScale))));
+        warnings.push_back(std::format("The sheet was {} px wide or tall and is shown reduced to {}%: give fewer "
+                                       "pictures, `sizes` or a smaller `columns` to see them as they are.",
+                                       kMaxPicture, int(std::lround(pictureScale * 100))));
     }
 
     // ---- the result ----
@@ -411,7 +470,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     Json rowNames = Json::array();
     for (const Row& r : rows) rowNames.push_back(r.name);
     Json bgJson = Json::array();
-    for (const Background& b : backgrounds) bgJson.push_back(Json::object({{"name", b.name}, {"color", std::format("#{:02x}{:02x}{:02x}", b.colour.r, b.colour.g, b.colour.b)}}));
+    for (const Background& b : backgrounds)
+        bgJson.push_back(Json::object(
+            {{"name", b.name}, {"color", std::format("#{:02x}{:02x}{:02x}", b.colour.r, b.colour.g, b.colour.b)}}));
     result["backgrounds"] = bgJson;
     result["rows"] = rowNames;
     result["cells"] = int(cells.size());
@@ -419,7 +480,9 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     if (!outRel.empty()) {
         const std::vector<std::uint8_t> png = encode_png(sheet);
         std::string err;
-        if (!tooling_detail::write_file(outFile, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+        if (!tooling_detail::write_file(outFile,
+                                        std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+            fail("failed", err);
         result["written"] = outRel;
         result["$image"] = image_member(outFile, false);
     } else {
@@ -427,11 +490,19 @@ Json contact_sheet_command(const std::string& projectDir, const Json& a) {
     }
     result["warnings"] = warnings;
     std::vector<std::string> steps;
-    steps.push_back("Read the picture: one column per picture" + std::string(sizes.empty() ? "" : " and size") + " (file name and size above it), one row per background" + (greyscale ? ", the last one in greyscale." : "."));
-    steps.push_back("Look for what disappears: a shape that merges with one background, an outline that vanishes when small, two sprites that look the same in greyscale (the value structure is too flat).");
-    if (sizes.empty()) steps.push_back("Pass sizes: [32, 64] to see them at the sizes the camera shows them (Sprite.size on screen, times the render scale).");
-    steps.push_back("To see one asset in the real scene, with its lighting and neighbours, use assets.preview_in_scene; for the whole game use game.screenshot; for a sprite sheet's frames and pivot assets.preview_sheet.");
-    if (outRel.empty()) steps.push_back("Pass path to keep the picture as a PNG in the project (for a review or a pull request).");
+    steps.push_back("Read the picture: one column per picture" + std::string(sizes.empty() ? "" : " and size") +
+                    " (file name and size above it), one row per background" +
+                    (greyscale ? ", the last one in greyscale." : "."));
+    steps.push_back("Look for what disappears: a shape that merges with one background, an outline that vanishes when "
+                    "small, two sprites that look the same in greyscale (the value structure is too flat).");
+    if (sizes.empty())
+        steps.push_back("Pass sizes: [32, 64] to see them at the sizes the camera shows them (Sprite.size on screen, "
+                        "times the render scale).");
+    steps.push_back(
+        "To see one asset in the real scene, with its lighting and neighbours, use assets.preview_in_scene; for the "
+        "whole game use game.screenshot; for a sprite sheet's frames and pivot assets.preview_sheet.");
+    if (outRel.empty())
+        steps.push_back("Pass path to keep the picture as a PNG in the project (for a review or a pull request).");
     result["nextSteps"] = steps;
     return result;
 }
@@ -442,7 +513,8 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.summary = "Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.";
+    info.summary = "Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark "
+                   "and camera-colour backgrounds and in greyscale, labelled with their file names.";
     info.description =
         "Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for "
         "each of `sizes`) and a row for each background, so you can judge a set of assets the way the player "
@@ -454,15 +526,16 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
         "grown with hard pixels; without `sizes` each picture is drawn at its native size (at most 512). "
         "PNG, JPG, BMP and TGA files are drawn as they are; a sprite sheet (one with a `sheet` entry in "
         "assets.json) shows its first frame, or all frames with `allFrames: true`. Example: "
-        "{\"paths\":[\"assets/hero.png\",\"assets/slime.png\"],\"sizes\":[32,64]}."
-        FA_COMMAND_DETAILS
+        "{\"paths\":[\"assets/hero.png\",\"assets/slime.png\"],\"sizes\":[32,64]}." FA_COMMAND_DETAILS
         "A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three "
         "quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; "
         "without one the command fails with no_gpu, and you can leave the models out); a model in the real "
         "scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name "
         "and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then "
-        "the sheet continues below. No project file is written unless `path` is given (the picture is otherwise a temporary screenshot in .factoria/screenshots): then the PNG is also saved "
-        "there, which needs the writeProject capability (an existing file is not replaced without `overwrite: true`). The same inputs give the same "
+        "the sheet continues below. No project file is written unless `path` is given (the picture is otherwise a "
+        "temporary screenshot in .factoria/screenshots): then the PNG is also saved "
+        "there, which needs the writeProject capability (an existing file is not replaced without `overwrite: true`). "
+        "The same inputs give the same "
         "picture.";
     info.inputSchema = Json::object(
         {{"type", "object"},
@@ -470,17 +543,52 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"paths", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", kMaxPaths}, {"items", Json::object({{"type", "string"}})},
-                                       {"description", "Project-relative paths of the pictures (PNG, JPG, BMP, TGA) and .glb models to show, in this order. A sprite sheet shows its first frame (see allFrames)."}})},
-               {"backgrounds", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", 6}, {"items", Json::object({{"type", "string"}})},
-                                             {"description", "Colours (\"#rrggbb\", a name, or [r, g, b] in 0..1) to draw the pictures over, one row each. Default: a light one, a dark one and the clear colour of the main camera."}})},
-               {"sizes", Json::object({{"type", "array"}, {"minItems", 1}, {"maxItems", 6}, {"items", Json::object({{"type", "number"}, {"minimum", 4}, {"maximum", kMaxSize}})},
-                                       {"description", "Longest side in pixels of each picture as the player sees it; one column per picture and size. Default: the native size of each picture."}})},
-               {"greyscale", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Add a last row with the pictures in greyscale over mid-grey, to judge their value structure."}})},
-               {"columns", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 16}, {"default", 8}, {"description", "Cells per line; more wrap to a new block of rows below."}})},
-               {"allFrames", Json::object({{"type", "boolean"}, {"default", false}, {"description", "A sprite sheet shows all its frames (a column each) instead of the first."}})},
-               {"path", path_property("write", "Also save the picture as a PNG at this path (ending in .png; project-relative, an absolute path only for the command-line user). Needs the writeProject capability. Without it only a temporary screenshot in .factoria/screenshots is made.")},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "With `path`: replace the file when it exists."}})}})}});
+              {{"paths",
+                Json::object(
+                    {{"type", "array"},
+                     {"minItems", 1},
+                     {"maxItems", kMaxPaths},
+                     {"items", Json::object({{"type", "string"}})},
+                     {"description", "Project-relative paths of the pictures (PNG, JPG, BMP, TGA) and .glb models to "
+                                     "show, in this order. A sprite sheet shows its first frame (see allFrames)."}})},
+               {"backgrounds",
+                Json::object({{"type", "array"},
+                              {"minItems", 1},
+                              {"maxItems", 6},
+                              {"items", Json::object({{"type", "string"}})},
+                              {"description",
+                               "Colours (\"#rrggbb\", a name, or [r, g, b] in 0..1) to draw the pictures over, one row "
+                               "each. Default: a light one, a dark one and the clear colour of the main camera."}})},
+               {"sizes",
+                Json::object(
+                    {{"type", "array"},
+                     {"minItems", 1},
+                     {"maxItems", 6},
+                     {"items", Json::object({{"type", "number"}, {"minimum", 4}, {"maximum", kMaxSize}})},
+                     {"description", "Longest side in pixels of each picture as the player sees it; one column per "
+                                     "picture and size. Default: the native size of each picture."}})},
+               {"greyscale", Json::object({{"type", "boolean"},
+                                           {"default", true},
+                                           {"description", "Add a last row with the pictures in greyscale over "
+                                                           "mid-grey, to judge their value structure."}})},
+               {"columns", Json::object({{"type", "integer"},
+                                         {"minimum", 1},
+                                         {"maximum", 16},
+                                         {"default", 8},
+                                         {"description", "Cells per line; more wrap to a new block of rows below."}})},
+               {"allFrames",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description", "A sprite sheet shows all its frames (a column each) instead of the first."}})},
+               {"path",
+                path_property("write",
+                              "Also save the picture as a PNG at this path (ending in .png; project-relative, an "
+                              "absolute path only for the command-line user). Needs the writeProject capability. "
+                              "Without it only a temporary screenshot in .factoria/screenshots is made.")},
+               {"overwrite", Json::object({{"type", "boolean"},
+                                           {"default", false},
+                                           {"description", "With `path`: replace the file when it exists."}})}})}});
     registry.add(info, [projectDir](const Json& args) { return contact_sheet_command(projectDir, args); });
     // Capabilities (capability.h): it draws a temporary screenshot in .factoria/screenshots (state); `path`, which keeps the picture, is
     // checked for writeProject by the handler. A .glb is drawn in a child `factoria call` of this same command when this process

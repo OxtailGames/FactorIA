@@ -72,7 +72,9 @@ inline bool has_text(const Json& list, const std::string& needle) {
     return false;
 }
 
-inline bool has_warning(const Json& result, const std::string& needle) { return result.contains("warnings") && has_text(result["warnings"], needle); }
+inline bool has_warning(const Json& result, const std::string& needle) {
+    return result.contains("warnings") && has_text(result["warnings"], needle);
+}
 
 // A temporary project folder with the assets commands registered on it.
 struct AssetsProject {

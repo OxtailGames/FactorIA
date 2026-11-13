@@ -40,7 +40,8 @@ TEST_CASE("StartupSequence: the first frame is presented before the game is read
     for (int i = 0; i < 12; ++i)
         if (seq.on_frame()) ++gameFrames;
     // frame 1: present; frame 2: init + present; frames 3-5: warm + present each; then game frames.
-    const std::vector<std::string> expected = {"present", "init", "present", "warm", "present", "warm", "present", "warm", "present"};
+    const std::vector<std::string> expected = {"present", "init",    "present", "warm",   "present",
+                                               "warm",    "present", "warm",    "present"};
     CHECK(r.events == expected);
     CHECK(gameFrames == 12 - 5);
     CHECK(seq.running());
@@ -67,7 +68,8 @@ TEST_CASE("StartupSequence: no file is read before the first present") {
         if (presents++ == 0) readsAtPresent = fs::disk_reads();
     };
     h.init = [&] {
-        const auto bytes = fs::read_bytes(fs::path_to_utf8(file));  // Engine::init reads the game's files: each read counts in disk_reads
+        const auto bytes = fs::read_bytes(
+            fs::path_to_utf8(file));  // Engine::init reads the game's files: each read counts in disk_reads
         readBack = bytes.ok() && bytes.value().size() == 11;
         readsAtInit = fs::disk_reads();
         return true;
@@ -76,9 +78,9 @@ TEST_CASE("StartupSequence: no file is read before the first present") {
     seq.on_frame();
     seq.on_frame();
     CHECK(readsAtPresent != ~std::uint64_t(0));
-    CHECK(readBack);  // the read really happened (a read that failed would not count)
+    CHECK(readBack);                      // the read really happened (a read that failed would not count)
     CHECK(readsAtInit > readsAtPresent);  // the file was read after the first present, not before
-    CHECK(presents == 2);  // the first frame, and the frame init ran in
+    CHECK(presents == 2);                 // the first frame, and the frame init ran in
     std::error_code ec;
     fs::remove_tree(dir, ec);
 }

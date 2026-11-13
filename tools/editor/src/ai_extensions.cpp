@@ -35,14 +35,18 @@ void toggle_role(ai::Extension& e, const char* role) {
     for (const char* r : ai::kAllRoles)
         if (role_on(e, r)) now.push_back(r);
     const auto it = std::ranges::find(now, std::string(role));
-    if (it != now.end()) now.erase(it);
-    else now.push_back(role);
+    if (it != now.end())
+        now.erase(it);
+    else
+        now.push_back(role);
     std::set<std::string> have(now.begin(), now.end()), def;
     for (const char* r : ai::kDefaultExtensionRoles) def.insert(r);
     e.roles = have == def ? std::vector<std::string>{} : now;
 }
 
-std::string entry_key(const ai::Extension& e) { return std::string(ai::extension_kind_name(e.kind)) + ":" + e.source + ":" + e.name; }
+std::string entry_key(const ai::Extension& e) {
+    return std::string(ai::extension_kind_name(e.kind)) + ":" + e.source + ":" + e.name;
+}
 
 // "name" for a folder: its last segment made of letters, digits, '_' and '-'.
 std::string derive_name(const std::string& path) {
@@ -98,10 +102,12 @@ std::string run_result(const Json& r) {
 void Editor::draw_ai_hooks_view(const Json& report) {
     const float em = ImGui::GetFontSize();
     ImGui::SeparatorText("Hooks");
-    ImGui::TextDisabled("As saved, with the runs of this editor since it started. Claude Code's own runs are in its transcript, not here.");
+    ImGui::TextDisabled("As saved, with the runs of this editor since it started. Claude Code's own runs are in its "
+                        "transcript, not here.");
     const Json entries = report.value("entries", Json::array());
     std::size_t handlers = 0;
-    if (ImGui::BeginTable("##hookhandlers", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
+    if (ImGui::BeginTable("##hookhandlers", 6,
+                          ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Entry", ImGuiTableColumnFlags_WidthFixed, em * 8.0f);
         ImGui::TableSetupColumn("Event", ImGuiTableColumnFlags_WidthFixed, em * 8.5f);
         ImGui::TableSetupColumn("Matcher", ImGuiTableColumnFlags_WidthFixed, em * 7.0f);
@@ -111,7 +117,8 @@ void Editor::draw_ai_hooks_view(const Json& report) {
         ImGui::TableHeadersRow();
         for (const Json& e : entries) {
             if (!e.is_object() || !e.contains("events")) continue;
-            const std::string name = e.value("name", std::string()) + (e.value("source", std::string()) == "project" ? " (project)" : "");
+            const std::string name =
+                e.value("name", std::string()) + (e.value("source", std::string()) == "project" ? " (project)" : "");
             const std::string problem = e.value("problem", std::string());
             const bool off = !e.value("enabled", true) || !problem.empty();
             for (const auto& [event, groups] : e["events"].items()) {
@@ -124,8 +131,10 @@ void Editor::draw_ai_hooks_view(const Json& report) {
                         if (off) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
                         ImGui::TableNextColumn();
                         ImGui::TextUnformatted(name.c_str());
-                        if (!problem.empty()) ImGui::SetItemTooltip("Not run: %s", problem.c_str());
-                        else if (!e.value("enabled", true)) ImGui::SetItemTooltip("Switched off in the list above.");
+                        if (!problem.empty())
+                            ImGui::SetItemTooltip("Not run: %s", problem.c_str());
+                        else if (!e.value("enabled", true))
+                            ImGui::SetItemTooltip("Switched off in the list above.");
                         ImGui::TableNextColumn();
                         ImGui::TextUnformatted(event.c_str());
                         ImGui::TableNextColumn();
@@ -137,7 +146,7 @@ void Editor::draw_ai_hooks_view(const Json& report) {
                         ImGui::TextUnformatted(h.value("target", std::string()).c_str());
                         ImGui::SetItemTooltip("%s", h.value("target", std::string()).c_str());
                         ImGui::TableNextColumn();
-                        ImGui::TextUnformatted(engineEvent                     ? "FactorIA, all callers"
+                        ImGui::TextUnformatted(engineEvent                  ? "FactorIA, all callers"
                                                : h.value("runsHere", false) ? "Every provider"
                                                                             : "Claude Code only");
                         if (off) ImGui::PopStyleColor();
@@ -147,12 +156,17 @@ void Editor::draw_ai_hooks_view(const Json& report) {
         }
         ImGui::EndTable();
     }
-    if (handlers == 0) ImGui::TextDisabled("No hooks yet. Paste a hooks JSON above, or write them in .factoria/extensions.json (docs/HOOKS.md).");
+    if (handlers == 0)
+        ImGui::TextDisabled(
+            "No hooks yet. Paste a hooks JSON above, or write them in .factoria/extensions.json (docs/HOOKS.md).");
     for (const Json& e : entries)
-        if (e.is_object() && e.contains("problem") && e.contains("events") && !e["events"].empty() && e.value("enabled", true))
-            ImGui::TextColored(kStatusWarn, "%s: %s", e.value("name", std::string()).c_str(), e.value("problem", std::string()).c_str());
+        if (e.is_object() && e.contains("problem") && e.contains("events") && !e["events"].empty() &&
+            e.value("enabled", true))
+            ImGui::TextColored(kStatusWarn, "%s: %s", e.value("name", std::string()).c_str(),
+                               e.value("problem", std::string()).c_str());
     if (report.contains("projectFileError"))
-        ImGui::TextColored(kStatusFailed, "The project's extensions file is ignored: %s", report["projectFileError"].get<std::string>().c_str());
+        ImGui::TextColored(kStatusFailed, "The project's extensions file is ignored: %s",
+                           report["projectFileError"].get<std::string>().c_str());
     for (const Json& n : report.value("notRun", Json::array()))
         if (n.is_string()) ImGui::TextDisabled("%s", n.get<std::string>().c_str());
 
@@ -176,10 +190,12 @@ void Editor::draw_ai_hooks_view(const Json& report) {
     at_track("aiset:ext:hooks-clear", !runs.empty());
     ImGui::SetItemTooltip("Forget the list of runs (the hooks stay).");
     if (runs.empty()) {
-        ImGui::TextDisabled("No hook has run in this editor yet. A hook runs when the built-in AI (API providers) or a command of the engine reaches its event.");
+        ImGui::TextDisabled("No hook has run in this editor yet. A hook runs when the built-in AI (API providers) or a "
+                            "command of the engine reaches its event.");
         return;
     }
-    if (ImGui::BeginTable("##hookruns", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
+    if (ImGui::BeginTable("##hookruns", 6,
+                          ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("When", ImGuiTableColumnFlags_WidthFixed, em * 4.5f);
         ImGui::TableSetupColumn("Event", ImGuiTableColumnFlags_WidthFixed, em * 8.5f);
         ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, em * 9.0f);
@@ -201,15 +217,20 @@ void Editor::draw_ai_hooks_view(const Json& report) {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(r.value("matched", std::string()).c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted((r.value("extension", std::string()) + ": " + r.value("target", std::string())).c_str());
-            std::string tip = r.value("extension", std::string()) + " (" + r.value("source", std::string()) + "): " + r.value("target", std::string());
+            ImGui::TextUnformatted(
+                (r.value("extension", std::string()) + ": " + r.value("target", std::string())).c_str());
+            std::string tip = r.value("extension", std::string()) + " (" + r.value("source", std::string()) +
+                              "): " + r.value("target", std::string());
             for (const char* key : {"error", "reason", "output", "stderr"})
-                if (r.contains(key) && r[key].is_string() && !r[key].get<std::string>().empty()) tip += std::string("\n") + key + ": " + r[key].get<std::string>();
+                if (r.contains(key) && r[key].is_string() && !r[key].get<std::string>().empty())
+                    tip += std::string("\n") + key + ": " + r[key].get<std::string>();
             if (r.contains("exitCode")) tip += "\nexit code " + std::to_string(r["exitCode"].get<int>());
             ImGui::SetItemTooltip("%s", tip.c_str());
             ImGui::TableNextColumn();
-            if (bad) ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
-            else if (r.value("decision", std::string()) == "block") ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
+            if (bad)
+                ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
+            else if (r.value("decision", std::string()) == "block")
+                ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
             ImGui::TextUnformatted(run_result(r).c_str());
             if (bad || r.value("decision", std::string()) == "block") ImGui::PopStyleColor();
             ImGui::TableNextColumn();
@@ -234,11 +255,13 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
         x.saversAt = ImGui::GetTime();
     }
     ImGui::SeparatorText("Token savers");
-    ImGui::TextWrapped("The engine's own savers for the built-in AI (API providers; Claude Code and Codex run their own loops). Their cost counts in "
+    ImGui::TextWrapped("The engine's own savers for the built-in AI (API providers; Claude Code and Codex run their "
+                       "own loops). Their cost counts in "
                        "the run's costs and limits. Save keeps the switches in your ai.json (\"savers\").");
     ImGui::Checkbox("Loop guard", &x.savers.loopGuard);
     at_track("aiset:saver:loopguard");
-    ImGui::SetItemTooltip("The same command failing with the same error code three times in a run gets one short redirect (what failed, the hint, a "
+    ImGui::SetItemTooltip("The same command failing with the same error code three times in a run gets one short "
+                          "redirect (what failed, the hint, a "
                           "different way) added to the third error. No model call is made for it.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!x.savers.loopGuard);
@@ -246,7 +269,8 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
     ImGui::TextUnformatted("Judge");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(em * 11.0f);
-    if (ImGui::BeginCombo("##saverjudge", x.savers.loopGuardJudge.empty() ? "none (fixed text)" : x.savers.loopGuardJudge.c_str())) {
+    if (ImGui::BeginCombo("##saverjudge",
+                          x.savers.loopGuardJudge.empty() ? "none (fixed text)" : x.savers.loopGuardJudge.c_str())) {
         if (ImGui::Selectable("none (fixed text)", x.savers.loopGuardJudge.empty())) x.savers.loopGuardJudge.clear();
         at_track("aiset:saver:judge:none");
         for (const char* r : ai::kAllRoles) {
@@ -256,29 +280,36 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
         ImGui::EndCombo();
     }
     at_track("aiset:saver:judge");
-    ImGui::SetItemTooltip("A role whose model reads the stuck run and writes the redirect. One short model call per redirect, counted in the run's cost and limits. "
+    ImGui::SetItemTooltip("A role whose model reads the stuck run and writes the redirect. One short model call per "
+                          "redirect, counted in the run's cost and limits. "
                           "It needs a role on an API provider; otherwise the fixed text is used.");
     ImGui::EndDisabled();
     ImGui::Checkbox("Learned tool groups", &x.savers.learnedToolGroups);
     at_track("aiset:saver:groups");
-    ImGui::SetItemTooltip("Count, per project, the commands the runs load from the tool catalog, and propose loading their group up front. Nothing is applied "
+    ImGui::SetItemTooltip("Count, per project, the commands the runs load from the tool catalog, and propose loading "
+                          "their group up front. Nothing is applied "
                           "until you accept here, and nothing is ever denied.");
     ImGui::Checkbox("Project facts", &x.savers.projectFacts);
     at_track("aiset:saver:facts");
-    ImGui::SetItemTooltip("A command that fails the same way in several runs until a fix works proposes one line for this project's AGENTS.md. It is written "
+    ImGui::SetItemTooltip("A command that fails the same way in several runs until a fix works proposes one line for "
+                          "this project's AGENTS.md. It is written "
                           "only when you accept it here.");
     ImGui::Checkbox("Retrospective", &x.savers.retrospective);
     at_track("aiset:saver:retrospective");
-    ImGui::SetItemTooltip("After a long run, one short call of the fast role looks over the run's transcripts for waste (the same failure again and again, a doc "
-                          "read many times...) and files at most three efficiency entries in ENGINE_FEEDBACK.json. It costs a model call, counted in the run's "
-                          "cost. Off by default. Nothing is sent anywhere. The Feedback panel's Retrospective button does the same on demand.");
+    ImGui::SetItemTooltip("After a long run, one short call of the fast role looks over the run's transcripts for "
+                          "waste (the same failure again and again, a doc "
+                          "read many times...) and files at most three efficiency entries in ENGINE_FEEDBACK.json. It "
+                          "costs a model call, counted in the run's "
+                          "cost. Off by default. Nothing is sent anywhere. The Feedback panel's Retrospective button "
+                          "does the same on demand.");
     ImGui::BeginDisabled(!x.savers.retrospective);
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("after");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(em * 6.0f);
-    if (ImGui::InputInt("steps##retrosteps", &x.savers.retrospectiveSteps, 0, 0)) x.savers.retrospectiveSteps = std::max(1, x.savers.retrospectiveSteps);
+    if (ImGui::InputInt("steps##retrosteps", &x.savers.retrospectiveSteps, 0, 0))
+        x.savers.retrospectiveSteps = std::max(1, x.savers.retrospectiveSteps);
     at_track("aiset:saver:retrospective:steps");
     ImGui::SetItemTooltip("Run the retrospective after a run of this many model calls ...");
     ImGui::SameLine();
@@ -297,24 +328,30 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
     if (projectDir_.empty()) {
         ImGui::TextDisabled("Open a project to see what its runs learned.");
     } else if (groups.empty() && facts.empty()) {
-        ImGui::TextDisabled("Nothing to propose yet for this project. Proposals appear after %d runs that needed the same tool group, or hit and fixed the same failure.",
+        ImGui::TextDisabled("Nothing to propose yet for this project. Proposals appear after %d runs that needed the "
+                            "same tool group, or hit and fixed the same failure.",
                             ai::kGroupProposalRuns);
     }
     for (const Json& g : groups) {
         const std::string role = g.value("role", std::string()), group = g.value("group", std::string());
         const std::string key = role + ":" + group;
         std::string commands;
-        for (const Json& c : g.value("commands", Json::array())) commands += (commands.empty() ? "" : ", ") + c.get<std::string>();
+        for (const Json& c : g.value("commands", Json::array()))
+            commands += (commands.empty() ? "" : ", ") + c.get<std::string>();
         const u64 bytes = g.value("definitionBytes", static_cast<u64>(0));
         ImGui::PushID(key.c_str());
         ImGui::AlignTextToFramePadding();
         ImGui::Bullet();
-        ImGui::TextWrapped("Load the '%s' tools up front for %s? %d runs needed %s. About %llu tokens more on every step of that role.", group.c_str(),
-                           role.c_str(), g.value("runs", 0), commands.c_str(), static_cast<unsigned long long>(bytes / 4));
+        ImGui::TextWrapped("Load the '%s' tools up front for %s? %d runs needed %s. About %llu tokens more on every "
+                           "step of that role.",
+                           group.c_str(), role.c_str(), g.value("runs", 0), commands.c_str(),
+                           static_cast<unsigned long long>(bytes / 4));
         ImGui::Indent();
         if (ImGui::SmallButton("Load up front")) {
             auto r = ai::answer_tool_group(engine_->commands(), projectDir_, role, group, ai::SaverAnswer::Accept);
-            x.saversMessage = r ? "The " + role + " role loads '" + group + "' in full from its next run in this project." : r.error().to_string();
+            x.saversMessage =
+                r ? "The " + role + " role loads '" + group + "' in full from its next run in this project."
+                  : r.error().to_string();
             x.saversAt = -10;
         }
         at_track("aiset:saver:group-accept:" + key);
@@ -322,7 +359,9 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
         ImGui::SameLine();
         if (ImGui::SmallButton("No thanks")) {
             auto r = ai::answer_tool_group(engine_->commands(), projectDir_, role, group, ai::SaverAnswer::Decline);
-            x.saversMessage = r ? "'" + group + "' will not be proposed again. Its tools stay reachable through the catalog." : r.error().to_string();
+            x.saversMessage =
+                r ? "'" + group + "' will not be proposed again. Its tools stay reachable through the catalog."
+                  : r.error().to_string();
             x.saversAt = -10;
         }
         at_track("aiset:saver:group-decline:" + key);
@@ -339,7 +378,8 @@ void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
         wrapped(ImGui::GetStyleColorVec4(ImGuiCol_Text), f.value("line", std::string()));
         if (ImGui::SmallButton("Add to AGENTS.md")) {
             auto r = ai::answer_fact(projectDir_, id, ai::SaverAnswer::Accept);
-            x.saversMessage = r ? "Added to " + r->value("file", std::string("AGENTS.md")) + "." : r.error().to_string();
+            x.saversMessage =
+                r ? "Added to " + r->value("file", std::string("AGENTS.md")) + "." : r.error().to_string();
             x.saversAt = -10;
         }
         at_track("aiset:saver:fact-accept:" + id);
@@ -379,8 +419,9 @@ void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     x.claudeHash = claude.hash;
     x.claudeGrants = claude.describe();
     const std::string cfgPath = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
-    x.projectTrusted = p.error.empty() &&
-                       ai::project_extensions_trusted(ai::extensions_trust_path(cfgPath), projectDir_, p.hash, nullptr, false, claude.hash);
+    x.projectTrusted =
+        p.error.empty() && ai::project_extensions_trusted(ai::extensions_trust_path(cfgPath), projectDir_, p.hash,
+                                                          nullptr, false, claude.hash);
 }
 
 void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable) {
@@ -396,17 +437,24 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     const std::string trustPath = ai::extensions_trust_path(cfgPath);
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Saved in %s (your own file outside any project)%s. Only extensions and savers are rewritten: your providers, roles and limits stay.",
+    ImGui::TextWrapped("Saved in %s (your own file outside any project)%s. Only extensions and savers are rewritten: "
+                       "your providers, roles and limits stay.",
                        d.path.c_str(), projectDir_.empty() ? "" : " and in this project's .factoria/extensions.json");
     ImGui::PopStyleColor();
 
-    const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
+    const float footerH =
+        ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     ImGui::BeginChild("##aiextbody", ImVec2(0, -footerH));
-    ImGui::TextWrapped("Plugins, skills and hooks the AI agents load besides FactorIA's own tools: a plugin folder (or .zip, or one you installed "
-                       "in Claude Code), a skill folder, hooks that run a program or a script on an event. Skills reach every provider: the "
-                       "built-in loop reads them with skills_read, Claude Code loads them itself and Codex finds them in the project's "
-                       ".agents/skills during the run. Plugins are for Claude Code; the API providers (anthropic, openai-compatible) run the "
-                       "hooks, and so does the engine around its own commands; Codex takes no plugins or hooks, and the run says so.");
+    ImGui::TextWrapped(
+        "Plugins, skills and hooks the AI agents load besides FactorIA's own tools: a plugin folder (or .zip, or one "
+        "you installed "
+        "in Claude Code), a skill folder, hooks that run a program or a script on an event. Skills reach every "
+        "provider: the "
+        "built-in loop reads them with skills_read, Claude Code loads them itself and Codex finds them in the "
+        "project's "
+        ".agents/skills during the run. Plugins are for Claude Code; the API providers (anthropic, openai-compatible) "
+        "run the "
+        "hooks, and so does the engine around its own commands; Codex takes no plugins or hooks, and the run says so.");
 
     // What stops each entry from loading, looked up once a second (it reads the disk).
     ai::ExtensionContext ctx;
@@ -419,8 +467,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             // A file may have changed on disk since this tab read it (an AI edited it): the trust is for the bytes that were read.
             const ai::ProjectExtensions disk = ai::load_project_extensions(projectDir_);
             const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
-            x.projectTrusted = x.projectTrusted && disk.hash == x.projectHash && claude.hash == x.claudeHash &&
-                               ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claude.hash);
+            x.projectTrusted =
+                x.projectTrusted && disk.hash == x.projectHash && claude.hash == x.claudeHash &&
+                ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claude.hash);
         }
         for (const auto* list : {&x.user, &x.project}) {
             for (const ai::Extension& e : *list) {
@@ -445,7 +494,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     bool removeProject = false;
     const std::size_t total = x.user.size() + x.project.size();
     if (total == 0) ImGui::TextDisabled("None yet. Add a plugin or skill folder, or paste hooks.");
-    if (total > 0 && ImGui::BeginTable("##extensions", 5 + 7 + 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+    if (total > 0 && ImGui::BeginTable("##extensions", 5 + 7 + 2,
+                                       ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, em * 2.5f);
         ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, em * 4.0f);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, em * 7.0f);
@@ -473,11 +523,15 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 ImGui::TextUnformatted(e.name.c_str());
                 ImGui::TableNextColumn();
                 ImGui::TextDisabled("%s", pass == 0 ? "you" : "project");
-                ImGui::SetItemTooltip("%s", pass == 0 ? "Your ai.json: every project you open." : "This project's .factoria/extensions.json: it travels with the project.");
+                ImGui::SetItemTooltip(
+                    "%s", pass == 0 ? "Your ai.json: every project you open."
+                                    : "This project's .factoria/extensions.json: it travels with the project.");
                 ImGui::TableNextColumn();
-                std::string where = e.kind == ai::ExtensionKind::Hooks ? std::to_string(hook_events(e.hooks)) + (hook_events(e.hooks) == 1 ? " event" : " events")
-                                    : !e.plugin.empty()                ? e.plugin
-                                                                       : e.path;
+                std::string where =
+                    e.kind == ai::ExtensionKind::Hooks
+                        ? std::to_string(hook_events(e.hooks)) + (hook_events(e.hooks) == 1 ? " event" : " events")
+                    : !e.plugin.empty() ? e.plugin
+                                        : e.path;
                 ImGui::TextUnformatted(where.c_str());
                 const std::string tip = e.kind == ai::ExtensionKind::Hooks ? hook_commands(e.hooks) : where;
                 ImGui::SetItemTooltip("%s", tip.c_str());
@@ -486,8 +540,11 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                     bool on = role_on(e, r);
                     if (ImGui::Checkbox((std::string("##role") + r).c_str(), &on)) toggle_role(e, r);
                     at_track(std::string("aiset:ext:role:") + key + ":" + r);
-                    const bool review = std::string_view(r) == ai::kRoleArtCritic || std::string_view(r) == ai::kRoleReviewer;
-                    ImGui::SetItemTooltip("%s%s", r, review ? ": reviewers only look at the game; load an extension for them only on purpose." : "");
+                    const bool review =
+                        std::string_view(r) == ai::kRoleArtCritic || std::string_view(r) == ai::kRoleReviewer;
+                    ImGui::SetItemTooltip(
+                        "%s%s", r,
+                        review ? ": reviewers only look at the game; load an extension for them only on purpose." : "");
                 }
                 ImGui::TableNextColumn();
                 if (ImGui::SmallButton("Remove")) {
@@ -522,7 +579,6 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         x.statusAt = -10;
     }
 
-
     // ------------------------------------------------------------------------------------------------ skills
     // Every skill a role can be offered (docs/SKILLS.md): FactorIA's own, ~/.factoria/skills, the project's skills/ folder and the
     // folders named by entries above. A change is kept as a skill entry of the list above, so Save writes it like any other.
@@ -536,7 +592,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         const bool project = s.source == "project" && !projectDir_.empty();
         std::vector<ai::Extension>& list = project ? x.project : x.user;
         std::string name = s.name.substr(0, ai::kMaxExtensionName);
-        for (int n = 2; std::ranges::any_of(list, [&](const ai::Extension& e) { return e.kind == ai::ExtensionKind::Skill && e.name == name; }); ++n)
+        for (int n = 2; std::ranges::any_of(
+                 list, [&](const ai::Extension& e) { return e.kind == ai::ExtensionKind::Skill && e.name == name; });
+             ++n)
             name = s.name.substr(0, ai::kMaxExtensionName - 4) + "-" + std::to_string(n);
         ai::Extension e;
         e.kind = ai::ExtensionKind::Skill;
@@ -554,7 +612,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         return list.back();
     };
     if (x.skills.empty()) ImGui::TextDisabled("No skills found.");
-    if (!x.skills.empty() && ImGui::BeginTable("##skills", 4 + 7 + 1, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+    if (!x.skills.empty() &&
+        ImGui::BeginTable("##skills", 4 + 7 + 1, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, em * 2.5f);
         ImGui::TableSetupColumn("Skill", ImGuiTableColumnFlags_WidthFixed, em * 12.5f);
         ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, em * 4.2f);
@@ -594,10 +653,12 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 if (ImGui::Checkbox((std::string("##skillrole") + r).c_str(), &on)) {
                     std::vector<std::string> next;
                     for (const char* all : ai::kAllRoles) {
-                        const bool wanted = std::string_view(all) == r ? on : std::ranges::find(now, std::string(all)) != now.end();
+                        const bool wanted =
+                            std::string_view(all) == r ? on : std::ranges::find(now, std::string(all)) != now.end();
                         if (wanted) next.push_back(all);
                     }
-                    const std::set<std::string> have(next.begin(), next.end()), def(s.defaultRoles.begin(), s.defaultRoles.end());
+                    const std::set<std::string> have(next.begin(), next.end()),
+                        def(s.defaultRoles.begin(), s.defaultRoles.end());
                     skill_entry(s).roles = have == def ? std::vector<std::string>{} : next;
                 }
                 ImGui::EndDisabled();
@@ -638,18 +699,24 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         ImGui::EndCombo();
     }
     at_track("aiset:ext:addkind");
-    ImGui::SetItemTooltip("A plugin is a folder with .claude-plugin/plugin.json (or its .zip). A skill folder holds a SKILL.md, or folders that do.\n"
+    ImGui::SetItemTooltip("A plugin is a folder with .claude-plugin/plugin.json (or its .zip). A skill folder holds a "
+                          "SKILL.md, or folders that do.\n"
                           "An installed plugin is one `claude plugin install name@marketplace` put on this computer.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(em * 22.0f);
-    ImGui::InputTextWithHint("##addpath", x.addKind == 2 ? "superpowers@claude-plugins-official" : "~/my-plugins/notes", &x.addPath);
+    ImGui::InputTextWithHint("##addpath", x.addKind == 2 ? "superpowers@claude-plugins-official" : "~/my-plugins/notes",
+                             &x.addPath);
     at_track("aiset:ext:addpath");
-    ImGui::SetItemTooltip("%s", x.addKind == 2 ? "name@marketplace, as `claude plugin list` shows it."
-                                               : "The folder (or .zip). ~ is your home folder. In a project's file the path is relative to the project.");
+    ImGui::SetItemTooltip(
+        "%s",
+        x.addKind == 2
+            ? "name@marketplace, as `claude plugin list` shows it."
+            : "The folder (or .zip). ~ is your home folder. In a project's file the path is relative to the project.");
     if (x.addKind != 2) {
         ImGui::SameLine();
         if (ImGui::Button("Browse...")) {
-            const std::string picked = pick_folder(x.addKind == 1 ? "Skill folder" : "Plugin folder", x.addPath.empty() ? home_dir() : x.addPath);
+            const std::string picked = pick_folder(x.addKind == 1 ? "Skill folder" : "Plugin folder",
+                                                   x.addPath.empty() ? home_dir() : x.addPath);
             if (!picked.empty()) x.addPath = picked;
         }
         at_track("aiset:ext:browse");
@@ -660,13 +727,15 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     ImGui::SetNextItemWidth(em * 12.0f);
     ImGui::InputTextWithHint("##addname", "from the folder", &x.addName);
     at_track("aiset:ext:addname");
-    ImGui::SetItemTooltip("What the extension is called in this list: letters, digits, '_' and '-'. Empty = taken from the folder.");
+    ImGui::SetItemTooltip(
+        "What the extension is called in this list: letters, digits, '_' and '-'. Empty = taken from the folder.");
     ImGui::SameLine();
     ImGui::BeginDisabled(projectDir_.empty());
     ImGui::Checkbox("Only for this project", &x.addToProject);
     ImGui::EndDisabled();
     at_track("aiset:ext:addproject", !projectDir_.empty());
-    ImGui::SetItemTooltip("Keep it in this project's .factoria/extensions.json instead of your ai.json. A project's plugin runs only after you trust the project.");
+    ImGui::SetItemTooltip("Keep it in this project's .factoria/extensions.json instead of your ai.json. A project's "
+                          "plugin runs only after you trust the project.");
     ImGui::SameLine();
     if (ImGui::Button("Add")) {
         x.addError.clear();
@@ -674,16 +743,24 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         const bool project = x.addToProject && !projectDir_.empty();
         std::string path = raw;
         if (raw.empty()) {
-            x.addError = x.addKind == 2 ? "Type the plugin as name@marketplace." : "Choose a folder (Browse...) or type its path.";
+            x.addError = x.addKind == 2 ? "Type the plugin as name@marketplace."
+                                        : "Choose a folder (Browse...) or type its path.";
         } else if (x.addKind != 2) {
             if (project) {
-                const stdfs::path abs = stdfs::path(ai::expand_home(raw, ai::system_env())).is_absolute() ? stdfs::path(ai::expand_home(raw, ai::system_env()))
-                                                                                          : stdfs::path(projectDir_) / raw;
-                const stdfs::path rel = abs.lexically_normal().lexically_relative(stdfs::path(projectDir_).lexically_normal());
-                if (rel.empty() || *rel.begin() == "..") x.addError = "'" + raw + "' is outside the project. Keep it in your ai.json, or move it into the project.";
-                else path = rel.generic_string();
+                const stdfs::path abs = stdfs::path(ai::expand_home(raw, ai::system_env())).is_absolute()
+                                            ? stdfs::path(ai::expand_home(raw, ai::system_env()))
+                                            : stdfs::path(projectDir_) / raw;
+                const stdfs::path rel =
+                    abs.lexically_normal().lexically_relative(stdfs::path(projectDir_).lexically_normal());
+                if (rel.empty() || *rel.begin() == "..")
+                    x.addError =
+                        "'" + raw + "' is outside the project. Keep it in your ai.json, or move it into the project.";
+                else
+                    path = rel.generic_string();
             } else {
-                path = with_tilde(stdfs::path(ai::expand_home(raw, ai::system_env())).is_absolute() ? ai::expand_home(raw, ai::system_env()) : raw);
+                path = with_tilde(stdfs::path(ai::expand_home(raw, ai::system_env())).is_absolute()
+                                      ? ai::expand_home(raw, ai::system_env())
+                                      : raw);
             }
         }
         if (x.addError.empty()) {
@@ -693,15 +770,19 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             std::vector<ai::Extension>& list = project ? x.project : x.user;
             // The same name is replaced (re-adding a folder after moving it), another kind may share a name.
             Json entry = Json::object();
-            if (x.addKind == 2) entry["plugin"] = raw;
-            else entry["path"] = path;
-            Json section = Json::object({{kind == ai::ExtensionKind::Skill ? "skills" : "plugins", Json::object({{name, entry}})}});
+            if (x.addKind == 2)
+                entry["plugin"] = raw;
+            else
+                entry["path"] = path;
+            Json section = Json::object(
+                {{kind == ai::ExtensionKind::Skill ? "skills" : "plugins", Json::object({{name, entry}})}});
             auto parsed = ai::parse_extensions(section, "the new entry", project ? "project" : "user");
             if (!parsed) {
                 x.addError = parsed.error().to_string();
             } else {
                 ai::Extension added = parsed->entries[0];
-                const auto same = std::ranges::find_if(list, [&](const ai::Extension& e) { return e.kind == added.kind && e.name == added.name; });
+                const auto same = std::ranges::find_if(
+                    list, [&](const ai::Extension& e) { return e.kind == added.kind && e.name == added.name; });
                 if (same != list.end()) {
                     added.roles = same->roles;
                     added.note = same->note;
@@ -724,7 +805,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         x.hooksMessage.clear();
     }
     at_track("aiset:ext:hooks");
-    ImGui::SetItemTooltip("Hooks run a program when something happens (before a tool, when the agent stops...). Paste the \"hooks\" of a Claude Code settings.json.");
+    ImGui::SetItemTooltip("Hooks run a program when something happens (before a tool, when the agent stops...). Paste "
+                          "the \"hooks\" of a Claude Code settings.json.");
     if (x.showHooks) {
         ImGui::InputTextMultiline("##hookstext", &x.hooksText, ImVec2(-FLT_MIN, em * 8.0f));
         at_track("aiset:ext:hooks-text");
@@ -741,7 +823,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             x.hooksFailed = true;
             Json j = Json::parse(x.hooksText, nullptr, false);
             if (j.is_discarded()) {
-                x.hooksMessage = "That is not JSON. Paste {\"hooks\": {\"PostToolUse\": [...]}} or the events object itself.";
+                x.hooksMessage =
+                    "That is not JSON. Paste {\"hooks\": {\"PostToolUse\": [...]}} or the events object itself.";
             } else if (auto hooks = ai::parse_hooks_json(j)) {
                 const bool project = x.addToProject && !projectDir_.empty();
                 std::vector<ai::Extension>& list = project ? x.project : x.user;
@@ -755,14 +838,16 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                     e.name = name;
                     e.source = project ? "project" : "user";
                     e.hooks = *hooks;
-                    const auto same = std::ranges::find_if(list, [&](const ai::Extension& o) { return o.kind == e.kind && o.name == e.name; });
+                    const auto same = std::ranges::find_if(
+                        list, [&](const ai::Extension& o) { return o.kind == e.kind && o.name == e.name; });
                     if (same != list.end()) {
                         e.roles = same->roles;
                         *same = e;
                     } else {
                         list.push_back(e);
                     }
-                    x.hooksMessage = "Imported " + std::to_string(hook_events(*hooks)) + (hook_events(*hooks) == 1 ? " event" : " events") + " as '" + name +
+                    x.hooksMessage = "Imported " + std::to_string(hook_events(*hooks)) +
+                                     (hook_events(*hooks) == 1 ? " event" : " events") + " as '" + name +
                                      "'. Press Save to keep " + "it.";
                     x.hooksFailed = false;
                     x.hooksText.clear();
@@ -778,8 +863,10 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
 
     ImGui::Checkbox("Claude Code also loads my own plugins, skills and hooks", &x.inherit);
     at_track("aiset:ext:inherit");
-    ImGui::SetItemTooltip("On (default): what you installed in Claude Code (~/.claude) keeps working in FactorIA's runs, and the list above is added to it.\n"
-                          "Off: runs get only the list above, and none of your Claude Code settings (~/.claude: plugins, skills, hooks, permissions, env).");
+    ImGui::SetItemTooltip("On (default): what you installed in Claude Code (~/.claude) keeps working in FactorIA's "
+                          "runs, and the list above is added to it.\n"
+                          "Off: runs get only the list above, and none of your Claude Code settings (~/.claude: "
+                          "plugins, skills, hooks, permissions, env).");
 
     draw_ai_economizer_view(cfg, configReadable);
     draw_ai_savers_view(cfg);
@@ -802,7 +889,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             if (programs == 0 && !claudeRuns) {
                 ImGui::TextDisabled("This project's extensions are skills (text only): nothing to trust.");
             } else if (x.projectTrusted) {
-                wrapped(kStatusReady, "You trust this project's plugins, hooks and Claude Code settings (.claude/settings*.json). The trust ends when "
+                wrapped(kStatusReady, "You trust this project's plugins, hooks and Claude Code settings "
+                                      "(.claude/settings*.json). The trust ends when "
                                       "its extensions file or either settings file changes.");
                 if (ImGui::Button("Stop trusting this project")) {
                     if (auto r = ai::forget_project_trust(trustPath, projectDir_); r) {
@@ -817,23 +905,36 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             } else {
                 std::string what;
                 if (programs > 0)
-                    what = std::to_string(programs) + (programs == 1 ? " plugin or hooks entry" : " plugin or hooks entries") + " in its extensions file";
-                if (claudeRuns) what += std::string(what.empty() ? "" : " and ") + "programs, env or allowed tools in its Claude Code settings (.claude/settings*.json)";
-                wrapped(kStatusWarn, "This project has " + what + " that run programs or widen what the AI may do. They do not load until you trust the project" +
-                                         (claudeRuns ? ": Claude Code starts without the project's .claude settings, so the rest of those files is not applied either." : "."));
-                if (ImGui::Button(x.showTrust ? "Hide what would run" : "Review what would run...")) x.showTrust = !x.showTrust;
+                    what = std::to_string(programs) +
+                           (programs == 1 ? " plugin or hooks entry" : " plugin or hooks entries") +
+                           " in its extensions file";
+                if (claudeRuns)
+                    what += std::string(what.empty() ? "" : " and ") +
+                            "programs, env or allowed tools in its Claude Code settings (.claude/settings*.json)";
+                wrapped(
+                    kStatusWarn,
+                    "This project has " + what +
+                        " that run programs or widen what the AI may do. They do not load until you trust the project" +
+                        (claudeRuns ? ": Claude Code starts without the project's .claude settings, so the rest of "
+                                      "those files is not applied either."
+                                    : "."));
+                if (ImGui::Button(x.showTrust ? "Hide what would run" : "Review what would run..."))
+                    x.showTrust = !x.showTrust;
                 at_track("aiset:ext:review");
                 if (x.showTrust) {
                     for (const ai::Extension& e : x.project) {
                         if (!e.runs_program()) continue;
                         ImGui::BulletText("%s %s", ai::extension_kind_name(e.kind), e.name.c_str());
-                        const std::string detail = e.kind == ai::ExtensionKind::Hooks ? hook_commands(e.hooks) : (!e.plugin.empty() ? e.plugin : e.path);
+                        const std::string detail = e.kind == ai::ExtensionKind::Hooks
+                                                       ? hook_commands(e.hooks)
+                                                       : (!e.plugin.empty() ? e.plugin : e.path);
                         ImGui::Indent();
                         ImGui::TextDisabled("%s", detail.c_str());
                         ImGui::Unindent();
                     }
                     for (const std::string& line : x.claudeGrants) ImGui::BulletText("%s", line.c_str());
-                    const bool saved = ai::extensions_to_json({x.project, true}, false) == ai::extensions_to_json({x.projectLoaded, true}, false);
+                    const bool saved = ai::extensions_to_json({x.project, true}, false) ==
+                                       ai::extensions_to_json({x.projectLoaded, true}, false);
                     const bool canTrust = saved && x.projectError.empty() && (x.projectExists || claudeRuns);
                     ImGui::BeginDisabled(!canTrust);
                     if (ImGui::Button("Trust this project")) {
@@ -841,11 +942,15 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                         const bool unchanged = ai::load_project_extensions(projectDir_).hash == x.projectHash &&
                                                ai::load_claude_project_settings(projectDir_).hash == x.claudeHash;
                         if (!unchanged) {
-                            x.trustMessage = "A settings file changed on disk since this tab read it. Close AI settings, open them again and review it.";
-                        } else if (auto r = ai::trust_project_extensions(trustPath, projectDir_, x.projectHash, x.claudeHash); r) {
+                            x.trustMessage = "A settings file changed on disk since this tab read it. Close AI "
+                                             "settings, open them again and review it.";
+                        } else if (auto r = ai::trust_project_extensions(trustPath, projectDir_, x.projectHash,
+                                                                         x.claudeHash);
+                                   r) {
                             x.projectTrusted = true;
                             x.showTrust = false;
-                            x.trustMessage = "Trusted. The next AI run loads this project's plugins, hooks and Claude Code settings.";
+                            x.trustMessage = "Trusted. The next AI run loads this project's plugins, hooks and Claude "
+                                             "Code settings.";
                         } else {
                             x.trustMessage = r.error().to_string();
                         }
@@ -853,7 +958,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                     }
                     ImGui::EndDisabled();
                     at_track("aiset:ext:trust", canTrust);
-                    ImGui::SetItemTooltip("Remembered for this project folder and these exact files (the extensions file and .claude/settings*.json), in %s. If one changes (you, a teammate or the AI edits it) the trust ends.",
+                    ImGui::SetItemTooltip("Remembered for this project folder and these exact files (the extensions "
+                                          "file and .claude/settings*.json), in %s. If one changes (you, a teammate or "
+                                          "the AI edits it) the trust ends.",
                                           trustPath.c_str());
                     if (!saved) ImGui::TextDisabled("Save your changes first: the trust applies to the saved file.");
                 }
@@ -861,15 +968,18 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             if (!x.trustMessage.empty()) ImGui::TextDisabled("%s", x.trustMessage.c_str());
         }
         // Deny rules in the project's Claude Code settings that take FactorIA's own tools away.
-        for (const ai::DeniedTool& denied : ai::find_denied_factoria_tools(projectDir_)) wrapped(kStatusWarn, ai::format_denied_tool(denied));
+        for (const ai::DeniedTool& denied : ai::find_denied_factoria_tools(projectDir_))
+            wrapped(kStatusWarn, ai::format_denied_tool(denied));
     }
     draw_ai_hooks_view(x.hooksReport);
     ImGui::EndChild();
 
     // ------------------------------------------------------------------------------------------------ footer
     const auto changed = [&] {
-        return ai::extensions_to_json({x.user, x.inherit}, true) != ai::extensions_to_json(cfg.extensions, true) || x.savers != cfg.savers ||
-               ai::extensions_to_json({x.project, true}, false) != ai::extensions_to_json({x.projectLoaded, true}, false);
+        return ai::extensions_to_json({x.user, x.inherit}, true) != ai::extensions_to_json(cfg.extensions, true) ||
+               x.savers != cfg.savers ||
+               ai::extensions_to_json({x.project, true}, false) !=
+                   ai::extensions_to_json({x.projectLoaded, true}, false);
     };
     const bool dirty = changed();
     if (!x.saveError.empty()) {
@@ -887,18 +997,21 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         out.inheritUserPlugins = x.inherit;
         auto saved = ai::save_extensions(out, d.path);
         if (saved) saved = ai::save_savers(x.savers, d.path);
-        const bool projectChanged = ai::extensions_to_json({x.project, true}, false) != ai::extensions_to_json({x.projectLoaded, true}, false);
+        const bool projectChanged =
+            ai::extensions_to_json({x.project, true}, false) != ai::extensions_to_json({x.projectLoaded, true}, false);
         if (saved && !projectDir_.empty() && (projectChanged || x.projectExists) && x.projectError.empty()) {
             if (projectChanged) {
                 const ai::ProjectExtensions disk = ai::load_project_extensions(projectDir_);
                 const ai::ClaudeProjectSettings claudeNow = ai::load_claude_project_settings(projectDir_);
-                const bool wasTrusted = x.projectTrusted && disk.hash == x.projectHash && claudeNow.hash == x.claudeHash &&
-                                        ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claudeNow.hash);
+                const bool wasTrusted =
+                    x.projectTrusted && disk.hash == x.projectHash && claudeNow.hash == x.claudeHash &&
+                    ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claudeNow.hash);
                 saved = ai::save_project_extensions(x.project, projectDir_);
                 // The user just edited this file in the editor, with its content on screen: a trust they had given carries over.
                 if (saved && wasTrusted) {
                     const ai::ProjectExtensions now = ai::load_project_extensions(projectDir_);
-                    if (now.exists) saved = ai::trust_project_extensions(trustPath, projectDir_, now.hash, claudeNow.hash);
+                    if (now.exists)
+                        saved = ai::trust_project_extensions(trustPath, projectDir_, now.hash, claudeNow.hash);
                 }
             }
         }

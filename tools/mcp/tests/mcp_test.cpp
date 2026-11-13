@@ -32,9 +32,7 @@ namespace {
 
 struct TempDir {
     stdfs::path path;
-    TempDir() {
-        path = fa::fs::make_temp_dir("fa_mcp_test").value();
-    }
+    TempDir() { path = fa::fs::make_temp_dir("fa_mcp_test").value(); }
     ~TempDir() {
         std::error_code ec;
         stdfs::remove_all(path, ec);
@@ -54,7 +52,8 @@ struct Fixture {
             i.name = "test.echo_value";
             i.summary = "Echo the value.";
             i.description = "Example: {\"value\": 3}";
-            i.inputSchema = Json::parse(R"({"type":"object","properties":{"value":{"type":"integer"}},"required":["value"]})");
+            i.inputSchema =
+                Json::parse(R"({"type":"object","properties":{"value":{"type":"integer"}},"required":["value"]})");
             registry.add(i, [](const Json& a) { return Json::object({{"echo", a["value"]}}); });
         }
         {
@@ -68,7 +67,9 @@ struct Fixture {
             CommandInfo i;
             i.name = "test.fail";
             i.summary = "Always fails.";
-            registry.add(i, [](const Json&) -> Json { throw CommandError("not_found", "Entity 'x' not found.", "Use scene.list_entities."); });
+            registry.add(i, [](const Json&) -> Json {
+                throw CommandError("not_found", "Entity 'x' not found.", "Use scene.list_entities.");
+            });
         }
         {
             CommandInfo i;
@@ -80,11 +81,14 @@ struct Fixture {
             CommandInfo i;
             i.name = "test.shot";
             i.summary = "Returns an image.";
-            i.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string","description":"Image file."}}})");
+            i.inputSchema =
+                Json::parse(R"({"type":"object","properties":{"path":{"type":"string","description":"Image file."}}})");
             registry.add(i, [](const Json& a) {
                 if (a.contains("path"))
-                    return Json::object({{"$image", Json::object({{"path", a["path"]}, {"mimeType", "image/png"}})}, {"frame", 5}});
-                return Json::object({{"$image", Json::object({{"base64", "iVBORw0KGgo="}, {"mimeType", "image/png"}})}});
+                    return Json::object(
+                        {{"$image", Json::object({{"path", a["path"]}, {"mimeType", "image/png"}})}, {"frame", 5}});
+                return Json::object(
+                    {{"$image", Json::object({{"base64", "iVBORw0KGgo="}, {"mimeType", "image/png"}})}});
             });
         }
         {
@@ -92,7 +96,8 @@ struct Fixture {
             CommandInfo i;
             i.name = "test.temp_shot";
             i.summary = "Returns a temporary image file.";
-            i.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string"},"temporary":{"type":"boolean"}}})");
+            i.inputSchema = Json::parse(
+                R"({"type":"object","properties":{"name":{"type":"string"},"temporary":{"type":"boolean"}}})");
             const std::string dir = tmp.path.string();
             registry.add(i, [dir](const Json& a) {
                 const std::string name = a.value("name", std::string("frame_9.png"));
@@ -108,13 +113,15 @@ struct Fixture {
     }
 
     Json rpc(const std::string& method, Json params = Json::object()) {
-        Json req = Json::object({{"jsonrpc", "2.0"}, {"id", nextId++}, {"method", method}, {"params", std::move(params)}});
+        Json req =
+            Json::object({{"jsonrpc", "2.0"}, {"id", nextId++}, {"method", method}, {"params", std::move(params)}});
         auto resp = server.handle_message(req.dump());
         REQUIRE(resp.has_value());
         return Json::parse(*resp);
     }
     Json initialize(const std::string& version = "2025-06-18") {
-        return rpc("initialize", {{"protocolVersion", version}, {"capabilities", Json::object()},
+        return rpc("initialize", {{"protocolVersion", version},
+                                  {"capabilities", Json::object()},
                                   {"clientInfo", {{"name", "test"}, {"version", "1"}}}});
     }
     Json call(const std::string& tool, Json args = Json::object()) {
@@ -149,7 +156,7 @@ TEST_CASE("mcp: initialize negotiates protocol versions") {
     CHECK(instr.find("feedback_report") != std::string::npos);
     CHECK(instr.find("+Y is up") != std::string::npos);
     CHECK(instr.find("BY SECTION, never whole") != std::string::npos);  // the guide is read by heading
-    CHECK(instr.find("\"heading\":\"Index\"") != std::string::npos);  // ... starting with its index
+    CHECK(instr.find("\"heading\":\"Index\"") != std::string::npos);    // ... starting with its index
     CHECK(f.server.initialized());
     CHECK(f.server.client_name() == "test");
 }
@@ -157,7 +164,9 @@ TEST_CASE("mcp: initialize negotiates protocol versions") {
 TEST_CASE("mcp: notifications get no response; ping works; unknown method errors") {
     Fixture f;
     CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/initialized"})").has_value());
-    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}})").has_value());
+    CHECK_FALSE(
+        f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}})")
+            .has_value());
     CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/unknown"})").has_value());
     CHECK(f.rpc("ping")["result"].is_object());
     Json r = f.rpc("does/not_exist");
@@ -176,6 +185,15 @@ TEST_CASE("mcp: malformed input yields JSON-RPC errors") {
     CHECK(noVersion["error"]["code"] == -32600);
     Json emptyBatch = Json::parse(*f.server.handle_message("[]"));
     CHECK(emptyBatch["error"]["code"] == -32600);
+}
+
+TEST_CASE("mcp: a message nested too deep is a parse error that says the line and the column") {
+    Fixture f;
+    const std::string open(kMaxJsonDepth + 1, '[');
+    Json deep = Json::parse(*f.server.handle_message("\n  " + open));  // the bracket over the limit is the last one
+    CHECK(deep["error"]["code"] == -32700);
+    const std::string text = deep["error"]["message"].get<std::string>();
+    CHECK(text.find("line 2, column " + std::to_string(2 + kMaxJsonDepth + 1)) != std::string::npos);
 }
 
 TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an exception") {
@@ -220,7 +238,8 @@ TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an except
     CHECK(r[2]["id"] == 12);
     CHECK(r[2]["result"].is_object());
     // a field the server reads of the wrong type: treated as missing, or Invalid params
-    r = answer(R"({"jsonrpc":"2.0","id":13,"method":"initialize","params":{"protocolVersion":20250618,"clientInfo":{"name":5}}})");
+    r = answer(
+        R"({"jsonrpc":"2.0","id":13,"method":"initialize","params":{"protocolVersion":20250618,"clientInfo":{"name":5}}})");
     CHECK(r["result"]["protocolVersion"] == kMcpLatestProtocol);
     r = answer(R"({"jsonrpc":"2.0","id":14,"method":"logging/setLevel","params":{"level":3}})");
     CHECK(r["error"]["code"] == -32602);
@@ -231,19 +250,23 @@ TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an except
     CHECK(result_json(f.call("test_echo_value", {{"value", 3}})["result"])["echo"] == 3);
 }
 
-TEST_CASE("mcp: over stdio malformed lines get errors, the valid ones around them are answered, and the server stays up") {
+TEST_CASE(
+    "mcp: over stdio malformed lines get errors, the valid ones around them are answered, and the server stays up") {
     Fixture f;
     std::istringstream in(
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n"
         "{\"jsonrpc\":2,\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":3}}\n"
         "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":5}\n"
         "{\"jsonrpc\":\"2.0\",\"id\":{\"x\":1},\"method\":\"ping\"}\n"
         "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\",\"params\":\"oops\"}\n"
         "[1,{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}]\n"
         "{not json\n"
-        "{\"jsonrpc\":2,\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":2}}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":3}}}\n");
+        "{\"jsonrpc\":2,\"id\":6,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":2}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":3}}}\n");
     std::ostringstream out;
     CHECK(run_stdio(f.server, in, out) == 0);
     std::istringstream lines(out.str());
@@ -261,7 +284,7 @@ TEST_CASE("mcp: over stdio malformed lines get errors, the valid ones around the
     CHECK(msgs[4]["id"].is_null());
     CHECK(msgs[5]["error"]["code"] == -32600);  // string params
     CHECK(msgs[5]["id"] == 4);
-    REQUIRE(msgs[6].is_array());                // the batch
+    REQUIRE(msgs[6].is_array());  // the batch
     CHECK(msgs[6][0]["error"]["code"] == -32600);
     CHECK(msgs[6][1]["id"] == 5);
     CHECK(msgs[7]["error"]["code"] == -32700);  // not JSON
@@ -276,7 +299,8 @@ TEST_CASE("mcp: string ids and batches") {
     Fixture f;
     Json r = Json::parse(*f.server.handle_message(R"({"jsonrpc":"2.0","id":"abc","method":"ping"})"));
     CHECK(r["id"] == "abc");
-    auto batch = f.server.handle_message(R"([{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":2,"method":"ping"}])");
+    auto batch = f.server.handle_message(
+        R"([{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":2,"method":"ping"}])");
     REQUIRE(batch.has_value());
     Json arr = Json::parse(*batch);
     REQUIRE(arr.is_array());
@@ -312,7 +336,8 @@ TEST_CASE("mcp: tools/list maps command names and describes tools") {
             CHECK(t["annotations"]["readOnlyHint"] == false);
             CHECK(t["annotations"]["destructiveHint"] == true);
         }
-    for (const char* n : {"feedback_report", "feedback_list", "docs_read", "docs_search", "fs_edit", "project_validate"})
+    for (const char* n :
+         {"feedback_report", "feedback_list", "docs_read", "docs_search", "fs_edit", "project_validate"})
         CHECK_MESSAGE(names.count(n) == 1, n);
     CHECK(mcp_tool_name("a.b_c") == "a_b_c");
     CHECK(mcp_tool_name("we ird!name").find(' ') == std::string::npos);
@@ -421,7 +446,8 @@ TEST_CASE("mcp: a tool profile lists the core set and the loader tools; tool_loa
     for (const auto& t : listed["result"]["tools"]) CHECK(t["description"].get<std::string>().size() < 1536);
     // The description names the groups with their counts.
     for (const auto& t : listed["result"]["tools"])
-        if (t["name"] == "tool_load") CHECK(t["description"].get<std::string>().find("wobble (2)") != std::string::npos);
+        if (t["name"] == "tool_load")
+            CHECK(t["description"].get<std::string>().find("wobble (2)") != std::string::npos);
     f.server.drain_outgoing();
     const Json res = f.call("tool_load", {{"groups", Json::array({"wobble"})}})["result"];
     CHECK(res["isError"] == false);
@@ -448,7 +474,8 @@ TEST_CASE("mcp: tool_describe and tool_call reach a command outside the profile;
     add_group_command(f, "wobble.spin", "wobble", true);
     f.initialize();
     CHECK(f.server.set_tool_profile({"core"}).empty());
-    const Json described = result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.spin", "wobble_spun"})}})["result"]);
+    const Json described =
+        result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.spin", "wobble_spun"})}})["result"]);
     REQUIRE(described["commands"].size() == 1);
     CHECK(described["commands"][0]["tool"] == "wobble_spin");
     CHECK(described["unknown"][0]["hint"].get<std::string>().find("wobble.spin") != std::string::npos);
@@ -489,10 +516,12 @@ TEST_CASE("mcp: a read-only filter and the user-only commands still apply throug
     CHECK(f.call("tool_call", {{"command", "wobble.spin"}})["result"]["isError"] == false);
     CHECK(f.call("tool_call", {{"command", "wobble.stop"}})["result"]["isError"] == true);
     CHECK(f.call("tool_call", {{"command", "ai.plugin_install"}})["result"]["isError"] == true);
-    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.stop"})}})["result"]).contains("unknown"));  // not read-only: not there
+    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"wobble.stop"})}})["result"])
+              .contains("unknown"));  // not read-only: not there
 }
 
-TEST_CASE("mcp: a group the read-only filter hides says so; tool_call is read-only on a read-only server; tool_call arguments must be an object") {
+TEST_CASE("mcp: a group the read-only filter hides says so; tool_call is read-only on a read-only server; tool_call "
+          "arguments must be an object") {
     Fixture f;
     add_group_command(f, "wobble.spin", "wobble", true);
     add_group_command(f, "hidden.stop", "hidden", false);
@@ -556,7 +585,8 @@ TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user 
     CHECK_FALSE(is_user_only_command("ai.run"));
 }
 
-TEST_CASE("mcp: a tools/call runs its command as an MCP client's call (command_caller), the library call as the user's") {
+TEST_CASE(
+    "mcp: a tools/call runs its command as an MCP client's call (command_caller), the library call as the user's") {
     Fixture f;
     CommandInfo i;
     i.name = "test.who_calls";
@@ -616,8 +646,11 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
     CHECK(w["isError"] == false);
     Json rd = f.call("fs_read", {{"path", "../escape"}})["result"];
     CHECK(rd["isError"] == true);
-    Json fb = f.call("feedback_report", {{"category", "physics"}, {"severity", "major"}, {"title", "No cloth simulation"},
-                                         {"missing", "needed a cloth solver"}, {"workaround", "script"}})["result"];
+    Json fb = f.call("feedback_report", {{"category", "physics"},
+                                         {"severity", "major"},
+                                         {"title", "No cloth simulation"},
+                                         {"missing", "needed a cloth solver"},
+                                         {"workaround", "script"}})["result"];
     CHECK(fb["isError"] == false);
     CHECK(result_json(fb)["id"] == "FB-0001");
     // project.export is a registered tooling command, so it is an MCP tool (an unknown platform is a tool error).
@@ -629,7 +662,8 @@ TEST_CASE("mcp: resources list and read") {
     Fixture f;
     {
         std::ofstream(f.tmp.path / "factoria.json") << R"({"format":"factoria.project/1","name":"T"})";
-        std::ofstream(f.tmp.path / "ENGINE_FEEDBACK.json") << R"({"format":"factoria.feedback/1","project":"T","entries":[]})";
+        std::ofstream(f.tmp.path / "ENGINE_FEEDBACK.json")
+            << R"({"format":"factoria.feedback/1","project":"T","entries":[]})";
     }
     Json list = f.rpc("resources/list")["result"]["resources"];
     std::set<std::string> uris;
@@ -684,8 +718,8 @@ TEST_CASE("mcp: prompts list and get") {
     Json gap = f.rpc("prompts/get", {{"name", "report-engine-gap"}})["result"];
     CHECK(gap["messages"][0]["content"]["text"].get<std::string>().find("feedback_report") != std::string::npos);
 
-    CHECK(f.rpc("prompts/get", {{"name", "make-game"}})["error"]["code"] == -32602);   // missing idea
-    CHECK(f.rpc("prompts/get", {{"name", "make-gam"}})["error"]["code"] == -32602);    // unknown
+    CHECK(f.rpc("prompts/get", {{"name", "make-game"}})["error"]["code"] == -32602);  // missing idea
+    CHECK(f.rpc("prompts/get", {{"name", "make-gam"}})["error"]["code"] == -32602);   // unknown
 }
 
 TEST_CASE("mcp: tools/list_changed and log notifications") {
@@ -756,9 +790,9 @@ TEST_CASE("mcp: a long tool call with a progressToken sends notifications/progre
     }
 
     withToken = true;
-    auto reply = f.rpc("tools/call", {{"name", "test_slow"},
-                                      {"arguments", Json::object()},
-                                      {"_meta", Json::object({{"progressToken", 7}})}});
+    auto reply =
+        f.rpc("tools/call",
+              {{"name", "test_slow"}, {"arguments", Json::object()}, {"_meta", Json::object({{"progressToken", 7}})}});
     CHECK(reply["result"]["isError"] == false);
     std::lock_guard<std::mutex> lock(mu);
     REQUIRE(got.size() >= 3);
@@ -791,7 +825,8 @@ TEST_CASE("mcp: stdio transport is newline-delimited and writes only protocol me
         "\n"
         "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\r\n"
         "garbage\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
     std::ostringstream out;
     CHECK(run_stdio(f.server, in, out) == 0);
     std::istringstream lines(out.str());
@@ -864,7 +899,8 @@ void add_big_commands(CommandRegistry& registry) {
     CommandInfo narrow;
     narrow.name = "test.big_text";
     narrow.summary = "One long string; no paging, a filter.";
-    narrow.inputSchema = Json::parse(R"({"type":"object","properties":{"filter":{"type":"string","description":"Filter."}}})");
+    narrow.inputSchema =
+        Json::parse(R"({"type":"object","properties":{"filter":{"type":"string","description":"Filter."}}})");
     registry.add(narrow, [](const Json&) { return Json::object({{"text", accented(40000)}}); });
     CommandInfo own = paged;
     own.name = "test.big_own_paging";
@@ -907,20 +943,23 @@ TEST_CASE("mcp: a result over the cap is cut whole-JSON and UTF-8 safe, with a n
         CHECK(value["items"][0]["name"] == accented(20));  // whole items, the first ones
         const std::string note = value["_truncated"]["note"].get<std::string>();
         CHECK(note.find("[truncated]") == 0);
-        CHECK(note.find("`/items` keeps the first " + std::to_string(value["items"].size()) + " of 2000 items") != std::string::npos);
+        CHECK(note.find("`/items` keeps the first " + std::to_string(value["items"].size()) + " of 2000 items") !=
+              std::string::npos);
         CHECK(note.find("`offset` and `limit`") != std::string::npos);
 
         // The command's own paging arguments (camelCase pageToken, entityLimit), in its schema's order; homepage, a uvOffset
         // vector and a rateLimit number are not paging.
         const Json own = result_json(f.call("test_big_own_paging")["result"]);
-        CHECK(own["_truncated"]["note"].get<std::string>().find("`pageToken` and `entityLimit`: call it again") != std::string::npos);
+        CHECK(own["_truncated"]["note"].get<std::string>().find("`pageToken` and `entityLimit`: call it again") !=
+              std::string::npos);
 
         const Json text = result_json(f.call("test_big_text")["result"]);
         const std::string kept = text["text"].get<std::string>();
         CHECK(is_valid_utf8(kept));  // never cut inside a character
         CHECK(kept.size() < 80001);
         CHECK(kept.size() > 1000);
-        CHECK(text["_truncated"]["note"].get<std::string>().find("does not page: ask for less with `filter`") != std::string::npos);
+        CHECK(text["_truncated"]["note"].get<std::string>().find("does not page: ask for less with `filter`") !=
+              std::string::npos);
 
         // A result that is not an object is wrapped: {"result": the cut result, "_truncated": ...}
         const Json arr = result_json(f.call("test_big_array")["result"]);
@@ -940,7 +979,8 @@ TEST_CASE("mcp: set_result_cap never goes below 8 KiB; the default is kMcpResult
     i.name = "test.sized";
     i.summary = "Returns a string of the given size.";
     i.inputSchema = Json::parse(R"({"type":"object","properties":{"bytes":{"type":"integer"}},"required":["bytes"]})");
-    f.registry.add(i, [](const Json& a) { return Json::object({{"s", std::string(a["bytes"].get<std::size_t>(), 'a')}}); });
+    f.registry.add(
+        i, [](const Json& a) { return Json::object({{"s", std::string(a["bytes"].get<std::size_t>(), 'a')}}); });
     // 40 KiB fits the default cap of 80 KiB; 400 KiB does not
     static_assert(kMcpResultCap == 80 * 1024);
     CHECK_FALSE(result_json(f.call("test_sized", {{"bytes", 40 * 1024}})["result"]).contains("_truncated"));
@@ -993,7 +1033,8 @@ bool wait_until(const std::function<bool()>& done) {  // 30 s: far above what a 
 }
 
 std::string cancel_message(const Json& requestId) {
-    return Json::object({{"jsonrpc", "2.0"}, {"method", "notifications/cancelled"},
+    return Json::object({{"jsonrpc", "2.0"},
+                         {"method", "notifications/cancelled"},
                          {"params", Json::object({{"requestId", requestId}, {"reason", "the user pressed Esc"}})}})
         .dump();
 }
@@ -1007,7 +1048,8 @@ TEST_CASE("mcp: notifications/cancelled stops the running request, which then ge
     f.initialize();
     std::optional<std::string> response = std::string("not set");
     std::thread caller([&] {
-        response = f.server.handle_message(R"({"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+        response = f.server.handle_message(
+            R"({"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"test_block","arguments":{}}})");
     });
     REQUIRE(wait_until([&] { return blocker.started.load(); }));
     CHECK(f.server.session()->requests_in_flight() == 1);
@@ -1025,16 +1067,21 @@ TEST_CASE("mcp: notifications/cancelled stops the running request, which then ge
 TEST_CASE("mcp: a cancel for an unknown or finished request is ignored without an error") {
     Fixture f;
     f.initialize();
-    CHECK_FALSE(f.server.handle_message(cancel_message(999)).has_value());     // never sent
-    const Json done = f.call("test_echo_value", {{"value", 4}});              // answered: id 2
+    CHECK_FALSE(f.server.handle_message(cancel_message(999)).has_value());         // never sent
+    const Json done = f.call("test_echo_value", {{"value", 4}});                   // answered: id 2
     CHECK_FALSE(f.server.handle_message(cancel_message(done["id"])).has_value());  // too late: nothing to stop
     CHECK(f.server.session()->requests_in_flight() == 0);
     // malformed cancels are notifications too: no answer, nothing breaks
-    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{}})").has_value());
-    CHECK_FALSE(f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"a":1}}})").has_value());
+    CHECK_FALSE(
+        f.server.handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{}})").has_value());
+    CHECK_FALSE(
+        f.server
+            .handle_message(R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"a":1}}})")
+            .has_value());
     CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":"2.0","id":1,"method":"notifications/cancelled"})"));
     CHECK_FALSE(McpServer::is_cancel_notification("[" + cancel_message(1) + "]"));
-    CHECK_FALSE(McpServer::is_cancel_notification(R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":1}})"));
+    CHECK_FALSE(McpServer::is_cancel_notification(
+        R"({"jsonrpc":2,"method":"notifications/cancelled","params":{"requestId":1}})"));
     // the next call works as usual
     CHECK(result_json(f.call("test_echo_value", {{"value", 5}})["result"])["echo"] == 5);
 }
@@ -1048,13 +1095,15 @@ TEST_CASE("mcp: servers that share a session see one handshake and cancel each o
     auto session = std::make_shared<McpSession>();
     McpServer first(host);
     first.share_session(session);
-    REQUIRE(first.handle_message(R"({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})"));
+    REQUIRE(first.handle_message(
+        R"({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})"));
     McpServer second(host);
     second.share_session(session);  // made after the initialize: takes its protocol
     CHECK(second.protocol_version() == "2025-03-26");
     std::optional<std::string> response = std::string("not set");
     std::thread caller([&] {
-        response = first.handle_message(R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+        response = first.handle_message(
+            R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
     });
     REQUIRE(wait_until([&] { return blocker.started.load(); }));
     CHECK_FALSE(second.handle_message(cancel_message(7)).has_value());  // another server of the same client
@@ -1069,10 +1118,12 @@ TEST_CASE("mcp: over stdio a cancel is read at once; the other lines keep their 
     blocker.add_to(f.registry);
     std::istringstream in(
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
         "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}\n" +
         cancel_message(2) + "\n" +
-        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":6}}}\n");
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":6}}}\n");
     std::ostringstream out;
     CHECK(run_stdio(f.server, in, out) == 0);
     std::istringstream lines(out.str());
@@ -1104,17 +1155,20 @@ TEST_CASE("mcp: over stdio a request cancelled while it waits for its turn never
     // read, and the cancel of 2, which lets the loop go on, comes after that.
     std::istringstream in(
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_record\",\"arguments\":{}}}\n" +
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_block\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_record\",\"arguments\":{}}}\n" +
         cancel_message(3) + "\n" + cancel_message(2) + "\n" +
-        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":7}}}\n");
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":7}}}\n");
     std::ostringstream out;
     CHECK(run_stdio(f.server, in, out) == 0);
     std::istringstream lines(out.str());
     std::string line;
     std::vector<Json> msgs;
     while (std::getline(lines, line)) msgs.push_back(Json::parse(line));
-    CHECK_FALSE(recordRan);  // skipped: it was cancelled before its turn
+    CHECK_FALSE(recordRan);     // skipped: it was cancelled before its turn
     REQUIRE(msgs.size() == 2);  // initialize and the echo
     CHECK(msgs[0]["id"] == 1);
     CHECK(msgs[1]["id"] == 4);
@@ -1178,7 +1232,8 @@ TEST_CASE("mcp: over stdio a loop that ends within the grace after the input end
     Fixture f;
     std::istringstream in(
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/"
+        "call\",\"params\":{\"name\":\"test_echo_value\",\"arguments\":{\"value\":1}}}\n");
     std::ostringstream out;
     CHECK(run_stdio(f.server, in, out) == 0);  // the default grace (10 s) is far above what two quick messages need
     std::istringstream lines(out.str());
@@ -1194,19 +1249,20 @@ TEST_CASE("mcp: a session keeps a cancel for a queued request until it begins") 
     session.expect_request(5);
     session.expect_request("five");
     CHECK(session.requests_queued() == 2);
-    CHECK(session.cancel(5));            // queued: kept
-    CHECK_FALSE(session.cancel(6));      // unknown: ignored
+    CHECK(session.cancel(5));        // queued: kept
+    CHECK_FALSE(session.cancel(6));  // unknown: ignored
     auto five = session.begin_request(5);
-    CHECK(five->load());                 // starts cancelled
+    CHECK(five->load());  // starts cancelled
     CHECK(session.end_request(5, five));
     auto other = session.begin_request("five");
-    CHECK_FALSE(other->load());          // a string id is another request
+    CHECK_FALSE(other->load());  // a string id is another request
     CHECK_FALSE(session.end_request("five", other));
     CHECK(session.requests_queued() == 0);
 }
 
 namespace {
-void add_cap_tool(Fixture& f, const char* name, CapabilitySet caps, bool readOnly = false, std::shared_ptr<int> ran = nullptr) {
+void add_cap_tool(Fixture& f, const char* name, CapabilitySet caps, bool readOnly = false,
+                  std::shared_ptr<int> ran = nullptr) {
     CommandInfo i;
     i.name = name;
     i.summary = "Capability test command.";
@@ -1263,7 +1319,8 @@ TEST_CASE("mcp: the read-only server serves the play commands and refuses the re
     add_cap_tool(f, "scene.save", capability_sets::edits_project(), false, saved);
     add_cap_tool(f, "test.publish", CapabilitySet{Capability::Read, Capability::Publish}, false, published);
     f.server.set_command_filter([](const CommandInfo& info) {
-        return info.readOnly || info.name == "game.step" || info.name == "game.screenshot" || info.name == "test.publish";
+        return info.readOnly || info.name == "game.step" || info.name == "game.screenshot" ||
+               info.name == "test.publish";
     });
     f.server.set_capabilities(capability_sets::mcp_read_only());
     f.initialize();
@@ -1271,7 +1328,8 @@ TEST_CASE("mcp: the read-only server serves the play commands and refuses the re
     CHECK(f.call("game_step")["result"]["isError"] == false);
     CHECK(*stepped == 1);
     CHECK(f.call("game_screenshot")["result"]["isError"] == false);
-    const Json withPath = f.call("game_screenshot", {{"path", "shots/a.png"}});  // a path needs writeProject: not in {read, state}
+    const Json withPath =
+        f.call("game_screenshot", {{"path", "shots/a.png"}});  // a path needs writeProject: not in {read, state}
     CHECK(withPath["result"]["isError"] == true);
     CHECK(error_text(withPath).find("capability_denied") != std::string::npos);
 
@@ -1371,7 +1429,8 @@ TEST_CASE("mcp: _meta and tool_describe carry the declared capabilities") {
         }
     CHECK(found);
     CHECK(f.server.set_tool_profile({"core"}).empty());  // tool_describe belongs to the tools profile
-    const Json described = result_json(f.call("tool_describe", {{"commands", Json::array({"test.declared"})}})["result"]);
+    const Json described =
+        result_json(f.call("tool_describe", {{"commands", Json::array({"test.declared"})}})["result"]);
     REQUIRE(described["commands"].size() == 1);
     const Json& d = described["commands"][0];
     CHECK(d["capabilitiesDeclared"] == true);
@@ -1395,7 +1454,8 @@ TEST_CASE("mcp: the tools profile path works on a read-only server") {
     const Json refused = f.call("tool_call", {{"command", "scene.save"}})["result"];
     CHECK(refused["isError"] == true);
     CHECK(*saved == 0);
-    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"scene.save"})}})["result"]).contains("unknown"));
+    CHECK(result_json(f.call("tool_describe", {{"commands", Json::array({"scene.save"})}})["result"])
+              .contains("unknown"));
     const Json tools = f.rpc("tools/list");
     for (const Json& t : tools["result"]["tools"]) CHECK(t["name"] != "scene_save");
 }

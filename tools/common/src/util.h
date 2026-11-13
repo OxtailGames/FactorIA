@@ -50,9 +50,12 @@ std::string expand_home(const std::string& path, const ExportEnvLookup& env);
 inline std::string escape_token(const std::string& key) {
     std::string out;
     for (char c : key) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
+        if (c == '~')
+            out += "~0";
+        else if (c == '/')
+            out += "~1";
+        else
+            out += c;
     }
     return out;
 }
@@ -75,7 +78,8 @@ struct SettingsReader {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) return nullptr;
         if (!it->is_object()) {
-            error(base + "/" + key, "expected an object, got " + describe_json_value(*it), "Write it as " + example + ".");
+            error(base + "/" + key, "expected an object, got " + describe_json_value(*it),
+                  "Write it as " + example + ".");
             return nullptr;
         }
         return &*it;
@@ -103,7 +107,9 @@ inline bool is_audio_file(std::string_view path) {
 // (assets::import_settings, read_audio_file...); the previous root comes back on exit.
 struct ProjectRootScope {
     std::filesystem::path saved;
-    explicit ProjectRootScope(const std::filesystem::path& dir) : saved(fs::project_root()) { fs::set_project_root(dir); }
+    explicit ProjectRootScope(const std::filesystem::path& dir) : saved(fs::project_root()) {
+        fs::set_project_root(dir);
+    }
     ~ProjectRootScope() { fs::set_project_root(saved); }
     ProjectRootScope(const ProjectRootScope&) = delete;
     ProjectRootScope& operator=(const ProjectRootScope&) = delete;

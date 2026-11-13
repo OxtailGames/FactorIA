@@ -69,7 +69,8 @@ struct LogCatcher {
 
 // A rope bridge like the Clockwork Courier's: `n` planks (1 m long, 0.6 m wide) hanging in a parabola between x0 and
 // x0 + n, each hinged to the next one; the first from a static anchor, the last from the world. Default damping.
-std::vector<Entity> add_bridge(World& w, const std::string& name, float z, int n, float sag = 0.35f, float width = 0.6f) {
+std::vector<Entity> add_bridge(World& w, const std::string& name, float z, int n, float sag = 0.35f,
+                               float width = 0.6f) {
     auto curve = [&](float t) { return Vec3{float(n) * t, -sag * 4.0f * t * (1.0f - t), z}; };
     std::vector<Entity> planks;
     for (int i = 0; i < n; ++i) {
@@ -116,7 +117,7 @@ TEST_CASE("3d start overlaps: a body started inside a static collider is reporte
     Sim s;
     add_box(s.world, "slab", {0, 0, 0}, {4, 1, 4}, false);
     add_box(s.world, "plank", {0, 0.85f, 0}, {1, 1, 1}, true);  // 0.15 m inside the slab's top
-    add_box(s.world, "clear", {10, 1.0f, 0}, {1, 1, 1}, true);   // resting on nothing: no overlap
+    add_box(s.world, "clear", {10, 1.0f, 0}, {1, 1, 1}, true);  // resting on nothing: no overlap
     const std::vector<StartOverlap> found = s.physics.start_overlaps3d(s.world);
     REQUIRE(found.size() == 1);
     CHECK(s.world.id_of(found[0].body) == "plank");
@@ -249,8 +250,8 @@ TEST_CASE("3d joints: Joint3D.damping takes the swing out of a pendulum") {
     };
     float freeMax = 0.0f;
     for (int steps = 240; steps < 300; steps += 7) freeMax = std::max(freeMax, speed_after(0.0f, steps));
-    CHECK(freeMax > 100.0f);                    // deg/s: still swinging after 4+ s
-    CHECK(speed_after(8.0f, 300) < 3.0f);       // hanging still
+    CHECK(freeMax > 100.0f);               // deg/s: still swinging after 4+ s
+    CHECK(speed_after(8.0f, 300) < 3.0f);  // hanging still
 }
 
 TEST_CASE("3d joints: connected \"\" is the world, in scene files, by set_component and when run") {

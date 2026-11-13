@@ -28,18 +28,19 @@ enum class RigSource { Override, Part, Geometry, Proportion };
 const char* rig_source_name(RigSource s);  // "override", "part", "geometry", "proportion"
 
 struct RigBoneFit {
-    std::string name;       // canonical: role[_index][_side]
+    std::string name;  // canonical: role[_index][_side]
     std::string role;
-    int index = 0;          // 1-based among the bones of the same role and side; 0 when the template has only one
-    std::string side;       // "", "l" or "r"
-    std::string parent;     // "" for root
-    int parentIndex = -1;   // index into RigFit::bones, always smaller than this bone's
-    Vec3 head{};            // the joint, in the model's space
-    Vec3 tail{};            // where the bone ends: its main child's head, or for a leaf the landmark "<name>.tail"
+    int index = 0;         // 1-based among the bones of the same role and side; 0 when the template has only one
+    std::string side;      // "", "l" or "r"
+    std::string parent;    // "" for root
+    int parentIndex = -1;  // index into RigFit::bones, always smaller than this bone's
+    Vec3 head{};           // the joint, in the model's space
+    Vec3 tail{};           // where the bone ends: its main child's head, or for a leaf the landmark "<name>.tail"
     bool leaf = true;
     RigSource headSource = RigSource::Proportion;
     RigSource tailSource = RigSource::Proportion;
-    std::vector<std::string> parts;  // the model parts that placed it (part source) or that move with it (rigid binding)
+    std::vector<std::string>
+        parts;  // the model parts that placed it (part source) or that move with it (rigid binding)
 };
 
 struct RigFit {
@@ -47,7 +48,7 @@ struct RigFit {
     std::vector<RigBoneFit> bones;  // parents before children; this order is the joint order of the .glb
     Vec3 bmin{}, bmax{};            // the model's bounds
     float symmetryX = 0;
-    std::string symmetrySource;     // "document", "bounds"
+    std::string symmetrySource;            // "document", "bounds"
     std::vector<std::string> unusedParts;  // model parts no bone looked at
     std::vector<std::string> warnings;     // each says what was noticed and what to do
     // How many landmarks (heads and leaf tails) came from each source.

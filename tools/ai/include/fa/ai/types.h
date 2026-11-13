@@ -23,9 +23,9 @@ using fa::is_cancelled;
 enum class Role { User, Assistant };
 
 struct ToolDef {
-    std::string name;         // provider-safe name (no '.')
+    std::string name;  // provider-safe name (no '.')
     std::string description;
-    Json inputSchema;         // JSON Schema object
+    Json inputSchema;  // JSON Schema object
 };
 
 struct ToolCall {
@@ -55,11 +55,11 @@ struct ToolResult {
 
 struct Message {
     Role role = Role::User;
-    std::string text;                    // user text, or concatenated assistant text
-    std::vector<ToolCall> toolCalls;     // assistant only
-    std::vector<ToolResult> toolResults; // user only: ALL results of one assistant turn
-    Json raw;                            // assistant only: provider-native payload, resent verbatim
-    std::vector<ImageData> images;       // user only: images the user attached to this message
+    std::string text;                     // user text, or concatenated assistant text
+    std::vector<ToolCall> toolCalls;      // assistant only
+    std::vector<ToolResult> toolResults;  // user only: ALL results of one assistant turn
+    Json raw;                             // assistant only: provider-native payload, resent verbatim
+    std::vector<ImageData> images;        // user only: images the user attached to this message
 
     static Message user(std::string text, std::vector<ImageData> images = {});
     static Message tool_results(std::vector<ToolResult> results);
@@ -95,9 +95,9 @@ double estimate_cost(const Usage& u, const Pricing& p);
 
 struct ChatRequest {
     std::string model;
-    std::string effort;       // "low|medium|high|xhigh|max" or empty
-    int maxTokens = 0;        // 0 = provider default
-    std::string system;       // stable system prompt
+    std::string effort;          // "low|medium|high|xhigh|max" or empty
+    int maxTokens = 0;           // 0 = provider default
+    std::string system;          // stable system prompt
     std::vector<ToolDef> tools;  // sorted by name by the caller for byte-stable caching
     std::vector<Message> messages;
     bool stream = false;
@@ -113,10 +113,10 @@ struct ContextSplit {
     u64 toolBytes = 0;          // the tool definitions (name, description, input schema)
     u64 conversationBytes = 0;  // messages so far: text, tool calls, tool results (a picture counts as a fixed size)
     int toolCount = 0;          // tools offered with their full definition
-    int catalogCount = 0;       // commands that are only a line of the catalog (reachable through tool_describe / tool_call)
+    int catalogCount = 0;  // commands that are only a line of the catalog (reachable through tool_describe / tool_call)
     bool known() const { return systemBytes || toolBytes || conversationBytes; }
     u64 totalBytes() const { return systemBytes + toolBytes + conversationBytes; }
-    Json to_json() const;       // every size in bytes and estimated tokens
+    Json to_json() const;  // every size in bytes and estimated tokens
     static ContextSplit from_json(const Json& j);
 };
 inline constexpr double kBytesPerToken = 3.75;  // the same estimate AI_COSTS.md uses for text and JSON
@@ -131,7 +131,7 @@ struct ChatResponse {
     Usage usage;
     u64 contextTokens = 0;  // input + cache of the call that answered, when the provider tells it apart from `usage`
     std::string model;
-    std::string refusalCategory;     // only when stopReason == Refusal
+    std::string refusalCategory;  // only when stopReason == Refusal
     std::string refusalExplanation;
 };
 
@@ -155,17 +155,19 @@ struct LimitWindow {
 struct AgentEvent {
     enum class Type { SessionStart, TextDelta, ThinkingDelta, ToolStart, ToolEnd, Usage, Info, Done, Error };
     Type type = Type::Info;
-    int depth = 0;        // 0 = main session, 1 = delegated sub-session
-    std::string role;     // orchestrator|worker|fast|artist|audio|artCritic|reviewer|cli
-    std::string text;     // text delta / info / error message / final text
+    int depth = 0;     // 0 = main session, 1 = delegated sub-session
+    std::string role;  // orchestrator|worker|fast|artist|audio|artCritic|reviewer|cli
+    std::string text;  // text delta / info / error message / final text
     std::string toolName;
-    std::string toolId;   // the provider's id of the tool call (ToolStart and its ToolEnd share it); "" when the agent gives none
+    std::string
+        toolId;  // the provider's id of the tool call (ToolStart and its ToolEnd share it); "" when the agent gives none
     Json toolInput;
     Json toolResult;
     bool isError = false;
-    ai::Usage usage;      // cumulative for Type::Usage
-    double costUsd = 0;   // cumulative for Type::Usage / Done
-    double assetCostUsd = 0;  // Type::Done: the estimated dollars the run's tool calls spent on generated assets (SessionResult::assetCostUsd)
+    ai::Usage usage;     // cumulative for Type::Usage
+    double costUsd = 0;  // cumulative for Type::Usage / Done
+    double assetCostUsd =
+        0;  // Type::Done: the estimated dollars the run's tool calls spent on generated assets (SessionResult::assetCostUsd)
     // Type::Usage from a CLI agent: costUsd is the engine's running estimate (the price table applied to the tokens seen
     // so far), not yet the CLI's own total. The CLI's total replaces it when the run's result arrives.
     bool costIsEstimate = false;
@@ -176,7 +178,7 @@ struct AgentEvent {
     std::vector<LimitWindow> limits;  // plan windows the CLI reported (merge them by name)
     u64 contextTokens = 0;            // tokens in the model's context after its last call (input + cache)
     u64 contextWindow = 0;            // size of the model's context window
-    ContextSplit contextSplit;        // the built-in agent: where the context of the call went (known() false = not told)
+    ContextSplit contextSplit;  // the built-in agent: where the context of the call went (known() false = not told)
 };
 const char* event_type_name(AgentEvent::Type t);
 // One short line saying what an event means for someone watching ("running Bash (cmake --build build)", "writing",

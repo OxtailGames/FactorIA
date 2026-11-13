@@ -59,7 +59,8 @@ MarkupText parse_markup(std::u32string_view src) {
 
     for (std::size_t i = 0; i < src.size(); ++i) {
         const char32_t ch = src[i];
-        if (ch == kIconChar) {  // the icon character is the engine's: a literal one in a string is a replacement character
+        if (ch ==
+            kIconChar) {  // the icon character is the engine's: a literal one in a string is a replacement character
             put(kReplacementChar);
             continue;
         }
@@ -82,13 +83,17 @@ MarkupText parse_markup(std::u32string_view src) {
         if (tag == "b") {
             ++bold;
         } else if (tag == "/b") {
-            if (bold == 0) problem(i, "[/b] without [b]");
-            else --bold;
+            if (bold == 0)
+                problem(i, "[/b] without [b]");
+            else
+                --bold;
         } else if (tag == "i") {
             ++italic;
         } else if (tag == "/i") {
-            if (italic == 0) problem(i, "[/i] without [i]");
-            else --italic;
+            if (italic == 0)
+                problem(i, "[/i] without [i]");
+            else
+                --italic;
         } else if (starts_with(tag, "c:")) {
             const std::string name = tag.substr(2);
             if (name.empty()) {
@@ -98,8 +103,10 @@ MarkupText parse_markup(std::u32string_view src) {
                 colorStack.push_back(color_index(name));
             }
         } else if (tag == "/c") {
-            if (colorStack.empty()) problem(i, "[/c] without [c:...]");
-            else colorStack.pop_back();
+            if (colorStack.empty())
+                problem(i, "[/c] without [c:...]");
+            else
+                colorStack.pop_back();
         } else if (starts_with(tag, "icon:")) {
             const std::string name = tag.substr(5);
             if (name.empty()) {
@@ -110,7 +117,8 @@ MarkupText parse_markup(std::u32string_view src) {
                 put(kIconChar, int(it - out.icons.begin()));
             }
         } else {
-            problem(i, "unknown tag [" + tag + "] (tags: [b] [/b], [i] [/i], [c:<colour>] [/c], [icon:<name>], [[ for a literal [)");
+            problem(i, "unknown tag [" + tag +
+                           "] (tags: [b] [/b], [i] [/i], [c:<colour>] [/c], [icon:<name>], [[ for a literal [)");
             for (std::size_t k = i; k <= end; ++k) put(src[k]);  // shown as written
         }
         i = end;
@@ -128,7 +136,8 @@ std::string suggestion(const std::string& s) { return s.empty() ? s : s + " "; }
 std::vector<std::string> markup_problems(std::string_view text, const RichTextStyle* style) {
     const MarkupText m = parse_markup(utf8_decode(text));
     std::vector<std::string> out;
-    for (const MarkupProblem& p : m.problems) out.push_back("position " + std::to_string(p.position) + ": " + p.message);
+    for (const MarkupProblem& p : m.problems)
+        out.push_back("position " + std::to_string(p.position) + ": " + p.message);
     if (!style) return out;
     std::vector<std::string> colorNames;
     for (const auto& [k, v] : style->colors) colorNames.push_back(k);
@@ -136,13 +145,15 @@ std::vector<std::string> markup_problems(std::string_view text, const RichTextSt
         Color c;
         if (!rich_color(*style, name, c))
             out.push_back("unknown colour '" + name + "' in [c:" + name + "] (the text keeps its colour). " +
-                          suggestion(did_you_mean(name, colorNames)) + "Define it in factoria.json (\"text\": {\"colors\": {...}}) or write #rrggbb.");
+                          suggestion(did_you_mean(name, colorNames)) +
+                          "Define it in factoria.json (\"text\": {\"colors\": {...}}) or write #rrggbb.");
     }
     std::vector<std::string> iconNames;
     for (const auto& [k, v] : style->icons) iconNames.push_back(k);
     for (const std::string& name : m.icons)
         if (!style->icons.contains(name))
-            out.push_back("unknown icon '" + name + "' in [icon:" + name + "] (it draws as an empty box). " + suggestion(did_you_mean(name, iconNames)) +
+            out.push_back("unknown icon '" + name + "' in [icon:" + name + "] (it draws as an empty box). " +
+                          suggestion(did_you_mean(name, iconNames)) +
                           "Define it in factoria.json (\"text\": {\"icons\": {...}}).");
     return out;
 }
@@ -151,8 +162,10 @@ std::string markup_plain_text(std::string_view text) {
     const MarkupText m = parse_markup(utf8_decode(text));
     std::string out;
     for (std::size_t i = 0; i < m.text.size(); ++i) {
-        if (m.attrs[i].icon >= 0) out += "[" + m.icons[std::size_t(m.attrs[i].icon)] + "]";
-        else utf8_append(out, m.text[i]);
+        if (m.attrs[i].icon >= 0)
+            out += "[" + m.icons[std::size_t(m.attrs[i].icon)] + "]";
+        else
+            utf8_append(out, m.text[i]);
     }
     return out;
 }
@@ -164,15 +177,19 @@ TextSettingsParse parse_text_settings(const Json& section) {
     };
     if (section.is_null()) return r;
     if (!section.is_object()) {
-        issue("", "expected an object like {\"colors\": {...}, \"icons\": {...}, \"fonts\": {...}}, got " + describe_json_value(section),
+        issue("",
+              "expected an object like {\"colors\": {...}, \"icons\": {...}, \"fonts\": {...}}, got " +
+                  describe_json_value(section),
               "The \"text\" section gives rich text (Text.markup) its colours, icons and bold fonts (docs/TEXT.md).");
         return r;
     }
     static const std::vector<std::string> keys = {"colors", "icons", "fonts"};
     for (auto it = section.begin(); it != section.end(); ++it)
         if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
-            r.warnings.push_back({"/text/" + it.key(), "unknown key \"" + it.key() + "\" in \"text\" (ignored). " + did_you_mean(it.key(), keys),
-                                  "Remove it or fix the spelling."});
+            r.warnings.push_back(
+                {"/text/" + it.key(),
+                 "unknown key \"" + it.key() + "\" in \"text\" (ignored). " + did_you_mean(it.key(), keys),
+                 "Remove it or fix the spelling."});
 
     const auto read_path = [&](const Json& v, const std::string& pointer, const char* what, std::string& into) {
         if (!v.is_string() || v.get<std::string>().empty()) {
@@ -183,7 +200,8 @@ TextSettingsParse parse_text_settings(const Json& section) {
         const std::string raw = v.get<std::string>();
         const std::string path = fs::is_absolute(raw) ? std::string() : fs::normalize(raw);
         if (path.empty()) {
-            issue(pointer, "\"" + raw + "\" is not a path inside the project", "Copy the file into the project and write its project-relative path.");
+            issue(pointer, "\"" + raw + "\" is not a path inside the project",
+                  "Copy the file into the project and write its project-relative path.");
             return false;
         }
         into = path;
@@ -198,13 +216,17 @@ TextSettingsParse parse_text_settings(const Json& section) {
             for (auto c = it->begin(); c != it->end(); ++c) {
                 const std::string where = "/colors/" + c.key();
                 if (!valid_name(c.key())) {
-                    issue(where, "\"" + c.key() + "\" is not a colour name", "Use letters, digits, '_', '-' and '.' (no spaces, ':' or ']').");
+                    issue(where, "\"" + c.key() + "\" is not a colour name",
+                          "Use letters, digits, '_', '-' and '.' (no spaces, ':' or ']').");
                     continue;
                 }
                 Color col;
                 std::string err;
                 if (!json_to(*c, col, &err)) {
-                    issue(where, "expected a colour such as \"#80dc80\", \"orange\" or [r, g, b, a], got " + describe_json_value(*c), err);
+                    issue(where,
+                          "expected a colour such as \"#80dc80\", \"orange\" or [r, g, b, a], got " +
+                              describe_json_value(*c),
+                          err);
                     continue;
                 }
                 r.style.colors[c.key()] = col;
@@ -214,39 +236,46 @@ TextSettingsParse parse_text_settings(const Json& section) {
     if (auto it = section.find("icons"); it != section.end() && !it->is_null()) {
         if (!it->is_object()) {
             issue("/icons", "expected an object of icons, got " + describe_json_value(*it),
-                  "{\"fish\": {\"texture\": \"assets/atlas.png\", \"region\": [0, 0, 32, 32]}}; then write [icon:fish] in a text.");
+                  "{\"fish\": {\"texture\": \"assets/atlas.png\", \"region\": [0, 0, 32, 32]}}; then write [icon:fish] "
+                  "in a text.");
         } else {
             for (auto c = it->begin(); c != it->end(); ++c) {
                 const std::string where = "/icons/" + c.key();
                 if (!valid_name(c.key())) {
-                    issue(where, "\"" + c.key() + "\" is not an icon name", "Use letters, digits, '_', '-' and '.' (no spaces, ':' or ']').");
+                    issue(where, "\"" + c.key() + "\" is not an icon name",
+                          "Use letters, digits, '_', '-' and '.' (no spaces, ':' or ']').");
                     continue;
                 }
                 if (!c->is_object()) {
-                    issue(where, "expected {\"texture\": ..., \"region\": [x, y, w, h]}, got " + describe_json_value(*c),
+                    issue(where,
+                          "expected {\"texture\": ..., \"region\": [x, y, w, h]}, got " + describe_json_value(*c),
                           "The region is in pixels of the texture, from its top-left corner.");
                     continue;
                 }
                 static const std::vector<std::string> iconKeys = {"texture", "region"};
                 for (auto k = c->begin(); k != c->end(); ++k)
                     if (std::find(iconKeys.begin(), iconKeys.end(), k.key()) == iconKeys.end())
-                        r.warnings.push_back({"/text" + where + "/" + k.key(),
-                                              "unknown key \"" + k.key() + "\" in an icon (ignored). " + did_you_mean(k.key(), iconKeys),
-                                              "Remove it or fix the spelling."});
+                        r.warnings.push_back(
+                            {"/text" + where + "/" + k.key(),
+                             "unknown key \"" + k.key() + "\" in an icon (ignored). " + did_you_mean(k.key(), iconKeys),
+                             "Remove it or fix the spelling."});
                 RichIcon icon;
                 bool ok = true;
                 if (auto t = c->find("texture"); t != c->end()) {
                     ok = read_path(*t, where + "/texture", "the icon's texture", icon.texture) && ok;
                 } else {
-                    issue(where, "icon \"" + c.key() + "\" has no \"texture\"", "Add \"texture\": \"assets/atlas.png\" (the image the icon is a part of).");
+                    issue(where, "icon \"" + c.key() + "\" has no \"texture\"",
+                          "Add \"texture\": \"assets/atlas.png\" (the image the icon is a part of).");
                     ok = false;
                 }
                 if (auto g = c->find("region"); g != c->end()) {
                     bool good = g->is_array() && g->size() == 4;
-                    for (std::size_t k = 0; good && k < 4; ++k) good = (*g)[k].is_number() && (*g)[k].get<double>() >= (k >= 2 ? 1 : 0);
+                    for (std::size_t k = 0; good && k < 4; ++k)
+                        good = (*g)[k].is_number() && (*g)[k].get<double>() >= (k >= 2 ? 1 : 0);
                     if (!good) {
                         issue(where + "/region",
-                              "expected [x, y, width, height] in pixels (width and height at least 1), got " + describe_json_value(*g),
+                              "expected [x, y, width, height] in pixels (width and height at least 1), got " +
+                                  describe_json_value(*g),
                               "The part of the texture the icon shows, from its top-left corner: [0, 0, 32, 32].");
                         ok = false;
                     } else {
@@ -256,7 +285,8 @@ TextSettingsParse parse_text_settings(const Json& section) {
                         icon.h = (*g)[3].get<int>();
                     }
                 } else {
-                    issue(where, "icon \"" + c.key() + "\" has no \"region\"", "Add \"region\": [x, y, w, h] (pixels of the texture, from its top-left corner).");
+                    issue(where, "icon \"" + c.key() + "\" has no \"region\"",
+                          "Add \"region\": [x, y, w, h] (pixels of the texture, from its top-left corner).");
                     ok = false;
                 }
                 if (ok) r.style.icons[c.key()] = icon;
@@ -266,13 +296,15 @@ TextSettingsParse parse_text_settings(const Json& section) {
     if (auto it = section.find("fonts"); it != section.end() && !it->is_null()) {
         if (!it->is_object()) {
             issue("/fonts", "expected an object keyed by font, got " + describe_json_value(*it),
-                  "{\"assets/fonts/Body-Regular.ttf\": {\"bold\": \"assets/fonts/Body-Bold.ttf\"}}; the key is the font a Text names (\"\" = the built-in font).");
+                  "{\"assets/fonts/Body-Regular.ttf\": {\"bold\": \"assets/fonts/Body-Bold.ttf\"}}; the key is the "
+                  "font a Text names (\"\" = the built-in font).");
         } else {
             for (auto c = it->begin(); c != it->end(); ++c) {
                 const std::string where = "/fonts/" + c.key();
                 if (!c->is_object()) {
                     issue(where, "expected {\"bold\": \"<font file>\"}, got " + describe_json_value(*c),
-                          "Name the font file that draws [b] text and Text.bold for this font, and/or the one that draws [i] text: "
+                          "Name the font file that draws [b] text and Text.bold for this font, and/or the one that "
+                          "draws [i] text: "
                           "{\"bold\": \"assets/fonts/Body-Bold.ttf\", \"italic\": \"assets/fonts/Body-Italic.ttf\"}.");
                     continue;
                 }
@@ -280,11 +312,13 @@ TextSettingsParse parse_text_settings(const Json& section) {
                 for (auto k = c->begin(); k != c->end(); ++k)
                     if (k.key() != "bold" && k.key() != "italic")
                         r.warnings.push_back({"/text" + where + "/" + k.key(),
-                                              "unknown key \"" + k.key() + "\" in a font entry (ignored). " + did_you_mean(k.key(), fontKeys),
+                                              "unknown key \"" + k.key() + "\" in a font entry (ignored). " +
+                                                  did_you_mean(k.key(), fontKeys),
                                               "Only \"bold\" and \"italic\" are read."});
                 if (c->find("bold") == c->end() && c->find("italic") == c->end()) {
                     issue(where, "font entry has neither \"bold\" nor \"italic\"",
-                          "Add \"bold\": \"assets/fonts/Body-Bold.ttf\" and/or \"italic\": \"assets/fonts/Body-Italic.ttf\".");
+                          "Add \"bold\": \"assets/fonts/Body-Bold.ttf\" and/or \"italic\": "
+                          "\"assets/fonts/Body-Italic.ttf\".");
                     continue;
                 }
                 std::string key = c.key();

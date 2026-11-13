@@ -40,7 +40,8 @@ std::unique_ptr<PlatformBackend> make_http_backend(std::unique_ptr<HttpClient> c
 //   catalog    its backend_for(platform) names the plugin when several offer a backend; its adsBackend names the ads plugin
 //              when several offer one. A plugin whose only service is "ads" is an ads backend, chosen apart from the store's.
 //   plugins    what install_plugins returned.
-BackendChoice choose_platform_backend(const std::string& requested, const std::string& fallback, const PlatformCatalog& catalog,
-                                      const PluginInstall& plugins, const std::string& platform);
+BackendChoice choose_platform_backend(const std::string& requested, const std::string& fallback,
+                                      const PlatformCatalog& catalog, const PluginInstall& plugins,
+                                      const std::string& platform);
 
 }  // namespace fa

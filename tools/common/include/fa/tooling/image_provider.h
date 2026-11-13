@@ -16,17 +16,18 @@ namespace fa {
 
 // The document, picture and selection a provider call starts from.
 struct ImageEditInput {
-    std::string doc;                      // project-relative path of the document, normalized
-    int width = 0, height = 0;            // the canvas
-    int frame = 0;                        // the frame the picture is of (0 in a document with one frame)
-    bool animated = false;                // the document has more than one frame
-    std::string layer;                    // the layer the picture is of ("" = the whole composite)
-    Image picture;                        // canvas-sized RGBA: the composite of `frame`, or `layer` alone; empty when not asked for
-    std::string selection;                // the stored selection that was used ("" = none given)
-    std::vector<std::uint8_t> mask;       // canvas-sized coverage 0..255 of the selection (255 = repaint); empty = no selection
-    std::size_t selectedPixels = 0;       // pixels with coverage >= 128
-    bool palette = false;                 // the document has a palette (an indexed document): the result is quantized to it
-    std::vector<std::array<std::uint8_t, 3>> colours;   // that palette
+    std::string doc;            // project-relative path of the document, normalized
+    int width = 0, height = 0;  // the canvas
+    int frame = 0;              // the frame the picture is of (0 in a document with one frame)
+    bool animated = false;      // the document has more than one frame
+    std::string layer;          // the layer the picture is of ("" = the whole composite)
+    Image picture;          // canvas-sized RGBA: the composite of `frame`, or `layer` alone; empty when not asked for
+    std::string selection;  // the stored selection that was used ("" = none given)
+    std::vector<std::uint8_t>
+        mask;  // canvas-sized coverage 0..255 of the selection (255 = repaint); empty = no selection
+    std::size_t selectedPixels = 0;  // pixels with coverage >= 128
+    bool palette = false;            // the document has a palette (an indexed document): the result is quantized to it
+    std::vector<std::array<std::uint8_t, 3>> colours;  // that palette
     std::vector<std::string> warnings;
 };
 
@@ -34,11 +35,13 @@ struct ImageEditInput {
 // whole canvas), or an object with the arguments of image.select (`by`, `x`, `y`, `width`, `height`, `color`, ...), stored under
 // `selectionName` (default "inpaint") so the layer's mask and the history can point at it. `needSelection` makes the selection
 // required; `needPicture` renders the picture. Throws CommandError with a fix (a wrong name lists the stored selections).
-ImageEditInput image_edit_input(const std::string& projectDir, const Json& args, bool needSelection, bool needPicture, const char* command);
+ImageEditInput image_edit_input(const std::string& projectDir, const Json& args, bool needSelection, bool needPicture,
+                                const char* command);
 
 // The project-relative path for a picture of `layerName` in `<document>.layers/` that no layer uses yet ("hero.layers/sky.png").
 // The PNG is not written.
-std::string image_provider_source_path(const std::string& projectDir, const std::string& doc, const std::string& layerName);
+std::string image_provider_source_path(const std::string& projectDir, const std::string& doc,
+                                       const std::string& layerName);
 
 // A layer name no layer of the document has: `base`, then "base 2", ...
 std::string image_unique_layer_name(const std::string& projectDir, const std::string& doc, const std::string& base);

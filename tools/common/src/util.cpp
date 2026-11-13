@@ -13,7 +13,7 @@ namespace fa::tooling_detail {
 
 bool export_excluded(const std::vector<std::string>& globs, std::string_view rel) {
     for (const std::string& g : globs) {
-        for (std::size_t end = rel.find('/'); ; end = rel.find('/', end + 1)) {
+        for (std::size_t end = rel.find('/');; end = rel.find('/', end + 1)) {
             if (glob_match(g, rel.substr(0, end))) return true;
             if (end == std::string_view::npos) break;
         }

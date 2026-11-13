@@ -36,9 +36,10 @@ using VoiceIdT = std::uint32_t;  // fa::VoiceId
 
 constexpr int kRate = kMixRate;
 constexpr std::size_t kMaxVoices = 64;
-constexpr std::size_t kMaxPlayers = 64;     // MusicPlayer transports mixed at once
-constexpr std::size_t kScratchFrames = 4096; // the most frames one mix_block() call mixes (render() splits bigger callbacks)
-constexpr int kNullBlock = 512;             // the null device mixes in blocks of this many frames
+constexpr std::size_t kMaxPlayers = 64;  // MusicPlayer transports mixed at once
+constexpr std::size_t kScratchFrames =
+    4096;                        // the most frames one mix_block() call mixes (render() splits bigger callbacks)
+constexpr int kNullBlock = 512;  // the null device mixes in blocks of this many frames
 
 // The bus table: 0..2 are the built-in buses, kMasterBus the master (its "buffer" is the output), and the project's buses
 // (factoria.json "audio.buses") follow from kFirstProjectBus.
@@ -47,7 +48,8 @@ constexpr int kMasterBus = BusBuiltin;
 constexpr int kFirstProjectBus = BusBuiltin + 1;
 constexpr float kDuckThreshold = 0.01f;   // -40 dBFS: a bus that peaks above this ducks the buses that listen to it
 constexpr float kLowpassOpen = 20000.0f;  // where a cutoff slides from or to when the filter is switched on or off
-constexpr double kReverbTail = 4.0;       // seconds the reverb keeps running after its bus went silent (it decays to -100 dB)
+constexpr double kReverbTail =
+    4.0;  // seconds the reverb keeps running after its bus went silent (it decays to -100 dB)
 
 // Frames a streamed voice keeps decoded ahead of the mixer, and the least room worth a decode job. 12288 frames are 279 ms
 // at 44.1 kHz (96 KB): the game thread asks for a refill every frame, so only a game-thread stall longer than that
@@ -60,13 +62,13 @@ constexpr std::size_t kStreamPrefill = 4096;  // decoded on the game thread when
 
 struct Clip {
     std::string path;
-    std::vector<float> data;  // interleaved stereo, 44100 Hz; empty for a streamed clip
+    std::vector<float> data;               // interleaved stereo, 44100 Hz; empty for a streamed clip
     std::shared_ptr<const Bytes> encoded;  // a streamed clip keeps its file: each voice decodes it as it plays
-    std::string ext;          // of `encoded`
-    std::size_t frames = 0;   // 44100 Hz frames (counted from the header for a streamed clip)
+    std::string ext;                       // of `encoded`
+    std::size_t frames = 0;                // 44100 Hz frames (counted from the header for a streamed clip)
     int srcChannels = 0;
     int srcRate = 0;
-    float gain = 1.0f;        // loudness normalization (the `normalize` import setting)
+    float gain = 1.0f;  // loudness normalization (the `normalize` import setting)
     // Loop points (the `loopStart` / `loopEnd` import settings, in seconds): a looping voice plays loopStart..loopEnd over and
     // over after the first pass. In 44100 Hz frames; loopEnd 0 = no loop points (the whole clip loops).
     std::size_t loopStart = 0, loopEnd = 0;
@@ -135,12 +137,12 @@ public:
 
 private:
     static constexpr std::uint64_t kNoEnd = ~std::uint64_t(0);
-    Resampler source_;          // the claim holder's
-    std::vector<float> buf_;    // cap_ stereo frames
+    Resampler source_;        // the claim holder's
+    std::vector<float> buf_;  // cap_ stereo frames
     std::size_t cap_;
-    std::atomic<std::uint64_t> write_{0};    // frames decoded (producer stores, release)
-    std::atomic<std::uint64_t> read_{0};     // frames the mixer is done with (consumer stores, release)
-    std::atomic<std::uint64_t> end_{kNoEnd}; // the clip's length once the decoder reached it (stored before write_)
+    std::atomic<std::uint64_t> write_{0};     // frames decoded (producer stores, release)
+    std::atomic<std::uint64_t> read_{0};      // frames the mixer is done with (consumer stores, release)
+    std::atomic<std::uint64_t> end_{kNoEnd};  // the clip's length once the decoder reached it (stored before write_)
     std::atomic<bool> busy_{false};
 };
 
@@ -223,10 +225,10 @@ private:
 // One voice in the mixer.
 struct MixVoice {
     VoiceIdT id = 0;
-    const Clip* clip = nullptr;   // null for a PCM voice
-    StreamRing* stream = nullptr; // set for a streamed clip: `pos` then counts frames of the whole timeline
-    PcmRing* pcm = nullptr;       // set for a voice the game feeds; `pos` is then the absolute frame in the ring
-    double pos = 0.0;             // in clip frames (fractional for pitch)
+    const Clip* clip = nullptr;    // null for a PCM voice
+    StreamRing* stream = nullptr;  // set for a streamed clip: `pos` then counts frames of the whole timeline
+    PcmRing* pcm = nullptr;        // set for a voice the game feeds; `pos` is then the absolute frame in the ring
+    double pos = 0.0;              // in clip frames (fractional for pitch)
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;
     bool loop = false;
     int bus = BusSfx;
@@ -272,7 +274,7 @@ struct MixTable {
     std::vector<int> mixOrder;               // the buses but the master, deepest first: a bus is summed into its parent
     std::vector<std::vector<float>> busBuf;  // kScratchFrames stereo frames per bus
     std::vector<std::vector<float>> duckGains;
-    std::vector<char> used, live, ducking;   // per-bus flags of one block
+    std::vector<char> used, live, ducking;  // per-bus flags of one block
     // For the swap: per bus, the index in the table it replaces (-1: a new bus) and its ducking partner (-1: none); per bus
     // of the old table, the bus its voices move to.
     std::vector<int> fromOld, duckBy, voiceRemap;
@@ -290,9 +292,9 @@ struct MusicSnap {
 // A MusicPlayer's transport in the mixer. The game owns it (and frees it once the command that removed it came back).
 struct MusicChannel {
     MusicTransport tr;
-    int bus = BusMusic;                     // mixer side
-    TripleBuffer<MusicSnap> snap;           // mixer -> game
-    SpscRing<MusicEvent> events{2048};      // mixer -> game
+    int bus = BusMusic;                 // mixer side
+    TripleBuffer<MusicSnap> snap;       // mixer -> game
+    SpscRing<MusicEvent> events{2048};  // mixer -> game
 };
 
 class Mixer;
@@ -313,14 +315,14 @@ enum class CoalesceKind : std::uint8_t { None, Retune, Paused, ResetFx, StopAll 
 constexpr std::uint64_t coalesce_key(CoalesceKind k, std::uint32_t id = 0) { return (std::uint64_t(k) << 32) | id; }
 
 struct Cmd {
-    std::uint64_t seq = 0;     // increasing; the mixer publishes the last one it applied
-    std::uint64_t batch = 0;   // the commands of one API call: committed together, so applied in the same block
+    std::uint64_t seq = 0;    // increasing; the mixer publishes the last one it applied
+    std::uint64_t batch = 0;  // the commands of one API call: committed together, so applied in the same block
     CmdKind kind = CmdKind::Keep;
     SyncTarget sync = SyncTarget::None;  // Droppable/Lossy: what a drop leaves out of step
     std::uint32_t syncId = 0;            // the voice id (a bus is found by syncName; kSyncAllBuses: all of them)
-    std::string syncName;                // Bus: the bus it sets, by name (a table swap moves the indexes under a stalled queue)
-    std::uint64_t coalesceKey = 0;       // Keep: see CoalesceKind
-    VoiceIdT play = 0;         // a play: the voice it starts (dropping it ends that voice on the game side)
+    std::string syncName;  // Bus: the bus it sets, by name (a table swap moves the indexes under a stalled queue)
+    std::uint64_t coalesceKey = 0;  // Keep: see CoalesceKind
+    VoiceIdT play = 0;              // a play: the voice it starts (dropping it ends that voice on the game side)
     std::function<void(Mixer&, Cmd&)> run;  // runs on the mixer thread: no allocation, no lock
     // Carried to the mixer, or back from it to be freed on the game side with the command.
     std::unique_ptr<MixTable> table;
@@ -333,8 +335,8 @@ struct Cmd {
 
 struct Ret {
     enum Kind : std::uint8_t { Done, Ended } kind = Done;
-    Cmd* cmd = nullptr;   // Done: the command, back to the game to free
-    VoiceIdT voice = 0;   // Ended: the voice (natural end, stopped, or a play the full mixer refused)
+    Cmd* cmd = nullptr;  // Done: the command, back to the game to free
+    VoiceIdT voice = 0;  // Ended: the voice (natural end, stopped, or a play the full mixer refused)
 };
 
 class Mixer {
@@ -373,8 +375,9 @@ public:
     std::atomic<std::uint64_t> underrunEvents{0};  // a streamed voice found nothing decoded (once per voice and block)
     std::atomic<std::uint64_t> underrunFrames{0};  // the frames of silence those played
     std::atomic<std::uint32_t> peakBits{0};        // the last block's peak (a float's bits)
-    std::atomic<std::uint64_t> musicSeq{0};        // publish_music() calls so far: the clock the streamed stems' heads are stamped with
-    std::atomic<std::uint64_t> callbacks{0};       // device callbacks so far
+    std::atomic<std::uint64_t> musicSeq{
+        0};  // publish_music() calls so far: the clock the streamed stems' heads are stamped with
+    std::atomic<std::uint64_t> callbacks{0};  // device callbacks so far
     std::atomic<int> firstCallbackFrames{0}, firstCallbackChannels{0};
 
     // ---- state the commands change (mixer thread only)

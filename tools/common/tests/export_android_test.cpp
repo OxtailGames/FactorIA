@@ -27,7 +27,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 bool any_contains(const std::vector<std::string>& v, const std::string& part) {
     return std::any_of(v.begin(), v.end(), [&](const std::string& s) { return s.find(part) != std::string::npos; });
@@ -45,8 +47,10 @@ struct ScopedEnv {
 #if defined(_WIN32)
         _putenv_s(name.c_str(), value ? value : "");
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -70,8 +74,10 @@ std::string make_game(const testing::TempDir& tmp, const std::string& extraMembe
 
 // A game that declares the native plugin "example" for Android, whose folder holds `files` (relative to it).
 std::string make_plugin_game(const testing::TempDir& tmp, const std::vector<std::string>& files) {
-    const std::string game = make_game(tmp, R"("plugins": {"example": {"path": "plugins/example", "platforms": ["android"]}})");
-    for (const std::string& f : files) testing::write_all(stdfs::path(game) / "plugins" / "example" / f, "contents of " + f);
+    const std::string game =
+        make_game(tmp, R"("plugins": {"example": {"path": "plugins/example", "platforms": ["android"]}})");
+    for (const std::string& f : files)
+        testing::write_all(stdfs::path(game) / "plugins" / "example" / f, "contents of " + f);
     return game;
 }
 
@@ -91,7 +97,8 @@ void write_icon(const std::string& gameDir, int size = 512, const std::string& r
 
 std::string make_fake_mobile(const testing::TempDir& tmp) {
     const stdfs::path root = tmp.sub("download/mobile");
-    for (const char* abi : {"arm64-v8a", "x86_64"}) testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", std::string("fake ") + abi);
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", std::string("fake ") + abi);
     return root.string();
 }
 
@@ -132,7 +139,8 @@ ExportOptions options(const std::string& game, const testing::TempDir& tmp, cons
 
 TEST_CASE("android export: the Gradle project follows the settings and ships the Gradle wrapper") {
     testing::TempDir tmp;
-    const std::string game = make_game(tmp,
+    const std::string game = make_game(
+        tmp,
         R"("icon": "assets/icon.png", "export": { "android": { "versionCode": 777, "minSdk": 28, "targetSdk": 35,
            "permissions": ["android.permission.VIBRATE", "android.permission.INTERNET"],
            "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
@@ -150,12 +158,14 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
 
     // The wrapper: byte for byte what platforms/android has, gradlew executable (POSIX) with LF line endings.
     const stdfs::path repo = stdfs::path(FA_REPO_ROOT) / "platforms" / "android";
-    for (const char* f : {"gradlew", "gradlew.bat", "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties"}) {
+    for (const char* f :
+         {"gradlew", "gradlew.bat", "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties"}) {
         CAPTURE(f);
         REQUIRE(stdfs::exists(root / f));
         CHECK(has(r->files, f));
     }
-    CHECK(testing::read_all(root / "gradle/wrapper/gradle-wrapper.jar") == testing::read_all(repo / "gradle/wrapper/gradle-wrapper.jar"));
+    CHECK(testing::read_all(root / "gradle/wrapper/gradle-wrapper.jar") ==
+          testing::read_all(repo / "gradle/wrapper/gradle-wrapper.jar"));
     CHECK(testing::read_all(root / "gradlew.bat") == testing::read_all(repo / "gradlew.bat"));
     CHECK(testing::read_all(root / "gradlew").find('\r') == std::string::npos);
     CHECK(testing::read_all(root / "gradlew").rfind("#!/bin/sh", 0) == 0);
@@ -165,7 +175,8 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     const std::string wrapper = testing::read_all(root / "gradle/wrapper/gradle-wrapper.properties");
     CHECK(wrapper.find("gradle-8.14.3-bin.zip") != std::string::npos);
     CHECK(wrapper.find("distributionSha256Sum=") != std::string::npos);
-    CHECK(testing::read_all(root / "build.gradle").find("com.android.application' version '8.13.2'") != std::string::npos);
+    CHECK(testing::read_all(root / "build.gradle").find("com.android.application' version '8.13.2'") !=
+          std::string::npos);
 
     // compileSdk = targetSdk, and the SDK levels, version code and permissions come from the settings.
     const std::string gradle = testing::read_all(root / "app/build.gradle");
@@ -183,8 +194,9 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     CHECK(manifest.find("<uses-permission android:name=\"android.permission.INTERNET\" />") != std::string::npos);
     CHECK(manifest.find("android:icon=\"@mipmap/ic_launcher\"") != std::string::npos);
     CHECK(manifest.find("android:roundIcon=\"@mipmap/ic_launcher_round\"") != std::string::npos);
-    for (const char* f : {"mipmap-mdpi/ic_launcher.png", "mipmap-xxxhdpi/ic_launcher_round.png", "mipmap-anydpi-v26/ic_launcher.xml",
-                          "mipmap-xxhdpi/ic_launcher_foreground.png", "values/ic_launcher_background.xml"}) {
+    for (const char* f :
+         {"mipmap-mdpi/ic_launcher.png", "mipmap-xxxhdpi/ic_launcher_round.png", "mipmap-anydpi-v26/ic_launcher.xml",
+          "mipmap-xxhdpi/ic_launcher_foreground.png", "values/ic_launcher_background.xml"}) {
         CAPTURE(f);
         CHECK(stdfs::exists(root / "app/src/main/res" / f));
     }
@@ -250,7 +262,8 @@ TEST_CASE("android export: INTERNET is requested when the game declares network 
     const std::string internet = "<uses-permission android:name=\"android.permission.INTERNET\" />";
     {
         testing::TempDir tmp;
-        const std::string game = make_game(tmp, R"("network": {"hosts": ["api.example.com"], "purpose": "Daily challenge."})");
+        const std::string game =
+            make_game(tmp, R"("network": {"hosts": ["api.example.com"], "purpose": "Daily challenge."})");
         auto r = export_project(options(game, tmp, "gradle"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const std::string manifest = testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml");
@@ -282,8 +295,9 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
     CHECK(manifest.find("android:icon") == std::string::npos);
     CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
-    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);  // input.vibrate(), always
-    CHECK(manifest.find("android.permission.INTERNET") == std::string::npos);                                   // anything else is opt-in
+    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") !=
+          std::string::npos);                                                  // input.vibrate(), always
+    CHECK(manifest.find("android.permission.INTERNET") == std::string::npos);  // anything else is opt-in
     CHECK_FALSE(stdfs::exists(root / "app/src/main/res/mipmap-mdpi"));
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.signing") == std::string::npos);
     const std::string gradle = testing::read_all(root / "app/build.gradle");
@@ -298,22 +312,24 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     // The levels a plugin's Gradle module reads, and the library plugin it applies at the same AGP version.
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.compileSdk=36") != std::string::npos);
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.minSdk=26") != std::string::npos);
-    CHECK(testing::read_all(root / "build.gradle").find("com.android.library' version '8.13.2' apply false") != std::string::npos);
+    CHECK(testing::read_all(root / "build.gradle").find("com.android.library' version '8.13.2' apply false") !=
+          std::string::npos);
 }
 
 TEST_CASE("android export: a plugin's Gradle module becomes a project of the build and its Java code loads") {
     testing::TempDir tmp;
     const std::string game = make_plugin_game(
-        tmp, {"src/plugin.c", "android/build.gradle", "android/consumer-rules.pro", "android/src/main/AndroidManifest.xml",
-              "android/src/main/java/factoria/plugin/example/Plugin.java", "android/src/main/jniLibs/arm64-v8a/libexample.so",
-              "android/src/main/jniLibs/x86_64/libexample.so", "android/build/outputs/aar/old.aar", "android/.gradle/state",
-              "android/.cxx/cache"});
+        tmp, {"src/plugin.c", "android/build.gradle", "android/consumer-rules.pro",
+              "android/src/main/AndroidManifest.xml", "android/src/main/java/factoria/plugin/example/Plugin.java",
+              "android/src/main/jniLibs/arm64-v8a/libexample.so", "android/src/main/jniLibs/x86_64/libexample.so",
+              "android/build/outputs/aar/old.aar", "android/.gradle/state", "android/.cxx/cache"});
     auto r = export_project(options(game, tmp, "gradle"));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const stdfs::path root = r->outputDir;
 
     // The module is copied (with its native libraries), without what building it left behind and without the plugin's sources.
-    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml", "src/main/java/factoria/plugin/example/Plugin.java",
+    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml",
+                          "src/main/java/factoria/plugin/example/Plugin.java",
                           "src/main/jniLibs/arm64-v8a/libexample.so", "src/main/jniLibs/x86_64/libexample.so"}) {
         CAPTURE(f);
         CHECK(testing::read_all(root / "plugins/example" / f) == std::string("contents of android/") + f);
@@ -328,26 +344,32 @@ TEST_CASE("android export: a plugin's Gradle module becomes a project of the bui
 
     // It is a project of the build and a dependency of the app.
     const std::string settings = testing::read_all(root / "settings.gradle");
-    CHECK(settings.find("include ':app'\ninclude ':plugin_example'\nproject(':plugin_example').projectDir = file('plugins/example')") != std::string::npos);
+    CHECK(settings.find("include ':app'\ninclude ':plugin_example'\nproject(':plugin_example').projectDir = "
+                        "file('plugins/example')") != std::string::npos);
     const std::string gradle = testing::read_all(root / "app/build.gradle");
     CHECK(gradle.find("\ndependencies {\n    implementation project(':plugin_example')\n}") != std::string::npos);
     CHECK(gradle.find("fileTree") == std::string::npos);
 
     // The app carries code: the plugin's Java classes are in its dex.
-    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") !=
+          std::string::npos);
     CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("{{") == std::string::npos);
 }
 
-TEST_CASE("android export: the Google Play plugin's module carries Billing, Play Games and Play Integrity, its Play Games id and its Java code") {
+TEST_CASE("android export: the Google Play plugin's module carries Billing, Play Games and Play Integrity, its Play "
+          "Games id and its Java code") {
     testing::TempDir tmp;
     const std::string game = make_game(tmp);
     CommandRegistry reg;
     register_plugin_commands(reg, game);
-    auto created = reg.call("project.new_plugin", Json::parse(R"({"name": "googleplay", "template": "googleplay", "platforms": ["android"]})"));
+    auto created =
+        reg.call("project.new_plugin",
+                 Json::parse(R"({"name": "googleplay", "template": "googleplay", "platforms": ["android"]})"));
     REQUIRE_MESSAGE(created.ok, created.error.dump());
     // The bridge is built by platform.add_backend with the NDK: stand-ins for its two libraries.
     for (const char* abi : {"arm64-v8a", "x86_64"})
-        testing::write_all(stdfs::path(game) / "plugins/googleplay/android/src/main/jniLibs" / abi / "libgoogleplay.so", "fake bridge");
+        testing::write_all(stdfs::path(game) / "plugins/googleplay/android/src/main/jniLibs" / abi / "libgoogleplay.so",
+                           "fake bridge");
 
     auto r = export_project(options(game, tmp, "gradle"));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -355,8 +377,9 @@ TEST_CASE("android export: the Google Play plugin's module carries Billing, Play
     const stdfs::path module = root / "plugins/googleplay";
 
     // The module, its libraries and the file that holds the Play Games project id are in the project; the C sources are not.
-    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml", "src/main/res/values/games-ids.xml",
-                          "src/main/java/factoria/plugin/googleplay/Backend.java", "src/main/java/factoria/plugin/googleplay/Purchases.java",
+    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml",
+                          "src/main/res/values/games-ids.xml", "src/main/java/factoria/plugin/googleplay/Backend.java",
+                          "src/main/java/factoria/plugin/googleplay/Purchases.java",
                           "src/main/jniLibs/arm64-v8a/libgoogleplay.so", "src/main/jniLibs/x86_64/libgoogleplay.so"}) {
         CAPTURE(f);
         CHECK(stdfs::exists(module / f));
@@ -364,11 +387,13 @@ TEST_CASE("android export: the Google Play plugin's module carries Billing, Play
     }
     CHECK_FALSE(stdfs::exists(module / "src/plugin.c"));
     CHECK_FALSE(stdfs::exists(module / "CMakeLists.txt"));
-    CHECK(testing::read_all(module / "src/main/res/values/games-ids.xml").find("game_services_project_id") != std::string::npos);
+    CHECK(testing::read_all(module / "src/main/res/values/games-ids.xml").find("game_services_project_id") !=
+          std::string::npos);
 
     // Gradle fetches the three Google libraries; the manifest asks for the Play Games id and removes the auto-start provider.
     const std::string gradle = testing::read_all(module / "build.gradle");
-    for (const char* dep : {"com.android.billingclient:billing:", "com.google.android.gms:play-services-games-v2:", "com.google.android.play:integrity:"}) {
+    for (const char* dep : {"com.android.billingclient:billing:", "com.google.android.gms:play-services-games-v2:",
+                            "com.google.android.play:integrity:"}) {
         CAPTURE(dep);
         CHECK(gradle.find(dep) != std::string::npos);
     }
@@ -377,13 +402,17 @@ TEST_CASE("android export: the Google Play plugin's module carries Billing, Play
     CHECK(manifest.find("tools:node=\"remove\"") != std::string::npos);
 
     // It is a project of the build and a dependency of the app, which now carries code and may use AndroidX libraries.
-    CHECK(testing::read_all(root / "settings.gradle").find("project(':plugin_googleplay').projectDir = file('plugins/googleplay')") != std::string::npos);
-    CHECK(testing::read_all(root / "app/build.gradle").find("implementation project(':plugin_googleplay')") != std::string::npos);
-    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(testing::read_all(root / "settings.gradle")
+              .find("project(':plugin_googleplay').projectDir = file('plugins/googleplay')") != std::string::npos);
+    CHECK(testing::read_all(root / "app/build.gradle").find("implementation project(':plugin_googleplay')") !=
+          std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") !=
+          std::string::npos);
     CHECK(testing::read_all(root / "gradle.properties").find("android.useAndroidX=true") != std::string::npos);
 }
 
-TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audience from the export, and a release export warns about sample ids") {
+TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audience from the export, and a release "
+          "export warns about sample ids") {
     testing::TempDir tmp;
     const std::string game = make_game(tmp);
     {
@@ -394,14 +423,17 @@ TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audie
     }
     CommandRegistry reg;
     register_plugin_commands(reg, game);
-    auto created = reg.call("project.new_plugin", Json::parse(R"({"name": "admob", "template": "admob", "platforms": ["android"]})"));
+    auto created = reg.call("project.new_plugin",
+                            Json::parse(R"({"name": "admob", "template": "admob", "platforms": ["android"]})"));
     REQUIRE_MESSAGE(created.ok, created.error.dump());
     for (const char* abi : {"arm64-v8a", "x86_64"})
-        testing::write_all(stdfs::path(game) / "plugins/admob/android/src/main/jniLibs" / abi / "libadmob.so", "fake bridge");
+        testing::write_all(stdfs::path(game) / "plugins/admob/android/src/main/jniLibs" / abi / "libadmob.so",
+                           "fake bridge");
 
     SUBCASE("a development export: Google's sample app id and test mode, whatever the catalog says") {
         auto project = load_json_file(game + "/factoria.json");
-        (*project)["platform"]["ads"]["appIds"] = Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
+        (*project)["platform"]["ads"]["appIds"] =
+            Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
         REQUIRE(save_json_file(game + "/factoria.json", *project).ok());
         auto r = export_project(options(game, tmp, "gradle"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -411,11 +443,13 @@ TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audie
         CHECK(props.find("factoria.ads.audience=mixed\n") != std::string::npos);
         CHECK(props.find("{{") == std::string::npos);
         // The module is a project of the build, and the app turns the three values into manifest placeholders.
-        CHECK(testing::read_all(stdfs::path(r->outputDir) / "settings.gradle").find("project(':plugin_admob').projectDir = file('plugins/admob')") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "settings.gradle")
+                  .find("project(':plugin_admob').projectDir = file('plugins/admob')") != std::string::npos);
         const std::string app = testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle");
         CHECK(app.find("factoriaAdsAppId") != std::string::npos);
         CHECK(app.find("providers.gradleProperty('factoria.ads.appId')") != std::string::npos);
-        const std::string manifest = testing::read_all(stdfs::path(r->outputDir) / "plugins/admob/src/main/AndroidManifest.xml");
+        const std::string manifest =
+            testing::read_all(stdfs::path(r->outputDir) / "plugins/admob/src/main/AndroidManifest.xml");
         CHECK(manifest.find("${factoriaAdsAppId}") != std::string::npos);
         // A debug export has nothing to warn about.
         CHECK_FALSE(any_contains(r->warnings, "appIds"));
@@ -426,15 +460,19 @@ TEST_CASE("android export: the AdMob plugin gets its app id, test flag and audie
         auto missing = export_project(o);
         REQUIRE_MESSAGE(missing.ok(), (missing.ok() ? "" : missing.error().to_string()));
         std::string props = testing::read_all(stdfs::path(missing->outputDir) / "gradle.properties");
-        CHECK(props.find("factoria.ads.appId=ca-app-pub-3940256099942544~3347511713\n") != std::string::npos);  // the app still starts
+        CHECK(props.find("factoria.ads.appId=ca-app-pub-3940256099942544~3347511713\n") !=
+              std::string::npos);  // the app still starts
         CHECK(props.find("factoria.ads.test=false\n") != std::string::npos);
-        CHECK(any_contains(missing->warnings, "factoria.json#/platform/ads/appIds/android: the game has the admob plugin for Android but "
-                                              "platform.ads.appIds.android is not set"));
+        CHECK(any_contains(missing->warnings,
+                           "factoria.json#/platform/ads/appIds/android: the game has the admob plugin for Android but "
+                           "platform.ads.appIds.android is not set"));
         CHECK(any_contains(missing->warnings, "the placement \"more_time\" has no"));
 
         auto project = load_json_file(game + "/factoria.json");
-        (*project)["platform"]["ads"]["appIds"] = Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
-        (*project)["platform"]["ads"]["placements"][0]["ids"] = Json::parse(R"({"admob": "ca-app-pub-1234567890123456/1234567890"})");
+        (*project)["platform"]["ads"]["appIds"] =
+            Json::parse(R"({"android": "ca-app-pub-1234567890123456~1234567890"})");
+        (*project)["platform"]["ads"]["placements"][0]["ids"] =
+            Json::parse(R"({"admob": "ca-app-pub-1234567890123456/1234567890"})");
         REQUIRE(save_json_file(game + "/factoria.json", *project).ok());
         o.outDir = tmp.sub("out2");
         auto good = export_project(o);
@@ -454,24 +492,31 @@ TEST_CASE("android export: a game without the AdMob plugin writes the same prope
     o.release = true;
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradle.properties").find("factoria.ads.audience=general\n") != std::string::npos);
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradle.properties").find("factoria.ads.audience=general\n") !=
+          std::string::npos);
     CHECK_FALSE(any_contains(r->warnings, "admob"));
 }
 
-TEST_CASE("android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {
+TEST_CASE(
+    "android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {
     testing::TempDir tmp;
     SUBCASE("only the native libraries") {
-        const std::string game = make_plugin_game(tmp, {"android/build.gradle", "android/src/main/jniLibs/arm64-v8a/libexample.so"});
+        const std::string game =
+            make_plugin_game(tmp, {"android/build.gradle", "android/src/main/jniLibs/arm64-v8a/libexample.so"});
         auto r = export_project(options(game, tmp, "gradle"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"false\"") != std::string::npos);
-        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle").find("implementation project(':plugin_example')") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml")
+                  .find("android:hasCode=\"false\"") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle")
+                  .find("implementation project(':plugin_example')") != std::string::npos);
     }
     SUBCASE("a Kotlin module") {
-        const std::string game = make_plugin_game(tmp, {"android/build.gradle.kts", "android/src/main/kotlin/factoria/plugin/example/Plugin.kt"});
+        const std::string game = make_plugin_game(
+            tmp, {"android/build.gradle.kts", "android/src/main/kotlin/factoria/plugin/example/Plugin.kt"});
         auto r = export_project(options(game, tmp, "gradle"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml")
+                  .find("android:hasCode=\"true\"") != std::string::npos);
         CHECK(stdfs::exists(stdfs::path(r->outputDir) / "plugins/example/build.gradle.kts"));
     }
 }
@@ -479,26 +524,31 @@ TEST_CASE("android export: a plugin module without Java or Kotlin code leaves ha
 // Copied file by file through fs::os_path: std::filesystem::copy of a folder silently drops what lies past MAX_PATH on Windows.
 TEST_CASE("android export: a plugin module is copied whole into an output folder deeper than Windows' MAX_PATH") {
     testing::TempDir tmp;
-    const std::string game = make_plugin_game(tmp, {"android/build.gradle", "android/src/main/java/factoria/plugin/example/Plugin.java",
-                                                    "android/src/main/jniLibs/x86_64/libexample.so"});
+    const std::string game =
+        make_plugin_game(tmp, {"android/build.gradle", "android/src/main/java/factoria/plugin/example/Plugin.java",
+                               "android/src/main/jniLibs/x86_64/libexample.so"});
     const stdfs::path deep = stdfs::path(tmp.sub("out")) / std::string(90, 'a') / std::string(90, 'b');
     ExportOptions o = options(game, tmp, "gradle");
     o.outDir = deep.string();
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    for (const char* f : {"build.gradle", "src/main/java/factoria/plugin/example/Plugin.java", "src/main/jniLibs/x86_64/libexample.so"}) {
+    for (const char* f : {"build.gradle", "src/main/java/factoria/plugin/example/Plugin.java",
+                          "src/main/jniLibs/x86_64/libexample.so"}) {
         CAPTURE(f);
         const stdfs::path copy = stdfs::path(r->outputDir) / "plugins/example" / f;
         std::error_code ec;
         CHECK(stdfs::is_regular_file(fs::os_path(copy), ec));
         CHECK(has(r->files, std::string("plugins/example/") + f));
     }
-    CHECK((stdfs::path(r->outputDir) / "plugins/example/src/main/java/factoria/plugin/example/Plugin.java").string().size() > 260);
+    CHECK((stdfs::path(r->outputDir) / "plugins/example/src/main/java/factoria/plugin/example/Plugin.java")
+              .string()
+              .size() > 260);
 }
 
 TEST_CASE("android export: a plugin of .aar and .jar files is a dependency of the app") {
     testing::TempDir tmp;
-    const std::string game = make_plugin_game(tmp, {"android/sdk.aar", "android/Helper.JAR", "android/notes.txt", "android/sub/other.aar"});
+    const std::string game =
+        make_plugin_game(tmp, {"android/sdk.aar", "android/Helper.JAR", "android/notes.txt", "android/sub/other.aar"});
     auto r = export_project(options(game, tmp, "gradle"));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const stdfs::path root = r->outputDir;
@@ -509,9 +559,13 @@ TEST_CASE("android export: a plugin of .aar and .jar files is a dependency of th
     CHECK_FALSE(stdfs::exists(root / "app/libs/example/sub"));
     CHECK_FALSE(stdfs::exists(root / "plugins"));
     CHECK(testing::read_all(root / "settings.gradle").find("plugin_") == std::string::npos);
-    CHECK(testing::read_all(root / "app/build.gradle")
-              .find("\ndependencies {\n    implementation fileTree(dir: 'libs/example', include: ['*.aar', '*.jar'])\n}") != std::string::npos);
-    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(
+        testing::read_all(root / "app/build.gradle")
+            .find(
+                "\ndependencies {\n    implementation fileTree(dir: 'libs/example', include: ['*.aar', '*.jar'])\n}") !=
+        std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") !=
+          std::string::npos);
 }
 
 TEST_CASE("android export: a plugin without an Android build stops the export and says what to put there") {
@@ -677,7 +731,9 @@ TEST_CASE("android export: a missing JDK or SDK is the plan's error, with how to
     testing::TempDir tmp;
     const std::string game = make_game(tmp);
     AndroidToolchainSearch nothing;  // no environment, no usual folders
-    nothing.env = [&](const std::string& name) { return name == "FACTORIA_EXPORT_CONFIG" ? tmp.sub("machine/export.json") : std::string(); };
+    nothing.env = [&](const std::string& name) {
+        return name == "FACTORIA_EXPORT_CONFIG" ? tmp.sub("machine/export.json") : std::string();
+    };
     ExportOptions o = options(game, tmp, "apk");
     o.androidSearch = &nothing;
 
@@ -722,9 +778,11 @@ TEST_CASE("android export: a missing JDK or SDK is the plan's error, with how to
     CHECK(any_contains(gradleOnly->warnings, "Ignoring the machine settings"));
 }
 
-TEST_CASE("android export: release signing needs the keystore file and its passwords, from the environment or export.json") {
+TEST_CASE(
+    "android export: release signing needs the keystore file and its passwords, from the environment or export.json") {
     testing::TempDir tmp;
-    const std::string game = make_game(tmp, R"("export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
+    const std::string game = make_game(
+        tmp, R"("export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
     FakeToolchain tc(tmp);
     ExportOptions o = options(game, tmp, "apk");
     o.androidSearch = &tc.search;
@@ -760,7 +818,8 @@ TEST_CASE("android export: release signing needs the keystore file and its passw
         CHECK(plan->to_json().dump().find("store-pw") == std::string::npos);  // a plan never carries a secret
     }
     SUBCASE("from ~/.factoria/export.json") {
-        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
+        testing::write_all(tc.config,
+                           R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
         auto plan = plan_export(o);
         REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
     }
@@ -834,7 +893,9 @@ echo "BUILD SUCCESSFUL in 1s"
     return engine.string();
 }
 
-std::string fake_gradle_record(const std::string& outputDir) { return testing::read_all(stdfs::path(outputDir) / "fake-gradle.txt"); }
+std::string fake_gradle_record(const std::string& outputDir) {
+    return testing::read_all(stdfs::path(outputDir) / "fake-gradle.txt");
+}
 
 }  // namespace
 
@@ -912,12 +973,14 @@ TEST_CASE("android export: the format picks the Gradle task and the file name") 
     auto debug = export_project(o);
     REQUIRE_MESSAGE(debug.ok(), (debug.ok() ? "" : debug.error().to_string()));
     CHECK(fake_gradle_record(debug->outputDir).find("args=bundleDebug --console=plain") != std::string::npos);
-    CHECK(stdfs::weakly_canonical(debug->artifact) == stdfs::weakly_canonical(stdfs::path(debug->outputDir) / "space-dodge-debug.aab"));
+    CHECK(stdfs::weakly_canonical(debug->artifact) ==
+          stdfs::weakly_canonical(stdfs::path(debug->outputDir) / "space-dodge-debug.aab"));
     CHECK(debug->format == "aab");
     CHECK(any_contains(debug->nextSteps, "Upload"));
     CHECK(any_contains(debug->nextSteps, "bundletool"));
 
-    o.release = true;  // no keystore: an error, unless the debug key is allowed (then signed with it, said in a warning)
+    o.release =
+        true;  // no keystore: an error, unless the debug key is allowed (then signed with it, said in a warning)
     auto refused = export_project(o);
     REQUIRE_FALSE(refused.ok());
     CHECK(refused.error().hint.find("allowDebugKey") != std::string::npos);
@@ -925,10 +988,12 @@ TEST_CASE("android export: the format picks the Gradle task and the file name") 
     auto release = export_project(o);
     REQUIRE_MESSAGE(release.ok(), (release.ok() ? "" : release.error().to_string()));
     CHECK(fake_gradle_record(release->outputDir).find("args=bundleRelease --console=plain") != std::string::npos);
-    CHECK(stdfs::weakly_canonical(release->artifact) == stdfs::weakly_canonical(stdfs::path(release->outputDir) / "space-dodge.aab"));
+    CHECK(stdfs::weakly_canonical(release->artifact) ==
+          stdfs::weakly_canonical(stdfs::path(release->outputDir) / "space-dodge.aab"));
     CHECK(testing::read_all(release->artifact) == "release aab\n");
     CHECK(any_contains(release->warnings, "signed with the debug key"));
-    CHECK_FALSE(stdfs::exists(stdfs::path(release->outputDir) / "space-dodge-debug.aab"));  // a fresh folder every export
+    CHECK_FALSE(
+        stdfs::exists(stdfs::path(release->outputDir) / "space-dodge-debug.aab"));  // a fresh folder every export
 
     o.format = "apk";
     auto apk = export_project(o);
@@ -939,7 +1004,9 @@ TEST_CASE("android export: the format picks the Gradle task and the file name") 
 
 TEST_CASE("android export: the signing passwords reach Gradle as environment variables and nowhere else") {
     testing::TempDir tmp;
-    const std::string game = make_game(tmp, R"("icon": "assets/icon.png", "export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
+    const std::string game = make_game(
+        tmp,
+        R"("icon": "assets/icon.png", "export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
     write_icon(game);
     testing::write_all(stdfs::path(game) / "keys" / "upload.jks", "keystore");
     FakeToolchain tc(tmp);
@@ -950,7 +1017,8 @@ TEST_CASE("android export: the signing passwords reach Gradle as environment var
     o.release = true;
 
     SUBCASE("from export.json: the key password falls back to the keystore password") {
-        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "store-pw-1"}})");
+        testing::write_all(tc.config,
+                           R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "store-pw-1"}})");
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const std::string record = fake_gradle_record(r->outputDir);
@@ -967,7 +1035,8 @@ TEST_CASE("android export: the signing passwords reach Gradle as environment var
         }
     }
     SUBCASE("the environment wins over the file, and the key can have its own password") {
-        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
+        testing::write_all(tc.config,
+                           R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
         tc.vars["FACTORIA_ANDROID_KEYSTORE_PASSWORD"] = "from-env";
         tc.vars["FACTORIA_ANDROID_KEY_PASSWORD"] = "key-env";
         auto r = export_project(o);
@@ -1088,7 +1157,8 @@ TEST_CASE("android export: an APK or bundle of the previous build does not pass 
     ScopedEnv mode("FAKE_GRADLE", "nothing");  // the build ends well and writes nothing
     auto second = export_project(o);
     REQUIRE_FALSE(second.ok());
-    CHECK(second.error().message.find("app/build/outputs/apk/debug/app-debug.apk was not written") != std::string::npos);
+    CHECK(second.error().message.find("app/build/outputs/apk/debug/app-debug.apk was not written") !=
+          std::string::npos);
     CHECK_FALSE(stdfs::exists(root / "app/build/outputs/apk"));
     CHECK_FALSE(stdfs::exists(root / "app/build/outputs/bundle"));
     CHECK(testing::read_all(root / "app/build/intermediates/kept.txt") == "Gradle's");  // the rest of app/build stays
@@ -1148,7 +1218,9 @@ TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ 
     ExportOptions o = options(game, tmp, "gradle");
     o.engineRoot = make_fake_engine(tmp);
     o.androidSearch = &tc.search;
-    const auto gradle_properties = [](const std::string& dir) { return testing::read_all(stdfs::path(dir) / "gradle.properties"); };
+    const auto gradle_properties = [](const std::string& dir) {
+        return testing::read_all(stdfs::path(dir) / "gradle.properties");
+    };
     const auto sdk_cmake = [&](const std::string& version) {
         testing::write_all(stdfs::path(tc.sdk) / "cmake" / version / "bin" / "cmake", "");
     };
@@ -1179,7 +1251,9 @@ TEST_CASE("android export: source mode uses the SDK's CMake, else a CMake 3.24+ 
         sc.run = [&](const ProcessOptions& po) -> Result<ProcessResult> {
             ProcessResult pr;
             pr.exitCode = 0;
-            pr.stdoutText = po.argv.size() > 1 && po.argv[1] == "--version" ? "cmake version 3.28.3\n\nCMake suite maintained by Kitware\n" : "";
+            pr.stdoutText = po.argv.size() > 1 && po.argv[1] == "--version"
+                                ? "cmake version 3.28.3\n\nCMake suite maintained by Kitware\n"
+                                : "";
             return pr;
         };
         o.setup = &sc;
@@ -1225,16 +1299,21 @@ namespace {
 
 // A stand-in for libfactoria_player.so (ELF) or libfactoria_player_main.a (an archive) with a build fingerprint.
 std::string fake_mobile_lib(bool archive, const std::string& fingerprint) {
-    std::string bytes = archive ? std::string("!<arch>\n") : std::string("\x7f" "ELF\2\1\1\0", 8);
+    std::string bytes = archive ? std::string("!<arch>\n")
+                                : std::string("\x7f"
+                                              "ELF\2\1\1\0",
+                                              8);
     if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
     return bytes + " end";
 }
 
 std::string mobile_download(const testing::TempDir& tmp, const std::string& platform, const std::string& fingerprint) {
-    const stdfs::path root = tmp.sub("mobile-" + platform + "-" + (fingerprint.empty() ? "none" : fingerprint.substr(0, 4)));
+    const stdfs::path root =
+        tmp.sub("mobile-" + platform + "-" + (fingerprint.empty() ? "none" : fingerprint.substr(0, 4)));
     if (platform == "android")
         for (const char* abi : {"arm64-v8a", "x86_64"})
-            testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", fake_mobile_lib(false, fingerprint));
+            testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so",
+                               fake_mobile_lib(false, fingerprint));
     else
         for (const char* slice : {"iphoneos", "iphonesimulator"})
             testing::write_all(root / "ios" / slice / "libfactoria_player_main.a", fake_mobile_lib(true, fingerprint));
@@ -1279,7 +1358,8 @@ TEST_CASE("export mobile: a prebuilt player of another build stops the export un
         auto allowed = export_project(o);
         REQUIRE_MESSAGE(allowed.ok(), (allowed.ok() ? "" : allowed.error().to_string()));
         bool said = false;
-        for (const std::string& w : allowed->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        for (const std::string& w : allowed->warnings)
+            said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
         CHECK(said);
     }
 }

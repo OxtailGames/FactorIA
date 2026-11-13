@@ -69,7 +69,8 @@ TEST_CASE("project settings: the embedded schema is valid and accepts the docume
     REQUIRE_FALSE(schema.is_discarded());
     CHECK(schema["properties"].contains("roles"));
     CHECK(validate_project_settings_json(Json::parse(R"({"roles": {"artist": {"enabled": false, "effort": "low"}},
-        "limits": {"maxTurns": 12}, "mcpServers": {"scenario": false}})")).empty());
+        "limits": {"maxTurns": 12}, "mcpServers": {"scenario": false}})"))
+              .empty());
     CHECK_FALSE(validate_project_settings_json(Json::parse(R"({"limits": {"maxTurns": 0}})")).empty());
     CHECK_FALSE(validate_project_settings_json(Json::parse(R"({"roles": {"artist": {"effort": "huge"}}})")).empty());
 }
@@ -104,7 +105,7 @@ TEST_CASE("project settings: engine defaults < ai.json < project, and where each
     REQUIRE(r->applied);
     CHECK(r->config.limits.maxCostUsd == 5);
     CHECK_FALSE(r->config.role_enabled("worker"));
-    CHECK(r->config.limits.maxTurns == 30);  // ai.json
+    CHECK(r->config.limits.maxTurns == 30);            // ai.json
     CHECK(r->config.limits.stuckAfterSeconds == 180);  // the engine's
     CHECK(r->source_of("/limits/maxCostUsd") == SettingSource::Project);
     CHECK(r->source_of("/roles/worker/enabled") == SettingSource::Project);
@@ -143,7 +144,8 @@ TEST_CASE("project settings: roles are partial, role by role and field by field"
     REQUIRE(moved);
     CHECK(moved->role("worker").provider == "openrouter");
     CHECK(moved->role("worker").model != "sonnet");  // the model of the old provider is not carried over
-    REQUIRE(s.save(Json::parse(R"({"roles": {"worker": {"provider": "openrouter", "model": "deepseek/deepseek-chat"}}})")));
+    REQUIRE(
+        s.save(Json::parse(R"({"roles": {"worker": {"provider": "openrouter", "model": "deepseek/deepseek-chat"}}})")));
     auto given = s.load();
     REQUIRE(given);
     CHECK(given->role("worker").model == "deepseek/deepseek-chat");
@@ -178,7 +180,8 @@ TEST_CASE("project settings: limits, savers, asset routes and sites, tool server
     CHECK(cfg->tool_servers_for("worker").empty());
 }
 
-TEST_CASE("project settings: keys that define a provider, server or extension are refused with their pointer and where they belong") {
+TEST_CASE("project settings: keys that define a provider, server or extension are refused with their pointer and where "
+          "they belong") {
     Setup s;
     const struct {
         const char* file;
@@ -196,10 +199,13 @@ TEST_CASE("project settings: keys that define a provider, server or extension ar
         {R"({"extensions": {"skills": {"gdd": {"path": "/tmp/x"}}}})", "/extensions/skills/gdd/path"},
         {R"({"extensions": {"hooks": {"log": {"hooks": {}}}}})", "/extensions/hooks/log/hooks"},
         {R"({"assets": {"image": {"apiKeyEnv": "X"}}})", "/assets/image/apiKeyEnv"},
-        {R"({"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]})", "/inheritEnv"},  // a project could pull a secret into a hook or an agent
-        {R"({"roles": {"worker": {"permissionMode": "bypassPermissions"}}})", "/roles/worker/permissionMode"},  // a project cannot loosen what an agent may do
+        {R"({"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]})",
+         "/inheritEnv"},  // a project could pull a secret into a hook or an agent
+        {R"({"roles": {"worker": {"permissionMode": "bypassPermissions"}}})",
+         "/roles/worker/permissionMode"},  // a project cannot loosen what an agent may do
         {R"({"providers": {"claude-code": {"permissionMode": "bypassPermissions"}}})", "/providers"},
-        {R"({"mcpServers": {"scenario": {"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]}}})", "/mcpServers/scenario/inheritEnv"},
+        {R"({"mcpServers": {"scenario": {"inheritEnv": ["AWS_SECRET_ACCESS_KEY"]}}})",
+         "/mcpServers/scenario/inheritEnv"},
     };
     for (const auto& c : refused) {
         INFO(c.file);
@@ -255,7 +261,8 @@ TEST_CASE("project settings: unknown names are errors with suggestions") {
     err = s.error_of(R"({"limits": {"maxTurns": 0}})");
     CHECK(has(err, "/limits/maxTurns"));
     err = s.error_of(R"({"roles": {"orchestrator": {"enabled": false}}})");
-    CHECK_FALSE(err.empty());  // the orchestrator cannot be turned off (ai.json's own rule, with the project file's name)
+    CHECK_FALSE(
+        err.empty());  // the orchestrator cannot be turned off (ai.json's own rule, with the project file's name)
     CHECK(has(err, s.settings_path()));
     // Not JSON, and not an object.
     err = s.error_of("{ nope");
@@ -361,7 +368,8 @@ TEST_CASE("project settings: saving on this computer records the acceptance; tru
 #if defined(_WIN32) || defined(__APPLE__)
     // Paths there ignore case: the same folder spelled another way is the same project.
     std::string shouty = s.proj.str();
-    std::transform(shouty.begin(), shouty.end(), shouty.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    std::transform(shouty.begin(), shouty.end(), shouty.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     CHECK(ai_settings_trust_key(shouty) == ai_settings_trust_key(s.proj.str()));
 #endif
 }
@@ -369,9 +377,11 @@ TEST_CASE("project settings: saving on this computer records the acceptance; tru
 TEST_CASE("project settings: the writer keeps only what differs from the inherited value") {
     Setup s;
     // 30 is what ai.json says, 180 what the engine says: neither is written. Nothing left: no file.
-    REQUIRE(s.save(Json::parse(R"({"limits": {"maxTurns": 30, "stuckAfterSeconds": 180}, "savers": {"loopGuard": true}})")));
+    REQUIRE(s.save(
+        Json::parse(R"({"limits": {"maxTurns": 30, "stuckAfterSeconds": 180}, "savers": {"loopGuard": true}})")));
     CHECK_FALSE(fsys::exists(s.settings_path()));
-    REQUIRE(s.save(Json::parse(R"({"limits": {"maxTurns": 30, "maxCostUsd": 2}, "roles": {"worker": {"model": "sonnet", "effort": "low"}}})")));
+    REQUIRE(s.save(Json::parse(
+        R"({"limits": {"maxTurns": 30, "maxCostUsd": 2}, "roles": {"worker": {"model": "sonnet", "effort": "low"}}})")));
     const Json written = Json::parse(read_file(s.settings_path()));
     CHECK(written == Json::parse(R"({"roles": {"worker": {"effort": "low"}}, "limits": {"maxCostUsd": 2}})"));
     // The same save again is the same file; an empty object removes it.
@@ -401,7 +411,10 @@ TEST_CASE("project settings: project_overrides_from gives the difference, and re
     wanted.savers.projectFacts = false;
     wanted.roles["artist"].enabled = false;
     const Json ov = project_overrides_from(wanted, *user);
-    CHECK(ov == Json::parse(R"({"roles": {"artist": {"enabled": false}}, "limits": {"maxCostUsd": 3}, "savers": {"projectFacts": false}})"));
+    CHECK(
+        ov ==
+        Json::parse(
+            R"({"roles": {"artist": {"enabled": false}}, "limits": {"maxCostUsd": 3}, "savers": {"projectFacts": false}})"));
     CHECK(project_overrides_from(*user, *user).empty());
     // A role that moves to another provider carries its model and effort.
     AiConfig moved = *user;
@@ -417,11 +430,12 @@ TEST_CASE("project settings: project_overrides_from gives the difference, and re
     CHECK(settings_view(r->config) == settings_view(wanted));
 
     REQUIRE(reset_project_setting(s.proj.str(), "/limits/maxCostUsd", s.ai, kNoEnv));
-    CHECK(Json::parse(read_file(s.settings_path())) == Json::parse(R"({"roles": {"artist": {"enabled": false}}, "savers": {"projectFacts": false}})"));
+    CHECK(Json::parse(read_file(s.settings_path())) ==
+          Json::parse(R"({"roles": {"artist": {"enabled": false}}, "savers": {"projectFacts": false}})"));
     CHECK(s.resolve()->applied);  // the file was accepted before: the smaller one is too
     REQUIRE(reset_project_setting(s.proj.str(), "/roles", s.ai, kNoEnv));
     REQUIRE(reset_project_setting(s.proj.str(), "/savers/projectFacts", s.ai, kNoEnv));
-    CHECK_FALSE(fsys::exists(s.settings_path()));  // nothing left: the file goes
+    CHECK_FALSE(fsys::exists(s.settings_path()));                                    // nothing left: the file goes
     REQUIRE(reset_project_setting(s.proj.str(), "/limits/maxTurns", s.ai, kNoEnv));  // nothing to remove is fine
     CHECK_FALSE(reset_project_setting(s.proj.str(), "limits", s.ai, kNoEnv));
     // Resetting a provider resets what follows it.
@@ -454,7 +468,8 @@ TEST_CASE("project settings: asset routes are named from the user's providers") 
     CHECK_FALSE(s.save(Json::parse(R"({"assets": {"model3d": {"provider": "openrouter"}}})")));
 }
 
-TEST_CASE("project settings: a friend's file naming a provider you lack does not stop you, an accepted one that turned invalid does") {
+TEST_CASE("project settings: a friend's file naming a provider you lack does not stop you, an accepted one that turned "
+          "invalid does") {
     Setup s;
     // Came inside a copied project: names a provider this computer has no entry for.
     s.copy_in(R"({"roles": {"worker": {"provider": "friends-gateway"}}, "limits": {"maxTurns": 3}})");
@@ -547,9 +562,11 @@ TEST_CASE("project settings: a pointer that is not valid JSON pointer syntax is 
     CHECK(fsys::exists(s.settings_path()));  // untouched
 }
 
-TEST_CASE("project settings: resolve_ai_config_over applies the file on a config in memory, as the file on disk would") {
+TEST_CASE(
+    "project settings: resolve_ai_config_over applies the file on a config in memory, as the file on disk would") {
     Setup s;
-    const std::string overrides = R"({"limits": {"maxCostUsd": 4}, "roles": {"orchestrator": {"provider": "openrouter", "model": "x/y"},
+    const std::string overrides =
+        R"({"limits": {"maxCostUsd": 4}, "roles": {"orchestrator": {"provider": "openrouter", "model": "x/y"},
                                                                           "worker": {"enabled": false}}, "mcpServers": {"scenario": false}})";
     REQUIRE(s.save(Json::parse(overrides)));
     auto disk = s.resolve();
@@ -607,7 +624,8 @@ TEST_CASE("project settings: an invalid ai.json is the user's error, not the pro
     CHECK(has(r.error().message, s.ai));
 }
 
-TEST_CASE("project settings: the asset cost limits are nested, merge leaf by leaf with the user's, and an AI-written file waits for acceptance") {
+TEST_CASE("project settings: the asset cost limits are nested, merge leaf by leaf with the user's, and an AI-written "
+          "file waits for acceptance") {
     Setup s;
     // the user's own ai.json asks for a per-day limit
     write_file(s.ai, R"({"limits": {"maxAssetCostUsd": {"perDay": 5}, "askAboveUsd": 0.25}})");
@@ -615,7 +633,8 @@ TEST_CASE("project settings: the asset cost limits are nested, merge leaf by lea
     auto r = s.resolve();
     REQUIRE(r);
     CHECK(r->config.limits.maxAssetCostPerRunUsd == doctest::Approx(1.5));  // the project's
-    CHECK(r->config.limits.maxAssetCostPerDayUsd == doctest::Approx(5));    // the user's, untouched by the project's perRun
+    CHECK(r->config.limits.maxAssetCostPerDayUsd ==
+          doctest::Approx(5));  // the user's, untouched by the project's perRun
     CHECK(r->config.limits.askAboveUsd == doctest::Approx(0.25));
     CHECK(r->source_of("/limits/maxAssetCostUsd/perRun") == SettingSource::Project);
     CHECK(r->source_of("/limits/maxAssetCostUsd/perDay") == SettingSource::You);

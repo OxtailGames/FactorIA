@@ -78,7 +78,8 @@ std::map<std::string, std::string> column(const TranslationFile& file, const std
 }
 
 // What a translator does to an exported CSV: reads it, fills cells, writes it back (as a spreadsheet would).
-std::string translate_csv(const std::string& exported, const std::map<std::string, std::map<std::string, std::string>>& fills) {
+std::string translate_csv(const std::string& exported,
+                          const std::map<std::string, std::map<std::string, std::string>>& fills) {
     auto file = read_csv(exported);
     REQUIRE(file.ok());
     TranslationSheet sheet;
@@ -115,7 +116,8 @@ std::string set_target(std::string xliff, const std::string& key, const std::str
 
 }  // namespace
 
-TEST_CASE("i18n.export csv: one file with a byte order mark, the default language and every language, RFC 4180 quoting") {
+TEST_CASE(
+    "i18n.export csv: one file with a byte order mark, the default language and every language, RFC 4180 quoting") {
     Game g;
     const CommandResult r = g.call("i18n.export", Json{{"format", "csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -124,10 +126,11 @@ TEST_CASE("i18n.export csv: one file with a byte order mark, the default languag
     CHECK(r.result["languages"] == Json::array({"es", "ru"}));
 
     const std::string text = g.raw("build/translations/translations.csv");
-    CHECK(text.substr(0, 3) == "\xEF\xBB\xBF");                          // Excel reads it as UTF-8
-    CHECK(text.find("key,en,es,ru\r\n") == 3);                           // header: key, default, languages
-    CHECK(text.find("menu.quit,\"Quit, \"\"now\"\"\",") != std::string::npos);  // comma and quotes: quoted, quotes doubled
-    CHECK(text.find("\"Line one\nLine two\"") != std::string::npos);     // a line break inside quotes
+    CHECK(text.substr(0, 3) == "\xEF\xBB\xBF");  // Excel reads it as UTF-8
+    CHECK(text.find("key,en,es,ru\r\n") == 3);   // header: key, default, languages
+    CHECK(text.find("menu.quit,\"Quit, \"\"now\"\"\",") !=
+          std::string::npos);                                         // comma and quotes: quoted, quotes doubled
+    CHECK(text.find("\"Line one\nLine two\"") != std::string::npos);  // a line break inside quotes
 
     auto file = read_csv(text);
     REQUIRE(file.ok());
@@ -139,14 +142,15 @@ TEST_CASE("i18n.export csv: one file with a byte order mark, the default languag
     CHECK(en.at("$name") == "English");
     CHECK(es.at("$name") == "Español");
     CHECK(es.at("menu.play") == "Jugar");
-    CHECK(es.at("menu.quit").empty());                                  // not translated yet
+    CHECK(es.at("menu.quit").empty());  // not translated yet
     CHECK(ru.at("menu.play") == "Играть");
 
     // Plural entries: one row per form, key#category. Russian needs one, few, many, other; Spanish one, other.
     CHECK(en.at("coins#one") == "{count} coin");
-    CHECK(en.at("coins#few") == "{count} coins");  // the default language has no "few": its "other" is shown as the source
+    CHECK(en.at("coins#few") ==
+          "{count} coins");  // the default language has no "few": its "other" is shown as the source
     CHECK(es.at("coins#one") == "{count} moneda");
-    CHECK(es.count("coins#few") == 1);             // the rows are the same for every language
+    CHECK(es.count("coins#few") == 1);  // the rows are the same for every language
     CHECK(ru.at("coins#many").empty());
     CHECK(en.count("coins") == 0);
     CHECK(en.count("coins#zero") == 0);
@@ -154,7 +158,8 @@ TEST_CASE("i18n.export csv: one file with a byte order mark, the default languag
 
 TEST_CASE("i18n.export and import: gender rows and select forms round-trip") {
     Game g(R"({"ship": {"light": "Skiff"}, "the": {"other": "the {name}"}, "pick": {"f": "she", "other": "it"}})",
-           R"({"ship": {"light": {"text": "Ligera", "gender": "f"}}, "pick": {"f": "ella", "other": "ello"}})", R"({})");
+           R"({"ship": {"light": {"text": "Ligera", "gender": "f"}}, "pick": {"f": "ella", "other": "ello"}})",
+           R"({})");
     auto r = g.call("i18n.export", Json{{"format", "csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     auto file = read_csv(g.raw("build/translations/translations.csv"));
@@ -162,14 +167,20 @@ TEST_CASE("i18n.export and import: gender rows and select forms round-trip") {
     const auto en = column(*file, "en"), es = column(*file, "es"), ru = column(*file, "ru");
     CHECK(es.at("ship.light#gender") == "f");  // a gender in some language gives every language the row
     CHECK(en.at("ship.light#gender").empty());
-    CHECK(en.at("pick#m") == "it");            // Spanish needs "m": the source is the "other" text
-    CHECK(en.count("pick#n") == 1);            // the rows are the same for every language
+    CHECK(en.at("pick#m") == "it");  // Spanish needs "m": the source is the "other" text
+    CHECK(en.count("pick#n") == 1);  // the rows are the same for every language
     CHECK(en.count("pick#other") == 1);
-    CHECK(ru.at("pick#n").empty());            // Russian has three genders
+    CHECK(ru.at("pick#n").empty());  // Russian has three genders
     CHECK(es.at("pick#f") == "ella");
 
-    const std::string filled = translate_csv(g.raw("build/translations/translations.csv"),
-                                             {{"es", {{"pick#m", "él"}}}, {"ru", {{"ship.light", "Лёгкая"}, {"ship.light#gender", "f"}, {"pick#n", "оно"}, {"pick#other", "x"}, {"pick#f", "она"}}}});
+    const std::string filled =
+        translate_csv(g.raw("build/translations/translations.csv"), {{"es", {{"pick#m", "él"}}},
+                                                                     {"ru",
+                                                                      {{"ship.light", "Лёгкая"},
+                                                                       {"ship.light#gender", "f"},
+                                                                       {"pick#n", "оно"},
+                                                                       {"pick#other", "x"},
+                                                                       {"pick#f", "она"}}}});
     testing::write_all(g.dir + "/build/translations/filled.csv", filled);
     r = g.call("i18n.import", Json{{"file", "build/translations/filled.csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -192,7 +203,10 @@ TEST_CASE("i18n.export and import: gender rows and select forms round-trip") {
 
 TEST_CASE("i18n.export csv: delimiter, languages, out folder, and refusals that teach") {
     Game g;
-    auto r = g.call("i18n.export", Json{{"format", "csv"}, {"languages", Json::array({"es"})}, {"out", "out/for-translators"}, {"delimiter", ";"}});
+    auto r = g.call("i18n.export", Json{{"format", "csv"},
+                                        {"languages", Json::array({"es"})},
+                                        {"out", "out/for-translators"},
+                                        {"delimiter", ";"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["files"] == Json::array({"out/for-translators/translations.csv"}));
     const std::string text = g.raw("out/for-translators/translations.csv");
@@ -236,15 +250,15 @@ TEST_CASE("i18n.export without a localization section or with one language says 
     CHECK(r.error["message"].get<std::string>().find("one language") != std::string::npos);
 }
 
-TEST_CASE("i18n.import csv: a language with no file yet gets a file shaped like the default table (nested when it is nested)") {
+TEST_CASE("i18n.import csv: a language with no file yet gets a file shaped like the default table (nested when it is "
+          "nested)") {
     Game g(kEn, nullptr, nullptr);
-    testing::write_all(g.dir + "/new.csv",
-                       "key,en,es\n"
-                       "menu.play,Play,Jugar\n"
-                       "menu.quit,\"Quit, \"\"now\"\"\",Salir\n"
-                       "greeting,\"Hello, {name}!\",\"Hola, {name}!\"\n"
-                       "coins#one,{count} coin,{count} moneda\n"
-                       "coins#other,{count} coins,{count} monedas\n");
+    testing::write_all(g.dir + "/new.csv", "key,en,es\n"
+                                           "menu.play,Play,Jugar\n"
+                                           "menu.quit,\"Quit, \"\"now\"\"\",Salir\n"
+                                           "greeting,\"Hello, {name}!\",\"Hola, {name}!\"\n"
+                                           "coins#one,{count} coin,{count} moneda\n"
+                                           "coins#other,{count} coins,{count} monedas\n");
     auto r = g.call("i18n.import", Json{{"file", "new.csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json t = g.table("es");
@@ -255,21 +269,27 @@ TEST_CASE("i18n.import csv: a language with no file yet gets a file shaped like 
     CHECK_FALSE(t.contains("menu.play"));
 }
 
-TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tables, order, and never deletes on an empty cell") {
+TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tables, order, and never deletes on an "
+          "empty cell") {
     Game g;
     REQUIRE(g.call("i18n.export", Json{{"format", "csv"}}).ok);
     const std::string exported = g.raw("build/translations/translations.csv");
 
-    const std::string translated = translate_csv(exported, {
-        {"es", {{"menu.play", ""},                         // an emptied cell must not delete "Jugar"
-                {"menu.quit", "Salir, \"ya\""},            // comma and quotes survive
-                {"menu.multi", "Línea uno\nLínea dos"},    // a line break survives
-                {"greeting", "¡Hola, {name}!"},
-                {"coins#one", "{count} moneda ya"},
-                {"tag", "A & B <etiqueta>"}}},
-        {"ru", {{"menu.quit", "Выход"},
-                {"coins#one", "{count} монета"}, {"coins#few", "{count} монеты"}, {"coins#many", "{count} монет"}, {"coins#other", "{count} монеты"},
-                {"$name", "Русский"}}}});
+    const std::string translated =
+        translate_csv(exported, {{"es",
+                                  {{"menu.play", ""},                       // an emptied cell must not delete "Jugar"
+                                   {"menu.quit", "Salir, \"ya\""},          // comma and quotes survive
+                                   {"menu.multi", "Línea uno\nLínea dos"},  // a line break survives
+                                   {"greeting", "¡Hola, {name}!"},
+                                   {"coins#one", "{count} moneda ya"},
+                                   {"tag", "A & B <etiqueta>"}}},
+                                 {"ru",
+                                  {{"menu.quit", "Выход"},
+                                   {"coins#one", "{count} монета"},
+                                   {"coins#few", "{count} монеты"},
+                                   {"coins#many", "{count} монет"},
+                                   {"coins#other", "{count} монеты"},
+                                   {"$name", "Русский"}}}});
     testing::write_all(g.dir + "/build/translations/translated.csv", translated);
 
     const Json before = g.table("es");
@@ -277,7 +297,7 @@ TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tabl
     REQUIRE_MESSAGE(dry.ok, dry.error.dump());
     CHECK(dry.result["dryRun"] == true);
     CHECK(dry.result["languages"]["es"]["written"] == false);
-    CHECK(g.table("es") == before);  // dry run: nothing written
+    CHECK(g.table("es") == before);            // dry run: nothing written
     CHECK(dry.result["ignored"].size() == 1);  // the default language's column is the source
 
     auto r = g.call("i18n.import", Json{{"file", "build/translations/translated.csv"}});
@@ -285,21 +305,23 @@ TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tabl
     const Json& es = r.result["languages"]["es"];
     CHECK(es["file"] == "locales/es.json");
     CHECK(es["written"] == true);
-    CHECK(es["updated"].get<int>() == 1);     // coins#one
-    CHECK(es["added"].get<int>() == 4);       // menu.quit, menu.multi, greeting, tag
+    CHECK(es["updated"].get<int>() == 1);  // coins#one
+    CHECK(es["added"].get<int>() == 4);    // menu.quit, menu.multi, greeting, tag
     CHECK(es["skippedEmpty"].get<int>() >= 1);
     CHECK(es["warnings"].empty());
 
     const Json t = g.table("es");
-    CHECK(t["menu"]["play"] == "Jugar");                         // kept
-    CHECK(t["menu"]["quit"] == "Salir, \"ya\"");                  // added inside the existing group
+    CHECK(t["menu"]["play"] == "Jugar");          // kept
+    CHECK(t["menu"]["quit"] == "Salir, \"ya\"");  // added inside the existing group
     CHECK(t["menu"]["multi"] == "Línea uno\nLínea dos");
-    CHECK(t["greeting"] == "¡Hola, {name}!");                     // added at the top, nested style kept
+    CHECK(t["greeting"] == "¡Hola, {name}!");  // added at the top, nested style kept
     CHECK(t["coins"]["one"] == "{count} moneda ya");
     CHECK(t["coins"]["other"] == "{count} monedas");
     CHECK(t["tag"] == "A & B <etiqueta>");
-    CHECK(keys_of(t) == std::vector<std::string>{"$name", "menu", "coins", "greeting", "tag"});  // existing order kept, new at the end
-    CHECK(keys_of(t["menu"]) == std::vector<std::string>{"play", "multi", "quit"});  // new keys come in the order of the rows (sorted)
+    CHECK(keys_of(t) == std::vector<std::string>{"$name", "menu", "coins", "greeting",
+                                                 "tag"});  // existing order kept, new at the end
+    CHECK(keys_of(t["menu"]) ==
+          std::vector<std::string>{"play", "multi", "quit"});  // new keys come in the order of the rows (sorted)
 
     // The Russian table is flat and stays flat; its plural entry is complete.
     const Json ru = g.table("ru");
@@ -325,17 +347,18 @@ TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tabl
     CHECK(parse_string_table(g.table("ru"), "ru", "locales/ru.json").ok());
 }
 
-TEST_CASE("i18n.import csv from a spreadsheet: semicolons, CRLF, extra blank lines, warnings that teach, errors that name the column") {
+TEST_CASE("i18n.import csv from a spreadsheet: semicolons, CRLF, extra blank lines, warnings that teach, errors that "
+          "name the column") {
     Game g;
     // What Excel with a decimal comma saves: ";" between cells, quotes only where needed, a BOM, blank lines at the end.
-    const std::string sheet =
-        "\xEF\xBB\xBF" "key;en;es\r\n"
-        "menu.play;Play;Jugar!\r\n"
-        "menu.plya;Play;Jugar mal\r\n"                     // a typo of a key
-        "greeting;Hello, {name}!;\"Hola, {nombre}!\"\r\n"   // a placeholder renamed
-        "coins;;monedas\r\n"                                // a plural entry written without its forms
-        "menu.play#one;;x\r\n"                              // a plural form of a plain string
-        "\r\n;;\r\n";
+    const std::string sheet = "\xEF\xBB\xBF"
+                              "key;en;es\r\n"
+                              "menu.play;Play;Jugar!\r\n"
+                              "menu.plya;Play;Jugar mal\r\n"                     // a typo of a key
+                              "greeting;Hello, {name}!;\"Hola, {nombre}!\"\r\n"  // a placeholder renamed
+                              "coins;;monedas\r\n"    // a plural entry written without its forms
+                              "menu.play#one;;x\r\n"  // a plural form of a plain string
+                              "\r\n;;\r\n";
     testing::write_all(g.dir + "/sheet.csv", sheet);
     auto r = g.call("i18n.import", Json{{"file", "sheet.csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -372,22 +395,24 @@ TEST_CASE("i18n.import csv from a spreadsheet: semicolons, CRLF, extra blank lin
     CHECK(r.error["code"] == "not_found");
 }
 
-TEST_CASE("i18n.import creates the table of a language that has none (flat: the default table has no groups) and honours `languages`") {
+TEST_CASE("i18n.import creates the table of a language that has none (flat: the default table has no groups) and "
+          "honours `languages`") {
     Game g(kEnFlat, nullptr, kRu);
-    testing::write_all(g.dir + "/new.csv",
-                       "key,en,es,ru\n$name,English,Español,\nmenu.play,Play,Jugar,Играть ya\ncoins#one,x,{count} moneda,\n"
-                       "coins#other,x,{count} monedas,\ngreeting,x,Hola,\n");
+    testing::write_all(
+        g.dir + "/new.csv",
+        "key,en,es,ru\n$name,English,Español,\nmenu.play,Play,Jugar,Играть ya\ncoins#one,x,{count} moneda,\n"
+        "coins#other,x,{count} monedas,\ngreeting,x,Hola,\n");
     auto r = g.call("i18n.import", Json{{"file", "new.csv"}, {"languages", Json::array({"es"})}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK_FALSE(r.result["languages"].contains("ru"));  // not asked for: its table is untouched
     CHECK(g.table("ru")["menu.play"] == "Играть");
     const Json& es = r.result["languages"]["es"];
     CHECK(es["added"] == 5);
-    REQUIRE(es["warnings"].size() == 1);                 // greeting lost its {name}
+    REQUIRE(es["warnings"].size() == 1);  // greeting lost its {name}
     CHECK(es["warnings"][0].get<std::string>().find("no placeholders") != std::string::npos);
     const Json t = g.table("es");
     CHECK(t["$name"] == "Español");
-    CHECK(t["menu.play"] == "Jugar");                    // flat: the dotted key stays one key
+    CHECK(t["menu.play"] == "Jugar");  // flat: the dotted key stays one key
     CHECK(t["greeting"] == "Hola");
     CHECK(t["coins"] == *parse_json(R"({"one": "{count} moneda", "other": "{count} monedas"})"));
     CHECK(parse_string_table(t, "es", "locales/es.json").ok());
@@ -397,7 +422,8 @@ TEST_CASE("i18n.import creates the table of a language that has none (flat: the 
     r = g.call("i18n.import", Json{{"file", "partial.csv"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["languages"]["ru"]["added"] == 0);
-    CHECK(r.result["languages"]["ru"]["warnings"][0].get<std::string>().find("no text for \"other\"") != std::string::npos);
+    CHECK(r.result["languages"]["ru"]["warnings"][0].get<std::string>().find("no text for \"other\"") !=
+          std::string::npos);
     CHECK_FALSE(g.table("ru").contains("coins"));
 }
 
@@ -405,16 +431,17 @@ TEST_CASE("i18n.import xliff: export one file per language, translate in a tool,
     Game g;
     auto r = g.call("i18n.export", Json{{"format", "xliff"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
-    CHECK(r.result["files"] == Json::array({"build/translations/translations.es.xlf", "build/translations/translations.ru.xlf"}));
+    CHECK(r.result["files"] ==
+          Json::array({"build/translations/translations.es.xlf", "build/translations/translations.ru.xlf"}));
 
     std::string es = g.raw("build/translations/translations.es.xlf");
     CHECK(es.find("<xliff version=\"1.2\" xmlns=\"urn:oasis:names:tc:xliff:document:1.2\">") != std::string::npos);
     CHECK(es.find("source-language=\"en\" target-language=\"es\"") != std::string::npos);
     CHECK(es.find("<trans-unit id=\"menu.play\" resname=\"menu.play\"") != std::string::npos);
-    CHECK(es.find("<source>A &amp; B &lt;tag&gt;</source>") != std::string::npos);                 // escaped
+    CHECK(es.find("<source>A &amp; B &lt;tag&gt;</source>") != std::string::npos);  // escaped
     CHECK(es.find("<target state=\"translated\">Jugar</target>") != std::string::npos);
-    CHECK(es.find("<target state=\"needs-translation\"></target>") != std::string::npos);          // not translated yet
-    CHECK(es.find("<trans-unit id=\"coins#one\"") != std::string::npos);                           // plural forms: key#category
+    CHECK(es.find("<target state=\"needs-translation\"></target>") != std::string::npos);  // not translated yet
+    CHECK(es.find("<trans-unit id=\"coins#one\"") != std::string::npos);                   // plural forms: key#category
     CHECK(es.find("Keep the placeholders as they are: {name}.") != std::string::npos);
 
     es = set_target(es, "menu.quit", "Salir &amp; &lt;ya&gt;, \"ya\"");
@@ -459,11 +486,12 @@ TEST_CASE("read_xliff: namespaces, CDATA, character references, inline tags and 
     REQUIRE(file.ok());
     REQUIRE(file->languages == std::vector<std::string>{"ja"});
     const auto ja = column(*file, "ja");
-    CHECK(ja.at("menu.play") == "日本語");        // resname wins over the numeric id; entities decoded; inline tag text kept
+    CHECK(ja.at("menu.play") == "日本語");  // resname wins over the numeric id; entities decoded; inline tag text kept
     CHECK(ja.at("menu.quit") == "Quit <now> & go");
-    CHECK(ja.at("menu.back").empty());           // no <target>: nothing to import
+    CHECK(ja.at("menu.back").empty());  // no <target>: nothing to import
 
-    auto bad = read_xliff("<xliff><file source-language=\"en\" target-language=\"es\"><body><trans-unit id=\"a\"><source>x</source></body></file></xliff>");
+    auto bad = read_xliff("<xliff><file source-language=\"en\" target-language=\"es\"><body><trans-unit "
+                          "id=\"a\"><source>x</source></body></file></xliff>");
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("does not close <trans-unit>") != std::string::npos);
     CHECK(bad.error().message.find("line 1") != std::string::npos);
@@ -471,7 +499,8 @@ TEST_CASE("read_xliff: namespaces, CDATA, character references, inline tags and 
     auto notXliff = read_xliff("<html></html>");
     REQUIRE_FALSE(notXliff.ok());
     CHECK(notXliff.error().message.find("not an XLIFF file") != std::string::npos);
-    auto noLanguage = read_xliff("<xliff><file><body><trans-unit id=\"a\"><target>x</target></trans-unit></body></file></xliff>");
+    auto noLanguage =
+        read_xliff("<xliff><file><body><trans-unit id=\"a\"><target>x</target></trans-unit></body></file></xliff>");
     REQUIRE_FALSE(noLanguage.ok());
     CHECK(noLanguage.error().message.find("target-language") != std::string::npos);
 }
@@ -494,7 +523,7 @@ TEST_CASE("read_csv: quotes, line breaks, a BOM, ragged rows and the errors for 
     CHECK(wide.error().message.find("row 2") != std::string::npos);
     CHECK(wide.error().message.find("has 3 columns but the header has 2") != std::string::npos);
     CHECK_FALSE(read_csv("").ok());
-    CHECK_FALSE(read_csv("key\na\n").ok());           // no language column
+    CHECK_FALSE(read_csv("key\na\n").ok());            // no language column
     CHECK_FALSE(read_csv("key,en,en\na,1,2\n").ok());  // a language twice
     CHECK(read_translation_file("key,en\na,1\n", "x.csv").ok());
     CHECK(read_translation_file("<xliff/>", "x.txt").error().message.find("no translation units") != std::string::npos);

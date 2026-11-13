@@ -73,7 +73,8 @@ public:
 private:
     ParticleEmitterState& state_for(World& world, Entity e, const ParticleEmitter& em);
 
-    std::unordered_map<std::uint64_t, ParticleEmitterState> states_;  // by Entity::bits(); elements never move while update() runs
+    std::unordered_map<std::uint64_t, ParticleEmitterState>
+        states_;  // by Entity::bits(); elements never move while update() runs
 };
 
 // Whether the emitter `em` simulates in screen space: space "screen" and not 3D (is3D has no screen space, so it wins). The sim

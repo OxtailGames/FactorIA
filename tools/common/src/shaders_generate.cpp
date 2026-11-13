@@ -45,16 +45,18 @@ bool is_identifier(std::string_view s) {
 bool is_reserved_word(std::string_view s) {
     static const std::set<std::string, std::less<>> words = {
         // keywords of GLSL 4.50 and the words it reserves
-        "attribute", "const", "uniform", "varying", "buffer", "shared", "coherent", "volatile", "restrict", "readonly", "writeonly",
-        "atomic_uint", "layout", "centroid", "flat", "smooth", "noperspective", "patch", "sample", "break", "continue", "do", "for",
-        "while", "switch", "case", "default", "if", "else", "subroutine", "in", "out", "inout", "int", "void", "bool", "true", "false",
-        "float", "double", "discard", "return", "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4", "bvec2", "bvec3", "bvec4", "uint",
-        "uvec2", "uvec3", "uvec4", "dvec2", "dvec3", "dvec4", "mat2", "mat3", "mat4", "mat2x2", "mat2x3", "mat2x4", "mat3x2", "mat3x3",
-        "mat3x4", "mat4x2", "mat4x3", "mat4x4", "dmat2", "dmat3", "dmat4", "lowp", "mediump", "highp", "precision", "sampler", "sampler2D",
-        "sampler3D", "samplerCube", "sampler2DShadow", "sampler2DArray", "texture2D", "texture3D", "textureCube", "image2D", "struct",
-        "invariant", "precise", "common", "partition", "active", "asm", "class", "union", "enum", "typedef", "template", "this", "resource",
-        "goto", "inline", "noinline", "public", "static", "extern", "external", "interface", "long", "short", "half", "fixed", "unsigned",
-        "superp", "input", "output", "filter", "sizeof", "cast", "namespace", "using",
+        "attribute", "const", "uniform", "varying", "buffer", "shared", "coherent", "volatile", "restrict", "readonly",
+        "writeonly", "atomic_uint", "layout", "centroid", "flat", "smooth", "noperspective", "patch", "sample", "break",
+        "continue", "do", "for", "while", "switch", "case", "default", "if", "else", "subroutine", "in", "out", "inout",
+        "int", "void", "bool", "true", "false", "float", "double", "discard", "return", "vec2", "vec3", "vec4", "ivec2",
+        "ivec3", "ivec4", "bvec2", "bvec3", "bvec4", "uint", "uvec2", "uvec3", "uvec4", "dvec2", "dvec3", "dvec4",
+        "mat2", "mat3", "mat4", "mat2x2", "mat2x3", "mat2x4", "mat3x2", "mat3x3", "mat3x4", "mat4x2", "mat4x3",
+        "mat4x4", "dmat2", "dmat3", "dmat4", "lowp", "mediump", "highp", "precision", "sampler", "sampler2D",
+        "sampler3D", "samplerCube", "sampler2DShadow", "sampler2DArray", "texture2D", "texture3D", "textureCube",
+        "image2D", "struct", "invariant", "precise", "common", "partition", "active", "asm", "class", "union", "enum",
+        "typedef", "template", "this", "resource", "goto", "inline", "noinline", "public", "static", "extern",
+        "external", "interface", "long", "short", "half", "fixed", "unsigned", "superp", "input", "output", "filter",
+        "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData"};
     return words.count(s) > 0;
@@ -161,9 +163,18 @@ std::vector<Function> find_entry_points(const std::string& s) {
     };
     while (i < s.size()) {
         const char c = s[i];
-        if (c == '{') { ++depth; ++i; continue; }
-        if (c == '}') { depth = std::max(0, depth - 1); ++i; continue; }
-        if (depth == 0 && (i == 0 || !ident_char(s[i - 1])) && s.compare(i, 4, "void") == 0 && !(i + 4 < s.size() && ident_char(s[i + 4]))) {
+        if (c == '{') {
+            ++depth;
+            ++i;
+            continue;
+        }
+        if (c == '}') {
+            depth = std::max(0, depth - 1);
+            ++i;
+            continue;
+        }
+        if (depth == 0 && (i == 0 || !ident_char(s[i - 1])) && s.compare(i, 4, "void") == 0 &&
+            !(i + 4 < s.size() && ident_char(s[i + 4]))) {
             std::size_t p = skip_ws(i + 4);
             std::size_t nameStart = p;
             while (p < s.size() && ident_char(s[p])) ++p;
@@ -173,16 +184,20 @@ std::vector<Function> find_entry_points(const std::string& s) {
                 if (p < s.size() && s[p] == '(') {
                     int paren = 0;
                     while (p < s.size()) {
-                        if (s[p] == '(') ++paren;
-                        else if (s[p] == ')' && --paren == 0) break;
+                        if (s[p] == '(')
+                            ++paren;
+                        else if (s[p] == ')' && --paren == 0)
+                            break;
                         ++p;
                     }
                     p = skip_ws(p + 1);
                     if (p < s.size() && s[p] == '{') {
                         int brace = 0;
                         while (p < s.size()) {
-                            if (s[p] == '{') ++brace;
-                            else if (s[p] == '}' && --brace == 0) break;
+                            if (s[p] == '{')
+                                ++brace;
+                            else if (s[p] == '}' && --brace == 0)
+                                break;
                             ++p;
                         }
                         if (p < s.size()) {
@@ -254,16 +269,18 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
     // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program.
     t.generated("#ifdef GL_VERTEX_SHADER\n");
-    if (!material.params.empty()) t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
+    if (!material.params.empty())
+        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
     // Helpers that sample a texture or discard still compile in the vertex stage.
     t.generated("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
     t.generated("#else\n");
-    if (!material.params.empty()) t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
+    if (!material.params.empty())
+        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
     t.generated("#endif\n");
     int view = 6, sampler = 2;
     for (const MaterialTexture& tex : material.textures)
-        t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name + ";\nlayout(binding=" +
-                    std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
+        t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
+                    ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
 
     std::size_t pos = 0;
     for (const Function& f : fns) {

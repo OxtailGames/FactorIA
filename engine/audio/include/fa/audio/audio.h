@@ -49,7 +49,8 @@ struct PlayParams {
     bool loop = false;
     std::string bus = "sfx";  // "sfx" | "music" | "ui" or a bus of the project — each bus has its own volume
     bool notifyEnd = false;   // the voice's end is queued for take_ended_voices()
-    std::int64_t delayFrames = 0;  // output frames of silence before the voice sounds (a music stinger waiting for its beat); 0 = now
+    std::int64_t delayFrames =
+        0;  // output frames of silence before the voice sounds (a music stinger waiting for its beat); 0 = now
     // Voice stealing (docs/SOUND.md): with every voice taken, a play replaces the voice of the lowest priority, the quietest
     // of those, when its own priority is higher, or the same and it is louder; otherwise it does not play. 0..255.
     int priority = 128;
@@ -69,17 +70,17 @@ struct AudioEvent {
     std::string kind = "play";  // "play" | "setVoiceVolume"
     VoiceId voice = 0;          // the voice the request started (0 = it did not start), or changed
     float fade = 0.0f;          // setVoiceVolume: seconds
-    std::uint64_t seq = 0;    // increasing id (1, 2, ...); never reused, survives clear_play_log()
-    std::uint64_t frame = 0;  // World::frame() of the clock world when requested (what scripts see as time.frame)
-    double time = 0.0;        // World::time() of the clock world
-    std::string path;         // normalized project-relative clip path
+    std::uint64_t seq = 0;      // increasing id (1, 2, ...); never reused, survives clear_play_log()
+    std::uint64_t frame = 0;    // World::frame() of the clock world when requested (what scripts see as time.frame)
+    double time = 0.0;          // World::time() of the clock world
+    std::string path;           // normalized project-relative clip path
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;
     std::string bus = "sfx";
     bool loop = false;
-    bool music = false;   // started through play_music()
-    std::string source;   // entity id when an AudioSource component started it, "" otherwise
-    bool ok = true;       // false when the clip could not be loaded (the error is logged once)
-    std::string layer;    // the layer name when audio.musicLayers started it, "" otherwise
+    bool music = false;  // started through play_music()
+    std::string source;  // entity id when an AudioSource component started it, "" otherwise
+    bool ok = true;      // false when the clip could not be loaded (the error is logged once)
+    std::string layer;   // the layer name when audio.musicLayers started it, "" otherwise
     Json to_json() const;
 };
 
@@ -92,24 +93,25 @@ struct MusicLayer {
 
 // Ducking: the bus lowers itself while the bus `by` is loud (Audio::set_bus_duck).
 struct DuckSettings {
-    std::string by;         // the bus that triggers it: any bus but the master
-    float amount = 0.0f;    // the fraction of the volume removed while `by` plays, 0..1 (0.5 = half as loud, 1 = silent); 0 = no ducking
-    float attack = 0.05f;   // time constant in seconds going down once `by` starts (63% of the way in this time)
-    float release = 0.5f;   // time constant in seconds coming back once `by` has stopped
+    std::string by;  // the bus that triggers it: any bus but the master
+    float amount =
+        0.0f;  // the fraction of the volume removed while `by` plays, 0..1 (0.5 = half as loud, 1 = silent); 0 = no ducking
+    float attack = 0.05f;  // time constant in seconds going down once `by` starts (63% of the way in this time)
+    float release = 0.5f;  // time constant in seconds coming back once `by` has stopped
 };
 
 // What a snapshot says about one bus. The defaults are the neutral values: a bus a snapshot does not list gets all of them.
 struct BusSnapshot {
-    float volume = 1.0f;  // a scale on the bus's own volume (the one the player's options set), 0..4
-    float lowpass = 0.0f; // low-pass cutoff in Hz; 0 = off
-    float reverb = 0.0f;  // wet mix 0..1; 0 = off
+    float volume = 1.0f;   // a scale on the bus's own volume (the one the player's options set), 0..4
+    float lowpass = 0.0f;  // low-pass cutoff in Hz; 0 = off
+    float reverb = 0.0f;   // wet mix 0..1; 0 = off
     std::optional<DuckSettings> duck;
 };
 
 // One entry of the snapshot catalog (factoria.json "audio.snapshots").
 struct AudioSnapshot {
-    float fade = 0.5f;                          // seconds audio.snapshot takes when the caller gives no time
-    std::map<std::string, BusSnapshot> buses;   // by bus name: "sfx", "music", "ui", "master" or a project bus
+    float fade = 0.5f;                         // seconds audio.snapshot takes when the caller gives no time
+    std::map<std::string, BusSnapshot> buses;  // by bus name: "sfx", "music", "ui", "master" or a project bus
 };
 using AudioSnapshots = std::map<std::string, AudioSnapshot>;
 
@@ -121,7 +123,8 @@ struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
 //   linear:      1 - factor * (d - r) / (reach - r)            (d >= r; 1 below)
 //   inverse:     r / (r + factor * (d - r))
 //   exponential: (d / r) ^ -factor
-float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f, float factor = 1.0f);
+float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f,
+                         float factor = 1.0f);
 
 class Audio {
 public:
@@ -155,9 +158,9 @@ public:
     // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
     // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
     // Game thread only: it reads the World.
-    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range = 800.0f,
-                    AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f, float rolloffFactor = 1.0f,
-                    bool* outOfRange = nullptr);
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
+                    float range = 800.0f, AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f,
+                    float rolloffFactor = 1.0f, bool* outOfRange = nullptr);
     // A voice the game feeds with samples instead of a clip: the sound of a Video component. `sampleRate` is the rate of the
     // samples push_pcm gets (interleaved stereo float); the mixer resamples them. The play is logged under `path` (the video
     // file) with `source` as the entity id. The voice stays open, silent when its queue is dry, until stop(). Returns 0 when
@@ -190,7 +193,8 @@ public:
     // Every change of a bus moves its gain in a short ramp (about 10 ms) so it never clicks; with fadeSeconds > 0 it moves in a
     // straight line over that time. An unknown bus logs an error with a "did you mean".
     void set_bus_volume(std::string_view bus, float volume, float fadeSeconds = 0.0f);
-    float bus_volume(std::string_view bus) const;  // "master", "sfx", "music", "ui" or a project bus; -1 for an unknown bus
+    float
+    bus_volume(std::string_view bus) const;  // "master", "sfx", "music", "ui" or a project bus; -1 for an unknown bus
     void set_master_volume(float volume);
 
     // The project's buses (factoria.json "audio.buses"; the engine calls it when a project loads). Replaces the previous
@@ -247,7 +251,7 @@ public:
     // Moves a layer of the current layered music to `level` (0..1) over fadeSeconds; false for an unknown layer.
     bool set_layer(std::string_view name, float level, float fadeSeconds = 0.0f);
     std::vector<std::string> layer_names() const;  // names of the current layers, in start order
-    void stop_music(float fadeSeconds = 0.5f);  // the track and every layer
+    void stop_music(float fadeSeconds = 0.5f);     // the track and every layer
 
     // ---- Adaptive music: MusicPlayer components (docs/MUSIC.md, "Playing a song in a game"). update() drives the components;
     // the calls below are what `entity.music` in a script does. They act on the player of `e` (the entity needs a MusicPlayer)
@@ -257,16 +261,18 @@ public:
     void set_music_device(const MusicDeviceProfile& device);
     // Starts the song at once ("" = the component's song; a different one replaces what plays) at `section` ("" = startSection)
     // with `intensity` (negative: the component's).
-    Result<void> music_play(World& world, Entity e, std::string_view song = {}, std::string_view section = {}, float intensity = -1.0f);
+    Result<void> music_play(World& world, Entity e, std::string_view song = {}, std::string_view section = {},
+                            float intensity = -1.0f);
     // Fades the music out over `fadeSeconds` (negative: 0.3) once the boundary of `quantize` comes.
     void music_stop(World& world, Entity e, MusicQuantize quantize = MusicQuantize::None, float fadeSeconds = -1.0f);
     // Sets the intensity; it reaches the layers on the boundary of `quantize` (empty: the component's layerQuantize).
     // Returns where the layers start to follow it (MusicChange: the frame is empty before the song plays).
-    MusicChange music_set_intensity(World& world, Entity e, float intensity, std::optional<MusicQuantize> quantize = {});
+    MusicChange music_set_intensity(World& world, Entity e, float intensity,
+                                    std::optional<MusicQuantize> quantize = {});
     // Jumps to a section on the boundary (empty: the component's quantize) with a crossfade of `fadeSeconds` (negative: transitionFade).
     // Before the song is loaded it only sets where the song will start. Returns the frame the jump lands on.
-    Result<MusicChange> music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize = {},
-                                            float fadeSeconds = -1.0f);
+    Result<MusicChange> music_go_to_section(World& world, Entity e, std::string_view section,
+                                            std::optional<MusicQuantize> quantize = {}, float fadeSeconds = -1.0f);
     Result<void> music_play_stinger(World& world, Entity e, const MusicStingerSpec& stinger);
     // Crosses over to another song on the boundary (empty: the component's quantize) over `bars` bars of the outgoing song
     // (negative: crossfadeBars). It starts at `section` ("" = the beginning of the song, never the component's startSection).
@@ -327,7 +333,8 @@ public:
     // part of `underruns`).
     Json stats() const;
 
-    void reload_clip(std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)
+    void reload_clip(
+        std::string_view path);  // hot reload (a stem file of a song that plays from stems reloads that song too)
     // Hot reload of a `*.song.json`: the cached renders of the song are dropped and every MusicPlayer that plays it fetches it again
     // and crossfades to the new version at the next beat, in the section that sounds. Call it from the game thread.
     void reload_song(std::string_view songPath);

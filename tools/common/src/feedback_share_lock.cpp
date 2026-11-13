@@ -55,14 +55,16 @@ enum class Created { Yes, Exists, Denied, Failed };
 std::string system_error_message(unsigned long code) {
 #if defined(_WIN32)
     wchar_t* wide = nullptr;
-    const DWORD length = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
-                                        static_cast<DWORD>(code), 0, reinterpret_cast<LPWSTR>(&wide), 0, nullptr);
+    const DWORD length =
+        FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                       nullptr, static_cast<DWORD>(code), 0, reinterpret_cast<LPWSTR>(&wide), 0, nullptr);
     if (length == 0 || wide == nullptr) return {};
     std::string utf8;
     const int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
     if (bytes > 0) {
         utf8.resize(static_cast<std::size_t>(bytes));
-        if (WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(length), utf8.data(), bytes, nullptr, nullptr) <= 0) utf8.clear();
+        if (WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(length), utf8.data(), bytes, nullptr, nullptr) <= 0)
+            utf8.clear();
     }
     LocalFree(wide);
     return utf8;
@@ -76,7 +78,9 @@ std::string windows_error_text(unsigned long code) {
     std::string text = "Windows error " + std::to_string(code);
     try {
         std::string says = system_error_message(code);
-        while (!says.empty() && (says.back() == '\n' || says.back() == '\r' || says.back() == ' ' || says.back() == '.')) says.pop_back();
+        while (!says.empty() &&
+               (says.back() == '\n' || says.back() == '\r' || says.back() == ' ' || says.back() == '.'))
+            says.pop_back();
         if (!says.empty()) text += " (" + says + ")";
     } catch (...) {
     }
@@ -133,7 +137,9 @@ Owner owner_of(const stdfs::path& file, const std::string& token, int tries = 20
 bool same_lock_file(const stdfs::path& a, const stdfs::path& b) {
     if (a == b) return true;
     std::error_code ec;
-    if (stdfs::weakly_canonical(stdfs::absolute(a, ec), ec) == stdfs::weakly_canonical(stdfs::absolute(b, ec), ec) && !ec) return true;
+    if (stdfs::weakly_canonical(stdfs::absolute(a, ec), ec) == stdfs::weakly_canonical(stdfs::absolute(b, ec), ec) &&
+        !ec)
+        return true;
     ec.clear();
     return stdfs::equivalent(a, b, ec) && !ec;
 }
@@ -184,7 +190,8 @@ Created create_exclusive(const stdfs::path& file, const std::string& content, st
 }
 
 // Whether files can be made in `dir` at all: told apart from "the lock file is busy" when Windows answers access denied.
-bool folder_is_writable(const stdfs::path& dir, const std::string& lockName, const std::string& token, std::string& why) {
+bool folder_is_writable(const stdfs::path& dir, const std::string& lockName, const std::string& token,
+                        std::string& why) {
     const stdfs::path probe = dir / (lockName + ".probe." + token);
     int code = 0;
     const Created c = create_exclusive(probe, token, why, code);
@@ -227,7 +234,8 @@ std::string text_of(const stdfs::path& p);
 // Removes what an earlier takeover or probe left behind (a process died, or Windows could not delete a file at once).
 void remove_leftovers(const stdfs::path& dir, const std::string& base, double staleSec) {
     try {
-        const stdfs::path::string_type prefixes[] = {stdfs::path(base + ".stale.").native(), stdfs::path(base + ".probe.").native(),
+        const stdfs::path::string_type prefixes[] = {stdfs::path(base + ".stale.").native(),
+                                                     stdfs::path(base + ".probe.").native(),
                                                      stdfs::path(base + ".dead.").native()};
         std::error_code ec;
         stdfs::directory_iterator it(dir, ec), end;
@@ -250,7 +258,8 @@ void remove_leftovers(const stdfs::path& dir, const std::string& base, double st
 // Takes over a lock file that looks stale. Only one waiter at a time gets past the ".takeover" file, and it looks again inside:
 // a lock another waiter just made (fresh) is left alone. True when the stale file was moved away and the caller may try to create
 // the lock again at once; false when somebody else is taking over, or the lock is not stale after all.
-bool take_over_stale(const stdfs::path& lockFile, const stdfs::path& takeoverFile, const std::string& token, double staleSec) {
+bool take_over_stale(const stdfs::path& lockFile, const stdfs::path& takeoverFile, const std::string& token,
+                     double staleSec) {
     std::string why;
     int code = 0;
     const Created c = create_exclusive(takeoverFile, token, why, code);
@@ -308,9 +317,12 @@ std::string text_of(const stdfs::path& p) {
 ShareWaitCap::ShareWaitCap(double sec) : previous_(t_waitCap) { t_waitCap = std::min(t_waitCap, sec); }
 ShareWaitCap::~ShareWaitCap() { t_waitCap = previous_; }
 
-ShareLock::ShareLock(const ShareEnv& env) : name_(kFeedbackShareLockFile) { init(env, stdfs::path(env.config_dir()), -1); }
+ShareLock::ShareLock(const ShareEnv& env) : name_(kFeedbackShareLockFile) {
+    init(env, stdfs::path(env.config_dir()), -1);
+}
 
-ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec, std::string_view lockFileName)
+ShareLock::ShareLock(const ShareEnv& env, const stdfs::path& folder, double reportedWaitSec,
+                     std::string_view lockFileName)
     : name_(lockFileName) {
     init(env, folder, reportedWaitSec);
 }
@@ -319,7 +331,8 @@ void ShareLock::init(const ShareEnv& env, const stdfs::path& folder, double repo
     try {
         file_ = folder / name_;
         for (const ShareLock* owner : t_owners) {
-            if (same_lock_file(owner->file_, file_)) {  // this thread holds it already (under whatever spelling of the folder)
+            if (same_lock_file(owner->file_,
+                               file_)) {  // this thread holds it already (under whatever spelling of the folder)
                 held_ = true;
                 nested_ = true;
                 path_ = owner->path_;
@@ -345,8 +358,9 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
     token_ = make_token();
     const stdfs::path takeoverFile = dir / (name_ + ".takeover");
     const double waitSec = std::min(env.lockWaitSec, t_waitCap);
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(waitSec));
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(waitSec));
     int takeovers = 0, deniedCode = 0;
     bool probed = false;
     for (;;) {
@@ -360,7 +374,8 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
         }
         if (c == Created::Failed) {
             unwritable_ = true;
-            error_ = "Cannot create the lock file " + path_ + " (" + why + "), so the sharing files were not changed. "
+            error_ = "Cannot create the lock file " + path_ + " (" + why +
+                     "), so the sharing files were not changed. "
                      "Check the permissions of that folder.";
             return;
         }
@@ -374,7 +389,8 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
                 std::string probeWhy;
                 if (!folder_is_writable(dir, name_, token_, probeWhy)) {
                     unwritable_ = true;
-                    error_ = "Cannot create files in " + text_of(dir) + " (" + probeWhy + "), so the sharing files were not changed. "
+                    error_ = "Cannot create files in " + text_of(dir) + " (" + probeWhy +
+                             "), so the sharing files were not changed. "
                              "Check the permissions of that folder.";
                     return;
                 }
@@ -388,11 +404,13 @@ void ShareLock::acquire(const ShareEnv& env, const stdfs::path& dir, double repo
             }
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            error_ = "Another FactorIA process is changing the sharing files and did not finish in " + seconds_text(reportedWaitSec >= 0 ? reportedWaitSec : waitSec) +
-                     " s (lock file " + path_ + "), so nothing was changed. "
+            error_ = "Another FactorIA process is changing the sharing files and did not finish in " +
+                     seconds_text(reportedWaitSec >= 0 ? reportedWaitSec : waitSec) + " s (lock file " + path_ +
+                     "), so nothing was changed. "
                      "Try again; if no FactorIA program is running, delete that file.";
             if (deniedCode != 0)
-                error_ += " (Windows answered \"access denied\", " + windows_error_text(static_cast<unsigned long>(deniedCode)) +
+                error_ += " (Windows answered \"access denied\", " +
+                          windows_error_text(static_cast<unsigned long>(deniedCode)) +
                           ", when the lock was made: a virus scanner or a delete in progress may be holding the file.)";
             return;
         }
@@ -409,7 +427,8 @@ ShareLock::~ShareLock() {
         // than the stale time) belongs to its new owner now. On Windows a virus scanner may hold the file for a moment: retry. A
         // lock that stays is taken over after lockStaleSec.
         for (int i = 0; i < 20; ++i) {
-            if (owner_of(file_, token_) != Owner::Ours) return;  // gone, somebody else's, or unreadable for good: leave it
+            if (owner_of(file_, token_) != Owner::Ours)
+                return;  // gone, somebody else's, or unreadable for good: leave it
             std::error_code ec;
             stdfs::remove(file_, ec);
             if (!ec) return;
@@ -428,7 +447,8 @@ FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedb
         parent = stdfs::path(feedbackPath).parent_path();
         if (parent.empty()) parent = stdfs::path(".");
     } catch (const std::exception& e) {
-        error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
+        error_ = std::string("Cannot work out the project's lock folder from ") + feedbackPath + " (" + e.what() +
+                 "), so nothing was changed.";
         return;
     }
     // A folder that does not exist holds no file to protect, and a lock must not make the folder (nor `.factoria` in it): nothing is
@@ -458,10 +478,12 @@ FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedb
     }
     try {
         ShareEnv rest = env;
-        rest.lockWaitSec = std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        rest.lockWaitSec =
+            std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
         local_ = std::make_unique<ShareLock>(rest, parent / ".factoria", totalSec);
     } catch (const std::exception& e) {
-        error_ = std::string("Cannot take the project's lock next to ") + feedbackPath + " (" + e.what() + "), so nothing was changed.";
+        error_ = std::string("Cannot take the project's lock next to ") + feedbackPath + " (" + e.what() +
+                 "), so nothing was changed.";
         user_.reset();
         return;
     }
@@ -471,10 +493,12 @@ FeedbackFileLock::FeedbackFileLock(const ShareEnv& env, const std::string& feedb
         const std::string localError = local_->error();
         local_.reset();
         ShareEnv left = env;
-        left.lockWaitSec = std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        left.lockWaitSec =
+            std::max(0.0, totalSec - std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
         user_ = std::make_unique<ShareLock>(left, stdfs::path(env.config_dir()), totalSec);
         if (user_->held()) return;
-        error_ = user_->unwritable() ? localError + " The user's folder did not work either: " + user_->error() : user_->error();
+        error_ = user_->unwritable() ? localError + " The user's folder did not work either: " + user_->error()
+                                     : user_->error();
         user_.reset();
         return;
     }

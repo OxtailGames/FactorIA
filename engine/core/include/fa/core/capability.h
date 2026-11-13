@@ -31,8 +31,8 @@ enum class Capability : std::uint8_t {
     // "process": starts an external program (a compiler, an installer, a CLI agent). The platform's own helper behind a
     // game feature is not this: the speech helper (spd-say) that ui.speak starts on Linux counts as "state".
     Process,
-    Spend,          // "spend": can cost money (paid AI APIs, store fees).
-    Publish,        // "publish": makes something public or uploads a build to a store.
+    Spend,    // "spend": can cost money (paid AI APIs, store fees).
+    Publish,  // "publish": makes something public or uploads a build to a store.
 };
 
 inline constexpr int kCapabilityCount = 8;

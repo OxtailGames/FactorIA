@@ -21,11 +21,14 @@ void cap_list(std::vector<std::string>& names, int& omitted) {
     names.resize(kMaxListedFiles);
 }
 
-int file_count(const ChatItem& c) { return static_cast<int>(c.modified.size() + c.added.size() + c.deleted.size()) + c.omitted; }
+int file_count(const ChatItem& c) {
+    return static_cast<int>(c.modified.size() + c.added.size() + c.deleted.size()) + c.omitted;
+}
 
 void list_files(const CheckpointDiff& d, std::size_t perList) {
     auto block = [&](const std::vector<std::string>& names, const char* tag) {
-        for (std::size_t i = 0; i < names.size() && i < perList; ++i) ImGui::BulletText("%s  %s", tag, names[i].c_str());
+        for (std::size_t i = 0; i < names.size() && i < perList; ++i)
+            ImGui::BulletText("%s  %s", tag, names[i].c_str());
         if (names.size() > perList) ImGui::TextDisabled("   ... and %d more", static_cast<int>(names.size() - perList));
     };
     block(d.modified, "modified");
@@ -92,8 +95,10 @@ void Editor::ai_run_checkpoint_finish(AiRun& run, AiChat& chat) {
     }
     const std::string sceneRel = project_relative(scenePath_, projectDir_);
     bool sceneChanged = false;
-    auto remembered = std::find_if(aiScenes_.begin(), aiScenes_.end(), [&](const SceneAtCheckpoint& s) { return s.id == id; });
-    if (remembered != aiScenes_.end()) sceneChanged = remembered->scenePath != scenePath_ || remembered->scene != snapshot_scene(world());
+    auto remembered =
+        std::find_if(aiScenes_.begin(), aiScenes_.end(), [&](const SceneAtCheckpoint& s) { return s.id == id; });
+    if (remembered != aiScenes_.end())
+        sceneChanged = remembered->scenePath != scenePath_ || remembered->scene != snapshot_scene(world());
     // The world is one for every chat: it differs from the start of this run also when another chat edited it. Only a run that
     // sent a scene command of its own (or no one else could have) gets the scene.
     if (overlapped && !own.contains(sceneRel)) sceneChanged = false;
@@ -156,12 +161,14 @@ void Editor::ai_flush_conflicts() {
 }
 
 // What a command that ran on the main thread for `chatId` changed (called from run_queued with the job's tag).
-void Editor::ai_note_command(const std::string& chatId, const std::string& name, const Json& args, const CommandResult& result) {
+void Editor::ai_note_command(const std::string& chatId, const std::string& name, const Json& args,
+                             const CommandResult& result) {
     if (!engine_ || !result.ok || !ai_run_of(chatId)) return;
     const CommandInfo* info = engine_->commands().info(name);
     if (!info || info->readOnly) return;
     // A command that changes the world (not one that only writes files, nor one that swaps the whole scene).
-    if (name == "scene.load" || name == "scene.reload") return;  // swaps the whole scene: its "path" is read, not written
+    if (name == "scene.load" || name == "scene.reload")
+        return;  // swaps the whole scene: its "path" is read, not written
     const bool editsWorld = (name.rfind("scene.", 0) == 0 || name == "tilemap.set_tile") && name != "scene.save" &&
                             name != "scene.load" && name != "scene.reload" && command_edits_scene(name, args);
     if (editsWorld) ai_run_of(chatId)->sceneEdited = true;
@@ -171,14 +178,17 @@ void Editor::ai_note_command(const std::string& chatId, const std::string& name,
 int Editor::ai_last_revertable_run() const {
     const auto& items = chat_.current().items;
     for (int i = static_cast<int>(items.size()) - 1; i >= 0; --i)
-        if (items[static_cast<std::size_t>(i)].kind == ChatItem::Kind::Run && items[static_cast<std::size_t>(i)].revertedBy.empty()) return i;
+        if (items[static_cast<std::size_t>(i)].kind == ChatItem::Kind::Run &&
+            items[static_cast<std::size_t>(i)].revertedBy.empty())
+            return i;
     return -1;
 }
 
 void Editor::ai_revert_request(const std::string& chatId, int item) {
     AiChat* chat = chat_.find(chatId);
     if (!chat || item < 0 || static_cast<std::size_t>(item) >= chat->items.size() || !engine_) return;
-    if (ai_chat_busy(chatId) || play_ != PlayState::Edit) return;  // the other chats may be running: the dialog says what that means
+    if (ai_chat_busy(chatId) || play_ != PlayState::Edit)
+        return;  // the other chats may be running: the dialog says what that means
     const ChatItem& c = chat->items[static_cast<std::size_t>(item)];
     AiRevertRequest req;
     req.chatId = chatId;
@@ -192,7 +202,8 @@ void Editor::ai_revert_request(const std::string& chatId, int item) {
             if (i > static_cast<std::size_t>(item)) ++req.laterRuns;
             for (const auto* list : {&r.modified, &r.added, &r.deleted}) req.own.insert(list->begin(), list->end());
             truncated = truncated || r.omitted > 0;
-            if (r.sceneChanged) req.scene = r.scenePath.empty() ? project_relative(scenePath_, projectDir_) : r.scenePath;
+            if (r.sceneChanged)
+                req.scene = r.scenePath.empty() ? project_relative(scenePath_, projectDir_) : r.scenePath;
         }
         if (!req.scene.empty()) req.own.insert(req.scene);
         // Other chats' runs that were going while this one was, or came after it: whatever they changed is in the checkpoint's
@@ -206,7 +217,8 @@ void Editor::ai_revert_request(const std::string& chatId, int item) {
                 bool any = false;
                 for (const ChatItem& r : t.items) {
                     if (r.kind != ChatItem::Kind::Run || !r.revertedBy.empty() || r.endedAt < c.startedAt) continue;
-                    for (const auto* list : {&r.modified, &r.added, &r.deleted}) rec.files.insert(list->begin(), list->end());
+                    for (const auto* list : {&r.modified, &r.added, &r.deleted})
+                        rec.files.insert(list->begin(), list->end());
                     if (r.sceneChanged && !r.scenePath.empty()) rec.files.insert(r.scenePath);
                     any = true;
                 }
@@ -235,8 +247,8 @@ void Editor::ai_revert_request(const std::string& chatId, int item) {
     }
     auto diff = checkpoint_diff(projectDir_, req.target);
     if (!diff.ok()) {
-        notify("Cannot revert: " + diff.error().message + " The editor keeps the newest " + std::to_string(kCheckpointLimit) +
-                   " checkpoints (Help > Docs: Editor, \"Revert an AI run\").",
+        notify("Cannot revert: " + diff.error().message + " The editor keeps the newest " +
+                   std::to_string(kCheckpointLimit) + " checkpoints (Help > Docs: Editor, \"Revert an AI run\").",
                2);
         return;
     }
@@ -272,59 +284,78 @@ void Editor::draw_ai_revert_dialog() {
         ImGui::TextDisabled("No file differs from that moment; only the open scene goes back.");
     } else {
         ImGui::Text("%d file(s) written back to their earlier content, %d file(s) created again, %d file(s) deleted.",
-                    static_cast<int>(d.modified.size()), static_cast<int>(d.deleted.size()), static_cast<int>(d.added.size()));
-        ImGui::BeginChild("##revertfiles", ImVec2(ImGui::GetFontSize() * 36.0f, ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(std::min<std::size_t>(9, d.modified.size() + d.added.size() + d.deleted.size()) + 1)),
-                          ImGuiChildFlags_Borders);
+                    static_cast<int>(d.modified.size()), static_cast<int>(d.deleted.size()),
+                    static_cast<int>(d.added.size()));
+        ImGui::BeginChild(
+            "##revertfiles",
+            ImVec2(ImGui::GetFontSize() * 36.0f,
+                   ImGui::GetTextLineHeightWithSpacing() *
+                       static_cast<float>(
+                           std::min<std::size_t>(9, d.modified.size() + d.added.size() + d.deleted.size()) + 1)),
+            ImGuiChildFlags_Borders);
         list_files(d, 60);
         ImGui::EndChild();
     }
     if (aiRevert_.laterRuns > 0)
-        ImGui::TextColored(amber, "This is not the newest run: the %d later run(s) are taken back too.", aiRevert_.laterRuns);
+        ImGui::TextColored(amber, "This is not the newest run: the %d later run(s) are taken back too.",
+                           aiRevert_.laterRuns);
     // Other chats' runs changed files too (they ran at the same time, or after this one): never silently clobbered.
     const bool contested = !plan.shared.empty() || plan.sceneShared;
     if (!plan.whole && !undo) {
-        ImGui::TextColored(amber, "Other chats worked in this project at the same time, so only the files this run changed go back; "
-                                  "the rest stay as they are.");
+        ImGui::TextColored(
+            amber, "Other chats worked in this project at the same time, so only the files this run changed go back; "
+                   "the rest stay as they are.");
     } else if (plan.whole && !undo && !plan.shared.empty()) {
-        ImGui::TextColored(amber, "This run's file list is too long to tell its files from those of other chats: everything goes back, "
-                                  "including files other chats changed (listed below).");
+        ImGui::TextColored(
+            amber,
+            "This run's file list is too long to tell its files from those of other chats: everything goes back, "
+            "including files other chats changed (listed below).");
     }
     if (!plan.running.empty()) {
         std::string names;
         for (const std::string& n : plan.running) names += (names.empty() ? "" : ", ") + std::string("\"") + n + "\"";
-        ImGui::TextColored(amber, "Still running: %s. Their edits to the files and the scene below are not undone unless you choose so.", names.c_str());
+        ImGui::TextColored(
+            amber,
+            "Still running: %s. Their edits to the files and the scene below are not undone unless you choose so.",
+            names.c_str());
     }
     if (contested) {
         ImGui::TextColored(amber, "Another chat's run also changed:");
         const std::size_t shown = std::min<std::size_t>(plan.shared.size(), 8);
         for (std::size_t i = 0; i < shown; ++i) {
             std::string who;
-            for (const std::string& c : plan.shared[i].chats) who += (who.empty() ? "" : ", ") + std::string("\"") + c + "\"";
+            for (const std::string& c : plan.shared[i].chats)
+                who += (who.empty() ? "" : ", ") + std::string("\"") + c + "\"";
             ImGui::BulletText("%s  (%s)", plan.shared[i].file.c_str(), who.c_str());
         }
-        if (plan.shared.size() > shown) ImGui::TextDisabled("   ... and %d more", static_cast<int>(plan.shared.size() - shown));
+        if (plan.shared.size() > shown)
+            ImGui::TextDisabled("   ... and %d more", static_cast<int>(plan.shared.size() - shown));
         if (plan.sceneShared) ImGui::TextColored(amber, "The open scene was edited by another chat as well.");
     } else {
         ImGui::TextColored(amber, "Anything you edited by hand in these files since then is lost.");
     }
-    ImGui::TextDisabled("The scene goes back as one Undo step (Ctrl+Z). A safety checkpoint is saved first, so you can take this back.");
+    ImGui::TextDisabled("The scene goes back as one Undo step (Ctrl+Z). A safety checkpoint is saved first, so you can "
+                        "take this back.");
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
-    const bool keepable = contested && !plan.whole && !undo;  // two ways to revert: keep their changes, or take those files back too
+    const bool keepable =
+        contested && !plan.whole && !undo;  // two ways to revert: keep their changes, or take those files back too
     if (ImGui::Button(undo ? "Undo revert" : keepable ? "Revert, keep their changes" : "Revert")) {
         ImGui::CloseCurrentPopup();
         ai_revert_apply(!keepable);
     }
     at_track("ai:revert:confirm");
     if (keepable) {
-        ImGui::SetItemTooltip("Puts back the files only this run changed. The files listed above, and the open scene if another chat edited it, stay as they are now.");
+        ImGui::SetItemTooltip("Puts back the files only this run changed. The files listed above, and the open scene "
+                              "if another chat edited it, stay as they are now.");
         ImGui::SameLine();
         if (ImGui::Button("Revert including those files")) {
             ImGui::CloseCurrentPopup();
             ai_revert_apply(true);
         }
         at_track("ai:revert:confirm-all");
-        ImGui::SetItemTooltip("Also puts back the listed files to how they were before this run: the other chat's changes to them are lost.");
+        ImGui::SetItemTooltip("Also puts back the listed files to how they were before this run: the other chat's "
+                              "changes to them are lost.");
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) {
@@ -351,8 +382,10 @@ void Editor::ai_revert_apply(bool includeShared) {
         std::set<std::string> contested;
         for (const SharedFile& s : req.plan.shared) contested.insert(s.file);
         for (const std::string& f : req.plan.files) {
-            if (!includeShared && contested.contains(f)) kept.push_back(f);
-            else files.push_back(f);
+            if (!includeShared && contested.contains(f))
+                kept.push_back(f);
+            else
+                files.push_back(f);
         }
         only = std::move(files);
         // The world is one: a run that did not edit the scene leaves it, and so does one whose scene another chat edited too.
@@ -374,7 +407,8 @@ void Editor::ai_revert_apply(bool includeShared) {
     // The files changed under the engine: scripts re-import, the Project panel lists again, then the world.
     engine_->scripts().refresh_modules(true);
     project_files_changed();
-    auto remembered = std::find_if(aiScenes_.begin(), aiScenes_.end(), [&](const SceneAtCheckpoint& s) { return s.id == req.target; });
+    auto remembered = std::find_if(aiScenes_.begin(), aiScenes_.end(),
+                                   [&](const SceneAtCheckpoint& s) { return s.id == req.target; });
     if (restoreScene && remembered != aiScenes_.end() && remembered->scenePath == scenePath_) {
         undo_.push_back(worldBefore);
         if (undo_.size() > 100) undo_.erase(undo_.begin());
@@ -419,14 +453,16 @@ void Editor::ai_revert_apply(bool includeShared) {
         it.sceneChanged = restoreScene && source.sceneChanged;
         if (it.sceneChanged) it.scenePath = req.scene;
         for (std::size_t i = static_cast<std::size_t>(req.item); i < chat->items.size(); ++i)
-            if (chat->items[i].kind == ChatItem::Kind::Run && chat->items[i].revertedBy.empty()) chat->items[i].revertedBy = safety;
+            if (chat->items[i].kind == ChatItem::Kind::Run && chat->items[i].revertedBy.empty())
+                chat->items[i].revertedBy = safety;
         it.text = "Reverted: " + std::to_string(file_count(it)) + " file(s) went back to how they were before the run" +
                   (it.sceneChanged ? ", and the open scene with them." : ".");
         if (!kept.empty() || (!restoreScene && req.plan.sceneShared && !req.scene.empty())) {
             it.text += " Kept as they are now, because another chat also changed them:";
             for (std::size_t i = 0; i < kept.size() && i < 6; ++i) it.text += (i ? ", " : " ") + kept[i];
             if (kept.size() > 6) it.text += " and " + std::to_string(kept.size() - 6) + " more";
-            if (!restoreScene && req.plan.sceneShared) it.text += std::string(kept.empty() ? " " : "; ") + "the open scene";
+            if (!restoreScene && req.plan.sceneShared)
+                it.text += std::string(kept.empty() ? " " : "; ") + "the open scene";
             it.text += ".";
         }
     }
@@ -465,7 +501,8 @@ void Editor::draw_ai_run_item(ChatItem& c, AiChat& chat, int index) {
             if (ImGui::SmallButton("Revert")) ai_revert_request(chat.id, index);
             ImGui::EndDisabled();
             at_track("ai:revert", !disabled);
-            ImGui::SetItemTooltip("Put the project's files and the open scene back as they were before this run.\nAsks first; the scene part is one Ctrl+Z step.");
+            ImGui::SetItemTooltip("Put the project's files and the open scene back as they were before this run.\nAsks "
+                                  "first; the scene part is one Ctrl+Z step.");
         }
     } else {
         ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.95f, 1), "%s", c.text.c_str());

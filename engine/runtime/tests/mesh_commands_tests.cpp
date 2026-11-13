@@ -55,7 +55,8 @@ EngineConfig cfg(const TempProject& p) {
 }
 
 Json quad() {
-    return Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")}, {"indices", Json::parse("[0,1,2,0,2,3]")}});
+    return Json::object(
+        {{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")}, {"indices", Json::parse("[0,1,2,0,2,3]")}});
 }
 
 }  // namespace
@@ -76,14 +77,17 @@ TEST_CASE("mesh commands: create, info, list, update and destroy") {
     CHECK(made.result["submeshes"].size() == 1);
 
     // the id is a MeshRenderer.mesh value
-    auto set = c.call("scene.set_component", Json::object({{"id", "thing"}, {"component", "MeshRenderer"}, {"fields", Json::object({{"mesh", id}})}}));
+    auto set = c.call(
+        "scene.set_component",
+        Json::object({{"id", "thing"}, {"component", "MeshRenderer"}, {"fields", Json::object({{"mesh", id}})}}));
     CHECK_MESSAGE(set.ok, set.error.dump());
 
     auto list = c.call("mesh.list", Json::object());
     REQUIRE(list.ok);
     CHECK(list.result["count"] == 1);
 
-    auto upd = c.call("mesh.update", Json::object({{"id", id}, {"positions", Json::parse("[0,0,0, 3,0,0, 3,3,0, 0,3,0]")}}));
+    auto upd =
+        c.call("mesh.update", Json::object({{"id", id}, {"positions", Json::parse("[0,0,0, 3,0,0, 3,3,0, 0,3,0]")}}));
     REQUIRE_MESSAGE(upd.ok, upd.error.dump());
     CHECK(upd.result["version"] == 2);
     CHECK(upd.result["bounds"]["max"][1] == 3);
@@ -114,7 +118,8 @@ TEST_CASE("mesh commands: a scene load releases the meshes, and save writes a .g
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     Json args = quad();
-    args["submeshes"] = Json::parse(R"([{"material":{"name":"skin","color":[1,0.5,0.25,1]},"start":0,"count":3},{"material":"cloth"}])");
+    args["submeshes"] = Json::parse(
+        R"([{"material":{"name":"skin","color":[1,0.5,0.25,1]},"start":0,"count":3},{"material":"cloth"}])");
     auto made = c.call("mesh.create", args);
     REQUIRE_MESSAGE(made.ok, made.error.dump());
     const std::string id = made.result["id"];

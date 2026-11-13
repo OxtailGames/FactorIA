@@ -118,9 +118,8 @@ bool fse_build(FseTable& t, const std::int16_t* norm, unsigned symbols, unsigned
 
 // Reads an FSE table description (the "normalized count"): forward bit stream, 4 bits of accuracy log - 5, then one
 // variable-width count per symbol. Returns the bytes used; `symbols` receives the number of symbols described.
-Result<std::size_t> read_ncount(const std::uint8_t* p, std::size_t avail, const std::uint8_t* base,
-                                std::int16_t* norm, unsigned maxSymbols, unsigned maxLog, unsigned& symbols,
-                                unsigned& log) {
+Result<std::size_t> read_ncount(const std::uint8_t* p, std::size_t avail, const std::uint8_t* base, std::int16_t* norm,
+                                unsigned maxSymbols, unsigned maxLog, unsigned& symbols, unsigned& log) {
     auto bits_at = [&](std::size_t bitPos) -> std::uint32_t {  // 32 bits from bitPos, zeros past the end
         const std::size_t byte = bitPos >> 3;
         std::uint64_t w = 0;
@@ -133,8 +132,9 @@ Result<std::size_t> read_ncount(const std::uint8_t* p, std::size_t avail, const 
     log = (bits_at(0) & 15u) + 5;
     bitPos = 4;
     if (log > maxLog)
-        return block_error("zstd", "a table has accuracy " + std::to_string(log) + " bits, more than the " +
-                                       std::to_string(maxLog) + " allowed",
+        return block_error("zstd",
+                           "a table has accuracy " + std::to_string(log) + " bits, more than the " +
+                               std::to_string(maxLog) + " allowed",
                            p - base);
     std::int32_t remaining = static_cast<std::int32_t>((1u << log) + 1);
     std::uint32_t threshold = 1u << log;
@@ -308,9 +308,7 @@ public:
     Result<void> run(bool exact, std::size_t* written);
 
 private:
-    Error fail(const std::string& what, const std::uint8_t* at) const {
-        return block_error("zstd", what, at - base_);
-    }
+    Error fail(const std::string& what, const std::uint8_t* at) const { return block_error("zstd", what, at - base_); }
     Result<void> frame(const std::uint8_t*& ip);
     Result<void> compressed_block(const std::uint8_t* src, std::size_t size, std::uint8_t* frameStart,
                                   std::size_t windowSize, std::size_t blockMax);
@@ -535,7 +533,8 @@ Result<void> Decoder::sequences_section(const std::uint8_t* ip, const std::uint8
         }
         if (offset == 0) return fail("a match has offset 0", ip);
         // Execute: the literals, then the match.
-        if (llVal > static_cast<std::size_t>(litEnd - lit)) return fail("the sequences use more literals than exist", ip);
+        if (llVal > static_cast<std::size_t>(litEnd - lit))
+            return fail("the sequences use more literals than exist", ip);
         if (llVal > static_cast<std::size_t>(oend - op_)) return fail("the data is longer than expected", ip);
         if (llVal) std::memcpy(op_, lit, llVal);
         op_ += llVal;

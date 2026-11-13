@@ -89,8 +89,9 @@ Result<void> lz4_decompress(std::span<const std::uint8_t> block, std::span<std::
         }
     }
     if (op != oend)
-        return block_error("lz4", "the block holds " + std::to_string(op - ostart) + " bytes but " +
-                                      std::to_string(out.size()) + " were expected",
+        return block_error("lz4",
+                           "the block holds " + std::to_string(op - ostart) + " bytes but " +
+                               std::to_string(out.size()) + " were expected",
                            static_cast<std::ptrdiff_t>(block.size()));
     return {};
 }
@@ -179,7 +180,7 @@ void compress_fast(const std::uint8_t* src, std::size_t n, bool skip, Writer& w)
     if (n >= kMfLimit + 1) {
         constexpr unsigned kBits = 16;
         std::vector<std::uint32_t> table(std::size_t{1} << kBits, 0);
-        const std::size_t mfLimit = n - kMfLimit;        // last position a match may start at
+        const std::size_t mfLimit = n - kMfLimit;          // last position a match may start at
         const std::size_t matchLimit = n - kLastLiterals;  // a match ends at or before this
         std::size_t ip = 0;
         table[hash4(load32(src), kBits)] = 0;
@@ -224,16 +225,16 @@ struct HcParams {
 };
 
 constexpr std::array<HcParams, 10> kHc = {{
-    {16, 1, 32},     // 3
-    {32, 1, 48},     // 4
-    {64, 1, 64},     // 5
-    {128, 2, 96},    // 6
-    {256, 2, 128},   // 7
-    {512, 2, 192},   // 8
-    {1024, 2, 256},  // 9
-    {2048, 2, 384},  // 10
-    {4096, 2, 512},  // 11
-    {8192, 2, 1024}, // 12
+    {16, 1, 32},      // 3
+    {32, 1, 48},      // 4
+    {64, 1, 64},      // 5
+    {128, 2, 96},     // 6
+    {256, 2, 128},    // 7
+    {512, 2, 192},    // 8
+    {1024, 2, 256},   // 9
+    {2048, 2, 384},   // 10
+    {4096, 2, 512},   // 11
+    {8192, 2, 1024},  // 12
 }};
 
 // Levels 3..12: hash chains (every position is linked to the previous one with the same 4-byte hash).

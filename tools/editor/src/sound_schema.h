@@ -13,15 +13,15 @@ namespace fa::editor {
 
 struct SoundField {
     std::string key;
-    std::string pointer;               // JSON pointer of the field in the patch
-    std::string kind;                  // number, integer, boolean, enum, string, object, array, other
+    std::string pointer;  // JSON pointer of the field in the patch
+    std::string kind;     // number, integer, boolean, enum, string, object, array, other
     std::string doc;
     std::optional<double> min, max;
     std::optional<Json> def;
     std::vector<std::string> choices;
     bool required = false;
-    bool present = false;              // the patch has the field
-    Json value;                        // its value when present
+    bool present = false;  // the patch has the field
+    Json value;            // its value when present
 };
 
 // The fields of the object at `pointer` of `patch` ("" = the patch itself), in the schema's order. A oneOf (an effect) is resolved by the value's "type".
@@ -30,7 +30,7 @@ std::vector<SoundField> sfx_fields(const Json& patch, const std::string& pointer
 // The kind, range and doc of the array at `pointer`, and of what it holds.
 struct SoundArrayInfo {
     bool known = false;
-    std::string itemKind;              // number, object, ...
+    std::string itemKind;  // number, object, ...
     int minItems = 0, maxItems = 1000;
     std::string doc;
 };

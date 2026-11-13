@@ -153,7 +153,8 @@ double snapped_scale(const KeySet& keys, double scale, int fps) {
 KeySet moved_keys(const KeySet& keys, double offset, double scale) {
     KeySet out;
     const double pivot = earliest_time(keys);
-    for (const KeyId& k : keys) out.insert(make_key_id(k.track, clip_round_time(pivot + (k.t - pivot) * scale + offset)));
+    for (const KeyId& k : keys)
+        out.insert(make_key_id(k.track, clip_round_time(pivot + (k.t - pivot) * scale + offset)));
     return out;
 }
 
@@ -184,13 +185,15 @@ std::vector<ModelCall> delete_keys_calls(const std::string& clipPath, const Clip
     for (const auto& [track, times] : byTrack) {
         Json ts = Json::array();
         for (double t : times) ts.push_back(t);
-        calls.push_back({"anim.remove_keys", Json::object({{"path", clipPath}, {"track", track_ref_json(clip.tracks[std::size_t(track)])}, {"times", ts}})});
+        calls.push_back({"anim.remove_keys", Json::object({{"path", clipPath},
+                                                           {"track", track_ref_json(clip.tracks[std::size_t(track)])},
+                                                           {"times", ts}})});
     }
     return calls;
 }
 
-ModelCall set_tangent_call(const std::string& clipPath, const ClipTrack& track, const ClipKey& key, int trackIndex, int channel,
-                           bool outgoing, float slope) {
+ModelCall set_tangent_call(const std::string& clipPath, const ClipTrack& track, const ClipKey& key, int trackIndex,
+                           int channel, bool outgoing, float slope) {
     std::array<float, 4> v = outgoing ? key.outTan : key.inTan;
     v[std::size_t(std::clamp(channel, 0, 3))] = slope;
     Json a = Json::object({{"path", clipPath},
@@ -229,7 +232,10 @@ std::vector<ModelCall> paste_keys_calls(const std::string& clipPath, const KeyCl
     }
     std::vector<ModelCall> calls;
     for (const std::string& id : order)
-        calls.push_back({"anim.set_keys", Json::object({{"path", clipPath}, {"track", trackOf[id]}, {"keys", keysOf[id]}, {"extendDuration", true}})});
+        calls.push_back(
+            {"anim.set_keys",
+             Json::object(
+                 {{"path", clipPath}, {"track", trackOf[id]}, {"keys", keysOf[id]}, {"extendDuration", true}})});
     return calls;
 }
 
@@ -243,7 +249,8 @@ KeySet pasted_selection(const ClipAsset& clip, const KeyClipboard& clipboard, do
         if (it == index.end()) {
             int found = -1;
             for (std::size_t i = 0; i < clip.tracks.size(); ++i)
-                if (same_track(clip.tracks[i], c.track.value("path", std::string()), c.track.value("component", std::string("Transform")),
+                if (same_track(clip.tracks[i], c.track.value("path", std::string()),
+                               c.track.value("component", std::string("Transform")),
                                c.track.value("field", std::string())))
                     found = int(i);
             it = index.emplace(id, found >= 0 ? found : next++).first;
@@ -270,7 +277,8 @@ std::optional<std::string> part_path_of(const World& world, Entity owner, Entity
     return path;
 }
 
-std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& field, const void* live, const Json& newValue) {
+std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& field, const void* live,
+                                      const Json& newValue) {
     std::vector<RecordKey> out;
     if (!clip_field_animatable(field) || !live) return out;
     DefaultObject scratch(type);
@@ -279,13 +287,15 @@ std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& fie
     switch (field.kind) {
         case FieldKind::Vec2: channels = 2; break;
         case FieldKind::Vec3: channels = 3; break;
-        case FieldKind::Vec4: case FieldKind::Color: channels = 4; break;
+        case FieldKind::Vec4:
+        case FieldKind::Color: channels = 4; break;
         default: break;
     }
     const Json whole = field_to_json(field, scratch.get()), wholeBefore = field_to_json(field, live);
     if (channels == 0) {
         const bool differs = field.kind == FieldKind::Float
-                                 ? std::fabs(*static_cast<const float*>(field.ptr(scratch.get())) - *static_cast<const float*>(field.ptr(live))) > 1e-6f
+                                 ? std::fabs(*static_cast<const float*>(field.ptr(scratch.get())) -
+                                             *static_cast<const float*>(field.ptr(live))) > 1e-6f
                                  : whole != wholeBefore;
         if (differs) out.push_back({type.name, field.name, whole, wholeBefore, field.name, whole, wholeBefore});
         return out;
@@ -295,7 +305,8 @@ std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& fie
     const char* letters = field.kind == FieldKind::Color ? "rgba" : "xyzw";
     for (int c = 0; c < channels; ++c)
         if (std::fabs(now[c] - was[c]) > 1e-6f)
-            out.push_back({type.name, field.name + "." + std::string(1, letters[c]), round4(now[c]), round4(was[c]), field.name, whole, wholeBefore});
+            out.push_back({type.name, field.name + "." + std::string(1, letters[c]), round4(now[c]), round4(was[c]),
+                           field.name, whole, wholeBefore});
     return out;
 }
 
@@ -307,9 +318,16 @@ std::vector<ModelCall> record_calls(const std::string& clipPath, const ClipAsset
         int at = -1;
         bool whole = false;
         for (std::size_t i = 0; i < clip.tracks.size(); ++i) {
-            if (same_track(clip.tracks[i], part, ch.component, ch.field)) { at = int(i); whole = false; break; }
-            if (clip.tracks[i].path == part && clip.tracks[i].component == ch.component && clip.tracks[i].spelled == ch.base &&
-                ch.base != ch.field) { at = int(i); whole = true; }
+            if (same_track(clip.tracks[i], part, ch.component, ch.field)) {
+                at = int(i);
+                whole = false;
+                break;
+            }
+            if (clip.tracks[i].path == part && clip.tracks[i].component == ch.component &&
+                clip.tracks[i].spelled == ch.base && ch.base != ch.field) {
+                at = int(i);
+                whole = true;
+            }
         }
         const ClipTrack* tr = at >= 0 ? &clip.tracks[std::size_t(at)] : nullptr;
         const Json& value = whole ? ch.wholeValue : ch.value;
@@ -328,7 +346,9 @@ std::vector<ModelCall> record_calls(const std::string& clipPath, const ClipAsset
         Json track = Json::object({{"field", tr ? tr->spelled : ch.field}});
         if (!part.empty()) track["path"] = part;
         if (ch.component != "Transform") track["component"] = ch.component;
-        calls.push_back({"anim.set_keys", Json::object({{"path", clipPath}, {"track", track}, {"keys", keys}, {"extendDuration", true}})});
+        calls.push_back(
+            {"anim.set_keys",
+             Json::object({{"path", clipPath}, {"track", track}, {"keys", keys}, {"extendDuration", true}})});
     }
     return calls;
 }

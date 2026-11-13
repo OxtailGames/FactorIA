@@ -26,59 +26,54 @@ namespace fa {
 
 namespace {
 
-constexpr int kBlock = 2048;               // window length
-constexpr int kHalf = kBlock / 2;          // spectrum size = hop of the stream
-constexpr int kBlockExponent = 11;         // 2^11
+constexpr int kBlock = 2048;        // window length
+constexpr int kHalf = kBlock / 2;   // spectrum size = hop of the stream
+constexpr int kBlockExponent = 11;  // 2^11
 constexpr int kPartitionSize = 16;
 constexpr int kPartitions = kHalf / kPartitionSize;
 constexpr double kPi = 3.14159265358979323846;
-constexpr std::uint32_t kSerial = 0x46414F47;  // "FAOG": one logical stream, a fixed serial keeps the file deterministic
+constexpr std::uint32_t kSerial =
+    0x46414F47;  // "FAOG": one logical stream, a fixed serial keeps the file deterministic
 
 // floor1_inverse_dB_table of the Vorbis I specification (what a floor value of 0..255 multiplies the residue by).
 constexpr float kDbTable[256] = {
-    1.0649863e-07f, 1.1341951e-07f, 1.2079015e-07f, 1.2863978e-07f, 1.3699951e-07f, 1.4590251e-07f,
-    1.5538408e-07f, 1.6548181e-07f, 1.7623575e-07f, 1.8768855e-07f, 1.9988561e-07f, 2.1287530e-07f,
-    2.2670913e-07f, 2.4144197e-07f, 2.5713223e-07f, 2.7384213e-07f, 2.9163793e-07f, 3.1059021e-07f,
-    3.3077411e-07f, 3.5226968e-07f, 3.7516214e-07f, 3.9954229e-07f, 4.2550680e-07f, 4.5315863e-07f,
-    4.8260743e-07f, 5.1396998e-07f, 5.4737065e-07f, 5.8294187e-07f, 6.2082472e-07f, 6.6116941e-07f,
-    7.0413592e-07f, 7.4989464e-07f, 7.9862701e-07f, 8.5052630e-07f, 9.0579828e-07f, 9.6466216e-07f,
-    1.0273513e-06f, 1.0941144e-06f, 1.1652161e-06f, 1.2409384e-06f, 1.3215816e-06f, 1.4074654e-06f,
-    1.4989305e-06f, 1.5963394e-06f, 1.7000785e-06f, 1.8105592e-06f, 1.9282195e-06f, 2.0535261e-06f,
-    2.1869758e-06f, 2.3290978e-06f, 2.4804557e-06f, 2.6416497e-06f, 2.8133190e-06f, 2.9961443e-06f,
-    3.1908506e-06f, 3.3982101e-06f, 3.6190449e-06f, 3.8542308e-06f, 4.1047004e-06f, 4.3714470e-06f,
-    4.6555282e-06f, 4.9580707e-06f, 5.2802740e-06f, 5.6234160e-06f, 5.9888572e-06f, 6.3780469e-06f,
-    6.7925283e-06f, 7.2339451e-06f, 7.7040476e-06f, 8.2047000e-06f, 8.7378876e-06f, 9.3057248e-06f,
-    9.9104632e-06f, 1.0554501e-05f, 1.1240392e-05f, 1.1970856e-05f, 1.2748789e-05f, 1.3577278e-05f,
-    1.4459606e-05f, 1.5399272e-05f, 1.6400004e-05f, 1.7465768e-05f, 1.8600792e-05f, 1.9809576e-05f,
-    2.1096914e-05f, 2.2467911e-05f, 2.3928002e-05f, 2.5482978e-05f, 2.7139006e-05f, 2.8902651e-05f,
-    3.0780908e-05f, 3.2781225e-05f, 3.4911534e-05f, 3.7180282e-05f, 3.9596466e-05f, 4.2169667e-05f,
-    4.4910090e-05f, 4.7828601e-05f, 5.0936773e-05f, 5.4246931e-05f, 5.7772202e-05f, 6.1526565e-05f,
-    6.5524908e-05f, 6.9783085e-05f, 7.4317983e-05f, 7.9147585e-05f, 8.4291040e-05f, 8.9768747e-05f,
-    9.5602426e-05f, 0.00010181521f, 0.00010843174f, 0.00011547824f, 0.00012298267f, 0.00013097477f,
-    0.00013948625f, 0.00014855085f, 0.00015820453f, 0.00016848555f, 0.00017943469f, 0.00019109536f,
-    0.00020351382f, 0.00021673929f, 0.00023082423f, 0.00024582449f, 0.00026179955f, 0.00027881276f,
-    0.00029693158f, 0.00031622787f, 0.00033677814f, 0.00035866388f, 0.00038197188f, 0.00040679456f,
-    0.00043323036f, 0.00046138411f, 0.00049136745f, 0.00052329927f, 0.00055730621f, 0.00059352311f,
-    0.00063209358f, 0.00067317058f, 0.00071691700f, 0.00076350630f, 0.00081312324f, 0.00086596457f,
-    0.00092223983f, 0.00098217216f, 0.0010459992f, 0.0011139742f, 0.0011863665f, 0.0012634633f,
-    0.0013455702f, 0.0014330129f, 0.0015261382f, 0.0016253153f, 0.0017309374f, 0.0018434235f,
-    0.0019632195f, 0.0020908006f, 0.0022266726f, 0.0023713743f, 0.0025254795f, 0.0026895994f,
-    0.0028643847f, 0.0030505286f, 0.0032487691f, 0.0034598925f, 0.0036847358f, 0.0039241906f,
-    0.0041792066f, 0.0044507950f, 0.0047400328f, 0.0050480668f, 0.0053761186f, 0.0057254891f,
-    0.0060975636f, 0.0064938176f, 0.0069158225f, 0.0073652516f, 0.0078438871f, 0.0083536271f,
-    0.0088964928f, 0.009474637f, 0.010090352f, 0.010746080f, 0.011444421f, 0.012188144f,
-    0.012980198f, 0.013823725f, 0.014722068f, 0.015678791f, 0.016697687f, 0.017782797f,
-    0.018938423f, 0.020169149f, 0.021479854f, 0.022875735f, 0.024362330f, 0.025945531f,
-    0.027631618f, 0.029427276f, 0.031339626f, 0.033376252f, 0.035545228f, 0.037855157f,
-    0.040315199f, 0.042935108f, 0.045725273f, 0.048696758f, 0.051861348f, 0.055231591f,
-    0.058820850f, 0.062643361f, 0.066714279f, 0.071049749f, 0.075666962f, 0.080584227f,
-    0.085821044f, 0.091398179f, 0.097337747f, 0.10366330f, 0.11039993f, 0.11757434f,
-    0.12521498f, 0.13335215f, 0.14201813f, 0.15124727f, 0.16107617f, 0.17154380f,
-    0.18269168f, 0.19456402f, 0.20720788f, 0.22067342f, 0.23501402f, 0.25028656f,
-    0.26655159f, 0.28387361f, 0.30232132f, 0.32196786f, 0.34289114f, 0.36517414f,
-    0.38890521f, 0.41417847f, 0.44109412f, 0.46975890f, 0.50028648f, 0.53279791f,
-    0.56742212f, 0.60429640f, 0.64356699f, 0.68538959f, 0.72993007f, 0.77736504f,
-    0.82788260f, 0.88168307f, 0.9389798f, 1.0f,
+    1.0649863e-07f, 1.1341951e-07f, 1.2079015e-07f, 1.2863978e-07f, 1.3699951e-07f, 1.4590251e-07f, 1.5538408e-07f,
+    1.6548181e-07f, 1.7623575e-07f, 1.8768855e-07f, 1.9988561e-07f, 2.1287530e-07f, 2.2670913e-07f, 2.4144197e-07f,
+    2.5713223e-07f, 2.7384213e-07f, 2.9163793e-07f, 3.1059021e-07f, 3.3077411e-07f, 3.5226968e-07f, 3.7516214e-07f,
+    3.9954229e-07f, 4.2550680e-07f, 4.5315863e-07f, 4.8260743e-07f, 5.1396998e-07f, 5.4737065e-07f, 5.8294187e-07f,
+    6.2082472e-07f, 6.6116941e-07f, 7.0413592e-07f, 7.4989464e-07f, 7.9862701e-07f, 8.5052630e-07f, 9.0579828e-07f,
+    9.6466216e-07f, 1.0273513e-06f, 1.0941144e-06f, 1.1652161e-06f, 1.2409384e-06f, 1.3215816e-06f, 1.4074654e-06f,
+    1.4989305e-06f, 1.5963394e-06f, 1.7000785e-06f, 1.8105592e-06f, 1.9282195e-06f, 2.0535261e-06f, 2.1869758e-06f,
+    2.3290978e-06f, 2.4804557e-06f, 2.6416497e-06f, 2.8133190e-06f, 2.9961443e-06f, 3.1908506e-06f, 3.3982101e-06f,
+    3.6190449e-06f, 3.8542308e-06f, 4.1047004e-06f, 4.3714470e-06f, 4.6555282e-06f, 4.9580707e-06f, 5.2802740e-06f,
+    5.6234160e-06f, 5.9888572e-06f, 6.3780469e-06f, 6.7925283e-06f, 7.2339451e-06f, 7.7040476e-06f, 8.2047000e-06f,
+    8.7378876e-06f, 9.3057248e-06f, 9.9104632e-06f, 1.0554501e-05f, 1.1240392e-05f, 1.1970856e-05f, 1.2748789e-05f,
+    1.3577278e-05f, 1.4459606e-05f, 1.5399272e-05f, 1.6400004e-05f, 1.7465768e-05f, 1.8600792e-05f, 1.9809576e-05f,
+    2.1096914e-05f, 2.2467911e-05f, 2.3928002e-05f, 2.5482978e-05f, 2.7139006e-05f, 2.8902651e-05f, 3.0780908e-05f,
+    3.2781225e-05f, 3.4911534e-05f, 3.7180282e-05f, 3.9596466e-05f, 4.2169667e-05f, 4.4910090e-05f, 4.7828601e-05f,
+    5.0936773e-05f, 5.4246931e-05f, 5.7772202e-05f, 6.1526565e-05f, 6.5524908e-05f, 6.9783085e-05f, 7.4317983e-05f,
+    7.9147585e-05f, 8.4291040e-05f, 8.9768747e-05f, 9.5602426e-05f, 0.00010181521f, 0.00010843174f, 0.00011547824f,
+    0.00012298267f, 0.00013097477f, 0.00013948625f, 0.00014855085f, 0.00015820453f, 0.00016848555f, 0.00017943469f,
+    0.00019109536f, 0.00020351382f, 0.00021673929f, 0.00023082423f, 0.00024582449f, 0.00026179955f, 0.00027881276f,
+    0.00029693158f, 0.00031622787f, 0.00033677814f, 0.00035866388f, 0.00038197188f, 0.00040679456f, 0.00043323036f,
+    0.00046138411f, 0.00049136745f, 0.00052329927f, 0.00055730621f, 0.00059352311f, 0.00063209358f, 0.00067317058f,
+    0.00071691700f, 0.00076350630f, 0.00081312324f, 0.00086596457f, 0.00092223983f, 0.00098217216f, 0.0010459992f,
+    0.0011139742f,  0.0011863665f,  0.0012634633f,  0.0013455702f,  0.0014330129f,  0.0015261382f,  0.0016253153f,
+    0.0017309374f,  0.0018434235f,  0.0019632195f,  0.0020908006f,  0.0022266726f,  0.0023713743f,  0.0025254795f,
+    0.0026895994f,  0.0028643847f,  0.0030505286f,  0.0032487691f,  0.0034598925f,  0.0036847358f,  0.0039241906f,
+    0.0041792066f,  0.0044507950f,  0.0047400328f,  0.0050480668f,  0.0053761186f,  0.0057254891f,  0.0060975636f,
+    0.0064938176f,  0.0069158225f,  0.0073652516f,  0.0078438871f,  0.0083536271f,  0.0088964928f,  0.009474637f,
+    0.010090352f,   0.010746080f,   0.011444421f,   0.012188144f,   0.012980198f,   0.013823725f,   0.014722068f,
+    0.015678791f,   0.016697687f,   0.017782797f,   0.018938423f,   0.020169149f,   0.021479854f,   0.022875735f,
+    0.024362330f,   0.025945531f,   0.027631618f,   0.029427276f,   0.031339626f,   0.033376252f,   0.035545228f,
+    0.037855157f,   0.040315199f,   0.042935108f,   0.045725273f,   0.048696758f,   0.051861348f,   0.055231591f,
+    0.058820850f,   0.062643361f,   0.066714279f,   0.071049749f,   0.075666962f,   0.080584227f,   0.085821044f,
+    0.091398179f,   0.097337747f,   0.10366330f,    0.11039993f,    0.11757434f,    0.12521498f,    0.13335215f,
+    0.14201813f,    0.15124727f,    0.16107617f,    0.17154380f,    0.18269168f,    0.19456402f,    0.20720788f,
+    0.22067342f,    0.23501402f,    0.25028656f,    0.26655159f,    0.28387361f,    0.30232132f,    0.32196786f,
+    0.34289114f,    0.36517414f,    0.38890521f,    0.41417847f,    0.44109412f,    0.46975890f,    0.50028648f,
+    0.53279791f,    0.56742212f,    0.60429640f,    0.64356699f,    0.68538959f,    0.72993007f,    0.77736504f,
+    0.82788260f,    0.88168307f,    0.9389798f,     1.0f,
 };
 
 class BitWriter {
@@ -113,10 +108,10 @@ std::uint32_t float32_pack(double x) {  // the Vorbis codebook float: 21 bit man
 // ---- the Huffman code of the residue values ------------------------------------------------------------------------
 
 struct Code {
-    std::vector<int> length;           // per value index
-    std::vector<std::uint32_t> code;   // per value index
-    std::vector<int> entryOf;          // value index -> entry number (entries are in order of length)
-    std::vector<int> valueOf;          // entry number -> value index
+    std::vector<int> length;          // per value index
+    std::vector<std::uint32_t> code;  // per value index
+    std::vector<int> entryOf;         // value index -> entry number (entries are in order of length)
+    std::vector<int> valueOf;         // entry number -> value index
 };
 
 std::vector<int> huffman_lengths(std::vector<std::uint64_t> counts) {
@@ -125,7 +120,9 @@ std::vector<int> huffman_lengths(std::vector<std::uint64_t> counts) {
             std::uint64_t weight;
             int id;
         };
-        const auto later = [](const Node& a, const Node& b) { return a.weight != b.weight ? a.weight > b.weight : a.id > b.id; };
+        const auto later = [](const Node& a, const Node& b) {
+            return a.weight != b.weight ? a.weight > b.weight : a.id > b.id;
+        };
         std::priority_queue<Node, std::vector<Node>, decltype(later)> heap(later);
         const int n = static_cast<int>(counts.size());
         std::vector<int> parent(static_cast<std::size_t>(n) * 2, -1);
@@ -143,7 +140,8 @@ std::vector<int> huffman_lengths(std::vector<std::uint64_t> counts) {
         int longest = 0;
         for (int i = 0; i < n; ++i) {
             int depth = 0;
-            for (int at = i; parent[static_cast<std::size_t>(at)] >= 0; at = parent[static_cast<std::size_t>(at)]) ++depth;
+            for (int at = i; parent[static_cast<std::size_t>(at)] >= 0; at = parent[static_cast<std::size_t>(at)])
+                ++depth;
             lengths[static_cast<std::size_t>(i)] = std::max(1, depth);
             longest = std::max(longest, depth);
         }
@@ -158,8 +156,9 @@ Code make_code(const std::vector<std::uint64_t>& counts) {
     const std::vector<int> lengths = huffman_lengths(counts);
     c.valueOf.resize(n);
     for (std::size_t i = 0; i < n; ++i) c.valueOf[i] = static_cast<int>(i);
-    std::stable_sort(c.valueOf.begin(), c.valueOf.end(),
-                     [&](int a, int b) { return lengths[static_cast<std::size_t>(a)] < lengths[static_cast<std::size_t>(b)]; });
+    std::stable_sort(c.valueOf.begin(), c.valueOf.end(), [&](int a, int b) {
+        return lengths[static_cast<std::size_t>(a)] < lengths[static_cast<std::size_t>(b)];
+    });
     c.length.assign(n, 0);
     c.code.assign(n, 0);
     c.entryOf.assign(n, 0);
@@ -204,7 +203,8 @@ public:
     }
     void flush(bool last) {
         if (segments_.empty()) return;
-        std::vector<std::uint8_t> page = {'O', 'g', 'g', 'S', 0, static_cast<std::uint8_t>((first_ ? 2 : 0) | (last ? 4 : 0))};
+        std::vector<std::uint8_t> page = {'O', 'g', 'g',
+                                          'S', 0,   static_cast<std::uint8_t>((first_ ? 2 : 0) | (last ? 4 : 0))};
         const auto le = [&](std::uint64_t v, int bytes) {
             for (int i = 0; i < bytes; ++i) page.push_back(static_cast<std::uint8_t>((v >> (8 * i)) & 255));
         };
@@ -219,7 +219,8 @@ public:
         static const std::array<std::uint32_t, 256> table = make_crc_table();
         std::uint32_t crc = 0;
         for (std::uint8_t b : page) crc = (crc << 8) ^ table[((crc >> 24) & 255) ^ b];
-        for (int i = 0; i < 4; ++i) page[crcAt + static_cast<std::size_t>(i)] = static_cast<std::uint8_t>((crc >> (8 * i)) & 255);
+        for (int i = 0; i < 4; ++i)
+            page[crcAt + static_cast<std::size_t>(i)] = static_cast<std::uint8_t>((crc >> (8 * i)) & 255);
         out_.insert(out_.end(), page.begin(), page.end());
         segments_.clear();
         data_.clear();
@@ -312,16 +313,16 @@ std::vector<std::uint8_t> setup_header(int channels, const Code& code, int value
     // residues: one, type 1
     w.put(0, 6);
     w.put(1, 16);
-    w.put(0, 24);                       // begin
-    w.put(kHalf, 24);                   // end
+    w.put(0, 24);      // begin
+    w.put(kHalf, 24);  // end
     w.put(kPartitionSize - 1, 24);
-    w.put(1, 6);                        // two classes
-    w.put(0, 8);                        // classbook: codebook 0
-    w.put(0, 3);                        // class 0: no book
+    w.put(1, 6);  // two classes
+    w.put(0, 8);  // classbook: codebook 0
+    w.put(0, 3);  // class 0: no book
     w.put(0, 1);
-    w.put(1, 3);                        // class 1: a book in pass 0
+    w.put(1, 3);  // class 1: a book in pass 0
     w.put(0, 1);
-    w.put(1, 8);                        // ... codebook 1
+    w.put(1, 8);  // ... codebook 1
     // mappings: one, type 0, one submap, no coupling
     w.put(0, 6);
     w.put(0, 16);
@@ -345,23 +346,26 @@ std::vector<std::uint8_t> setup_header(int channels, const Code& code, int value
 }  // namespace
 
 Result<std::vector<std::uint8_t>> encode_vorbis(std::span<const std::uint8_t> wav, double quality) {
-    if (!(quality >= 0.0 && quality <= 1.0)) return make_error("quality must be a number from 0 to 1", "0.5 is the default; 0.8 for music.");
+    if (!(quality >= 0.0 && quality <= 1.0))
+        return make_error("quality must be a number from 0 to 1", "0.5 is the default; 0.8 for music.");
     unsigned channels = 0, rate = 0;
     drwav_uint64 frames = 0;
     float* pcm = drwav_open_memory_and_read_pcm_frames_f32(wav.data(), wav.size(), &channels, &rate, &frames, nullptr);
     if (!pcm) return make_error("not a valid WAV file", "Use 8/16/24/32-bit PCM or float WAV.");
     std::unique_ptr<float, void (*)(void*)> release{pcm, [](void* p) { drwav_free(p, nullptr); }};
     if (channels < 1 || channels > 2)
-        return make_error("Ogg output here holds one or two channels, the WAV has " + std::to_string(channels), "Mix the sound down to mono or stereo first.");
+        return make_error("Ogg output here holds one or two channels, the WAV has " + std::to_string(channels),
+                          "Mix the sound down to mono or stereo first.");
     if (frames == 0 || frames > 0x7fffffffull || rate < 8000 || rate > 192000)
-        return make_error("the WAV has no samples, or a sample rate outside 8000 to 192000 Hz", "Check the file with assets.analyze_audio.");
+        return make_error("the WAV has no samples, or a sample rate outside 8000 to 192000 Hz",
+                          "Check the file with assets.analyze_audio.");
 
     const int ch = static_cast<int>(channels);
     const std::int64_t length = static_cast<std::int64_t>(frames);
     const int valueRange = 127;
     const int levels = static_cast<int>(std::lround(4 + 96 * quality));  // quantization steps per frame peak
-    const double smallestStep = 1.0 / 65536.0;                           // below this the PCM would round to zero anyway
-    const std::int64_t hops = (length + kHalf - 1) / kHalf;               // hops that hold the stream
+    const double smallestStep = 1.0 / 65536.0;               // below this the PCM would round to zero anyway
+    const std::int64_t hops = (length + kHalf - 1) / kHalf;  // hops that hold the stream
     const std::int64_t windows = hops + 1;
     // The stream's sample 0 sits kHalf into the first window (the decoder drops the first half-window).
     std::vector<std::vector<float>> timeline(static_cast<std::size_t>(ch),
@@ -393,7 +397,8 @@ Result<std::vector<std::uint8_t>> encode_vorbis(std::span<const std::uint8_t> wa
     for (std::int64_t j = 0; j < windows; ++j) {
         for (int c = 0; c < ch; ++c) {
             const float* src = &timeline[static_cast<std::size_t>(c)][static_cast<std::size_t>(j * kHalf)];
-            for (int n = 0; n < kBlock; ++n) block[static_cast<std::size_t>(n)] = src[n] * window[static_cast<std::size_t>(n)];
+            for (int n = 0; n < kBlock; ++n)
+                block[static_cast<std::size_t>(n)] = src[n] * window[static_cast<std::size_t>(n)];
             float peak = 0;
             for (int k = 0; k < kHalf; ++k) {
                 const float* row = &cosines[static_cast<std::size_t>(k) * kBlock];
@@ -409,14 +414,18 @@ Result<std::vector<std::uint8_t>> encode_vorbis(std::span<const std::uint8_t> wa
             f.floor = y;
             const float step = kDbTable[y];
             for (int k = 0; k < kHalf; ++k) {
-                const int q = std::clamp(static_cast<int>(std::lround(spectrum[static_cast<std::size_t>(k)] / step)), -valueRange, valueRange);
+                const int q = std::clamp(static_cast<int>(std::lround(spectrum[static_cast<std::size_t>(k)] / step)),
+                                         -valueRange, valueRange);
                 f.q[static_cast<std::size_t>(k)] = static_cast<std::int16_t>(q);
             }
             for (int p = 0; p < kPartitions; ++p) {
                 bool any = false;
-                for (int i = 0; i < kPartitionSize; ++i) any = any || f.q[static_cast<std::size_t>(p * kPartitionSize + i)] != 0;
+                for (int i = 0; i < kPartitionSize; ++i)
+                    any = any || f.q[static_cast<std::size_t>(p * kPartitionSize + i)] != 0;
                 if (!any) continue;
-                for (int i = 0; i < kPartitionSize; ++i) ++counts[static_cast<std::size_t>(f.q[static_cast<std::size_t>(p * kPartitionSize + i)] + valueRange)];
+                for (int i = 0; i < kPartitionSize; ++i)
+                    ++counts[static_cast<std::size_t>(f.q[static_cast<std::size_t>(p * kPartitionSize + i)] +
+                                                      valueRange)];
             }
         }
     }
@@ -442,7 +451,8 @@ Result<std::vector<std::uint8_t>> encode_vorbis(std::span<const std::uint8_t> wa
             for (int c = 0; c < ch; ++c) {
                 const Frame& f = coded[static_cast<std::size_t>(j * ch + c)];
                 bool any = false;
-                for (int i = 0; i < kPartitionSize; ++i) any = any || f.q[static_cast<std::size_t>(p * kPartitionSize + i)] != 0;
+                for (int i = 0; i < kPartitionSize; ++i)
+                    any = any || f.q[static_cast<std::size_t>(p * kPartitionSize + i)] != 0;
                 coded_part[static_cast<std::size_t>(c)] = any;
                 w.put(any ? 1 : 0, 1);
             }
@@ -450,7 +460,8 @@ Result<std::vector<std::uint8_t>> encode_vorbis(std::span<const std::uint8_t> wa
                 if (!coded_part[static_cast<std::size_t>(c)]) continue;
                 const Frame& f = coded[static_cast<std::size_t>(j * ch + c)];
                 for (int i = 0; i < kPartitionSize; ++i) {
-                    const std::size_t v = static_cast<std::size_t>(f.q[static_cast<std::size_t>(p * kPartitionSize + i)] + valueRange);
+                    const std::size_t v =
+                        static_cast<std::size_t>(f.q[static_cast<std::size_t>(p * kPartitionSize + i)] + valueRange);
                     w.put_code(code.code[v], code.length[v]);
                 }
             }

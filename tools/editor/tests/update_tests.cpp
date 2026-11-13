@@ -23,9 +23,14 @@ void put(const stdfs::path& p, const std::string& text) {
 }
 
 Json release(const std::string& tag, const std::string& body, bool prerelease = false) {
-    Json asset = Json::object({{"name", update_package_name()}, {"browser_download_url", "https://example.test/" + tag}, {"size", 1234}});
-    return Json::object({{"tag_name", tag}, {"name", "FactorIA " + tag}, {"body", body}, {"draft", false},
-                         {"prerelease", prerelease}, {"assets", Json::array({asset})}});
+    Json asset = Json::object(
+        {{"name", update_package_name()}, {"browser_download_url", "https://example.test/" + tag}, {"size", 1234}});
+    return Json::object({{"tag_name", tag},
+                         {"name", "FactorIA " + tag},
+                         {"body", body},
+                         {"draft", false},
+                         {"prerelease", prerelease},
+                         {"assets", Json::array({asset})}});
 }
 
 }  // namespace
@@ -51,14 +56,18 @@ TEST_CASE("parse_releases offers the newest release with the notes of every newe
     CHECK(r->packageSize == 1234);
     CHECK(r->notes.find("three") < r->notes.find("two"));  // newest first
     CHECK(r->notes.find("old") == std::string::npos);
-    CHECK(r->notes.find("beta") == std::string::npos);      // pre-releases and drafts are not offered
+    CHECK(r->notes.find("beta") == std::string::npos);  // pre-releases and drafts are not offered
 
     auto upToDate = parse_releases(list, "0.3.0");
     REQUIRE(upToDate);
     CHECK_FALSE(upToDate->available());
 
-    Json noPackage = Json::array({Json::object({{"tag_name", "v2.0.0"}, {"name", nullptr}, {"body", nullptr},
-                                                {"draft", false}, {"prerelease", false}, {"assets", Json::array()}})});
+    Json noPackage = Json::array({Json::object({{"tag_name", "v2.0.0"},
+                                                {"name", nullptr},
+                                                {"body", nullptr},
+                                                {"draft", false},
+                                                {"prerelease", false},
+                                                {"assets", Json::array()}})});
     auto missing = parse_releases(noPackage, "0.1.0");
     REQUIRE_FALSE(missing);
     CHECK(missing.error().message.find(update_package_name()) != std::string::npos);
@@ -75,7 +84,7 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     stdfs::path install = root / "install", pkg = root / "pkg";
     put(install / exe, "old factoria");
     put(install / "README.md", "old readme");
-    put(install / "notes.txt", "mine");  // not in the package: left alone
+    put(install / "notes.txt", "mine");            // not in the package: left alone
     put(install / "unins000.exe", "uninstaller");  // the Windows installer's uninstaller and its log (FactorIA.iss)
     put(install / "unins000.dat", "log");
     // mobile/ (the prebuilt Android and iOS players) is swapped whole: the old x86_64 library must not survive next to
@@ -91,8 +100,13 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     stdfs::path archive = root / update_package_name();
     ai::ProcessOptions po;
 #ifdef _WIN32
-    po.argv = {std::string(std::getenv("SystemRoot")) + "\\System32\\tar.exe", "-a", "-cf", archive.string(), "-C",
-               pkg.string(), "FactorIA"};
+    po.argv = {std::string(std::getenv("SystemRoot")) + "\\System32\\tar.exe",
+               "-a",
+               "-cf",
+               archive.string(),
+               "-C",
+               pkg.string(),
+               "FactorIA"};
 #else
     po.argv = {"tar", "-czf", archive.string(), "-C", pkg.string(), "FactorIA"};
 #endif
@@ -157,8 +171,8 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
 // published release over a fake old install, as the editor's Update button does, and runs the new factoria. It checks
 // what the unit test above cannot: the real package of this OS, the download from GitHub and the unpacking (executable
 // bits, macOS code signatures).
-TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=1, network)"
-          * doctest::skip(std::getenv("FA_UPDATE_LIVE") == nullptr)) {
+TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=1, network)" *
+          doctest::skip(std::getenv("FA_UPDATE_LIVE") == nullptr)) {
     std::string repo = std::getenv("FA_UPDATE_LIVE");
     if (repo.find('/') == std::string::npos) repo = "OxtailGames/FactorIA";
     ai::HttpRequest rq;

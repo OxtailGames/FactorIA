@@ -55,7 +55,8 @@ TEST_CASE("AssetApprovals: a call waits for the answer given from another thread
     CHECK_FALSE(approvals.answer(cards[0].id, ai::AssetDecision::Approve));  // the card is gone
 }
 
-TEST_CASE("AssetApprovals: the cancel flag of the run, close() and a closed list all answer Stopped (nobody answered)") {
+TEST_CASE(
+    "AssetApprovals: the cancel flag of the run, close() and a closed list all answer Stopped (nobody answered)") {
     AssetApprovals approvals;
     CancelFlag cancel{false};
     std::atomic<int> got{-1};
@@ -111,10 +112,15 @@ TEST_CASE("asset_card_text: the estimate, the count, the provider and when the p
     // calls since the last yes that were not asked about are said on the card
     Json batch = paid_plan();
     batch["earlierUnapprovedUsd"] = 0.3;
-    CHECK(asset_card_text(batch).estimate.find("together with $0.30 of earlier calls of this run you were not asked about") != std::string::npos);
+    CHECK(asset_card_text(batch).estimate.find(
+              "together with $0.30 of earlier calls of this run you were not asked about") != std::string::npos);
     CHECK(t.estimate.find("together with") == std::string::npos);
 
-    Json unknown = Json::object({{"command", "assets.generate_voice"}, {"kind", "voice"}, {"provider", "openai"}, {"estimatedCostUsd", nullptr}, {"priceUnverified", true}});
+    Json unknown = Json::object({{"command", "assets.generate_voice"},
+                                 {"kind", "voice"},
+                                 {"provider", "openai"},
+                                 {"estimatedCostUsd", nullptr},
+                                 {"priceUnverified", true}});
     const AssetCardText u = asset_card_text(unknown);
     CHECK(u.estimate.find("price unknown") == 0);
     CHECK(u.what == "assets.generate_voice");

@@ -66,12 +66,14 @@ struct WindowMonitor {
 class WindowControl {
 public:
     virtual ~WindowControl() = default;
-    virtual std::string mode() const = 0;  // "windowed", "borderless" or "fullscreen"
+    virtual std::string mode() const = 0;        // "windowed", "borderless" or "fullscreen"
     virtual bool supports_modes() const = 0;     // a desktop window: windowed / borderless / fullscreen can be chosen
     virtual bool supports_monitors() const = 0;  // the monitors can be listed and one chosen
-    virtual std::vector<WindowMonitor> monitors() const = 0;  // primary first; one entry when the platform cannot list them
-    virtual void size(int& width, int& height) const = 0;          // client size now
-    virtual void display_size(int& width, int& height) const = 0;  // the monitor the window is on (the window size if unknown)
+    virtual std::vector<WindowMonitor>
+    monitors() const = 0;  // primary first; one entry when the platform cannot list them
+    virtual void size(int& width, int& height) const = 0;  // client size now
+    virtual void display_size(int& width,
+                              int& height) const = 0;  // the monitor the window is on (the window size if unknown)
     virtual bool vsync() const = 0;
     virtual int frame_cap() const = 0;  // frames per second, 0 = unlimited
     // The setters return "" when done, else a sentence that says why not and what to do instead (the script layer puts
@@ -196,7 +198,8 @@ public:
         return "not supported by this host (load_scene_json_now is not implemented)";
     }
     // The props of game.loadJson(scene, props); hosts without props ignore them.
-    virtual std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+    virtual std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName,
+                                                       const Json& props) {
         (void)props;
         return load_scene_json_now(scene, sourceName);
     }
@@ -211,7 +214,8 @@ public:
     // Same, then converts the saved picture to what a colour-blind viewer sees (`simulate`: greyscale, protanopia,
     // deuteranopia, tritanopia; "" or "none" = unchanged; see simulate_color_vision in fa/core/image.h). The player's
     // view is not changed, only the file. Hosts without a renderer keep the default, which refuses a simulation.
-    virtual bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) {
+    virtual bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate,
+                                      std::string* error) {
         if (!simulate.empty() && simulate != "none") {
             if (error) *error = "this host cannot simulate colour vision (no renderer)";
             return false;
@@ -239,8 +243,12 @@ public:
     // depends on the machine): desktop, "headless", 8 GB, "high", not a Steam Deck, not handheld. steamDeck: the game runs on a
     // Steam Deck; handheld: a Steam Deck, a phone or a tablet.
     virtual Json device_info() const {
-        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"},
-                                {"steamDeck", false}, {"handheld", false}});
+        return Json::object({{"formFactor", "desktop"},
+                             {"gpuBackend", "headless"},
+                             {"memoryGB", 8},
+                             {"tier", "high"},
+                             {"steamDeck", false},
+                             {"handheld", false}});
     }
     // `game.setDevice` changed the device a test pretends to run on: `device` is device_info() with the overrides on top
     // (and device_info() alone after `game.setDevice()` without an argument). Engine gives it to the audio, so a MusicPlayer
@@ -290,7 +298,8 @@ public:
 
 private:
     void push_scale_event(const char* name, float value, float previous) {
-        world().events().game.push_back(GameEvent{name, Json::object({{"value", value}, {"previous", previous}}), kNullEntity});
+        world().events().game.push_back(
+            GameEvent{name, Json::object({{"value", value}, {"previous", previous}}), kNullEntity});
     }
     float textScale_ = 1.0f;
     float uiScale_ = 1.0f;
@@ -304,7 +313,7 @@ private:
 enum class StorageMode { Persistent, Memory };
 
 struct ScriptError {
-    std::string file;     // project-relative module path
+    std::string file;  // project-relative module path
     int line = 0;
     int column = 0;
     std::string message;
@@ -324,7 +333,8 @@ struct TestCaseResult {
     std::string name;
     bool passed = false;
     std::string message;  // failure message with expected/actual
-    bool loggedError = false;  // failed (also) because the game logged an error while the test ran (script error or engine ERROR)
+    bool loggedError =
+        false;  // failed (also) because the game logged an error while the test ran (script error or engine ERROR)
     double milliseconds = 0.0;
     std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };
@@ -402,12 +412,12 @@ public:
     void shutdown();
 
     // Lifecycle (driven by the engine).
-    void on_scene_loaded();          // drop old behaviours; new ones are created lazily
-    void update(float dt);           // create behaviours for new Script components (onStart), then onUpdate
-    void fixed_update(float dt);     // onFixedUpdate
-    void late_update(float dt);      // onLateUpdate
-    void settle_activation();        // onStart/onEnable/onDisable for entities (de)activated this frame, before drawing
-    void dispatch_events();          // world.events() -> onCollision*/onTrigger*/world.on(...) handlers, then clear
+    void on_scene_loaded();       // drop old behaviours; new ones are created lazily
+    void update(float dt);        // create behaviours for new Script components (onStart), then onUpdate
+    void fixed_update(float dt);  // onFixedUpdate
+    void late_update(float dt);   // onLateUpdate
+    void settle_activation();     // onStart/onEnable/onDisable for entities (de)activated this frame, before drawing
+    void dispatch_events();       // world.events() -> onCollision*/onTrigger*/world.on(...) handlers, then clear
     // Start of every engine frame, before the fixed steps: settles the promises of platform requests that were answered
     // since the last frame, then calls the platform.on listeners for the events that came in, then runs pending jobs.
     void dispatch_platform();
@@ -473,7 +483,7 @@ public:
     // a running game logs the same warning once per class when the first behaviour of it is created.
     std::vector<std::string> check_hooks(std::string_view modulePath);
 
-    Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
+    Json api_manifest() const;  // machine-readable API (modules, classes, functions, docs)
     // Contents of types/factoria.d.ts. `since` (optional) maps (section, key) to the version that added the thing:
     // section "components" with "Component" or "Component.field", section "script" with a key of script_api_keys()
     // ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
@@ -483,7 +493,7 @@ public:
     // "factoria" module (functions, consts, classes, interfaces, aliases), "Type.member" for each member and static
     // of a class or interface, and the same with a "test:" prefix for the "factoria:test" module.
     std::vector<std::string> script_api_keys() const;
-    Json stats() const;                      // behaviours alive, modules loaded, memory
+    Json stats() const;  // behaviours alive, modules loaded, memory
     // The scale of the game clock: `time.scale` as scripts set it (game.paused sets 0) times the running hit-stop (feel.h; 1
     // when none). The engine scales physics steps, particles and sprite animators by it, so 0 freezes gameplay while the UI,
     // the audio and runWhilePaused behaviours keep running.
@@ -530,13 +540,13 @@ public:
     };
     // What the hook answered for one step.
     struct AutoplayAnswer {
-        bool called = false;               // the hook ran (false: there is none)
-        bool failed = false;               // it threw, or returned something that is not an action list (the error is in errors())
+        bool called = false;  // the hook ran (false: there is none)
+        bool failed = false;  // it threw, or returned something that is not an action list (the error is in errors())
         std::vector<std::string> actions;  // the actions to hold during this step
         std::string end;                   // "", "won" or "lost"
         bool hasScore = false;
         double score = 0;
-        std::string note;                  // a line for the session's notes (the first one only)
+        std::string note;  // a line for the session's notes (the first one only)
     };
     // Starts a bot run: `game.phase` marks are recorded from now on. With `useHook` and a file scripts/autoplay.js the file is
     // imported (it calls game.autoplay(fn)); *hookFound tells whether a hook is registered. Returns the problem of an import

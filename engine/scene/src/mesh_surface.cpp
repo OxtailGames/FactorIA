@@ -57,7 +57,8 @@ void add_disc(MeshSurface& s, int segments, float radius, float y) {
         s.positions.push_back({radius * det::cos(a), y, radius * det::sin(a)});
         s.uvs.push_back({0.5f + 0.5f * det::cos(a), 0.5f + 0.5f * det::sin(a)});
     }
-    for (int i = 0; i < segments; ++i) s.indices.insert(s.indices.end(), {base, base + 1 + std::uint32_t(i), base + 2 + std::uint32_t(i)});
+    for (int i = 0; i < segments; ++i)
+        s.indices.insert(s.indices.end(), {base, base + 1 + std::uint32_t(i), base + 2 + std::uint32_t(i)});
 }
 
 bool build_primitive_surface(const std::string& name, MeshSurface& s) {
@@ -107,9 +108,11 @@ bool build_primitive_surface(const std::string& name, MeshSurface& s) {
 Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& path) {
     auto bytes = fs::read_bytes(path);
     if (!bytes)
-        return make_error(std::format("mesh '{}' is not a built-in primitive and cannot be read as a model: {}", path, bytes.error().message),
-                          "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a project-relative path to a "
-                          ".gltf/.glb file, e.g. \"assets/models/screen.glb\".");
+        return make_error(
+            std::format("mesh '{}' is not a built-in primitive and cannot be read as a model: {}", path,
+                        bytes.error().message),
+            "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a project-relative path to a "
+            ".gltf/.glb file, e.g. \"assets/models/screen.glb\".");
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
@@ -125,6 +128,7 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
                           "External .bin files must sit next to the .gltf and be inside the project.");
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
     auto s = std::make_shared<MeshSurface>();
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
@@ -136,8 +140,10 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
             if (prim.type != cgltf_primitive_type_triangles) continue;
             const cgltf_accessor *pos = nullptr, *uv = nullptr;
             for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
-                if (prim.attributes[a].type == cgltf_attribute_type_position && prim.attributes[a].index == 0) pos = prim.attributes[a].data;
-                if (prim.attributes[a].type == cgltf_attribute_type_texcoord && prim.attributes[a].index == 0) uv = prim.attributes[a].data;
+                if (prim.attributes[a].type == cgltf_attribute_type_position && prim.attributes[a].index == 0)
+                    pos = prim.attributes[a].data;
+                if (prim.attributes[a].type == cgltf_attribute_type_texcoord && prim.attributes[a].index == 0)
+                    uv = prim.attributes[a].data;
             }
             if (!pos) continue;
             const auto base = std::uint32_t(s->positions.size());
@@ -150,7 +156,8 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
             }
             if (prim.indices) {
                 for (cgltf_size i = 0; i + 2 < prim.indices->count; i += 3)
-                    for (int k = 0; k < 3; ++k) s->indices.push_back(base + std::uint32_t(cgltf_accessor_read_index(prim.indices, i + k)));
+                    for (int k = 0; k < 3; ++k)
+                        s->indices.push_back(base + std::uint32_t(cgltf_accessor_read_index(prim.indices, i + k)));
             } else {
                 for (cgltf_size i = 0; i + 2 < pos->count; i += 3)
                     for (int k = 0; k < 3; ++k) s->indices.push_back(base + std::uint32_t(i + k));
@@ -158,8 +165,9 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
         }
     }
     if (s->indices.empty())
-        return make_error(std::format("'{}' contains no triangle meshes, so the pointer cannot reach a texture on it", path),
-                          "Export the model with at least one mesh made of triangles.");
+        return make_error(
+            std::format("'{}' contains no triangle meshes, so the pointer cannot reach a texture on it", path),
+            "Export the model with at least one mesh made of triangles.");
     return std::shared_ptr<const MeshSurface>(std::move(s));
 }
 
@@ -168,8 +176,9 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
 Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(const std::string& mesh) {
     static std::map<std::string, std::shared_ptr<const MeshSurface>> cache;
     if (mesh.empty())
-        return make_error("a MeshRenderer has no `mesh`", "Set MeshRenderer.mesh to a primitive name (cube, sphere, plane, cylinder, "
-                                                           "capsule, cone, quad) or a .gltf/.glb path.");
+        return make_error("a MeshRenderer has no `mesh`",
+                          "Set MeshRenderer.mesh to a primitive name (cube, sphere, plane, cylinder, "
+                          "capsule, cone, quad) or a .gltf/.glb path.");
     const std::string key = mesh_key(mesh);
     if (auto it = cache.find(key); it != cache.end()) return it->second;
     Result<std::shared_ptr<const MeshSurface>> out = std::shared_ptr<const MeshSurface>();
@@ -183,9 +192,11 @@ Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(const std::string& 
         const std::string lower = to_lower(mesh);
         if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
             std::vector<std::string> names(std::begin(kPrimitiveNames), std::end(kPrimitiveNames));
-            return make_error(std::format("unknown mesh '{}'", mesh),
-                              "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a project-relative "
-                              ".gltf/.glb path. " + did_you_mean(mesh, names));
+            return make_error(
+                std::format("unknown mesh '{}'", mesh),
+                "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a project-relative "
+                ".gltf/.glb path. " +
+                    did_you_mean(mesh, names));
         }
         out = load_gltf_surface(mesh);
     }
@@ -197,8 +208,10 @@ Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(MeshStore& store, c
     if (!MeshStore::is_id(mesh)) return load_mesh_surface(mesh);
     if (auto s = store.surface(mesh)) {
         if (!s->indices.empty()) return s;
-        return make_error(std::format("procedural mesh '{}' has no drawn triangles, so the pointer cannot reach a texture on it", mesh),
-                          "Give the mesh indices, and submeshes that cover them (indices outside every submesh are not drawn).");
+        return make_error(
+            std::format("procedural mesh '{}' has no drawn triangles, so the pointer cannot reach a texture on it",
+                        mesh),
+            "Give the mesh indices, and submeshes that cover them (indices outside every submesh are not drawn).");
     }
     return store.get(mesh).error();
 }
@@ -242,9 +255,11 @@ std::optional<SurfaceHit> raycast_surface(const MeshSurface& s, const Mat4& mode
     return best;
 }
 
-std::optional<Vec2> surface_uv_on_plane(const MeshSurface& s, const Mat4& model, std::uint32_t triangle, Vec3 origin, Vec3 dir) {
+std::optional<Vec2> surface_uv_on_plane(const MeshSurface& s, const Mat4& model, std::uint32_t triangle, Vec3 origin,
+                                        Vec3 dir) {
     if (std::size_t(triangle) * 3 + 2 >= s.indices.size()) return std::nullopt;
-    const std::uint32_t ia = s.indices[triangle * 3], ib = s.indices[triangle * 3 + 1], ic = s.indices[triangle * 3 + 2];
+    const std::uint32_t ia = s.indices[triangle * 3], ib = s.indices[triangle * 3 + 1],
+                        ic = s.indices[triangle * 3 + 2];
     const Mat4 inv = model.inverse();
     const Vec3 o = inv.transform_point(origin), d = inv.transform_dir(dir);
     const Vec3 a = s.positions[ia], e1 = s.positions[ib] - a, e2 = s.positions[ic] - a;

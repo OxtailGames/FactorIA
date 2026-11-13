@@ -28,16 +28,16 @@ using ParticleCommandFn = std::function<CommandResult(const std::string& name, c
 
 struct ParticleStep {
     int id = 0;
-    std::string rel;       // the document the edit was made on
+    std::string rel;  // the document the edit was made on
     std::string label;
-    std::string before, after;   // the text of the file
+    std::string before, after;  // the text of the file
 };
 
 struct ParticleEditOutcome {
     bool ok = true;
-    std::string error;     // what went wrong, with the command's hint
-    int step = 0;          // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;           // the command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the command's result
 };
 
 // A short line for a part of the document: "0  emitter  sparks  at 0.00 s".
@@ -54,10 +54,10 @@ public:
     ParticleModel(std::string projectDir, ParticleCommandFn call);
 
     // ---- the document ---------------------------------------------------------------------------------------------
-    bool open(const std::string& rel);   // *.vfx.json; false: error() says why
+    bool open(const std::string& rel);  // *.vfx.json; false: error() says why
     void close();
     bool is_open() const { return !rel_.empty(); }
-    bool valid() const { return valid_; }            // the file is JSON (it may still not be a valid effect: see issues())
+    bool valid() const { return valid_; }  // the file is JSON (it may still not be a valid effect: see issues())
     const std::string& path() const { return rel_; }
     std::string title() const;
     const std::string& error() const { return error_; }
@@ -82,7 +82,8 @@ public:
     // ---- edits (vfx.edit): one undo step each ------------------------------------------------------------------------
     ParticleEditOutcome set_field(const std::string& pointer, const Json& value, const std::string& label = "");
     ParticleEditOutcome remove_field(const std::string& pointer, const std::string& label = "");
-    ParticleEditOutcome add_item(const std::string& pointer, const Json& value, int index = -1, const std::string& label = "");
+    ParticleEditOutcome add_item(const std::string& pointer, const Json& value, int index = -1,
+                                 const std::string& label = "");
     ParticleEditOutcome move_item(const std::string& pointer, int from, int to, const std::string& label = "");
     // The part to add for each kind (a sound needs the clip; a command the name).
     static Json starter_part(const std::string& type, const std::string& clipOrCommand = "");
@@ -119,8 +120,9 @@ private:
     ParticleCommandFn call_;
     std::string rel_, error_, status_, text_;
     bool valid_ = false;
-    int staleStep_ = 0;       // the step the last refused undo/redo was about, until take_stale_step
-    bool conflict_ = false;   // the last undo/redo was refused because the file changed outside the editor; cleared when the file is read again
+    int staleStep_ = 0;  // the step the last refused undo/redo was about, until take_stale_step
+    bool conflict_ =
+        false;  // the last undo/redo was refused because the file changed outside the editor; cleared when the file is read again
     Json json_;
     std::shared_ptr<const VfxDoc> doc_;
     std::vector<VfxIssue> issues_;

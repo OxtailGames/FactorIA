@@ -27,12 +27,12 @@ bool has(const std::string& text, const std::string& part) { return text.find(pa
 
 // One step of a built-in agent transcript: a model turn with one tool call.
 struct Step {
-    std::string command;        // "scene.load" runs through tool_call; a name without a dot ("Read") is a tool of its own
+    std::string command;  // "scene.load" runs through tool_call; a name without a dot ("Read") is a tool of its own
     Json args = Json::object();
-    std::string code;           // an error code: the call failed with it
-    int ms = 40;                // how long the tool took
-    std::size_t bytes = 0;      // the full size of the result (0 = small)
-    int seconds = 60;           // how long the step took
+    std::string code;       // an error code: the call failed with it
+    int ms = 40;            // how long the tool took
+    std::size_t bytes = 0;  // the full size of the result (0 = small)
+    int seconds = 60;       // how long the step took
     std::uint64_t tokens = 5000;
 };
 
@@ -43,17 +43,28 @@ std::string transcript(std::int64_t t0, const std::vector<Step>& steps) {
     for (const Step& s : steps) {
         const std::string id = "tu" + std::to_string(++n);
         const bool wrapped = s.command.find('.') != std::string::npos;
-        Json call = wrapped ? Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"},
+        Json call = wrapped ? Json::object({{"type", "tool_use"},
+                                            {"id", id},
+                                            {"name", "tool_call"},
                                             {"input", Json::object({{"command", s.command}, {"arguments", s.args}})}})
                             : Json::object({{"type", "tool_use"}, {"id", id}, {"name", s.command}, {"input", s.args}});
-        out += Json::object({{"kind", "assistant"}, {"t", iso_utc_ms(t + s.seconds * 1000 - 1)},
+        out += Json::object({{"kind", "assistant"},
+                             {"t", iso_utc_ms(t + s.seconds * 1000 - 1)},
                              {"usage", Json::object({{"inputTokens", s.tokens - 500}, {"outputTokens", 500}})},
-                             {"costUsd", 0.05}, {"content", Json::array({call})}}).dump() + "\n";
+                             {"costUsd", 0.05},
+                             {"content", Json::array({call})}})
+                   .dump() +
+               "\n";
         t += s.seconds * 1000;
-        Json result = Json::object({{"toolUseId", id}, {"isError", !s.code.empty()}, {"ms", s.ms},
-                                    {"content", s.code.empty() ? std::string("ok") : "{\"code\":\"" + s.code + "\",\"message\":\"no\"}"}});
+        Json result = Json::object(
+            {{"toolUseId", id},
+             {"isError", !s.code.empty()},
+             {"ms", s.ms},
+             {"content", s.code.empty() ? std::string("ok") : "{\"code\":\"" + s.code + "\",\"message\":\"no\"}"}});
         if (s.bytes) result["bytes"] = s.bytes;
-        out += Json::object({{"kind", "tool_results"}, {"t", iso_utc_ms(t)}, {"results", Json::array({result})}}).dump() + "\n";
+        out +=
+            Json::object({{"kind", "tool_results"}, {"t", iso_utc_ms(t)}, {"results", Json::array({result})}}).dump() +
+            "\n";
     }
     return out;
 }
@@ -79,11 +90,19 @@ std::vector<Step> failing_run() {
 }
 
 std::string entry_json(const std::string& candidate, const std::string& title, const std::string& fixType = "guide") {
-    return Json::object({{"candidate", candidate}, {"category", "scene"}, {"title", title},
+    return Json::object({{"candidate", candidate},
+                         {"category", "scene"},
+                         {"title", title},
                          {"suggestion", "A topic guide that explains " + title + " step by step"},
-                         {"waste", "Working out the order of the calls took many steps of trial and error"}, {"fixType", fixType},
-                         {"appliesTo", "every-game"}, {"saveShare", 0.9}, {"saveWhy", "the guide gives the calls in order"},
-                         {"whyNotCheaper", ""}, {"searched", Json::array()}, {"factLine", ""}}).dump();
+                         {"waste", "Working out the order of the calls took many steps of trial and error"},
+                         {"fixType", fixType},
+                         {"appliesTo", "every-game"},
+                         {"saveShare", 0.9},
+                         {"saveWhy", "the guide gives the calls in order"},
+                         {"whyNotCheaper", ""},
+                         {"searched", Json::array()},
+                         {"factLine", ""}})
+        .dump();
 }
 std::string answer(const std::vector<std::string>& entries, const std::string& facts = "[]") {
     std::string list;
@@ -101,7 +120,9 @@ struct Fixture {
     Fixture() {
         ShareEnv env;
         const std::string h = home.str();
-        env.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        env.env = [h](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
+        };
         scoped = std::make_unique<ScopedShareEnv>(env);
         cfg.sourcePath = (home.path / "ai.json").string();
         AiCommandOptions o;
@@ -114,7 +135,8 @@ struct Fixture {
     }
     void session(const std::string& id, const std::vector<Step>& steps, std::int64_t t0 = kT0) {
         fsys::create_directories(proj.path / ".factoria" / "ai" / "sessions");
-        std::ofstream(proj.path / ".factoria" / "ai" / "sessions" / (id + ".jsonl"), std::ios::binary) << transcript(t0, steps);
+        std::ofstream(proj.path / ".factoria" / "ai" / "sessions" / (id + ".jsonl"), std::ios::binary)
+            << transcript(t0, steps);
     }
     std::string feedback_file() const { return (proj.path / "ENGINE_FEEDBACK.json").string(); }
     Json entries() {
@@ -126,7 +148,8 @@ struct Fixture {
 
 }  // namespace
 
-TEST_CASE("retrospective: a command that fails with the same code again and again is a candidate, with measured spans") {
+TEST_CASE(
+    "retrospective: a command that fails with the same code again and again is a candidate, with measured spans") {
     const EfficiencySession s = session_of("s1", failing_run());
     const auto found = find_retro_candidates({s});
     const RetroCandidate* c = find(found, "failure:scene.load:not_found");
@@ -171,8 +194,9 @@ TEST_CASE("retrospective: the same doc read again and again, screenshots in a ro
         loop.push_back({"scene.inspect"});
         loop.push_back({"scene.set_field"});
     }
-    const auto found = find_retro_candidates({session_of("a", rereads), session_of("b", shots, kT0 + 86400000), session_of("c", waits, kT0 + 2 * 86400000),
-                                               session_of("d", big, kT0 + 3 * 86400000), session_of("e", loop, kT0 + 4 * 86400000)});
+    const auto found = find_retro_candidates(
+        {session_of("a", rereads), session_of("b", shots, kT0 + 86400000), session_of("c", waits, kT0 + 2 * 86400000),
+         session_of("d", big, kT0 + 3 * 86400000), session_of("e", loop, kT0 + 4 * 86400000)});
     const RetroCandidate* reread = find(found, "reread:docs.read:NAVIGATION.md");
     REQUIRE(reread);
     CHECK(reread->count == 30);
@@ -193,11 +217,13 @@ TEST_CASE("retrospective: the same doc read again and again, screenshots in a ro
     CHECK(looped->pattern == "loop");
     // ranked by what a fix would save, the largest first
     for (std::size_t i = 1; i < found.size(); ++i)
-        CHECK(found[i - 1].potential.tokens + 5000.0 * found[i - 1].potential.minutes >= found[i].potential.tokens + 5000.0 * found[i].potential.minutes);
+        CHECK(found[i - 1].potential.tokens + 5000.0 * found[i - 1].potential.minutes >=
+              found[i].potential.tokens + 5000.0 * found[i].potential.minutes);
 }
 
 TEST_CASE("retrospective: a file of the project read again and again is a project-only candidate") {
-    const auto found = find_retro_candidates({session_of("s1", repeat(30, {"Read", Json::object({{"file_path", "design/levels.md"}})}))});
+    const auto found = find_retro_candidates(
+        {session_of("s1", repeat(30, {"Read", Json::object({{"file_path", "design/levels.md"}})}))});
     const RetroCandidate* c = find(found, "reread:Read:design/levels.md");
     REQUIRE(c);
     CHECK(c->projectOnly);
@@ -206,7 +232,9 @@ TEST_CASE("retrospective: a file of the project read again and again is a projec
 
 TEST_CASE("retrospective: a workaround ENGINE_FEEDBACK already records, called again and again") {
     std::vector<Step> steps = repeat(30, {"scene.nudge"});
-    Json entries = Json::array({Json::object({{"id", "FB-0001"}, {"status", "open"}, {"title", "No smooth move"},
+    Json entries = Json::array({Json::object({{"id", "FB-0001"},
+                                              {"status", "open"},
+                                              {"title", "No smooth move"},
                                               {"missing", "There is no way to move an entity smoothly"},
                                               {"workaround", "A script calls scene.nudge every frame"}})});
     const auto found = find_retro_candidates({session_of("s1", steps)}, entries);
@@ -240,7 +268,8 @@ TEST_CASE("ai.retrospective: candidatesOnly runs no model and files nothing") {
     CHECK(r.result["sessions"][0]["steps"] == 28);
 }
 
-TEST_CASE("ai.retrospective: the fast role writes the entry, the gate files it with measured numbers, a second run finds nothing new") {
+TEST_CASE("ai.retrospective: the fast role writes the entry, the gate files it with measured numbers, a second run "
+          "finds nothing new") {
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
     f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
@@ -282,7 +311,8 @@ TEST_CASE("ai.retrospective: the fast role writes the entry, the gate files it w
 TEST_CASE("ai.retrospective: what the gate refuses comes back with its reason and nothing is filed") {
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
-    f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order", "newCommand")}))};  // no whyNotCheaper
+    f.provider->script = {
+        text_response(answer({entry_json("c1", "Quantum flux calibration order", "newCommand")}))};  // no whyNotCheaper
     auto r = f.retro();
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["filed"].empty());
@@ -295,15 +325,18 @@ TEST_CASE("ai.retrospective: what the gate refuses comes back with its reason an
 TEST_CASE("ai.retrospective: at most three entries, candidates the model skips or invents are dropped") {
     Fixture f;
     f.session("20261026-100000-a", failing_run());
-    f.session("20261026-110000-b", repeat(30, {"docs.read", Json::object({{"topic", "NAVIGATION.md"}})}), kT0 + 3600000);
+    f.session("20261026-110000-b", repeat(30, {"docs.read", Json::object({{"topic", "NAVIGATION.md"}})}),
+              kT0 + 3600000);
     f.session("20261026-120000-c", repeat(30, {"game.screenshot"}), kT0 + 2 * 3600000);
-    f.session("20261026-130000-d", repeat(10, {"project.build", Json::object(), "", 100000, 0, 120}), kT0 + 3 * 3600000);
+    f.session("20261026-130000-d", repeat(10, {"project.build", Json::object(), "", 100000, 0, 120}),
+              kT0 + 3 * 3600000);
     auto cands = f.retro(Json::object({{"candidatesOnly", true}}));
     REQUIRE(cands.ok);
     REQUIRE(cands.result["candidates"].size() == 4);
-    f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order"), entry_json("c2", "Zephyr lattice rebuild sequence"),
-                                                entry_json("c3", "Obsidian ferry scheduling rule"), entry_json("c4", "Marble orbit alignment steps"),
-                                                entry_json("c9", "Nothing here")}))};
+    f.provider->script = {text_response(
+        answer({entry_json("c1", "Quantum flux calibration order"), entry_json("c2", "Zephyr lattice rebuild sequence"),
+                entry_json("c3", "Obsidian ferry scheduling rule"), entry_json("c4", "Marble orbit alignment steps"),
+                entry_json("c9", "Nothing here")}))};
     auto r = f.retro();
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["filed"].size() == 3);
@@ -320,7 +353,8 @@ TEST_CASE("ai.retrospective: at most three entries, candidates the model skips o
 TEST_CASE("ai.retrospective: a lesson about this game alone becomes a project-fact proposal, not engine feedback") {
     Fixture f;
     f.session("20261026-100000-orchestrator", repeat(30, {"Read", Json::object({{"file_path", "design/levels.md"}})}));
-    f.provider->script = {text_response(answer({}, R"([{"candidate":"c1","line":"design/levels.md holds the level plan: read it once."}])"))};
+    f.provider->script = {text_response(
+        answer({}, R"([{"candidate":"c1","line":"design/levels.md holds the level plan: read it once."}])"))};
     auto r = f.retro();
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["filed"].empty());
@@ -347,7 +381,8 @@ TEST_CASE("ai.retrospective: since and sessions pick the transcripts; mistakes t
     REQUIRE_MESSAGE(since.ok, since.error.dump());
     REQUIRE(since.result["sessions"].size() == 1);
     CHECK(since.result["sessions"][0]["id"] == "20261026-100000-orchestrator");
-    auto named = f.retro(Json::object({{"sessions", Json::array({"20261001-100000-orchestrator"})}, {"candidatesOnly", true}}));
+    auto named =
+        f.retro(Json::object({{"sessions", Json::array({"20261001-100000-orchestrator"})}, {"candidatesOnly", true}}));
     REQUIRE(named.ok);
     CHECK(named.result["sessions"][0]["id"] == "20261001-100000-orchestrator");
     auto badDate = f.retro(Json::object({{"since", "last week"}}));
@@ -384,7 +419,8 @@ TEST_CASE("ai.retrospective: a transcript that is too big is left out with its r
     REQUIRE(r->skipped.size() == 1);
     CHECK(r->skipped[0]["id"] == "20261026-120000-orchestrator");
     CHECK(has(r->skipped[0]["reason"].get<std::string>(), "MB"));
-    CHECK(has(r->to_json().value("note", std::string()), "1 transcript(s) were not read"));  // the note of the answer lists them
+    CHECK(has(r->to_json().value("note", std::string()),
+              "1 transcript(s) were not read"));  // the note of the answer lists them
     // Named on purpose, it is an error that says why instead of a silent skip.
     RetrospectiveOptions named = ro;
     named.sessions = {"20261026-120000-orchestrator"};
@@ -394,10 +430,13 @@ TEST_CASE("ai.retrospective: a transcript that is too big is left out with its r
     fsys::remove(huge, ec);
 }
 
-TEST_CASE("ai.retrospective: the order of the candidates and the spans does not depend on the order of the transcripts") {
+TEST_CASE(
+    "ai.retrospective: the order of the candidates and the spans does not depend on the order of the transcripts") {
     // Two patterns that cost exactly the same: they are told apart by id, whatever order the sessions come in.
-    const EfficiencySession a = session_of("20261026-100000-orchestrator", repeat(20, {"scene.load", Json::object({{"scene", "main"}}), "not_found"}));
-    const EfficiencySession b = session_of("20261026-110000-orchestrator", repeat(20, {"scene.save", Json::object({{"scene", "main"}}), "not_found"}));
+    const EfficiencySession a = session_of("20261026-100000-orchestrator",
+                                           repeat(20, {"scene.load", Json::object({{"scene", "main"}}), "not_found"}));
+    const EfficiencySession b = session_of("20261026-110000-orchestrator",
+                                           repeat(20, {"scene.save", Json::object({{"scene", "main"}}), "not_found"}));
     const auto forward = find_retro_candidates({a, b}, Json::array());
     const auto backward = find_retro_candidates({b, a}, Json::array());
     REQUIRE(forward.size() == 2);
@@ -407,7 +446,8 @@ TEST_CASE("ai.retrospective: the order of the candidates and the spans does not 
     CHECK(forward[0].id < forward[1].id);  // equal cost: by id
 }
 
-TEST_CASE("ai.retrospective: idPrefix with a dash keeps a run's own transcripts, not those of a run begun in the same second") {
+TEST_CASE("ai.retrospective: idPrefix with a dash keeps a run's own transcripts, not those of a run begun in the same "
+          "second") {
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
     f.session("20261026-100000-2-orchestrator", failing_run());
@@ -436,7 +476,8 @@ TEST_CASE("ai.retrospective: no transcripts, or nothing wasted, says so and asks
     CHECK(f.provider->calls == 0);
 }
 
-TEST_CASE("ai.retrospective: the model failing or answering with something else keeps the candidates and files nothing") {
+TEST_CASE(
+    "ai.retrospective: the model failing or answering with something else keeps the candidates and files nothing") {
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
     f.provider->script = {text_response("I could not decide.")};
@@ -461,7 +502,8 @@ public:
     Result<ChatResponse> chat(const ChatRequest&, const ChatHooks&, const CancelFlag* cancel) override {
         sawFlag = cancel != nullptr;
         entered = true;
-        for (int i = 0; i < 2000 && !is_cancelled(cancel); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        for (int i = 0; i < 2000 && !is_cancelled(cancel); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         return is_cancelled(cancel) ? make_error("cancelled") : make_error("gave up waiting");
     }
     std::atomic<bool> entered{false};
@@ -476,7 +518,9 @@ TEST_CASE("ai.retrospective: Stop reaches the model call, which returns at once 
     CancelFlag stop{false};
     RetrospectiveOptions ro;
     ro.cancel = &stop;
-    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(waiting); };
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(waiting);
+    };
     // Bounded: a run that never reaches the model call still gets its Stop (and fails the checks below) instead of hanging the test.
     std::thread stopper([&] {
         for (int i = 0; i < 6000 && !waiting->entered; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -573,7 +617,8 @@ TEST_CASE("savers.retrospective: a run over the threshold gets one retrospective
     AutoFixture f;
     f.cfg.savers.retrospective = true;
     f.cfg.savers.retrospectiveSteps = 2;
-    f.provider->script = {f.heavy_step(), text_response("done"), text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
+    f.provider->script = {f.heavy_step(), text_response("done"),
+                          text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
     auto r = f.run();
     REQUIRE_MESSAGE(r.ok, r.error);
     REQUIRE(f.provider->calls == 3);  // the two steps of the run and one retrospective call
@@ -603,8 +648,11 @@ constexpr std::int64_t kDay = 86'400'000;  // ms
 // An efficiency entry the engine fixed in `fixedIn` on 2026-10-27: its pattern and what one occurrence cost before (20 steps, 20 minutes,
 // 100000 tokens).
 Json fixed_entry(const std::string& id = "FB-0001", const std::string& fixedIn = "0.17.2") {
-    return Json::parse(R"({"id":")" + id + R"(","kind":"efficiency","status":"fixed-in-engine","pattern":"failure:scene.load:not_found",
-        "fixedIn":")" + fixedIn + R"(","fixedAt":"2026-10-27","fixBaseline":{"spans":1,"steps":20,"minutes":20,"tokens":100000}})");
+    return Json::parse(
+        R"({"id":")" + id +
+        R"(","kind":"efficiency","status":"fixed-in-engine","pattern":"failure:scene.load:not_found",
+        "fixedIn":")" +
+        fixedIn + R"(","fixedAt":"2026-10-27","fixBaseline":{"spans":1,"steps":20,"minutes":20,"tokens":100000}})");
 }
 
 std::vector<Step> failing_run_of(int failures) {
@@ -620,13 +668,15 @@ TEST_CASE("fix check: the same pattern after the fix is compared with what it co
     const Json entries = Json::array({fixed_entry()});
     const std::int64_t after = kT0 + 2 * kDay;  // 2026-10-28
     SUBCASE("no run since the fix: waiting") {
-        const auto checks = check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run())}, entries, "0.17.2");
+        const auto checks =
+            check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run())}, entries, "0.17.2");
         REQUIRE(checks.size() == 1);
         CHECK(checks[0].result == "waiting");
         CHECK(checks[0].sessionsAfter == 0);
     }
     SUBCASE("the pattern is not found any more: gone") {
-        const auto checks = check_efficiency_fixes({session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)}, entries, "0.17.2");
+        const auto checks = check_efficiency_fixes(
+            {session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)}, entries, "0.17.2");
         REQUIRE(checks.size() == 1);
         CHECK(checks[0].result == "gone");
         CHECK(checks[0].sessionsAfter == 1);
@@ -635,7 +685,8 @@ TEST_CASE("fix check: the same pattern after the fix is compared with what it co
     }
     SUBCASE("it costs the same: no_change; about half: partial; a lot less: worked") {
         auto result = [&](int failures) {
-            const auto c = check_efficiency_fixes({session_of("20261028-100000-orchestrator", failing_run_of(failures), after)}, entries, "0.17.2");
+            const auto c = check_efficiency_fixes(
+                {session_of("20261028-100000-orchestrator", failing_run_of(failures), after)}, entries, "0.17.2");
             REQUIRE(c.size() == 1);
             return c[0];
         };
@@ -654,8 +705,10 @@ TEST_CASE("fix check: the same pattern after the fix is compared with what it co
         CHECK(better.after["steps"] == 6);
     }
     SUBCASE("runs from before the fix do not count") {
-        const auto checks = check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run()),
-                                                    session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)}, entries, "0.17.2");
+        const auto checks =
+            check_efficiency_fixes({session_of("20261026-100000-orchestrator", failing_run()),
+                                    session_of("20261028-100000-orchestrator", repeat(30, {"scene.inspect"}), after)},
+                                   entries, "0.17.2");
         REQUIRE(checks.size() == 1);
         CHECK(checks[0].result == "gone");
         CHECK(checks[0].sessionsAfter == 1);
@@ -684,7 +737,8 @@ TEST_CASE("fix check: the same pattern after the fix is compared with what it co
     }
 }
 
-TEST_CASE("ai.retrospective: a fix that saved nothing shows in the next retrospective, is recorded on the entry and the pattern is filed again with afterFix") {
+TEST_CASE("ai.retrospective: a fix that saved nothing shows in the next retrospective, is recorded on the entry and "
+          "the pattern is filed again with afterFix") {
     Fixture f;
     f.session("20261026-100000-orchestrator", failing_run());
     f.provider->script = {text_response(answer({entry_json("c1", "Quantum flux calibration order")}))};
@@ -722,7 +776,8 @@ TEST_CASE("ai.retrospective: candidatesOnly checks the fixes but writes nothing"
     Fixture f;
     Json doc = create_empty_feedback("g");
     doc["entries"] = Json::array({fixed_entry("FB-0001", "0.0.1")});
-    doc["entries"][0].update(Json::parse(R"({"date":"2026-10-20","category":"scene","severity":"minor","title":"Flux calibration",
+    doc["entries"][0].update(
+        Json::parse(R"({"date":"2026-10-20","category":"scene","severity":"minor","title":"Flux calibration",
         "missing":"The order of the calls took many steps","workaround":"none","occurrences":1,"waste":"The order of the calls took many steps",
         "fixType":"guide","appliesTo":"every-game","measured":{"steps":20},"saving":{"steps":10},"expectedSaving":{"share":0.5,"why":"x"}})"));
     REQUIRE(save_feedback(f.feedback_file(), doc).ok());
@@ -744,7 +799,9 @@ struct FixCheckFixture : Fixture {
     ScopedShareEnv waits;
     static ShareEnv short_waits(const std::string& home, double waitSec) {
         ShareEnv env;
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.lockWaitSec = waitSec;
         env.lockStaleSec = 600.0;
         return env;
@@ -764,15 +821,18 @@ struct FixCheckFixture : Fixture {
 };
 }  // namespace
 
-TEST_CASE("ai.retrospective: a feedback file whose lock stays busy keeps the fix checks off the entries, says why, and stops trying") {
+TEST_CASE("ai.retrospective: a feedback file whose lock stays busy keeps the fix checks off the entries, says why, and "
+          "stops trying") {
     FixCheckFixture f(0.2);
     f.hold_busy_lock();  // another program holds the project's lock for the whole test
     RetrospectiveOptions ro;
     ro.engineVersion = "0.17.2";
-    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(f.provider); };
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(f.provider);
+    };
     auto r = run_retrospective(f.cfg, ro, f.proj.str());
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().message));
-    CHECK(r->fixChecks.size() == 2);                            // the checks are in the result whatever the file says
+    CHECK(r->fixChecks.size() == 2);                             // the checks are in the result whatever the file says
     CHECK(has(r->fixCheckProblem, "Another FactorIA process"));  // the lock's own words
     CHECK(has(r->to_json().dump(), "Another FactorIA process"));
     fsys::remove(f.busy_lock());
@@ -789,7 +849,9 @@ TEST_CASE("ai.retrospective: Stop during the fix checks writes no more notes and
     RetrospectiveOptions ro;
     ro.engineVersion = "0.17.2";
     ro.cancel = &stop;
-    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(f.provider); };
+    ro.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(f.provider);
+    };
     // Stop first, then the other program lets go: the retrospective gets the lock after it was asked to stop.
     std::thread stopper([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

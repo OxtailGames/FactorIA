@@ -12,14 +12,7 @@ namespace fa {
 
 namespace {
 
-constexpr float kDefaultSlop = 6.0f, kMaxSlop = 100.0f;
-
-// Is `e` the entity `root` or below it?
-bool at_or_under(const World& w, Entity e, Entity root) {
-    for (; e; e = w.parent(e))
-        if (e == root) return true;
-    return false;
-}
+constexpr float kMaxSlop = 100.0f;
 
 }  // namespace
 
@@ -28,7 +21,9 @@ std::optional<UiDragSpec> ui_drag_spec(const Json& d, std::string* error) {
     if (d.is_null() || (d.is_boolean() && !d.get<bool>())) return std::nullopt;
     if (d.is_boolean()) return spec;
     if (!d.is_object()) {
-        if (error) *error = "draggable is false, true or an object {payload, slop}, got " + d.dump() + ". Write true, or {\"payload\": {\"worker\": 3}, \"slop\": 8}.";
+        if (error)
+            *error = "draggable is false, true or an object {payload, slop}, got " + d.dump() +
+                     ". Write true, or {\"payload\": {\"worker\": 3}, \"slop\": 8}.";
         return std::nullopt;
     }
     for (auto it = d.begin(); it != d.end(); ++it) {
@@ -36,7 +31,8 @@ std::optional<UiDragSpec> ui_drag_spec(const Json& d, std::string* error) {
             spec.payload = it.value();
         } else if (it.key() == "slop") {
             if (!it.value().is_number() || !(it.value().get<double>() >= 0.0) || it.value().get<double>() > kMaxSlop) {
-                if (error) *error = "draggable.slop is a number of pixels from 0 to 100, got " + it.value().dump() + ".";
+                if (error)
+                    *error = "draggable.slop is a number of pixels from 0 to 100, got " + it.value().dump() + ".";
                 return std::nullopt;
             }
             spec.slop = it.value().get<float>();
@@ -53,28 +49,32 @@ void UiSystem::set_drop_target(Entity e, UiDropMode mode) {
         worldDrop_ = mode == UiDropMode::None ? UiDropMode::Accept : mode;
         return;
     }
-    if (mode == UiDropMode::None) dropRules_.erase(e.bits());
-    else dropRules_[e.bits()] = mode;
+    if (mode == UiDropMode::None)
+        dropRules_.erase(e.bits());
+    else
+        dropRules_[e.bits()] = mode;
 }
 
 Json UiSystem::drag_json(const World& w) const {
     if (!drag_.active) return nullptr;
-    return Json::object({{"id", drag_.sourceId},
-                         {"payload", drag_.payload},
-                         {"from", Json::array({drag_.from.x, drag_.from.y})},
-                         {"x", drag_.pos.x},
-                         {"y", drag_.pos.y},
-                         {"target", drag_.target && w.alive(drag_.target) ? Json(w.id_of(drag_.target)) : Json(nullptr)},
-                         {"accepts", drag_.accepts}});
+    return Json::object(
+        {{"id", drag_.sourceId},
+         {"payload", drag_.payload},
+         {"from", Json::array({drag_.from.x, drag_.from.y})},
+         {"x", drag_.pos.x},
+         {"y", drag_.pos.y},
+         {"target", drag_.target && w.alive(drag_.target) ? Json(w.id_of(drag_.target)) : Json(nullptr)},
+         {"accepts", drag_.accepts}});
 }
 
 void UiSystem::drag_emit(World& w, const char* name, const char* reason) {
-    Json data = Json::object({{"id", drag_.sourceId},
-                              {"payload", drag_.payload},
-                              {"x", drag_.pos.x},
-                              {"y", drag_.pos.y},
-                              {"target", drag_.target && w.alive(drag_.target) ? Json(w.id_of(drag_.target)) : Json(nullptr)},
-                              {"accepts", drag_.accepts}});
+    Json data =
+        Json::object({{"id", drag_.sourceId},
+                      {"payload", drag_.payload},
+                      {"x", drag_.pos.x},
+                      {"y", drag_.pos.y},
+                      {"target", drag_.target && w.alive(drag_.target) ? Json(w.id_of(drag_.target)) : Json(nullptr)},
+                      {"accepts", drag_.accepts}});
     if (reason) data["reason"] = reason;
     const Entity source = w.alive(drag_.source) ? drag_.source : kNullEntity;
     w.events().game.push_back(GameEvent{name, std::move(data), source});
@@ -89,7 +89,8 @@ void UiSystem::cancel_drag(World& w, const char* reason) {
     dragImage_ = kNullEntity;
 }
 
-void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pressed, bool released, const VisualMeasure&, bool navCancel) {
+void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pressed, bool released,
+                           const VisualMeasure&, bool navCancel) {
     // ---- a press that may become a drag: the nearest draggable widget at or above what is under the pointer
     if (pressed && !drag_.active) {
         dragCand_ = kNullEntity;
@@ -99,14 +100,16 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
             const UiControl* c = ui_control(w, a);
             if (c && !c->interactable) continue;
             const UiBox* box = ui_box(w, a);
-            if (!box) continue;  // a plain entity between widgets (a HUD root with a Transform): not draggable, keep walking up
+            if (!box)
+                continue;  // a plain entity between widgets (a HUD root with a Transform): not draggable, keep walking up
             std::string problem;
             if (ui_drag_spec(box->draggable, &problem)) {
                 dragCand_ = a;
                 dragCandFrom_ = mouse;
                 break;
             }
-            if (!problem.empty()) FA_WARN("ui", "'{}': {} The widget is not draggable until it is fixed.", w.id_of(a), problem);
+            if (!problem.empty())
+                FA_WARN("ui", "'{}': {} The widget is not draggable until it is fixed.", w.id_of(a), problem);
         }
     }
     if (dragCand_) {
@@ -154,11 +157,15 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
         }
     }
     if (!under) mode = worldDrop_, ruled = true;
-    const Json info = Json::object({{"id", drag_.sourceId}, {"payload", drag_.payload}, {"x", mouse.x}, {"y", mouse.y}});
+    const Json info =
+        Json::object({{"id", drag_.sourceId}, {"payload", drag_.payload}, {"x", mouse.x}, {"y", mouse.y}});
     bool accepts = false;
     if (ruled) {
-        if (mode == UiDropMode::Accept) accepts = true;
-        else if (mode == UiDropMode::Script) accepts = under ? (dropHooks_.widget && dropHooks_.widget(target, info)) : (dropHooks_.world && dropHooks_.world(info));
+        if (mode == UiDropMode::Accept)
+            accepts = true;
+        else if (mode == UiDropMode::Script)
+            accepts = under ? (dropHooks_.widget && dropHooks_.widget(target, info))
+                            : (dropHooks_.world && dropHooks_.world(info));
     }
     drag_.target = target;
     drag_.accepts = accepts;
@@ -177,7 +184,9 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
     if (drag_.started) {
         drag_.started = false;
         drag_emit(w, "ui.dragStart");
-    } else if (!released && down && (mouse.x != lastDragPos_.x || mouse.y != lastDragPos_.y || target.bits() != lastDragTarget_ || accepts != lastDragAccepts_)) {
+    } else if (!released && down &&
+               (mouse.x != lastDragPos_.x || mouse.y != lastDragPos_.y || target.bits() != lastDragTarget_ ||
+                accepts != lastDragAccepts_)) {
         drag_emit(w, "ui.dragOver");
     }
     lastDragPos_ = mouse;
@@ -185,8 +194,10 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
     lastDragAccepts_ = accepts;
 
     if (released || !down) {
-        if (accepts) drag_emit(w, "ui.drop");
-        else drag_emit(w, "ui.dragCancel", "rejected");
+        if (accepts)
+            drag_emit(w, "ui.drop");
+        else
+            drag_emit(w, "ui.dragCancel", "rejected");
         drag_ = DragState{};
         dragImage_ = kNullEntity;
     }

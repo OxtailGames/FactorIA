@@ -25,23 +25,22 @@ inline int depth_of(const World& w, Entity e) {
 // Shape2D footprints (text measured through `measure`). nullopt for an entity with neither.
 std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure);
 
-
 // A widget the keyboard, the pad and the pointer can act on: a Button / Toggle / Slider / TextField (kind != None), or an
 // Interactable (custom). Rectangles are in screen pixels.
 struct Item {
     Entity e;
     UiKind kind = UiKind::None;
-    Rect rect;             // custom: the bounding box of `quad`
+    Rect rect;  // custom: the bounding box of `quad`
     int layer = 0;
     bool interactable = true;
-    bool inScope = true;   // false: outside the modal Panel that scopes the input (listed as not interactable)
+    bool inScope = true;  // false: outside the modal Panel that scopes the input (listed as not interactable)
     // Interactable only:
     bool custom = false;
-    bool world = false;    // projected through a camera (else in screen space, like a built-in widget)
-    std::array<Vec2, 4> quad{};   // the hit area on the screen, a convex quad
-    Vec2 trackA{}, trackB{};      // slider: the screen points of the minimum and the maximum end of the track
-    bool surface = false;         // seen on a page (a render target shown on a mesh): `quad` and `at` are in the page's pixels
-    Vec2 at{};                    // the pointer in the space of `quad`: the mouse, or where it lands on the page
+    bool world = false;          // projected through a camera (else in screen space, like a built-in widget)
+    std::array<Vec2, 4> quad{};  // the hit area on the screen, a convex quad
+    Vec2 trackA{}, trackB{};     // slider: the screen points of the minimum and the maximum end of the track
+    bool surface = false;  // seen on a page (a render target shown on a mesh): `quad` and `at` are in the page's pixels
+    Vec2 at{};             // the pointer in the space of `quad`: the mouse, or where it lands on the page
 };
 
 using ProjectFn = UiProjectFn;
@@ -49,8 +48,8 @@ using ProjectFn = UiProjectFn;
 // The Interactable entities (active, not also a built-in widget), as items. `modal` scopes them like controls() does. `project` is
 // the camera hook (empty: the orthographic maths of the scene's cameras). `pointer`: the pointer position, for the camera choice.
 // `mask`: the Camera.showTags / hideTags of that camera: a world-space Interactable it does not draw is left out.
-std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal, const ProjectFn& project,
-                                     const Vec2* pointer, const CameraMask& mask);
+std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal,
+                                     const ProjectFn& project, const Vec2* pointer, const CameraMask& mask);
 bool item_contains(const Item& it, Vec2 p);
 
 // True when `e` is an Interactable that is not a built-in widget as well (then the built-in wins).

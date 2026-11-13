@@ -15,8 +15,8 @@ void ExportAssets::replace(const std::string& original, const std::string& shipp
     project.staged[shipped] = source;
 }
 
-Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report,
-                                 const SetupContext& setup) {
+Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files,
+                                 ExportReport& report, const SetupContext& setup) {
     ExportAssets ea{p, platform, files, p.dir / ".factoria" / "export-cache" / platform, Json(), report, setup};
     const bool hasManifest = std::find(files.begin(), files.end(), assets::kManifestFile) != files.end();
     ea.manifest = Json::object({{"format", assets::kManifestFormat}});
@@ -24,8 +24,8 @@ Result<void> prepare_game_assets(Project& p, const std::string& platform, std::v
         auto text = read_file(p.dir / assets::kManifestFile);
         auto parsed = text ? parse_json(*text, assets::kManifestFile) : Result<Json>(err("cannot read assets.json"));
         if (!parsed.ok() || !parsed->is_object())
-            return err(std::string("export: ") + assets::kManifestFile + " is not valid: " +
-                           (parsed.ok() ? "it must be a JSON object" : parsed.error().message),
+            return err(std::string("export: ") + assets::kManifestFile +
+                           " is not valid: " + (parsed.ok() ? "it must be a JSON object" : parsed.error().message),
                        "Run `factoria validate` and fix the file.");
         ea.manifest = std::move(*parsed);
         // Authoring data stays home: the game needs the import settings, not who made what or the house style.
@@ -33,11 +33,13 @@ Result<void> prepare_game_assets(Project& p, const std::string& platform, std::v
         if (auto a = ea.manifest.find("assets"); a != ea.manifest.end() && a->is_object()) {
             for (auto it = a->begin(); it != a->end(); ++it)
                 if (it->is_object()) it->erase("provenance");
-            for (auto it = a->begin(); it != a->end();) it = it->is_object() && it->empty() ? a->erase(it) : std::next(it);
+            for (auto it = a->begin(); it != a->end();)
+                it = it->is_object() && it->empty() ? a->erase(it) : std::next(it);
         }
     }
 
-    if (auto r = convert_shaders(ea); !r.ok()) return r;  // first: a material that does not compile stops the export before slow steps
+    if (auto r = convert_shaders(ea); !r.ok())
+        return r;  // first: a material that does not compile stops the export before slow steps
     if (auto r = convert_textures(ea); !r.ok()) return r;
     if (auto r = convert_audio(ea); !r.ok()) return r;
     if (auto r = stage_builtin_fonts(ea); !r.ok()) return r;

@@ -13,7 +13,11 @@ namespace {
 double round5(double v) { return std::round(v * 1e5) / 1e5; }
 Json vec(Vec3 v) { return Json::array({round5(v.x), round5(v.y), round5(v.z)}); }
 
-std::string stem_of(const std::string& output) { return output.size() > 4 && to_lower(output.substr(output.size() - 4)) == ".glb" ? output.substr(0, output.size() - 4) : output; }
+std::string stem_of(const std::string& output) {
+    return output.size() > 4 && to_lower(output.substr(output.size() - 4)) == ".glb"
+               ? output.substr(0, output.size() - 4)
+               : output;
+}
 std::string base_name(const std::string& path) {
     const auto slash = path.rfind('/');
     return slash == std::string::npos ? path : path.substr(slash + 1);
@@ -37,7 +41,8 @@ std::vector<std::string> model_expected_extras(const ModelDoc& doc, const std::s
     return out;
 }
 
-Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const ModelBuild& build, const std::string& output) {
+Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const ModelBuild& build,
+                                                   const std::string& output) {
     ModelGameReadyFiles files;
     files.mesh = build.data;
     if (doc.gameReady.is_null()) return files;
@@ -56,7 +61,9 @@ Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const Mo
     for (std::size_t i = 0; i < made->lods.size(); ++i) {
         const std::string path = stem + ".lod" + std::to_string(i + 1) + ".glb";
         auto bytes = mesh_to_glb(made->lods[i], path);
-        if (!bytes.ok()) return make_error("cannot write LOD" + std::to_string(i + 1) + ": " + bytes.error().message, bytes.error().hint);
+        if (!bytes.ok())
+            return make_error("cannot write LOD" + std::to_string(i + 1) + ": " + bytes.error().message,
+                              bytes.error().hint);
         files.glbs.emplace_back(path, std::move(*bytes));
         lods.push_back(Json::object({{"mesh", path}, {"distance", round5(made->lodInfo[i + 1].distance)}}));
     }
@@ -74,9 +81,13 @@ Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const Mo
     if (c.shape == "box") {
         components["Collider3D"] = Json::object({{"shape", "box"}, {"size", vec(c.size)}, {"offset", vec(c.center)}});
     } else if (c.shape == "sphere") {
-        components["Collider3D"] = Json::object({{"shape", "sphere"}, {"radius", round5(c.radius)}, {"offset", vec(c.center)}});
+        components["Collider3D"] =
+            Json::object({{"shape", "sphere"}, {"radius", round5(c.radius)}, {"offset", vec(c.center)}});
     } else if (c.shape == "capsule") {
-        components["Collider3D"] = Json::object({{"shape", "capsule"}, {"radius", round5(c.radius)}, {"height", round5(c.height)}, {"offset", vec(c.center)}});
+        components["Collider3D"] = Json::object({{"shape", "capsule"},
+                                                 {"radius", round5(c.radius)},
+                                                 {"height", round5(c.height)},
+                                                 {"offset", vec(c.center)}});
     } else if (c.shape == "convex" && c.hulls.size() == 1) {
         const std::string path = stem + ".collider.glb";
         if (auto r = hull_file(c.hulls[0], path); !r.ok()) return r.error();
@@ -85,8 +96,9 @@ Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const Mo
         for (std::size_t i = 0; i < c.hulls.size(); ++i) {
             const std::string path = stem + ".collider" + std::to_string(i + 1) + ".glb";
             if (auto r = hull_file(c.hulls[i], path); !r.ok()) return r.error();
-            children.push_back(Json::object({{"name", "collider_" + std::to_string(i + 1)},
-                                             {"components", Json::object({{"Collider3D", Json::object({{"shape", "convex"}, {"mesh", path}})}})}}));
+            children.push_back(Json::object(
+                {{"name", "collider_" + std::to_string(i + 1)},
+                 {"components", Json::object({{"Collider3D", Json::object({{"shape", "convex"}, {"mesh", path}})}})}}));
         }
     }
     if (!lods.empty() || c.shape != "none") {

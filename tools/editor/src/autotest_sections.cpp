@@ -14,7 +14,9 @@ Result<std::set<std::string>> parse_autotest_sections(std::string_view text) {
         ids.emplace_back(s.id);
         list += std::string("\n  ") + s.id + "  " + s.title;
     }
-    const std::string hint = "name sections by their letter, e.g. FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M. The sections:" + list;
+    const std::string hint =
+        "name sections by their letter, e.g. FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M. The sections:" +
+        list;
     std::set<std::string> picked;
     std::string word;
     auto take = [&]() -> Result<void> {
@@ -38,7 +40,8 @@ Result<std::set<std::string>> parse_autotest_sections(std::string_view text) {
         }
     }
     if (auto r = take(); !r) return r.error();
-    if (picked.empty()) return make_error("FA_EDITOR_AUTOTEST_SECTIONS names no section ('" + std::string(text) + "')", hint);
+    if (picked.empty())
+        return make_error("FA_EDITOR_AUTOTEST_SECTIONS names no section ('" + std::string(text) + "')", hint);
     return picked;
 }
 

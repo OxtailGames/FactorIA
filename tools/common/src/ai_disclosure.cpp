@@ -14,9 +14,15 @@ namespace fa {
 namespace {
 
 // In the order of the report.
-constexpr const char* kCategories[] = {"Art and images", "Sound effects", "Music", "Voice", "3D models", "3D animation",
+constexpr const char* kCategories[] = {"Art and images",
+                                       "Sound effects",
+                                       "Music",
+                                       "Voice",
+                                       "3D models",
+                                       "3D animation",
                                        "Audio (sound effect, music or voice not recorded)"};
-constexpr const char* kKinds[] = {"image", "sound", "music", "voice", "model3d", "anim3d"};  // provenance.kind of the first six
+constexpr const char* kKinds[] = {"image", "sound",   "music",
+                                  "voice", "model3d", "anim3d"};  // provenance.kind of the first six
 
 std::string text_of(const Json& j, const char* key) {
     auto it = j.find(key);
@@ -88,23 +94,27 @@ std::string ai_content_disclosure(const Json& manifest, const std::vector<std::s
             if (!p || !files.count(path) || !is_ai(*p)) continue;
             std::string provider = text_of(*p, "provider"), model = text_of(*p, "model");
             if (provider.empty()) provider = "unknown provider";
-            ai.push_back({path, category_of(path, *p), model.empty() ? provider : provider + " (" + model + ")", text_of(*p, "date")});
-            if (const std::string license = text_of(*p, "license"); !license.empty()) ++terms[provider + ": " + license];
+            ai.push_back({path, category_of(path, *p), model.empty() ? provider : provider + " (" + model + ")",
+                          text_of(*p, "date")});
+            if (const std::string license = text_of(*p, "license"); !license.empty())
+                ++terms[provider + ": " + license];
         }
     }
     std::sort(ai.begin(), ai.end(), [](const Row& a, const Row& b) { return a.path < b.path; });
 
-    std::string out =
-        "# AI-generated content disclosure\n\n"
-        "Written from the provenance records in assets.json. Use it to answer the AI-generated content questions of Steam's "
-        "content survey (Steamworks, Store Page, Content Survey) and similar store forms. It is only as complete as the "
-        "records: check the last section before you submit.\n\n"
-        "## Pre-generated content (made with AI before the game shipped)\n\n";
+    std::string out = "# AI-generated content disclosure\n\n"
+                      "Written from the provenance records in assets.json. Use it to answer the AI-generated content "
+                      "questions of Steam's "
+                      "content survey (Steamworks, Store Page, Content Survey) and similar store forms. It is only as "
+                      "complete as the "
+                      "records: check the last section before you submit.\n\n"
+                      "## Pre-generated content (made with AI before the game shipped)\n\n";
     if (ai.empty()) {
         out += "None of the assets is recorded as made with AI.\n\n";
     } else {
-        out += std::format("{} asset{} made with AI tools.\n\n| Category | Assets | Providers and models |\n|---|---|---|\n", ai.size(),
-                           ai.size() == 1 ? " was" : "s were");
+        out += std::format(
+            "{} asset{} made with AI tools.\n\n| Category | Assets | Providers and models |\n|---|---|---|\n",
+            ai.size(), ai.size() == 1 ? " was" : "s were");
         for (const char* category : kCategories) {
             int count = 0;
             std::set<std::string> sources;
@@ -113,17 +123,22 @@ std::string ai_content_disclosure(const Json& manifest, const std::vector<std::s
                 ++count;
                 sources.insert(r.source);
             }
-            if (count > 0) out += std::format("| {} | {} | {} |\n", category, count, fa::join(std::vector<std::string>(sources.begin(), sources.end()), ", "));
+            if (count > 0)
+                out += std::format("| {} | {} | {} |\n", category, count,
+                                   fa::join(std::vector<std::string>(sources.begin(), sources.end()), ", "));
         }
         out += "\nAssets:\n\n";
-        for (const Row& r : ai) out += std::format("- `{}`: {}, {}{}\n", r.path, r.category, r.source, r.date.empty() ? "" : ", " + r.date);
+        for (const Row& r : ai)
+            out += std::format("- `{}`: {}, {}{}\n", r.path, r.category, r.source, r.date.empty() ? "" : ", " + r.date);
         out += "\n";
     }
     out += "## Live-generated content (made with AI while the game runs)\n\n"
-           "None. The FactorIA engine generates no content at run time: every asset above is a fixed file that ships with the game.\n\n";
+           "None. The FactorIA engine generates no content at run time: every asset above is a fixed file that ships "
+           "with the game.\n\n";
     if (!terms.empty()) {
         out += "## Terms recorded for the providers\n\n";
-        for (const auto& [term, count] : terms) out += std::format("- {} ({} asset{})\n", term, count, count == 1 ? "" : "s");
+        for (const auto& [term, count] : terms)
+            out += std::format("- {} ({} asset{})\n", term, count, count == 1 ? "" : "s");
         out += "\n";
     }
     const std::vector<std::string> missing = assets_without_provenance(manifest, assetFiles);
@@ -131,8 +146,10 @@ std::string ai_content_disclosure(const Json& manifest, const std::vector<std::s
     if (missing.empty()) {
         out += "Every art, sound and model file under assets/ has a provenance record.\n";
     } else {
-        out += "These files have no provenance record, so this disclosure cannot say how they were made. Record each one with "
-               "`assets.set_provenance` (origin original or imported, `ai` true or false), then write the disclosure again.\n\n";
+        out += "These files have no provenance record, so this disclosure cannot say how they were made. Record each "
+               "one with "
+               "`assets.set_provenance` (origin original or imported, `ai` true or false), then write the disclosure "
+               "again.\n\n";
         for (const std::string& f : missing) out += std::format("- `{}`\n", f);
     }
     return out;

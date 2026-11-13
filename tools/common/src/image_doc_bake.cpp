@@ -36,7 +36,9 @@ void collect_providers(const std::vector<ImageLayer>& layers, std::vector<const 
 
 bool has_ai_indexed(const std::vector<ImageLayer>& layers) {
     for (const ImageLayer& l : layers)
-        if ((l.kind == ImageLayerKind::Indexed && l.ai) || (l.kind == ImageLayerKind::Group && has_ai_indexed(l.children))) return true;
+        if ((l.kind == ImageLayerKind::Indexed && l.ai) ||
+            (l.kind == ImageLayerKind::Group && has_ai_indexed(l.children)))
+            return true;
     return false;
 }
 
@@ -49,7 +51,8 @@ std::string normalized(const std::string& rel) {
 // and not in the tools' own folders (`.git`, `.factoria/` except `.factoria/tmp`), judged on the real path after links. The caller
 // may be an MCP client or an agent: `output` of a document comes from its JSON.
 Result<stdfs::path> resolve_document_write(const std::string& projectDir, const std::string& rel) {
-    return fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+    return fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel,
+                                    /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
 }
 
 // The manifest entry of a project file, read from projectDir's assets.json.
@@ -97,7 +100,8 @@ ImageBakeStatus image_bake_status(const std::string& projectDir, const std::stri
         return status;
     }
     const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, status.output));
-    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand || recipe["args"].value("path", std::string()) != rel) {
+    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand ||
+        recipe["args"].value("path", std::string()) != rel) {
         status.state = ImageBakeState::Unrecorded;
         status.reason = "'" + status.output + "' exists, but assets.json does not say it was baked from '" + rel + "'.";
         return status;
@@ -105,7 +109,8 @@ ImageBakeStatus image_bake_status(const std::string& projectDir, const std::stri
     const assets_detail::RecipeCheck check = assets_detail::check_recipe(projectDir, recipe);
     if (!check.changed.empty() || !check.missing.empty()) {
         status.state = ImageBakeState::Stale;
-        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ") : "no longer readable: " + join(check.missing, ", ");
+        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ")
+                                               : "no longer readable: " + join(check.missing, ", ");
         return status;
     }
     status.state = ImageBakeState::Fresh;
@@ -113,10 +118,12 @@ ImageBakeStatus image_bake_status(const std::string& projectDir, const std::stri
     return status;
 }
 
-Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const std::string& relIn, const ImageBakeOptions& options) {
+Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const std::string& relIn,
+                                            const ImageBakeOptions& options) {
     const std::string rel = normalized(relIn);
     if (!is_document_path(rel))
-        return make_error("'" + rel + "' is not an image document (its name must end in " + kImageDocSuffix + ").", "Name it like \"assets/art/hero.image.json\".");
+        return make_error("'" + rel + "' is not an image document (its name must end in " + kImageDocSuffix + ").",
+                          "Name it like \"assets/art/hero.image.json\".");
     auto doc = load_image_document(projectDir, rel);
     if (!doc.ok()) return make_error(doc.error().message, doc.error().hint);
     ImageBakeResult result;
@@ -167,7 +174,8 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
             result.ai = true;
             aiSources.insert(input);
         }
-        if (prov.contains("license") && prov["license"].is_string()) licenses.insert(prov["license"].get<std::string>());
+        if (prov.contains("license") && prov["license"].is_string())
+            licenses.insert(prov["license"].get<std::string>());
     }
     for (const ImageLayer* p : providers) aiSources.insert(p->source);
 
@@ -183,20 +191,33 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
         const Json previousProv = previous.is_object() ? previous.value("provenance", Json()) : Json();
         std::string err;
         bool same = false;
-        if (auto old = tooling_detail::read_file(*outPath)) same = *old == std::string_view(reinterpret_cast<const char*>(png.data()), png.size());
-        if (!same && !tooling_detail::write_file(*outPath, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+        if (auto old = tooling_detail::read_file(*outPath))
+            same = *old == std::string_view(reinterpret_cast<const char*>(png.data()), png.size());
+        if (!same && !tooling_detail::write_file(
+                         *outPath, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
             return make_error("Cannot write '" + result.output + "': " + err, "Check that the folder is writable.");
         result.written = true;
 
         std::string license = "CC0-1.0";
-        if (previousProv.is_object() && previousProv.contains("license") && previousProv["license"].is_string()) license = previousProv["license"].get<std::string>();
-        else if (!licenses.empty()) license = join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
+        if (previousProv.is_object() && previousProv.contains("license") && previousProv["license"].is_string())
+            license = previousProv["license"].get<std::string>();
+        else if (!licenses.empty())
+            license = join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
         std::string author = "factoria";
-        if (previousProv.is_object() && previousProv.contains("author") && previousProv["author"].is_string()) author = previousProv["author"].get<std::string>();
-        std::string notes = std::format("Composited from the image document '{}' ({} layer{}), {}x{}.", rel, doc->layers.size(), doc->layers.size() == 1 ? "" : "s", doc->width, doc->height);
-        if (plan) notes = std::format("Sprite sheet of the image document '{}': {} frame{} of {}x{} ({} layer{}), {} tag{} as clips.", rel, image_frame_count(*doc), image_frame_count(*doc) == 1 ? "" : "s",
-                                      doc->width, doc->height, doc->layers.size(), doc->layers.size() == 1 ? "" : "s", doc->tags.size(), doc->tags.size() == 1 ? "" : "s");
-        if (!aiSources.empty()) notes += " Contains AI-made pictures: " + join(std::vector<std::string>(aiSources.begin(), aiSources.end()), ", ") + ".";
+        if (previousProv.is_object() && previousProv.contains("author") && previousProv["author"].is_string())
+            author = previousProv["author"].get<std::string>();
+        std::string notes =
+            std::format("Composited from the image document '{}' ({} layer{}), {}x{}.", rel, doc->layers.size(),
+                        doc->layers.size() == 1 ? "" : "s", doc->width, doc->height);
+        if (plan)
+            notes = std::format(
+                "Sprite sheet of the image document '{}': {} frame{} of {}x{} ({} layer{}), {} tag{} as clips.", rel,
+                image_frame_count(*doc), image_frame_count(*doc) == 1 ? "" : "s", doc->width, doc->height,
+                doc->layers.size(), doc->layers.size() == 1 ? "" : "s", doc->tags.size(),
+                doc->tags.size() == 1 ? "" : "s");
+        if (!aiSources.empty())
+            notes += " Contains AI-made pictures: " +
+                     join(std::vector<std::string>(aiSources.begin(), aiSources.end()), ", ") + ".";
         Json prov = Json::object({{"origin", result.ai ? "generated" : "original"},
                                   {"ai", result.ai},
                                   {"kind", "image"},
@@ -210,22 +231,30 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
         // a picture imported from another program's file keeps saying so (the recipe says what bakes it now)
         if (previousProv.is_object() && previousProv.value("origin", std::string()) == "imported") {
             prov["origin"] = "imported";
-            if (previousProv.contains("source") && previousProv["source"].is_string()) prov["source"] = previousProv["source"];
-            if (previousProv.contains("notes") && previousProv["notes"].is_string()) prov["notes"] = previousProv["notes"];
+            if (previousProv.contains("source") && previousProv["source"].is_string())
+                prov["source"] = previousProv["source"];
+            if (previousProv.contains("notes") && previousProv["notes"].is_string())
+                prov["notes"] = previousProv["notes"];
         }
-        if (previousProv.is_object() && previousProv.contains("role") && previousProv["role"].is_string()) prov["role"] = previousProv["role"];  // style.set_role / assets.set_provenance
+        if (previousProv.is_object() && previousProv.contains("role") && previousProv["role"].is_string())
+            prov["role"] = previousProv["role"];  // style.set_role / assets.set_provenance
         result.provenance = prov;
         ProjectRootGuard root(projectDir);
         const Json previousRecipe = previousProv.is_object() ? previousProv.value("recipe", Json()) : Json();
-        const bool bakedFromThis = previousRecipe.is_object() && previousRecipe.value("command", std::string()) == kBakeCommand &&
-                                   previousRecipe.contains("args") && previousRecipe["args"].value("path", std::string()) == rel;
+        const bool bakedFromThis =
+            previousRecipe.is_object() && previousRecipe.value("command", std::string()) == kBakeCommand &&
+            previousRecipe.contains("args") && previousRecipe["args"].value("path", std::string()) == rel;
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");
             e["provenance"] = prov;
-            if (plan) e["sheet"] = plan->sheet;
-            else if (bakedFromThis) e.erase("sheet");  // the document is no longer animated
+            if (plan)
+                e["sheet"] = plan->sheet;
+            else if (bakedFromThis)
+                e.erase("sheet");  // the document is no longer animated
         });
-        if (!updated.ok()) return make_error("The picture was written, but assets.json was not updated: " + updated.error().message, updated.error().hint);
+        if (!updated.ok())
+            return make_error("The picture was written, but assets.json was not updated: " + updated.error().message,
+                              updated.error().hint);
         // a provider layer's record: when the picture has none in assets.json yet, the document's goes there
         for (const ImageLayer* p : providers) {
             if (!p->provenance.is_object()) continue;
@@ -244,19 +273,23 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
     return result;
 }
 
-Result<ImageBakeResult> save_image_document(const std::string& projectDir, const std::string& relIn, const Json& document, bool bake) {
+Result<ImageBakeResult> save_image_document(const std::string& projectDir, const std::string& relIn,
+                                            const Json& document, bool bake) {
     const std::string rel = normalized(relIn);
     if (!is_document_path(rel))
-        return make_error("'" + rel + "' is not an image document path (it must end in " + kImageDocSuffix + ").", "Name it like \"assets/art/hero.image.json\".");
+        return make_error("'" + rel + "' is not an image document path (it must end in " + kImageDocSuffix + ").",
+                          "Name it like \"assets/art/hero.image.json\".");
     auto parsed = parse_image_document(document, rel, projectDir);
     if (!parsed.ok()) return make_error(parsed.error().message + " Nothing was written.", parsed.error().hint);
     auto path = resolve_document_write(projectDir, rel);
     if (!path.ok()) return make_error(path.error().message, path.error().hint);
     // the picture's path comes from the document too: refuse it before the document is written
     if (auto picture = resolve_document_write(projectDir, image_document_output(*parsed, rel)); !picture.ok())
-        return make_error("`output` of the document: " + picture.error().message + " Nothing was written.", picture.error().hint);
+        return make_error("`output` of the document: " + picture.error().message + " Nothing was written.",
+                          picture.error().hint);
     std::string err;
-    if (!tooling_detail::write_file(*path, dump_json(document), &err)) return make_error("Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(*path, dump_json(document), &err))
+        return make_error("Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     if (!bake) {
         ImageBakeResult r;
         r.document = rel;
@@ -272,12 +305,14 @@ std::vector<std::string> list_image_documents(const std::string& projectDir) {
     std::vector<std::string> out;
     const stdfs::path root(projectDir);
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         const std::string rel = it->path().lexically_relative(root).generic_string();
         std::error_code e2;
         if (it->is_directory(e2)) {
-            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build") it.disable_recursion_pending();
+            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build")
+                it.disable_recursion_pending();
             continue;
         }
         if (ends_with(name, kImageDocSuffix)) out.push_back(rel);

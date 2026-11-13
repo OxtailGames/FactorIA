@@ -14,8 +14,10 @@ namespace {
 // A box 100 x 180 x 100 (centimetres) as 12 triangles of a soup (36 vertices, nothing shared), moved 300 along x, with the sixth
 // triangle turned inside out and a tetrahedron speck 4 m above it.
 MeshData dirty_cube(bool withSpeck = true, bool flip = true) {
-    const float P[8][3] = {{-50, 0, -50}, {50, 0, -50}, {50, 180, -50}, {-50, 180, -50}, {-50, 0, 50}, {50, 0, 50}, {50, 180, 50}, {-50, 180, 50}};
-    const int F[12][3] = {{0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {2, 3, 7}, {2, 7, 6}, {1, 2, 6}, {1, 6, 5}, {3, 0, 4}, {3, 4, 7}};
+    const float P[8][3] = {{-50, 0, -50}, {50, 0, -50}, {50, 180, -50}, {-50, 180, -50},
+                           {-50, 0, 50},  {50, 0, 50},  {50, 180, 50},  {-50, 180, 50}};
+    const int F[12][3] = {{0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4},
+                          {2, 3, 7}, {2, 7, 6}, {1, 2, 6}, {1, 6, 5}, {3, 0, 4}, {3, 4, 7}};
     MeshInput in;
     in.hasIndices = true;
     auto add = [&](float x, float y, float z) {
@@ -40,7 +42,8 @@ MeshData dirty_cube(bool withSpeck = true, bool flip = true) {
 
 }  // namespace
 
-TEST_CASE("model_import_clean: a dirty mesh is welded, loses its floating bit, is scaled to a height, recentred and closed") {
+TEST_CASE(
+    "model_import_clean: a dirty mesh is welded, loses its floating bit, is scaled to a height, recentred and closed") {
     ModelCleanOptions o;
     o.height = 1.8;
     auto r = model_import_clean(dirty_cube(), o);
@@ -49,7 +52,8 @@ TEST_CASE("model_import_clean: a dirty mesh is welded, loses its floating bit, i
     CHECK(rep.trianglesBefore == 16);
     CHECK(rep.trianglesAfter == 12);
     CHECK(rep.verticesBefore == 48);
-    CHECK(rep.verticesAfter == 8 * 3 + 2);  // a box keeps one vertex per face corner direction (normals differ): 8 corners x up to 3 normals
+    CHECK(rep.verticesAfter ==
+          8 * 3 + 2);  // a box keeps one vertex per face corner direction (normals differ): 8 corners x up to 3 normals
     CHECK(rep.pieces == 2);
     CHECK(rep.removedPieceCount == 1);
     CHECK(rep.removedPieceTriangles == 4);
@@ -57,7 +61,8 @@ TEST_CASE("model_import_clean: a dirty mesh is welded, loses its floating bit, i
     CHECK(rep.scaleFactor == doctest::Approx(0.01));
     CHECK(rep.sizeAfter.y == doctest::Approx(1.8f));
     CHECK(rep.sizeAfter.x == doctest::Approx(1.0f));
-    CHECK(rep.statsBefore.closed() == false);   // the speck shares nothing, but a flipped triangle makes an edge used twice in the same direction
+    CHECK(rep.statsBefore.closed() ==
+          false);  // the speck shares nothing, but a flipped triangle makes an edge used twice in the same direction
     CHECK(rep.statsAfter.closed());
     CHECK(rep.statsAfter.volume > 0);
     CHECK(rep.statsAfter.bmin.y == doctest::Approx(0.0f).epsilon(0.0001));
@@ -76,7 +81,9 @@ TEST_CASE("model_import_clean: without a scale option the size is kept and an od
     REQUIRE(r.ok());
     CHECK(r->report.scaleFactor == 1);
     bool warned = false;
-    for (const std::string& w : r->report.warnings) warned = warned || (w.find("pass `height`") != std::string::npos && w.find("0.01 for centimetres") != std::string::npos);
+    for (const std::string& w : r->report.warnings)
+        warned = warned ||
+                 (w.find("pass `height`") != std::string::npos && w.find("0.01 for centimetres") != std::string::npos);
     CHECK(warned);
     ModelCleanOptions s;
     s.scale = 0.01;
@@ -187,9 +194,12 @@ TEST_CASE("model_import_clean: remesh closes a surface with a hole and makes it 
     in.hasIndices = true;
     for (const Vec3& p : sphere.positions) in.positions.insert(in.positions.end(), {p.x, p.y, p.z});
     for (std::size_t t = 0; t < sphere.triangle_count(); ++t) {
-        const Vec3 c = (sphere.positions[sphere.indices[t * 3]] + sphere.positions[sphere.indices[t * 3 + 1]] + sphere.positions[sphere.indices[t * 3 + 2]]) / 3.0f;
+        const Vec3 c = (sphere.positions[sphere.indices[t * 3]] + sphere.positions[sphere.indices[t * 3 + 1]] +
+                        sphere.positions[sphere.indices[t * 3 + 2]]) /
+                       3.0f;
         if (c.x > 0.3f) continue;
-        in.indices.insert(in.indices.end(), {sphere.indices[t * 3], sphere.indices[t * 3 + 1], sphere.indices[t * 3 + 2]});
+        in.indices.insert(in.indices.end(),
+                          {sphere.indices[t * 3], sphere.indices[t * 3 + 1], sphere.indices[t * 3 + 2]});
     }
     auto data = build_mesh_data(in);
     REQUIRE(data.ok());
@@ -228,9 +238,12 @@ TEST_CASE("model_import_clean: a small hole is closed by the remesh into a solid
     in.hasIndices = true;
     for (const Vec3& p : sphere.positions) in.positions.insert(in.positions.end(), {p.x, p.y, p.z});
     for (std::size_t t = 0; t < sphere.triangle_count(); ++t) {
-        const Vec3 c = (sphere.positions[sphere.indices[t * 3]] + sphere.positions[sphere.indices[t * 3 + 1]] + sphere.positions[sphere.indices[t * 3 + 2]]) / 3.0f;
+        const Vec3 c = (sphere.positions[sphere.indices[t * 3]] + sphere.positions[sphere.indices[t * 3 + 1]] +
+                        sphere.positions[sphere.indices[t * 3 + 2]]) /
+                       3.0f;
         if (length(c - Vec3{0.5f, 0, 0}) < 0.07f) continue;  // a pinhole
-        in.indices.insert(in.indices.end(), {sphere.indices[t * 3], sphere.indices[t * 3 + 1], sphere.indices[t * 3 + 2]});
+        in.indices.insert(in.indices.end(),
+                          {sphere.indices[t * 3], sphere.indices[t * 3 + 1], sphere.indices[t * 3 + 2]});
     }
     auto data = build_mesh_data(in);
     REQUIRE(data.ok());

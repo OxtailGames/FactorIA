@@ -34,18 +34,21 @@ Result<WebPlayer> player_in(const stdfs::path& dir, const std::string& from) {
     for (const stdfs::path* f : {&w.js, &w.wasm})
         if (!stdfs::is_regular_file(os_path(*f), ec))
             return err("export: the web player is incomplete: " + generic(*f) + " not found",
-                       "a web player is two files, factoria_player.js and factoria_player.wasm, in one folder; pass that folder with --player");
+                       "a web player is two files, factoria_player.js and factoria_player.wasm, in one folder; pass "
+                       "that folder with --player");
     return w;
 }
 
 bool has_player(const stdfs::path& dir) {
     std::error_code ec;
-    return stdfs::is_regular_file(os_path(dir / "factoria_player.js"), ec) && stdfs::is_regular_file(os_path(dir / "factoria_player.wasm"), ec);
+    return stdfs::is_regular_file(os_path(dir / "factoria_player.js"), ec) &&
+           stdfs::is_regular_file(os_path(dir / "factoria_player.wasm"), ec);
 }
 
 // Replaces {{name}} in one pass, so a game called "{{pakBytes}}" stays what it is. Names without a value are left as they are
 // and listed in `unknown`.
-std::string fill_page(const std::string& shell, const std::map<std::string, std::string>& values, std::vector<std::string>& unknown) {
+std::string fill_page(const std::string& shell, const std::map<std::string, std::string>& values,
+                      std::vector<std::string>& unknown) {
     std::string out;
     std::size_t i = 0;
     while (i < shell.size()) {
@@ -76,7 +79,8 @@ std::uint64_t file_size_of(const stdfs::path& p) {
 
 // ---- single file ---------------------------------------------------------------------------------------------------
 
-constexpr std::uint64_t kBase64Chunk = 3ull * 256 * 1024;  // bytes read and encoded at a time (a multiple of 3: no padding in the middle)
+constexpr std::uint64_t kBase64Chunk =
+    3ull * 256 * 1024;  // bytes read and encoded at a time (a multiple of 3: no padding in the middle)
 
 std::string mb_text(std::uint64_t bytes) {
     const std::uint64_t tenths = bytes / (1024 * 1024 / 10);  // tenths of a MiB, rounded down
@@ -91,7 +95,10 @@ struct WasmReader {
     std::uint64_t leb() {
         std::uint64_t v = 0;
         for (int shift = 0; shift < 64; shift += 7) {
-            if (at >= d.size()) { bad = true; return 0; }
+            if (at >= d.size()) {
+                bad = true;
+                return 0;
+            }
             const unsigned char b = static_cast<unsigned char>(d[at++]);
             v |= static_cast<std::uint64_t>(b & 0x7F) << shift;
             if ((b & 0x80) == 0) return v;
@@ -100,11 +107,18 @@ struct WasmReader {
         return 0;
     }
     unsigned char byte() {
-        if (at >= d.size()) { bad = true; return 0; }
+        if (at >= d.size()) {
+            bad = true;
+            return 0;
+        }
         return static_cast<unsigned char>(d[at++]);
     }
     void skip(std::uint64_t n) {
-        if (n > d.size() - at) { bad = true; at = d.size(); return; }
+        if (n > d.size() - at) {
+            bad = true;
+            at = d.size();
+            return;
+        }
         at += static_cast<std::size_t>(n);
     }
     // limits: flags, min, and max when flag bit 0 is set. Returns the flags (bit 1 = shared).
@@ -153,7 +167,8 @@ bool wasm_uses_shared_memory(std::string_view wasm) {
         const unsigned id = r.byte();
         const std::uint64_t size = r.leb();
         if (r.bad) return false;
-        if (id > 5) return false;  // the memory section is the last one that can declare a memory (imports and memories come first)
+        if (id > 5)
+            return false;  // the memory section is the last one that can declare a memory (imports and memories come first)
         if (size > wasm.size() - r.at) return false;
         const std::size_t end = r.at + static_cast<std::size_t>(size);
         if (id == 2) {  // imports: module, field, kind, descriptor
@@ -162,11 +177,22 @@ bool wasm_uses_shared_memory(std::string_view wasm) {
                 r.skip(r.leb());  // module name
                 r.skip(r.leb());  // field name
                 switch (r.byte()) {
-                    case 0: r.leb(); break;                                   // function: type index
-                    case 1: r.byte(); r.limits(); break;                      // table: element type, limits
-                    case 2: if (r.limits() & 2) return !r.bad; break;         // memory
-                    case 3: r.byte(); r.byte(); break;                        // global: type, mutability
-                    case 4: r.byte(); r.leb(); break;                         // tag: attribute, type index
+                    case 0: r.leb(); break;  // function: type index
+                    case 1:
+                        r.byte();
+                        r.limits();
+                        break;  // table: element type, limits
+                    case 2:
+                        if (r.limits() & 2) return !r.bad;
+                        break;  // memory
+                    case 3:
+                        r.byte();
+                        r.byte();
+                        break;  // global: type, mutability
+                    case 4:
+                        r.byte();
+                        r.leb();
+                        break;  // tag: attribute, type index
                     default: return false;
                 }
             }
@@ -182,21 +208,28 @@ bool wasm_uses_shared_memory(std::string_view wasm) {
 
 Result<void> check_web_single_file(const ExportOptions& options, const WebPlayer& player, std::uint64_t packBytes) {
     if (auto wasm = read_file(player.wasm); wasm && wasm_uses_shared_memory(*wasm))
-        return err("export: singleFile: this web player uses threads (its wasm has a shared memory), and a browser starts those only on a page served with the "
-                   "cross-origin isolation headers (Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy), which a file opened by a double click cannot have",
-                   "export the normal web folder instead (without singleFile) and serve it with those headers, or use the default web player of this FactorIA "
+        return err("export: singleFile: this web player uses threads (its wasm has a shared memory), and a browser "
+                   "starts those only on a page served with the "
+                   "cross-origin isolation headers (Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy), "
+                   "which a file opened by a double click cannot have",
+                   "export the normal web folder instead (without singleFile) and serve it with those headers, or use "
+                   "the default web player of this FactorIA "
                    "(it uses no threads): `factoria setup players --platforms web`");
     const std::uint64_t jsBytes = file_size_of(player.js), wasmBytes = file_size_of(player.wasm);
     const std::uint64_t playerPage = base64_length(jsBytes) + base64_length(wasmBytes);
-    const std::uint64_t page = playerPage > UINT64_MAX - base64_length(packBytes) ? UINT64_MAX : playerPage + base64_length(packBytes);
+    const std::uint64_t page =
+        playerPage > UINT64_MAX - base64_length(packBytes) ? UINT64_MAX : playerPage + base64_length(packBytes);
     constexpr std::uint64_t kPageOverhead = 64 * 1024;  // the page's own text, the favicon and the notices
     if (page != UINT64_MAX && page + kPageOverhead <= options.singleFileMaxBytes) return {};
     std::string what = "the player is " + mb_text(jsBytes + wasmBytes) + " (" + mb_text(playerPage) + " as base64)";
-    if (packBytes > 0) what += " and the game " + mb_text(packBytes) + " (" + mb_text(base64_length(packBytes)) + " as base64)";
-    return err("export: singleFile: the page would be about " + mb_text(page) + " but the limit is " + mb_text(options.singleFileMaxBytes) + "; " + what +
-                   "; base64 makes every file a third bigger",
-               "make the game smaller (docs/ASSETS.md, \"Import settings\": compress textures and audio), raise the limit with singleFileMaxMb "
-               "(--single-file-max-mb; browsers get slow with pages over about 100 MB), or export the normal web folder (no singleFile) and host it, "
+    if (packBytes > 0)
+        what += " and the game " + mb_text(packBytes) + " (" + mb_text(base64_length(packBytes)) + " as base64)";
+    return err("export: singleFile: the page would be about " + mb_text(page) + " but the limit is " +
+                   mb_text(options.singleFileMaxBytes) + "; " + what + "; base64 makes every file a third bigger",
+               "make the game smaller (docs/ASSETS.md, \"Import settings\": compress textures and audio), raise the "
+               "limit with singleFileMaxMb "
+               "(--single-file-max-mb; browsers get slow with pages over about 100 MB), or export the normal web "
+               "folder (no singleFile) and host it, "
                "or try it on a phone with project.serve_web");
 }
 
@@ -208,11 +241,13 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
             const std::string ext = to_lower(given.extension().string());
             if (ext != ".js" && ext != ".wasm")
                 return err("export: --player '" + o.playerBinary + "' is not a web player",
-                           "for --platform web pass the folder that holds factoria_player.js and factoria_player.wasm, or factoria_player.js itself");
+                           "for --platform web pass the folder that holds factoria_player.js and factoria_player.wasm, "
+                           "or factoria_player.js itself");
             given = given.parent_path();
         } else if (!stdfs::is_directory(os_path(given), ec)) {
             return err("export: web player '" + o.playerBinary + "' not found",
-                       "pass --player <folder> with factoria_player.js and factoria_player.wasm (the build tree's player/ folder, or web/ of the FactorIA download)");
+                       "pass --player <folder> with factoria_player.js and factoria_player.wasm (the build tree's "
+                       "player/ folder, or web/ of the FactorIA download)");
         }
         return player_in(given, "explicit");
     }
@@ -234,22 +269,27 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
     if (const std::string installed = installed_player("web"); !installed.empty())
         if (auto w = player_in(stdfs::path(installed).parent_path(), "installed"); w.ok()) found.push_back(*w);
     searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
-    searched.push_back(generic(stdfs::path(sourceRoot) / "build" / "web-release" / "player") + " (a web build of the engine source)");
+    searched.push_back(generic(stdfs::path(sourceRoot) / "build" / "web-release" / "player") +
+                       " (a web build of the engine source)");
     const std::string mine = build_fingerprint();
     if (mine != "unknown")
         for (const WebPlayer& w : found)
             if (const auto data = read_file(w.wasm); data && find_build_fingerprint(*data) == mine) return w;
     if (!found.empty()) return found.front();
-    return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " + join(searched, ", "),
-               "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the web player of this FactorIA "
-               "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ folder with --player <folder>");
+    return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " +
+                   join(searched, ", "),
+               "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the "
+               "web player of this FactorIA "
+               "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ "
+               "folder with --player <folder>");
 }
 
 namespace {
 
 // Single file: the page with the player, wasm, favicon and pack inlined. `favicon` is the data: URL of the icon (or "data:,").
-Result<void> write_single_file(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
-                               const std::string& shell, const std::string& faviconDataUrl, ExportReport& report) {
+Result<void> write_single_file(const ExportOptions& options, const Project& p, const WebPlayer& player,
+                               const stdfs::path& outRoot, const std::string& shell, const std::string& faviconDataUrl,
+                               ExportReport& report) {
     const stdfs::path packFile = outRoot / kPackFileName;
     const std::uint64_t packBytes = file_size_of(packFile);
     // Before anything big is read or built: the sizes are on disk.
@@ -258,7 +298,8 @@ Result<void> write_single_file(const ExportOptions& options, const Project& p, c
     static const std::string kSlot = "{{inlineData}}";
     const std::size_t slot = shell.find(kSlot);
     if (slot == std::string::npos || shell.find(kSlot, slot + kSlot.size()) != std::string::npos)
-        return err("export: the page template " + std::string(kShellPath) + " has no single {{inlineData}} placeholder, which singleFile needs",
+        return err("export: the page template " + std::string(kShellPath) +
+                       " has no single {{inlineData}} placeholder, which singleFile needs",
                    "update factoria, or restore the placeholder in platforms/web/shell.html");
     std::vector<std::string> unknown;
     const std::map<std::string, std::string> values = {{"title", xml_escape(p.name)},
@@ -268,42 +309,52 @@ Result<void> write_single_file(const ExportOptions& options, const Project& p, c
     const std::string head = fill_page(shell.substr(0, slot), values, unknown);
     const std::string tail = fill_page(shell.substr(slot + kSlot.size()), values, unknown);
     if (!unknown.empty())
-        report.warnings.push_back("The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
-                                  "}}), so the page shows them as they are. Update factoria, or the template platforms/web/shell.html");
+        report.warnings.push_back(
+            "The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
+            "}}), so the page shows them as they are. Update factoria, or the template platforms/web/shell.html");
 
     const stdfs::path page = outRoot / web_single_file_name(p);
     std::ofstream out(os_path(page), std::ios::binary | std::ios::trunc);
     if (!out) return err("export: cannot write " + generic(page));
     out.write(head.data(), static_cast<std::streamsize>(head.size()));
-    const std::pair<const char*, const stdfs::path*> parts[] = {{"fa-wasm", &player.wasm}, {"fa-pak", &packFile}, {"fa-js", &player.js}};
+    const std::pair<const char*, const stdfs::path*> parts[] = {
+        {"fa-wasm", &player.wasm}, {"fa-pak", &packFile}, {"fa-js", &player.js}};
     for (const auto& [id, file] : parts) {
         out << "<script type=\"application/octet-stream\" id=\"" << id << "\">";  // never run: the page decodes it
-        if (!write_base64_of(out, *file)) return err("export: cannot read " + generic(*file) + " to inline it, or cannot write " + generic(page));
+        if (!write_base64_of(out, *file))
+            return err("export: cannot read " + generic(*file) + " to inline it, or cannot write " + generic(page));
         out << "</script>\n";
     }
     // The licenses of the engine code in the player travel inside the file too (the folder's FACTORIA_NOTICES.txt may be left behind).
     out << "<script type=\"text/plain\" id=\"fa-notices\">"
-        << script_safe(third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end()))) << "</script>\n";
+        << script_safe(third_party_notices(
+               NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end())))
+        << "</script>\n";
     out.write(tail.data(), static_cast<std::streamsize>(tail.size()));
     out.flush();
     if (!out) return err("export: cannot write " + generic(page) + " (is the disk full?)");
     out.close();
     std::error_code ec;
     stdfs::remove(os_path(packFile), ec);  // inlined: the page does not use it
-    if (ec) report.warnings.push_back("Could not delete " + generic(packFile) + " after inlining it (" + ec.message() + "); the page does not need it");
+    if (ec)
+        report.warnings.push_back("Could not delete " + generic(packFile) + " after inlining it (" + ec.message() +
+                                  "); the page does not need it");
     report.format = "html";
     report.artifact = generic(page);
     report.mode = player.from;
-    report.nextSteps.push_back("Open " + generic(page) + " with a double click: it runs offline in a browser, with no server (" + mb_text(file_size_of(page)) +
-                               "). Send that one file to try the game on another computer; a phone opens it from a chat or a file manager only in some browsers, "
+    report.nextSteps.push_back("Open " + generic(page) +
+                               " with a double click: it runs offline in a browser, with no server (" +
+                               mb_text(file_size_of(page)) +
+                               "). Send that one file to try the game on another computer; a phone opens it from a "
+                               "chat or a file manager only in some browsers, "
                                "so to test on a phone use project.serve_web instead");
     return {};
 }
 
 }  // namespace
 
-Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
-                        const std::vector<std::string>& files, ExportReport& report) {
+Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player,
+                        const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report) {
     std::error_code ec;
     stdfs::create_directories(os_path(outRoot), ec);
     // The game first: its size goes into the page.
@@ -311,13 +362,17 @@ Result<void> export_web(const ExportOptions& options, const Project& p, const We
     const bool single = options.singleFile;
     if (!single)
         for (const stdfs::path* f : {&player.js, &player.wasm}) {
-            stdfs::copy_file(os_path(*f), os_path(outRoot / f->filename()), stdfs::copy_options::overwrite_existing, ec);
-            if (ec) return err("export: cannot copy the web player " + generic(*f) + " to " + generic(outRoot) + ": " + ec.message());
+            stdfs::copy_file(os_path(*f), os_path(outRoot / f->filename()), stdfs::copy_options::overwrite_existing,
+                             ec);
+            if (ec)
+                return err("export: cannot copy the web player " + generic(*f) + " to " + generic(outRoot) + ": " +
+                           ec.message());
         }
     const auto shell = bundled_read(kShellPath);
     if (!shell)
         return err(std::string("export: the page template ") + kShellPath + " is not in this factoria",
-                   "this build of factoria lacks the platforms/ folder: build it from a complete checkout, or use the FactorIA download");
+                   "this build of factoria lacks the platforms/ folder: build it from a complete checkout, or use the "
+                   "FactorIA download");
     // The tab's icon: the game's icon (factoria.json "icon") as a 64x64 favicon.png. Without one, or with an icon that cannot be read
     // (the warning says why), the page keeps an empty icon, so that a host without a favicon logs no 404.
     std::string favicon = "data:,";
@@ -325,19 +380,23 @@ Result<void> export_web(const ExportOptions& options, const Project& p, const We
         std::vector<std::string> ignored;  // load_icon_image's remarks (not square, under 512 px) are about app icons
         auto icon = load_platform_icon(p, "web", ignored);
         if (!icon.ok()) {
-            report.warnings.push_back(icon.error().message + (icon.error().hint.empty() ? "" : ". " + icon.error().hint) +
+            report.warnings.push_back(icon.error().message +
+                                      (icon.error().hint.empty() ? "" : ". " + icon.error().hint) +
                                       ". The page has no icon in the browser tab");
         } else if (!icon->empty()) {
             const Image small = fit_image(*icon, 64, 1.0f, Color{0, 0, 0, 0});
             const std::vector<std::uint8_t> png = encode_png(small);
             if (png.empty()) {
-                report.warnings.push_back("The game's icon could not be written as favicon.png, so the page has no icon in the browser tab");
+                report.warnings.push_back(
+                    "The game's icon could not be written as favicon.png, so the page has no icon in the browser tab");
             } else if (single) {
                 favicon = "data:image/png;base64," + base64_encode(png.data(), png.size());
             } else {
                 std::string why;
-                if (!write_file(outRoot / "favicon.png", std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &why))
-                    return err("export: cannot write " + generic(outRoot / "favicon.png") + (why.empty() ? "" : ": " + why));
+                if (!write_file(outRoot / "favicon.png",
+                                std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &why))
+                    return err("export: cannot write " + generic(outRoot / "favicon.png") +
+                               (why.empty() ? "" : ": " + why));
                 favicon = "favicon.png";
             }
         }
@@ -353,13 +412,18 @@ Result<void> export_web(const ExportOptions& options, const Project& p, const We
                                         {"inlineData", ""}},
                                        unknown);
     if (!unknown.empty())
-        report.warnings.push_back("The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
-                                  "}}), so index.html shows them as they are. Update factoria, or the template platforms/web/shell.html");
+        report.warnings.push_back(
+            "The page template has placeholders this factoria does not fill in ({{" + join(unknown, "}}, {{") +
+            "}}), so index.html shows them as they are. Update factoria, or the template platforms/web/shell.html");
     if (auto r = write_text(outRoot / "index.html", page); !r.ok()) return r;
     report.mode = player.from;
-    report.nextSteps.push_back("Try it: a browser does not run it from a file (it fetches the .wasm and game.pak), so serve the folder: "
-                               "python -m http.server 8080 --directory \"" + generic(outRoot) + "\" and open http://localhost:8080/ "
-                               "(or project.serve_web, which also serves it to a phone; or export with singleFile for one page that opens from a double click)");
+    report.nextSteps.push_back(
+        "Try it: a browser does not run it from a file (it fetches the .wasm and game.pak), so serve the folder: "
+        "python -m http.server 8080 --directory \"" +
+        generic(outRoot) +
+        "\" and open http://localhost:8080/ "
+        "(or project.serve_web, which also serves it to a phone; or export with singleFile for one page that opens "
+        "from a double click)");
     return {};
 }
 
@@ -390,7 +454,8 @@ Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, Exp
         auto data = read_file(file);
         if (!data) return err("export: cannot read " + generic(file) + " to zip it");
         if (data->size() >= 0xFFFFFFFFull)
-            return err("export: the web export is over 2 GB, more than a zip made here can hold", "itch.io does not take such a game either: make the game smaller");
+            return err("export: the web export is over 2 GB, more than a zip made here can hold",
+                       "itch.io does not take such a game either: make the game smaller");
         total += data->size();
         if (auto r = zip.add(name, *data, true); !r.ok()) return r;
     }
@@ -417,21 +482,27 @@ Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, Exp
     // What itch.io documents for an HTML5 game (https://itch.io/docs/creators/html5).
     constexpr std::uint64_t kMiB = 1024 * 1024;
     if (names.size() > 1000)
-        report.warnings.push_back("The web export has " + std::to_string(names.size()) + " files; itch.io takes at most 1000 in an HTML5 game");
+        report.warnings.push_back("The web export has " + std::to_string(names.size()) +
+                                  " files; itch.io takes at most 1000 in an HTML5 game");
     if (total > 500 * kMiB)
-        report.warnings.push_back("The web export is " + std::to_string(total / kMiB) + " MB unpacked; itch.io takes at most 500 MB for an HTML5 game. Compress "
+        report.warnings.push_back("The web export is " + std::to_string(total / kMiB) +
+                                  " MB unpacked; itch.io takes at most 500 MB for an HTML5 game. Compress "
                                   "textures and audio (docs/ASSETS.md, \"Import settings\")");
     for (const ZipEntry& e : entries) {
         if (e.size > 200 * kMiB)
-            report.warnings.push_back(e.name + " is " + std::to_string(e.size / kMiB) + " MB; itch.io takes at most 200 MB per file in an HTML5 game. "
+            report.warnings.push_back(e.name + " is " + std::to_string(e.size / kMiB) +
+                                      " MB; itch.io takes at most 200 MB per file in an HTML5 game. "
                                       "Make the game smaller (docs/ASSETS.md, \"Import settings\")");
         if (e.name.size() > 240)
-            report.warnings.push_back("The path " + e.name + " is over 240 characters, which itch.io refuses in an HTML5 game");
+            report.warnings.push_back("The path " + e.name +
+                                      " is over 240 characters, which itch.io refuses in an HTML5 game");
     }
     report.format = "zip";
     report.artifact = generic(zipFile);
-    report.nextSteps.push_back("Publish on itch.io: upload " + generic(zipFile.filename()) + " to a project of kind HTML, tick \"This file will be played in the "
-                               "browser\" and set the viewport size; any other host takes the folder's files as they are (serve .wasm as application/wasm)");
+    report.nextSteps.push_back("Publish on itch.io: upload " + generic(zipFile.filename()) +
+                               " to a project of kind HTML, tick \"This file will be played in the "
+                               "browser\" and set the viewport size; any other host takes the folder's files as they "
+                               "are (serve .wasm as application/wasm)");
     return {};
 }
 

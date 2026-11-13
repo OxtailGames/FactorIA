@@ -34,25 +34,35 @@ struct Project {
         (*j)["localization"] = *parse_json(localization);
         REQUIRE(save_json_file(dir + "/factoria.json", *j).ok());
     }
-    void table(const char* language, const char* json) { testing::write_all(dir + "/locales/" + language + ".json", json); }
+    void table(const char* language, const char* json) {
+        testing::write_all(dir + "/locales/" + language + ".json", json);
+    }
     void font(const char* path) {
         const stdfs::path to = stdfs::path(dir) / path;
         stdfs::create_directories(to.parent_path());
-        stdfs::copy_file(stdfs::path(FA_RENDER_DATA_DIR) / "fonts" / to.filename(), to, stdfs::copy_options::overwrite_existing);
+        stdfs::copy_file(stdfs::path(FA_RENDER_DATA_DIR) / "fonts" / to.filename(), to,
+                         stdfs::copy_options::overwrite_existing);
     }
     // A scene or prefab in the canonical layout, so that only its content is reported.
     void scene(const std::string& rel, const char* entities) {
         stdfs::create_directories(stdfs::path(dir + "/" + rel).parent_path());
-        REQUIRE(save_scene_json_file(dir + "/" + rel, Json::parse(std::string(R"({"format": "factoria.scene/1", "entities": )") + entities + "}")).ok());
+        REQUIRE(save_scene_json_file(
+                    dir + "/" + rel,
+                    Json::parse(std::string(R"({"format": "factoria.scene/1", "entities": )") + entities + "}"))
+                    .ok());
     }
     void prefab(const std::string& rel, const char* entity) {
         stdfs::create_directories(stdfs::path(dir + "/" + rel).parent_path());
-        REQUIRE(save_scene_json_file(dir + "/" + rel, Json::parse(std::string(R"({"format": "factoria.prefab/1", "entity": )") + entity + "}")).ok());
+        REQUIRE(save_scene_json_file(
+                    dir + "/" + rel,
+                    Json::parse(std::string(R"({"format": "factoria.prefab/1", "entity": )") + entity + "}"))
+                    .ok());
     }
     ValidationReport validate() const { return validate_project(dir); }
 };
 
-std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file, const std::string& pointer = "*") {
+std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file,
+                                       const std::string& pointer = "*") {
     std::vector<const ValidationIssue*> found;
     for (const auto& i : list)
         if (i.file == file && (pointer == "*" || i.pointer == pointer)) found.push_back(&i);
@@ -64,8 +74,10 @@ bool mentions(const ValidationIssue& issue, const std::string& text) {
 }
 
 const char* kTwoLanguages = R"({"defaultLanguage": "en", "languages": ["en", "es"]})";
-const char* kEn = R"({"menu": {"play": "Play", "quit": "Quit"}, "greeting": "Hello, {name}!", "coins": {"one": "{count} coin", "other": "{count} coins"}})";
-const char* kEs = R"({"menu": {"play": "Jugar", "quit": "Salir"}, "greeting": "¡Hola, {name}!", "coins": {"one": "{count} moneda", "other": "{count} monedas"}})";
+const char* kEn =
+    R"({"menu": {"play": "Play", "quit": "Quit"}, "greeting": "Hello, {name}!", "coins": {"one": "{count} coin", "other": "{count} coins"}})";
+const char* kEs =
+    R"({"menu": {"play": "Jugar", "quit": "Salir"}, "greeting": "¡Hola, {name}!", "coins": {"one": "{count} moneda", "other": "{count} monedas"}})";
 
 }  // namespace
 
@@ -76,10 +88,13 @@ TEST_CASE("validate: a good localization section with consistent tables adds not
     p.font(kJp);
     p.table("en", kEn);
     p.table("es", kEs);
-    p.table("zh-Hans", R"({"$name": "Chinese", "menu": {"play": "日本", "quit": "語"}, "greeting": "中文 {name}", "coins": {"other": "{count}"}})");
+    p.table(
+        "zh-Hans",
+        R"({"$name": "Chinese", "menu": {"play": "日本", "quit": "語"}, "greeting": "中文 {name}", "coins": {"other": "{count}"}})");
     const ValidationReport r = p.validate();
     for (const auto& e : r.errors) CHECK_MESSAGE(false, e.to_string());
-    for (const auto& w : r.warnings) CHECK_MESSAGE((w.file == "AGENTS.md" || w.file == "tests"), w.to_string());  // what a bare project warns about
+    for (const auto& w : r.warnings)
+        CHECK_MESSAGE((w.file == "AGENTS.md" || w.file == "tests"), w.to_string());  // what a bare project warns about
 }
 
 TEST_CASE("validate: localization mistakes are reported once each, at their pointer, with a fix") {
@@ -99,7 +114,7 @@ TEST_CASE("validate: localization mistakes are reported once each, at their poin
     const auto typo = at(r.warnings, "factoria.json", "/localization/fallbackFont");
     REQUIRE(typo.size() == 1);
     CHECK(typo[0]->message.find("fallbackFonts") != std::string::npos);  // did you mean
-    CHECK(at(r.errors, "locales/en.json").empty());                       // a broken section: its tables are not looked at
+    CHECK(at(r.errors, "locales/en.json").empty());  // a broken section: its tables are not looked at
 }
 
 TEST_CASE("validate: a default language that is not in the list, a font for a language the game lacks") {
@@ -134,15 +149,24 @@ TEST_CASE("validate: a table that is missing or is not a string table is an erro
     CHECK_FALSE(broken[0]->message.empty());
 }
 
-TEST_CASE("validate: keys a language lacks, keys the default language lacks (did you mean), placeholders, plural forms") {
+TEST_CASE(
+    "validate: keys a language lacks, keys the default language lacks (did you mean), placeholders, plural forms") {
     Project p(R"({"defaultLanguage": "en", "languages": ["en", "es", "ru", "ja"]})");
-    p.table("en", R"({"menu": {"play": "Play", "quit": "Quit"}, "greeting": "Hello, {name}!", "coins": {"one": "{count} coin", "other": "{count} coins"},
+    p.table(
+        "en",
+        R"({"menu": {"play": "Play", "quit": "Quit"}, "greeting": "Hello, {name}!", "coins": {"one": "{count} coin", "other": "{count} coins"},
                        "items": "Items", "level": {"one": "Level", "other": "Levels"}})");
-    p.table("es", R"({"menu": {"play": "Jugar", "quti": "Salir"}, "greeting": "¡Hola, {nombre}!", "coins": {"one": "{count} moneda", "other": "{count} monedas"},
+    p.table(
+        "es",
+        R"({"menu": {"play": "Jugar", "quti": "Salir"}, "greeting": "¡Hola, {nombre}!", "coins": {"one": "{count} moneda", "other": "{count} monedas"},
                        "items": "Objetos", "level": "Nivel"})");
-    p.table("ru", R"({"menu.play": "Играть", "menu.quit": "Выход", "greeting": "Привет, {name}!", "items": "Предметы", "level": {"other": "Уровни"},
+    p.table(
+        "ru",
+        R"({"menu.play": "Играть", "menu.quit": "Выход", "greeting": "Привет, {name}!", "items": "Предметы", "level": {"other": "Уровни"},
                        "coins": {"one": "{count} монета", "other": "{count} монеты"}})");
-    p.table("ja", R"({"menu.play": "x", "menu.quit": "y", "greeting": "{name}", "items": "z", "level": {"other": "Lv", "one": "Lv1"},
+    p.table(
+        "ja",
+        R"({"menu.play": "x", "menu.quit": "y", "greeting": "{name}", "items": "z", "level": {"other": "Lv", "one": "Lv1"},
                        "coins": {"other": "{count}", "zero": "0"}})");
     const ValidationReport r = p.validate();
     CHECK(r.errors.empty());
@@ -196,7 +220,8 @@ TEST_CASE("validate: a gender entry without the form a language uses warns, a na
     CHECK(at(r.warnings, "locales/ja.json").empty());  // no grammatical gender: nothing to ask
 }
 
-TEST_CASE("validate: the `key` of a Text or widget must be in the default table; plural and placeholder keys cannot be filled by a component") {
+TEST_CASE("validate: the `key` of a Text or widget must be in the default table; plural and placeholder keys cannot be "
+          "filled by a component") {
     Project p(kTwoLanguages);
     p.table("en", kEn);
     p.table("es", kEs);
@@ -207,7 +232,9 @@ TEST_CASE("validate: the `key` of a Text or widget must be in the default table;
         {"id": "toggle", "components": {"Toggle": {"label": "Quit", "key": "menu.quti"}}},
         {"id": "count", "components": {"Text": {"text": "coins", "key": "coins"}}},
         {"id": "hello", "components": {"TextField": {"placeholder": "Hello", "key": "greeting"}}}])");
-    p.prefab("prefabs/row.prefab.json", R"({"id": "row", "children": [{"id": "label", "components": {"Slider": {"label": "x", "key": "volume"}}}]})");
+    p.prefab(
+        "prefabs/row.prefab.json",
+        R"({"id": "row", "children": [{"id": "label", "components": {"Slider": {"label": "x", "key": "volume"}}}]})");
     const ValidationReport r = p.validate();
     CHECK(at(r.errors, "scenes/main.scene.json", "/entities/1/components/Button/key").empty());
 
@@ -266,7 +293,8 @@ TEST_CASE("validate: keyArgs are checked against the placeholders of the key") {
     const auto unused = at(r.warnings, "scenes/main.scene.json", "/entities/5/components/Text/keyArgs/nmae");
     REQUIRE(unused.size() == 1);
     CHECK(mentions(*unused[0], "Did you mean \"name\"?"));
-    CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/6/components/Text/keyArgs").empty());  // count picks the plural form
+    CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/6/components/Text/keyArgs")
+              .empty());  // count picks the plural form
     CHECK(at(r.warnings, "scenes/main.scene.json", "/entities/6/components/Text/key").empty());
 }
 
@@ -301,9 +329,9 @@ TEST_CASE("validate: a character no font has is an error that names the characte
     const auto missing = at(r.errors, "locales/ko.json", "/menu/play");
     REQUIRE(missing.size() == 1);
     const ValidationIssue& issue = *missing[0];
-    CHECK(issue.message.find("U+D55C '\xED\x95\x9C'") != std::string::npos);   // the character
-    CHECK(issue.message.find("한국어 한글") != std::string::npos);                // the text
-    CHECK(issue.message.find("'menu.play'") != std::string::npos);              // the table key
+    CHECK(issue.message.find("U+D55C '\xED\x95\x9C'") != std::string::npos);           // the character
+    CHECK(issue.message.find("한국어 한글") != std::string::npos);                     // the text
+    CHECK(issue.message.find("'menu.play'") != std::string::npos);                     // the table key
     CHECK(issue.hint.find("localization.languageFonts.\"ko\"") != std::string::npos);  // the fix
     CHECK(issue.hint.find("localization.fallbackFonts") != std::string::npos);
     CHECK(issue.hint.find("Noto Sans KR") != std::string::npos);
@@ -317,8 +345,10 @@ TEST_CASE("validate: a character no font has is an error that names the characte
     for (const auto& e : p.validate().errors) CHECK_MESSAGE(false, e.to_string());
 }
 
-TEST_CASE("validate: the font chain of a table string is the font of the component that shows its key, then the language's fonts") {
-    Project p(R"({"defaultLanguage": "en", "languages": ["en", "ja"], "languageFonts": {"ja": ["assets/fonts/NotoSansArabic-Regular-subset.ttf"]}})");
+TEST_CASE("validate: the font chain of a table string is the font of the component that shows its key, then the "
+          "language's fonts") {
+    Project p(
+        R"({"defaultLanguage": "en", "languages": ["en", "ja"], "languageFonts": {"ja": ["assets/fonts/NotoSansArabic-Regular-subset.ttf"]}})");
     p.font(kJp);
     p.font(kAr);
     p.table("en", R"({"title": "Title", "other": "Other"})");
@@ -333,12 +363,15 @@ TEST_CASE("validate: the font chain of a table string is the font of the compone
     CHECK(other[0]->message.find("U+65E5 '\xE6\x97\xA5'") != std::string::npos);
     CHECK(other[0]->message.find("DejaVu Sans") != std::string::npos);
     CHECK(other[0]->message.find(kAr) != std::string::npos);  // the chain that was searched
-    CHECK(other[0]->message.rfind("DejaVu Sans (built-in)") == other[0]->message.find("DejaVu Sans (built-in)"));  // named once
+    CHECK(other[0]->message.rfind("DejaVu Sans (built-in)") ==
+          other[0]->message.find("DejaVu Sans (built-in)"));  // named once
     CHECK(other[0]->hint.find("Noto Sans JP") != std::string::npos);
 }
 
-TEST_CASE("validate: literal texts of scenes and prefabs are checked against their font and the default language's fonts") {
-    Project p(R"({"defaultLanguage": "en", "languages": ["en"], "fallbackFonts": ["assets/fonts/NotoSansKR-Regular-subset.ttf"]})");
+TEST_CASE(
+    "validate: literal texts of scenes and prefabs are checked against their font and the default language's fonts") {
+    Project p(
+        R"({"defaultLanguage": "en", "languages": ["en"], "fallbackFonts": ["assets/fonts/NotoSansKR-Regular-subset.ttf"]})");
     p.font(kJp);
     p.font(kKr);
     p.table("en", R"({"x": "x"})");
@@ -350,10 +383,13 @@ TEST_CASE("validate: literal texts of scenes and prefabs are checked against the
         {"id": "keyed", "components": {"Text": {"text": "日本語", "key": "x"}}}])");
     p.prefab("prefabs/hud.prefab.json", R"({"id": "hud", "components": {"TextField": {"placeholder": "العربية"}}})");
     const ValidationReport r = p.validate();
-    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/1/components/Text/text").empty());   // DejaVu has Greek and Cyrillic
-    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/2/components/Text/text").empty());   // its own font
-    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/3/components/Button/text").empty()); // the project's fallback font
-    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/5/components/Text/text").empty());   // a keyed text is checked as a table string
+    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/1/components/Text/text")
+              .empty());  // DejaVu has Greek and Cyrillic
+    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/2/components/Text/text").empty());  // its own font
+    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/3/components/Button/text")
+              .empty());  // the project's fallback font
+    CHECK(at(r.errors, "scenes/main.scene.json", "/entities/5/components/Text/text")
+              .empty());  // a keyed text is checked as a table string
     const auto arabic = at(r.errors, "scenes/main.scene.json", "/entities/4/components/Text/text");
     REQUIRE(arabic.size() == 0);  // DejaVu Sans has Arabic
     const auto kana = at(r.errors, "scenes/main.scene.json", "/entities/4/components/Toggle/label");
@@ -396,10 +432,12 @@ TEST_CASE("validate: a font that is missing or is not a font is its own error, n
     CHECK(at(r.errors, "locales/ja.json").empty());  // no glyph complaints while the chain cannot be loaded
 }
 
-TEST_CASE("validate: many texts with missing glyphs are listed up to a limit, then summed up with every missing character") {
+TEST_CASE(
+    "validate: many texts with missing glyphs are listed up to a limit, then summed up with every missing character") {
     Project p(R"({"defaultLanguage": "en", "languages": ["en", "ja"]})");
     std::string table = "{";
-    for (int i = 0; i < 40; ++i) table += (i ? "," : "") + std::string("\"k") + std::to_string(i) + "\": \"日本語" + std::to_string(i) + "\"";
+    for (int i = 0; i < 40; ++i)
+        table += (i ? "," : "") + std::string("\"k") + std::to_string(i) + "\": \"日本語" + std::to_string(i) + "\"";
     p.table("en", "{\"x\": \"x\"}");
     p.table("ja", (table + "}").c_str());
     const ValidationReport r = p.validate();
@@ -413,7 +451,8 @@ TEST_CASE("validate: many texts with missing glyphs are listed up to a limit, th
 }
 
 TEST_CASE("validate: the name of a language must be drawable in the other languages' menus") {
-    Project p(R"({"defaultLanguage": "en", "languages": ["en", "ja"], "languageFonts": {"ja": ["assets/fonts/NotoSansJP-Regular-subset.ttf"]}})");
+    Project p(
+        R"({"defaultLanguage": "en", "languages": ["en", "ja"], "languageFonts": {"ja": ["assets/fonts/NotoSansJP-Regular-subset.ttf"]}})");
     p.font(kJp);
     p.table("en", R"({"$name": "English", "x": "x"})");
     p.table("ja", R"({"$name": "日本語", "x": "x"})");

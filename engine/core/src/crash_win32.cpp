@@ -122,7 +122,9 @@ void report_path(wchar_t* out, std::size_t capacity, const Civil& when, const wc
 
 // One stack frame: "#1  game.exe!fa::Foo::bar + 0x1c  (foo.cpp:42)  [0x00007ff7...]". Without symbols: "game.exe+0x1234".
 void format_frame(LineBuf& b, HANDLE process, int index, DWORD64 pc) {
-    b.str("#"); b.dec(index); b.str("  ");
+    b.str("#");
+    b.dec(index);
+    b.str("  ");
     // A return address can be one past the end of the calling function: look the caller up by the byte before it.
     const DWORD64 lookup = index == 0 ? pc : pc - 1;
 
@@ -141,12 +143,21 @@ void format_frame(LineBuf& b, HANDLE process, int index, DWORD64 pc) {
     // A PDB (or a COFF table) knows where each function ends. A module with only its exports does not: the nearest export
     // before the address is a hint, not the name of the function that holds it.
     if (hasSymbol && hasModule && module.SymType != SymExport) {
-        b.str(moduleName); b.chr('!'); b.str(symbol->Name);
-        b.str(" + "); b.hex(displacement + (pc - lookup));
+        b.str(moduleName);
+        b.chr('!');
+        b.str(symbol->Name);
+        b.str(" + ");
+        b.hex(displacement + (pc - lookup));
     } else if (hasModule) {
-        b.str(moduleName); b.str("+"); b.hex(pc - module.BaseOfImage);
+        b.str(moduleName);
+        b.str("+");
+        b.hex(pc - module.BaseOfImage);
         if (hasSymbol) {
-            b.str(" (nearest export: "); b.str(symbol->Name); b.str(" + "); b.hex(displacement + (pc - lookup)); b.chr(')');
+            b.str(" (nearest export: ");
+            b.str(symbol->Name);
+            b.str(" + ");
+            b.hex(displacement + (pc - lookup));
+            b.chr(')');
         }
     } else {
         b.str("(unknown module)");
@@ -155,9 +166,15 @@ void format_frame(LineBuf& b, HANDLE process, int index, DWORD64 pc) {
     line.SizeOfStruct = sizeof line;
     DWORD lineDisplacement = 0;
     if (SymGetLineFromAddr64(process, lookup, &lineDisplacement, &line)) {
-        b.str("  ("); b.str(base_name(line.FileName)); b.chr(':'); b.dec(line.LineNumber); b.chr(')');
+        b.str("  (");
+        b.str(base_name(line.FileName));
+        b.chr(':');
+        b.dec(line.LineNumber);
+        b.chr(')');
     }
-    b.str("  ["); b.hex(pc); b.str("]\n");
+    b.str("  [");
+    b.hex(pc);
+    b.str("]\n");
 }
 
 void write_frame(HANDLE file, HANDLE process, int index, DWORD64 pc) {
@@ -184,13 +201,16 @@ void write_stack(HANDLE file, const Job& job) {
     auto note_repeats = [&] {
         if (!repeats) return;
         LineBuf b;
-        b.str("    (the same frame "); b.dec(repeats); b.str(" more times)\n");
+        b.str("    (the same frame ");
+        b.dec(repeats);
+        b.str(" more times)\n");
         flush(file, b);
         repeats = 0;
     };
     for (int i = 0; i < kMaxWalk && printed < kMaxFrames; ++i) {
-        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread ? thread : GetCurrentThread(), &frame, &context, nullptr,
-                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr) || frame.AddrPC.Offset == 0)
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread ? thread : GetCurrentThread(), &frame, &context,
+                         nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
+            frame.AddrPC.Offset == 0)
             break;
         const DWORD64 pc = frame.AddrPC.Offset;
         if (i > 0 && pc == last) {  // a runaway recursion: say so once instead of filling the report with one line
@@ -210,21 +230,33 @@ void write_stack(HANDLE file, const Job& job) {
 }
 
 void write_text_report(const wchar_t* path, const Job& job, const Civil& when) {
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file =
+        CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
     write_all(file, g_shared.header, std::strlen(g_shared.header));
     LineBuf b;
     const EXCEPTION_RECORD& record = *job.pointers->ExceptionRecord;
-    b.str("time: "); b.iso_time(when);
-    b.str("\npid: "); b.dec(GetCurrentProcessId()); b.str("  crashed thread: "); b.dec(job.threadId);
-    b.str("\nexception: "); b.hex(record.ExceptionCode); b.str(" "); b.str(exception_name(record.ExceptionCode));
+    b.str("time: ");
+    b.iso_time(when);
+    b.str("\npid: ");
+    b.dec(GetCurrentProcessId());
+    b.str("  crashed thread: ");
+    b.dec(job.threadId);
+    b.str("\nexception: ");
+    b.hex(record.ExceptionCode);
+    b.str(" ");
+    b.str(exception_name(record.ExceptionCode));
     if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2) {
         const ULONG_PTR kind = record.ExceptionInformation[0];
         b.str(kind == 0 ? ", read of " : kind == 1 ? ", write to " : ", execution of ");
         b.hex(record.ExceptionInformation[1]);
     }
-    b.str("\nexception address: "); b.hex(reinterpret_cast<std::uintptr_t>(record.ExceptionAddress));
-    if (g_shared.terminateMessage[0]) { b.chr('\n'); b.str(g_shared.terminateMessage); }
+    b.str("\nexception address: ");
+    b.hex(reinterpret_cast<std::uintptr_t>(record.ExceptionAddress));
+    if (g_shared.terminateMessage[0]) {
+        b.chr('\n');
+        b.str(g_shared.terminateMessage);
+    }
     b.str("\n\nlast log lines (oldest first):\n");
     flush(file, b);
     for_each_log_line([&](const char* line, std::size_t length) {
@@ -241,7 +273,8 @@ void write_text_report(const wchar_t* path, const Job& job, const Civil& when) {
 }
 
 void write_minidump(const wchar_t* path, const Job& job) {
-    HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file =
+        CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
     MINIDUMP_EXCEPTION_INFORMATION exception{};
     exception.ThreadId = job.threadId;
@@ -260,16 +293,18 @@ void note_cpp_exception(const EXCEPTION_RECORD& record) {
     constexpr DWORD kCppException = 0xE06D7363;
     constexpr ULONG_PTR kMagicFirst = 0x19930520, kMagicLast = 0x19930522;
     if (record.ExceptionCode != kCppException || record.NumberParameters < 3 ||
-        record.ExceptionInformation[0] < kMagicFirst ||
-        record.ExceptionInformation[0] > kMagicLast)
+        record.ExceptionInformation[0] < kMagicFirst || record.ExceptionInformation[0] > kMagicLast)
         return;
     // Through a pointer: /EHsc assumes a call to an extern "C" function such as RaiseException cannot throw, and with
     // optimization drops the catch blocks around it.
-    void(WINAPI * volatile raise)(DWORD, DWORD, DWORD, const ULONG_PTR*) = RaiseException;
-    note_uncaught([&] { raise(record.ExceptionCode, record.ExceptionFlags, record.NumberParameters, record.ExceptionInformation); });
+    void(WINAPI* volatile raise)(DWORD, DWORD, DWORD, const ULONG_PTR*) = RaiseException;
+    note_uncaught([&] {
+        raise(record.ExceptionCode, record.ExceptionFlags, record.NumberParameters, record.ExceptionInformation);
+    });
 }
 #else
-void note_cpp_exception(const EXCEPTION_RECORD&) {}  // MinGW: libstdc++ calls std::terminate, crash.cpp keeps the what()
+void note_cpp_exception(const EXCEPTION_RECORD&) {
+}  // MinGW: libstdc++ calls std::terminate, crash.cpp keeps the what()
 #endif
 
 DWORD WINAPI writer_thread(LPVOID param) {
@@ -383,8 +418,8 @@ bool platform_install(const std::filesystem::path& dir, std::string& error) {
 namespace fa {
 namespace {
 
-using crash_detail::LineBuf;
 using crash_detail::kMaxFrames;
+using crash_detail::LineBuf;
 
 HANDLE g_watched = nullptr;
 DWORD g_watchedId = 0;
@@ -402,7 +437,8 @@ int unwind(CONTEXT context, DWORD64* pcs, int capacity) {
         if (function) {
             void* handlerData = nullptr;
             DWORD64 establisher = 0;
-            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisher, nullptr);
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisher,
+                             nullptr);
         } else {  // a leaf function: no frame of its own, the return address is on top of the stack
             if (!context.Rsp) break;
             context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
@@ -417,7 +453,8 @@ int unwind(CONTEXT context, DWORD64* pcs, int capacity) {
 std::string name_frames(const DWORD64* pcs, int count) {
     std::lock_guard<std::mutex> lock(g_stackMutex);
     HANDLE process = GetCurrentProcess();
-    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS);
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS |
+                  SYMOPT_NO_PROMPTS);
     SymInitialize(process, nullptr, TRUE);
     std::string out;
     for (int i = 0; i < count; ++i) {
@@ -430,7 +467,8 @@ std::string name_frames(const DWORD64* pcs, int count) {
 
 #ifdef _MSC_VER
 int __cdecl print_crt_report(int type, char* message, int* returnValue) {
-    std::fprintf(stderr, "%s%s", type == _CRT_WARN ? "C runtime warning: " : "C runtime check failed: ", message ? message : "");
+    std::fprintf(stderr, "%s%s",
+                 type == _CRT_WARN ? "C runtime warning: " : "C runtime check failed: ", message ? message : "");
     if (type == _CRT_WARN) {
         if (returnValue) *returnValue = 0;
         return TRUE;
@@ -454,18 +492,23 @@ DWORD WINAPI print_fault(LPVOID param) {
     const EXCEPTION_POINTERS& fault = *job.pointers;
     const EXCEPTION_RECORD& record = *fault.ExceptionRecord;
     LineBuf b;
-    b.str("unhandled exception "); b.hex(record.ExceptionCode); b.str(" ("); b.str(crash_detail::exception_name(record.ExceptionCode));
+    b.str("unhandled exception ");
+    b.hex(record.ExceptionCode);
+    b.str(" (");
+    b.str(crash_detail::exception_name(record.ExceptionCode));
     b.chr(')');
     if (record.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2) {
         const ULONG_PTR kind = record.ExceptionInformation[0];
         b.str(kind == 0 ? ", read of " : kind == 1 ? ", write to " : ", execution of ");
         b.hex(record.ExceptionInformation[1]);
     }
-    b.str(" in thread "); b.dec(job.threadId);
+    b.str(" in thread ");
+    b.dec(job.threadId);
     b.chr('\n');
     std::fwrite(b.data, 1, b.n, stderr);
     crash_detail::note_cpp_exception(record);
-    if (crash_detail::g_shared.terminateMessage[0]) std::fprintf(stderr, "%s\n", crash_detail::g_shared.terminateMessage);
+    if (crash_detail::g_shared.terminateMessage[0])
+        std::fprintf(stderr, "%s\n", crash_detail::g_shared.terminateMessage);
 #ifdef FA_CRASH_X64
     DWORD64 pcs[kMaxFrames];
     const int count = unwind(*fault.ContextRecord, pcs, kMaxFrames);
@@ -497,8 +540,8 @@ void watch_thread_stack() {
     if (g_watched) CloseHandle(g_watched);
     g_watched = nullptr;
     HANDLE self = GetCurrentProcess();
-    if (DuplicateHandle(self, GetCurrentThread(), self, &g_watched, THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
-                        FALSE, 0))
+    if (DuplicateHandle(self, GetCurrentThread(), self, &g_watched,
+                        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0))
         g_watchedId = GetCurrentThreadId();
     else
         g_watched = nullptr;
@@ -510,7 +553,8 @@ std::string watched_thread_stack() {
 #ifdef FA_CRASH_X64
     DWORD64 pcs[kMaxFrames];
     int count = 0;
-    if (SuspendThread(g_watched) == DWORD(-1)) return "no stack: SuspendThread failed (error " + std::to_string(GetLastError()) + ")\n";
+    if (SuspendThread(g_watched) == DWORD(-1))
+        return "no stack: SuspendThread failed (error " + std::to_string(GetLastError()) + ")\n";
     CONTEXT context{};
     context.ContextFlags = CONTEXT_FULL;
     const bool got = GetThreadContext(g_watched, &context) != FALSE;

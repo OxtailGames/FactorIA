@@ -18,7 +18,8 @@ TEST_CASE("default roles: Anthropic opus/sonnet/haiku with efforts") {
     CHECK(c.role("fast").model == "claude-haiku-5-5");
     CHECK(c.role("fast").effort == "max");
     CHECK(c.role("worker").provider == "anthropic");
-    for (const char* p : {"anthropic", "openai", "openrouter", "gemini", "groq", "deepseek", "ollama", "lmstudio", "claude-code", "codex"})
+    for (const char* p : {"anthropic", "openai", "openrouter", "gemini", "groq", "deepseek", "ollama", "lmstudio",
+                          "claude-code", "codex"})
         CHECK_MESSAGE(c.provider(p) != nullptr, p);
 }
 
@@ -66,7 +67,8 @@ TEST_CASE("config parsing merges over defaults") {
     CHECK(many->limits.maxConcurrentRuns == kMaxConcurrentRunsCap);
     REQUIRE_FALSE(many->warnings.empty());
     CHECK(many->warnings.back().find("many.json: limits.maxConcurrentRuns is 99") != std::string::npos);
-    CHECK_FALSE(parse_config(Json::parse(R"({"limits":{"maxConcurrentRuns":0}})"), "zero").ok());  // the schema's minimum is 1
+    CHECK_FALSE(
+        parse_config(Json::parse(R"({"limits":{"maxConcurrentRuns":0}})"), "zero").ok());  // the schema's minimum is 1
     // orchestrator: only provider given => Anthropic default model/effort
     CHECK(cfg->role("orchestrator").model == "claude-opus-5-5");
     CHECK(cfg->role("orchestrator").effort == "xhigh");
@@ -88,7 +90,8 @@ TEST_CASE("config parsing merges over defaults") {
     CHECK(cfg->provider("anthropic")->apiKeyEnv == "MY_ANTHROPIC_KEY");
 }
 
-TEST_CASE("inheritEnv: top level, provider and tool server lists are read, written back and passed to what they start") {
+TEST_CASE(
+    "inheritEnv: top level, provider and tool server lists are read, written back and passed to what they start") {
     const Json j = Json::parse(R"({
         "inheritEnv": ["AWS_PROFILE", "MYCORP_*"],
         "providers": {"claude-code": {"inheritEnv": ["NODE_OPTIONS"]}},
@@ -168,7 +171,8 @@ TEST_CASE("API key resolution: apiKeyEnv > apiKey > conventional env; never empt
     auto fromFile = parse_config(Json::parse(R"({"providers":{"openai":{"apiKey":"file-key"}}})"), "x");
     REQUIRE(fromFile);
     p = *fromFile->provider("openai");
-    CHECK(resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}})).key == "file-key");  // config beats implicit env
+    CHECK(resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}})).key ==
+          "file-key");  // config beats implicit env
     CHECK(resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}})).source == "config");
     p.apiKeyEnv = "CUSTOM_KEY";
     CHECK(resolve_api_key(p, fake_env({{"CUSTOM_KEY", "custom"}, {"OPENAI_API_KEY", "x"}})).key == "custom");
@@ -177,7 +181,8 @@ TEST_CASE("API key resolution: apiKeyEnv > apiKey > conventional env; never empt
     ProviderConfig a = default_config().providers["anthropic"];
     CHECK(resolve_api_key(a, fake_env({{"ANTHROPIC_API_KEY", "a"}})).key == "a");
     CHECK(resolve_api_key(default_config().providers["gemini"], fake_env({{"GEMINI_API_KEY", "g"}})).key == "g");
-    CHECK(resolve_api_key(default_config().providers["openrouter"], fake_env({{"OPENROUTER_API_KEY", "o"}})).key == "o");
+    CHECK(resolve_api_key(default_config().providers["openrouter"], fake_env({{"OPENROUTER_API_KEY", "o"}})).key ==
+          "o");
 }
 
 TEST_CASE("config path: FACTORIA_AI_CONFIG override and home default") {
@@ -244,7 +249,7 @@ TEST_CASE("project key scanning warns, ignores .git/.factoria and short strings"
     std::filesystem::create_directories(dir.path / "scripts");
     std::filesystem::create_directories(dir.path / ".factoria");
     std::ofstream(dir.path / "scripts" / "a.js") << "const k = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz';\n";
-    std::ofstream(dir.path / "notes.md") << "use sk-ant- keys carefully\n";           // too short: not a key
+    std::ofstream(dir.path / "notes.md") << "use sk-ant- keys carefully\n";  // too short: not a key
     std::ofstream(dir.path / ".factoria" / "x.json") << "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";
     auto w = scan_project_for_keys(dir.str());
     REQUIRE(w.size() == 1);
@@ -262,7 +267,8 @@ TEST_CASE("detect_providers with injected environment") {
     o.version = [](const std::string&) { return std::string("2.0.0 (Claude Code)"); };
     auto st = detect_providers(cfg, o);
     auto find = [&](const std::string& n) -> const ProviderStatus& {
-        for (auto& s : st) if (s.name == n) return s;
+        for (auto& s : st)
+            if (s.name == n) return s;
         FAIL("no status for " << n);
         return st[0];
     };
@@ -277,6 +283,10 @@ TEST_CASE("detect_providers with injected environment") {
     CHECK(find("ollama").available);  // local, no key
     o.which = [](const std::string& n) { return n == "ant" ? std::string("/usr/bin/ant") : std::string(); };
     auto st2 = detect_providers(cfg, o);
-    for (auto& s : st2) if (s.name == "anthropic") { CHECK(s.available); CHECK(s.keySource == "ant-cli"); }
+    for (auto& s : st2)
+        if (s.name == "anthropic") {
+            CHECK(s.available);
+            CHECK(s.keySource == "ant-cli");
+        }
     CHECK(format_doctor_report(cfg, st2).find("orchestrator") != std::string::npos);
 }

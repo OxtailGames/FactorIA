@@ -36,9 +36,17 @@ std::wstring quote_arg(const std::wstring& a) {
     std::wstring out = L"\"";
     std::size_t backslashes = 0;
     for (wchar_t c : a) {
-        if (c == L'\\') { ++backslashes; continue; }
-        if (c == L'"') { out.append(backslashes * 2 + 1, L'\\'); out.push_back(L'"'); }
-        else { out.append(backslashes, L'\\'); out.push_back(c); }
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (c == L'"') {
+            out.append(backslashes * 2 + 1, L'\\');
+            out.push_back(L'"');
+        } else {
+            out.append(backslashes, L'\\');
+            out.push_back(c);
+        }
         backslashes = 0;
     }
     out.append(backslashes * 2, L'\\');
@@ -189,15 +197,23 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     auto kill_tree = [&] {
         if (terminated) return;
         terminated = true;
-        if (job) TerminateJobObject(job, 1);
-        else TerminateProcess(pi.hProcess, 1);
+        if (job)
+            TerminateJobObject(job, 1);
+        else
+            TerminateProcess(pi.hProcess, 1);
     };
     auto pump = [&](HANDLE h, bool& open, bool isOut) {
         DWORD avail = 0;
-        if (!PeekNamedPipe(h, nullptr, 0, nullptr, &avail, nullptr)) { open = false; return false; }
+        if (!PeekNamedPipe(h, nullptr, 0, nullptr, &avail, nullptr)) {
+            open = false;
+            return false;
+        }
         if (avail == 0) return false;
         DWORD got = 0;
-        if (!ReadFile(h, buf, static_cast<DWORD>(sizeof buf), &got, nullptr) || got == 0) { open = false; return false; }
+        if (!ReadFile(h, buf, static_cast<DWORD>(sizeof buf), &got, nullptr) || got == 0) {
+            open = false;
+            return false;
+        }
         if (isOut) {
             if (opt.captureStdout && res.stdoutText.size() < opt.maxCapture) res.stdoutText.append(buf, got);
             if (opt.onStdoutChunk) opt.onStdoutChunk(std::string_view(buf, got));
@@ -211,9 +227,12 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
 
     while (outOpen || errOpen) {
         if (!terminated) {
-            if (is_cancelled(opt.cancel)) { res.cancelled = true; kill_tree(); }
-            else if (opt.timeoutSeconds > 0 && now_seconds() - start > opt.timeoutSeconds) {
-                res.timedOut = true; kill_tree();
+            if (is_cancelled(opt.cancel)) {
+                res.cancelled = true;
+                kill_tree();
+            } else if (opt.timeoutSeconds > 0 && now_seconds() - start > opt.timeoutSeconds) {
+                res.timedOut = true;
+                kill_tree();
             }
         }
         bool any = false;
@@ -222,7 +241,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         if (!any) {
             if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) {
                 // Drain what is left, then stop.
-                while ((outOpen && pump(outR, outOpen, true)) || (errOpen && pump(errR, errOpen, false))) {}
+                while ((outOpen && pump(outR, outOpen, true)) || (errOpen && pump(errR, errOpen, false))) {
+                }
                 break;
             }
         }

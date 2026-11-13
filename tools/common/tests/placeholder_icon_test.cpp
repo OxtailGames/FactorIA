@@ -46,7 +46,8 @@ Image draw_placeholder_icon(int size) {
     img.rgba.assign(std::size_t(size) * size * 4, 0);
     const double px = 1.0 / size;  // one pixel in unit coordinates
     const double A[2] = {0.40, 0.29}, B[2] = {0.73, 0.50}, C[2] = {0.40, 0.71};
-    static const double kGlyph[3] = {0.90, 0.92, 0.96}, kBody[3] = {0.122, 0.149, 0.200}, kBorder[3] = {0.28, 0.33, 0.45};
+    static const double kGlyph[3] = {0.90, 0.92, 0.96}, kBody[3] = {0.122, 0.149, 0.200},
+                        kBorder[3] = {0.28, 0.33, 0.45};
     for (int y = 0; y < size; ++y)
         for (int x = 0; x < size; ++x) {
             double r = 0, g = 0, b = 0, a = 0;
@@ -73,7 +74,9 @@ Image draw_placeholder_icon(int size) {
     return img;
 }
 
-std::uint32_t le16(const std::string& s, std::size_t o) { return std::uint8_t(s[o]) | (std::uint32_t(std::uint8_t(s[o + 1])) << 8); }
+std::uint32_t le16(const std::string& s, std::size_t o) {
+    return std::uint8_t(s[o]) | (std::uint32_t(std::uint8_t(s[o + 1])) << 8);
+}
 std::uint32_t le32(const std::string& s, std::size_t o) { return le16(s, o) | (le16(s, o + 2) << 16); }
 
 // The BGRA pixels of one 32-bit BMP icon image as an Image.
@@ -85,7 +88,8 @@ Image decode_bmp_image(const std::string& file, std::size_t offset, int size) {
         for (int x = 0; x < size; ++x) {
             const std::size_t src = offset + 40 + (std::size_t(size - 1 - y) * size + x) * 4;
             std::uint8_t* p = &img.rgba[(std::size_t(y) * size + x) * 4];
-            p[0] = std::uint8_t(file[src + 2]), p[1] = std::uint8_t(file[src + 1]), p[2] = std::uint8_t(file[src]), p[3] = std::uint8_t(file[src + 3]);
+            p[0] = std::uint8_t(file[src + 2]), p[1] = std::uint8_t(file[src + 1]), p[2] = std::uint8_t(file[src]),
+            p[3] = std::uint8_t(file[src + 3]);
         }
     return img;
 }
@@ -98,7 +102,8 @@ TEST_CASE("placeholder icon: the committed factoria_player.ico is made of the BM
     const std::vector<std::uint8_t> generated = make_ico_bmp(master, windows_icon_sizes());
 
     if (std::getenv("FA_REGEN_PLACEHOLDER_ICON")) {
-        std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(generated.data()), std::streamsize(generated.size()));
+        std::ofstream(path, std::ios::binary)
+            .write(reinterpret_cast<const char*>(generated.data()), std::streamsize(generated.size()));
         MESSAGE("regenerated " << path.string());
     }
 
@@ -120,27 +125,28 @@ TEST_CASE("placeholder icon: the committed factoria_player.ico is made of the BM
         const std::size_t expected = 40 + std::size_t(size) * size * 4 + std::size_t((size + 31) / 32) * 4 * size;
         CHECK(bytes == expected);
         REQUIRE(offset + bytes <= file.size());
-        CHECK(le32(file, offset) == 40);                                // BITMAPINFOHEADER
+        CHECK(le32(file, offset) == 40);  // BITMAPINFOHEADER
         CHECK(le32(file, offset + 4) == std::uint32_t(size));
-        CHECK(le32(file, offset + 8) == std::uint32_t(size) * 2);       // pixels + AND mask
+        CHECK(le32(file, offset + 8) == std::uint32_t(size) * 2);  // pixels + AND mask
         CHECK(le16(file, offset + 14) == 32);
-        CHECK(le32(file, offset + 16) == 0);                            // BI_RGB: not compressed
+        CHECK(le32(file, offset + 16) == 0);  // BI_RGB: not compressed
 
         // What is committed is what the drawing renders: a different drawing needs the regeneration above. The
         // comparison is loose because the float math may round differently from one compiler to the next.
         const Image committed = decode_bmp_image(file, offset, size);
         const Image drawn = decode_bmp_image(std::string(generated.begin(), generated.end()), offset, size);
         const ImageDiff diff = diff_images(committed, drawn, 6.0f / 255.0f);
-        CHECK_MESSAGE(diff.meanError < 0.01, "mean error " << diff.meanError << " at " << size << " px: regenerate the icon");
+        CHECK_MESSAGE(diff.meanError < 0.01,
+                      "mean error " << diff.meanError << " at " << size << " px: regenerate the icon");
     }
 }
 
 TEST_CASE("placeholder icon: the drawing is a recognisable glyph on a transparent-cornered rounded square") {
     const Image img = draw_placeholder_icon(128);
     auto px = [&](int x, int y) { return &img.rgba[(std::size_t(y) * img.width + x) * 4]; };
-    CHECK(px(0, 0)[3] == 0);                 // the corner is transparent
-    CHECK(px(64, 20)[3] == 255);             // the body is opaque
-    CHECK(px(64, 20)[0] < 80);               // ... and dark
-    CHECK(px(60, 64)[0] > 200);              // the triangle is light
-    CHECK(px(126, 64)[3] == 0);              // the margin outside the square
+    CHECK(px(0, 0)[3] == 0);      // the corner is transparent
+    CHECK(px(64, 20)[3] == 255);  // the body is opaque
+    CHECK(px(64, 20)[0] < 80);    // ... and dark
+    CHECK(px(60, 64)[0] > 200);   // the triangle is light
+    CHECK(px(126, 64)[3] == 0);   // the margin outside the square
 }

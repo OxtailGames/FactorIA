@@ -34,7 +34,9 @@ private:
     SseSplitter sse_;
     std::string error_;
     std::string content_, reasoning_, finish_, model_;
-    struct Tc { std::string id, name, args; };
+    struct Tc {
+        std::string id, name, args;
+    };
     std::vector<Tc> calls_;
     Json usage_;
     bool done_ = false;

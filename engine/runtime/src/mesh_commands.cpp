@@ -24,7 +24,9 @@ Json parse_schema(const char* text) {
 
 std::string need_id(const Json& a) {
     if (!a.contains("id") || !a["id"].is_string() || a["id"].get<std::string>().empty())
-        throw CommandError("invalid_argument", "Missing 'id'.", "Pass the id mesh.create returned, e.g. {\"id\":\"mesh:1\"}. mesh.list shows the live ones.");
+        throw CommandError(
+            "invalid_argument", "Missing 'id'.",
+            "Pass the id mesh.create returned, e.g. {\"id\":\"mesh:1\"}. mesh.list shows the live ones.");
     return a["id"].get<std::string>();
 }
 
@@ -57,115 +59,150 @@ Json schema_with(const char* extraRequired, const char* extraProps, bool require
 
 void register_mesh_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
-    I.commands.add({"mesh.create", "Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.",
-           "Builds geometry at run time, without writing a file: `positions` (three numbers per vertex), `indices` (three per "
-           "triangle; left out = a triangle soup), and optionally `normals`, `uvs`, `tangents`, `colors` and `submeshes` "
-           "(runs of the index list with their own material). Missing normals and tangents are computed. Conventions are glTF's: "
-           "+Y up, right-handed, counter-clockwise triangles face front, uv (0,0) is the top-left of the image. Everything is "
-           "checked and an error names the field, the counts and the fix (array length, index outside the vertices, submesh outside "
-           "the index list). Result: the info of mesh.info with `id` (\"mesh:N\"). Set MeshRenderer.mesh (and Collider3D.mesh for a "
-           "convex or mesh collider) to that id; culling, shadows, picking and the editor's selection use the mesh's real bounds. "
-           "The mesh belongs to the running scene: loading a scene releases every mesh, and it is not written to scene files "
-           "(scene validation rejects an id in a file): use mesh.save for a file. At most 256 meshes, 1048576 vertices and "
-           "6291456 indices each. Vertex colors multiply the base color. Example: mesh.create {\"positions\":[0,0,0, 1,0,0, 0,1,0],"
-           "\"indices\":[0,1,2],\"submeshes\":[{\"material\":{\"name\":\"skin\",\"color\":[0.9,0.7,0.5,1]}}]}",
-           schema_with(nullptr, nullptr, true), false, "render"},
-          [&I](const Json& a) {
-              auto in = mesh_input_from_json(a);
-              if (!in.ok()) fail(in.error());
-              auto id = I.world.meshes().create(*in);
-              if (!id.ok()) fail(id.error());
-              return mesh_info_json(*I.world.meshes().find(*id));
-          });
+    I.commands.add(
+        {"mesh.create", "Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.",
+         "Builds geometry at run time, without writing a file: `positions` (three numbers per vertex), `indices` "
+         "(three per "
+         "triangle; left out = a triangle soup), and optionally `normals`, `uvs`, `tangents`, `colors` and `submeshes` "
+         "(runs of the index list with their own material). Missing normals and tangents are computed. Conventions are "
+         "glTF's: "
+         "+Y up, right-handed, counter-clockwise triangles face front, uv (0,0) is the top-left of the image. "
+         "Everything is "
+         "checked and an error names the field, the counts and the fix (array length, index outside the vertices, "
+         "submesh outside "
+         "the index list). Result: the info of mesh.info with `id` (\"mesh:N\"). Set MeshRenderer.mesh (and "
+         "Collider3D.mesh for a "
+         "convex or mesh collider) to that id; culling, shadows, picking and the editor's selection use the mesh's "
+         "real bounds. "
+         "The mesh belongs to the running scene: loading a scene releases every mesh, and it is not written to scene "
+         "files "
+         "(scene validation rejects an id in a file): use mesh.save for a file. At most 256 meshes, 1048576 vertices "
+         "and "
+         "6291456 indices each. Vertex colors multiply the base color. Example: mesh.create {\"positions\":[0,0,0, "
+         "1,0,0, 0,1,0],"
+         "\"indices\":[0,1,2],\"submeshes\":[{\"material\":{\"name\":\"skin\",\"color\":[0.9,0.7,0.5,1]}}]}",
+         schema_with(nullptr, nullptr, true), false, "render"},
+        [&I](const Json& a) {
+            auto in = mesh_input_from_json(a);
+            if (!in.ok()) fail(in.error());
+            auto id = I.world.meshes().create(*in);
+            if (!id.ok()) fail(id.error());
+            return mesh_info_json(*I.world.meshes().find(*id));
+        });
 
-    I.commands.add({"mesh.update", "Replace the data of a procedural mesh; arrays left out are kept.",
-           "Takes the same arrays as mesh.create. `positions`, `uvs`, `colors`, `indices` and `submeshes` that are left out are "
-           "kept; normals and tangents are computed again unless given. Changing the vertex count needs the other per-vertex "
-           "arrays to fit it (errors say which); changing `indices` of a mesh with several submeshes needs `submeshes` too. Cheap "
-           "enough to call every frame: the GPU buffers are reused while the new data fits. A Collider3D (convex or mesh) that "
-           "uses the mesh rebuilds its shape on every update, which is costly for big meshes. Result: the info of mesh.info. "
-           "Example: mesh.update {\"id\":\"mesh:1\",\"positions\":[0,0,0, 2,0,0, 0,2,0]}",
-           schema_with("id", R"({"id":{"type":"string","description":"The mesh to change (\"mesh:N\")."}})", false), false, "render"},
-          [&I](const Json& a) {
-              const std::string id = need_id(a);
-              auto in = mesh_input_from_json(a);
-              if (!in.ok()) fail(in.error());
-              if (auto r = I.world.meshes().update(id, *in); !r.ok()) fail(r.error());
-              return mesh_info_json(*I.world.meshes().find(id));
-          });
+    I.commands.add(
+        {"mesh.update", "Replace the data of a procedural mesh; arrays left out are kept.",
+         "Takes the same arrays as mesh.create. `positions`, `uvs`, `colors`, `indices` and `submeshes` that are left "
+         "out are "
+         "kept; normals and tangents are computed again unless given. Changing the vertex count needs the other "
+         "per-vertex "
+         "arrays to fit it (errors say which); changing `indices` of a mesh with several submeshes needs `submeshes` "
+         "too. Cheap "
+         "enough to call every frame: the GPU buffers are reused while the new data fits. A Collider3D (convex or "
+         "mesh) that "
+         "uses the mesh rebuilds its shape on every update, which is costly for big meshes. Result: the info of "
+         "mesh.info. "
+         "Example: mesh.update {\"id\":\"mesh:1\",\"positions\":[0,0,0, 2,0,0, 0,2,0]}",
+         schema_with("id", R"({"id":{"type":"string","description":"The mesh to change (\"mesh:N\")."}})", false),
+         false, "render"},
+        [&I](const Json& a) {
+            const std::string id = need_id(a);
+            auto in = mesh_input_from_json(a);
+            if (!in.ok()) fail(in.error());
+            if (auto r = I.world.meshes().update(id, *in); !r.ok()) fail(r.error());
+            return mesh_info_json(*I.world.meshes().find(id));
+        });
 
-    I.commands.add({"mesh.destroy", "Free a procedural mesh.",
-           "Entities that still name the id draw the missing-mesh placeholder and the engine logs why once: set their `mesh` "
-           "first. Errors for an unknown id with the live ids. Result: {destroyed: id}. Example: mesh.destroy {\"id\":\"mesh:1\"}",
-           parse_schema(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"The mesh (\"mesh:N\")."}}})"),
-           false, "render"},
-          [&I](const Json& a) {
-              const std::string id = need_id(a);
-              if (auto r = I.world.meshes().destroy(id); !r.ok()) fail(r.error());
-              return Json::object({{"destroyed", id}});
-          });
+    I.commands.add(
+        {"mesh.destroy", "Free a procedural mesh.",
+         "Entities that still name the id draw the missing-mesh placeholder and the engine logs why once: set their "
+         "`mesh` "
+         "first. Errors for an unknown id with the live ids. Result: {destroyed: id}. Example: mesh.destroy "
+         "{\"id\":\"mesh:1\"}",
+         parse_schema(
+             R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"The mesh (\"mesh:N\")."}}})"),
+         false, "render"},
+        [&I](const Json& a) {
+            const std::string id = need_id(a);
+            if (auto r = I.world.meshes().destroy(id); !r.ok()) fail(r.error());
+            return Json::object({{"destroyed", id}});
+        });
 
-    I.commands.add({"mesh.save", "Write a procedural mesh as a .glb file that loads back as a normal model.",
-           "One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, double-sided, "
-           "blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends in .glb; "
-           "it stays inside the project and may not be inside .git or .factoria/ (except .factoria/tmp/); an absolute path needs the writeAnywhere capability (the command line). A material whose texture is a run-time texture cannot be "
-           "saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is written with "
-           "the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: path, "
-           "submeshes}. Example: mesh.save {\"id\":\"mesh:1\",\"path\":\"assets/models/tree.glb\"}",
-           parse_schema(R"({"type":"object","required":["id","path"],"properties":{
+    I.commands.add(
+        {"mesh.save", "Write a procedural mesh as a .glb file that loads back as a normal model.",
+         "One node, one primitive per submesh with its material (name, base color, metallic/roughness, emissive, "
+         "double-sided, "
+         "blend, base color texture by a relative uri), vertex colors as COLOR_0. `path` is project-relative and ends "
+         "in .glb; "
+         "it stays inside the project and may not be inside .git or .factoria/ (except .factoria/tmp/); an absolute "
+         "path needs the writeAnywhere capability (the command line). A material whose texture is a run-time texture "
+         "cannot be "
+         "saved (the file would point to nothing): use a project image. A mesh with no metallic/roughness set is "
+         "written with "
+         "the defaults (0 and 0.6). Afterwards MeshRenderer.mesh = the path loads it like any model. Result: {saved: "
+         "path, "
+         "submeshes}. Example: mesh.save {\"id\":\"mesh:1\",\"path\":\"assets/models/tree.glb\"}",
+         parse_schema(R"({"type":"object","required":["id","path"],"properties":{
                "id":{"type":"string","description":"The mesh (\"mesh:N\")."},
                "path":{"type":"string","x-fa-path":"write","description":"Project-relative file ending in .glb, inside the project (absolute paths need writeAnywhere)."}}})"),
-           false, "render"},
-          [&I](const Json& a) {
-              const std::string id = need_id(a);
-              if (!a.contains("path") || !a["path"].is_string())
-                  throw CommandError("invalid_argument", "Missing 'path'.", "Pass the file to write, e.g. \"assets/models/tree.glb\".");
-              // Judged before anything is built, once: the capability, then the path (inside the project, not a managed folder, a .glb;
-              // its errors keep their codes).
-              require_capability(Capability::WriteProject, "mesh.save", "writing to the `path` you gave");
-              auto path = mesh_glb_path(a["path"].get<std::string>(), caller_capabilities().has(Capability::WriteAnywhere));
-              if (!path.ok()) {
-                  const std::string code(fs::path_error_code(path.error()));
-                  throw CommandError(code.empty() ? "invalid_argument" : code, path.error().message, path.error().hint);
-              }
-              auto got = I.world.meshes().get(id);
-              if (!got.ok()) fail(got.error());
-              auto saved = save_mesh_glb_at((*got)->data, *path);
-              if (!saved.ok()) fail(saved.error());
-              return Json::object({{"saved", *saved}, {"submeshes", (*got)->data.submeshes.size()}});
-          });
+         false, "render"},
+        [&I](const Json& a) {
+            const std::string id = need_id(a);
+            if (!a.contains("path") || !a["path"].is_string())
+                throw CommandError("invalid_argument", "Missing 'path'.",
+                                   "Pass the file to write, e.g. \"assets/models/tree.glb\".");
+            // Judged before anything is built, once: the capability, then the path (inside the project, not a managed folder, a .glb;
+            // its errors keep their codes).
+            require_capability(Capability::WriteProject, "mesh.save", "writing to the `path` you gave");
+            auto path =
+                mesh_glb_path(a["path"].get<std::string>(), caller_capabilities().has(Capability::WriteAnywhere));
+            if (!path.ok()) {
+                const std::string code(fs::path_error_code(path.error()));
+                throw CommandError(code.empty() ? "invalid_argument" : code, path.error().message, path.error().hint);
+            }
+            auto got = I.world.meshes().get(id);
+            if (!got.ok()) fail(got.error());
+            auto saved = save_mesh_glb_at((*got)->data, *path);
+            if (!saved.ok()) fail(saved.error());
+            return Json::object({{"saved", *saved}, {"submeshes", (*got)->data.submeshes.size()}});
+        });
 
     I.commands.add({"mesh.list", "List the live procedural meshes of the running scene.",
-           "Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles, hasColors, bounds, submeshes}. "
-           "Example: mesh.list {}",
-           parse_schema(R"({"type":"object","properties":{}})"), true, "render"},
-          [&I](const Json&) {
-              Json list = Json::array();
-              for (const std::string& id : I.world.meshes().ids()) list.push_back(mesh_info_json(*I.world.meshes().find(id)));
-              return Json::object({{"count", list.size()}, {"meshes", list}});
-          });
+                    "Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles, hasColors, "
+                    "bounds, submeshes}. "
+                    "Example: mesh.list {}",
+                    parse_schema(R"({"type":"object","properties":{}})"), true, "render"},
+                   [&I](const Json&) {
+                       Json list = Json::array();
+                       for (const std::string& id : I.world.meshes().ids())
+                           list.push_back(mesh_info_json(*I.world.meshes().find(id)));
+                       return Json::object({{"count", list.size()}, {"meshes", list}});
+                   });
 
-    I.commands.add({"mesh.info", "Describe one procedural mesh: counts, bounds, submeshes and materials.",
-           "Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submeshes: [{material, start, count}]}. "
-           "`version` grows with every mesh.update. Errors for an unknown or destroyed id with the live ids. "
-           "Example: mesh.info {\"id\":\"mesh:1\"}",
-           parse_schema(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"The mesh (\"mesh:N\")."}}})"),
-           true, "render"},
-          [&I](const Json& a) {
-              auto got = I.world.meshes().get(need_id(a));
-              if (!got.ok()) fail(got.error());
-              return mesh_info_json(**got);
-          });
+    I.commands.add(
+        {"mesh.info", "Describe one procedural mesh: counts, bounds, submeshes and materials.",
+         "Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submeshes: [{material, start, "
+         "count}]}. "
+         "`version` grows with every mesh.update. Errors for an unknown or destroyed id with the live ids. "
+         "Example: mesh.info {\"id\":\"mesh:1\"}",
+         parse_schema(
+             R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"The mesh (\"mesh:N\")."}}})"),
+         true, "render"},
+        [&I](const Json& a) {
+            auto got = I.world.meshes().get(need_id(a));
+            if (!got.ok()) fail(got.error());
+            return mesh_info_json(**got);
+        });
 
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
-        {"mesh.create", capability_sets::changes_state()},
-        {"mesh.update", capability_sets::changes_state()},
-        {"mesh.destroy", capability_sets::changes_state()},
-        {"mesh.save", capability_sets::writes_project()},
-        {"mesh.list", capability_sets::reads()},
-        {"mesh.info", capability_sets::reads()},
-    });
+                                                 {"mesh.create", capability_sets::changes_state()},
+                                                 {"mesh.update", capability_sets::changes_state()},
+                                                 {"mesh.destroy", capability_sets::changes_state()},
+                                                 {"mesh.save", capability_sets::writes_project()},
+                                                 {"mesh.list", capability_sets::reads()},
+                                                 {"mesh.info", capability_sets::reads()},
+                                             });
 }
 
 }  // namespace fa

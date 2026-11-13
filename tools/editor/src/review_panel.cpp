@@ -20,14 +20,16 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr std::uint64_t kUnusedFrames = 120;     // a picture not drawn for this many frames is freed
-constexpr std::uint64_t kUnusedCompareFrames = 8; // ...a picture of the Compare view (the big ones), sooner
-constexpr double kSeedsTimeoutSeconds = 1800;    // a safety net: N levels at the default work cap take seconds
-constexpr double kPickTimeoutSeconds = 300;      // a safety net: a pick moves a few files (about a second of retries each on Windows)
+constexpr std::uint64_t kUnusedFrames = 120;       // a picture not drawn for this many frames is freed
+constexpr std::uint64_t kUnusedCompareFrames = 8;  // ...a picture of the Compare view (the big ones), sooner
+constexpr double kSeedsTimeoutSeconds = 1800;      // a safety net: N levels at the default work cap take seconds
+constexpr double kPickTimeoutSeconds =
+    300;  // a safety net: a pick moves a few files (about a second of retries each on Windows)
 
 // A tooltip for the widget just drawn that also shows while it is disabled (where the reason it is disabled belongs).
 void tooltip_even_when_disabled(const char* text) {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("%s", text);
 }
 
 // A string member of untrusted JSON (a command result, a manifest): "" when it is missing or not a string (Json::value would throw).
@@ -44,7 +46,9 @@ std::string safe_rel(const std::string& rel) {
 }
 
 // Smooth when the picture is drawn smaller than it is, sharp pixels when it is blown up (pixel art stays crisp).
-ImTextureRef tex_ref(const TextureEntry& t, float scale) { return ImTextureRef(ImTextureID(ui::texture_from_view(t.view, scale < 1.0f))); }
+ImTextureRef tex_ref(const TextureEntry& t, float scale) {
+    return ImTextureRef(ImTextureID(ui::texture_from_view(t.view, scale < 1.0f)));
+}
 
 }  // namespace
 
@@ -61,7 +65,7 @@ void Editor::open_review(const std::string& sheet, bool focus) {
 
 void Editor::review_show_sheet(const std::string& id) {
     if (id == review_.sheetId && (review_.sheet || review_.sheetLoading)) return;
-    review_release_textures();   // the pictures of the sheet shown before are not kept
+    review_release_textures();  // the pictures of the sheet shown before are not kept
     review_.sheetId = id;
     review_.sheet.reset();
     review_.sheetError.clear();
@@ -96,15 +100,20 @@ void Editor::review_end_pick_for_shutdown(bool editorStays) {
     if (args.size() > 400) args = args.substr(0, 400) + "...";
     reviewPickJob_.cancel();
     reviewPickJob_.wait();
-    FA_WARN("editor", "The pick {} {} did not finish within {:.0f} s and its process was killed; it may be half applied (files moved, the sheet not answered): "
-                      "review.info {} tells where it stands. Arguments: {}",
+    FA_WARN("editor",
+            "The pick {} {} did not finish within {:.0f} s and its process was killed; it may be half applied (files "
+            "moved, the sheet not answered): "
+            "review.info {} tells where it stands. Arguments: {}",
             command, sheet, kReviewPickShutdownSeconds, sheet, args);
     if (editorStays)
-        notify("The pick of " + sheet + " did not finish and was stopped; it may be half applied. Run review.info " + sheet + " to see where it stands.", 2);
+        notify("The pick of " + sheet + " did not finish and was stopped; it may be half applied. Run review.info " +
+                   sheet + " to see where it stands.",
+               2);
 }
 
 void Editor::reset_review_state() {
-    reviewSeedsJob_.cancel();   // the child is killed: a sheet it did not finish is never listed (review.sheet writes its manifest last)
+    reviewSeedsJob_
+        .cancel();  // the child is killed: a sheet it did not finish is never listed (review.sheet writes its manifest last)
     reviewSeedsJob_.wait();
     (void)reviewSeedsJob_.take_result();
     // A pick is given time to finish (about a second normally; killing it midway could leave its files moved and the sheet not yet
@@ -114,10 +123,11 @@ void Editor::reset_review_state() {
     review_end_pick_for_shutdown(true);
     (void)reviewPickJob_.take_result();
     {
-        std::lock_guard<std::mutex> lock(reviewInboxMu_);   // sheets an AI of the old project made are not offered in the new one
+        std::lock_guard<std::mutex> lock(
+            reviewInboxMu_);  // sheets an AI of the old project made are not offered in the new one
         reviewInbox_.clear();
     }
-    reviewLoader_.stop();       // joins the reader; what it had read is dropped
+    reviewLoader_.stop();  // joins the reader; what it had read is dropped
     review_release_textures();
     for (const ReviewDeadTexture& d : reviewGraveyard_) ui::destroy_texture(d.image, d.view);
     reviewGraveyard_.clear();
@@ -129,7 +139,8 @@ void Editor::reset_review_state() {
     review_.seedsCount = seeds;
 }
 
-const ReviewTextureSlot& Editor::review_texture(const std::string& key, const stdfs::path& file, int maxSide, bool projectFile) {
+const ReviewTextureSlot& Editor::review_texture(const std::string& key, const stdfs::path& file, int maxSide,
+                                                bool projectFile) {
     auto [it, added] = review_.textures.try_emplace(key);
     ReviewTextureSlot& slot = it->second;
     slot.usedFrame = uiFrame_;
@@ -137,12 +148,15 @@ const ReviewTextureSlot& Editor::review_texture(const std::string& key, const st
     return slot;
 }
 
-void Editor::review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& slot, const std::string& who) {
+void Editor::review_announce_sheet(const std::string& sheet, const std::string& label, const std::string& slot,
+                                   const std::string& who) {
     review_.listDirty = true;
     if (sheet.empty()) return;
     // A toast, not a window: the person may be typing elsewhere. The button opens the sheet in the Review window.
-    const std::string text = !slot.empty() ? who + " made candidates for " + slot + " on the review sheet " + sheet + ": look at them and pick the one that becomes " + slot + "."
-                                           : who + " made the review sheet " + sheet + (label.empty() ? std::string() : " (\"" + label + "\")") +
+    const std::string text = !slot.empty() ? who + " made candidates for " + slot + " on the review sheet " + sheet +
+                                                 ": look at them and pick the one that becomes " + slot + "."
+                                           : who + " made the review sheet " + sheet +
+                                                 (label.empty() ? std::string() : " (\"" + label + "\")") +
                                                  ": look at it and pick a number.";
     notify_action(text, "Open in Review", [this, sheet] { open_review(sheet); }, "review:open-announced");
 }
@@ -155,12 +169,15 @@ void Editor::poll_review() {
             levelGenMessage_ = "The sheet of seeds was cancelled; no sheet was made.";
             levelGenMessageBad_ = false;
         } else if (!done->ok) {
-            levelGenMessage_ = "Could not make the sheet of seeds: " + done->error + (done->hint.empty() ? std::string() : " " + done->hint);
+            levelGenMessage_ = "Could not make the sheet of seeds: " + done->error +
+                               (done->hint.empty() ? std::string() : " " + done->hint);
             levelGenMessageBad_ = true;
         } else {
             const auto s = done->value.find("sheet");
             const std::string id = s != done->value.end() && s->is_string() ? s->get<std::string>() : std::string();
-            levelGenMessage_ = "Made " + id + ": pick the level you like in the Review window (1-9 or the arrows, then Enter); the Level generator then shows that seed.";
+            levelGenMessage_ = "Made " + id +
+                               ": pick the level you like in the Review window (1-9 or the arrows, then Enter); the "
+                               "Level generator then shows that seed.";
             levelGenMessageBad_ = false;
             if (!id.empty()) open_review(id);
         }
@@ -172,11 +189,13 @@ void Editor::poll_review() {
         announced.swap(reviewInbox_);
     }
     for (const ReviewAnnounce& a : announced)
-        if (a.project == projectDir_) review_announce_sheet(a.sheet, a.label, a.slot, "The AI");   // (another project's sheet is not offered here)
+        if (a.project == projectDir_)
+            review_announce_sheet(a.sheet, a.label, a.slot, "The AI");  // (another project's sheet is not offered here)
     // A pick that finished in its child process.
     if (std::optional<ChildCommandOutcome> done = reviewPickJob_.take_result()) review_finish_pick(*done);
     // A command changed the sheet shown (the AI picked it, review.cleanup ran): read its manifest again.
-    if (review_.sheetDirty && review_.show && !review_.sheetId.empty() && !review_.sheetLoading && !projectDir_.empty()) {
+    if (review_.sheetDirty && review_.show && !review_.sheetId.empty() && !review_.sheetLoading &&
+        !projectDir_.empty()) {
         review_.sheetDirty = false;
         review_.sheetLoading = true;
         reviewLoader_.request_sheet(projectDir_, review_.sheetId, review_.sheetGen);
@@ -194,8 +213,9 @@ void Editor::poll_review() {
                 review_.listError = r.error;
                 review_.rows = std::move(r.rows);
                 review_.history = std::move(r.history);
-                review_.superseded = review_superseded(review_.rows);   // once per listing, not per row per frame
-                if (review_.sheetId.empty() && !review_.rows.empty() && review_.show) review_show_sheet(review_.rows.front().id);
+                review_.superseded = review_superseded(review_.rows);  // once per listing, not per row per frame
+                if (review_.sheetId.empty() && !review_.rows.empty() && review_.show)
+                    review_show_sheet(review_.rows.front().id);
                 break;
             case ReviewLoaded::Kind::Sheet: {
                 if (r.gen != review_.sheetGen || r.sheet != review_.sheetId) break;
@@ -230,7 +250,8 @@ void Editor::poll_review() {
             if (!up.error.empty() || up.picture.empty()) {
                 slot.error = up.error.empty() ? std::string("the picture is empty") : up.error;
                 slot.tex.failed = true;
-            } else if (ui::make_texture(up.picture.width, up.picture.height, up.picture.rgba.data(), slot.tex.image, slot.tex.view)) {
+            } else if (ui::make_texture(up.picture.width, up.picture.height, up.picture.rgba.data(), slot.tex.image,
+                                        slot.tex.view)) {
                 slot.tex.w = up.picture.width;
                 slot.tex.h = up.picture.height;
             } else {
@@ -244,7 +265,8 @@ void Editor::poll_review() {
     for (auto it = review_.textures.begin(); it != review_.textures.end();) {
         const std::uint64_t unused = it->first.starts_with("src:") ? kUnusedCompareFrames : kUnusedFrames;
         if (it->second.usedFrame + unused < uiFrame_) {
-            if (it->second.tex.image || it->second.tex.view) reviewGraveyard_.push_back({it->second.tex.image, it->second.tex.view, uiFrame_});
+            if (it->second.tex.image || it->second.tex.view)
+                reviewGraveyard_.push_back({it->second.tex.image, it->second.tex.view, uiFrame_});
             it = review_.textures.erase(it);
         } else {
             ++it;
@@ -290,7 +312,8 @@ void Editor::review_request_pick(int n) {
 
 void Editor::review_do_pick() {
     if (!engine_ || !review_.sheet || reviewPickJob_.running() || review_.pickPending) return;
-    const ReviewSheetView sheet = *review_.sheet;   // a copy: the window can show another sheet while the pick waits or runs
+    const ReviewSheetView sheet =
+        *review_.sheet;  // a copy: the window can show another sheet while the pick waits or runs
     const ReviewPickPlan plan = review_plan_for(sheet, review_.confirmN, !review_.keepFiles, review_.note);
     review_.pickLines.clear();
     if (!plan.error.empty()) {
@@ -310,11 +333,13 @@ void Editor::review_do_pick() {
     // shows thumbnails while the pick waits or runs.
     for (const std::string& key : reviewLoader_.drop_project_files()) {
         auto it = review_.textures.find(key);
-        if (it != review_.textures.end() && !it->second.tex.view && it->second.error.empty()) review_.textures.erase(it);
+        if (it != review_.textures.end() && !it->second.tex.view && it->second.error.empty())
+            review_.textures.erase(it);
     }
     if (reviewLoader_.reading_project_file()) {
-        review_.pickPending = true;   // poll_review starts it once the reader closed the file
-        review_.pickMessage = std::format("Picking #{} of {}... (waiting for the window to let go of the files)", review_.pickN, sheet.id);
+        review_.pickPending = true;  // poll_review starts it once the reader closed the file
+        review_.pickMessage = std::format("Picking #{} of {}... (waiting for the window to let go of the files)",
+                                          review_.pickN, sheet.id);
         review_.pickBad = false;
         return;
     }
@@ -326,13 +351,14 @@ void Editor::review_start_pick() {
     if (!review_.pickSheet || reviewPickJob_.running()) return;
     // In a child factoria, never on the UI thread: a pick reads manifests, moves files (retrying a busy one for about a second on
     // Windows) and writes the manifest (assets.pick also assets.json). It is the command itself, exactly what the AI would call.
-    reviewPickJob_.start(stdfs::path(projectDir_), review_.pickPlan.command, review_.pickPlan.args, kPickTimeoutSeconds);
+    reviewPickJob_.start(stdfs::path(projectDir_), review_.pickPlan.command, review_.pickPlan.args,
+                         kPickTimeoutSeconds);
     review_.pickMessage = std::format("Picking #{} of {}...", review_.pickN, review_.pickSheet->id);
     review_.pickBad = false;
 }
 
 void Editor::review_finish_pick(const ChildCommandOutcome& done) {
-    if (!review_.pickSheet) return;   // the project changed while it ran
+    if (!review_.pickSheet) return;  // the project changed while it ran
     const ReviewSheetView sheet = std::move(*review_.pickSheet);
     review_.pickSheet.reset();
     const ReviewPickPlan plan = std::move(review_.pickPlan);
@@ -341,23 +367,31 @@ void Editor::review_finish_pick(const ChildCommandOutcome& done) {
     // The editor reacts as to any command (the Project panel reads the folder again, the window its sheets).
     CommandResult r;
     r.ok = done.ok;
-    if (done.ok) r.result = done.value;
-    else r.error = Json{{"code", done.code}, {"message", done.error}, {"hint", done.hint}};
+    if (done.ok)
+        r.result = done.value;
+    else
+        r.error = Json{{"code", done.code}, {"message", done.error}, {"hint", done.hint}};
     after_command(plan.command, plan.args, r);
     review_.listDirty = true;
     review_.sheetDirty = true;
     if (!done.ok) {
         if (done.code == "busy")
-            review_.pickMessage = "Nothing was picked: a file of this sheet is open in another program, or another program is changing the "
-                                  "review sheets right now. Close it and try again." + (done.error.empty() ? std::string() : " (" + done.error + ")");
+            review_.pickMessage = "Nothing was picked: a file of this sheet is open in another program, or another "
+                                  "program is changing the "
+                                  "review sheets right now. Close it and try again." +
+                                  (done.error.empty() ? std::string() : " (" + done.error + ")");
         else if (done.code == "unknown_command")
-            review_.pickMessage = "Nothing was picked: picking from this sheet needs the command " + plan.command + ", which the factoria tool next to "
-                                  "the editor does not have. Update FactorIA, or ask the AI that made the sheet to finish the choice.";
+            review_.pickMessage =
+                "Nothing was picked: picking from this sheet needs the command " + plan.command +
+                ", which the factoria tool next to "
+                "the editor does not have. Update FactorIA, or ask the AI that made the sheet to finish the choice.";
         else if (done.code == "superseded")
-            review_.pickMessage = "Nothing was picked: a newer sheet of candidates for " + sheet.slot + " replaced this one. " + done.error +
+            review_.pickMessage = "Nothing was picked: a newer sheet of candidates for " + sheet.slot +
+                                  " replaced this one. " + done.error +
                                   (done.hint.empty() ? std::string() : " " + done.hint);
         else
-            review_.pickMessage = "The pick failed: " + done.error + (done.hint.empty() ? std::string() : " " + done.hint);
+            review_.pickMessage =
+                "The pick failed: " + done.error + (done.hint.empty() ? std::string() : " " + done.hint);
         review_.pickBad = true;
         notify(review_.pickMessage, 2);
         return;
@@ -382,19 +416,25 @@ void Editor::review_finish_pick(const ChildCommandOutcome& done) {
         // can match the old file's on a coarse clock). assets.json is re-read by fa::assets::manifest() when it changes on disk.
         std::string slot = json_text(res, "slot");
         if (slot.empty()) slot = sheet.slot;
-        if (const std::string rel = safe_rel(slot); !rel.empty() && engine_ && engine_->renderer()) engine_->renderer()->reload_asset(rel);
+        if (const std::string rel = safe_rel(slot); !rel.empty() && engine_ && engine_->renderer())
+            engine_->renderer()->reload_asset(rel);
     }
-    if (moved > 0) review_.pickMessage += std::format(" {} file(s) moved to {}/{}/ (moving one back undoes it).", moved, sheet.dropDir, sheet.id);
+    if (moved > 0)
+        review_.pickMessage +=
+            std::format(" {} file(s) moved to {}/{}/ (moving one back undoes it).", moved, sheet.dropDir, sheet.id);
     review_.pickBad = false;
     notify(review_.pickMessage);
     // A sheet of level seeds: the Level generator shows the picked level (its sample, size, options and seed).
     if (sheet.kind == "levelSeeds") {
         LevelGenOptions o = levelGenOpt_;
         if (review_level_options_from_pick(res, sheet.meta, o)) {
-            const bool sampleChanged = o.sampleFile != levelGenOpt_.sampleFile || o.sampleEntity != levelGenOpt_.sampleEntity;
+            const bool sampleChanged =
+                o.sampleFile != levelGenOpt_.sampleFile || o.sampleEntity != levelGenOpt_.sampleEntity;
             const LevelGenCaller call = level_gen_caller();
-            if (sampleChanged) levelGen_.clear(call);
-            else if (levelGen_.running()) levelGen_.cancel(call);
+            if (sampleChanged)
+                levelGen_.clear(call);
+            else if (levelGen_.running())
+                levelGen_.cancel(call);
             levelGenOpt_ = o;
             levelGenSampleStale_ = true;
             showLevelGen_ = true;
@@ -402,8 +442,10 @@ void Editor::review_finish_pick(const ChildCommandOutcome& done) {
             levelGenMessage_ = std::format("Seed {} from {} (#{}).", static_cast<long long>(o.seed), sheet.id, n);
             levelGenMessageBad_ = false;
             const auto scene = sheet.meta.find("sampleScene");
-            if (o.sampleFile.empty() && scene != sheet.meta.end() && scene->is_string() && fs::normalize(scene->get<std::string>()) != fs::normalize(scenePath_)) {
-                levelGenMessage_ += " Its sample '" + o.sampleEntity + "' is in " + scene->get<std::string>() + ": open that scene to generate it here.";
+            if (o.sampleFile.empty() && scene != sheet.meta.end() && scene->is_string() &&
+                fs::normalize(scene->get<std::string>()) != fs::normalize(scenePath_)) {
+                levelGenMessage_ += " Its sample '" + o.sampleEntity + "' is in " + scene->get<std::string>() +
+                                    ": open that scene to generate it here.";
                 levelGenMessageBad_ = true;
             }
         }
@@ -415,7 +457,8 @@ void Editor::start_level_seeds_sheet() {
     std::string scene;
     if (levelGenOpt_.sampleFile.empty()) {
         if (dirty_) {
-            levelGenMessage_ = "Save the scene first: the sheet of seeds is made from the project as saved on disk, and the sample entity is in this scene.";
+            levelGenMessage_ = "Save the scene first: the sheet of seeds is made from the project as saved on disk, "
+                               "and the sample entity is in this scene.";
             levelGenMessageBad_ = true;
             return;
         }
@@ -429,7 +472,9 @@ void Editor::start_level_seeds_sheet() {
     }
     // In a child process: N levels take seconds, and review.sheet sets the process-wide project root while it works.
     reviewSeedsJob_.start(stdfs::path(projectDir_), "review.sheet", *args, kSeedsTimeoutSeconds);
-    levelGenMessage_ = std::format("Making a sheet of {} seeds from seed {}... it opens in the Review window when it is done.", review_.seedsCount, static_cast<long long>(levelGenOpt_.seed));
+    levelGenMessage_ =
+        std::format("Making a sheet of {} seeds from seed {}... it opens in the Review window when it is done.",
+                    review_.seedsCount, static_cast<long long>(levelGenOpt_.seed));
     levelGenMessageBad_ = false;
 }
 
@@ -447,8 +492,8 @@ void Editor::draw_review_window() {
     }
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(980, 620)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (review_.focus) {
         ImGui::SetNextWindowFocus();
         review_.focus = false;
@@ -472,7 +517,8 @@ void Editor::draw_review_window() {
     }
     if (!review_.listError.empty()) ImGui::TextColored(kStatusFailed, "%s", review_.listError.c_str());
     if (review_.listLoaded && review_.rows.empty())
-        ImGui::TextWrapped("No sheet yet. A sheet shows N candidates as numbered thumbnails: the AI makes one with review.sheet, and the "
+        ImGui::TextWrapped("No sheet yet. A sheet shows N candidates as numbered thumbnails: the AI makes one with "
+                           "review.sheet, and the "
                            "Level generator with \"Sheet of seeds\".");
     bool shownWaiting = false, shownAnswered = false;
     for (const ReviewListRow& row : review_.rows) {
@@ -484,16 +530,21 @@ void Editor::draw_review_window() {
             shownAnswered = true;
         }
         ImGui::PushID(row.id.c_str());
-        const bool superseded = review_.superseded.count(row.id) > 0;   // only unanswered sheets are in the map
-        const std::string text = row.id + (row.label.empty() ? std::string() : "  " + row.label) + (superseded ? "  (superseded)" : "") + "###row";
+        const bool superseded = review_.superseded.count(row.id) > 0;  // only unanswered sheets are in the map
+        const std::string text = row.id + (row.label.empty() ? std::string() : "  " + row.label) +
+                                 (superseded ? "  (superseded)" : "") + "###row";
         if (ImGui::Selectable(text.c_str(), row.id == review_.sheetId)) {
             review_show_sheet(row.id);
             if (review_.tab == 2) review_.tabSet = 0;
         }
         at_track("review:row:" + row.id);
-        const std::string facts = std::to_string(row.count) + " item(s)" + (row.kind == "assetCandidates" ? ", asset candidates" : row.kind == "levelSeeds" ? ", level seeds" : "") +
+        const std::string facts = std::to_string(row.count) + " item(s)" +
+                                  (row.kind == "assetCandidates" ? ", asset candidates"
+                                   : row.kind == "levelSeeds"    ? ", level seeds"
+                                                                 : "") +
                                   (row.picked ? ", picked #" + std::to_string(row.picked) : "") +
-                                  (superseded ? ", superseded by a newer sheet of the same slot (read-only)" : "") + (row.createdAt.empty() ? std::string() : "\n" + row.createdAt);
+                                  (superseded ? ", superseded by a newer sheet of the same slot (read-only)" : "") +
+                                  (row.createdAt.empty() ? std::string() : "\n" + row.createdAt);
         ImGui::SetItemTooltip("%s", facts.c_str());
         ImGui::PopID();
     }
@@ -515,11 +566,15 @@ void Editor::draw_review_window() {
         review_.tabSet = -1;
         ImGui::EndTabBar();
     }
-    if (review_.tab == 2) draw_review_history_tab();
+    if (review_.tab == 2)
+        draw_review_history_tab();
     else if (!review_.sheet) {
-        if (review_.sheetLoading) ImGui::TextDisabled("Reading %s...", review_.sheetId.c_str());
-        else if (!review_.sheetError.empty()) ImGui::TextColored(kStatusFailed, "%s", review_.sheetError.c_str());
-        else ImGui::TextDisabled("Choose a sheet on the left.");
+        if (review_.sheetLoading)
+            ImGui::TextDisabled("Reading %s...", review_.sheetId.c_str());
+        else if (!review_.sheetError.empty())
+            ImGui::TextColored(kStatusFailed, "%s", review_.sheetError.c_str());
+        else
+            ImGui::TextDisabled("Choose a sheet on the left.");
     } else if (review_.tab == 1) {
         draw_review_compare_tab();
     } else {
@@ -533,14 +588,20 @@ void Editor::draw_review_window() {
         ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
         const int count = int(review_.sheet->items.size());
         for (int d = 1; d <= 9; ++d)
-            if (ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_0 + d), false) || ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_Keypad0 + d), false))
+            if (ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_0 + d), false) ||
+                ImGui::IsKeyPressed(ImGuiKey(ImGuiKey_Keypad0 + d), false))
                 if (const int n = review_digit_selection(d, count); n > 0) review_.selected = n;
         const int columns = review_.sheet->columns;
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Left);
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Right);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Up);
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Down);
-        if ((ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) && review_.selected > 0)
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+            review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Left);
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+            review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Right);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+            review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Up);
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+            review_.selected = review_move_selection(review_.selected, count, columns, ReviewMove::Down);
+        if ((ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) &&
+            review_.selected > 0)
             review_request_pick(review_.selected);
     }
     draw_review_pick_popup();
@@ -553,19 +614,24 @@ void Editor::draw_review_sheet_tab() {
     // Header: what the sheet is and whether it waits for an answer.
     ImGui::TextUnformatted((s.id + (s.label.empty() ? std::string() : "  " + s.label)).c_str());
     if (s.kind == "assetCandidates")
-        ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "Asset candidates for %s: the pick becomes that asset (assets.pick).",
+        ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1),
+                           "Asset candidates for %s: the pick becomes that asset (assets.pick).",
                            s.slot.empty() ? "(no slot)" : s.slot.c_str());
     if (const std::string newest = review_superseded_by(review_.superseded, s); !newest.empty()) {
-        ImGui::TextColored(kStatusWarn, "Superseded by %s: only the newest sheet of candidates for %s can be picked; this one is read-only.",
-                           newest.c_str(), s.slot.c_str());
+        ImGui::TextColored(
+            kStatusWarn,
+            "Superseded by %s: only the newest sheet of candidates for %s can be picked; this one is read-only.",
+            newest.c_str(), s.slot.c_str());
         at_track("review:superseded");
     }
     if (s.is_picked()) {
         const ReviewItemView* p = s.item(s.picked_n());
         const std::string who = json_text(s.picked, "who");
         const std::string at = json_text(s.picked, "at");
-        ImGui::TextColored(kStatusReady, "Answered: #%d \"%s\" was picked%s%s. A choice is final; this sheet is read-only.", s.picked_n(),
-                           p ? p->label.c_str() : "", who.empty() ? "" : (" by " + who).c_str(), at.empty() ? "" : (" on " + at).c_str());
+        ImGui::TextColored(kStatusReady,
+                           "Answered: #%d \"%s\" was picked%s%s. A choice is final; this sheet is read-only.",
+                           s.picked_n(), p ? p->label.c_str() : "", who.empty() ? "" : (" by " + who).c_str(),
+                           at.empty() ? "" : (" on " + at).c_str());
     } else {
         ImGui::TextDisabled("%d item(s), made %s. Waiting for your answer.", count, s.createdAt.c_str());
     }
@@ -587,18 +653,27 @@ void Editor::draw_review_sheet_tab() {
     if (ImGui::SmallButton("100%")) review_.zoom = 1.0f;
     ImGui::SetItemTooltip("One pixel of the sheet per pixel of the screen");
     ImGui::SameLine();
-    if (fitScale > 0) ImGui::TextDisabled("%.0f%%", double(fitScale) * 100.0);
-    else ImGui::TextDisabled("fit");
+    if (fitScale > 0)
+        ImGui::TextDisabled("%.0f%%", double(fitScale) * 100.0);
+    else
+        ImGui::TextDisabled("fit");
 
     // The picture, with a button over each thumbnail.
-    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing() * (review_.pickMessage.empty() ? 1.0f : 2.0f + float(std::min<std::size_t>(review_.pickLines.size(), kReviewPickLinesShown)) +
-                                                                       (review_.pickLines.size() > kReviewPickLinesShown ? 1.0f : 0.0f));
+    const float footer =
+        ImGui::GetFrameHeightWithSpacing() * 2.0f +
+        ImGui::GetTextLineHeightWithSpacing() *
+            (review_.pickMessage.empty()
+                 ? 1.0f
+                 : 2.0f + float(std::min<std::size_t>(review_.pickLines.size(), kReviewPickLinesShown)) +
+                       (review_.pickLines.size() > kReviewPickLinesShown ? 1.0f : 0.0f));
     const float childH = std::max(80.0f, ImGui::GetContentRegionAvail().y - footer);
-    ImGui::BeginChild("##reviewsheet", ImVec2(0, childH), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoNavInputs);
+    ImGui::BeginChild("##reviewsheet", ImVec2(0, childH), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoNavInputs);
     const stdfs::path sheetDir = stdfs::path(projectDir_) / fs::path_from_utf8(std::string(kReviewDir) + "/" + s.id);
     const std::string picRel = safe_rel(s.picture);
-    const ReviewTextureSlot& slot = review_texture("sheet", picRel.empty() ? sheetDir / "sheet.png" : stdfs::path(projectDir_) / fs::path_from_utf8(picRel),
-                                                   kReviewSheetMaxSide, false);
+    const ReviewTextureSlot& slot = review_texture(
+        "sheet", picRel.empty() ? sheetDir / "sheet.png" : stdfs::path(projectDir_) / fs::path_from_utf8(picRel),
+        kReviewSheetMaxSide, false);
     if (!slot.error.empty()) {
         ImGui::TextColored(kStatusFailed, "The sheet's picture cannot be shown: %s", slot.error.c_str());
     } else if (!slot.tex.view) {
@@ -610,7 +685,8 @@ void Editor::draw_review_sheet_tab() {
         const ImVec2 size(float(w) * scale, float(h) * scale);
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddImage(tex_ref(slot.tex, scale * float(w) / float(std::max(1, slot.tex.w))), origin, ImVec2(origin.x + size.x, origin.y + size.y));
+        dl->AddImage(tex_ref(slot.tex, scale * float(w) / float(std::max(1, slot.tex.w))), origin,
+                     ImVec2(origin.x + size.x, origin.y + size.y));
         for (const ReviewItemView& it : s.items) {
             if (it.w <= 0 || it.h <= 0) continue;
             const ImVec2 a(origin.x + float(it.x) * scale, origin.y + float(it.y) * scale);
@@ -624,21 +700,26 @@ void Editor::draw_review_sheet_tab() {
             }
             at_track("review:item:" + std::to_string(it.n));
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("#%d %s\n%s%s%s", it.n, it.label.c_str(), it.info.c_str(), it.ok ? "" : "\nCould not be drawn: ", it.ok ? "" : it.error.c_str());
+                ImGui::SetTooltip("#%d %s\n%s%s%s", it.n, it.label.c_str(), it.info.c_str(),
+                                  it.ok ? "" : "\nCould not be drawn: ", it.ok ? "" : it.error.c_str());
             ImGui::PopID();
             if (s.picked_n() == it.n) dl->AddRect(a, b, IM_COL32(110, 230, 120, 255), 2.0f, 0, 3.0f);
-            if (review_.selected == it.n) dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), IM_COL32(255, 214, 64, 255), 3.0f, 0, 3.0f);
+            if (review_.selected == it.n)
+                dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), IM_COL32(255, 214, 64, 255), 3.0f, 0,
+                            3.0f);
         }
         ImGui::SetCursorScreenPos(origin);
-        ImGui::Dummy(size);   // the scroll area is the picture
+        ImGui::Dummy(size);  // the scroll area is the picture
         at_track("review:picture");
     }
     ImGui::EndChild();
 
     // The selection and the pick.
     const ReviewItemView* sel = s.item(review_.selected);
-    if (sel) ImGui::Text("#%d %s   %s", sel->n, sel->label.c_str(), sel->info.c_str());
-    else ImGui::TextDisabled("Click a thumbnail or press its number.");
+    if (sel)
+        ImGui::Text("#%d %s   %s", sel->n, sel->label.c_str(), sel->info.c_str());
+    else
+        ImGui::TextDisabled("Click a thumbnail or press its number.");
     at_track("review:selection");
     const ReviewPickPlan plan = review_plan_for(s, review_.selected, true, std::string());
     const bool canPick = sel && plan.error.empty();
@@ -647,8 +728,9 @@ void Editor::draw_review_sheet_tab() {
     if (ImGui::Button(pickLabel.c_str())) review_request_pick(review_.selected);
     ImGui::EndDisabled();
     at_track("review:pick", canPick);
-    tooltip_even_when_disabled(canPick ? "Choose this one: a window says which files move first. Same as pressing Enter."
-                                       : (sel ? plan.error.c_str() : "Select a thumbnail first (click it, or press 1-9)."));
+    tooltip_even_when_disabled(canPick
+                                   ? "Choose this one: a window says which files move first. Same as pressing Enter."
+                                   : (sel ? plan.error.c_str() : "Select a thumbnail first (click it, or press 1-9)."));
     fit_same_line("1-9 select, the arrows move, Enter picks");
     ImGui::TextDisabled("1-9 select, the arrows move, Enter picks");
     if (!review_.pickMessage.empty()) {
@@ -656,13 +738,15 @@ void Editor::draw_review_sheet_tab() {
         ImGui::TextWrapped("%s", review_.pickMessage.c_str());
         ImGui::PopStyleColor();
         at_track("review:pick-message");
-        for (std::size_t i = 0; i < review_.pickLines.size() && i < kReviewPickLinesShown; ++i) ImGui::TextDisabled("%s", review_.pickLines[i].c_str());
+        for (std::size_t i = 0; i < review_.pickLines.size() && i < kReviewPickLinesShown; ++i)
+            ImGui::TextDisabled("%s", review_.pickLines[i].c_str());
         if (review_.pickLines.size() > kReviewPickLinesShown) {
             // The warnings of a pick are not kept in the sheet's manifest, so the History tab cannot show them: the line that says how
             // many are hidden carries them in its tooltip (the moved files are in History too, once the list is read again).
             ImGui::TextDisabled("... and %zu more line(s) (hover)", review_.pickLines.size() - kReviewPickLinesShown);
             std::string rest;
-            for (std::size_t i = kReviewPickLinesShown; i < review_.pickLines.size() && i < kReviewPickLinesShown + 20; ++i)
+            for (std::size_t i = kReviewPickLinesShown; i < review_.pickLines.size() && i < kReviewPickLinesShown + 20;
+                 ++i)
                 rest += (rest.empty() ? "" : "\n") + review_.pickLines[i];
             if (review_.pickLines.size() > kReviewPickLinesShown + 20) rest += "\n...";
             ImGui::SetItemTooltip("%s", rest.c_str());
@@ -696,7 +780,8 @@ void Editor::draw_review_compare_tab() {
     }
     ImGui::Checkbox("The candidates' own pictures", &review_.compareSource);
     at_track("review:cmp-source");
-    ImGui::SetItemTooltip("Show the image files themselves (sharper than the thumbnails); a level, a scene or an effect always shows its thumbnail.");
+    ImGui::SetItemTooltip("Show the image files themselves (sharper than the thumbnails); a level, a scene or an "
+                          "effect always shows its thumbnail.");
 
     const stdfs::path project(projectDir_);
     const stdfs::path sheetDir = project / fs::path_from_utf8(std::string(kReviewDir) + "/" + s.id);
@@ -708,7 +793,8 @@ void Editor::draw_review_compare_tab() {
         const int n = side == 0 ? review_.compareA : review_.compareB;
         const ReviewItemView* it = s.item(n);
         if (side == 1) ImGui::SameLine();
-        ImGui::BeginChild(side == 0 ? "##cmpleft" : "##cmpright", ImVec2(colW, std::max(80.0f, avail.y)), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoNavInputs);
+        ImGui::BeginChild(side == 0 ? "##cmpleft" : "##cmpright", ImVec2(colW, std::max(80.0f, avail.y)),
+                          ImGuiChildFlags_Borders, ImGuiWindowFlags_NoNavInputs);
         if (!it) {
             ImGui::TextDisabled("Choose a number above.");
             ImGui::EndChild();
@@ -734,7 +820,9 @@ void Editor::draw_review_compare_tab() {
         }
         if (!shown) {
             const std::string thumb = safe_rel(it->thumb);
-            if (!thumb.empty()) shown = &review_texture("thumb:" + std::to_string(n), sheetDir / fs::path_from_utf8(thumb), kReviewThumbMaxSide, false);
+            if (!thumb.empty())
+                shown = &review_texture("thumb:" + std::to_string(n), sheetDir / fs::path_from_utf8(thumb),
+                                        kReviewThumbMaxSide, false);
         }
         const float textH = ImGui::GetTextLineHeightWithSpacing() * 3.0f + ImGui::GetFrameHeightWithSpacing();
         const ImVec2 room(ImGui::GetContentRegionAvail().x, std::max(40.0f, ImGui::GetContentRegionAvail().y - textH));
@@ -759,7 +847,8 @@ void Editor::draw_review_compare_tab() {
         }
         ImGui::EndDisabled();
         at_track(std::format("review:cmp-pick-{}", side == 0 ? 'a' : 'b'), plan.error.empty());
-        tooltip_even_when_disabled(plan.error.empty() ? "Choose this one (a window says which files move first)" : plan.error.c_str());
+        tooltip_even_when_disabled(plan.error.empty() ? "Choose this one (a window says which files move first)"
+                                                      : plan.error.c_str());
         ImGui::EndChild();
     }
 }
@@ -773,16 +862,20 @@ void Editor::draw_review_history_tab() {
     for (const ReviewHistoryRow& h : review_.history) {
         ImGui::PushID(h.id.c_str());
         ImGui::SeparatorText((h.id + (h.label.empty() ? std::string() : "  " + h.label)).c_str());
-        ImGui::Text("#%d \"%s\" of %d, picked%s%s", h.n, h.pickedLabel.c_str(), h.count, h.who.empty() ? "" : (" by " + h.who).c_str(),
-                    h.at.empty() ? "" : (" on " + h.at).c_str());
+        ImGui::Text("#%d \"%s\" of %d, picked%s%s", h.n, h.pickedLabel.c_str(), h.count,
+                    h.who.empty() ? "" : (" by " + h.who).c_str(), h.at.empty() ? "" : (" on " + h.at).c_str());
         at_track("review:history:" + h.id);
         if (!h.note.empty()) ImGui::TextWrapped("Note: %s", h.note.c_str());
         for (const ReviewDroppedLine& d : h.dropped) {
-            const ImVec4 colour = d.status == "moved" ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : d.status == "expired" ? kStatusWarn : kStatusFailed;
-            ImGui::TextColored(colour, "  #%d %s: %s -> %s (%s)", d.n, d.label.c_str(), d.from.c_str(), d.to.c_str(), d.status.c_str());
-            ImGui::SetItemTooltip("%s", d.status == "moved"     ? "In the drop folder: move it back to undo the drop."
-                                        : d.status == "expired" ? "Deleted by review.cleanup, days after the pick."
-                                                                : "No longer in the drop folder (moved back or deleted by hand).");
+            const ImVec4 colour = d.status == "moved"     ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled)
+                                  : d.status == "expired" ? kStatusWarn
+                                                          : kStatusFailed;
+            ImGui::TextColored(colour, "  #%d %s: %s -> %s (%s)", d.n, d.label.c_str(), d.from.c_str(), d.to.c_str(),
+                               d.status.c_str());
+            ImGui::SetItemTooltip("%s", d.status == "moved" ? "In the drop folder: move it back to undo the drop."
+                                        : d.status == "expired"
+                                            ? "Deleted by review.cleanup, days after the pick."
+                                            : "No longer in the drop folder (moved back or deleted by hand).");
         }
         if (h.dropped.empty()) ImGui::TextDisabled("  No file was moved.");
         if (ImGui::SmallButton("Open")) {
@@ -820,9 +913,11 @@ void Editor::draw_review_pick_popup() {
         if (plan.command == "assets.pick") ImGui::TextWrapped("assets.pick makes it the asset of %s.", s.slot.c_str());
         if (!plan.error.empty()) ImGui::TextColored(kStatusFailed, "%s", plan.error.c_str());
         if (plan.moves.empty()) {
-            ImGui::TextDisabled(review_.keepFiles ? "No file is moved: only the choice is recorded." : "No file is moved (no other item is a candidate file).");
+            ImGui::TextDisabled(review_.keepFiles ? "No file is moved: only the choice is recorded."
+                                                  : "No file is moved (no other item is a candidate file).");
         } else {
-            ImGui::TextWrapped("These %zu file(s) are MOVED to %s/%s/ (nothing is deleted now; review.cleanup deletes them %d days after the pick, "
+            ImGui::TextWrapped("These %zu file(s) are MOVED to %s/%s/ (nothing is deleted now; review.cleanup deletes "
+                               "them %d days after the pick, "
                                "and moving one back undoes it):",
                                plan.moves.size(), s.dropDir.c_str(), s.id.c_str(), kReviewDroppedDays);
             const float h = std::min(160.0f, ImGui::GetTextLineHeightWithSpacing() * float(plan.moves.size()) + 8.0f);
@@ -846,9 +941,10 @@ void Editor::draw_review_pick_popup() {
             }
             return 0;
         };
-        ImGui::InputTextWithHint("##reviewnote", "Why this one? (optional, kept with the choice)", &review_.note, ImGuiInputTextFlags_CallbackEdit,
-                                 capNote);
-        ImGui::SetItemTooltip("Kept in the sheet's manifest with the choice; at most %d bytes.", int(kReviewNoteMaxBytes));
+        ImGui::InputTextWithHint("##reviewnote", "Why this one? (optional, kept with the choice)", &review_.note,
+                                 ImGuiInputTextFlags_CallbackEdit, capNote);
+        ImGui::SetItemTooltip("Kept in the sheet's manifest with the choice; at most %d bytes.",
+                              int(kReviewNoteMaxBytes));
         at_track("review:note");
         ImGui::BeginDisabled(!plan.error.empty());
         if (ImGui::Button(std::format("Pick #{}", review_.confirmN).c_str())) confirm = true;

@@ -23,7 +23,10 @@ public:
     Reader(const std::vector<std::uint8_t>& b) : b_(b) {}
     std::size_t pos() const { return pos_; }
     void seek(std::size_t p) {
-        if (p > b_.size()) throw Bad{std::format("a section points to byte {} but the file has {} bytes (the file is cut short or damaged)", p, b_.size())};
+        if (p > b_.size())
+            throw Bad{
+                std::format("a section points to byte {} but the file has {} bytes (the file is cut short or damaged)",
+                            p, b_.size())};
         pos_ = p;
     }
     void skip(std::size_t n) { seek(pos_ + n); }
@@ -40,7 +43,8 @@ public:
     }
     std::uint32_t u32() {
         need(4);
-        const std::uint32_t v = (std::uint32_t(b_[pos_]) << 24) | (b_[pos_ + 1] << 16) | (b_[pos_ + 2] << 8) | b_[pos_ + 3];
+        const std::uint32_t v =
+            (std::uint32_t(b_[pos_]) << 24) | (b_[pos_ + 1] << 16) | (b_[pos_ + 2] << 8) | b_[pos_ + 3];
         pos_ += 4;
         return v;
     }
@@ -59,7 +63,9 @@ public:
 
 private:
     void need(std::size_t n) const {
-        if (pos_ + n > b_.size()) throw Bad{std::format("the file ends at byte {} but more data is expected (the file is cut short or damaged)", b_.size())};
+        if (pos_ + n > b_.size())
+            throw Bad{std::format(
+                "the file ends at byte {} but more data is expected (the file is cut short or damaged)", b_.size())};
     }
     const std::vector<std::uint8_t>& b_;
     std::size_t pos_ = 0;
@@ -98,16 +104,28 @@ std::string utf16be_to_utf8(const std::uint8_t* p, std::size_t chars) {
                 ++i;
             }
         }
-        if (c < 0x80) out += char(c);
-        else if (c < 0x800) { out += char(0xC0 | (c >> 6)); out += char(0x80 | (c & 63)); }
-        else if (c < 0x10000) { out += char(0xE0 | (c >> 12)); out += char(0x80 | ((c >> 6) & 63)); out += char(0x80 | (c & 63)); }
-        else { out += char(0xF0 | (c >> 18)); out += char(0x80 | ((c >> 12) & 63)); out += char(0x80 | ((c >> 6) & 63)); out += char(0x80 | (c & 63)); }
+        if (c < 0x80)
+            out += char(c);
+        else if (c < 0x800) {
+            out += char(0xC0 | (c >> 6));
+            out += char(0x80 | (c & 63));
+        } else if (c < 0x10000) {
+            out += char(0xE0 | (c >> 12));
+            out += char(0x80 | ((c >> 6) & 63));
+            out += char(0x80 | (c & 63));
+        } else {
+            out += char(0xF0 | (c >> 18));
+            out += char(0x80 | ((c >> 12) & 63));
+            out += char(0x80 | ((c >> 6) & 63));
+            out += char(0x80 | (c & 63));
+        }
     }
     return out;
 }
 
 // One channel's samples, reduced to 8 bit. `data` starts at the compression code.
-std::vector<std::uint8_t> decode_channel(const std::uint8_t* data, std::size_t len, int w, int h, int depth, const std::string& what) {
+std::vector<std::uint8_t> decode_channel(const std::uint8_t* data, std::size_t len, int w, int h, int depth,
+                                         const std::string& what) {
     if (w <= 0 || h <= 0) return {};
     if (len < 2) throw Bad{what + ": the channel has no data"};
     const int comp = (data[0] << 8) | data[1];
@@ -155,7 +173,8 @@ std::vector<std::uint8_t> decode_channel(const std::uint8_t* data, std::size_t l
                     for (int x = 1; x < w; ++x) row[x] = std::uint8_t(row[x] + row[x - 1]);
                 } else {
                     for (int x = 1; x < w; ++x) {
-                        const unsigned prev = (row[(x - 1) * 2] << 8) | row[(x - 1) * 2 + 1], cur = (row[x * 2] << 8) | row[x * 2 + 1];
+                        const unsigned prev = (row[(x - 1) * 2] << 8) | row[(x - 1) * 2 + 1],
+                                       cur = (row[x * 2] << 8) | row[x * 2 + 1];
                         const unsigned v = (prev + cur) & 0xFFFF;
                         row[x * 2] = std::uint8_t(v >> 8);
                         row[x * 2 + 1] = std::uint8_t(v & 255);
@@ -168,15 +187,19 @@ std::vector<std::uint8_t> decode_channel(const std::uint8_t* data, std::size_t l
     }
     if (bps == 1) return raw;
     std::vector<std::uint8_t> out(std::size_t(w) * h);
-    for (std::size_t i = 0; i < out.size(); ++i) out[i] = std::uint8_t(((raw[i * 2] << 8 | raw[i * 2 + 1]) * 255 + 32767) / 65535);
+    for (std::size_t i = 0; i < out.size(); ++i)
+        out[i] = std::uint8_t(((raw[i * 2] << 8 | raw[i * 2 + 1]) * 255 + 32767) / 65535);
     return out;
 }
 
-const char* blend_from_key(const std::string& key, std::vector<std::string>& warnings, const std::string& layer, bool& passThrough) {
+const char* blend_from_key(const std::string& key, std::vector<std::string>& warnings, const std::string& layer,
+                           bool& passThrough) {
     static const std::map<std::string, const char*> known = {
-        {"norm", "normal"},  {"dark", "darken"},   {"mul ", "multiply"}, {"idiv", "colorBurn"}, {"lite", "lighten"},   {"scrn", "screen"},
-        {"div ", "colorDodge"}, {"lddg", "add"},   {"over", "overlay"},  {"sLit", "softLight"}, {"hLit", "hardLight"}, {"diff", "difference"},
-        {"smud", "exclusion"},  {"fsub", "subtract"}, {"hue ", "hue"},   {"sat ", "saturation"}, {"colr", "color"},    {"lum ", "luminosity"}};
+        {"norm", "normal"},    {"dark", "darken"},    {"mul ", "multiply"},   {"idiv", "colorBurn"},
+        {"lite", "lighten"},   {"scrn", "screen"},    {"div ", "colorDodge"}, {"lddg", "add"},
+        {"over", "overlay"},   {"sLit", "softLight"}, {"hLit", "hardLight"},  {"diff", "difference"},
+        {"smud", "exclusion"}, {"fsub", "subtract"},  {"hue ", "hue"},        {"sat ", "saturation"},
+        {"colr", "color"},     {"lum ", "luminosity"}};
     passThrough = false;
     if (key == "pass") {
         passThrough = true;
@@ -185,15 +208,21 @@ const char* blend_from_key(const std::string& key, std::vector<std::string>& war
     auto it = known.find(key);
     if (it != known.end()) return it->second;
     static const std::map<std::string, std::pair<const char*, const char*>> approx = {
-        {"lbrn", {"multiply", "Linear Burn"}}, {"vLit", {"overlay", "Vivid Light"}}, {"lLit", {"overlay", "Linear Light"}},
-        {"pLit", {"overlay", "Pin Light"}},    {"hMix", {"hardLight", "Hard Mix"}},  {"dkCl", {"darken", "Darker Color"}},
-        {"lgCl", {"lighten", "Lighter Color"}}, {"diss", {"normal", "Dissolve"}},     {"fdiv", {"difference", "Divide"}}};
+        {"lbrn", {"multiply", "Linear Burn"}},  {"vLit", {"overlay", "Vivid Light"}},
+        {"lLit", {"overlay", "Linear Light"}},  {"pLit", {"overlay", "Pin Light"}},
+        {"hMix", {"hardLight", "Hard Mix"}},    {"dkCl", {"darken", "Darker Color"}},
+        {"lgCl", {"lighten", "Lighter Color"}}, {"diss", {"normal", "Dissolve"}},
+        {"fdiv", {"difference", "Divide"}}};
     auto ap = approx.find(key);
     if (ap != approx.end()) {
-        warnings.push_back(std::format("Layer '{}' uses the Photoshop blend mode {}, which the image documents do not have; it was imported as {}.", layer, ap->second.second, ap->second.first));
+        warnings.push_back(std::format("Layer '{}' uses the Photoshop blend mode {}, which the image documents do not "
+                                       "have; it was imported as {}.",
+                                       layer, ap->second.second, ap->second.first));
         return ap->second.first;
     }
-    warnings.push_back(std::format("Layer '{}' uses the Photoshop blend mode '{}', which is unknown here; it was imported as normal.", layer, key));
+    warnings.push_back(
+        std::format("Layer '{}' uses the Photoshop blend mode '{}', which is unknown here; it was imported as normal.",
+                    layer, key));
     return "normal";
 }
 
@@ -204,18 +233,30 @@ Result<PsdDocument> read_psd_layers(const std::vector<std::uint8_t>& bytes, cons
         Reader r(bytes);
         if (r.tag() != "8BPS") return make_error("'" + file + "' is not a Photoshop file.", "");
         const int version = int(r.u16());
-        if (version != 1) return make_error("'" + file + "' is a large document (.psb), whose layers are not read.", "Flatten it and save a PNG, or save it as .psd.");
+        if (version != 1)
+            return make_error("'" + file + "' is a large document (.psb), whose layers are not read.",
+                              "Flatten it and save a PNG, or save it as .psd.");
         r.skip(6);
         const int channels = int(r.u16());
         const int height = int(r.u32()), width = int(r.u32());
         const int depth = int(r.u16()), mode = int(r.u16());
         (void)channels;
         if (depth != 8 && depth != 16)
-            return make_error(std::format("'{}' is a {}-bit PSD; layers are read from 8 and 16 bit files.", file, depth), "In Photoshop use Image > Mode > 8 Bits/Channel and save again.");
+            return make_error(
+                std::format("'{}' is a {}-bit PSD; layers are read from 8 and 16 bit files.", file, depth),
+                "In Photoshop use Image > Mode > 8 Bits/Channel and save again.");
         if (mode != 1 && mode != 3)
-            return make_error(std::format("'{}' uses the colour mode {} (only RGB and grayscale layers are read).", file, mode == 4 ? "CMYK" : mode == 2 ? "indexed" : mode == 7 ? "multichannel" : mode == 8 ? "duotone" : mode == 9 ? "Lab" : "other"),
+            return make_error(std::format("'{}' uses the colour mode {} (only RGB and grayscale layers are read).",
+                                          file,
+                                          mode == 4   ? "CMYK"
+                                          : mode == 2 ? "indexed"
+                                          : mode == 7 ? "multichannel"
+                                          : mode == 8 ? "duotone"
+                                          : mode == 9 ? "Lab"
+                                                      : "other"),
                               "In Photoshop use Image > Mode > RGB Color and save again.");
-        if (width <= 0 || height <= 0 || width > 30000 || height > 30000) return make_error("'" + file + "' has an invalid size.", "");
+        if (width <= 0 || height <= 0 || width > 30000 || height > 30000)
+            return make_error("'" + file + "' has an invalid size.", "");
         r.skip(r.u32());  // colour mode data
         r.skip(r.u32());  // image resources
         const std::size_t miscLen = r.u32();
@@ -337,10 +378,15 @@ Result<PsdDocument> read_psd_layers(const std::vector<std::uint8_t>& bytes, cons
                 const bool isMask = ci.id == -2 || ci.id == -3;
                 const int w = isMask ? std::max(0, rec.mRight - rec.mLeft) : rec.width();
                 const int h = isMask ? std::max(0, rec.mBottom - rec.mTop) : rec.height();
-                if (ci.length > r.size() - std::min(r.size(), start)) throw Bad{std::format("channel data of layer '{}' runs past the file", rec.name)};
+                if (ci.length > r.size() - std::min(r.size(), start))
+                    throw Bad{std::format("channel data of layer '{}' runs past the file", rec.name)};
                 if (std::int64_t(w) * h > 200'000'000) throw Bad{std::format("layer '{}' is too large", rec.name)};
-                if (ci.id >= -1 && ci.id <= 2 && rec.divider == 0) planes[ci.id] = decode_channel(r.ptr(ci.length), ci.length, w, h, depth, "layer '" + rec.name + "'");
-                else if (ci.id == -2 && rec.divider == 0 && rec.hasMask) planes[-2] = decode_channel(r.ptr(ci.length), ci.length, w, h, depth, "mask of layer '" + rec.name + "'");
+                if (ci.id >= -1 && ci.id <= 2 && rec.divider == 0)
+                    planes[ci.id] =
+                        decode_channel(r.ptr(ci.length), ci.length, w, h, depth, "layer '" + rec.name + "'");
+                else if (ci.id == -2 && rec.divider == 0 && rec.hasMask)
+                    planes[-2] =
+                        decode_channel(r.ptr(ci.length), ci.length, w, h, depth, "mask of layer '" + rec.name + "'");
                 r.seek(start + ci.length);
             }
             const int w = rec.width(), h = rec.height();
@@ -356,17 +402,20 @@ Result<PsdDocument> read_psd_layers(const std::vector<std::uint8_t>& bytes, cons
                     std::fill(img.rgba.begin(), img.rgba.end(), 0);  // unreadable: transparent
                     continue;
                 }
-                for (std::size_t p = 0; p < it->second.size() && p * 4 < img.rgba.size(); ++p) img.rgba[p * 4 + ch] = it->second[p];
+                for (std::size_t p = 0; p < it->second.size() && p * 4 < img.rgba.size(); ++p)
+                    img.rgba[p * 4 + ch] = it->second[p];
             }
             if (auto a = planes.find(-1); a != planes.end())
-                for (std::size_t p = 0; p < a->second.size() && p * 4 < img.rgba.size(); ++p) img.rgba[p * 4 + 3] = a->second[p];
+                for (std::size_t p = 0; p < a->second.size() && p * 4 < img.rgba.size(); ++p)
+                    img.rgba[p * 4 + 3] = a->second[p];
             if (auto m = planes.find(-2); m != planes.end() && !rec.maskDisabled) {
                 const int mw = std::max(0, rec.mRight - rec.mLeft);
                 for (int y = 0; y < h; ++y)
                     for (int x = 0; x < w; ++x) {
                         const int mx = rec.left + x - rec.mLeft, my = rec.top + y - rec.mTop;
                         int v = rec.maskDefault;
-                        if (mx >= 0 && my >= 0 && mx < mw && my < std::max(0, rec.mBottom - rec.mTop)) v = m->second[std::size_t(my) * mw + mx];
+                        if (mx >= 0 && my >= 0 && mx < mw && my < std::max(0, rec.mBottom - rec.mTop))
+                            v = m->second[std::size_t(my) * mw + mx];
                         if (rec.maskInvert) v = 255 - v;
                         std::uint8_t& al = img.rgba[(std::size_t(y) * w + x) * 4 + 3];
                         al = std::uint8_t((al * v + 127) / 255);
@@ -413,7 +462,11 @@ Result<PsdDocument> read_psd_layers(const std::vector<std::uint8_t>& bytes, cons
                 g.visible = layer.visible;
                 g.clip = layer.clip;
                 g.blend = layer.blend;
-                if (pass) doc.warnings.push_back(std::format("Group '{}' passes through in Photoshop; image groups are isolated, so it was imported as a normal group (blend modes inside it only see the group).", g.name));
+                if (pass)
+                    doc.warnings.push_back(
+                        std::format("Group '{}' passes through in Photoshop; image groups are isolated, so it was "
+                                    "imported as a normal group (blend modes inside it only see the group).",
+                                    g.name));
                 stack.back().children.push_back(std::move(g));
                 continue;
             }
@@ -433,17 +486,21 @@ Result<PsdDocument> read_psd_layers(const std::vector<std::uint8_t>& bytes, cons
             stack.back().children.push_back(std::move(g));
             ++unmatched;
         }
-        if (unmatched) doc.warnings.push_back("Some groups in the file were not closed properly; their layers were kept.");
+        if (unmatched)
+            doc.warnings.push_back("Some groups in the file were not closed properly; their layers were kept.");
         if (!skipped.empty()) {
             std::string list;
             for (std::size_t i = 0; i < skipped.size() && i < 5; ++i) list += (i ? ", '" : "'") + skipped[i] + "'";
             if (skipped.size() > 5) list += std::format(" and {} more", skipped.size() - 5);
-            doc.warnings.push_back(std::format("{} layer{} with no pixels {} skipped (adjustment layers, empty layers): {}.", skipped.size(), skipped.size() == 1 ? "" : "s", skipped.size() == 1 ? "was" : "were", list));
+            doc.warnings.push_back(std::format(
+                "{} layer{} with no pixels {} skipped (adjustment layers, empty layers): {}.", skipped.size(),
+                skipped.size() == 1 ? "" : "s", skipped.size() == 1 ? "was" : "were", list));
         }
         doc.layers = std::move(stack[0].children);
         return doc;
     } catch (const Bad& b) {
-        return make_error("Cannot read the layers of '" + file + "': " + b.message + ".", "The merged image can still be imported.");
+        return make_error("Cannot read the layers of '" + file + "': " + b.message + ".",
+                          "The merged image can still be imported.");
     }
 }
 

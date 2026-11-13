@@ -13,9 +13,9 @@ namespace fa {
 
 namespace {
 
-constexpr double kStreamAutoSeconds = 10.0;      // `stream: "auto"` streams clips longer than this
-constexpr double kMaxNormalizeGainDb = 24.0;     // normalization never moves a clip further than this ...
-constexpr double kNormalizePeakDb = -1.0;        // ... nor past this sample peak (there is no limiter)
+constexpr double kStreamAutoSeconds = 10.0;   // `stream: "auto"` streams clips longer than this
+constexpr double kMaxNormalizeGainDb = 24.0;  // normalization never moves a clip further than this ...
+constexpr double kNormalizePeakDb = -1.0;     // ... nor past this sample peak (there is no limiter)
 constexpr double kAbsoluteGateLufs = -70.0;
 constexpr double kRelativeGateLu = -10.0;
 constexpr double kLoudnessOffset = -0.691;  // BS.1770: loudness = -0.691 + 10 log10(mean square)
@@ -119,7 +119,8 @@ Result<Loudness> measure_loudness(std::span<const std::uint8_t> encoded, std::st
         }
     }
     if (frames == 0) return make_error("the audio file contains no audio samples");
-    if (blocks.empty()) blocks.push_back((ring[0] + ring[1] + ring[2] + ring[3] + hopEnergy) / blockLength);  // shorter than a block
+    if (blocks.empty())
+        blocks.push_back((ring[0] + ring[1] + ring[2] + ring[3] + hopEnergy) / blockLength);  // shorter than a block
 
     Loudness out;
     out.seconds = double(frames) / fs;
@@ -136,7 +137,8 @@ Result<Loudness> measure_loudness(std::span<const std::uint8_t> encoded, std::st
     return out;
 }
 
-Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension, double maxSeconds) {
+Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension,
+                                  double maxSeconds) {
     std::string problem;
     auto dec = audio_detail::open_decoder(encoded.data(), encoded.size(), extension, &problem);
     if (!dec) return make_error("the audio file " + problem);
@@ -145,8 +147,9 @@ Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::st
     out.channels = channels > 1 ? 2 : 1;
     out.rate = dec->rate();
     const std::uint64_t limit = maxSeconds > 0.0 ? std::uint64_t(maxSeconds * out.rate) : ~std::uint64_t(0);
-    if (const std::uint64_t known = dec->frames(); known > 0 && known < (std::uint64_t(1) << 31))
-        out.samples.reserve(std::size_t(std::min(known, limit)) * std::size_t(out.channels));
+    // The length comes from the file's header, which may lie: reserve at most 8 million frames (the vector grows past that).
+    if (const std::uint64_t known = dec->frames(); known > 0)
+        out.samples.reserve(std::size_t(std::min({known, limit, std::uint64_t(1) << 23})) * std::size_t(out.channels));
     std::vector<float> buffer(4096 * channels);
     std::uint64_t frames = 0;
     for (std::size_t n; frames < limit && (n = dec->read(buffer.data(), 4096)) > 0;) {
@@ -218,10 +221,12 @@ std::optional<Loudness> cached_loudness(const Json& analysis, std::span<const st
         auto it = analysis.find(key);
         return it != analysis.end() && it->is_number() ? std::optional<double>(it->get<double>()) : std::nullopt;
     };
-    const auto lufs = number("loudnessLufs"), peak = number("peakDb"), seconds = number("seconds"), bytes = number("bytes");
+    const auto lufs = number("loudnessLufs"), peak = number("peakDb"), seconds = number("seconds"),
+               bytes = number("bytes");
     auto hash = analysis.find("sha256");
     if (!lufs || !peak || !seconds || !bytes || hash == analysis.end() || !hash->is_string()) return std::nullopt;
-    if (*bytes != double(encoded.size()) || hash->get<std::string>() != sha256_hex(encoded.data(), encoded.size())) return std::nullopt;
+    if (*bytes != double(encoded.size()) || hash->get<std::string>() != sha256_hex(encoded.data(), encoded.size()))
+        return std::nullopt;
     return Loudness{*lufs, *peak, *seconds};
 }
 

@@ -78,8 +78,10 @@ Json defaults_of(const TypeInfo& t) {
     return object_to_json(t, d.get(), true, false);
 }
 
-const char* kEssentials[] = {"burst", "rate", "lifetime", "lifetimeVariance", "speed", "speedVariance", "direction", "spread", "gravity",
-                             "startSize", "endSize", "sizeVariance", "startColor", "endColor", "blend", "texture", "maxParticles", "worldSpace", "drag"};
+const char* kEssentials[] = {"burst",      "rate",     "lifetime", "lifetimeVariance", "speed",        "speedVariance",
+                             "direction",  "spread",   "gravity",  "startSize",        "endSize",      "sizeVariance",
+                             "startColor", "endColor", "blend",    "texture",          "maxParticles", "worldSpace",
+                             "drag"};
 
 bool is_essential(const std::string& name) {
     for (const char* e : kEssentials)
@@ -93,8 +95,9 @@ struct CurveField {
     float lo, hi;
 };
 // The emitter fields that are a curve or a gradient: drawn by their editors, not as JSON text.
-const CurveField kCurveFields[] = {{"colorGradient", true, 0, 1}, {"sizeCurve", false, 0, 1},      {"speedCurve", false, 0, 1},
-                                   {"alphaCurve", false, 0, 1},   {"trailWidthCurve", false, 0, 1}, {"trailGradient", true, 0, 1}};
+const CurveField kCurveFields[] = {{"colorGradient", true, 0, 1},    {"sizeCurve", false, 0, 1},
+                                   {"speedCurve", false, 0, 1},      {"alphaCurve", false, 0, 1},
+                                   {"trailWidthCurve", false, 0, 1}, {"trailGradient", true, 0, 1}};
 
 const CurveField* curve_field(const std::string& name) {
     for (const CurveField& c : kCurveFields)
@@ -112,11 +115,12 @@ const TypeInfo* component_type(const char* name) {
 // ----------------------------------------------------------------------------------------------------------- document --
 ParticleModel& Editor::particle_ensure_model() {
     if (!particle_.model) {
-        particle_.model = std::make_unique<ParticleModel>(projectDir_, [this](const std::string& name, const Json& args) {
-            CommandResult r = engine_->commands().call(name, args);
-            if (!args.is_object() || !args.value("dryRun", false)) after_command(name, args, r);
-            return r;
-        });
+        particle_.model =
+            std::make_unique<ParticleModel>(projectDir_, [this](const std::string& name, const Json& args) {
+                CommandResult r = engine_->commands().call(name, args);
+                if (!args.is_object() || !args.value("dryRun", false)) after_command(name, args, r);
+                return r;
+            });
     }
     if (!particle_.preview) particle_.preview = std::make_unique<ParticlePreview>();
     return *particle_.model;
@@ -157,7 +161,7 @@ void Editor::particle_edited(const ParticleEditOutcome& out) {
         return;
     }
     if (out.step <= 0 || !particle_.model) return;
-    particle_drop_stale_step();   // an edit made on top of the outside change: the refused step cannot be applied any more
+    particle_drop_stale_step();  // an edit made on top of the outside change: the refused step cannot be applied any more
     undo_.push_back(Json::object({{"$particle", Json::object({{"step", out.step}})}}));
     if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
@@ -170,9 +174,12 @@ void Editor::particle_drop_stale_step() {
     const int id = particle_.model->take_stale_step();
     if (id <= 0) return;
     for (auto* stack : {&undo_, &redo_})
-        stack->erase(std::remove_if(stack->begin(), stack->end(), [id](const Json& e) {
-                         return e.is_object() && e.contains("$particle") && e["$particle"].is_object() && e["$particle"].value("step", 0) == id;
-                     }), stack->end());
+        stack->erase(std::remove_if(stack->begin(), stack->end(),
+                                    [id](const Json& e) {
+                                        return e.is_object() && e.contains("$particle") && e["$particle"].is_object() &&
+                                               e["$particle"].value("step", 0) == id;
+                                    }),
+                     stack->end());
     lastEditKey_.clear();
     particle_collect_steps();
 }
@@ -188,7 +195,8 @@ void Editor::particle_collect_steps() {
     std::set<int> keep;
     for (const auto* stack : {&undo_, &redo_})
         for (const Json& e : *stack)
-            if (e.is_object() && e.contains("$particle") && e["$particle"].is_object() && e["$particle"].value("step", 0) > 0)
+            if (e.is_object() && e.contains("$particle") && e["$particle"].is_object() &&
+                e["$particle"].value("step", 0) > 0)
                 keep.insert(e["$particle"]["step"].get<int>());
     particle_.model->retain_steps(keep);
 }
@@ -258,8 +266,10 @@ void Editor::draw_particle_panel() {
     }
     if (!m.is_open()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Open an effect document (*.vfx.json) from the list above, make a new one with New, or double click one in the Project panel.");
-        ImGui::TextDisabled("An effect is emitters, a light flash, sounds and commands on one timeline (docs/PARTICLES.md, \"Effect documents\").");
+        ImGui::TextDisabled("Open an effect document (*.vfx.json) from the list above, make a new one with New, or "
+                            "double click one in the Project panel.");
+        ImGui::TextDisabled("An effect is emitters, a light flash, sounds and commands on one timeline "
+                            "(docs/PARTICLES.md, \"Effect documents\").");
         if (!u.openError.empty()) ImGui::TextColored(kBad, "%s", u.openError.c_str());
         ImGui::End();
         return;
@@ -277,7 +287,8 @@ void Editor::draw_particle_panel() {
     // The preview plays the document as it is now (a drag in progress included).
     u.preview->begin_frame();
     u.preview->set_document(m.doc());
-    u.preview->catch_up();   // a seek or an edit that is still being rebuilt does ONE bounded share of its steps per frame (begin_frame)
+    u.preview
+        ->catch_up();  // a seek or an edit that is still being rebuilt does ONE bounded share of its steps per frame (begin_frame)
     if (u.playing && !u.scrubbing && m.doc()) {
         const double dt = std::min(0.1, double(ImGui::GetIO().DeltaTime)) * double(u.speed);
         if (u.preview->time() >= u.preview->timeline_length()) {
@@ -380,13 +391,15 @@ void Editor::draw_particle_toolbar(ParticleModel& m) {
     ImGui::SetNextItemWidth(110);
     ImGui::SliderFloat("Speed", &u.speed, 0.1f, 2.0f, "%.2fx");
     at_track("pt:speed");
-    hint("How fast the preview plays. The simulation steps stay the same size, so slow motion shows the same particles.");
+    hint("How fast the preview plays. The simulation steps stay the same size, so slow motion shows the same "
+         "particles.");
     ImGui::SameLine();
     int seed = int(u.preview->seed());
     ImGui::SetNextItemWidth(80);
     if (ImGui::DragInt("Seed", &seed, 0.2f, 0, 99999)) u.preview->set_seed(std::uint32_t(std::max(0, seed)));
     at_track("pt:seed");
-    hint("The random seed of the preview. The same seed and the same time always show the same particles; a game gives each play its own.");
+    hint("The random seed of the preview. The same seed and the same time always show the same particles; a game gives "
+         "each play its own.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90);
     ImGui::SliderFloat("Zoom", &u.zoom, 0.25f, 6.0f, "%.2f");
@@ -464,13 +477,15 @@ void Editor::draw_particle_timeline(ParticleModel& m) {
         }
     }
     // the playhead
-    const float xp = xat(pv.target_time());   // under the mouse even while the particles are catching up
+    const float xp = xat(pv.target_time());  // under the mouse even while the particles are catching up
     dl->AddLine(ImVec2(xp, p0.y), ImVec2(xp, p0.y + rulerH + trackH), IM_COL32(255, 80, 80, 255), 2.0f);
     dl->AddTriangleFilled(ImVec2(xp - 5, p0.y), ImVec2(xp + 5, p0.y), ImVec2(xp, p0.y + 7), IM_COL32(255, 80, 80, 255));
 
     // Pressing on the timeline puts the playhead there and keeps it under the mouse until the button is released; a press on a part's row
     // selects that part. Scrubbing pauses the preview (Play goes on from there).
-    auto time_at_mouse = [&] { return std::clamp(double((ImGui::GetIO().MousePos.x - x0) / std::max(1.0f, x1 - x0)) * length, 0.0, length); };
+    auto time_at_mouse = [&] {
+        return std::clamp(double((ImGui::GetIO().MousePos.x - x0) / std::max(1.0f, x1 - x0)) * length, 0.0, length);
+    };
     if (ImGui::IsItemActivated() && hovered) {
         const float my = ImGui::GetIO().MousePos.y - (p0.y + rulerH + 3.0f);
         if (my >= 0.0f) {
@@ -486,8 +501,10 @@ void Editor::draw_particle_timeline(ParticleModel& m) {
     } else if (u.scrubbing) {
         u.scrubbing = false;
     }
-    hint("Click or drag to move the playhead: the effect is rebuilt up to that moment with the same seed, so a time always shows the same particles. "
-         "A click on a part's bar selects it. Orange bars are emitters (the bar is their burst and `duration`), yellow lights, blue diamonds sounds and purple ones commands; "
+    hint("Click or drag to move the playhead: the effect is rebuilt up to that moment with the same seed, so a time "
+         "always shows the same particles. "
+         "A click on a part's bar selects it. Orange bars are emitters (the bar is their burst and `duration`), yellow "
+         "lights, blue diamonds sounds and purple ones commands; "
          "the grey line is where the effect ends.");
 }
 
@@ -514,13 +531,16 @@ void Editor::draw_particle_canvas(ParticleModel& m) {
     if (u.showGrid) {
         float step = 50.0f * u.zoom;
         while (step < 24.0f) step *= 2.0f;
-        for (float x = std::fmod(origin.x - p0.x, step); x < size.x; x += step) dl->AddLine(ImVec2(p0.x + x, p0.y), ImVec2(p0.x + x, p1.y), IM_COL32(40, 42, 52, 255));
-        for (float y = std::fmod(origin.y - p0.y, step); y < size.y; y += step) dl->AddLine(ImVec2(p0.x, p0.y + y), ImVec2(p1.x, p0.y + y), IM_COL32(40, 42, 52, 255));
+        for (float x = std::fmod(origin.x - p0.x, step); x < size.x; x += step)
+            dl->AddLine(ImVec2(p0.x + x, p0.y), ImVec2(p0.x + x, p1.y), IM_COL32(40, 42, 52, 255));
+        for (float y = std::fmod(origin.y - p0.y, step); y < size.y; y += step)
+            dl->AddLine(ImVec2(p0.x, p0.y + y), ImVec2(p1.x, p0.y + y), IM_COL32(40, 42, 52, 255));
     }
     dl->AddLine(ImVec2(origin.x - 8, origin.y), ImVec2(origin.x + 8, origin.y), IM_COL32(90, 100, 130, 255));
     dl->AddLine(ImVec2(origin.x, origin.y - 8), ImVec2(origin.x, origin.y + 8), IM_COL32(90, 100, 130, 255));
     if (!m.doc()) {
-        dl->AddText(ImVec2(p0.x + 8, p0.y + 8), IM_COL32(255, 140, 120, 255), "The file is not a valid effect: see Problems.");
+        dl->AddText(ImVec2(p0.x + 8, p0.y + 8), IM_COL32(255, 140, 120, 255),
+                    "The file is not a valid effect: see Problems.");
         dl->PopClipRect();
         return;
     }
@@ -545,10 +565,13 @@ void Editor::draw_particle_canvas(ParticleModel& m) {
         dl->AddCircleFilled(c, r * 0.6f, col32(d.color, a), r > 12.0f ? 20 : 10);
     }
     dl->AddText(ImVec2(p0.x + 6, p0.y + 4), IM_COL32(150, 155, 170, 255),
-                (std::format("{:.2f} s   {} particles   {} emitters   {} lights", pv.time(), pv.live_particles(), pv.live_emitters(), pv.lights().size()) +
-                 (pv.catching_up() ? std::format("   (catching up to {:.2f} s)", pv.target_time()) : std::string())).c_str());
+                (std::format("{:.2f} s   {} particles   {} emitters   {} lights", pv.time(), pv.live_particles(),
+                             pv.live_emitters(), pv.lights().size()) +
+                 (pv.catching_up() ? std::format("   (catching up to {:.2f} s)", pv.target_time()) : std::string()))
+                    .c_str());
     dl->PopClipRect();
-    hint("The preview: the effect played by the same timeline and particle simulation a game runs (additive blending shows as normal; ribbon trails are not drawn). "
+    hint("The preview: the effect played by the same timeline and particle simulation a game runs (additive blending "
+         "shows as normal; ribbon trails are not drawn). "
          "The cross is the effect's position; +y is up. The mouse wheel zooms.");
 }
 
@@ -561,7 +584,8 @@ void Editor::draw_particle_parts(ParticleModel& m) {
     ImGui::SeparatorText("Parts");
     for (const ParticlePartInfo& p : parts) {
         ImGui::PushID(p.index);
-        const std::string label = std::format("{}  {}  {}  at {:.2f} s###part", p.index, p.type, p.name.empty() ? "-" : p.name, p.at);
+        const std::string label =
+            std::format("{}  {}  {}  at {:.2f} s###part", p.index, p.type, p.name.empty() ? "-" : p.name, p.at);
         if (ImGui::Selectable(label.c_str(), p.index == u.selectedPart)) u.selectedPart = p.index;
         at_track("pt:part:" + std::to_string(p.index));
         ImGui::PopID();
@@ -589,19 +613,24 @@ void Editor::draw_particle_parts(ParticleModel& m) {
                 }
             }
             if (go) {
-                const ParticleEditOutcome out = m.add_item("/parts", ParticleModel::starter_part(type, what), -1, std::string("Add ") + type);
+                const ParticleEditOutcome out =
+                    m.add_item("/parts", ParticleModel::starter_part(type, what), -1, std::string("Add ") + type);
                 particle_edited(out);
                 if (out.ok) u.selectedPart = int(m.parts().size()) - 1;
             }
         }
         at_track(track);
         ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", full ? "An effect has at most 16 parts." : tip);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", full ? "An effect has at most 16 parts." : tip);
     };
-    add("+ Emitter", "pt:add_emitter", "emitter", "vfx.edit add: a burst of particles at its time. Edit its look in the inspector below.");
+    add("+ Emitter", "pt:add_emitter", "emitter",
+        "vfx.edit add: a burst of particles at its time. Edit its look in the inspector below.");
     add("+ Light", "pt:add_light", "light", "vfx.edit add: a flash of light that fades out over its duration.");
-    add("+ Sound", "pt:add_sound", "sound", "vfx.edit add: plays the first audio file of the project once; pick the clip in the inspector.");
-    add("+ Command", "pt:add_command", "command", "vfx.edit add: calls a game feel command (feel.shake, feel.hitStop, ...) at its time.");
+    add("+ Sound", "pt:add_sound", "sound",
+        "vfx.edit add: plays the first audio file of the project once; pick the clip in the inspector.");
+    add("+ Command", "pt:add_command", "command",
+        "vfx.edit add: calls a game feel command (feel.shake, feel.hitStop, ...) at its time.");
     const int sel = u.selectedPart;
     row.next("Up");
     ImGui::BeginDisabled(sel <= 0);
@@ -611,7 +640,8 @@ void Editor::draw_particle_parts(ParticleModel& m) {
     }
     at_track("pt:part_up");
     ImGui::EndDisabled();
-    hint("Moves the selected part earlier in the list (the order only decides the default names and the order in this list).");
+    hint("Moves the selected part earlier in the list (the order only decides the default names and the order in this "
+         "list).");
     row.next("Down");
     ImGui::BeginDisabled(sel < 0 || sel + 1 >= int(parts.size()));
     if (ImGui::Button("Down")) {
@@ -631,13 +661,16 @@ void Editor::draw_particle_parts(ParticleModel& m) {
 }
 
 // ---------------------------------------------------------------------------------------------------------- inspector --
-bool Editor::draw_particle_row(ParticleModel& m, const std::string& key, const FieldInfo& f, const std::string& pointer, const Json& cur, bool present) {
+bool Editor::draw_particle_row(ParticleModel& m, const std::string& key, const FieldInfo& f, const std::string& pointer,
+                               const Json& cur, bool present) {
     const bool editable = play_ == PlayState::Edit && m.valid();
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
-    if (present) ImGui::TextUnformatted(f.name.c_str());
-    else ImGui::TextDisabled("%s", f.name.c_str());
+    if (present)
+        ImGui::TextUnformatted(f.name.c_str());
+    else
+        ImGui::TextDisabled("%s", f.name.c_str());
     hint(range_tip(f) + (present ? "" : "\n(Default: the effect does not set it.)"));
     ImGui::TableSetColumnIndex(1);
     Json out;
@@ -661,20 +694,24 @@ bool Editor::draw_particle_row(ParticleModel& m, const std::string& key, const F
     return edited;
 }
 
-void Editor::draw_particle_object_fields(ParticleModel& m, const std::string& base, const TypeInfo& type, const Json& patch, bool essentialsOnly) {
+void Editor::draw_particle_object_fields(ParticleModel& m, const std::string& base, const TypeInfo& type,
+                                         const Json& patch, bool essentialsOnly) {
     ParticleUi& u = particle_;
     static std::map<std::string, Json> defaults;
     auto it = defaults.find(type.name);
     if (it == defaults.end()) it = defaults.emplace(type.name, defaults_of(type)).first;
     const Json& def = it->second;
     const std::string filter = to_lower(u.fieldFilter);
-    if (!ImGui::BeginTable(("##ptf" + type.name + (essentialsOnly ? "e" : "a")).c_str(), 3, ImGuiTableFlags_SizingStretchProp)) return;
+    if (!ImGui::BeginTable(("##ptf" + type.name + (essentialsOnly ? "e" : "a")).c_str(), 3,
+                           ImGuiTableFlags_SizingStretchProp))
+        return;
     ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 0.36f);
     ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.60f);
     ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, 18.0f);
     for (const FieldInfo& f : type.fields) {
         if (!inspector_shows(f) || f.readOnly) continue;
-        if (type.name == "ParticleEmitter" && (f.name == "emitting" || f.name == "autoDestroy")) continue;   // the effect sets them
+        if (type.name == "ParticleEmitter" && (f.name == "emitting" || f.name == "autoDestroy"))
+            continue;  // the effect sets them
         if (curve_field(f.name)) continue;
         if (essentialsOnly && type.name == "ParticleEmitter" && !is_essential(f.name)) continue;
         if (!essentialsOnly && type.name == "ParticleEmitter" && is_essential(f.name)) continue;
@@ -697,13 +734,18 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
             ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 0.36f);
             ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.60f);
             ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, 18.0f);
-            static const FieldInfo docF = field_of("doc", FieldKind::String, "What the effect is and where the game plays it.");
-            static const FieldInfo durF = field_of("duration", FieldKind::Float,
-                                                   "Length of the effect in seconds. Left out (the default): until the last part has started and ended. "
-                                                   "A part that starts after it is an error.", 0.05f, 30.0f);
-            draw_particle_row(m, "pt:/doc", docF, "/doc", doc.contains("doc") ? doc["doc"] : Json(""), doc.contains("doc"));
+            static const FieldInfo docF =
+                field_of("doc", FieldKind::String, "What the effect is and where the game plays it.");
+            static const FieldInfo durF = field_of(
+                "duration", FieldKind::Float,
+                "Length of the effect in seconds. Left out (the default): until the last part has started and ended. "
+                "A part that starts after it is an error.",
+                0.05f, 30.0f);
+            draw_particle_row(m, "pt:/doc", docF, "/doc", doc.contains("doc") ? doc["doc"] : Json(""),
+                              doc.contains("doc"));
             const double auto_len = m.doc() ? m.doc()->duration : 0.0;
-            draw_particle_row(m, "pt:/duration", durF, "/duration", doc.contains("duration") ? doc["duration"] : Json(auto_len), doc.contains("duration"));
+            draw_particle_row(m, "pt:/duration", durF, "/duration",
+                              doc.contains("duration") ? doc["duration"] : Json(auto_len), doc.contains("duration"));
             ImGui::EndTable();
         }
     }
@@ -732,22 +774,30 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
     const int index = u.selectedPart;
     const std::string base = "/parts/" + std::to_string(index);
     // The file may not be an effect (no `parts`, or not a list): the Problems above say so and there is no part to edit.
-    if (!doc.is_object() || !doc.contains("parts") || !doc["parts"].is_array() || std::size_t(index) >= doc["parts"].size()) {
+    if (!doc.is_object() || !doc.contains("parts") || !doc["parts"].is_array() ||
+        std::size_t(index) >= doc["parts"].size()) {
         ImGui::TextDisabled("This file has no part to edit: see Problems.");
         return;
     }
-    const Json& part = doc["parts"][std::size_t(index)];
+    // A COPY of the part: a row below edits the model in this same frame (a drag previews, a click applies), which replaces
+    // the document and frees the nodes a reference into it points at (found by the ASan run: heap-use-after-free).
+    const Json part = doc["parts"][std::size_t(index)];
     const std::string type = part.is_object() ? part.value("type", std::string()) : std::string();
     ImGui::SeparatorText(std::format("Part {}: {}", index, type).c_str());
 
-    static const FieldInfo nameF = field_of("name", FieldKind::String,
-                                            "Name of the child entity an emitter or a light becomes (letters, digits, '_' and '-'); unique in the effect.");
-    static const FieldInfo atF = field_of("at", FieldKind::Float, "Seconds after the effect starts that the part starts.", 0.0f, 30.0f);
+    static const FieldInfo nameF = field_of(
+        "name", FieldKind::String,
+        "Name of the child entity an emitter or a light becomes (letters, digits, '_' and '-'); unique in the effect.");
+    static const FieldInfo atF =
+        field_of("at", FieldKind::Float, "Seconds after the effect starts that the part starts.", 0.0f, 30.0f);
     static const FieldInfo durF = field_of("duration", FieldKind::Float,
-                                           "emitter: seconds it keeps emitting its `rate` after the burst (0: only the burst). light: seconds it lasts (default 0.2); it fades out over it.",
+                                           "emitter: seconds it keeps emitting its `rate` after the burst (0: only the "
+                                           "burst). light: seconds it lasts (default 0.2); it fades out over it.",
                                            0.0f, 30.0f);
-    static const FieldInfo offsetF = field_of("offset", FieldKind::Vec3, "[x, y, z] relative to the effect's position.");
-    static const FieldInfo is3dF = field_of("is3D", FieldKind::Bool, "true makes a 3D point Light instead of a Light2D.");
+    static const FieldInfo offsetF =
+        field_of("offset", FieldKind::Vec3, "[x, y, z] relative to the effect's position.");
+    static const FieldInfo is3dF =
+        field_of("is3D", FieldKind::Bool, "true makes a 3D point Light instead of a Light2D.");
     static const FieldInfo clipF = [] {
         FieldInfo f = field_of("clip", FieldKind::Asset, "The audio file (project path) played once.");
         f.assetType = "audio";
@@ -755,10 +805,14 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
     }();
     static const FieldInfo volumeF = field_of("volume", FieldKind::Float, "Volume 0..1.", 0.0f, 1.0f);
     static const FieldInfo pitchF = field_of("pitch", FieldKind::Float, "Playback speed, 1 = as recorded.", 0.1f, 4.0f);
-    static const FieldInfo busF = field_of("bus", FieldKind::String, "The mixer bus: \"sfx\", \"music\", \"ui\" or a bus of the project.");
-    static const FieldInfo argsF = field_of("args", FieldKind::Json, "The arguments of the command, e.g. {\"amount\": 0.5}.");
+    static const FieldInfo busF =
+        field_of("bus", FieldKind::String, "The mixer bus: \"sfx\", \"music\", \"ui\" or a bus of the project.");
+    static const FieldInfo argsF =
+        field_of("args", FieldKind::Json, "The arguments of the command, e.g. {\"amount\": 0.5}.");
     static const FieldInfo commandF = [] {
-        FieldInfo f = field_of("command", FieldKind::Enum, "The command to call: only the game feel and audio playback commands an effect may use.");
+        FieldInfo f =
+            field_of("command", FieldKind::Enum,
+                     "The command to call: only the game feel and audio playback commands an effect may use.");
         f.enumNames = vfx_allowed_commands();
         return f;
     }();
@@ -769,7 +823,8 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
         ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.60f);
         ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, 18.0f);
         auto row = [&](const FieldInfo& f, Json fallback) {
-            draw_particle_row(m, "pt:" + base + "/" + f.name, f, base + "/" + f.name, val(f.name.c_str(), std::move(fallback)), part.contains(f.name));
+            draw_particle_row(m, "pt:" + base + "/" + f.name, f, base + "/" + f.name,
+                              val(f.name.c_str(), std::move(fallback)), part.contains(f.name));
         };
         row(nameF, Json(""));
         row(atF, Json(0.0));
@@ -795,17 +850,20 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
         const bool is3d = part.value("is3D", false);
         if (!part.contains("light")) {
             ImGui::BeginDisabled(!editable);
-            if (ImGui::Button("Add light settings")) particle_edited(m.set_field(base + "/light", Json::object(), "Add light settings"));
+            if (ImGui::Button("Add light settings"))
+                particle_edited(m.set_field(base + "/light", Json::object(), "Add light settings"));
             at_track("pt:add_light_settings");
             ImGui::EndDisabled();
-            hint("The part has no `light` object yet: the light uses the component's defaults. This adds an empty one to edit.");
+            hint("The part has no `light` object yet: the light uses the component's defaults. This adds an empty one "
+                 "to edit.");
         } else {
             ImGui::TextDisabled("%s", is3d ? "Light" : "Light2D");
             const TypeInfo* t = component_type(is3d ? "Light" : "Light2D");
             if (t) draw_particle_object_fields(m, base + "/light", *t, part["light"], false);
         }
         draw_particle_curve_field(m, base + "/fade", "fade", val("fade", Json::array()), 0.0f, 1.0f);
-        ImGui::TextDisabled("fade multiplies the light's intensity over its life; empty = a straight fade from 1 to 0.");
+        ImGui::TextDisabled(
+            "fade multiplies the light's intensity over its life; empty = a straight fade from 1 to 0.");
     }
 
     if (type == "emitter") {
@@ -821,8 +879,10 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
         for (const CurveField& c : kCurveFields) {
             if (std::string(c.name) == "trailWidthCurve" || std::string(c.name) == "trailGradient") continue;
             const Json cur = em.contains(c.name) ? em[c.name] : Json::array();
-            if (c.gradient) draw_particle_gradient_field(m, eb + "/" + c.name, c.name, cur);
-            else draw_particle_curve_field(m, eb + "/" + c.name, c.name, cur, c.lo, c.hi);
+            if (c.gradient)
+                draw_particle_gradient_field(m, eb + "/" + c.name, c.name, cur);
+            else
+                draw_particle_curve_field(m, eb + "/" + c.name, c.name, cur, c.lo, c.hi);
         }
         if (ImGui::CollapsingHeader("All other fields")) {
             ImGui::SetNextItemWidth(-FLT_MIN);
@@ -833,15 +893,18 @@ void Editor::draw_particle_inspector(ParticleModel& m) {
                 const std::string f = to_lower(u.fieldFilter);
                 if (!f.empty() && to_lower(name).find(f) == std::string::npos) continue;
                 const Json cur = em.contains(name) ? em[name] : Json::array();
-                if (std::string(name) == "trailGradient") draw_particle_gradient_field(m, eb + "/" + name, name, cur);
-                else draw_particle_curve_field(m, eb + "/" + name, name, cur, 0.0f, 1.0f);
+                if (std::string(name) == "trailGradient")
+                    draw_particle_gradient_field(m, eb + "/" + name, name, cur);
+                else
+                    draw_particle_curve_field(m, eb + "/" + name, name, cur, 0.0f, 1.0f);
             }
         }
     }
 }
 
 // --------------------------------------------------------------------------------------------------- gradient editor --
-bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur) {
+bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& pointer, const std::string& label,
+                                          const Json& cur) {
     ParticleUi& u = particle_;
     const bool editable = play_ == PlayState::Edit && m.valid();
     ImGui::PushID(pointer.c_str());
@@ -850,8 +913,10 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
     auto parsed = Gradient::parse(cur.is_null() ? Json::array() : cur, label);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label.c_str());
-    hint(std::format("{}\nKeys are [position 0..1, colour]; the colours blend linearly, alpha included. Click the bar to add a key, drag a key to move it. "
-                     "Empty: the emitter fades from startColor to endColor.", label));
+    hint(std::format("{}\nKeys are [position 0..1, colour]; the colours blend linearly, alpha included. Click the bar "
+                     "to add a key, drag a key to move it. "
+                     "Empty: the emitter fades from startColor to endColor.",
+                     label));
     if (!parsed.ok()) {
         ImGui::SameLine();
         ImGui::TextColored(kBad, "%s", parsed.error().message.c_str());
@@ -874,8 +939,10 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
     // a checkerboard under the bar shows the alpha
     for (int i = 0; i < 24; ++i) {
         const float xa = x0 + (x1 - x0) * float(i) / 24.0f, xb = x0 + (x1 - x0) * float(i + 1) / 24.0f;
-        dl->AddRectFilled(ImVec2(xa, p0.y), ImVec2(xb, p0.y + barH * 0.5f), (i & 1) ? IM_COL32(70, 70, 70, 255) : IM_COL32(110, 110, 110, 255));
-        dl->AddRectFilled(ImVec2(xa, p0.y + barH * 0.5f), ImVec2(xb, p0.y + barH), (i & 1) ? IM_COL32(110, 110, 110, 255) : IM_COL32(70, 70, 70, 255));
+        dl->AddRectFilled(ImVec2(xa, p0.y), ImVec2(xb, p0.y + barH * 0.5f),
+                          (i & 1) ? IM_COL32(70, 70, 70, 255) : IM_COL32(110, 110, 110, 255));
+        dl->AddRectFilled(ImVec2(xa, p0.y + barH * 0.5f), ImVec2(xb, p0.y + barH),
+                          (i & 1) ? IM_COL32(110, 110, 110, 255) : IM_COL32(70, 70, 70, 255));
     }
     if (g.empty()) {
         dl->AddText(ImVec2(x0 + 4, p0.y + 3), IM_COL32(200, 200, 200, 255), "(default: startColor to endColor)");
@@ -883,8 +950,8 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
         constexpr int kSeg = 48;
         for (int i = 0; i < kSeg; ++i) {
             const float ta = float(i) / kSeg, tb = float(i + 1) / kSeg;
-            dl->AddRectFilledMultiColor(ImVec2(x0 + (x1 - x0) * ta, p0.y), ImVec2(x0 + (x1 - x0) * tb, p0.y + barH), col32(g.eval(ta)), col32(g.eval(tb)),
-                                        col32(g.eval(tb)), col32(g.eval(ta)));
+            dl->AddRectFilledMultiColor(ImVec2(x0 + (x1 - x0) * ta, p0.y), ImVec2(x0 + (x1 - x0) * tb, p0.y + barH),
+                                        col32(g.eval(ta)), col32(g.eval(tb)), col32(g.eval(tb)), col32(g.eval(ta)));
         }
     }
     dl->AddRect(ImVec2(x0, p0.y), ImVec2(x1, p0.y + barH), IM_COL32(20, 20, 24, 255));
@@ -892,8 +959,10 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
         const float x = x0 + g.keys[i].t * (x1 - x0);
         const bool sel = mine && u.selectedKey == int(i);
         const ImU32 edge = sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 20, 24, 255);
-        dl->AddTriangleFilled(ImVec2(x, p0.y + barH + 1), ImVec2(x - 5, p0.y + barH + markH), ImVec2(x + 5, p0.y + barH + markH), col32(g.keys[i].color, 1.0f) | IM_COL32_A_MASK);
-        dl->AddTriangle(ImVec2(x, p0.y + barH + 1), ImVec2(x - 5, p0.y + barH + markH), ImVec2(x + 5, p0.y + barH + markH), edge, sel ? 2.0f : 1.0f);
+        dl->AddTriangleFilled(ImVec2(x, p0.y + barH + 1), ImVec2(x - 5, p0.y + barH + markH),
+                              ImVec2(x + 5, p0.y + barH + markH), col32(g.keys[i].color, 1.0f) | IM_COL32_A_MASK);
+        dl->AddTriangle(ImVec2(x, p0.y + barH + 1), ImVec2(x - 5, p0.y + barH + markH),
+                        ImVec2(x + 5, p0.y + barH + markH), edge, sel ? 2.0f : 1.0f);
     }
     // Press: pick the key under the mouse, or add one there. Drag: move it. Release: ONE edit.
     if (editable && ImGui::IsItemActivated()) {
@@ -919,7 +988,8 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
         u.dragKey = pick;
         u.dragField = pointer;
     }
-    if (editable && ImGui::IsItemActive() && u.dragKey >= 0 && u.dragField == pointer && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+    if (editable && ImGui::IsItemActive() && u.dragKey >= 0 && u.dragField == pointer &&
+        ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
         if (gradient_move_key(g, u.dragKey, (ImGui::GetIO().MousePos.x - x0) / std::max(1.0f, x1 - x0))) {
             m.preview_field(pointer, g.to_json());
             changed = true;
@@ -954,7 +1024,9 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
     hint("Position of the selected key along the particle's life (0 = born, 1 = dies).");
     if (ImGui::IsItemDeactivatedAfterEdit()) particle_edited(m.commit_field("Edit " + label));
     ImGui::SameLine();
-    if (ImGui::ColorEdit4("##keycolor", rgba, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs) && sk >= 0) {
+    if (ImGui::ColorEdit4("##keycolor", rgba,
+                          ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs) &&
+        sk >= 0) {
         gradient_set_key_color(g, sk, Color{rgba[0], rgba[1], rgba[2], rgba[3]});
         m.preview_field(pointer, g.to_json());
         changed = true;
@@ -975,7 +1047,8 @@ bool Editor::draw_particle_gradient_field(ParticleModel& m, const std::string& p
 }
 
 // ------------------------------------------------------------------------------------------------------ curve editor --
-bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& pointer, const std::string& label, const Json& cur, float lo, float hi) {
+bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& pointer, const std::string& label,
+                                       const Json& cur, float lo, float hi) {
     ParticleUi& u = particle_;
     const bool editable = play_ == PlayState::Edit && m.valid();
     ImGui::PushID(pointer.c_str());
@@ -984,7 +1057,9 @@ bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& poin
     auto parsed = Curve::parse(cur.is_null() ? Json::array() : cur, label);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label.c_str());
-    hint(std::format("{}\nKeys are [position 0..1, value]. Click the graph to add a key, drag a key to move it. Empty: the field does nothing.", label));
+    hint(std::format("{}\nKeys are [position 0..1, value]. Click the graph to add a key, drag a key to move it. Empty: "
+                     "the field does nothing.",
+                     label));
     if (!parsed.ok()) {
         ImGui::SameLine();
         ImGui::TextColored(kBad, "%s", parsed.error().message.c_str());
@@ -1020,11 +1095,13 @@ bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& poin
     auto sx = [&](float t) { return x0 + t * (x1 - x0); };
     auto sy = [&](float v) { return y1 - (v - vmin) / (vmax - vmin) * (y1 - y0); };
     dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), IM_COL32(24, 26, 32, 255), 3.0f);
-    for (int i = 0; i <= 4; ++i) dl->AddLine(ImVec2(sx(float(i) / 4.0f), y0), ImVec2(sx(float(i) / 4.0f), y1), IM_COL32(44, 47, 58, 255));
+    for (int i = 0; i <= 4; ++i)
+        dl->AddLine(ImVec2(sx(float(i) / 4.0f), y0), ImVec2(sx(float(i) / 4.0f), y1), IM_COL32(44, 47, 58, 255));
     // Horizontal grid lines at whole values; a wide range steps by 1, 2 or 5 x 10^n (curve_grid_values), never more than
     // kCurveGridMaxLines lines: a key of 1e9 must not loop a billion times.
     for (const float v : curve_grid_values(vlo, vhi)) {
-        dl->AddLine(ImVec2(x0, sy(v)), ImVec2(x1, sy(v)), v == 0.0f || v == 1.0f ? IM_COL32(70, 76, 94, 255) : IM_COL32(44, 47, 58, 255));
+        dl->AddLine(ImVec2(x0, sy(v)), ImVec2(x1, sy(v)),
+                    v == 0.0f || v == 1.0f ? IM_COL32(70, 76, 94, 255) : IM_COL32(44, 47, 58, 255));
         dl->AddText(ImVec2(x0 + 2, sy(v) - 12), IM_COL32(110, 115, 135, 255), std::format("{:g}", v).c_str());
     }
     if (c.empty()) {
@@ -1042,7 +1119,8 @@ bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& poin
     for (std::size_t i = 0; i < c.keys.size(); ++i) {
         const bool sel = mine && u.selectedKey == int(i);
         const ImVec2 kp(sx(c.keys[i].t), sy(c.keys[i].value));
-        dl->AddCircleFilled(kp, sel ? 5.5f : 4.0f, sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(120, 190, 255, 255), 14);
+        dl->AddCircleFilled(kp, sel ? 5.5f : 4.0f, sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(120, 190, 255, 255),
+                            14);
         dl->AddCircle(kp, sel ? 5.5f : 4.0f, IM_COL32(20, 20, 24, 255), 14);
     }
     if (editable && ImGui::IsItemActivated()) {
@@ -1073,7 +1151,8 @@ bool Editor::draw_particle_curve_field(ParticleModel& m, const std::string& poin
         u.selectedKey = pick;
         u.dragKey = pick;
     }
-    if (editable && ImGui::IsItemActive() && u.dragKey >= 0 && u.dragField == pointer && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+    if (editable && ImGui::IsItemActive() && u.dragKey >= 0 && u.dragField == pointer &&
+        ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
         const ImVec2 mp = ImGui::GetIO().MousePos;
         const float t = (mp.x - x0) / std::max(1.0f, x1 - x0);
         const float v = vmin + (y1 - mp.y) / std::max(1.0f, y1 - y0) * (vmax - vmin);

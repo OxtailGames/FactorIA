@@ -22,19 +22,21 @@ namespace fa::imgedit {
 
 // What one layer shows in one frame.
 struct CelData {
-    bool empty = false;                // nothing
-    std::string source;                // pixels: a PNG of the project
-    std::vector<std::string> rows;     // indexed: the picture as text rows
-    int x = 0, y = 0;                  // where its top-left corner lands, in the layer's own coordinates
+    bool empty = false;             // nothing
+    std::string source;             // pixels: a PNG of the project
+    std::vector<std::string> rows;  // indexed: the picture as text rows
+    int x = 0, y = 0;               // where its top-left corner lands, in the layer's own coordinates
     float opacity = 1;
-    bool same(const CelData& other, const std::string& projectDir) const;   // the same picture, place and opacity (pixels: the same file or bytes)
+    bool
+    same(const CelData& other,
+         const std::string& projectDir) const;  // the same picture, place and opacity (pixels: the same file or bytes)
 };
 
 // The layers that can have cels (pixels and indexed), in document order, depth first.
 struct TimelineLayer {
-    std::string pointer;               // "/layers/1/layers/0"
+    std::string pointer;  // "/layers/1/layers/0"
     bool indexed = false;
-    std::vector<CelData> frames;       // one per frame
+    std::vector<CelData> frames;  // one per frame
 };
 
 // The frame count of the document JSON (1 when it has no `frames`).
@@ -55,7 +57,8 @@ void store_timeline(Json& doc, const std::vector<TimelineLayer>& layers, const s
 void normalize_animation(Json& doc);
 
 // Frame numbers as the commands take them: an integer in 0 .. count - 1 (an error with the range and a fix otherwise).
-int frame_number(const char* command, const Json& value, const std::string& pointer, int count, const char* what = "frame");
+int frame_number(const char* command, const Json& value, const std::string& pointer, int count,
+                 const char* what = "frame");
 
 // ---- working on one frame -------------------------------------------------------------------------------------------------
 
@@ -73,7 +76,7 @@ public:
     int frame() const { return frame_; }
     int frames() const { return frames_; }
     const std::optional<ImageOnionSkin>& onion() const { return onion_; }
-    bool frame_given() const { return frameGiven_; }   // the command got a `frame` argument
+    bool frame_given() const { return frameGiven_; }  // the command got a `frame` argument
 
     // A layer the command has just added (index path "1" or "1/0", as add_pixels_layer returns it) shows its picture in this frame only
     // and nothing in the others. Does nothing without a `frame` argument or in a document of one frame: the new layer then shows in
@@ -95,8 +98,8 @@ private:
     struct Opened {
         std::string pointer;
         bool indexed = false;
-        std::vector<CelData> original;     // the layer's cels before the command
-        std::string clone;                 // pixels: the file the command writes
+        std::vector<CelData> original;  // the layer's cels before the command
+        std::string clone;              // pixels: the file the command writes
         bool kept = false;
     };
     std::string projectDir_, rel_, command_;
@@ -119,15 +122,18 @@ void add_frame_keys(std::vector<std::string>& keys);
 // more (a removed frame, a cleared or replaced cel, a removed layer), and returns their project paths. Only a PNG directly in that folder
 // goes; a file that the new document still names anywhere, or that another image document of the project names, stays. Their
 // assets.json records go with them. Nothing happens unless one of the two documents is animated.
-std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc, const Json& newDoc);
+std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc,
+                                           const Json& newDoc);
 
 // The picture of the document at one frame (with the onion skin when given); None when the document does not load.
-std::optional<Image> render_frame_json(const std::string& projectDir, const Json& doc, int frame, const std::optional<ImageOnionSkin>& onion = std::nullopt);
+std::optional<Image> render_frame_json(const std::string& projectDir, const Json& doc, int frame,
+                                       const std::optional<ImageOnionSkin>& onion = std::nullopt);
 
 // Writes the PNG (with optional onion skin) to .factoria/previews/<rel>.png scaled by whole pixels and returns the result's `$image`,
 // or null when it cannot. Used by the frame commands.
-Json frame_preview(const std::string& projectDir, const std::string& rel, const Json& doc, int frame, const std::optional<ImageOnionSkin>& onion, int scale);
+Json frame_preview(const std::string& projectDir, const std::string& rel, const Json& doc, int frame,
+                   const std::optional<ImageOnionSkin>& onion, int scale);
 
-void register_frame_commands(CommandRegistry& registry, const std::string& projectDir);   // image_frame_commands.cpp
+void register_frame_commands(CommandRegistry& registry, const std::string& projectDir);  // image_frame_commands.cpp
 
 }  // namespace fa::imgedit

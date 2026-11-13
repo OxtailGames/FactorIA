@@ -23,8 +23,8 @@ namespace {
 
 constexpr const char* kMacIcon = "tools/editor/icon/factoria.icns";
 constexpr const char* kLinuxIcon = "platforms/linux/factoria.png";
-constexpr const char* kTargetLine = "FACTORIA=";          // macOS script: the factoria it opens, single-quoted
-constexpr const char* kTargetKey = "X-FactorIA-Path=";     // Linux .desktop: the same, unquoted
+constexpr const char* kTargetLine = "FACTORIA=";        // macOS script: the factoria it opens, single-quoted
+constexpr const char* kTargetKey = "X-FactorIA-Path=";  // Linux .desktop: the same, unquoted
 
 stdfs::path user_home(const SetupContext& ctx) { return ctx.env ? stdfs::path(ctx.env("HOME")) : stdfs::path(); }
 
@@ -44,9 +44,12 @@ std::string shell_unquote(const std::string& s) {
     std::string out;
     bool quoted = false;
     for (std::size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\'') quoted = !quoted;
-        else if (s[i] == '\\' && !quoted && i + 1 < s.size()) out += s[++i];
-        else out += s[i];
+        if (s[i] == '\'')
+            quoted = !quoted;
+        else if (s[i] == '\\' && !quoted && i + 1 < s.size())
+            out += s[++i];
+        else
+            out += s[i];
     }
     return out;
 }
@@ -63,40 +66,50 @@ std::string desktop_quote(const std::string& s) {
 
 // What the launcher is made of: relative path -> content, and the file that must be executable.
 struct LauncherFiles {
-    stdfs::path root;   // the .app (macOS) or the data folder (Linux)
+    stdfs::path root;  // the .app (macOS) or the data folder (Linux)
     std::vector<std::pair<std::string, std::string>> files;
-    std::string script; // macOS: the relative path of the script
-    std::string error;  // this build has no icon to give it
+    std::string script;  // macOS: the relative path of the script
+    std::string error;   // this build has no icon to give it
 };
 
 LauncherFiles mac_files(const SetupContext& ctx) {
     LauncherFiles l;
     l.root = user_home(ctx) / "Applications" / "FactorIA.app";
     const std::string v = ctx.version();
-    l.files.emplace_back("Contents/Info.plist",
-                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                         "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-                         "<plist version=\"1.0\">\n<dict>\n"
-                         "    <key>CFBundleName</key><string>FactorIA</string>\n"
-                         "    <key>CFBundleDisplayName</key><string>FactorIA</string>\n"
-                         "    <key>CFBundleIdentifier</key><string>com.oxtailgames.factoria.launcher</string>\n"
-                         "    <key>CFBundleVersion</key><string>" + v + "</string>\n"
-                         "    <key>CFBundleShortVersionString</key><string>" + v + "</string>\n"
-                         "    <key>CFBundlePackageType</key><string>APPL</string>\n"
-                         "    <key>CFBundleExecutable</key><string>FactorIA</string>\n"
-                         "    <key>CFBundleIconFile</key><string>AppIcon</string>\n"
-                         "    <key>LSMinimumSystemVersion</key><string>11.0</string>\n"
-                         "    <key>NSHighResolutionCapable</key><true/>\n"
-                         "</dict>\n</plist>\n");
+    l.files.emplace_back(
+        "Contents/Info.plist",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        "<plist version=\"1.0\">\n<dict>\n"
+        "    <key>CFBundleName</key><string>FactorIA</string>\n"
+        "    <key>CFBundleDisplayName</key><string>FactorIA</string>\n"
+        "    <key>CFBundleIdentifier</key><string>com.oxtailgames.factoria.launcher</string>\n"
+        "    <key>CFBundleVersion</key><string>" +
+            v +
+            "</string>\n"
+            "    <key>CFBundleShortVersionString</key><string>" +
+            v +
+            "</string>\n"
+            "    <key>CFBundlePackageType</key><string>APPL</string>\n"
+            "    <key>CFBundleExecutable</key><string>FactorIA</string>\n"
+            "    <key>CFBundleIconFile</key><string>AppIcon</string>\n"
+            "    <key>LSMinimumSystemVersion</key><string>11.0</string>\n"
+            "    <key>NSHighResolutionCapable</key><true/>\n"
+            "</dict>\n</plist>\n");
     l.script = "Contents/MacOS/FactorIA";
-    l.files.emplace_back(l.script, "#!/bin/zsh\n"
-                                   "# The FactorIA launcher, written by `factoria setup launcher`: opens the editor of this factoria.\n" +
-                                   std::string(kTargetLine) + shell_quote(factoria_exe(ctx).string()) + "\n"
-                                   "mkdir -p \"$HOME/Library/Logs/FactorIA\"\n"
-                                   "cd \"$HOME\"\n"
-                                   "exec \"$FACTORIA\" editor \"$@\" >\"$HOME/Library/Logs/FactorIA/editor.log\" 2>&1\n");
-    if (auto icon = bundled_read(kMacIcon)) l.files.emplace_back("Contents/Resources/AppIcon.icns", std::move(*icon));
-    else l.error = std::string("This build of factoria does not carry the icon (") + kMacIcon + ").";
+    l.files.emplace_back(
+        l.script,
+        "#!/bin/zsh\n"
+        "# The FactorIA launcher, written by `factoria setup launcher`: opens the editor of this factoria.\n" +
+            std::string(kTargetLine) + shell_quote(factoria_exe(ctx).string()) +
+            "\n"
+            "mkdir -p \"$HOME/Library/Logs/FactorIA\"\n"
+            "cd \"$HOME\"\n"
+            "exec \"$FACTORIA\" editor \"$@\" >\"$HOME/Library/Logs/FactorIA/editor.log\" 2>&1\n");
+    if (auto icon = bundled_read(kMacIcon))
+        l.files.emplace_back("Contents/Resources/AppIcon.icns", std::move(*icon));
+    else
+        l.error = std::string("This build of factoria does not carry the icon (") + kMacIcon + ").";
     return l;
 }
 
@@ -110,14 +123,20 @@ LauncherFiles linux_files(const SetupContext& ctx) {
                                                           "Type=Application\n"
                                                           "Name=FactorIA\n"
                                                           "Comment=Open the FactorIA editor\n"
-                                                          "Exec=" + desktop_quote(exe) + " editor\n"
-                                                          "Icon=" + (l.root / iconRel).string() + "\n"
-                                                          "Terminal=false\n"
-                                                          "StartupWMClass=FactorIA\n"
-                                                          "Categories=Development;Game;\n" +
-                                                          std::string(kTargetKey) + exe + "\n");
-    if (auto icon = bundled_read(kLinuxIcon)) l.files.emplace_back(iconRel, std::move(*icon));
-    else l.error = std::string("This build of factoria does not carry the icon (") + kLinuxIcon + ").";
+                                                          "Exec=" +
+                                                              desktop_quote(exe) +
+                                                              " editor\n"
+                                                              "Icon=" +
+                                                              (l.root / iconRel).string() +
+                                                              "\n"
+                                                              "Terminal=false\n"
+                                                              "StartupWMClass=FactorIA\n"
+                                                              "Categories=Development;Game;\n" +
+                                                              std::string(kTargetKey) + exe + "\n");
+    if (auto icon = bundled_read(kLinuxIcon))
+        l.files.emplace_back(iconRel, std::move(*icon));
+    else
+        l.error = std::string("This build of factoria does not carry the icon (") + kLinuxIcon + ").";
     return l;
 }
 
@@ -127,7 +146,8 @@ std::string launcher_target(const SetupContext& ctx, const LauncherFiles& l) {
     std::ifstream in(l.root / (mac ? l.script : std::string("applications/factoria.desktop")));
     const std::string prefix = mac ? kTargetLine : kTargetKey;
     for (std::string line; std::getline(in, line);)
-        if (line.rfind(prefix, 0) == 0) return mac ? shell_unquote(line.substr(prefix.size())) : line.substr(prefix.size());
+        if (line.rfind(prefix, 0) == 0)
+            return mac ? shell_unquote(line.substr(prefix.size())) : line.substr(prefix.size());
     return {};
 }
 
@@ -151,7 +171,8 @@ SetupComponent launcher_status(const SetupContext& ctx) {
     const auto l = files_for_host(ctx);
     if (!l) {
         c.state = "unsupported";
-        c.details = "Not needed on Windows: the installer adds FactorIA Editor to the Start menu, and FactorIA-Editor.exe of the zip can be "
+        c.details = "Not needed on Windows: the installer adds FactorIA Editor to the Start menu, and "
+                    "FactorIA-Editor.exe of the zip can be "
                     "pinned to the taskbar.";
         return c;
     }
@@ -160,9 +181,11 @@ SetupComponent launcher_status(const SetupContext& ctx) {
     c.paths.emplace_back("launcher", mac ? l->root.string() : (l->root / "applications/factoria.desktop").string());
     if (!is_file(main_file(ctx, *l))) {
         c.state = "missing";
-        c.details = mac ? "An app in ~/Applications that opens the editor, with the FactorIA icon, for the Dock, Launchpad and Spotlight. "
+        c.details = mac ? "An app in ~/Applications that opens the editor, with the FactorIA icon, for the Dock, "
+                          "Launchpad and Spotlight. "
                           "`factoria setup launcher` writes it (nothing is downloaded)."
-                        : "A desktop entry that opens the editor, with the FactorIA icon, in the application menu. `factoria setup launcher` "
+                        : "A desktop entry that opens the editor, with the FactorIA icon, in the application menu. "
+                          "`factoria setup launcher` "
                           "writes it (nothing is downloaded).";
         return c;
     }
@@ -170,14 +193,17 @@ SetupComponent launcher_status(const SetupContext& ctx) {
     c.paths.emplace_back("opens", target);
     const std::string exe = factoria_exe(ctx).string();
     if (target.empty())
-        c.problems.push_back("The launcher at " + l->root.string() + " was not written by `factoria setup launcher`: run it to replace it with the "
+        c.problems.push_back("The launcher at " + l->root.string() +
+                             " was not written by `factoria setup launcher`: run it to replace it with the "
                              "one of this factoria (its icon included).");
     else if (target != exe)
-        c.problems.push_back("The launcher opens " + target + ", not this factoria (" + exe + "): `factoria setup launcher` points it here.");
+        c.problems.push_back("The launcher opens " + target + ", not this factoria (" + exe +
+                             "): `factoria setup launcher` points it here.");
     else
         for (const auto& [rel, data] : l->files)
             if (read_all(l->root / rel) != data) {
-                c.problems.push_back("The launcher is out of date (" + rel + " is not the one of FactorIA " + ctx.version() +
+                c.problems.push_back("The launcher is out of date (" + rel + " is not the one of FactorIA " +
+                                     ctx.version() +
                                      "): `factoria setup launcher` rewrites it; the editor also does at start.");
                 break;
             }
@@ -192,12 +218,17 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
     const auto l = files_for_host(ctx);
     if (!l)
         return in.fail("unsupported", make_error("There is no launcher to install on Windows.",
-                                                 "The installer adds FactorIA Editor to the Start menu; from the zip, pin FactorIA-Editor.exe to the taskbar."));
+                                                 "The installer adds FactorIA Editor to the Start menu; from the zip, "
+                                                 "pin FactorIA-Editor.exe to the taskbar."));
     if (user_home(ctx).empty())
-        return in.fail("failed", make_error("Cannot find the user's home folder: HOME is not set.", "Set it and run `factoria setup launcher` again."));
-    if (!l->error.empty()) return in.fail("failed", make_error(l->error, "Use an official download of FactorIA, or build from a full checkout."));
+        return in.fail("failed", make_error("Cannot find the user's home folder: HOME is not set.",
+                                            "Set it and run `factoria setup launcher` again."));
+    if (!l->error.empty())
+        return in.fail("failed",
+                       make_error(l->error, "Use an official download of FactorIA, or build from a full checkout."));
     if (!is_file(factoria_exe(ctx)))
-        in.report.warnings.push_back("There is no factoria at " + factoria_exe(ctx).string() + ": the launcher will not open anything until there is.");
+        in.report.warnings.push_back("There is no factoria at " + factoria_exe(ctx).string() +
+                                     ": the launcher will not open anything until there is.");
 
     StepTimer timer;
     SetupStep s;
@@ -213,7 +244,8 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
             if (read_all(p) == data) continue;
             std::string err;
             if (!tooling_detail::write_file(p, data, &err))
-                return in.fail("failed", make_error("Cannot write " + p.string() + ": " + err, "Check that the folder is writable."));
+                return in.fail("failed", make_error("Cannot write " + p.string() + ": " + err,
+                                                    "Check that the folder is writable."));
         }
         if (!l->script.empty()) make_executable(l->root / l->script);
         s.outcome = "installed";
@@ -223,16 +255,20 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
             std::error_code ec;
             stdfs::last_write_time(l->root, stdfs::file_time_type::clock::now(), ec);
             ProcessOptions po;
-            po.argv = {"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f",
-                       l->root.string()};
+            po.argv = {"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
+                       "lsregister",
+                       "-f", l->root.string()};
             po.timeoutSeconds = 30;
             auto r = ctx.run_process_with(po);
             if (!r || r->exitCode != 0)
-                in.report.warnings.push_back("Could not register the app with Launch Services: the Dock may show the old icon until you log in again.");
-            in.report.nextSteps.push_back("Drag FactorIA from ~/Applications to the Dock, or find it with Spotlight. If the Dock still shows an "
-                                          "old icon, remove it from the Dock and add it again.");
+                in.report.warnings.push_back("Could not register the app with Launch Services: the Dock may show the "
+                                             "old icon until you log in again.");
+            in.report.nextSteps.push_back(
+                "Drag FactorIA from ~/Applications to the Dock, or find it with Spotlight. If the Dock still shows an "
+                "old icon, remove it from the Dock and add it again.");
         } else {
-            in.report.nextSteps.push_back("FactorIA is in the application menu (Development). Some desktops pick a new entry up after you log in again.");
+            in.report.nextSteps.push_back("FactorIA is in the application menu (Development). Some desktops pick a new "
+                                          "entry up after you log in again.");
         }
     }
     s.seconds = timer.seconds();
@@ -245,7 +281,8 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
 
 namespace fa {
 
-std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir, long long quittingPid) {
+std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir,
+                                                long long quittingPid) {
     using namespace setup_detail;
     const std::string os = context.host_os();
     if (os == "windows") {
@@ -255,7 +292,8 @@ std::vector<std::string> editor_restart_command(const SetupContext& context, con
         if (projectDir.empty()) return {launcher.string()};
         return {launcher.string(), projectDir};
     }
-    if (os != "macos") return {};  // Linux: the window's WM_CLASS (StartupWMClass of the .desktop) already groups the new one
+    if (os != "macos")
+        return {};  // Linux: the window's WM_CLASS (StartupWMClass of the .desktop) already groups the new one
     const auto l = files_for_host(context);
     if (!l) return {};
     // A launcher of this factoria that passes the project on, whichever version wrote it: an editor still running after a
@@ -273,13 +311,17 @@ std::vector<std::string> editor_restart_command(const SetupContext& context, con
     }
     // Waits until that editor is gone, then opens the app the way the Dock does: the new editor takes the pinned icon. An
     // editor still alive after 30 s gets the second instance anyway (-n); a failed `open` starts the program itself.
-    std::vector<std::string> cmd = {"/bin/sh", "-c",
+    std::vector<std::string> cmd = {"/bin/sh",
+                                    "-c",
                                     "p=$1 f=$2 d=$3; shift 3; n=0\n"
                                     "while kill -0 \"$p\" 2>/dev/null; do\n"
                                     "  n=$((n+1)); if [ $n -gt 300 ]; then set -- -n \"$@\"; break; fi; sleep 0.1\n"
                                     "done\n"
                                     "/usr/bin/open \"$@\" || exec \"$f\" editor ${d:+\"$d\"}\n",
-                                    "factoria-restart", std::to_string(quittingPid), factoria_exe(context).string(), projectDir};
+                                    "factoria-restart",
+                                    std::to_string(quittingPid),
+                                    factoria_exe(context).string(),
+                                    projectDir};
     cmd.insert(cmd.end(), open.begin(), open.end());
     return cmd;
 }
@@ -292,7 +334,8 @@ bool refresh_launcher(const SetupContext& context) {
     for (const auto& [key, path] : c.paths)
         if (key == "opens") target = path;
     std::error_code ec;
-    if (target.empty() || !stdfs::equivalent(target, factoria_exe(context), ec)) return false;  // another factoria's: left alone
+    if (target.empty() || !stdfs::equivalent(target, factoria_exe(context), ec))
+        return false;  // another factoria's: left alone
     SetupInstallOptions options;
     options.component = "launcher";
     return launcher_install(context, options).ok;

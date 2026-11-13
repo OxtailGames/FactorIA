@@ -56,11 +56,14 @@ TEST_CASE("gradient_spec: stops are sorted, clamped and capped; a plain two-colo
     REQUIRE(gradient_spec(s, Color{0.5f, 0.5f, 0.5f, 1}, spec, &warning));
     CHECK(warning.empty());
     REQUIRE(spec.count == 3);
-    CHECK(spec.t[0] == 0.0f);  CHECK(spec.t[1] == 0.5f);  CHECK(spec.t[2] == 1.0f);  // sorted, -4 clamped to 0
-    CHECK(spec.color[0].r == doctest::Approx(0.5f));                                      // the Tint is multiplied in
+    CHECK(spec.t[0] == 0.0f);
+    CHECK(spec.t[1] == 0.5f);
+    CHECK(spec.t[2] == 1.0f);                         // sorted, -4 clamped to 0
+    CHECK(spec.color[0].r == doctest::Approx(0.5f));  // the Tint is multiplied in
     CHECK(spec.color[1].g == doctest::Approx(0.5f));
 
-    s.gradientStops = Json::array({stop(0.0, rgba(1, 0, 0)), Json("junk"), Json::array({0.5}), stop(1.0, Json("not a colour"))});
+    s.gradientStops =
+        Json::array({stop(0.0, rgba(1, 0, 0)), Json("junk"), Json::array({0.5}), stop(1.0, Json("not a colour"))});
     REQUIRE(gradient_spec(s, Color::white(), spec, &warning));
     CHECK(spec.count == 1);
     CHECK(warning.find("3 entries were skipped") != std::string::npos);
@@ -72,7 +75,8 @@ TEST_CASE("gradient_spec: stops are sorted, clamped and capped; a plain two-colo
     REQUIRE(gradient_spec(s, Color::white(), spec));
     CHECK(spec.count == kMaxGradientStops);  // the others are ignored
 
-    s.gradientStops = Json::array({stop(0.0, rgba(1, 0, 0))});  // not an array of stops -> nothing valid -> the two colours
+    s.gradientStops =
+        Json::array({stop(0.0, rgba(1, 0, 0))});  // not an array of stops -> nothing valid -> the two colours
     s.gradientStops = Json("oops");
     CHECK_FALSE(gradient_spec(s, Color::white(), spec));
 }
@@ -81,12 +85,15 @@ TEST_CASE("bake_ramp_row: ends are the first and last stop, the middle is premul
     using namespace fa::render;
     GradientSpec spec;
     spec.count = 2;
-    spec.t[0] = 0.0f;  spec.t[1] = 1.0f;
+    spec.t[0] = 0.0f;
+    spec.t[1] = 1.0f;
     spec.color[0] = Color{1, 0, 0, 1};
     spec.color[1] = Color{0, 0, 1, 0};  // fades to a transparent blue
     std::vector<std::uint8_t> row(kRampWidth * 4);
     bake_ramp_row(spec, row.data());
-    CHECK(row[0] == 255);  CHECK(row[2] == 0);  CHECK(row[3] == 255);
+    CHECK(row[0] == 255);
+    CHECK(row[2] == 0);
+    CHECK(row[3] == 255);
     const int last = (kRampWidth - 1) * 4;
     CHECK(row[last + 3] == 0);
     const int mid = (kRampWidth / 2) * 4;
@@ -101,13 +108,15 @@ TEST_CASE("bake_ramp_row: ends are the first and last stop, the middle is premul
     CHECK(row[mid + 2] == doctest::Approx(255 * 0.25).epsilon(0.05));
 }
 
-TEST_CASE("GradientRamps: equal specs share a row, a full table reuses rows of earlier frames and refuses ones in use") {
+TEST_CASE(
+    "GradientRamps: equal specs share a row, a full table reuses rows of earlier frames and refuses ones in use") {
     using namespace fa::render;
     GradientRamps ramps;
     auto spec_of = [](int i) {
         GradientSpec s;
         s.count = 2;
-        s.t[0] = 0.0f;  s.t[1] = 1.0f;
+        s.t[0] = 0.0f;
+        s.t[1] = 1.0f;
         s.color[0] = Color{float(i % 255) / 255.0f, float(i / 255) / 255.0f, 0, 1};
         s.color[1] = Color{0, 0, 1, 1};
         return s;
@@ -119,11 +128,12 @@ TEST_CASE("GradientRamps: equal specs share a row, a full table reuses rows of e
     CHECK(ramps.acquire(spec_of(2)) != a);
     CHECK(ramps.rows_in_use() == 2);
     ramps.begin_frame();
-    for (int i = 10; i < 10 + kRampRows; ++i) CHECK(ramps.acquire(spec_of(i)) >= 0);  // fills the table; evicts the two old rows
+    for (int i = 10; i < 10 + kRampRows; ++i)
+        CHECK(ramps.acquire(spec_of(i)) >= 0);  // fills the table; evicts the two old rows
     CHECK(ramps.rows_in_use() == kRampRows);
     CHECK(ramps.acquire(spec_of(5000)) == -1);  // every row is used by this frame: none can go
     ramps.begin_frame();
-    CHECK(ramps.acquire(spec_of(5000)) >= 0);   // a new frame: the oldest row is free to reuse
+    CHECK(ramps.acquire(spec_of(5000)) >= 0);  // a new frame: the oldest row is free to reuse
     CHECK(ramps.rows_in_use() == kRampRows);
 }
 
@@ -162,10 +172,14 @@ TEST_CASE("Shape2D gradientStops: three colours across a rectangle, a hard edge,
         s.gradient = ShapeGradient::Linear;
         s.gradientStops = Json::array({stop(0, rgba(1, 0, 0)), stop(0.5, rgba(0, 1, 0)), stop(1, rgba(0, 0, 1))});
         Image img = g.render(w);
-        CHECK(img.pixel(62, 90).r > 0.95f);   CHECK(img.pixel(62, 90).g < 0.1f);
-        CHECK(img.pixel(160, 90).g > 0.95f);  CHECK(img.pixel(160, 90).r < 0.1f);   CHECK(img.pixel(160, 90).b < 0.1f);
-        CHECK(img.pixel(257, 90).b > 0.95f);  CHECK(img.pixel(257, 90).g < 0.1f);
-        CHECK(img.pixel(110, 90).r == doctest::Approx(0.5f).epsilon(0.1));          // halfway red -> green
+        CHECK(img.pixel(62, 90).r > 0.95f);
+        CHECK(img.pixel(62, 90).g < 0.1f);
+        CHECK(img.pixel(160, 90).g > 0.95f);
+        CHECK(img.pixel(160, 90).r < 0.1f);
+        CHECK(img.pixel(160, 90).b < 0.1f);
+        CHECK(img.pixel(257, 90).b > 0.95f);
+        CHECK(img.pixel(257, 90).g < 0.1f);
+        CHECK(img.pixel(110, 90).r == doctest::Approx(0.5f).epsilon(0.1));  // halfway red -> green
         CHECK(img.pixel(110, 90).g == doctest::Approx(0.5f).epsilon(0.1));
     }
     {
@@ -173,10 +187,13 @@ TEST_CASE("Shape2D gradientStops: three colours across a rectangle, a hard edge,
         black_cam(w);
         Shape2D& s = rect_shape(w, {200, 100});
         s.gradient = ShapeGradient::Linear;
-        s.gradientStops = Json::array({stop(0, rgba(1, 0, 0)), stop(0.5, rgba(1, 0, 0)), stop(0.5, rgba(0, 0, 1)), stop(1, rgba(0, 0, 1))});
+        s.gradientStops = Json::array(
+            {stop(0, rgba(1, 0, 0)), stop(0.5, rgba(1, 0, 0)), stop(0.5, rgba(0, 0, 1)), stop(1, rgba(0, 0, 1))});
         Image img = g.render(w);
-        CHECK(img.pixel(150, 90).r > 0.95f);  CHECK(img.pixel(150, 90).b < 0.05f);
-        CHECK(img.pixel(170, 90).b > 0.95f);  CHECK(img.pixel(170, 90).r < 0.05f);
+        CHECK(img.pixel(150, 90).r > 0.95f);
+        CHECK(img.pixel(150, 90).b < 0.05f);
+        CHECK(img.pixel(170, 90).b > 0.95f);
+        CHECK(img.pixel(170, 90).r < 0.05f);
     }
     {
         World w;
@@ -185,7 +202,8 @@ TEST_CASE("Shape2D gradientStops: three colours across a rectangle, a hard edge,
         s.color = Color{1, 1, 1, 0};  // both colours transparent: the stops decide whether it is visible
         s.color2 = Color{1, 1, 1, 0};
         s.gradient = ShapeGradient::Linear;
-        s.gradientStops = Json::array({stop(0, rgba(1, 1, 1, 0)), stop(0.5, rgba(1, 1, 1, 1)), stop(1, rgba(1, 1, 1, 0))});
+        s.gradientStops =
+            Json::array({stop(0, rgba(1, 1, 1, 0)), stop(0.5, rgba(1, 1, 1, 1)), stop(1, rgba(1, 1, 1, 0))});
         Image img = g.render(w);
         CHECK(img.pixel(160, 90).r > 0.95f);
         CHECK(img.pixel(62, 90).r < 0.1f);
@@ -206,10 +224,10 @@ TEST_CASE("Shape2D gradientStops: radial, an angle, a rounded corner and the pla
     s.gradient = ShapeGradient::Radial;
     s.gradientStops = Json::array({stop(0, rgba(1, 1, 1)), stop(0.6, rgba(1, 0, 0)), stop(1, rgba(1, 0, 0, 0))});
     Image img = g.render(w);
-    CHECK(img.pixel(160, 90).g > 0.95f);                       // white centre
-    CHECK(img.pixel(160 + 30, 90).r > 0.9f);                   // red band at 0.6 of the radius
+    CHECK(img.pixel(160, 90).g > 0.95f);      // white centre
+    CHECK(img.pixel(160 + 30, 90).r > 0.9f);  // red band at 0.6 of the radius
     CHECK(img.pixel(160 + 30, 90).g < 0.15f);
-    CHECK(img.pixel(160 + 48, 90).r < 0.35f);                  // fading out at the rim
+    CHECK(img.pixel(160 + 48, 90).r < 0.35f);  // fading out at the rim
     CHECK(img.pixel(160, 90 + 30).r == doctest::Approx(img.pixel(160 + 30, 90).r).epsilon(0.08));
 
     s.gradientStops = Json::array();  // no stops: the two colour fields again
@@ -220,7 +238,8 @@ TEST_CASE("Shape2D gradientStops: radial, an angle, a rounded corner and the pla
     CHECK(two.pixel(160 + 45, 90).b > 0.8f);
 }
 
-TEST_CASE("Shape2D gradientEase: the middle of the gradient moves, the ends do not; shapes with ramps share a draw call") {
+TEST_CASE(
+    "Shape2D gradientEase: the middle of the gradient moves, the ends do not; shapes with ramps share a draw call") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -283,7 +302,7 @@ TEST_CASE("Tint: multiplies colour and opacity into the entity and all its desce
     w.set_parent(leaf, mid);
     Entity bare = white_sprite(w, {40, 40}, {60, 0, 0});  // no Tint anywhere above
     (void)bare;
-    Entity lone = white_sprite(w, {20, 20}, {0, 50, 0});   // a sibling of the group: unaffected
+    Entity lone = white_sprite(w, {20, 20}, {0, 50, 0});  // a sibling of the group: unaffected
     (void)lone;
     Image img = g.render(w);
     // The leaf: white x red x half opacity over black = (0.5, 0, 0) (the leaf is at world -60 + 0, its parents at the origin).
@@ -316,7 +335,10 @@ TEST_CASE("Tint covers Shape2D (and its gradient), Text, Tilemap, particles and 
     black_cam(w);
     Entity group = make(w, "group");
     w.add<Tint>(group).color = Color{0, 0, 1, 1};
-    auto child = [&](Entity e) { w.set_parent(e, group); return e; };
+    auto child = [&](Entity e) {
+        w.set_parent(e, group);
+        return e;
+    };
 
     Entity shape = child(make(w, "shape", {-100, 50, 0}));
     {
@@ -449,13 +471,14 @@ TEST_CASE("Sprite.skew: the top edge leans right for a positive angle, the pivot
     Entity e = white_sprite(w, {40, 40});  // box x 140..179, y 70..109
     Image plain = g.render(w);
     CHECK(plain.pixel(142, 72).r > 0.95f);
-    w.get<Sprite>(e)->skew = {45.0f, 0.0f};  // the top row (y = 70) moves 20 right, the bottom row 20 left; the middle stays
+    w.get<Sprite>(e)->skew = {45.0f,
+                              0.0f};  // the top row (y = 70) moves 20 right, the bottom row 20 left; the middle stays
     Image sk = g.render(w);
-    CHECK(sk.pixel(172 + 16, 72).r > 0.95f);   // top row: x 140..179 -> 160..199
+    CHECK(sk.pixel(172 + 16, 72).r > 0.95f);  // top row: x 140..179 -> 160..199
     CHECK(sk.pixel(142, 72).r < 0.05f);
     CHECK(sk.pixel(142 - 16, 107).r > 0.95f);  // bottom row shifted left: x 120..159
     CHECK(sk.pixel(175, 107).r < 0.05f);
-    CHECK(sk.pixel(150, 90).r > 0.95f);        // the middle row (the pivot) is where it was
+    CHECK(sk.pixel(150, 90).r > 0.95f);  // the middle row (the pivot) is where it was
     CHECK(sk.pixel(128, 90).r < 0.05f);
     w.get<Sprite>(e)->skew = {-45.0f, 0.0f};
     Image back = g.render(w);
@@ -491,10 +514,10 @@ TEST_CASE("Sprite mesh: a deformable sprite is one entity, one draw call, and th
     s.vertexOffsets = off;
     Image bent = g.render(w);
     CHECK(g.renderer.stats().drawCalls == plainCalls);
-    CHECK(bent.pixel(160, 60).r > 0.5f);    // above the old top edge (y 70), under the raised vertex
-    CHECK(bent.pixel(122, 60).r < 0.05f);   // away from it the sprite does not reach that high
+    CHECK(bent.pixel(160, 60).r > 0.5f);   // above the old top edge (y 70), under the raised vertex
+    CHECK(bent.pixel(122, 60).r < 0.05f);  // away from it the sprite does not reach that high
     CHECK(bent.pixel(160, 90).r > 0.95f);
-    CHECK(bent.pixel(160, 50).r < 0.05f);   // beyond the raised vertex
+    CHECK(bent.pixel(160, 50).r < 0.05f);  // beyond the raised vertex
 
     // The texture is stretched with the vertices: a texture with a dark left half and a light right half keeps its seam
     // at the middle column when the middle vertices move.
@@ -511,7 +534,7 @@ TEST_CASE("Sprite mesh: a deformable sprite is one entity, one draw call, and th
     s.vertexOffsets = Json::array({0, 0, 30, 0, 0, 0, 0, 0, 30, 0, 0, 0});  // the middle column goes 30 right
     Image seam = g.render(w);
     CHECK(seam.pixel(140, 90).b > 0.9f);
-    CHECK(seam.pixel(185, 90).b > 0.9f);   // the blue half now reaches x = 190 (it was 160)
+    CHECK(seam.pixel(185, 90).b > 0.9f);  // the blue half now reaches x = 190 (it was 160)
     CHECK(seam.pixel(195, 90).r > 0.9f);
     s.skew = {45.0f, 0.0f};  // skew and mesh together: the top row leans right
     Image both = g.render(w);
@@ -529,8 +552,8 @@ TEST_CASE("Sprite mesh: too many cells draws a plain quad, offsets of the wrong 
     s.meshRows = 100;
     s.vertexOffsets = Json::array({50, 50, 50});
     Image img = g.render(w);
-    CHECK(img.pixel(150, 90).r > 0.95f);   // the plain 40 x 40 box
-    CHECK(img.pixel(190, 90).r < 0.05f);   // the offsets did nothing
+    CHECK(img.pixel(150, 90).r > 0.95f);  // the plain 40 x 40 box
+    CHECK(img.pixel(190, 90).r < 0.05f);  // the offsets did nothing
     s.meshColumns = 2;
     s.meshRows = 2;
     s.vertexOffsets = Json("not an array");

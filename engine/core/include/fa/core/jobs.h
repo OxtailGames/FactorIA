@@ -48,11 +48,11 @@
 
 namespace fa::jobs {
 
-inline constexpr int kMaxWorkers = 32;      // the most worker threads a setting may ask for
-inline constexpr int kAutoCapDesktop = 8;   // "auto" on desktop: engine jobs are pieces of a 16 ms frame; past 8
-                                            // workers the split costs more than it gains, and stacks cost memory
-inline constexpr int kAutoCapMobile = 4;    // "auto" on Android/iOS: big.LITTLE chips count their slow cores too;
-                                            // 4 leaves room for the OS, the GPU driver and audio threads
+inline constexpr int kMaxWorkers = 32;        // the most worker threads a setting may ask for
+inline constexpr int kAutoCapDesktop = 8;     // "auto" on desktop: engine jobs are pieces of a 16 ms frame; past 8
+                                              // workers the split costs more than it gains, and stacks cost memory
+inline constexpr int kAutoCapMobile = 4;      // "auto" on Android/iOS: big.LITTLE chips count their slow cores too;
+                                              // 4 leaves room for the OS, the GPU driver and audio threads
 inline constexpr int kAutoCapWebThreads = 4;  // "auto" in a -pthread web build: each worker is a Web Worker
 inline constexpr int kMaxLanes = kMaxWorkers + 2;  // profiler lanes: main, every worker, "other" threads
 // end_frame: how long the owner of the frames may stay silent before they change hands.
@@ -81,8 +81,8 @@ Result<Settings> parse_settings(const Json& value, std::string_view where);
 // the count as digits ("4").
 Result<Settings> parse_settings_text(std::string_view text, std::string_view where);
 
-bool threads_supported();               // false in a web build without pthreads
-int hardware_threads();                 // std::thread::hardware_concurrency(), at least 1
+bool threads_supported();                    // false in a web build without pthreads
+int hardware_threads();                      // std::thread::hardware_concurrency(), at least 1
 int auto_worker_count(int hardwareThreads);  // what "auto" gives on this platform for that many hardware threads
 int resolve_workers(const Settings& s);      // the worker count `s` gives here (0 in inline mode)
 
@@ -215,7 +215,7 @@ struct Chunk {
     Rng rng() const { return Rng(seed); }  // this chunk's own random stream (never world.rng() inside a job)
 };
 
-std::size_t chunk_count(std::size_t count, std::size_t grain);  // ceil(count / grain); grain 0 counts as 1
+std::size_t chunk_count(std::size_t count, std::size_t grain);    // ceil(count / grain); grain 0 counts as 1
 std::uint64_t chunk_seed(std::uint64_t seed, std::size_t index);  // splitmix64 of seed and index
 Chunk chunk_at(std::size_t count, std::size_t grain, std::size_t index, std::uint64_t seed = 0);
 
@@ -241,7 +241,8 @@ Result<void> parallel_for(std::string_view name, std::size_t count, std::size_t 
 template <class T, class Fn>
 Result<std::vector<T>> parallel_map_chunks(std::string_view name, std::size_t count, std::size_t grain, Fn&& fn,
                                            std::uint64_t seed = 0) {
-    static_assert(!std::is_same_v<T, bool>, "use char or int: std::vector<bool> is not safe to write from many threads");
+    static_assert(!std::is_same_v<T, bool>,
+                  "use char or int: std::vector<bool> is not safe to write from many threads");
     std::vector<T> out(chunk_count(count, grain));
     auto r = parallel_for(name, count, grain, [&](const Chunk& c) { out[c.index] = fn(c); }, seed);
     if (!r) return r.error();
@@ -286,10 +287,10 @@ void end_frame(const Owner* owner = nullptr);
 
 // --------------------------------------------------------------------------------------------------- what jobs.info says
 struct LaneInfo {
-    std::string name;   // "main", "worker 1".., "other" (threads that are neither)
-    int jobs = 0;       // jobs (each parallel_for chunk counts as one) this thread ran last frame
-    double busyMs = 0;  // their time, rounded to 0.01 ms
-    double busyPct = 0; // busyMs / the frame's wall time, rounded to 0.1
+    std::string name;    // "main", "worker 1".., "other" (threads that are neither)
+    int jobs = 0;        // jobs (each parallel_for chunk counts as one) this thread ran last frame
+    double busyMs = 0;   // their time, rounded to 0.01 ms
+    double busyPct = 0;  // busyMs / the frame's wall time, rounded to 0.1
 };
 
 struct Info {
@@ -298,16 +299,16 @@ struct Info {
     int workers = 0;
     Settings settings;
     int hardwareThreads = 1;
-    int autoWorkers = 0;            // what "auto" gives on this machine
+    int autoWorkers = 0;  // what "auto" gives on this machine
     bool threadsSupported = true;
-    int jobsLastFrame = 0;          // jobs that ran last frame (sum of the lanes)
+    int jobsLastFrame = 0;  // jobs that ran last frame (sum of the lanes)
     int submittedLastFrame = 0;
-    int pending = 0;                // submitted and not finished now
-    int waiting = 0;                // threads in a wait now (asleep, or running a job the wait needs)
+    int pending = 0;  // submitted and not finished now
+    int waiting = 0;  // threads in a wait now (asleep, or running a job the wait needs)
     int mainTasksLastFrame = 0;
     int mainTasksQueued = 0;
-    double frameMs = 0;             // wall time of the last frame (end_frame to end_frame), rounded to 0.01
-    std::vector<LaneInfo> lanes;    // main first, then every worker; "other" only when such a thread ran jobs
+    double frameMs = 0;           // wall time of the last frame (end_frame to end_frame), rounded to 0.01
+    std::vector<LaneInfo> lanes;  // main first, then every worker; "other" only when such a thread ran jobs
 };
 Info info();
 Json info_json(const Info& i);

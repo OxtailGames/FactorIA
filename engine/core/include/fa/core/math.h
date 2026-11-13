@@ -64,8 +64,8 @@ struct Vec2 {
     // (an Apple Clang Release build wrote y and z of a rounded box to x).
     constexpr float& operator[](int i) { return this->*member(i); }
     constexpr float operator[](int i) const { return this->*member(i); }
-    static constexpr float Vec2::*member(int i) {
-        constexpr float Vec2::*kMembers[] = {&Vec2::x, &Vec2::y};
+    static constexpr float Vec2::* member(int i) {
+        constexpr float Vec2::* kMembers[] = {&Vec2::x, &Vec2::y};
         return kMembers[i];
     }
     constexpr Vec2 operator+(Vec2 o) const { return {x + o.x, y + o.y}; }
@@ -75,10 +75,26 @@ struct Vec2 {
     constexpr Vec2 operator*(float s) const { return {x * s, y * s}; }
     constexpr Vec2 operator/(float s) const { return {x / s, y / s}; }
     constexpr Vec2 operator-() const { return {-x, -y}; }
-    Vec2& operator+=(Vec2 o) { x += o.x; y += o.y; return *this; }
-    Vec2& operator-=(Vec2 o) { x -= o.x; y -= o.y; return *this; }
-    Vec2& operator*=(float s) { x *= s; y *= s; return *this; }
-    Vec2& operator/=(float s) { x /= s; y /= s; return *this; }
+    Vec2& operator+=(Vec2 o) {
+        x += o.x;
+        y += o.y;
+        return *this;
+    }
+    Vec2& operator-=(Vec2 o) {
+        x -= o.x;
+        y -= o.y;
+        return *this;
+    }
+    Vec2& operator*=(float s) {
+        x *= s;
+        y *= s;
+        return *this;
+    }
+    Vec2& operator/=(float s) {
+        x /= s;
+        y /= s;
+        return *this;
+    }
     constexpr bool operator==(const Vec2&) const = default;
 };
 constexpr Vec2 operator*(float s, Vec2 v) { return v * s; }
@@ -88,7 +104,10 @@ inline float cross(Vec2 a, Vec2 b) { return a.x * b.y - a.y * b.x; }  // z of 3D
 inline float length_sq(Vec2 v) { return dot(v, v); }
 inline float length(Vec2 v) { return std::sqrt(dot(v, v)); }
 inline float distance(Vec2 a, Vec2 b) { return length(b - a); }
-inline Vec2 normalize(Vec2 v) { float l = length(v); return l > kEpsilon ? v / l : Vec2{}; }
+inline Vec2 normalize(Vec2 v) {
+    float l = length(v);
+    return l > kEpsilon ? v / l : Vec2{};
+}
 inline Vec2 lerp(Vec2 a, Vec2 b, float t) { return a + (b - a) * t; }
 inline Vec2 perp(Vec2 v) { return {-v.y, v.x}; }  // 90 deg counter-clockwise
 inline Vec2 rotate_deg(Vec2 v, float deg) {
@@ -125,8 +144,8 @@ struct Vec3 {
     // (an Apple Clang Release build wrote y and z of a rounded box to x).
     constexpr float& operator[](int i) { return this->*member(i); }
     constexpr float operator[](int i) const { return this->*member(i); }
-    static constexpr float Vec3::*member(int i) {
-        constexpr float Vec3::*kMembers[] = {&Vec3::x, &Vec3::y, &Vec3::z};
+    static constexpr float Vec3::* member(int i) {
+        constexpr float Vec3::* kMembers[] = {&Vec3::x, &Vec3::y, &Vec3::z};
         return kMembers[i];
     }
     constexpr Vec3 operator+(Vec3 o) const { return {x + o.x, y + o.y, z + o.z}; }
@@ -136,10 +155,30 @@ struct Vec3 {
     constexpr Vec3 operator*(float s) const { return {x * s, y * s, z * s}; }
     constexpr Vec3 operator/(float s) const { return {x / s, y / s, z / s}; }
     constexpr Vec3 operator-() const { return {-x, -y, -z}; }
-    Vec3& operator+=(Vec3 o) { x += o.x; y += o.y; z += o.z; return *this; }
-    Vec3& operator-=(Vec3 o) { x -= o.x; y -= o.y; z -= o.z; return *this; }
-    Vec3& operator*=(float s) { x *= s; y *= s; z *= s; return *this; }
-    Vec3& operator/=(float s) { x /= s; y /= s; z /= s; return *this; }
+    Vec3& operator+=(Vec3 o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return *this;
+    }
+    Vec3& operator-=(Vec3 o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return *this;
+    }
+    Vec3& operator*=(float s) {
+        x *= s;
+        y *= s;
+        z *= s;
+        return *this;
+    }
+    Vec3& operator/=(float s) {
+        x /= s;
+        y /= s;
+        z /= s;
+        return *this;
+    }
     constexpr bool operator==(const Vec3&) const = default;
 };
 constexpr Vec3 operator*(float s, Vec3 v) { return v * s; }
@@ -149,7 +188,10 @@ inline Vec3 cross(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a
 inline float length_sq(Vec3 v) { return dot(v, v); }
 inline float length(Vec3 v) { return std::sqrt(dot(v, v)); }
 inline float distance(Vec3 a, Vec3 b) { return length(b - a); }
-inline Vec3 normalize(Vec3 v) { float l = length(v); return l > kEpsilon ? v / l : Vec3{}; }
+inline Vec3 normalize(Vec3 v) {
+    float l = length(v);
+    return l > kEpsilon ? v / l : Vec3{};
+}
 inline Vec3 lerp(Vec3 a, Vec3 b, float t) { return a + (b - a) * t; }
 inline Vec3 min(Vec3 a, Vec3 b) { return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)}; }
 inline Vec3 max(Vec3 a, Vec3 b) { return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)}; }
@@ -179,8 +221,8 @@ struct Vec4 {
     // (an Apple Clang Release build wrote y and z of a rounded box to x).
     constexpr float& operator[](int i) { return this->*member(i); }
     constexpr float operator[](int i) const { return this->*member(i); }
-    static constexpr float Vec4::*member(int i) {
-        constexpr float Vec4::*kMembers[] = {&Vec4::x, &Vec4::y, &Vec4::z, &Vec4::w};
+    static constexpr float Vec4::* member(int i) {
+        constexpr float Vec4::* kMembers[] = {&Vec4::x, &Vec4::y, &Vec4::z, &Vec4::w};
         return kMembers[i];
     }
     constexpr Vec4 operator+(Vec4 o) const { return {x + o.x, y + o.y, z + o.z, w + o.w}; }
@@ -237,7 +279,9 @@ struct Rect {
 
     constexpr Rect() = default;
     constexpr Rect(float x_, float y_, float w_, float h_) : x(x_), y(y_), w(w_), h(h_) {}
-    static constexpr Rect from_center(Vec2 c, Vec2 size) { return {c.x - size.x * 0.5f, c.y - size.y * 0.5f, size.x, size.y}; }
+    static constexpr Rect from_center(Vec2 c, Vec2 size) {
+        return {c.x - size.x * 0.5f, c.y - size.y * 0.5f, size.x, size.y};
+    }
 
     constexpr Vec2 min() const { return {x, y}; }
     constexpr Vec2 max() const { return {x + w, y + h}; }
@@ -245,7 +289,9 @@ struct Rect {
     constexpr Vec2 size() const { return {w, h}; }
     constexpr bool empty() const { return w <= 0 || h <= 0; }
     constexpr bool contains(Vec2 p) const { return p.x >= x && p.y >= y && p.x <= x + w && p.y <= y + h; }
-    constexpr bool overlaps(const Rect& o) const { return x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h; }
+    constexpr bool overlaps(const Rect& o) const {
+        return x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h;
+    }
     constexpr bool operator==(const Rect&) const = default;
 };
 
@@ -273,10 +319,8 @@ struct Quat {
         return {a.x * s, a.y * s, a.z * s, det::cos(h)};
     }
     Quat operator*(const Quat& q) const {
-        return {w * q.x + x * q.w + y * q.z - z * q.y,
-                w * q.y - x * q.z + y * q.w + z * q.x,
-                w * q.z + x * q.y - y * q.x + z * q.w,
-                w * q.w - x * q.x - y * q.y - z * q.z};
+        return {w * q.x + x * q.w + y * q.z - z * q.y, w * q.y - x * q.z + y * q.w + z * q.x,
+                w * q.z + x * q.y - y * q.x + z * q.w, w * q.w - x * q.x - y * q.y - z * q.z};
     }
     Quat conjugate() const { return {-x, -y, -z, w}; }
     Vec3 rotate(Vec3 v) const {
@@ -297,7 +341,10 @@ inline Quat normalize(Quat q) {
 }
 inline Quat slerp(Quat a, Quat b, float t) {
     float d = dot(a, b);
-    if (d < 0.0f) { b = {-b.x, -b.y, -b.z, -b.w}; d = -d; }
+    if (d < 0.0f) {
+        b = {-b.x, -b.y, -b.z, -b.w};
+        d = -d;
+    }
     if (d > 0.9995f) {
         return normalize(Quat{lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.z, b.z, t), lerp(a.w, b.w, t)});
     }
@@ -356,39 +403,58 @@ struct Mat4 {
 
     static Mat4 translate(Vec3 t) {
         Mat4 r;
-        r.at(3, 0) = t.x; r.at(3, 1) = t.y; r.at(3, 2) = t.z;
+        r.at(3, 0) = t.x;
+        r.at(3, 1) = t.y;
+        r.at(3, 2) = t.z;
         return r;
     }
     static Mat4 scale(Vec3 s) {
         Mat4 r;
-        r.at(0, 0) = s.x; r.at(1, 1) = s.y; r.at(2, 2) = s.z;
+        r.at(0, 0) = s.x;
+        r.at(1, 1) = s.y;
+        r.at(2, 2) = s.z;
         return r;
     }
     static Mat4 rotate_x_deg(float deg) {
         float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
-        r.at(1, 1) = c; r.at(1, 2) = s; r.at(2, 1) = -s; r.at(2, 2) = c;
+        r.at(1, 1) = c;
+        r.at(1, 2) = s;
+        r.at(2, 1) = -s;
+        r.at(2, 2) = c;
         return r;
     }
     static Mat4 rotate_y_deg(float deg) {
         float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
-        r.at(0, 0) = c; r.at(0, 2) = -s; r.at(2, 0) = s; r.at(2, 2) = c;
+        r.at(0, 0) = c;
+        r.at(0, 2) = -s;
+        r.at(2, 0) = s;
+        r.at(2, 2) = c;
         return r;
     }
     static Mat4 rotate_z_deg(float deg) {
         float c = det::cos(radians(deg)), s = det::sin(radians(deg));
         Mat4 r;
-        r.at(0, 0) = c; r.at(0, 1) = s; r.at(1, 0) = -s; r.at(1, 1) = c;
+        r.at(0, 0) = c;
+        r.at(0, 1) = s;
+        r.at(1, 0) = -s;
+        r.at(1, 1) = c;
         return r;
     }
     static Mat4 from_quat(Quat q) {
         Mat4 r;
         float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
         float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z, wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
-        r.at(0, 0) = 1 - 2 * (yy + zz); r.at(0, 1) = 2 * (xy + wz);     r.at(0, 2) = 2 * (xz - wy);
-        r.at(1, 0) = 2 * (xy - wz);     r.at(1, 1) = 1 - 2 * (xx + zz); r.at(1, 2) = 2 * (yz + wx);
-        r.at(2, 0) = 2 * (xz + wy);     r.at(2, 1) = 2 * (yz - wx);     r.at(2, 2) = 1 - 2 * (xx + yy);
+        r.at(0, 0) = 1 - 2 * (yy + zz);
+        r.at(0, 1) = 2 * (xy + wz);
+        r.at(0, 2) = 2 * (xz - wy);
+        r.at(1, 0) = 2 * (xy - wz);
+        r.at(1, 1) = 1 - 2 * (xx + zz);
+        r.at(1, 2) = 2 * (yz + wx);
+        r.at(2, 0) = 2 * (xz + wy);
+        r.at(2, 1) = 2 * (yz - wx);
+        r.at(2, 2) = 1 - 2 * (xx + yy);
         return r;
     }
     // R = Ry(yaw) * Rx(pitch) * Rz(roll), euler = (pitch, yaw, roll) degrees.
@@ -399,7 +465,10 @@ struct Mat4 {
     static Mat4 perspective(float fovYDeg, float aspect, float zNear, float zFar, bool zeroToOne) {
         float f = 1.0f / det::tan(radians(fovYDeg) * 0.5f);
         Mat4 r;
-        r.m[0] = f / aspect; r.m[5] = f; r.m[15] = 0.0f; r.at(2, 3) = -1.0f;
+        r.m[0] = f / aspect;
+        r.m[5] = f;
+        r.m[15] = 0.0f;
+        r.at(2, 3) = -1.0f;
         if (zeroToOne) {
             r.at(2, 2) = zFar / (zNear - zFar);
             r.at(3, 2) = (zNear * zFar) / (zNear - zFar);
@@ -430,10 +499,18 @@ struct Mat4 {
         Vec3 s = normalize(cross(f, up));
         Vec3 u = cross(s, f);
         Mat4 r;
-        r.at(0, 0) = s.x; r.at(1, 0) = s.y; r.at(2, 0) = s.z;
-        r.at(0, 1) = u.x; r.at(1, 1) = u.y; r.at(2, 1) = u.z;
-        r.at(0, 2) = -f.x; r.at(1, 2) = -f.y; r.at(2, 2) = -f.z;
-        r.at(3, 0) = -dot(s, eye); r.at(3, 1) = -dot(u, eye); r.at(3, 2) = dot(f, eye);
+        r.at(0, 0) = s.x;
+        r.at(1, 0) = s.y;
+        r.at(2, 0) = s.z;
+        r.at(0, 1) = u.x;
+        r.at(1, 1) = u.y;
+        r.at(2, 1) = u.z;
+        r.at(0, 2) = -f.x;
+        r.at(1, 2) = -f.y;
+        r.at(2, 2) = -f.z;
+        r.at(3, 0) = -dot(s, eye);
+        r.at(3, 1) = -dot(u, eye);
+        r.at(3, 2) = dot(f, eye);
         return r;
     }
 
@@ -447,22 +524,38 @@ struct Mat4 {
     Mat4 inverse() const {
         const float* a = m;
         float inv[16];
-        inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] + a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
-        inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] - a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
-        inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] + a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
-        inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] - a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
-        inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] - a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
-        inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] + a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
-        inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] - a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
-        inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] + a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
-        inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] + a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
-        inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] - a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
-        inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] + a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
-        inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] - a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
-        inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] - a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
-        inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] + a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
-        inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] - a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
-        inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] + a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
+        inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] +
+                 a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
+        inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] -
+                 a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
+        inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] +
+                 a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
+        inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] -
+                  a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
+        inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] -
+                 a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
+        inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] +
+                 a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
+        inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] -
+                 a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
+        inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] +
+                  a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
+        inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] +
+                 a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
+        inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] -
+                 a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
+        inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] +
+                  a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
+        inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] -
+                  a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
+        inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] -
+                 a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
+        inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] +
+                 a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
+        inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] -
+                  a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
+        inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] +
+                  a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
         float det = a[0] * inv[0] + a[1] * inv[4] + a[2] * inv[8] + a[3] * inv[12];
         Mat4 r;
         if (std::fabs(det) < 1e-12f) return r;

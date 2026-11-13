@@ -30,7 +30,8 @@ ai::AssetDecision AssetApprovals::ask(const ai::AssetApprovalRequest& req) {
         return slots_.end();
     };
     // A short poll on the cancel flag (it is not tied to this condition variable). It only costs a wake-up ten times a second.
-    ai::AssetDecision result = ai::AssetDecision::Stopped;   // nobody answered: the run was stopped or the project closed
+    ai::AssetDecision result =
+        ai::AssetDecision::Stopped;  // nobody answered: the run was stopped or the project closed
     for (;;) {
         auto it = find();
         if (it == slots_.end()) break;  // (cannot happen: only this thread erases its slot)
@@ -106,17 +107,21 @@ AssetCardText asset_card_text(const Json& plan) {
     t.what = text_of(plan, "what");
     if (t.what.empty()) t.what = text_of(plan, "command");
     const std::string money = known ? ai::format_usd(usd->get<double>()) : std::string("an unknown price");
-    t.title = std::format("Approve {}? {}{} with {}", known ? "about " + money : money, count > 1 ? std::to_string(count) + " x " : std::string(),
-                          kind.empty() ? std::string("asset") : kind, provider.empty() ? std::string("a provider") : provider);
+    t.title = std::format("Approve {}? {}{} with {}", known ? "about " + money : money,
+                          count > 1 ? std::to_string(count) + " x " : std::string(),
+                          kind.empty() ? std::string("asset") : kind,
+                          provider.empty() ? std::string("a provider") : provider);
     t.estimate = known ? "about " + money : "price unknown";
     if (const std::string basis = text_of(plan, "basis"); !basis.empty()) t.estimate += " (" + basis + ")";
-    if (const auto u = plan.find("priceUnverified"); u != plan.end() && u->is_boolean() && u->get<bool>()) t.estimate += ", the engine could not verify this price";
+    if (const auto u = plan.find("priceUnverified"); u != plan.end() && u->is_boolean() && u->get<bool>())
+        t.estimate += ", the engine could not verify this price";
     if (const std::string checked = text_of(plan, "priceChecked"); !checked.empty()) {
         t.estimate += ", prices checked " + checked;
         if (const std::string source = text_of(plan, "priceSource"); !source.empty()) t.estimate += " at " + source;
     }
     if (const auto e = plan.find("earlierUnapprovedUsd"); e != plan.end() && e->is_number() && e->get<double>() > 0)
-        t.estimate += "; together with " + ai::format_usd(e->get<double>()) + " of earlier calls of this run you were not asked about";
+        t.estimate += "; together with " + ai::format_usd(e->get<double>()) +
+                      " of earlier calls of this run you were not asked about";
     t.prompt = text_of(plan, "prompt");
     return t;
 }

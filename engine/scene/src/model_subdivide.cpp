@@ -72,7 +72,8 @@ std::vector<Face> make_faces(const Soup& s) {
         // t1 walks x -> y, t2 walks y -> x; the quad (counter-clockwise) is x, z2, y, z1
         const EdgeUse& f1 = u0;
         const EdgeUse& f2 = u1;
-        const std::uint32_t x = s.tris[f1.tri][f1.slot], y = s.tris[f1.tri][(f1.slot + 1) % 3], z1 = s.tris[f1.tri][(f1.slot + 2) % 3];
+        const std::uint32_t x = s.tris[f1.tri][f1.slot], y = s.tris[f1.tri][(f1.slot + 1) % 3],
+                            z1 = s.tris[f1.tri][(f1.slot + 2) % 3];
         const std::uint32_t z2 = s.tris[f2.tri][(f2.slot + 2) % 3];
         if (z1 == z2) continue;
         const Vec3 q[4] = {s.pos[x], s.pos[z2], s.pos[y], s.pos[z1]};
@@ -85,7 +86,10 @@ std::vector<Face> make_faces(const Soup& s) {
         used[f1.tri] = used[f2.tri] = 1;
         Face f;
         f.n = 4;
-        f.v[0] = x; f.v[1] = z2; f.v[2] = y; f.v[3] = z1;
+        f.v[0] = x;
+        f.v[1] = z2;
+        f.v[2] = y;
+        f.v[3] = z1;
         f.a[0] = s.attr[f1.tri][f1.slot];
         f.a[1] = s.attr[f2.tri][(f2.slot + 2) % 3];
         f.a[2] = s.attr[f1.tri][(f1.slot + 1) % 3];
@@ -148,8 +152,10 @@ void subdivide_once(std::vector<Vec3>& pos, std::vector<Face>& faces, bool first
             einfo.push_back(e);
         }
         EdgeInfo& e = einfo.back();
-        if (e.count == 0) e.f0 = recs[i].face;
-        else if (e.count == 1) e.f1 = recs[i].face;
+        if (e.count == 0)
+            e.f0 = recs[i].face;
+        else if (e.count == 1)
+            e.f1 = recs[i].face;
         ++e.count;
         if (faces[recs[i].face].crease[recs[i].slot]) e.flagged = true;
         edgeOf[std::size_t(recs[i].face) * 4 + recs[i].slot] = std::uint32_t(einfo.size() - 1);
@@ -173,8 +179,10 @@ void subdivide_once(std::vector<Vec3>& pos, std::vector<Face>& faces, bool first
     std::vector<Vec3> edgePt(ne);
     for (std::size_t e = 0; e < ne; ++e) {
         const Vec3 mid = (pos[einfo[e].lo] + pos[einfo[e].hi]) * 0.5f;
-        if (einfo[e].crease || einfo[e].count != 2) edgePt[e] = mid;
-        else edgePt[e] = (pos[einfo[e].lo] + pos[einfo[e].hi] + facePt[einfo[e].f0] + facePt[einfo[e].f1]) * 0.25f;
+        if (einfo[e].crease || einfo[e].count != 2)
+            edgePt[e] = mid;
+        else
+            edgePt[e] = (pos[einfo[e].lo] + pos[einfo[e].hi] + facePt[einfo[e].f0] + facePt[einfo[e].f1]) * 0.25f;
     }
     // vertex points
     std::vector<Vec3> fsum(nv, Vec3{0, 0, 0}), rsum(nv, Vec3{0, 0, 0}), csum(nv, Vec3{0, 0, 0});
@@ -187,10 +195,13 @@ void subdivide_once(std::vector<Vec3>& pos, std::vector<Face>& faces, bool first
     for (std::size_t e = 0; e < ne; ++e) {
         const std::uint32_t a = einfo[e].lo, b = einfo[e].hi;
         const Vec3 mid = (pos[a] + pos[b]) * 0.5f;
-        rsum[a] += mid; rsum[b] += mid;
-        ++nE[a]; ++nE[b];
+        rsum[a] += mid;
+        rsum[b] += mid;
+        ++nE[a];
+        ++nE[b];
         if (einfo[e].crease) {
-            ++nC[a]; ++nC[b];
+            ++nC[a];
+            ++nC[b];
             csum[a] += pos[b];
             csum[b] += pos[a];
         }
@@ -198,13 +209,18 @@ void subdivide_once(std::vector<Vec3>& pos, std::vector<Face>& faces, bool first
     std::vector<Vec3> newPos(nv + ne + nf);
     for (std::size_t v = 0; v < nv; ++v) {
         const Vec3 P = pos[v];
-        if (nF[v] == 0) newPos[v] = P;
+        if (nF[v] == 0)
+            newPos[v] = P;
         else if (nC[v] == 0) {
             const int n = nE[v];
-            if (n < 3) newPos[v] = P;
-            else newPos[v] = (fsum[v] / float(nF[v]) + rsum[v] / float(n) * 2.0f + P * float(n - 3)) / float(n);
-        } else if (nC[v] == 2) newPos[v] = (P * 6.0f + csum[v]) * 0.125f;
-        else newPos[v] = P;
+            if (n < 3)
+                newPos[v] = P;
+            else
+                newPos[v] = (fsum[v] / float(nF[v]) + rsum[v] / float(n) * 2.0f + P * float(n - 3)) / float(n);
+        } else if (nC[v] == 2)
+            newPos[v] = (P * 6.0f + csum[v]) * 0.125f;
+        else
+            newPos[v] = P;
     }
     for (std::size_t e = 0; e < ne; ++e) newPos[nv + e] = edgePt[e];
     for (std::size_t f = 0; f < nf; ++f) newPos[nv + ne + f] = facePt[f];
@@ -242,7 +258,8 @@ void subdivide_once(std::vector<Vec3>& pos, std::vector<Face>& faces, bool first
 
 std::size_t model_subdivide_triangle_bound(const ModelMesh& m, int levels) {
     if (levels <= 0) return m.triangle_count();
-    double tris = double(m.triangle_count()) * 6.0;  // a triangle gives three quads, a quad four; two triangles per quad
+    double tris =
+        double(m.triangle_count()) * 6.0;  // a triangle gives three quads, a quad four; two triangles per quad
     for (int l = 1; l < levels && tris < 1e12; ++l) tris *= 4.0;
     return tris > 1e12 ? std::size_t(1e12) : std::size_t(tris);
 }

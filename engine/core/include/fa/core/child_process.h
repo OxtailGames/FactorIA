@@ -18,9 +18,9 @@
 namespace fa {
 
 struct ChildOptions {
-    std::vector<std::string> argv;            // argv[0] is looked up in PATH if it has no separator
-    std::string workingDir;                   // empty = inherit
-    std::map<std::string, std::string> env;   // overrides added to the inherited environment
+    std::vector<std::string> argv;           // argv[0] is looked up in PATH if it has no separator
+    std::string workingDir;                  // empty = inherit
+    std::map<std::string, std::string> env;  // overrides added to the inherited environment
     std::vector<std::string> unsetEnv;
     // Allow-list mode, as ProcessOptions::inheritEnv: nullopt = inherit everything, a list = only the variables it names.
     std::optional<std::vector<std::string>> inheritEnv;
@@ -42,8 +42,8 @@ public:
     // Reads one line of the child's standard output ('\n' or '\r\n' stripped) into `line`. Timeout: nothing complete arrived
     // within timeoutSeconds (0 = wait for ever). Closed: the child's output ended (it exited). Cancelled: `cancel` was set.
     Read read_line(std::string& line, double timeoutSeconds, const CancelFlag* cancel = nullptr);
-    bool running();          // false once the program has exited
-    void terminate();        // kills it and everything it started (idempotent)
+    bool running();                   // false once the program has exited
+    void terminate();                 // kills it and everything it started (idempotent)
     std::string stderr_tail() const;  // the last few KB the program wrote to its standard error
 
     struct Impl;

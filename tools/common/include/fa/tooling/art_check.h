@@ -33,22 +33,22 @@ struct ArtColour {
 // What the tools need to know about one picture, independent of the style. Pixels with alpha >= 128 are "visible".
 struct ArtMeasure {
     int width = 0, height = 0;
-    std::uint64_t visible = 0;     // pixels with alpha >= 128
-    double partialShare = 0;       // pixels with 0 < alpha < 255, as a share of the pixels with alpha > 0
-    int distinct = 0;              // distinct colours among the visible pixels
-    bool exact = true;             // `colours` lists every distinct colour (else: 5-bit bins, the mean colour of each)
-    std::vector<ArtColour> colours;  // most used first, at most 512
+    std::uint64_t visible = 0;  // pixels with alpha >= 128
+    double partialShare = 0;    // pixels with 0 < alpha < 255, as a share of the pixels with alpha > 0
+    int distinct = 0;           // distinct colours among the visible pixels
+    bool exact = true;          // `colours` lists every distinct colour (else: 5-bit bins, the mean colour of each)
+    std::vector<ArtColour> colours;      // most used first, at most 512
     double valueLow = 0, valueHigh = 0;  // HSV value of the 1st and 99th percentile of the visible pixels, 0..1
-    double saturationMean = 0;     // mean HSV saturation of the visible pixels, 0..1
+    double saturationMean = 0;           // mean HSV saturation of the visible pixels, 0..1
     // The silhouette ring: visible pixels next to a pixel with alpha < 128 (the picture's own edge does not count).
     std::uint64_t ringPixels = 0;
     std::vector<ArtColour> ringColours;  // the commonest colours of the ring (5-bit bins), at most 8
-    double ringWidth = 0;          // median thickness, in pixels, of the line of the commonest ring colour
+    double ringWidth = 0;                // median thickness, in pixels, of the line of the commonest ring colour
     // Which way the shading leans: the direction in which pixels get brighter, as degrees towards the light (counter-clockwise
     // from the right) and how strong the lean is (0 = none, 1 = a perfect gradient). Cells of a sheet are measured one by one.
     double lightDegrees = 0;
     double lightStrength = 0;
-    int blockSize = 0;             // pixel art drawn k x k blocks: the largest k in 2..8 (1 = plain pixels, 0 = not pixel art)
+    int blockSize = 0;  // pixel art drawn k x k blocks: the largest k in 2..8 (1 = plain pixels, 0 = not pixel art)
     int cellWidth = 0, cellHeight = 0;  // the cells the light was measured in (0 = the whole picture)
 
     Json to_json() const;
@@ -58,7 +58,8 @@ struct ArtMeasure {
 // The thickness of the outline line of a picture, or 0 when the commonest colour of its edge is a fill rather than a line
 // (its runs are longer than a quarter of the picture's short side, at least 4 px).
 inline double outline_line_width(const ArtMeasure& m) {
-    const double shortSide = double(std::min(m.cellWidth > 0 ? m.cellWidth : m.width, m.cellHeight > 0 ? m.cellHeight : m.height));
+    const double shortSide =
+        double(std::min(m.cellWidth > 0 ? m.cellWidth : m.width, m.cellHeight > 0 ? m.cellHeight : m.height));
     return m.ringWidth > 0 && m.ringWidth <= std::max(4.0, shortSide / 4.0) ? m.ringWidth : 0.0;
 }
 
@@ -73,10 +74,10 @@ Result<ArtMeasure> measure_art_file(const std::string& projectDir, const std::st
 
 // One Sprite that draws a texture, as the scenes place it.
 struct TextureUse {
-    std::string scene;         // the scene or prefab file
-    std::string texture;       // project-relative
+    std::string scene;           // the scene or prefab file
+    std::string texture;         // project-relative
     double framePx[2] = {0, 0};  // texture pixels drawn: the region, the sheet frame or the whole texture
-    double world[2] = {0, 0};    // size in world units after the Sprite size and the scale of the entity and its parents
+    double world[2] = {0, 0};  // size in world units after the Sprite size and the scale of the entity and its parents
     int layer = 0;
     bool screenSpace = false;  // a UI sprite: its size is in design pixels
     bool nearest = true;       // Sprite.pixelArt: nearest-neighbour filtering
@@ -87,7 +88,7 @@ struct TextureUse {
 struct SceneView {
     std::string scene;
     bool hasCamera = false;
-    double halfHeight = 0;     // world units from the middle to the top edge (orthographic); 0 = the design height / 2
+    double halfHeight = 0;  // world units from the middle to the top edge (orthographic); 0 = the design height / 2
     Color clear{0.08f, 0.08f, 0.12f, 1};
     bool clears = true;
     // Sprites that cover half of the view or more, below the layer of others: what is drawn behind the sprites of the scene.
@@ -123,7 +124,8 @@ double median_texels_per_unit(const std::vector<const TextureUse*>& uses);
 
 // The size, in screen pixels, of the longer side of `u` as the camera of `view` shows it on a screen of the given size.
 // The design resolution maps to the screen by "fit" (the whole design area inside the screen).
-double on_screen_px(const TextureUse& u, const SceneView* view, const ProjectArtUse& project, double screenWidth, double screenHeight);
+double on_screen_px(const TextureUse& u, const SceneView* view, const ProjectArtUse& project, double screenWidth,
+                    double screenHeight);
 
 // The screens readability is judged on: a phone (logical points, so a 1280x720 game shown "fit" is scaled by 0.54) and a
 // desktop monitor. Portrait projects get the same sizes turned.
@@ -140,31 +142,32 @@ const char* verdict_name(Verdict v);
 inline Verdict worse(Verdict a, Verdict b) { return int(a) >= int(b) ? a : b; }
 
 struct ArtRule {
-    std::string rule;      // "outline.color", "palette.offShare"...
-    double value = 0;      // what was measured
-    double threshold = 0;  // the limit of "ok"
+    std::string rule;                     // "outline.color", "palette.offShare"...
+    double value = 0;                     // what was measured
+    double threshold = 0;                 // the limit of "ok"
     std::optional<double> failThreshold;  // the limit of "warn", when there is one
     Verdict verdict = Verdict::Ok;
-    std::string message;   // what the number means, for this asset
-    std::string hint;      // the fix: a real command or setting
-    Json detail;           // more numbers (object), or null
+    std::string message;  // what the number means, for this asset
+    std::string hint;     // the fix: a real command or setting
+    Json detail;          // more numbers (object), or null
 
     Json to_json() const;
 };
 
 // The thresholds the verdicts use, so docs and tests quote the same numbers.
 struct ArtThresholds {
-    static constexpr double outlineColourDistance = 48;  // a pixel this close (RGB, 0..441) to the outline colour is on it
+    static constexpr double outlineColourDistance =
+        48;  // a pixel this close (RGB, 0..441) to the outline colour is on it
     static constexpr double outlineShareOk = 0.8, outlineShareWarn = 0.5;
     static constexpr double outlineWidthWarn = 1.0, outlineWidthFail = 2.0;  // pixels away from the style's width
-    static constexpr double rangeWarn = 0.05, rangeFail = 0.15;               // beyond value / saturation limits
-    static constexpr double texelsWarn = 0.15, texelsFail = 0.35;             // relative difference to texelsPerUnit
+    static constexpr double rangeWarn = 0.05, rangeFail = 0.15;              // beyond value / saturation limits
+    static constexpr double texelsWarn = 0.15, texelsFail = 0.35;            // relative difference to texelsPerUnit
     static constexpr double lightWarnDegrees = 45, lightFailDegrees = 90;
     static constexpr double lightMinStrength = 0.1, lightFullStrength = 0.2;
-    static constexpr double pixelEdgeWarn = 0.01, pixelEdgeFail = 0.05;       // partial-alpha share of a pixel-art edge
+    static constexpr double pixelEdgeWarn = 0.01, pixelEdgeFail = 0.05;  // partial-alpha share of a pixel-art edge
     static constexpr int pixelColoursWarn = 64, pixelColoursFail = 256;
-    static constexpr double paletteDistancePixelArt = 2;   // RGB distance a pixel may be from the palette in pixel art
-    static constexpr double paletteDistance = 40;          // ... in other art
+    static constexpr double paletteDistancePixelArt = 2;  // RGB distance a pixel may be from the palette in pixel art
+    static constexpr double paletteDistance = 40;         // ... in other art
     static constexpr double offShareWarnPixelArt = 0.001, offShareFailPixelArt = 0.02;
     static constexpr double offShareWarn = 0.2, offShareFail = 0.5;
 };
@@ -173,7 +176,8 @@ struct ArtThresholds {
 // saturation.min/max, lightDirection, pixelArt.edges, pixelArt.colours, palette.offShare, and texelsPerUnit when the
 // scenes use the texture (`uses`). Rules that are not set produce nothing. A rule that cannot be judged for this picture
 // (an opaque tile has no silhouette, a flat picture has no light) is left out.
-std::vector<ArtRule> evaluate_style_rules(const ArtMeasure& m, const StyleGuide& style, const std::vector<const TextureUse*>& uses);
+std::vector<ArtRule> evaluate_style_rules(const ArtMeasure& m, const StyleGuide& style,
+                                          const std::vector<const TextureUse*>& uses);
 
 // A rule the style scope left out of a check, and why (docs/ASSETS.md, "Scoping the style rules").
 struct StyleSkip {
@@ -183,12 +187,13 @@ struct StyleSkip {
 
 // The role of `path`: provenance.role of its entry in `manifest` (the parsed assets.json), else the first style.roles glob that names it,
 // else "". `source` tells which one ("provenance.role" or "style.roles <glob>").
-std::string style_role_of(const Json& manifest, const StyleGuide& style, const std::string& path, std::string* source = nullptr);
+std::string style_role_of(const Json& manifest, const StyleGuide& style, const std::string& path,
+                          std::string* source = nullptr);
 
 // Removes from `rules` the ones the style does not ask of this asset: those named by a style.ignore entry that lists rules for `path`, and
 // those its `role` turns off (style_role_skips). Every removed rule goes to `skipped` with the reason, so a check can say what it left out.
-void apply_style_scope(const StyleGuide& style, const std::string& path, const std::string& role, const std::string& roleSource, std::vector<ArtRule>& rules,
-                       std::vector<StyleSkip>& skipped);
+void apply_style_scope(const StyleGuide& style, const std::string& path, const std::string& role,
+                       const std::string& roleSource, std::vector<ArtRule>& rules, std::vector<StyleSkip>& skipped);
 
 // The warnings of `project.validate` for the textures in `textures` (project-relative, those a Sprite draws): one for each
 // style rule that is clearly broken (verdict fail), naming the rule, the numbers and the fix. Nothing when the project's

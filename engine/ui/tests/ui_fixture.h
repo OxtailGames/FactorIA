@@ -50,7 +50,8 @@ struct Ui {
     std::vector<std::string> events() {
         std::vector<std::string> out;
         for (const GameEvent& e : w.events().game) {
-            std::string s = e.name + ":" + (e.data["id"].is_null() ? std::string("null") : e.data["id"].get<std::string>());
+            std::string s =
+                e.name + ":" + (e.data["id"].is_null() ? std::string("null") : e.data["id"].get<std::string>());
             if (e.data.contains("value")) s += "=" + e.data["value"].dump();
             CHECK((e.source == kNullEntity) == e.data["id"].is_null());
             out.push_back(s);

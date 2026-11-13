@@ -34,7 +34,8 @@ struct Sim {
     }
     int count(CollisionEvent::Phase ph, bool trigger) const {
         int n = 0;
-        for (const auto& e : events) if (e.phase == ph && e.trigger == trigger) ++n;
+        for (const auto& e : events)
+            if (e.phase == ph && e.trigger == trigger) ++n;
         return n;
     }
 };
@@ -50,11 +51,27 @@ Entity add_shape(World& w, const char* id, Vec3 pos, Kind kind, Vec3 scale = {1,
     t->scale = scale;
     Collider3D& c = w.add<Collider3D>(e);
     switch (kind) {
-        case Kind::Box: c.shape = ColliderShape3D::Box; c.size = {1, 1, 1}; break;
-        case Kind::Sphere: c.shape = ColliderShape3D::Sphere; c.radius = 0.5f; break;
-        case Kind::Capsule: c.shape = ColliderShape3D::Capsule; c.radius = 0.5f; c.height = 2.0f; break;
-        case Kind::Convex: c.shape = ColliderShape3D::Convex; c.mesh = "cube"; break;
-        case Kind::Mesh: c.shape = ColliderShape3D::Mesh; c.mesh = "cube"; break;
+        case Kind::Box:
+            c.shape = ColliderShape3D::Box;
+            c.size = {1, 1, 1};
+            break;
+        case Kind::Sphere:
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.5f;
+            break;
+        case Kind::Capsule:
+            c.shape = ColliderShape3D::Capsule;
+            c.radius = 0.5f;
+            c.height = 2.0f;
+            break;
+        case Kind::Convex:
+            c.shape = ColliderShape3D::Convex;
+            c.mesh = "cube";
+            break;
+        case Kind::Mesh:
+            c.shape = ColliderShape3D::Mesh;
+            c.mesh = "cube";
+            break;
     }
     return e;
 }
@@ -117,9 +134,15 @@ TEST_CASE("3d shapes: every pair of shapes touches, overlaps and separates corre
 }
 
 TEST_CASE("3d shapes: boxes, spheres, capsules and hulls land on box, convex and mesh floors and rest") {
-    struct Floor { Kind kind; const char* name; };
+    struct Floor {
+        Kind kind;
+        const char* name;
+    };
     const Floor floors[] = {{Kind::Box, "box floor"}, {Kind::Convex, "convex floor"}, {Kind::Mesh, "mesh floor"}};
-    struct Faller { Kind kind; float restY; };
+    struct Faller {
+        Kind kind;
+        float restY;
+    };
     const Faller fallers[] = {{Kind::Box, 0.5f}, {Kind::Sphere, 0.5f}, {Kind::Capsule, 1.0f}, {Kind::Convex, 0.5f}};
     for (const Floor& f : floors) {
         for (const Faller& fl : fallers) {
@@ -150,7 +173,8 @@ TEST_CASE("3d shapes: a tilted rigid capsule falls over and lies flat on a mesh 
     s.run(120);
     Json state = s.physics.debug_state(s.world);
     bool awake = true;
-    for (const Json& b : state) if (b["entity"] == "cap") awake = b["awake"].get<bool>();
+    for (const Json& b : state)
+        if (b["entity"] == "cap") awake = b["awake"].get<bool>();
     CHECK_FALSE(awake);  // it fell asleep: the two-point contact is steady
 }
 
@@ -165,7 +189,8 @@ TEST_CASE("3d shapes: raycast hits capsules, convex hulls and meshes with the ri
     CHECK(side->entity == cap);
     CHECK(side->distance == doctest::Approx(4.5f).epsilon(0.002));  // the straight part
     CHECK(side->normal.x < -0.99f);
-    auto cap_round = s.physics.raycast3d(s.world, {-5, 0.9f, 0}, {1, 0, 0}, 100);  // 0.4 above the cap's centre: x = -0.3
+    auto cap_round =
+        s.physics.raycast3d(s.world, {-5, 0.9f, 0}, {1, 0, 0}, 100);  // 0.4 above the cap's centre: x = -0.3
     REQUIRE(cap_round);
     CHECK(cap_round->distance == doctest::Approx(4.7f).epsilon(0.003));
     auto tip = s.physics.raycast3d(s.world, {0, 5, 0}, {0, -1, 0}, 100);
@@ -200,7 +225,7 @@ TEST_CASE("3d shapes: overlap_sphere3d, shape_cast3d and is_touching3d see capsu
     Entity mesh = add_shape(s.world, "mesh", {0, 0, 20}, Kind::Mesh, {2, 1, 2});
     s.physics.sync(s.world);
     auto at = [&](Vec3 c, float r) { return s.physics.overlap_sphere3d(s.world, c, r); };
-    CHECK(at({0, 0.9f, 0}, 0.3f) == std::vector<Entity>{cap});      // over the capsule's cap
+    CHECK(at({0, 0.9f, 0}, 0.3f) == std::vector<Entity>{cap});  // over the capsule's cap
     CHECK(at({0, 1.6f, 0}, 0.3f).empty());
     CHECK(at({10.7f, 0, 0}, 0.3f) == std::vector<Entity>{hull});
     CHECK(at({0, 0.6f, 20}, 0.2f) == std::vector<Entity>{mesh});
@@ -246,7 +271,8 @@ TEST_CASE("3d shapes: a mesh collider on a dynamic or kinematic body is a teachi
     CHECK(problems[1].find("kinematic") != std::string::npos);
     Json state = s.physics.debug_state(s.world);
     int withProblem = 0;
-    for (const Json& b : state) if (b.contains("problem")) ++withProblem;
+    for (const Json& b : state)
+        if (b.contains("problem")) ++withProblem;
     CHECK(withProblem == 2);
     s.run(60);  // the ignored bodies have no shape: the dynamic one falls through the floor
     CHECK(pos_of(s.world, dyn).y < -2.0f);
@@ -304,7 +330,8 @@ TEST_CASE("3d shapes: continuous collision keeps a fast sphere and a fast capsul
         s.world.settings().gravity3D = {0, 0, 0};
         Entity wall = add_shape(s.world, "wall", {5, 0, 0}, Kind::Mesh, {0.1f, 6, 6});
         (void)wall;
-        Entity ball = add_shape(s.world, "ball", {0, float(trial % 7) * 0.2f - 0.6f, 0}, trial % 2 ? Kind::Sphere : Kind::Capsule);
+        Entity ball = add_shape(s.world, "ball", {0, float(trial % 7) * 0.2f - 0.6f, 0},
+                                trial % 2 ? Kind::Sphere : Kind::Capsule);
         make_body(s.world, ball).velocity = {70.0f + float(trial), 0, 0};
         s.run(30);
         if (pos_of(s.world, ball).x > 5.0f) ++passed;
@@ -327,7 +354,7 @@ TEST_CASE("3d shapes: a mesh ramp of thousands of triangles is fast to query") {
     s.run(120);
     const double ms = (process_cpu_seconds() - t0) * 1000.0;
     CHECK(ms < 2000.0 * fa::test_speed_budget_scale());  // 20 000 triangles; far under a frame budget per step
-    CHECK(pos_of(s.world, ball).y > 0.6f);  // it rolled over the spheres, never fell into one
+    CHECK(pos_of(s.world, ball).y > 0.6f);               // it rolled over the spheres, never fell into one
 }
 
 TEST_CASE("3d shapes: debug_shapes and debug_state report capsules, hulls and meshes") {
@@ -362,8 +389,8 @@ TEST_CASE("3d shapes: two identical runs with every shape give bit-identical tra
         std::vector<Entity> bodies;
         const Kind kinds[] = {Kind::Capsule, Kind::Convex, Kind::Box, Kind::Sphere, Kind::Capsule, Kind::Convex};
         for (int i = 0; i < 12; ++i) {
-            Entity e = add_shape(s.world, ("b" + std::to_string(i)).c_str(), {float(i % 3) * 0.4f, 1.0f + float(i) * 1.1f, float(i % 2) * 0.3f},
-                                 kinds[i % 6]);
+            Entity e = add_shape(s.world, ("b" + std::to_string(i)).c_str(),
+                                 {float(i % 3) * 0.4f, 1.0f + float(i) * 1.1f, float(i % 2) * 0.3f}, kinds[i % 6]);
             s.world.get<Transform>(e)->rotation = {float(i) * 11.0f, float(i) * 7.0f, float(i) * 13.0f};
             make_body(s.world, e);
             bodies.push_back(e);
@@ -372,7 +399,8 @@ TEST_CASE("3d shapes: two identical runs with every shape give bit-identical tra
         std::vector<float> out;
         for (Entity e : bodies) {
             const Transform* t = s.world.get<Transform>(e);
-            out.insert(out.end(), {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
+            out.insert(out.end(),
+                       {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
         }
         return out;
     };
@@ -390,7 +418,8 @@ std::string base64(const std::vector<std::uint8_t>& bytes) {
     static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
     for (std::size_t i = 0; i < bytes.size(); i += 3) {
-        const std::uint32_t v = (std::uint32_t(bytes[i]) << 16) | (i + 1 < bytes.size() ? std::uint32_t(bytes[i + 1]) << 8 : 0u) |
+        const std::uint32_t v = (std::uint32_t(bytes[i]) << 16) |
+                                (i + 1 < bytes.size() ? std::uint32_t(bytes[i + 1]) << 8 : 0u) |
                                 (i + 2 < bytes.size() ? std::uint32_t(bytes[i + 2]) : 0u);
         out += table[(v >> 18) & 63];
         out += table[(v >> 12) & 63];
@@ -414,21 +443,29 @@ void write_ramp_gltf(const std::filesystem::path& dir, int nx, int nz, float len
     std::vector<std::uint32_t> idx;
     for (int j = 0; j < nz; ++j)
         for (int i = 0; i < nx; ++i) {
-            const std::uint32_t a = std::uint32_t(j * (nx + 1) + i), b = a + 1, c = a + std::uint32_t(nx + 1), d = c + 1;
+            const std::uint32_t a = std::uint32_t(j * (nx + 1) + i), b = a + 1, c = a + std::uint32_t(nx + 1),
+                                d = c + 1;
             idx.insert(idx.end(), {a, c, b, b, c, d});
         }
     std::vector<std::uint8_t> bytes(idx.size() * 4 + pos.size() * 4);
     std::memcpy(bytes.data(), idx.data(), idx.size() * 4);
     std::memcpy(bytes.data() + idx.size() * 4, pos.data(), pos.size() * 4);
-    const std::string json =
-        R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
-        R"("meshes":[{"primitives":[{"attributes":{"POSITION":1},"indices":0}]}],)"
-        R"("buffers":[{"uri":"data:application/octet-stream;base64,)" + base64(bytes) + R"(","byteLength":)" +
-        std::to_string(bytes.size()) + R"(}],)"
-        R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":)" + std::to_string(idx.size() * 4) + R"(},)"
-        R"({"buffer":0,"byteOffset":)" + std::to_string(idx.size() * 4) + R"(,"byteLength":)" + std::to_string(pos.size() * 4) + R"(}],)"
-        R"("accessors":[{"bufferView":0,"componentType":5125,"count":)" + std::to_string(idx.size()) + R"(,"type":"SCALAR"},)"
-        R"({"bufferView":1,"componentType":5126,"count":)" + std::to_string(pos.size() / 3) + R"(,"type":"VEC3"}]})";
+    const std::string json = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
+                             R"("meshes":[{"primitives":[{"attributes":{"POSITION":1},"indices":0}]}],)"
+                             R"("buffers":[{"uri":"data:application/octet-stream;base64,)" +
+                             base64(bytes) + R"(","byteLength":)" + std::to_string(bytes.size()) +
+                             R"(}],)"
+                             R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":)" +
+                             std::to_string(idx.size() * 4) +
+                             R"(},)"
+                             R"({"buffer":0,"byteOffset":)" +
+                             std::to_string(idx.size() * 4) + R"(,"byteLength":)" + std::to_string(pos.size() * 4) +
+                             R"(}],)"
+                             R"("accessors":[{"bufferView":0,"componentType":5125,"count":)" +
+                             std::to_string(idx.size()) +
+                             R"(,"type":"SCALAR"},)"
+                             R"({"bufferView":1,"componentType":5126,"count":)" +
+                             std::to_string(pos.size() / 3) + R"(,"type":"VEC3"}]})";
     std::ofstream(dir / gRampName, std::ios::binary) << json;
 }
 
@@ -810,7 +847,8 @@ TEST_CASE("3d joints: a hinge to another body swings the same way, ball and fixe
                 const Vec3 end = pos_of(s.world, links[std::size_t(k)]) - xAxis * 0.25f;
                 Vec3 expected{};
                 if (k > 0)
-                    expected = pos_of(s.world, links[std::size_t(k - 1)]) + local_x(s.world, links[std::size_t(k - 1)]) * 0.25f;
+                    expected = pos_of(s.world, links[std::size_t(k - 1)]) +
+                               local_x(s.world, links[std::size_t(k - 1)]) * 0.25f;
                 worst = std::max(worst, length(end - expected));
             }
         }
@@ -906,7 +944,8 @@ TEST_CASE("3d joints: a pendulum run is deterministic") {
         std::vector<float> out;
         for (Entity e : {rod, rod2}) {
             const Transform* t = s.world.get<Transform>(e);
-            out.insert(out.end(), {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
+            out.insert(out.end(),
+                       {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
         }
         return out;
     };
@@ -960,7 +999,8 @@ std::vector<float> run_bridge(Sim& s, const std::vector<Entity>& all, int frames
     std::vector<float> out;
     for (Entity e : all) {
         const Transform* t = s.world.get<Transform>(e);
-        out.insert(out.end(), {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
+        out.insert(out.end(),
+                   {t->position.x, t->position.y, t->position.z, t->rotation.x, t->rotation.y, t->rotation.z});
     }
     return out;
 }
@@ -1113,8 +1153,10 @@ TEST_CASE("3d character: its weight tips a seesaw on its pivot, and a jointed cr
             Walker w{s, hero};
             w.walk({0, 0, 0}, 120);
             REQUIRE(s.world.get<Transform>(plank)->rotation.z < -5.0f);
-            if (k == 0) s.world.get<Transform>(hero)->position = {-10, 5, 0};
-            else s.world.destroy(hero);
+            if (k == 0)
+                s.world.get<Transform>(hero)->position = {-10, 5, 0};
+            else
+                s.world.destroy(hero);
             s.run(120);
             rot[k] = s.world.get<Transform>(plank)->rotation.z;
         }
@@ -1177,7 +1219,8 @@ TEST_CASE("3d shapes: a procedural mesh is a convex or mesh collider, and an upd
     // A convex hull of a procedural mesh: a box made of 8 corners.
     MeshInput cube;
     cube.positions = {-1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1};
-    cube.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
+    cube.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                    3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
     cube.hasIndices = true;
     auto hid = s.world.meshes().create(cube);
     REQUIRE(hid.ok());

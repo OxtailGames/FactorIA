@@ -45,8 +45,8 @@ struct SetupAction {
     bool force = false;                  // reinstall what is found
     std::string label;                   // the button: "Install Android build tools", "Download Windows player"...
     std::string tooltip;                 // what it does and how big it is
-    std::string why;                     // a row's extra setup (CMake, Xcode): what is missing, shown above the button ("" = none)
-    std::string key;                     // "android" | "players-windows" | "players-mobile" | "cmake" | "xcode": for widget ids
+    std::string why;  // a row's extra setup (CMake, Xcode): what is missing, shown above the button ("" = none)
+    std::string key;  // "android" | "players-windows" | "players-mobile" | "cmake" | "xcode": for widget ids
     SetupInstallOptions options(bool acceptLicenses = false) const;
 };
 
@@ -64,7 +64,8 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& comp
 //            Xcode missing or incomplete (even when ready)                       -> Open App Store (Xcode) / Show Xcode steps
 // A row that is ready, or not ready for a reason a setup cannot fix (a missing id, a folder in the way), gets none of the
 // first kinds. Empty while `status` has no components.
-std::vector<SetupAction> setup_actions_for_row(const std::string& platform, const ExportStatus& row, const SetupStatus& status);
+std::vector<SetupAction> setup_actions_for_row(const std::string& platform, const ExportStatus& row,
+                                               const SetupStatus& status);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // One install
@@ -103,14 +104,15 @@ public:
     bool running() const { return running_.load(); }
     void cancel() { cancel_.store(true); }
     bool cancelling() const { return running() && cancel_.load(); }
-    void add_line(const std::string& line);          // what SetupContext::progress does: keeps one line (blank ones are dropped)
-    std::string progress_line() const;               // the latest line ("" = none yet)
-    double fraction() const;                         // 0..1 from the latest line's percentage; -1 = this step has none (a marquee)
-    std::vector<std::string> recent_lines() const;   // the last lines (at most kMaxLines), oldest first
+    void
+    add_line(const std::string& line);  // what SetupContext::progress does: keeps one line (blank ones are dropped)
+    std::string progress_line() const;  // the latest line ("" = none yet)
+    double fraction() const;            // 0..1 from the latest line's percentage; -1 = this step has none (a marquee)
+    std::vector<std::string> recent_lines() const;  // the last lines (at most kMaxLines), oldest first
     static constexpr size_t kMaxLines = 200;
-    SetupInstallOptions options() const;             // of the running or last install
-    std::optional<SetupOutcome> take_result();       // the finished install's outcome, once; nullopt while it runs
-    void wait();                                     // blocks until the running install is done
+    SetupInstallOptions options() const;        // of the running or last install
+    std::optional<SetupOutcome> take_result();  // the finished install's outcome, once; nullopt while it runs
+    void wait();                                // blocks until the running install is done
 
 private:
     std::thread thread_;
@@ -196,9 +198,9 @@ public:
         NotNeeded,  // the licenses are accepted already: the install needs no agreement
         Failed,     // the text could not be fetched: error says why
     };
-    bool start(const SetupContext& context);   // false while loading
-    bool poll();                               // true when a result arrived this call
-    void reset();                              // forget it (the dialog closed)
+    bool start(const SetupContext& context);  // false while loading
+    bool poll();                              // true when a result arrived this call
+    void reset();                             // forget it (the dialog closed)
     State state() const { return state_; }
     bool loading() const { return state_ == State::Loading; }
     const std::vector<SetupLicense>& licenses() const { return licenses_; }

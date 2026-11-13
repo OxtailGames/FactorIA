@@ -41,16 +41,16 @@ struct LoopRedirect {
     std::string code;     // the error's code
     std::string message;
     std::string hint;
-    int count = 0;        // how many times it failed
-    std::string text;     // what the model is told (loop_redirect_text)
+    int count = 0;     // how many times it failed
+    std::string text;  // what the model is told (loop_redirect_text)
 };
 
 class LoopGuard {
 public:
     // The result of one command call. Returns the redirect when this is the kLoopGuardFailures-th failure of (command, code) since
     // the command last worked; once per (command, code) in a run. A success of the command starts its counts again.
-    std::optional<LoopRedirect> record(const std::string& command, bool ok, const std::string& code, const std::string& message,
-                                       const std::string& hint);
+    std::optional<LoopRedirect> record(const std::string& command, bool ok, const std::string& code,
+                                       const std::string& message, const std::string& hint);
 
 private:
     struct Entry {
@@ -102,24 +102,25 @@ private:
 
 struct GroupProposal {
     std::string role;
-    std::string group;                   // a command category
-    int runs = 0;                        // runs that loaded one of its commands
-    std::vector<std::string> commands;   // the commands the runs loaded, most loaded first
-    u64 definitionBytes = 0;             // what loading the whole group up front adds to every step of that role
+    std::string group;                  // a command category
+    int runs = 0;                       // runs that loaded one of its commands
+    std::vector<std::string> commands;  // the commands the runs loaded, most loaded first
+    u64 definitionBytes = 0;            // what loading the whole group up front adds to every step of that role
 };
 struct FactProposal {
-    std::string id;       // "scene.load:not_found"
+    std::string id;  // "scene.load:not_found"
     std::string command;
     std::string code;
     int runs = 0;
-    std::string line;     // the line for AGENTS.md ("- ..."), one line
+    std::string line;  // the line for AGENTS.md ("- ..."), one line
 };
 
 // The groups the user accepted for `role` in this project, to load up front besides the role's own (toolGroups). Empty when the
 // project has none.
 std::vector<std::string> accepted_tool_groups(std::string_view projectDir, std::string_view role);
 // Proposals that wait for an answer: groups of runs of the project that the role does not load up front yet, and facts.
-std::vector<GroupProposal> group_proposals(const AiConfig& cfg, const CommandRegistry& registry, std::string_view projectDir);
+std::vector<GroupProposal> group_proposals(const AiConfig& cfg, const CommandRegistry& registry,
+                                           std::string_view projectDir);
 std::vector<FactProposal> fact_proposals(std::string_view projectDir);
 
 // Stores a project-fact proposal the retrospective made (ai.retrospective): one line for AGENTS.md "Project facts", shown by
@@ -140,6 +141,7 @@ Result<Json> answer_tool_group(const CommandRegistry& registry, std::string_view
                                std::string_view group, SaverAnswer answer);
 // Accept: appends the line (`line` replaces the proposed one when not empty) under "## Project facts" in the project's AGENTS.md
 // (created when missing). Decline: not proposed again. Forget: undecided. Nothing is written to AGENTS.md before Accept.
-Result<Json> answer_fact(std::string_view projectDir, std::string_view id, SaverAnswer answer, std::string_view line = {});
+Result<Json> answer_fact(std::string_view projectDir, std::string_view id, SaverAnswer answer,
+                         std::string_view line = {});
 
 }  // namespace fa::ai

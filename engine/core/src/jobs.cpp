@@ -56,15 +56,15 @@ struct JobState {
     bool queued = false;  // in Pool::ready and not taken yet
     bool finished = false;
     bool failed = false;
-    Error error;                                       // what wait() returns when failed
-    Error rootError;                                   // the throw a failure goes back to (for skipped dependents)
-    std::string failedDep;                             // the first dependency that failed: the job is skipped
+    Error error;            // what wait() returns when failed
+    Error rootError;        // the throw a failure goes back to (for skipped dependents)
+    std::string failedDep;  // the first dependency that failed: the job is skipped
     std::vector<std::shared_ptr<JobState>> dependents;
-    std::vector<std::shared_ptr<JobState>> deps;       // the dependencies not finished at submit (dropped when it ends)
-    ThreadInfo* runningOn = nullptr;                   // the thread running it now
-    std::size_t frame = 0;                             // its place in runningOn->frames
-    std::uint64_t mark = 0;                            // graph walks (Pool::walk)
-    std::atomic<bool> doneFlag{false};                 // finished, readable without the lock
+    std::vector<std::shared_ptr<JobState>> deps;  // the dependencies not finished at submit (dropped when it ends)
+    ThreadInfo* runningOn = nullptr;              // the thread running it now
+    std::size_t frame = 0;                        // its place in runningOn->frames
+    std::uint64_t mark = 0;                       // graph walks (Pool::walk)
+    std::atomic<bool> doneFlag{false};            // finished, readable without the lock
 };
 
 // One level of a thread's stack: a job it runs, or a wait. A job can only end once every wait above it has ended.
@@ -249,8 +249,8 @@ Error thrown_error(const std::string& what, const std::string& name) {
 }
 
 Error skipped_error(const JobState& j) {
-    return make_error("job '" + j.name + "' did not run: its dependency '" + j.failedDep + "' failed: " +
-                          j.rootError.message,
+    return make_error("job '" + j.name + "' did not run: its dependency '" + j.failedDep +
+                          "' failed: " + j.rootError.message,
                       j.rootError.hint);
 }
 
@@ -299,8 +299,10 @@ void claim_locked(JobState* j) {
 void take_locked(Pool& p, JobState* j) {
     j->queued = false;
     --p.readyCount;
-    if (!p.ready.empty() && p.ready.front().get() == j) p.ready.pop_front();
-    else if (!p.ready.empty() && p.ready.back().get() == j) p.ready.pop_back();
+    if (!p.ready.empty() && p.ready.front().get() == j)
+        p.ready.pop_front();
+    else if (!p.ready.empty() && p.ready.back().get() == j)
+        p.ready.pop_back();
     claim_locked(j);
 }
 
@@ -461,8 +463,10 @@ Handle submit_job(const JobPtr& j, const std::vector<Handle>& deps) {
     }
     if (!runNow) {
         // A new job is in nobody's wait yet (waits only take what the waited job needs), so only workers wake.
-        if (f.newReady) p.workCv.notify_one();
-        else notify_finished(p, f, wake);  // skipped at once: its waiters (none yet, or a copy of the handle) wake
+        if (f.newReady)
+            p.workCv.notify_one();
+        else
+            notify_finished(p, f, wake);  // skipped at once: its waiters (none yet, or a copy of the handle) wake
         return Access::make(j);
     }
     // Not running or inline: the job runs here, once its dependencies are done (they may run on another thread).
@@ -584,6 +588,7 @@ void worker_main(int index, std::uint32_t gen) {
     }
 }
 
+#if !defined(__EMSCRIPTEN__)  // the web build has its own cap (kAutoCapWebThreads)
 bool is_mobile() {
 #if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
     return true;
@@ -591,6 +596,7 @@ bool is_mobile() {
     return false;
 #endif
 }
+#endif
 
 const std::vector<std::string>& setting_words() {
     static const std::vector<std::string> words = {"auto", "inline"};
@@ -599,8 +605,10 @@ const std::vector<std::string>& setting_words() {
 
 std::string range_hint() {
     return "Use \"auto\" (hardware threads - 1, at most " + std::to_string(kAutoCapDesktop) + " on desktop and " +
-           std::to_string(kAutoCapMobile) + " on phones), \"inline\" (every job runs on the main thread when it is "
-           "submitted: for debugging) or a number of worker threads from 0 to " + std::to_string(kMaxWorkers) + ".";
+           std::to_string(kAutoCapMobile) +
+           " on phones), \"inline\" (every job runs on the main thread when it is "
+           "submitted: for debugging) or a number of worker threads from 0 to " +
+           std::to_string(kMaxWorkers) + ".";
 }
 
 Result<Settings> count_setting(std::int64_t n, std::string_view where, const std::string& shown) {
@@ -671,7 +679,8 @@ Result<Settings> parse_settings(const Json& v, std::string_view where) {
         return count_setting(u > std::uint64_t(kMaxWorkers) ? std::int64_t(kMaxWorkers) + 1 : std::int64_t(u), where,
                              std::to_string(u));
     }
-    if (v.is_number_integer()) return count_setting(v.get<std::int64_t>(), where, std::to_string(v.get<std::int64_t>()));
+    if (v.is_number_integer())
+        return count_setting(v.get<std::int64_t>(), where, std::to_string(v.get<std::int64_t>()));
     if (v.is_number_float()) {
         const double d = v.get<double>();
         const bool whole = std::isfinite(d) && d == std::floor(d) && d >= 0 && d <= double(kMaxWorkers);
@@ -991,8 +1000,8 @@ std::size_t chunk_count(std::size_t count, std::size_t grain) {
     return count / grain + (count % grain ? 1 : 0);
 }
 
-std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights, std::size_t target,
-                                                                 std::size_t minTotal) {
+std::vector<std::pair<std::size_t, std::size_t>> weighted_ranges(const std::vector<std::size_t>& weights,
+                                                                 std::size_t target, std::size_t minTotal) {
     std::vector<std::pair<std::size_t, std::size_t>> out;
     if (weights.empty()) return out;
     std::size_t total = 0;
@@ -1378,7 +1387,8 @@ Info info() {
 Json info_json(const Info& i) {
     Json lanes = Json::array();
     for (const LaneInfo& l : i.lanes)
-        lanes.push_back(Json::object({{"name", l.name}, {"jobs", l.jobs}, {"busyMs", l.busyMs}, {"busyPct", l.busyPct}}));
+        lanes.push_back(
+            Json::object({{"name", l.name}, {"jobs", l.jobs}, {"busyMs", l.busyMs}, {"busyPct", l.busyPct}}));
     return Json::object({{"running", i.running},
                          {"mode", i.mode},
                          {"workers", i.workers},

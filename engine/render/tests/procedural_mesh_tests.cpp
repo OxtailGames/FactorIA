@@ -71,7 +71,7 @@ TEST_CASE("procedural mesh: a mesh made from arrays is drawn with its submesh ma
     MeshInput in;
     // Two quads side by side, the left one green and the right one blue, as two submeshes.
     in.positions = {-2, -1, 0, 0, -1, 0, 0, 1, 0, -2, 1, 0,  //
-                    0, -1, 0, 2, -1, 0, 2, 1, 0, 0, 1, 0};
+                    0,  -1, 0, 2, -1, 0, 2, 1, 0, 0,  1, 0};
     in.indices = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7};
     in.hasIndices = true;
     MeshMaterial green, blue;
@@ -123,8 +123,9 @@ TEST_CASE("procedural mesh: an update changes what is drawn and reuses the GPU b
     REQUIRE(id.ok());
     show(w, *id);
     Image a = g.render(w);
-    CHECK(a.pixel(160, 90).r > 0.8f);                  // the unlit white quad
-    CHECK_FALSE(is_color(a.pixel(160 + 70, 90), 1, 1, 1, 0.05f));  // 70 px right of the middle is outside a quad of half 1
+    CHECK(a.pixel(160, 90).r > 0.8f);  // the unlit white quad
+    CHECK_FALSE(
+        is_color(a.pixel(160 + 70, 90), 1, 1, 1, 0.05f));  // 70 px right of the middle is outside a quad of half 1
     const std::size_t bytes = mesh_entry(g, *id)["bytes"].get<std::size_t>();
     CHECK(bytes > 0);
 
@@ -134,7 +135,9 @@ TEST_CASE("procedural mesh: an update changes what is drawn and reuses the GPU b
         REQUIRE(w.meshes().update(*id, upd).ok());
         Image img = g.render(w);
         const float half = 1.0f + 0.5f * float(frame + 1);
-        const float edgePx = 90.0f * half / (4.0f * std::tan(radians(30.0f)));  // the vertical half-size on screen: height 180 px, fov 60
+        const float edgePx =
+            90.0f * half /
+            (4.0f * std::tan(radians(30.0f)));  // the vertical half-size on screen: height 180 px, fov 60
         CHECK(img.pixel(160, 90).r > 0.8f);
         CHECK(img.pixel(160, int(90 - edgePx * 0.5f)).r > 0.8f);
         CHECK(mesh_entry(g, *id)["version"].get<std::uint64_t>() == w.meshes().find(*id)->version);
@@ -270,7 +273,8 @@ TEST_CASE("procedural mesh: it casts a shadow like any mesh, unless castShadows 
         gm.mesh = "plane";
         gm.color = Color{0.8f, 0.8f, 0.8f, 1};
         Entity sun = make(w, "sun", {0, 5, 0});
-        w.get<Transform>(sun)->rotation = {-45, 0, 0};  // the light travels towards -Z and down: shadows fall towards -Z
+        w.get<Transform>(sun)->rotation = {-45, 0,
+                                           0};  // the light travels towards -Z and down: shadows fall towards -Z
         auto& l = w.add<Light>(sun);
         l.type = LightType::Directional;
         l.castShadows = true;
@@ -381,7 +385,8 @@ TEST_CASE("procedural mesh vertex colors: lit surfaces take them too") {
         World w;
         camera_at_z(w);
         w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
-        Entity sun = make(w, "sun", {0, 5, 0});  // no rotation: the light travels towards -Z, onto the front of the quad
+        Entity sun =
+            make(w, "sun", {0, 5, 0});  // no rotation: the light travels towards -Z, onto the front of the quad
         auto& l = w.add<Light>(sun);
         l.type = LightType::Directional;
         l.intensity = 1.0f;
@@ -393,9 +398,10 @@ TEST_CASE("procedural mesh vertex colors: lit surfaces take them too") {
         return g.render(w).pixel(160, 90);
     };
     const Color white = lit(quad_input(1.5f)), tinted = lit(colored_quad(1.5f, {red, red, red, red}));
-    INFO("white " << white.r << " " << white.g << " " << white.b << " tinted " << tinted.r << " " << tinted.g << " " << tinted.b);
+    INFO("white " << white.r << " " << white.g << " " << white.b << " tinted " << tinted.r << " " << tinted.g << " "
+                  << tinted.b);
     CHECK(white.r > 0.2f);
-    CHECK(std::fabs(white.r - white.b) < 0.05f);   // a white surface: grey
+    CHECK(std::fabs(white.r - white.b) < 0.05f);  // a white surface: grey
     CHECK(tinted.r > 0.2f);
     CHECK(tinted.g < tinted.r * 0.3f);
     CHECK(tinted.b < tinted.r * 0.3f);
@@ -416,7 +422,8 @@ TEST_CASE("procedural mesh vertex colors: the alpha shows with a blended materia
     CHECK(is_color(draw_quad(g, in, &opaque).pixel(160, 90), 0, 0, 1));
 }
 
-TEST_CASE("procedural mesh vertex colors: update changes them, leaving them out keeps them, and a bigger mesh keeps working") {
+TEST_CASE("procedural mesh vertex colors: update changes them, leaving them out keeps them, and a bigger mesh keeps "
+          "working") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -445,7 +452,8 @@ TEST_CASE("procedural mesh vertex colors: update changes them, leaving them out 
     CHECK(is_color(g.render(w).pixel(160, 90), 0, 0, 1));
 }
 
-TEST_CASE("procedural mesh vertex colors: entities sharing a mesh are one instanced batch and each keeps the mesh's colors") {
+TEST_CASE(
+    "procedural mesh vertex colors: entities sharing a mesh are one instanced batch and each keeps the mesh's colors") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -458,7 +466,8 @@ TEST_CASE("procedural mesh vertex colors: entities sharing a mesh are one instan
     Image img = g.render(w);
     CHECK(g.renderer.stats().meshBatches >= 1);
     CHECK(g.renderer.stats().drawCalls < 4);
-    CHECK(is_color(img.pixel(160 - 29, 90), 1, 0.2f, 0.2f));  // camera 8 away: 1 px is 0.051 m, the quads are centred 1.5 m aside
+    CHECK(is_color(img.pixel(160 - 29, 90), 1, 0.2f,
+                   0.2f));  // camera 8 away: 1 px is 0.051 m, the quads are centred 1.5 m aside
     CHECK(is_color(img.pixel(160 + 29, 90), 1, 0.2f, 0.2f));
 }
 
@@ -468,7 +477,8 @@ std::string base64_of(const std::vector<std::uint8_t>& d) {
     static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
     for (std::size_t i = 0; i < d.size(); i += 3) {
-        const std::uint32_t n = (d[i] << 16) | (i + 1 < d.size() ? d[i + 1] << 8 : 0) | (i + 2 < d.size() ? d[i + 2] : 0);
+        const std::uint32_t n =
+            (d[i] << 16) | (i + 1 < d.size() ? d[i + 1] << 8 : 0) | (i + 2 < d.size() ? d[i + 2] : 0);
         out += t[(n >> 18) & 63];
         out += t[(n >> 12) & 63];
         out += i + 1 < d.size() ? t[(n >> 6) & 63] : '=';
@@ -497,18 +507,23 @@ TEST_CASE("vertex colors: a glTF model with COLOR_0 is drawn with it (normalized
     std::memcpy(bytes2.data() + 76, fcol, 48);
     auto write = [&](const char* name, const std::vector<std::uint8_t>& data, const std::string& colorAccessor) {
         const std::string uri = "data:application/octet-stream;base64," + base64_of(data);
-        const Json gltf = Json::parse(R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
+        const Json gltf = Json::parse(
+            R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
             "meshes":[{"primitives":[{"attributes":{"POSITION":0,"COLOR_0":1},"indices":2}]}],
-            "buffers":[{"byteLength":)" + std::to_string(data.size()) + R"(,"uri":")" + uri + R"("}],
+            "buffers":[{"byteLength":)" +
+            std::to_string(data.size()) + R"(,"uri":")" + uri + R"("}],
             "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":48},{"buffer":0,"byteOffset":48,"byteLength":16},
-                           {"buffer":0,"byteOffset":64,"byteLength":12},{"buffer":0,"byteOffset":76,"byteLength":48}],
+                           {"buffer":0,"byteOffset":64,"byteLength":12})" +
+            (data.size() > 76 ? std::string(R"(,{"buffer":0,"byteOffset":76,"byteLength":48})") : std::string()) + R"(],
             "accessors":[{"bufferView":0,"componentType":5126,"count":4,"type":"VEC3","min":[-1.5,-1.5,0],"max":[1.5,1.5,0]},
-                         )" + colorAccessor + R"(,
+                         )" +
+            colorAccessor + R"(,
                          {"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}]})");
         std::filesystem::create_directories(g.projectDir / "assets");
         std::ofstream(g.projectDir / name, std::ios::binary) << gltf.dump();
     };
-    write("assets/vc_bytes.gltf", bytes, R"({"bufferView":1,"componentType":5121,"normalized":true,"count":4,"type":"VEC4"})");
+    write("assets/vc_bytes.gltf", bytes,
+          R"({"bufferView":1,"componentType":5121,"normalized":true,"count":4,"type":"VEC4"})");
     write("assets/vc_floats.gltf", bytes2, R"({"bufferView":3,"componentType":5126,"count":4,"type":"VEC3"})");
     auto draw = [&](const char* path) {
         World w;

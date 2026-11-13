@@ -10,10 +10,12 @@ namespace fa {
 
 namespace {
 
-constexpr const char* kCurveForm = "Write keys as [position, value] pairs: [[0, 1], [0.5, 2], [1, 0]], or {\"keys\": [[0, 0], [1, 1]], \"interp\": \"smooth\"}, "
+constexpr const char* kCurveForm = "Write keys as [position, value] pairs: [[0, 1], [0.5, 2], [1, 0]], or {\"keys\": "
+                                   "[[0, 0], [1, 1]], \"interp\": \"smooth\"}, "
                                    "or one number for a constant.";
-constexpr const char* kGradientForm = "Write keys as [position, colour] pairs: [[0, \"#ffffff\"], [0.5, \"#ffcc00\"], [1, [1, 0, 0, 0]]]; the "
-                                      "colour is \"#rrggbb\", \"#rrggbbaa\", a colour name or [r, g, b, a] (0..1).";
+constexpr const char* kGradientForm =
+    "Write keys as [position, colour] pairs: [[0, \"#ffffff\"], [0.5, \"#ffcc00\"], [1, [1, 0, 0, 0]]]; the "
+    "colour is \"#rrggbb\", \"#rrggbbaa\", a colour name or [r, g, b, a] (0..1).";
 
 float smooth01(float s) { return s * s * (3.0f - 2.0f * s); }
 
@@ -82,20 +84,29 @@ Result<Curve> Curve::parse(const Json& j, std::string_view what) {
         if (j.contains("interp")) {
             const Json& ip = j["interp"];
             const std::string name = ip.is_string() ? ip.get<std::string>() : std::string();
-            if (name == "linear") out.interp = CurveInterp::Linear;
-            else if (name == "smooth") out.interp = CurveInterp::Smooth;
-            else if (name == "step") out.interp = CurveInterp::Step;
-            else return bad(what, std::format("interp is {}, not one of linear, smooth, step", describe_json_value(ip)), kCurveForm);
+            if (name == "linear")
+                out.interp = CurveInterp::Linear;
+            else if (name == "smooth")
+                out.interp = CurveInterp::Smooth;
+            else if (name == "step")
+                out.interp = CurveInterp::Step;
+            else
+                return bad(what, std::format("interp is {}, not one of linear, smooth, step", describe_json_value(ip)),
+                           kCurveForm);
         }
     }
-    if (!list->is_array()) return bad(what, std::format("expected an array of keys, got {}", describe_json_value(*list)), kCurveForm);
+    if (!list->is_array())
+        return bad(what, std::format("expected an array of keys, got {}", describe_json_value(*list)), kCurveForm);
     if (int(list->size()) > kMaxCurveKeys)
-        return bad(what, std::format("{} keys, at most {} are allowed", list->size(), kMaxCurveKeys), "Drop the keys that hardly change the shape.");
+        return bad(what, std::format("{} keys, at most {} are allowed", list->size(), kMaxCurveKeys),
+                   "Drop the keys that hardly change the shape.");
     for (std::size_t i = 0; i < list->size(); ++i) {
         const Json& k = (*list)[i];
         CurveKey key;
         if (!k.is_array() || k.size() != 2 || !read_key_t(k[0], key.t) || !read_key_t(k[1], key.value))
-            return bad(what, std::format("key {} is {}, not [position, value] with two numbers", i, describe_json_value(k)), kCurveForm);
+            return bad(what,
+                       std::format("key {} is {}, not [position, value] with two numbers", i, describe_json_value(k)),
+                       kCurveForm);
         out.keys.push_back(key);
     }
     std::stable_sort(out.keys.begin(), out.keys.end(), [](const CurveKey& a, const CurveKey& b) { return a.t < b.t; });
@@ -133,20 +144,24 @@ bool Gradient::operator==(const Gradient& o) const {
 Result<Gradient> Gradient::parse(const Json& j, std::string_view what) {
     Gradient out;
     if (j.is_null()) return out;
-    if (!j.is_array()) return bad(what, std::format("expected an array of keys, got {}", describe_json_value(j)), kGradientForm);
+    if (!j.is_array())
+        return bad(what, std::format("expected an array of keys, got {}", describe_json_value(j)), kGradientForm);
     if (int(j.size()) > kMaxCurveKeys)
-        return bad(what, std::format("{} keys, at most {} are allowed", j.size(), kMaxCurveKeys), "Drop the keys that hardly change the colour.");
+        return bad(what, std::format("{} keys, at most {} are allowed", j.size(), kMaxCurveKeys),
+                   "Drop the keys that hardly change the colour.");
     for (std::size_t i = 0; i < j.size(); ++i) {
         const Json& k = j[i];
         GradientKey key;
         std::string err;
         if (!k.is_array() || k.size() != 2 || !read_key_t(k[0], key.t))
-            return bad(what, std::format("key {} is {}, not [position, colour]", i, describe_json_value(k)), kGradientForm);
+            return bad(what, std::format("key {} is {}, not [position, colour]", i, describe_json_value(k)),
+                       kGradientForm);
         if (!json_to(k[1], key.color, &err))
             return bad(what, std::format("key {} has a colour that does not read: {}", i, err), kGradientForm);
         out.keys.push_back(key);
     }
-    std::stable_sort(out.keys.begin(), out.keys.end(), [](const GradientKey& a, const GradientKey& b) { return a.t < b.t; });
+    std::stable_sort(out.keys.begin(), out.keys.end(),
+                     [](const GradientKey& a, const GradientKey& b) { return a.t < b.t; });
     return out;
 }
 

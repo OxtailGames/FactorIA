@@ -50,28 +50,70 @@ TEST_CASE("particles: gradient, shape, trail, collision and pixel mode draw the 
         // A ring of sparks that fade white -> gold -> red -> nothing, growing then shrinking.
         Entity ring = make(w, "ring", {-90, 40, 0});
         auto& r = w.add<ParticleEmitter>(ring);
-        r.rate = 0; r.burst = 60; r.seed = 4; r.lifetime = 1.0f; r.lifetimeVariance = 0; r.speed = 30; r.spread = 0;
-        r.shape = ParticleShape::Circle; r.shapeFrom = ParticleShapeFrom::Edge; r.shapeSize = {24, 24, 24};
-        r.shapeDirection = ParticleShapeDirection::Outward; r.gravity = {0, 0, 0}; r.startSize = 8;
+        r.rate = 0;
+        r.burst = 60;
+        r.seed = 4;
+        r.lifetime = 1.0f;
+        r.lifetimeVariance = 0;
+        r.speed = 30;
+        r.spread = 0;
+        r.shape = ParticleShape::Circle;
+        r.shapeFrom = ParticleShapeFrom::Edge;
+        r.shapeSize = {24, 24, 24};
+        r.shapeDirection = ParticleShapeDirection::Outward;
+        r.gravity = {0, 0, 0};
+        r.startSize = 8;
         r.colorGradient = Json::parse(R"([[0, "#ffffff"], [0.4, "#ffcc33"], [0.8, "#ff3300"], [1, "#ff330000"]])");
         r.sizeCurve = Json::parse("[[0, 0.5], [0.3, 1.5], [1, 0.4]]");
         // Comets with a tapering trail.
         Entity comet = make(w, "comet", {0, 60, 0});
         auto& c = w.add<ParticleEmitter>(comet);
-        c.rate = 0; c.burst = 6; c.seed = 9; c.lifetime = 1.0f; c.speed = 90; c.direction = 270; c.spread = 60; c.gravity = {0, -40, 0};
-        c.startSize = 5; c.endSize = 3; c.trail = ParticleTrail::Particle; c.trailTime = 0.4f; c.trailWidth = 5;
-        c.startColor = Color::hex(0x66ccff); c.endColor = Color::hex(0x66ccff);
+        c.rate = 0;
+        c.burst = 6;
+        c.seed = 9;
+        c.lifetime = 1.0f;
+        c.speed = 90;
+        c.direction = 270;
+        c.spread = 60;
+        c.gravity = {0, -40, 0};
+        c.startSize = 5;
+        c.endSize = 3;
+        c.trail = ParticleTrail::Particle;
+        c.trailTime = 0.4f;
+        c.trailWidth = 5;
+        c.startColor = Color::hex(0x66ccff);
+        c.endColor = Color::hex(0x66ccff);
         // Bouncing balls on a floor at y = -20.
         Entity balls = make(w, "balls", {70, 40, 0});
         auto& b = w.add<ParticleEmitter>(balls);
-        b.rate = 0; b.burst = 12; b.seed = 2; b.lifetime = 5.0f; b.speed = 40; b.spread = 180; b.gravity = {0, -300, 0};
-        b.startSize = 6; b.endSize = 6; b.startColor = Color::hex(0x80ff80); b.endColor = Color::hex(0x80ff80);
-        b.collision = ParticleCollision::Plane; b.collisionPlane = {0, 1, 0, -20}; b.collisionBounce = 0.6f;
+        b.rate = 0;
+        b.burst = 12;
+        b.seed = 2;
+        b.lifetime = 5.0f;
+        b.speed = 40;
+        b.spread = 180;
+        b.gravity = {0, -300, 0};
+        b.startSize = 6;
+        b.endSize = 6;
+        b.startColor = Color::hex(0x80ff80);
+        b.endColor = Color::hex(0x80ff80);
+        b.collision = ParticleCollision::Plane;
+        b.collisionPlane = {0, 1, 0, -20};
+        b.collisionBounce = 0.6f;
         // Pixel fire: four colours, 4-unit pixels.
         Entity fire = make(w, "fire", {-20, -70, 0});
         auto& p = w.add<ParticleEmitter>(fire);
-        p.rate = 0; p.burst = 40; p.seed = 6; p.lifetime = 1.0f; p.speed = 40; p.spread = 20; p.gravity = {0, 60, 0};
-        p.startSize = 10; p.endSize = 3; p.pixelMode = true; p.pixelSize = 4;
+        p.rate = 0;
+        p.burst = 40;
+        p.seed = 6;
+        p.lifetime = 1.0f;
+        p.speed = 40;
+        p.spread = 20;
+        p.gravity = {0, 60, 0};
+        p.startSize = 10;
+        p.endSize = 3;
+        p.pixelMode = true;
+        p.pixelSize = 4;
         p.palette = Json::parse(R"(["#2b0f54", "#ab1f65", "#ff4f69", "#fff7f8"])");
         p.colorGradient = Json::parse(R"([[0, "#fff7f8"], [0.5, "#ff4f69"], [1, "#2b0f54"]])");
     };
@@ -96,8 +138,18 @@ TEST_CASE("particles: pixel mode draws only palette colours on whole-pixel squar
     camera(w);
     Entity e = make(w, "fire", {0, -20, 0});
     auto& p = w.add<ParticleEmitter>(e);
-    p.rate = 0; p.burst = 60; p.seed = 3; p.lifetime = 2.0f; p.lifetimeVariance = 0; p.speed = 30; p.spread = 40; p.gravity = {0, 20, 0};
-    p.startSize = 9; p.endSize = 9; p.pixelMode = true; p.pixelSize = 3;
+    p.rate = 0;
+    p.burst = 60;
+    p.seed = 3;
+    p.lifetime = 2.0f;
+    p.lifetimeVariance = 0;
+    p.speed = 30;
+    p.spread = 40;
+    p.gravity = {0, 20, 0};
+    p.startSize = 9;
+    p.endSize = 9;
+    p.pixelMode = true;
+    p.pixelSize = 3;
     const Color palette[3] = {Color::hex(0x204060), Color::hex(0xe0a020), Color::hex(0xf0f0e0)};
     p.palette = Json::parse(R"(["#204060", "#e0a020", "#f0f0e0"])");
     p.colorGradient = Json::parse(R"([[0, "#ffffff"], [1, "#101030"]])");  // none of these is in the palette
@@ -138,11 +190,21 @@ TEST_CASE("particles: a flipbook shows a different cell as the particle ages") {
     camera(w);
     Entity e = make(w, "puff");
     auto& p = w.add<ParticleEmitter>(e);
-    p.rate = 0; p.burst = 1; p.lifetime = 1.0f; p.lifetimeVariance = 0; p.speed = 0; p.gravity = {0, 0, 0};
-    p.startSize = 40; p.endSize = 40; p.texture = "assets/flip.png"; p.flipbookColumns = 2; p.flipbookRows = 1;
-    p.startColor = Color::white(); p.endColor = Color::white();
-    Image early = g.render(w, 0.1f);   // frame 0: red
-    Image late = g.render(w, 0.6f);    // age 0.7 of 1: frame 1: blue
+    p.rate = 0;
+    p.burst = 1;
+    p.lifetime = 1.0f;
+    p.lifetimeVariance = 0;
+    p.speed = 0;
+    p.gravity = {0, 0, 0};
+    p.startSize = 40;
+    p.endSize = 40;
+    p.texture = "assets/flip.png";
+    p.flipbookColumns = 2;
+    p.flipbookRows = 1;
+    p.startColor = Color::white();
+    p.endColor = Color::white();
+    Image early = g.render(w, 0.1f);  // frame 0: red
+    Image late = g.render(w, 0.6f);   // age 0.7 of 1: frame 1: blue
     const Color a = early.pixel(160, 90), b = late.pixel(160, 90);
     CHECK(a.r > 0.8f);
     CHECK(a.b < 0.2f);
@@ -158,7 +220,11 @@ TEST_CASE("particles: the per-emitter budget holds and old emitters are untouche
     camera(w);
     Entity e = make(w, "flood");
     auto& p = w.add<ParticleEmitter>(e);
-    p.rate = 100000; p.burst = 50000; p.maxParticles = 1000000; p.lifetime = 10.0f; p.speed = 10;
+    p.rate = 100000;
+    p.burst = 50000;
+    p.maxParticles = 1000000;
+    p.lifetime = 10.0f;
+    p.speed = 10;
     g.render(w, 1.0f / 60.0f);
     CHECK(g.renderer.stats().particles == kParticleHardCap);
     g.render(w, 1.0f / 60.0f);
@@ -173,7 +239,10 @@ TEST_CASE("particles: a bad curve is logged once and the emitter still draws") {
     camera(w);
     Entity e = make(w, "bad");
     auto& p = w.add<ParticleEmitter>(e);
-    p.rate = 0; p.burst = 30; p.speed = 20; p.startSize = 10;
+    p.rate = 0;
+    p.burst = 30;
+    p.speed = 20;
+    p.startSize = 10;
     p.sizeCurve = Json::parse("[[0]]");
     clear_recent_logs();
     for (int i = 0; i < 5; ++i) g.render(w, 1.0f / 60.0f);
@@ -184,7 +253,8 @@ TEST_CASE("particles: a bad curve is logged once and the emitter still draws") {
     CHECK(logged == 1);
 }
 
-TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, and a cleared store makes the next run start the same") {
+TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, and a cleared store makes the next run "
+          "start the same") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanEmitters clean;
@@ -192,8 +262,17 @@ TEST_CASE("particles: 10000 particles with trails (the first 512 trailed) draw, 
         camera(w);
         Entity e = make(w, "swarm");
         auto& p = w.add<ParticleEmitter>(e);
-        p.rate = 0; p.burst = 10000; p.maxParticles = 10000; p.seed = 5; p.lifetime = 3.0f; p.speed = 60; p.spread = 180; p.startSize = 3;
-        p.trail = ParticleTrail::Particle; p.trailTime = 0.5f; p.trailWidth = 2;
+        p.rate = 0;
+        p.burst = 10000;
+        p.maxParticles = 10000;
+        p.seed = 5;
+        p.lifetime = 3.0f;
+        p.speed = 60;
+        p.spread = 180;
+        p.startSize = 3;
+        p.trail = ParticleTrail::Particle;
+        p.trailTime = 0.5f;
+        p.trailWidth = 2;
     };
     auto run = [&](World& w) {
         Image last;

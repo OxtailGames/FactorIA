@@ -19,8 +19,8 @@ unsigned __stdcall trampoline(void* p) {
 
 bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes) {
     auto* s = new Start{entry, arg};
-    HANDLE h = reinterpret_cast<HANDLE>(
-        _beginthreadex(nullptr, static_cast<unsigned>(stackBytes), trampoline, s, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr));
+    HANDLE h = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, static_cast<unsigned>(stackBytes), trampoline, s,
+                                                       STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr));
     if (!h) {
         delete s;
         return false;

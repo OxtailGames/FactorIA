@@ -10,6 +10,9 @@
 
 #include "fa/platform/http.h"
 
+// The JavaScript of EM_JS is not C++: clang-format must not touch it (it splits `===` into `== =`). Write the empty
+// string as "" here: emscripten's clang warns "empty character constant" at a `''`.
+// clang-format off
 EM_JS(void, fa_web_http_start, (int id, const char* method, const char* url, const char* headersJson, const char* body, int hasBody,
                                 double timeoutSec, int maxBytes), {
     const results = (Module.faHttp = Module.faHttp || { results: {} }).results;
@@ -17,11 +20,11 @@ EM_JS(void, fa_web_http_start, (int id, const char* method, const char* url, con
         results[id] = r;
         Module._fa_web_http_done(id);
     };
-    const fail = (error, hint, timedOut) => finish({ ok: false, error: error, hint: hint || '', timedOut: !!timedOut });
+    const fail = (error, hint, timedOut) => finish({ ok: false, error: error, hint: hint || "", timedOut: !!timedOut });
     const urlText = UTF8ToString(url);
     let host = urlText;
     try { host = new URL(urlText).host; } catch (e) {}
-    if (typeof fetch !== 'function') { fail('this browser has no fetch', ''); return; }
+    if (typeof fetch !== 'function') { fail('this browser has no fetch', ""); return; }
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     let timedOut = false;
     const timer = controller ? setTimeout(() => { timedOut = true; controller.abort(); }, Math.max(1, timeoutSec * 1000)) : 0;
@@ -48,27 +51,32 @@ EM_JS(void, fa_web_http_start, (int id, const char* method, const char* url, con
     }).catch((e) => {
         if (timer) clearTimeout(timer);
         if (timedOut) fail('the request to ' + host + ' timed out after ' + Math.round(timeoutSec) + ' s', 'Check the connection, or raise the timeout option of http.fetch.', true);
-        else fail('the request to ' + host + ' failed' + (e && e.message ? ': ' + e.message : ''),
+        else fail('the request to ' + host + ' failed' + (e && e.message ? ': ' + e.message : ""),
                   'The browser gives no detail on purpose. Check the connection, the address, and that the server allows this page (CORS).');
     });
 });
+// clang-format on
 
+// clang-format off
 EM_JS(int, fa_web_http_ok, (int id), { return Module.faHttp.results[id].ok ? 1 : 0; });
 EM_JS(int, fa_web_http_status, (int id), { return Module.faHttp.results[id].status | 0; });
 EM_JS(int, fa_web_http_timed_out, (int id), { return Module.faHttp.results[id].timedOut ? 1 : 0; });
 EM_JS(int, fa_web_http_header_count, (int id), { return Module.faHttp.results[id].headers.length; });
+// clang-format on
 // which: 0 body, 1 error, 2 hint, 3 header name #index, 4 header value #index.
+// clang-format off
 EM_JS(int, fa_web_http_string_length, (int id, int which, int index), {
     const r = Module.faHttp.results[id];
     const s = which === 0 ? r.text : which === 1 ? r.error : which === 2 ? r.hint : which === 3 ? r.headers[index][0] : r.headers[index][1];
-    return lengthBytesUTF8(s || '');
+    return lengthBytesUTF8(s || "");
 });
 EM_JS(void, fa_web_http_string_copy, (int id, int which, int index, char* out, int capacity), {
     const r = Module.faHttp.results[id];
     const s = which === 0 ? r.text : which === 1 ? r.error : which === 2 ? r.hint : which === 3 ? r.headers[index][0] : r.headers[index][1];
-    stringToUTF8(s || '', out, capacity);
+    stringToUTF8(s || "", out, capacity);
 });
 EM_JS(void, fa_web_http_release, (int id), { delete Module.faHttp.results[id]; });
+// clang-format on
 
 namespace fa {
 

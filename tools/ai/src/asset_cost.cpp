@@ -61,8 +61,8 @@ bool is_unverified(const AssetPricing& p, MediaKind kind) {
 }
 
 // One picture: the table of the size the provider draws, then the quality asked for.
-std::optional<double> image_price(const AssetPricing& p, const std::vector<std::string>& sizes, const std::string& quality,
-                                  std::string& sizeUsed, std::string& qualityUsed) {
+std::optional<double> image_price(const AssetPricing& p, const std::vector<std::string>& sizes,
+                                  const std::string& quality, std::string& sizeUsed, std::string& qualityUsed) {
     const std::map<std::string, double>* bySize = nullptr;
     for (const std::string& size : sizes) {
         if (auto it = p.image.find(size); it != p.image.end()) {
@@ -98,18 +98,26 @@ std::optional<double> image_price(const AssetPricing& p, const std::vector<std::
 }  // namespace
 
 const char* asset_cost_short() {
-    return " COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above limits.askAboveUsd returns "
-           "{needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; only when the user says yes, call "
+    return " COST: the result carries estimatedCostUsd (an estimate, not an invoice). A call estimated above "
+           "limits.askAboveUsd returns "
+           "{needsApproval:true, plan:{...}}: tell the user what, how many, which provider and the estimate, and ask; "
+           "only when the user says yes, call "
            "again with approved:true. An AI must never set approved:true on its own.";
 }
 
 const char* asset_cost_doc() {
-    return " COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; null when the price is unknown; 0 for the fake "
-           "provider and local programs). Before the provider is called the call is checked against the project's limits.maxAssetCostUsd (per run, per day) and "
-           "refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default $0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns "
-           "{needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the estimate, and ask. Only when the user says yes, "
-           "call again with the same arguments and approved:true. An AI must never set approved:true on its own, and never raise a limit itself. In the editor "
-           "the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the approved argument is ignored.";
+    return " COST: the result carries estimatedCostUsd (an ESTIMATE from the provider's assetPricing, not an invoice; "
+           "null when the price is unknown; 0 for the fake "
+           "provider and local programs). Before the provider is called the call is checked against the project's "
+           "limits.maxAssetCostUsd (per run, per day) and "
+           "refused with a teaching error when it would pass one. A call estimated above limits.askAboveUsd (default "
+           "$0.50), or small calls that add up above it since the user last said yes, is NOT made: it returns "
+           "{needsApproval:true, plan:{...}}. Tell the user what will be made, how many, with which provider and the "
+           "estimate, and ask. Only when the user says yes, "
+           "call again with the same arguments and approved:true. An AI must never set approved:true on its own, and "
+           "never raise a limit itself. In the editor "
+           "the user answers a card (Approve, Approve all for this run, Cancel) and the call just continues; there the "
+           "approved argument is ignored.";
 }
 
 std::string format_usd(double usd) {
@@ -126,7 +134,8 @@ AssetEstimate estimate_asset_cost(const ProviderConfig& provider, const AssetReq
     e.checked = p.checked;
     e.source = p.source;
     e.note = p.note;
-    if (provider.kind == ProviderKind::Fake && p.empty()) {  // a fake provider with a price table is a stand-in for a paid one (tests, demos)
+    if (provider.kind == ProviderKind::Fake &&
+        p.empty()) {  // a fake provider with a price table is a stand-in for a paid one (tests, demos)
         e.free = true;
         e.usd = 0.0;
         e.checked.clear();
@@ -142,21 +151,27 @@ AssetEstimate estimate_asset_cost(const ProviderConfig& provider, const AssetReq
     switch (request.kind) {
         case MediaKind::Image: {
             std::vector<std::string> sizes;
-            if (provider.kind == ProviderKind::OpenAICompatible) sizes.push_back(openai_image_size(request));
-            else sizes.push_back(std::to_string(request.width) + "x" + std::to_string(request.height));
+            if (provider.kind == ProviderKind::OpenAICompatible)
+                sizes.push_back(openai_image_size(request));
+            else
+                sizes.push_back(std::to_string(request.width) + "x" + std::to_string(request.height));
             std::string sizeUsed, qualityUsed;
             each = image_price(p, sizes, request.quality, sizeUsed, qualityUsed);
             if (each && !p.model.empty()) {
                 // The table was read for one model; another model is billed by its own price list, which the engine did not read.
-                const std::string model = request.model.empty() ? asset_default_model(provider, MediaKind::Image) : request.model;
+                const std::string model =
+                    request.model.empty() ? asset_default_model(provider, MediaKind::Image) : request.model;
                 if (!model.empty() && model != p.model) {
                     e.verified = false;
-                    e.note += std::string(e.note.empty() ? "" : " ") + "This picture is made with " + model + " but the figures are those of " + p.model +
-                              ": the real price may differ.";
+                    e.note += std::string(e.note.empty() ? "" : " ") + "This picture is made with " + model +
+                              " but the figures are those of " + p.model + ": the real price may differ.";
                 }
             }
-            if (each) detail = std::format("{} picture, {}{}{} at {}", unit, sizeUsed == "default" ? std::string("any size") : sizeUsed,
-                                           qualityUsed == "default" ? "" : ", quality ", qualityUsed == "default" ? "" : qualityUsed, format_usd(*each));
+            if (each)
+                detail = std::format("{} picture, {}{}{} at {}", unit,
+                                     sizeUsed == "default" ? std::string("any size") : sizeUsed,
+                                     qualityUsed == "default" ? "" : ", quality ",
+                                     qualityUsed == "default" ? "" : qualityUsed, format_usd(*each));
             break;
         }
         case MediaKind::Voice:
@@ -168,13 +183,15 @@ AssetEstimate estimate_asset_cost(const ProviderConfig& provider, const AssetReq
             break;
         case MediaKind::Sound:
         case MediaKind::Music: {
-            const std::optional<double>& perSecond = request.kind == MediaKind::Sound ? p.soundPerSecond : p.musicPerSecond;
+            const std::optional<double>& perSecond =
+                request.kind == MediaKind::Sound ? p.soundPerSecond : p.musicPerSecond;
             if (perSecond) {
                 const bool assumed = request.seconds <= 0;
                 const double seconds = assumed ? (request.kind == MediaKind::Sound ? 10.0 : 60.0) : request.seconds;
                 each = *perSecond * seconds;
-                detail = std::format("{} s of {}{} at {} per second", seconds, unit, assumed ? " (assumed: the provider chooses the length)" : "",
-                                     format_usd(*perSecond));
+                detail =
+                    std::format("{} s of {}{} at {} per second", seconds, unit,
+                                assumed ? " (assumed: the provider chooses the length)" : "", format_usd(*perSecond));
             }
             break;
         }
@@ -195,11 +212,14 @@ AssetEstimate estimate_asset_cost(const ProviderConfig& provider, const AssetReq
     if (local) {
         e.free = true;
         e.usd = 0.0;
-        e.basis = provider.kind == ProviderKind::AssetCommand ? "a local program runs; FactorIA does not charge for it"
-                                                              : "a local server answers; FactorIA does not charge for it";
+        e.basis = provider.kind == ProviderKind::AssetCommand
+                      ? "a local program runs; FactorIA does not charge for it"
+                      : "a local server answers; FactorIA does not charge for it";
         return e;
     }
-    e.basis = std::format("the price of {} from '{}' is not known: add assetPricing to the provider in ai.json to get an estimate", unit, provider.name);
+    e.basis = std::format(
+        "the price of {} from '{}' is not known: add assetPricing to the provider in ai.json to get an estimate", unit,
+        provider.name);
     e.verified = false;
     return e;
 }
@@ -222,8 +242,9 @@ Json estimate_to_json(const AssetEstimate& e) {
 namespace {
 
 struct RunLedger {
-    double spent = 0;       // estimated dollars of the calls that went ahead in this run
-    double unapproved = 0;  // ...of those, what nobody was asked about since the last yes (calls under askAboveUsd add up: see begin())
+    double spent = 0;  // estimated dollars of the calls that went ahead in this run
+    double unapproved =
+        0;  // ...of those, what nobody was asked about since the last yes (calls under askAboveUsd add up: see begin())
     bool approveAll = false;
 };
 std::mutex gRunMu;
@@ -285,7 +306,8 @@ namespace {
 //   OverLimit  the run's limit would be passed (nothing was counted)
 //   Counted    the amount is now spent; `addedUnapproved` is the part that also went into the "unapproved since the last yes" total
 enum class Reserve { Asks, OverLimit, Counted };
-Reserve run_reserve(const std::string& key, double amount, bool unknown, double perRun, double askAbove, bool yes, double& addedUnapproved) {
+Reserve run_reserve(const std::string& key, double amount, bool unknown, double perRun, double askAbove, bool yes,
+                    double& addedUnapproved) {
     std::lock_guard<std::mutex> lock(gRunMu);
     RunLedger& r = runs()[key];
     addedUnapproved = 0;
@@ -363,7 +385,8 @@ std::string spend_shape_problem(const Json& doc) {
             if (!e.value().is_object()) return at + " is not an object";
             for (const char* key : {"usd", "calls"}) {
                 const auto v = e.value().find(key);
-                if (v != e.value().end() && !(v->is_number() && std::isfinite(v->get<double>()))) return at + "/" + key + " is not a number";
+                if (v != e.value().end() && !(v->is_number() && std::isfinite(v->get<double>())))
+                    return at + "/" + key + " is not a number";
             }
         }
     }
@@ -384,7 +407,8 @@ SpendFile read_spend_once(const std::string& path) {
         return out;
     }
     if (const std::string problem = spend_shape_problem(parsed); !problem.empty()) {
-        out.error = path + " does not have the shape this version writes (" + problem + "), so the day's asset spending cannot be counted";
+        out.error = path + " does not have the shape this version writes (" + problem +
+                    "), so the day's asset spending cannot be counted";
         return out;
     }
     out.doc = std::move(parsed);
@@ -421,7 +445,8 @@ void add_spent(Json& doc, const std::string& date, const std::string& project, d
     if (!days.is_object()) days = Json::object();
     Json& entry = days[date][project];
     const double usd = std::max(0.0, round6((entry.is_object() ? num(entry, "usd") : 0.0) + delta));
-    const int n = std::max(0, static_cast<int>(std::clamp(entry.is_object() ? num(entry, "calls") : 0.0, 0.0, 1e9)) + calls);
+    const int n =
+        std::max(0, static_cast<int>(std::clamp(entry.is_object() ? num(entry, "calls") : 0.0, 0.0, 1e9)) + calls);
     entry = Json::object({{"usd", usd}, {"calls", n}});
     if (days.size() > kKeepDays) {
         std::vector<std::string> dates;  // "2026-11-06": the text order is the date order
@@ -459,7 +484,8 @@ Result<DayReservation> day_reserve(const std::string& project, double amount, do
         return out;
     }
     add_spent(file.doc, out.date, project, amount, 1);
-    if (auto w = write_spend(path, file.doc); !w) return make_error("The asset spending of the day could not be saved: " + w.error().message, w.error().hint);
+    if (auto w = write_spend(path, file.doc); !w)
+        return make_error("The asset spending of the day could not be saved: " + w.error().message, w.error().hint);
     return out;
 }
 
@@ -485,9 +511,12 @@ std::string shortened(const std::string& text, std::size_t max) {
 }
 
 std::string limit_hint(const char* key) {
-    return std::string("The user decides whether to raise it: in the editor (AI > AI Settings, the project's limits), or in the project's "
-                       ".factoria/ai/settings.json or ~/.factoria/ai.json as {\"limits\": {\"maxAssetCostUsd\": {\"") + key +
-           "\": 2}}}. Do not raise a limit yourself. Cheaper ways: fewer or smaller results, a cheaper provider, or the offline tools "
+    return std::string("The user decides whether to raise it: in the editor (AI > AI Settings, the project's limits), "
+                       "or in the project's "
+                       ".factoria/ai/settings.json or ~/.factoria/ai.json as {\"limits\": {\"maxAssetCostUsd\": {\"") +
+           key +
+           "\": 2}}}. Do not raise a limit yourself. Cheaper ways: fewer or smaller results, a cheaper provider, or "
+           "the offline tools "
            "(assets.generate_texture, assets.rasterize_svg, assets.synth_sound).";
 }
 
@@ -542,8 +571,9 @@ struct SpendEnvScope {
 
 AssetCostGuard::AssetCostGuard(AssetCostGuard&& o) noexcept
     : go_(o.go_), reserved_(o.reserved_), committed_(o.committed_), dayReserved_(o.dayReserved_), amount_(o.amount_),
-      unapprovedAdded_(o.unapprovedAdded_), runKey_(std::move(o.runKey_)), projectDir_(std::move(o.projectDir_)), dayDate_(std::move(o.dayDate_)),
-      spendEnv_(o.spendEnv_), cost_(std::move(o.cost_)), needsApproval_(std::move(o.needsApproval_)), warnings_(std::move(o.warnings_)) {
+      unapprovedAdded_(o.unapprovedAdded_), runKey_(std::move(o.runKey_)), projectDir_(std::move(o.projectDir_)),
+      dayDate_(std::move(o.dayDate_)), spendEnv_(o.spendEnv_), cost_(std::move(o.cost_)),
+      needsApproval_(std::move(o.needsApproval_)), warnings_(std::move(o.warnings_)) {
     o.reserved_ = o.dayReserved_ = false;
 }
 
@@ -585,7 +615,8 @@ void AssetCostGuard::release() {
             why = e.what();
         }
         if (!why.empty()) {
-            const std::string text = "The estimated " + format_usd(amount_) + " of a failed asset call was not taken off today's asset spending (" + why +
+            const std::string text = "The estimated " + format_usd(amount_) +
+                                     " of a failed asset call was not taken off today's asset spending (" + why +
                                      "): the day's total in asset-spend.json is that much too high until the day ends.";
             FA_WARN("ai", "{}", text);
             warnings_.push_back(text);
@@ -658,41 +689,56 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
     g.amount_ = amount;
     const double perRun = limits.maxAssetCostPerRunUsd, perDay = limits.maxAssetCostPerDayUsd;
     const std::string what = call.what.empty() ? call.command : call.what;
-    const std::string priceText = unknown ? "an unknown price" : "an estimated " + format_usd(amount) + " (" + e.basis + ")";
+    const std::string priceText =
+        unknown ? "an unknown price" : "an estimated " + format_usd(amount) + " (" + e.basis + ")";
 
     if (unknown && (perRun > 0 || perDay > 0)) {
         throw CommandError("asset_cost_unknown",
-                           std::format("{} from '{}' is refused: its price is not known and limits.maxAssetCostUsd is set ({}{}{}), so the limit cannot be kept",
+                           std::format("{} from '{}' is refused: its price is not known and limits.maxAssetCostUsd is "
+                                       "set ({}{}{}), so the limit cannot be kept",
                                        what, call.provider, perRun > 0 ? "perRun " + format_usd(perRun) : std::string(),
-                                       perRun > 0 && perDay > 0 ? ", " : "", perDay > 0 ? "perDay " + format_usd(perDay) : std::string()),
-                           "Add assetPricing for this provider to ai.json (docs/AI_PROVIDERS.md, \"Asset prices\"), choose a provider whose price is known, or ask "
+                                       perRun > 0 && perDay > 0 ? ", " : "",
+                                       perDay > 0 ? "perDay " + format_usd(perDay) : std::string()),
+                           "Add assetPricing for this provider to ai.json (docs/AI_PROVIDERS.md, \"Asset prices\"), "
+                           "choose a provider whose price is known, or ask "
                            "the user to remove the limit.",
                            Json::object({{"provider", call.provider}, {"kind", media_kind_name(call.kind)}}));
     }
     const double spentRun = asset_run_spent(g.runKey_);
     if (perRun > 0 && spentRun + amount > perRun + kEpsilon) {
         throw CommandError("asset_cost_limit",
-                           std::format("{} is refused: limits.maxAssetCostUsd.perRun is {} and this run has already spent an estimated {} on assets; this call is {} more",
+                           std::format("{} is refused: limits.maxAssetCostUsd.perRun is {} and this run has already "
+                                       "spent an estimated {} on assets; this call is {} more",
                                        what, format_usd(perRun), format_usd(spentRun), priceText),
                            limit_hint("perRun"),
-                           Json::object({{"limit", "perRun"}, {"limitUsd", perRun}, {"spentUsd", round4(spentRun)}, {"estimatedUsd", round4(amount)}}));
+                           Json::object({{"limit", "perRun"},
+                                         {"limitUsd", perRun},
+                                         {"spentUsd", round4(spentRun)},
+                                         {"estimatedUsd", round4(amount)}}));
     }
     const std::string project = project_key(call.projectDir);
     if (perDay > 0) {
         std::string why;
         const std::optional<double> today = read_today(call.projectDir, why);
         if (!today) {
-            throw CommandError("asset_cost_unavailable",
-                               "The asset spending of today cannot be read, so limits.maxAssetCostUsd.perDay cannot be checked: " + why,
-                               "Fix or delete " + asset_spend_path() + " (it only holds the totals of the last days), then try again. Nothing was paid.");
+            throw CommandError(
+                "asset_cost_unavailable",
+                "The asset spending of today cannot be read, so limits.maxAssetCostUsd.perDay cannot be checked: " +
+                    why,
+                "Fix or delete " + asset_spend_path() +
+                    " (it only holds the totals of the last days), then try again. Nothing was paid.");
         }
         if (*today + amount > perDay + kEpsilon) {
             throw CommandError("asset_cost_limit",
-                               std::format("{} is refused: limits.maxAssetCostUsd.perDay is {} and this project has already spent an estimated {} on assets today "
+                               std::format("{} is refused: limits.maxAssetCostUsd.perDay is {} and this project has "
+                                           "already spent an estimated {} on assets today "
                                            "(counted across every editor, terminal and agent); this call is {} more",
                                            what, format_usd(perDay), format_usd(*today), priceText),
                                limit_hint("perDay"),
-                               Json::object({{"limit", "perDay"}, {"limitUsd", perDay}, {"spentUsd", round4(*today)}, {"estimatedUsd", round4(amount)}}));
+                               Json::object({{"limit", "perDay"},
+                                             {"limitUsd", perDay},
+                                             {"spentUsd", round4(*today)},
+                                             {"estimatedUsd", round4(amount)}}));
         }
     }
 
@@ -731,38 +777,57 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
         if (!e.verified) plan["priceUnverified"] = true;
         if (!approver) {
             std::string message;
-            if (unknown) message = std::format("{} from '{}' has an unknown price, so it needs the user's approval before anything is paid.", what, call.provider);
+            if (unknown)
+                message = std::format(
+                    "{} from '{}' has an unknown price, so it needs the user's approval before anything is paid.", what,
+                    call.provider);
             else if (amount > limits.askAboveUsd + kEpsilon)
-                message = std::format("{} is estimated at {}, above the {} the project asks about (limits.askAboveUsd), so it needs the user's approval before anything is paid.",
+                message = std::format("{} is estimated at {}, above the {} the project asks about "
+                                      "(limits.askAboveUsd), so it needs the user's approval before anything is paid.",
                                       what, format_usd(amount), format_usd(limits.askAboveUsd));
             else
-                message = std::format("{} is estimated at {}; with the {} of the calls since the user last said yes that is {}, above the {} the project asks about "
+                message = std::format("{} is estimated at {}; with the {} of the calls since the user last said yes "
+                                      "that is {}, above the {} the project asks about "
                                       "(limits.askAboveUsd), so it needs the user's approval before anything is paid.",
-                                      what, format_usd(amount), format_usd(before), format_usd(before + amount), format_usd(limits.askAboveUsd));
+                                      what, format_usd(amount), format_usd(before), format_usd(before + amount),
+                                      format_usd(limits.askAboveUsd));
             g.needsApproval_ = Json::object(
                 {{"needsApproval", true},
                  {"generated", false},
                  {"message", message},
                  {"plan", std::move(plan)},
-                 {"next", "Nothing was generated or paid. Tell the user what will be made, how many, with which provider and the estimate above"
-                          + std::string(before > kEpsilon ? " (and that it comes after " + format_usd(before) + " of earlier asset calls they were not asked about)" : "") +
-                          ", and ask whether to go ahead. Only if the user says yes, call the same command again with the same arguments and approved:true. Never set "
-                          "approved:true on your own, and do not ask again for a call the user already approved."}});
+                 {"next",
+                  "Nothing was generated or paid. Tell the user what will be made, how many, with which provider and "
+                  "the estimate above" +
+                      std::string(before > kEpsilon ? " (and that it comes after " + format_usd(before) +
+                                                          " of earlier asset calls they were not asked about)"
+                                                    : "") +
+                      ", and ask whether to go ahead. Only if the user says yes, call the same command again with the "
+                      "same arguments and approved:true. Never set "
+                      "approved:true on your own, and do not ask again for a call the user already approved."}});
             return g;
         }
         if (approvedArg && !call.userApproved) {
-            g.warnings_.push_back("The approved argument was ignored: in the editor the user answers the card themselves, an AI cannot answer for them.");
+            g.warnings_.push_back("The approved argument was ignored: in the editor the user answers the card "
+                                  "themselves, an AI cannot answer for them.");
         }
         // The editor: its card asks the person while this (agent) thread waits.
         const AssetDecision answer = approver(AssetApprovalRequest{g.runKey_, plan, call.cancel});
         if (answer == AssetDecision::Stopped) {
-            throw CommandError("cancelled", std::format("The run was stopped while {} ({}) waited for the user's approval: nothing was generated or paid", what, priceText),
-                               "The user stopped the run. Do not start the call again unless they ask for it.", Json::object({{"plan", plan}}));
+            throw CommandError(
+                "cancelled",
+                std::format(
+                    "The run was stopped while {} ({}) waited for the user's approval: nothing was generated or paid",
+                    what, priceText),
+                "The user stopped the run. Do not start the call again unless they ask for it.",
+                Json::object({{"plan", plan}}));
         }
         if (answer == AssetDecision::Cancel) {
             throw CommandError("asset_declined",
-                               std::format("The user did not approve {} ({}): nothing was generated or paid", what, unknown ? std::string("unknown price") : priceText),
-                               "Do not ask for the same thing again. Continue without it (use a placeholder or the offline tools), or ask the user what they want instead.",
+                               std::format("The user did not approve {} ({}): nothing was generated or paid", what,
+                                           unknown ? std::string("unknown price") : priceText),
+                               "Do not ask for the same thing again. Continue without it (use a placeholder or the "
+                               "offline tools), or ask the user what they want instead.",
                                Json::object({{"plan", plan}}));
         }
         if (answer == AssetDecision::ApproveAll) asset_run_approve_all(g.runKey_);
@@ -770,7 +835,8 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
     }
     if (reserved == Reserve::OverLimit) {
         throw CommandError("asset_cost_limit",
-                           std::format("{} is refused: limits.maxAssetCostUsd.perRun is {} and this run has already spent an estimated {} on assets; this call is {} more",
+                           std::format("{} is refused: limits.maxAssetCostUsd.perRun is {} and this run has already "
+                                       "spent an estimated {} on assets; this call is {} more",
                                        what, format_usd(perRun), format_usd(asset_run_spent(g.runKey_)), priceText),
                            limit_hint("perRun"),
                            Json::object({{"limit", "perRun"}, {"limitUsd", perRun}, {"estimatedUsd", round4(amount)}}));
@@ -783,18 +849,23 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
             if (perDay > 0) {
                 run_refund(g.runKey_, amount, g.unapprovedAdded_);
                 g.reserved_ = false;
-                throw CommandError("asset_cost_unavailable", day.error().message, day.error().hint + " Nothing was paid.");
+                throw CommandError("asset_cost_unavailable", day.error().message,
+                                   day.error().hint + " Nothing was paid.");
             }
             g.warnings_.push_back("The day's asset spending was not recorded: " + day.error().message);
         } else if (day->exceeded) {
             run_refund(g.runKey_, amount, g.unapprovedAdded_);
             g.reserved_ = false;
             throw CommandError("asset_cost_limit",
-                               std::format("{} is refused: limits.maxAssetCostUsd.perDay is {} and this project has already spent an estimated {} on assets today "
+                               std::format("{} is refused: limits.maxAssetCostUsd.perDay is {} and this project has "
+                                           "already spent an estimated {} on assets today "
                                            "(counted across every editor, terminal and agent); this call is {} more",
                                            what, format_usd(perDay), format_usd(day->before), priceText),
                                limit_hint("perDay"),
-                               Json::object({{"limit", "perDay"}, {"limitUsd", perDay}, {"spentUsd", round4(day->before)}, {"estimatedUsd", round4(amount)}}));
+                               Json::object({{"limit", "perDay"},
+                                             {"limitUsd", perDay},
+                                             {"spentUsd", round4(day->before)},
+                                             {"estimatedUsd", round4(amount)}}));
         } else {
             g.dayReserved_ = true;
             g.dayDate_ = day->date;

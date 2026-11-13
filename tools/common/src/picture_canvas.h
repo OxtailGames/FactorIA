@@ -74,14 +74,16 @@ public:
         const int top = middle ? y - bmp.height / 2 : y;
         for (int yy = 0; yy < bmp.height; ++yy)
             for (int xx = 0; xx < bmp.width; ++xx)
-                blend(left + xx, top + yy, c, bmp.coverage[std::size_t(yy) * std::size_t(bmp.width) + std::size_t(xx)] / 255.0);
+                blend(left + xx, top + yy, c,
+                      bmp.coverage[std::size_t(yy) * std::size_t(bmp.width) + std::size_t(xx)] / 255.0);
     }
     Image img;
     std::map<std::pair<std::string, int>, TextBitmap> cache;
 };
 
 inline Rgb magma(double t) {
-    static const Rgb stops[] = {{0, 0, 4}, {40, 11, 84}, {101, 21, 110}, {159, 42, 99}, {212, 72, 66}, {245, 125, 21}, {250, 193, 39}, {252, 255, 164}};
+    static const Rgb stops[] = {{0, 0, 4},     {40, 11, 84},   {101, 21, 110}, {159, 42, 99},
+                                {212, 72, 66}, {245, 125, 21}, {250, 193, 39}, {252, 255, 164}};
     t = std::clamp(t, 0.0, 1.0) * 7.0;
     const int i = std::min(6, int(t));
     const double f = t - i;

@@ -42,7 +42,8 @@ Loaded load_shape(XNode& n) {
     l.node = &n;
     std::string why;
     if (!shape_path(n, l.local, why))
-        fail("invalid_svg", std::format("{}: {}.", label(n), why), "Fix the element in the SVG, or leave it out of `elements`.");
+        fail("invalid_svg", std::format("{}: {}.", label(n), why),
+             "Fix the element in the SVG, or leave it out of `elements`.");
     l.ctm = element_ctm(n);
     return l;
 }
@@ -50,7 +51,9 @@ Loaded load_shape(XNode& n) {
 // The drawing-space mapping must be reversible to write results back.
 void require_invertible(const Loaded& l, const char* command) {
     if (!l.ctm.invertible())
-        fail("invalid_svg", std::format("{} {}: its transform scales it to nothing, so a result cannot be written back.", command, label(*l.node)),
+        fail("invalid_svg",
+             std::format("{} {}: its transform scales it to nothing, so a result cannot be written back.", command,
+                         label(*l.node)),
              "Fix the transform (a scale of 0 collapses the shape).");
 }
 
@@ -123,19 +126,24 @@ Settings local_settings(const Settings& s, double scale) {
     return l;
 }
 
-std::vector<XNode*> expand_shapes(const std::vector<XNode*>& picked, const char* command, std::vector<std::string>& warnings) {
+std::vector<XNode*> expand_shapes(const std::vector<XNode*>& picked, const char* command,
+                                  std::vector<std::string>& warnings) {
     std::vector<XNode*> out;
     std::set<XNode*> seen;
     for (XNode* p : picked) {
         std::vector<XNode*> found;
         shapes_under(*p, found);
-        if (found.empty()) warnings.push_back(std::format("{} has no shape in it (only path, rect, circle, ellipse, line, polyline and polygon are read), so it was skipped.", label(*p)));
+        if (found.empty())
+            warnings.push_back(std::format("{} has no shape in it (only path, rect, circle, ellipse, line, polyline "
+                                           "and polygon are read), so it was skipped.",
+                                           label(*p)));
         for (XNode* s : found)
             if (seen.insert(s).second) out.push_back(s);
     }
     if (out.empty())
         fail("invalid_argument", std::format("{}: none of the picked elements is a shape.", command),
-             "Pick a path, rect, circle, ellipse, line, polyline or polygon, or a group that holds some. Run vector.info to list them.");
+             "Pick a path, rect, circle, ellipse, line, polyline or polygon, or a group that holds some. Run "
+             "vector.info to list them.");
     return out;
 }
 
@@ -149,18 +157,25 @@ std::vector<std::string> document_warnings(const SvgDoc& doc) {
         }
         if (n->local() == "use") use = true;
     }
-    if (style) w.push_back("The SVG has CSS rules in <style>; fill, stroke and fill-rule are read from attributes and style=\"...\" only, so a rule in <style> is not seen by the operations.");
-    if (use) w.push_back("The SVG has <use> elements; they are not moved, repeated or edited (only the shapes they point to are).");
+    if (style)
+        w.push_back("The SVG has CSS rules in <style>; fill, stroke and fill-rule are read from attributes and "
+                    "style=\"...\" only, so a rule in <style> is not seen by the operations.");
+    if (use)
+        w.push_back(
+            "The SVG has <use> elements; they are not moved, repeated or edited (only the shapes they point to are).");
     return w;
 }
 
 // ---- boolean ---------------------------------------------------------------------------------------------------------
 
-Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const Settings& s, bool keepInputs, std::vector<std::string>& warnings) {
+Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const Settings& s, bool keepInputs,
+                std::vector<std::string>& warnings) {
     const char* cmd = "vector.boolean";
     const std::vector<XNode*> shapes = expand_shapes(picked, cmd, warnings);
     if (shapes.size() < 2)
-        fail("invalid_argument", std::format("{} /elements: a path operation needs at least two shapes, found {} ({}).", cmd, shapes.size(), label(*shapes[0])),
+        fail("invalid_argument",
+             std::format("{} /elements: a path operation needs at least two shapes, found {} ({}).", cmd, shapes.size(),
+                         label(*shapes[0])),
              "Pick two or more shapes, or a group that holds several: [\"outer\", \"hole\"].");
     std::vector<Loaded> in;
     std::vector<std::vector<Poly>> area;
@@ -170,7 +185,9 @@ Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const
         before += node_count(in.back().local);
         area.push_back(shape_area(in.back(), s));
         if (area.back().empty())
-            warnings.push_back(std::format("{} covers no area (an open line, or a shape of zero size), so it takes no part in the result.", label(*n)));
+            warnings.push_back(std::format(
+                "{} covers no area (an open line, or a shape of zero size), so it takes no part in the result.",
+                label(*n)));
     }
     require_invertible(in[0], cmd);
     const ClipGrid g = grid_of(s);
@@ -183,9 +200,12 @@ Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const
         for (std::size_t i = 1; i < area.size(); ++i) acc = boolean_op(op, acc, area[i], g);
     }
     if (acc.empty()) {
-        const char* what = op == BoolOp::Intersect ? "the shapes do not overlap" : op == BoolOp::Subtract ? "the first shape is covered completely by the others" : "nothing is left";
+        const char* what = op == BoolOp::Intersect  ? "the shapes do not overlap"
+                           : op == BoolOp::Subtract ? "the first shape is covered completely by the others"
+                                                    : "nothing is left";
         fail("empty_result", std::format("{} /elements: the result is empty: {}.", cmd, what),
-             op == BoolOp::Intersect ? "Intersect keeps only what all the shapes cover; move them so they overlap." : "Check the order: subtract removes the later shapes from the first.");
+             op == BoolOp::Intersect ? "Intersect keeps only what all the shapes cover; move them so they overlap."
+                                     : "Check the order: subtract removes the later shapes from the first.");
     }
     const Path canvas = polys_to_path(acc, s);
     const Mat inv = inverse(in[0].ctm);
@@ -200,7 +220,8 @@ Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const
             removed.push_back(id_or_label(*in[i].node));
             doc.remove(in[i].node);
         }
-    Json r = Json::object({{"result", id_or_label(*first)}, {"nodes", after}, {"nodesBefore", before}, {"curves", has_curves(local)}});
+    Json r = Json::object(
+        {{"result", id_or_label(*first)}, {"nodes", after}, {"nodesBefore", before}, {"curves", has_curves(local)}});
     r["removed"] = removed;
     r["bounds"] = rect_json(path_bounds(canvas));
     return r;
@@ -208,8 +229,8 @@ Json op_boolean(SvgDoc& doc, BoolOp op, const std::vector<XNode*>& picked, const
 
 // ---- offset ----------------------------------------------------------------------------------------------------------
 
-Json op_offset(SvgDoc& doc, const std::vector<XNode*>& picked, double distance, Join join, double miterLimit, bool copy, const Settings& s,
-               std::vector<std::string>& warnings) {
+Json op_offset(SvgDoc& doc, const std::vector<XNode*>& picked, double distance, Join join, double miterLimit, bool copy,
+               const Settings& s, std::vector<std::string>& warnings) {
     const char* cmd = "vector.offset";
     const std::vector<XNode*> shapes = expand_shapes(picked, cmd, warnings);
     struct Pending {
@@ -224,25 +245,31 @@ Json op_offset(SvgDoc& doc, const std::vector<XNode*>& picked, double distance, 
         require_invertible(l, cmd);
         const std::vector<Poly> area = shape_area(l, s);
         if (area.empty()) {
-            warnings.push_back(std::format("{} covers no area (an open line has none: use vector.stroke_to_path first), so it was skipped.", label(*n)));
+            warnings.push_back(std::format(
+                "{} covers no area (an open line has none: use vector.stroke_to_path first), so it was skipped.",
+                label(*n)));
             continue;
         }
         const std::vector<Poly> grown = offset_rings(area, distance, join, miterLimit, s.tol * 0.5, grid_of(s));
         if (grown.empty())
-            fail("empty_result", std::format("{} /distance: the inset of {} leaves nothing of {}.", cmd, r3(-distance), label(*n)),
+            fail("empty_result",
+                 std::format("{} /distance: the inset of {} leaves nothing of {}.", cmd, r3(-distance), label(*n)),
                  "Use a smaller distance: the shape is narrower than twice the inset.");
         const Path canvas = polys_to_path(grown, s);
         const Path local = transform_path(canvas, inverse(l.ctm));
         const Settings ls = local_settings(s, l.ctm.scale());
         pending.push_back({n, path_to_data(local, ls.outDecimals), node_count(local), path_bounds(canvas)});
     }
-    if (pending.empty()) fail("invalid_argument", std::format("{} /elements: none of the shapes covers an area.", cmd), "Offset grows or shrinks what a shape fills; pick closed shapes.");
+    if (pending.empty())
+        fail("invalid_argument", std::format("{} /elements: none of the shapes covers an area.", cmd),
+             "Offset grows or shrinks what a shape fills; pick closed shapes.");
     Json items = Json::array();
     for (const Pending& p : pending) {
         XNode* target = p.node;
         if (copy) target = insert_copy(doc, *p.node, *p.node, "-offset");
         set_path_geometry(*target, p.data);
-        items.push_back(Json::object({{"element", id_or_label(*target)}, {"nodes", p.nodes}, {"bounds", rect_json(p.bounds)}}));
+        items.push_back(
+            Json::object({{"element", id_or_label(*target)}, {"nodes", p.nodes}, {"bounds", rect_json(p.bounds)}}));
     }
     return Json::object({{"offset", r3(distance)}, {"results", items}});
 }
@@ -282,7 +309,8 @@ double num_prop(const XNode& n, const char* name, double fallback) {
 
 }  // namespace
 
-Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const StrokeOverrides& ov, const Settings& s, std::vector<std::string>& warnings) {
+Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const StrokeOverrides& ov, const Settings& s,
+                       std::vector<std::string>& warnings) {
     const char* cmd = "vector.stroke_to_path";
     const std::vector<XNode*> shapes = expand_shapes(picked, cmd, warnings);
     struct Pending {
@@ -299,7 +327,8 @@ Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const Str
         std::string paint = inherited_prop(*n, "stroke");
         if (!visible_paint(paint)) {
             if (!ov.paint) {
-                warnings.push_back(std::format("{} has no stroke, so it was skipped (give `color` to stroke it anyway).", label(*n)));
+                warnings.push_back(
+                    std::format("{} has no stroke, so it was skipped (give `color` to stroke it anyway).", label(*n)));
                 continue;
             }
             paint = *ov.paint;
@@ -319,11 +348,15 @@ Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const Str
         st.dashes = ov.dashes ? *ov.dashes : parse_dashes(inherited_prop(*n, "stroke-dasharray"));
         st.dashOffset = ov.dashOffset ? *ov.dashOffset : num_prop(*n, "stroke-dashoffset", 0.0);
         if (paint.rfind("url(", 0) == 0)
-            warnings.push_back(std::format("{} is stroked with {}: as a fill the gradient or pattern spreads over the outline's own box, so it may look different.", label(*n), paint));
+            warnings.push_back(std::format("{} is stroked with {}: as a fill the gradient or pattern spreads over the "
+                                           "outline's own box, so it may look different.",
+                                           label(*n), paint));
         const Settings ls = local_settings(s, l.ctm.scale());
         const std::vector<Poly> outline = stroke_outline(l.local, st, ls.tol * 0.5, grid_of(ls));
         if (outline.empty()) {
-            warnings.push_back(std::format("{} has a stroke that covers nothing (an empty path, or a zero-length piece with butt caps), so it was skipped.", label(*n)));
+            warnings.push_back(std::format("{} has a stroke that covers nothing (an empty path, or a zero-length piece "
+                                           "with butt caps), so it was skipped.",
+                                           label(*n)));
             continue;
         }
         const Path local = polys_to_path(outline, ls);
@@ -338,16 +371,22 @@ Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const Str
         p.bounds = path_bounds(transform_path(local, l.ctm));
         pending.push_back(std::move(p));
     }
-    if (pending.empty()) fail("invalid_argument", std::format("{} /elements: none of the shapes has a stroke to convert.", cmd), "Give the shape a stroke (stroke=\"#000\" stroke-width=\"4\"), or pass `color` and `width`.");
-    static const char* const kStrokeProps[] = {"stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "stroke-opacity"};
+    if (pending.empty())
+        fail("invalid_argument", std::format("{} /elements: none of the shapes has a stroke to convert.", cmd),
+             "Give the shape a stroke (stroke=\"#000\" stroke-width=\"4\"), or pass `color` and `width`.");
+    static const char* const kStrokeProps[] = {"stroke-width",      "stroke-linecap",   "stroke-linejoin",
+                                               "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset",
+                                               "stroke-opacity"};
     auto drop_stroke = [&](XNode& n) {
         set_prop(n, "stroke", "none");
         for (const char* k : kStrokeProps) remove_prop(n, k);
     };
     auto as_fill = [&](XNode& n, const Pending& p) {
         set_prop(n, "fill", p.paint);
-        if (!p.opacity.empty() && p.opacity != "1") set_prop(n, "fill-opacity", p.opacity);
-        else remove_prop(n, "fill-opacity");
+        if (!p.opacity.empty() && p.opacity != "1")
+            set_prop(n, "fill-opacity", p.opacity);
+        else
+            remove_prop(n, "fill-opacity");
         drop_stroke(n);
     };
     Json items = Json::array();
@@ -362,7 +401,11 @@ Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const Str
         }
         set_path_geometry(*outline, p.data);
         as_fill(*outline, p);
-        items.push_back(Json::object({{"element", id_or_label(*outline)}, {"from", id_or_label(*p.node)}, {"role", role}, {"nodes", p.nodes}, {"bounds", rect_json(p.bounds)}}));
+        items.push_back(Json::object({{"element", id_or_label(*outline)},
+                                      {"from", id_or_label(*p.node)},
+                                      {"role", role},
+                                      {"nodes", p.nodes},
+                                      {"bounds", rect_json(p.bounds)}}));
     }
     return Json::object({{"results", items}});
 }
@@ -371,8 +414,8 @@ Json op_stroke_to_path(SvgDoc& doc, const std::vector<XNode*>& picked, const Str
 
 namespace {
 
-Json rewrite_shapes(SvgDoc&, const std::vector<XNode*>& shapes, const char* cmd, const Settings& s, const std::function<Path(const Path&, const Settings&)>& fn,
-                    std::vector<std::string>& warnings) {
+Json rewrite_shapes(SvgDoc&, const std::vector<XNode*>& shapes, const char* cmd, const Settings& s,
+                    const std::function<Path(const Path&, const Settings&)>& fn, std::vector<std::string>& warnings) {
     struct Pending {
         XNode* node;
         std::string data;
@@ -398,7 +441,8 @@ Json rewrite_shapes(SvgDoc&, const std::vector<XNode*>& shapes, const char* cmd,
     Json items = Json::array();
     for (const Pending& p : pending) {
         set_path_geometry(*p.node, p.data);
-        items.push_back(Json::object({{"element", id_or_label(*p.node)}, {"nodesBefore", p.before}, {"nodes", p.after}}));
+        items.push_back(
+            Json::object({{"element", id_or_label(*p.node)}, {"nodesBefore", p.before}, {"nodes", p.after}}));
     }
     (void)cmd;
     Json r = Json::object({{"results", items}});
@@ -408,22 +452,27 @@ Json rewrite_shapes(SvgDoc&, const std::vector<XNode*>& shapes, const char* cmd,
 
 }  // namespace
 
-Json op_simplify(SvgDoc& doc, const std::vector<XNode*>& picked, const Settings& s, std::vector<std::string>& warnings) {
+Json op_simplify(SvgDoc& doc, const std::vector<XNode*>& picked, const Settings& s,
+                 std::vector<std::string>& warnings) {
     const std::vector<XNode*> shapes = expand_shapes(picked, "vector.simplify", warnings);
-    Json r = rewrite_shapes(doc, shapes, "vector.simplify", s,
-                            [&](const Path& p, const Settings& ls) {
-                                Path out = simplify_path(p, ls.tol, s.cornerAngle);
-                                // a path with fewer nodes only: never swap a shape for one with more
-                                return node_count(out) < node_count(p) ? out : p;
-                            },
-                            warnings);
+    Json r = rewrite_shapes(
+        doc, shapes, "vector.simplify", s,
+        [&](const Path& p, const Settings& ls) {
+            Path out = simplify_path(p, ls.tol, s.cornerAngle);
+            // a path with fewer nodes only: never swap a shape for one with more
+            return node_count(out) < node_count(p) ? out : p;
+        },
+        warnings);
     r["tolerance"] = r3(s.tol);
     return r;
 }
 
-Json op_smooth(SvgDoc& doc, const std::vector<XNode*>& picked, double smoothness, const Settings& s, std::vector<std::string>& warnings) {
+Json op_smooth(SvgDoc& doc, const std::vector<XNode*>& picked, double smoothness, const Settings& s,
+               std::vector<std::string>& warnings) {
     const std::vector<XNode*> shapes = expand_shapes(picked, "vector.smooth", warnings);
-    Json r = rewrite_shapes(doc, shapes, "vector.smooth", s, [&](const Path& p, const Settings&) { return smooth_path(p, smoothness, s.cornerAngle); }, warnings);
+    Json r = rewrite_shapes(
+        doc, shapes, "vector.smooth", s,
+        [&](const Path& p, const Settings&) { return smooth_path(p, smoothness, s.cornerAngle); }, warnings);
     r["smoothness"] = smoothness;
     return r;
 }
@@ -464,16 +513,23 @@ namespace {
 Rect bounds_or_fail(XNode& unit, bool visual, const char* cmd) {
     Rect r;
     std::string why;
-    if (!unit_bounds(unit, visual, r, why)) fail("invalid_argument", std::format("{} /elements: {}.", cmd, why), "Pick shapes, or groups that hold shapes.");
+    if (!unit_bounds(unit, visual, r, why))
+        fail("invalid_argument", std::format("{} /elements: {}.", cmd, why),
+             "Pick shapes, or groups that hold shapes.");
     return r;
 }
 
 bool near_identity(const Mat& m) {
-    return std::fabs(m.a - 1) < 1e-9 && std::fabs(m.d - 1) < 1e-9 && std::fabs(m.b) < 1e-9 && std::fabs(m.c) < 1e-9 && std::fabs(m.e) < 1e-9 && std::fabs(m.f) < 1e-9;
+    return std::fabs(m.a - 1) < 1e-9 && std::fabs(m.d - 1) < 1e-9 && std::fabs(m.b) < 1e-9 && std::fabs(m.c) < 1e-9 &&
+           std::fabs(m.e) < 1e-9 && std::fabs(m.f) < 1e-9;
 }
-bool pure_translation(const Mat& m) { return std::fabs(m.a - 1) < 1e-12 && std::fabs(m.d - 1) < 1e-12 && std::fabs(m.b) < 1e-12 && std::fabs(m.c) < 1e-12; }
+bool pure_translation(const Mat& m) {
+    return std::fabs(m.a - 1) < 1e-12 && std::fabs(m.d - 1) < 1e-12 && std::fabs(m.b) < 1e-12 && std::fabs(m.c) < 1e-12;
+}
 
-std::string translate_text(double dx, double dy) { return std::format("translate({} {})", format_number(dx, 4), format_number(dy, 4)); }
+std::string translate_text(double dx, double dy) {
+    return std::format("translate({} {})", format_number(dx, 4), format_number(dy, 4));
+}
 
 }  // namespace
 
@@ -485,18 +541,24 @@ void apply_canvas_transform(XNode& n, const Mat& m, const std::string& mText, co
     if (near_identity(P)) {
         if (pure_translation(m) && pure_translation(T)) {
             const Mat sum = m * T;
-            if (std::fabs(sum.e) < 1e-9 && std::fabs(sum.f) < 1e-9) n.remove_attr("transform");
-            else n.set_attr("transform", transform_to_string(sum, 4));
+            if (std::fabs(sum.e) < 1e-9 && std::fabs(sum.f) < 1e-9)
+                n.remove_attr("transform");
+            else
+                n.set_attr("transform", transform_to_string(sum, 4));
             return;
         }
         const std::string cur = n.attr_or("transform");
         n.set_attr("transform", cur.empty() ? mText : mText + " " + cur);
         return;
     }
-    if (!P.invertible()) fail("invalid_svg", std::format("{} {}: a parent transform scales it to nothing.", cmd, label(n)), "Fix the transform of the group.");
+    if (!P.invertible())
+        fail("invalid_svg", std::format("{} {}: a parent transform scales it to nothing.", cmd, label(n)),
+             "Fix the transform of the group.");
     const Mat nt = inverse(P) * m * P * T;
-    if (near_identity(nt)) n.remove_attr("transform");
-    else n.set_attr("transform", transform_to_string(nt, 6));
+    if (near_identity(nt))
+        n.remove_attr("transform");
+    else
+        n.set_attr("transform", transform_to_string(nt, 6));
 }
 
 // ---- align and distribute ----------------------------------------------------------------------------------------------
@@ -505,7 +567,8 @@ Json op_align(SvgDoc& doc, const std::vector<XNode*>& units, const AlignArgs& a,
     const char* cmd = "vector.align";
     (void)warnings;
     if (a.horizontal.empty() && a.vertical.empty())
-        arg_error(cmd, "/horizontal", "nothing to align: neither `horizontal` nor `vertical` is set.", "Set horizontal to left, center or right and/or vertical to top, middle or bottom.");
+        arg_error(cmd, "/horizontal", "nothing to align: neither `horizontal` nor `vertical` is set.",
+                  "Set horizontal to left, center or right and/or vertical to top, middle or bottom.");
     std::vector<Rect> bounds;
     Rect all;
     for (XNode* u : units) {
@@ -513,24 +576,34 @@ Json op_align(SvgDoc& doc, const std::vector<XNode*>& units, const AlignArgs& a,
         all.add(bounds.back());
     }
     Rect target = all;
-    if (a.to == "canvas") target = doc.canvas();
+    if (a.to == "canvas")
+        target = doc.canvas();
     else if (a.to == "key") {
-        if (!a.key) arg_error(cmd, "/key", "`to` is \"key\" but no `key` element was given.", "Give the element the others align to: {\"to\": \"key\", \"key\": \"badge\"}.");
+        if (!a.key)
+            arg_error(cmd, "/key", "`to` is \"key\" but no `key` element was given.",
+                      "Give the element the others align to: {\"to\": \"key\", \"key\": \"badge\"}.");
         target = bounds_or_fail(*a.key, a.visual, cmd);
     } else if (units.size() < 2) {
-        arg_error(cmd, "/elements", "aligning to the selection needs at least two elements.", "Pass several elements, or {\"to\": \"canvas\"}.");
+        arg_error(cmd, "/elements", "aligning to the selection needs at least two elements.",
+                  "Pass several elements, or {\"to\": \"canvas\"}.");
     }
     Json moves = Json::array();
     for (std::size_t i = 0; i < units.size(); ++i) {
         if (a.to == "key" && units[i] == a.key) continue;
         const Rect& b = bounds[i];
         double dx = 0, dy = 0;
-        if (a.horizontal == "left") dx = target.x0 - b.x0;
-        else if (a.horizontal == "center") dx = target.center().x - b.center().x;
-        else if (a.horizontal == "right") dx = target.x1 - b.x1;
-        if (a.vertical == "top") dy = target.y0 - b.y0;
-        else if (a.vertical == "middle") dy = target.center().y - b.center().y;
-        else if (a.vertical == "bottom") dy = target.y1 - b.y1;
+        if (a.horizontal == "left")
+            dx = target.x0 - b.x0;
+        else if (a.horizontal == "center")
+            dx = target.center().x - b.center().x;
+        else if (a.horizontal == "right")
+            dx = target.x1 - b.x1;
+        if (a.vertical == "top")
+            dy = target.y0 - b.y0;
+        else if (a.vertical == "middle")
+            dy = target.center().y - b.center().y;
+        else if (a.vertical == "bottom")
+            dy = target.y1 - b.y1;
         if (std::fabs(dx) < 1e-9 && std::fabs(dy) < 1e-9) continue;
         apply_canvas_transform(*units[i], translation(dx, dy), translate_text(dx, dy), cmd);
         moves.push_back(Json::object({{"element", id_or_label(*units[i])}, {"dx", r3(dx)}, {"dy", r3(dy)}}));
@@ -540,14 +613,18 @@ Json op_align(SvgDoc& doc, const std::vector<XNode*>& units, const AlignArgs& a,
     return r;
 }
 
-Json op_distribute(SvgDoc& doc, const std::vector<XNode*>& units, const DistributeArgs& a, std::vector<std::string>& warnings) {
+Json op_distribute(SvgDoc& doc, const std::vector<XNode*>& units, const DistributeArgs& a,
+                   std::vector<std::string>& warnings) {
     const char* cmd = "vector.distribute";
     (void)doc;
     (void)warnings;
     const std::size_t minUnits = a.spacing ? 2 : 3;
     if (units.size() < minUnits)
-        arg_error(cmd, "/elements", std::format("distributing {} needs at least {} elements, got {}.", a.spacing ? "with a fixed `spacing`" : "evenly", minUnits, units.size()),
-                  a.spacing ? "Pass two or more elements." : "Pass three or more elements, or give `spacing` for a fixed gap.");
+        arg_error(cmd, "/elements",
+                  std::format("distributing {} needs at least {} elements, got {}.",
+                              a.spacing ? "with a fixed `spacing`" : "evenly", minUnits, units.size()),
+                  a.spacing ? "Pass two or more elements."
+                            : "Pass three or more elements, or give `spacing` for a fixed gap.");
     const bool horiz = a.axis == Axis::Horizontal;
     struct Item {
         XNode* node;
@@ -609,7 +686,8 @@ Json op_repeat(SvgDoc& doc, XNode& unit, const RepeatArgs& a, std::vector<std::s
         Copy c;
         if (std::fabs(a.rotation) < 1e-12) return c;
         c.m = rotation(a.rotation * index, about.x, about.y);
-        c.text = std::format("rotate({} {} {})", format_number(a.rotation * index, 4), format_number(about.x, 4), format_number(about.y, 4));
+        c.text = std::format("rotate({} {} {})", format_number(a.rotation * index, 4), format_number(about.x, 4),
+                             format_number(about.y, 4));
         return c;
     };
     auto join = [](const Copy& outer, const Copy& inner) {
@@ -631,10 +709,17 @@ Json op_repeat(SvgDoc& doc, XNode& unit, const RepeatArgs& a, std::vector<std::s
             }
     } else {
         P centre;
-        if (a.center) centre = *a.center;
-        else if (a.radius) centre = {c0.x, c0.y + *a.radius};
-        else arg_error(cmd, "/center", "radial repeat needs `center` or `radius`.", "Give the circle's centre ({\"center\": [50, 50]}), or a radius ({\"radius\": 30}) to put the centre that far below the element.");
-        if (dist(centre, c0) < 1e-9) arg_error(cmd, "/center", "the centre is at the element's own centre, so every copy would land on it.", "Move the centre away from the element, or give a `radius`.");
+        if (a.center)
+            centre = *a.center;
+        else if (a.radius)
+            centre = {c0.x, c0.y + *a.radius};
+        else
+            arg_error(cmd, "/center", "radial repeat needs `center` or `radius`.",
+                      "Give the circle's centre ({\"center\": [50, 50]}), or a radius ({\"radius\": 30}) to put the "
+                      "centre that far below the element.");
+        if (dist(centre, c0) < 1e-9)
+            arg_error(cmd, "/center", "the centre is at the element's own centre, so every copy would land on it.",
+                      "Move the centre away from the element, or give a `radius`.");
         const int count = a.count;
         const double step = a.sweep >= 360.0 - 1e-9 ? a.sweep / count : (count > 1 ? a.sweep / (count - 1) : 0.0);
         for (int i = 1; i < count; ++i) {
@@ -642,7 +727,8 @@ Json op_repeat(SvgDoc& doc, XNode& unit, const RepeatArgs& a, std::vector<std::s
             Copy orbit;
             if (a.orient) {
                 orbit.m = rotation(ang, centre.x, centre.y);
-                orbit.text = std::format("rotate({} {} {})", format_number(ang, 4), format_number(centre.x, 4), format_number(centre.y, 4));
+                orbit.text = std::format("rotate({} {} {})", format_number(ang, 4), format_number(centre.x, 4),
+                                         format_number(centre.y, 4));
             } else {
                 const P moved = rotation(ang, centre.x, centre.y).apply(c0);
                 orbit.m = translation(moved.x - c0.x, moved.y - c0.y);
@@ -721,7 +807,8 @@ Json op_info(const SvgDoc& doc, const std::vector<XNode*>& only, std::vector<std
     }
     const Rect c = doc.canvas();
     const P d = doc.declared_size();
-    Json r = Json::object({{"canvas", rect_json(c)}, {"declaredSize", Json::array({r3(d.x), r3(d.y)})}, {"elements", items}});
+    Json r = Json::object(
+        {{"canvas", rect_json(c)}, {"declaredSize", Json::array({r3(d.x), r3(d.y)})}, {"elements", items}});
     return r;
 }
 

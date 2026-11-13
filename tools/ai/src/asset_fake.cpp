@@ -71,15 +71,17 @@ Image fake_image(const AssetRequest& req, std::uint64_t seed) {
         for (int x = 0; x < img.width; ++x) {
             const int cx = std::min(cols - 1, x * cols / img.width), cy = std::min(rows - 1, y * rows / img.height);
             const int frame = cy * cols + cx;
-            const double u = static_cast<double>(x) * cols / img.width - cx, v = static_cast<double>(y) * rows / img.height - cy;
+            const double u = static_cast<double>(x) * cols / img.width - cx,
+                         v = static_cast<double>(y) * rows / img.height - cy;
             // shape centre moves around a small circle from frame to frame
-            const double dx = u - (0.5 + 0.18 * std::sin(frame * wobble)), dy = v - (0.5 + 0.18 * std::cos(frame * wobble));
+            const double dx = u - (0.5 + 0.18 * std::sin(frame * wobble)),
+                         dy = v - (0.5 + 0.18 * std::cos(frame * wobble));
             const double size = 0.22 + 0.04 * (frame % 3);
             bool inside = false;
             switch ((shapeBase + frame) % 4) {
-                case 0: inside = std::hypot(dx, dy) < size; break;                                  // disc
-                case 1: inside = std::max(std::abs(dx), std::abs(dy)) < size * 0.85; break;         // square
-                case 2: inside = std::abs(dx) + std::abs(dy) < size * 1.2; break;                   // diamond
+                case 0: inside = std::hypot(dx, dy) < size; break;                                       // disc
+                case 1: inside = std::max(std::abs(dx), std::abs(dy)) < size * 0.85; break;              // square
+                case 2: inside = std::abs(dx) + std::abs(dy) < size * 1.2; break;                        // diamond
                 default: inside = std::hypot(dx, dy) < size && std::hypot(dx, dy) > size * 0.55; break;  // ring
             }
             Rgb c{};
@@ -108,8 +110,12 @@ Image fake_image(const AssetRequest& req, std::uint64_t seed) {
 std::string wav_file(const std::vector<std::int16_t>& samples) {
     const std::uint32_t dataBytes = static_cast<std::uint32_t>(samples.size() * 2);
     std::string out;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF)); };
-    auto u16 = [&](std::uint16_t v) { for (int i = 0; i < 2; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF)); };
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        for (int i = 0; i < 2; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF));
+    };
     out += "RIFF";
     u32(36 + dataBytes);
     out += "WAVEfmt ";
@@ -134,7 +140,8 @@ void synth_sound(std::vector<std::int16_t>& out, Rng& rng, double seconds) {
         const double t = static_cast<double>(i) / kSampleRate;
         phase += 2 * std::numbers::pi * f0 * std::exp(-t * 2.0 / seconds) / kSampleRate;
         const double noise = rng.next_float() * 2 - 1;
-        out[i] = static_cast<std::int16_t>(32767 * 0.6 * (std::sin(phase) * std::exp(-t * 4.0 / seconds) + 0.3 * noise * std::exp(-t * 30)));
+        out[i] = static_cast<std::int16_t>(
+            32767 * 0.6 * (std::sin(phase) * std::exp(-t * 4.0 / seconds) + 0.3 * noise * std::exp(-t * 30)));
     }
 }
 
@@ -146,7 +153,8 @@ void synth_notes(std::vector<std::int16_t>& out, std::size_t noteLen, double gai
         const double f = pitch();
         for (std::size_t i = 0; i < noteLen && n * noteLen + i < out.size(); ++i) {
             const double t = static_cast<double>(i) / kSampleRate;
-            out[n * noteLen + i] = static_cast<std::int16_t>(32767 * gain * std::sin(2 * std::numbers::pi * f * t) * env(static_cast<double>(i) / noteLen));
+            out[n * noteLen + i] = static_cast<std::int16_t>(32767 * gain * std::sin(2 * std::numbers::pi * f * t) *
+                                                             env(static_cast<double>(i) / noteLen));
         }
     }
 }
@@ -155,19 +163,21 @@ void synth_notes(std::vector<std::int16_t>& out, std::size_t noteLen, double gai
 void synth_music(std::vector<std::int16_t>& out, Rng& rng) {
     static constexpr int scale[] = {0, 3, 5, 7, 10};
     const double root = 110 * std::pow(2.0, static_cast<int>(rng.next_u32() % 12) / 12.0);
-    synth_notes(out, kSampleRate / 4, 0.4,
-                [&] {
-                    const int degree = scale[rng.next_u32() % 5];  // separate statements: the order of the draws is fixed
-                    const int octave = static_cast<int>(rng.next_u32() % 3);
-                    return root * std::pow(2.0, (degree + 12 * octave) / 12.0);
-                },
-                [](double x) { return std::exp(-x * 1.5); });
+    synth_notes(
+        out, kSampleRate / 4, 0.4,
+        [&] {
+            const int degree = scale[rng.next_u32() % 5];  // separate statements: the order of the draws is fixed
+            const int octave = static_cast<int>(rng.next_u32() % 3);
+            return root * std::pow(2.0, (degree + 12 * octave) / 12.0);
+        },
+        [](double x) { return std::exp(-x * 1.5); });
 }
 
 // Voice: a buzz of syllables of about 60 ms, each with its own pitch.
 void synth_voice(std::vector<std::int16_t>& out, Rng& rng) {
-    synth_notes(out, kSampleRate * 6 / 100, 0.3, [&] { return 110 + rng.next_float() * 90.0; },
-                [](double x) { return std::sin(std::numbers::pi * x); });
+    synth_notes(
+        out, kSampleRate * 6 / 100, 0.3, [&] { return 110 + rng.next_float() * 90.0; },
+        [](double x) { return std::sin(std::numbers::pi * x); });
 }
 
 std::string fake_audio(const AssetRequest& req, std::uint64_t seed) {
@@ -176,12 +186,17 @@ std::string fake_audio(const AssetRequest& req, std::uint64_t seed) {
     switch (req.kind) {
         case MediaKind::Sound: seconds = std::clamp(seconds > 0 ? seconds : 1.0, 0.1, kMaxSoundSeconds); break;
         case MediaKind::Music: seconds = std::clamp(seconds > 0 ? seconds : 4.0, 0.5, kMaxMusicSeconds); break;
-        default: seconds = std::clamp(0.06 * static_cast<double>(req.prompt.size()), 0.4, 20.0); break;  // voice: text-driven
+        default:
+            seconds = std::clamp(0.06 * static_cast<double>(req.prompt.size()), 0.4, 20.0);
+            break;  // voice: text-driven
     }
     std::vector<std::int16_t> samples(static_cast<std::size_t>(seconds * kSampleRate));
-    if (req.kind == MediaKind::Sound) synth_sound(samples, rng, seconds);
-    else if (req.kind == MediaKind::Music) synth_music(samples, rng);
-    else synth_voice(samples, rng);
+    if (req.kind == MediaKind::Sound)
+        synth_sound(samples, rng, seconds);
+    else if (req.kind == MediaKind::Music)
+        synth_music(samples, rng);
+    else
+        synth_voice(samples, rng);
     return wav_file(samples);
 }
 
@@ -193,12 +208,14 @@ std::string fake_model(std::uint64_t seed) {
     struct Face {
         float n[3], r[3], u[3];
     };
-    static constexpr Face faces[6] = {{{0, 0, 1}, {1, 0, 0}, {0, 1, 0}},   {{0, 0, -1}, {-1, 0, 0}, {0, 1, 0}},
-                                      {{1, 0, 0}, {0, 0, -1}, {0, 1, 0}},  {{-1, 0, 0}, {0, 0, 1}, {0, 1, 0}},
-                                      {{0, 1, 0}, {1, 0, 0}, {0, 0, -1}},  {{0, -1, 0}, {1, 0, 0}, {0, 0, 1}}};
+    static constexpr Face faces[6] = {{{0, 0, 1}, {1, 0, 0}, {0, 1, 0}},  {{0, 0, -1}, {-1, 0, 0}, {0, 1, 0}},
+                                      {{1, 0, 0}, {0, 0, -1}, {0, 1, 0}}, {{-1, 0, 0}, {0, 0, 1}, {0, 1, 0}},
+                                      {{0, 1, 0}, {1, 0, 0}, {0, 0, -1}}, {{0, -1, 0}, {1, 0, 0}, {0, 0, 1}}};
     static constexpr float corner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
     std::string buffer;
-    auto put = [&buffer](const void* p, std::size_t n) { buffer.append(static_cast<const char*>(p), n); };  // little-endian hosts
+    auto put = [&buffer](const void* p, std::size_t n) {
+        buffer.append(static_cast<const char*>(p), n);
+    };  // little-endian hosts
     for (const Face& f : faces) {
         for (const auto& c : corner) {
             for (int k = 0; k < 3; ++k) {
@@ -209,8 +226,9 @@ std::string fake_model(std::uint64_t seed) {
         }
     }
     for (std::uint16_t face = 0; face < 6; ++face) {
-        const std::uint16_t b = static_cast<std::uint16_t>(face * 4), tri[6] = {b, static_cast<std::uint16_t>(b + 1), static_cast<std::uint16_t>(b + 2),
-                                                                                 b, static_cast<std::uint16_t>(b + 2), static_cast<std::uint16_t>(b + 3)};
+        const std::uint16_t b = static_cast<std::uint16_t>(face * 4),
+                            tri[6] = {b, static_cast<std::uint16_t>(b + 1), static_cast<std::uint16_t>(b + 2),
+                                      b, static_cast<std::uint16_t>(b + 2), static_cast<std::uint16_t>(b + 3)};
         put(tri, sizeof tri);
     }
     const Rgb colour = hue_colour(Rng{seed}.next_float(), 0.9);
@@ -219,21 +237,36 @@ std::string fake_model(std::uint64_t seed) {
         {"scene", 0},
         {"scenes", Json::array({Json::object({{"nodes", Json::array({0})}})})},
         {"nodes", Json::array({Json::object({{"mesh", 0}, {"name", "FakeCube"}})})},
-        {"meshes", Json::array({Json::object({{"primitives", Json::array({Json::object({{"attributes", Json::object({{"POSITION", 0}, {"NORMAL", 1}})},
-                                                                                         {"indices", 2},
-                                                                                         {"material", 0}})})}})})},
-        {"materials", Json::array({Json::object({{"pbrMetallicRoughness",
-                                                  Json::object({{"baseColorFactor", Json::array({colour.r, colour.g, colour.b, 1.0})},
-                                                                {"metallicFactor", 0.0}})},
-                                                 {"doubleSided", true}})})},
+        {"meshes",
+         Json::array({Json::object(
+             {{"primitives", Json::array({Json::object({{"attributes", Json::object({{"POSITION", 0}, {"NORMAL", 1}})},
+                                                        {"indices", 2},
+                                                        {"material", 0}})})}})})},
+        {"materials", Json::array({Json::object(
+                          {{"pbrMetallicRoughness",
+                            Json::object({{"baseColorFactor", Json::array({colour.r, colour.g, colour.b, 1.0})},
+                                          {"metallicFactor", 0.0}})},
+                           {"doubleSided", true}})})},
         {"buffers", Json::array({Json::object({{"byteLength", buffer.size()},
-                                               {"uri", "data:application/octet-stream;base64," + base64_encode(buffer.data(), buffer.size())}})})},
-        {"bufferViews", Json::array({Json::object({{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 24 * 24}, {"byteStride", 24}, {"target", 34962}}),
-                                     Json::object({{"buffer", 0}, {"byteOffset", 24 * 24}, {"byteLength", 36 * 2}, {"target", 34963}})})},
-        {"accessors", Json::array({Json::object({{"bufferView", 0}, {"byteOffset", 0}, {"componentType", 5126}, {"count", 24}, {"type", "VEC3"},
-                                                 {"min", Json::array({-0.5, -0.5, -0.5})}, {"max", Json::array({0.5, 0.5, 0.5})}}),
-                                   Json::object({{"bufferView", 0}, {"byteOffset", 12}, {"componentType", 5126}, {"count", 24}, {"type", "VEC3"}}),
-                                   Json::object({{"bufferView", 1}, {"componentType", 5123}, {"count", 36}, {"type", "SCALAR"}})})},
+                                               {"uri", "data:application/octet-stream;base64," +
+                                                           base64_encode(buffer.data(), buffer.size())}})})},
+        {"bufferViews",
+         Json::array(
+             {Json::object(
+                  {{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 24 * 24}, {"byteStride", 24}, {"target", 34962}}),
+              Json::object({{"buffer", 0}, {"byteOffset", 24 * 24}, {"byteLength", 36 * 2}, {"target", 34963}})})},
+        {"accessors",
+         Json::array(
+             {Json::object({{"bufferView", 0},
+                            {"byteOffset", 0},
+                            {"componentType", 5126},
+                            {"count", 24},
+                            {"type", "VEC3"},
+                            {"min", Json::array({-0.5, -0.5, -0.5})},
+                            {"max", Json::array({0.5, 0.5, 0.5})}}),
+              Json::object(
+                  {{"bufferView", 0}, {"byteOffset", 12}, {"componentType", 5126}, {"count", 24}, {"type", "VEC3"}}),
+              Json::object({{"bufferView", 1}, {"componentType", 5123}, {"count", 36}, {"type", "SCALAR"}})})},
     });
     return gltf.dump();
 }
@@ -246,8 +279,9 @@ Result<Image> fake_inpaint(const AssetRequest& req, std::uint64_t seed) {
     auto mask = decode_image(reinterpret_cast<const std::uint8_t*>(req.editMask.data()), req.editMask.size());
     if (!mask) return make_error("The inpaint mask is not a PNG: " + mask.error().message);
     if (mask->width != base->width || mask->height != base->height)
-        return make_error("The inpaint mask is " + std::to_string(mask->width) + "x" + std::to_string(mask->height) + " and the picture " +
-                          std::to_string(base->width) + "x" + std::to_string(base->height), "They must have the same size.");
+        return make_error("The inpaint mask is " + std::to_string(mask->width) + "x" + std::to_string(mask->height) +
+                              " and the picture " + std::to_string(base->width) + "x" + std::to_string(base->height),
+                          "They must have the same size.");
     AssetRequest plain = req;
     plain.width = base->width;
     plain.height = base->height;
@@ -256,7 +290,9 @@ Result<Image> fake_inpaint(const AssetRequest& req, std::uint64_t seed) {
     Image out = *base;
     for (std::size_t i = 0; i < static_cast<std::size_t>(out.width) * out.height; ++i) {
         const int cover = mask->rgba[i * 4];
-        for (int c = 0; c < 4; ++c) out.rgba[i * 4 + c] = static_cast<std::uint8_t>((base->rgba[i * 4 + c] * (255 - cover) + paint.rgba[i * 4 + c] * cover + 127) / 255);
+        for (int c = 0; c < 4; ++c)
+            out.rgba[i * 4 + c] = static_cast<std::uint8_t>(
+                (base->rgba[i * 4 + c] * (255 - cover) + paint.rgba[i * 4 + c] * cover + 127) / 255);
     }
     return out;
 }

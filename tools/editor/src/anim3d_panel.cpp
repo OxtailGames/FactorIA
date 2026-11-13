@@ -35,7 +35,7 @@ const ImVec4 kWarn(1.0f, 0.8f, 0.4f, 1);
 
 constexpr double kPi = 3.14159265358979323846;
 
-std::string stem_of(const std::string& path) {   // "assets/models/hero.rig.glb" -> "hero"
+std::string stem_of(const std::string& path) {  // "assets/models/hero.rig.glb" -> "hero"
     std::string name = stdfs::path(path).filename().generic_string();
     for (const char* ext : {".rig.glb", ".rig.json", ".anim.json", ".glb"})
         if (ends_with(name, ext)) return name.substr(0, name.size() - std::string(ext).size());
@@ -47,8 +47,10 @@ std::string stem_of(const std::string& path) {   // "assets/models/hero.rig.glb"
 std::string rig_document_of(const std::string& projectDir, const std::string& rig) {
     if (rig.empty()) return {};
     std::string doc;
-    if (ends_with(rig, ".rig.json")) doc = rig;
-    else if (ends_with(rig, ".rig.glb")) doc = rig.substr(0, rig.size() - 8) + ".rig.json";
+    if (ends_with(rig, ".rig.json"))
+        doc = rig;
+    else if (ends_with(rig, ".rig.glb"))
+        doc = rig.substr(0, rig.size() - 8) + ".rig.json";
     std::error_code ec;
     return !doc.empty() && stdfs::exists(stdfs::path(projectDir) / doc, ec) ? doc : std::string();
 }
@@ -65,7 +67,8 @@ Anim3DEdit edit_of(const std::string& command, const CommandResult& r) {
     return e;
 }
 
-bool put_texture(Anim3DUi::Texture& slot, std::vector<Anim3DUi::Dead>& graveyard, const Image& img, std::uint64_t frame) {
+bool put_texture(Anim3DUi::Texture& slot, std::vector<Anim3DUi::Dead>& graveyard, const Image& img,
+                 std::uint64_t frame) {
     Anim3DUi::Texture t;
     if (img.empty() || !ui::make_texture(img.width, img.height, img.rgba.data(), t.image, t.view)) return false;
     if (slot.image || slot.view) graveyard.push_back({slot.image, slot.view, frame});
@@ -86,7 +89,7 @@ ImU32 axis_color(int axis, bool hot) {
 // ----------------------------------------------------------------------------------------------------------- document --
 Anim3DModel& Editor::anim3d_ensure_model() {
     Anim3DUi& u = anim3d_;
-    if (u.model && u.model->projectDir() != projectDir_) {   // another project was opened
+    if (u.model && u.model->projectDir() != projectDir_) {  // another project was opened
         anim3d_release_textures();
         const bool mode = u.mode3d;
         u = Anim3DUi{};
@@ -132,7 +135,8 @@ bool Editor::open_anim3d_clip(const std::string& rel, const std::string& rig) {
     u.picture.key = ~0ULL;
     u.status.clear();
     const bool ok = m.open(rel, rig);
-    if (ok && !m.has_rig() && !u.lastRig.empty()) m.set_rig(u.lastRig);   // a clip that names no rig is posed with the last one
+    if (ok && !m.has_rig() && !u.lastRig.empty())
+        m.set_rig(u.lastRig);  // a clip that names no rig is posed with the last one
     if (ok && m.has_rig()) u.lastRig = m.rig_path();
     u.openError = ok ? std::string() : m.error();
     u.mode3d = true;
@@ -166,7 +170,8 @@ void Editor::anim3d_apply_undo(const Json& entry, bool forward) {
     const Json& args = entry["$clip3d"];
     const CommandResult r = engine_->commands().call("anim3d.restore", args);
     if (!r.ok) {
-        notify("Could not " + std::string(forward ? "redo" : "undo") + " the clip edit: " + command_error_text(r.error), 2);
+        notify("Could not " + std::string(forward ? "redo" : "undo") + " the clip edit: " + command_error_text(r.error),
+               2);
         return;
     }
     after_command("anim3d.restore", args, r);
@@ -178,7 +183,7 @@ void Editor::anim3d_apply_undo(const Json& entry, bool forward) {
     u.live = false;
     u.drag = Anim3DUi::Drag::None;
     if (m.is_open() && m.path() == path) {
-        if (!m.reload()) {   // the undo removed the clip (a generated one): nothing left to show
+        if (!m.reload()) {  // the undo removed the clip (a generated one): nothing left to show
             m.close();
             u.selection.clear();
             u.status = "The clip file is gone (undone). Redo brings it back.";
@@ -212,17 +217,21 @@ void Editor::anim3d_scan_lists() {
     }
     std::error_code ec;
     int seen = 0;
-    for (stdfs::recursive_directory_iterator it(projectDir_, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(projectDir_, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().generic_string();
         if (it->is_directory(ec)) {
-            if (!name.empty() && (name[0] == '.' || name == "build" || name == "node_modules" || name == "dist")) it.disable_recursion_pending();
+            if (!name.empty() && (name[0] == '.' || name == "build" || name == "node_modules" || name == "dist"))
+                it.disable_recursion_pending();
             continue;
         }
         if (++seen > 40000) break;
         if (ends_with(name, ".rig.glb") || ends_with(name, ".rig.json")) {
             const std::string rel = stdfs::relative(it->path(), projectDir_, ec).generic_string();
             // A .rig.json whose .rig.glb is next to it is listed once, by the baked one.
-            if (ends_with(rel, ".rig.json") && stdfs::exists(stdfs::path(projectDir_) / (rel.substr(0, rel.size() - 9) + ".rig.glb"), ec)) continue;
+            if (ends_with(rel, ".rig.json") &&
+                stdfs::exists(stdfs::path(projectDir_) / (rel.substr(0, rel.size() - 9) + ".rig.glb"), ec))
+                continue;
             u.rigList.push_back(rel);
         }
     }
@@ -236,11 +245,14 @@ bool Editor::draw_animation_mode_row() {
     const bool was = u.mode3d;
     if (ImGui::RadioButton("2D clips##a3m2", !u.mode3d)) u.mode3d = false;
     at_track("a3:mode2d");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The clips of the selected entity's Animator (sprites, transforms, any field).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The clips of the selected entity's Animator (sprites, transforms, any field).");
     ImGui::SameLine();
     if (ImGui::RadioButton("3D bone clips##a3m3", u.mode3d)) u.mode3d = true;
     at_track("a3:mode3d");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The bone clips (*.anim.json, factoria.anim3d/1) of a rigged model: posed in a 3D view, with bone tools and IK handles.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The bone clips (*.anim.json, factoria.anim3d/1) of a rigged model: posed in a 3D view, with "
+                          "bone tools and IK handles.");
     if (u.mode3d && !was) u.floatNext = true;
     return u.mode3d;
 }
@@ -250,17 +262,18 @@ void Editor::anim3d_prepare_window() {
     if (!u.floatNext || !u.mode3d) return;
     u.floatNext = false;
     ImGuiWindow* w = ImGui::FindWindowByName("Animation");
-    if (w && w->DockId == 0 && w->Size.y >= 520.0f) return;   // already floating and large
+    if (w && w->DockId == 0 && w->Size.y >= 520.0f) return;  // already floating and large
     const ImVec2 size = fit_work_area(ImVec2(1180, 760));
     ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkPos.x + 40, ImGui::GetMainViewport()->WorkPos.y + 20), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->WorkPos.x + 40, ImGui::GetMainViewport()->WorkPos.y + 20),
+                            ImGuiCond_Always);
     ImGui::SetNextWindowSize(size, ImGuiCond_Always);
 }
 
 void Editor::draw_animation_panel_3d() {
     Anim3DUi& u = anim3d_;
     Anim3DModel& m = anim3d_ensure_model();
-    for (std::size_t i = 0; i < u.graveyard.size();) {   // textures replaced a few frames ago can go now
+    for (std::size_t i = 0; i < u.graveyard.size();) {  // textures replaced a few frames ago can go now
         if (u.graveyard[i].frame + 4 < uiFrame_) {
             ui::destroy_texture(u.graveyard[i].image, u.graveyard[i].view);
             u.graveyard.erase(u.graveyard.begin() + long(i));
@@ -270,16 +283,19 @@ void Editor::draw_animation_panel_3d() {
     }
     if (play_ != PlayState::Edit) {
         u.playing = false;
-        ImGui::TextDisabled("The game is running. Stop it to edit clips (a clip file is not part of the running scene).");
+        ImGui::TextDisabled(
+            "The game is running. Stop it to edit clips (a clip file is not part of the running scene).");
         return;
     }
-    if (m.is_open() && uiFrame_ - u.lastPoll >= 20 && u.drag == Anim3DUi::Drag::None && u.sheetDrag == Anim3DUi::SheetDrag::None) {
+    if (m.is_open() && uiFrame_ - u.lastPoll >= 20 && u.drag == Anim3DUi::Drag::None &&
+        u.sheetDrag == Anim3DUi::SheetDrag::None) {
         u.lastPoll = uiFrame_;
         if (m.poll()) u.status = "The file changed on disk and was read again.";
     }
-    if (m.is_open() && m.revision() != u.selRevision) {   // keys that are no longer in the clip leave the selection
+    if (m.is_open() && m.revision() != u.selRevision) {  // keys that are no longer in the clip leave the selection
         u.selRevision = m.revision();
-        for (auto it = u.selection.begin(); it != u.selection.end();) it = m.key_at(*it) ? std::next(it) : u.selection.erase(it);
+        for (auto it = u.selection.begin(); it != u.selection.end();)
+            it = m.key_at(*it) ? std::next(it) : u.selection.erase(it);
         if (m.clip() && u.selectedEvent >= int(m.clip()->events.size())) u.selectedEvent = -1;
         if (!u.bone.empty() && m.rig() && m.node_of(u.bone) < 0) u.bone.clear();
     }
@@ -287,8 +303,10 @@ void Editor::draw_animation_panel_3d() {
     anim3d_toolbar();
     if (!m.is_open() || !m.clip()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Choose a 3D clip (anim/*.anim.json) in the list above, or double click one in the Project panel.");
-        ImGui::TextDisabled("anim3d.generate writes a walk, run or idle clip for a baked rig (rig.bake); New clip starts an empty one.");
+        ImGui::TextDisabled(
+            "Choose a 3D clip (anim/*.anim.json) in the list above, or double click one in the Project panel.");
+        ImGui::TextDisabled("anim3d.generate writes a walk, run or idle clip for a baked rig (rig.bake); New clip "
+                            "starts an empty one.");
         if (!u.openError.empty()) ImGui::TextColored(kBad, "%s", u.openError.c_str());
         if (m.is_open() && !m.error().empty()) ImGui::TextColored(kBad, "%s", m.error().c_str());
         return;
@@ -301,15 +319,19 @@ void Editor::draw_animation_panel_3d() {
         if (dur <= 0) {
             u.playing = false;
         } else if (u.playhead >= dur) {
-            if (u.loopPreview) u.playhead = std::fmod(u.playhead, dur);
-            else u.playhead = dur, u.playing = false;
+            if (u.loopPreview)
+                u.playhead = std::fmod(u.playhead, dur);
+            else
+                u.playhead = dur, u.playing = false;
         }
     }
     u.playhead = std::clamp(u.playhead, 0.0, std::max(dur, 0.0));
 
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput && u.drag == Anim3DUi::Drag::None) {
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
+        u.drag == Anim3DUi::Drag::None) {
         if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) u.playing = !u.playing;
-        if ((ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) && !u.selection.empty())
+        if ((ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) &&
+            !u.selection.empty())
             anim3d_commit(m.remove_keys(u.selection)), u.selection.clear();
     }
 
@@ -323,7 +345,8 @@ void Editor::draw_animation_panel_3d() {
     anim3d_bone_list();
     ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("##a3_view", ImVec2(std::max(160.0f, full - leftW - rightW - 2 * itemX), topH), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##a3_view", ImVec2(std::max(160.0f, full - leftW - rightW - 2 * itemX), topH),
+                      ImGuiChildFlags_Borders);
     anim3d_viewport();
     ImGui::EndChild();
     ImGui::SameLine();
@@ -372,7 +395,9 @@ void Editor::anim3d_toolbar() {
         ImGui::EndCombo();
     }
     at_track("a3:rig");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The baked rig that poses the clip. A clip made for another rig keeps its bone names; anim3d.retarget carries it over.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The baked rig that poses the clip. A clip made for another rig keeps its bone names; "
+                          "anim3d.retarget carries it over.");
     ImGui::SameLine();
     if (ImGui::Button("New clip")) ImGui::OpenPopup("##a3_new");
     at_track("a3:newclip");
@@ -382,7 +407,8 @@ void Editor::anim3d_toolbar() {
         at_track("a3:newclip:name");
         ImGui::SetNextItemWidth(100);
         ImGui::DragFloat("seconds", &u.newClipDuration, 0.05f, 0.1f, 60.0f, "%.2f");
-        const bool valid = !u.newClipName.empty() && u.newClipName.find('/') == std::string::npos && u.newClipName.find('\\') == std::string::npos;
+        const bool valid = !u.newClipName.empty() && u.newClipName.find('/') == std::string::npos &&
+                           u.newClipName.find('\\') == std::string::npos;
         ImGui::BeginDisabled(!valid);
         if (ImGui::Button("Create")) {
             const std::string path = "anim/" + u.newClipName + ".anim.json";
@@ -421,7 +447,8 @@ void Editor::anim3d_toolbar() {
     ImGui::SameLine();
     ImGui::Checkbox("Snap", &u.snap);
     at_track("a3:snap");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keys and the playhead land on whole frames of the grid (%d per second).", u.fps);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Keys and the playhead land on whole frames of the grid (%d per second).", u.fps);
     if (u.snap) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(60);
@@ -438,7 +465,9 @@ void Editor::anim3d_toolbar() {
         if (e.ok) u.selection = {Key3D{u.bone, 0, key3d_ms(anim3d_snap(u.playhead))}};
     }
     at_track("a3:key", hasBone && m.has_rig());
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Keys the picked bone's rotation at the playhead as the clip gives it now (a key that pins the value).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "Keys the picked bone's rotation at the playhead as the clip gives it now (a key that pins the value).");
     ImGui::SameLine();
     if (ImGui::Button("Key position")) {
         const Anim3DEdit e = m.key_sampled(u.bone, 1, anim3d_snap(u.playhead));
@@ -462,7 +491,9 @@ void Editor::anim3d_toolbar() {
     }
     at_track("a3:mirror", m.has_rig());
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Mirrors the pose at the playhead left to right (the bones the clip animates, by their canonical names: thigh_l <-> thigh_r) and keys it.\nswap exchanges both sides; left to right copies the left side onto the right.");
+        ImGui::SetTooltip("Mirrors the pose at the playhead left to right (the bones the clip animates, by their "
+                          "canonical names: thigh_l <-> thigh_r) and keys it.\nswap exchanges both sides; left to "
+                          "right copies the left side onto the right.");
     ImGui::SameLine();
     ImGui::Checkbox("to", &u.mirrorOther);
     at_track("a3:mirrorother");
@@ -471,12 +502,15 @@ void Editor::anim3d_toolbar() {
         ImGui::SetNextItemWidth(60);
         ImGui::DragFloat("##a3_mirrorto", &u.mirrorTo, 0.01f, 0.0f, std::max(0.0f, m.clip()->duration), "%.2f s");
     } else if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Off: the mirrored pose is keyed at the playhead. On: at another time (a stride's second half).");
+        ImGui::SetTooltip(
+            "Off: the mirrored pose is keyed at the playhead. On: at another time (a stride's second half).");
     }
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Filmstrip")) anim3d_show_filmstrip();
     at_track("a3:filmstrip", m.has_rig());
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("anim3d.preview with several angles: the clip posed at six times, seen from the right, the front and the left.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("anim3d.preview with several angles: the clip posed at six times, seen from the right, the "
+                          "front and the left.");
     ImGui::SameLine();
     const bool hasDoc = !rig_document_of(projectDir_, m.rig_path()).empty();
     ImGui::BeginDisabled(!hasDoc);
@@ -484,8 +518,10 @@ void Editor::anim3d_toolbar() {
     at_track("a3:weights", hasDoc && m.has_rig());
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip(hasDoc ? "skin3d.preview: the weights of the picked bone as a heat map (all bones when none is picked), from three sides."
-                                 : "The weights come from the rig document (name.rig.json) that bakes the rig; there is none next to it.");
+        ImGui::SetTooltip(hasDoc ? "skin3d.preview: the weights of the picked bone as a heat map (all bones when none "
+                                   "is picked), from three sides."
+                                 : "The weights come from the rig document (name.rig.json) that bakes the rig; there "
+                                   "is none next to it.");
     ImGui::EndDisabled();
     if (!u.status.empty()) {
         ImGui::SameLine(0, 18);
@@ -548,7 +584,8 @@ void frame_of(const Anim3DRigModel& rig, Vec3& center, double& radius) {
     radius = 0.05;
     if (b.positions.size() >= 3) {
         for (std::size_t v = 0; v + 2 < b.positions.size(); v += 3) {
-            const double dx = b.positions[v] - center.x, dy = b.positions[v + 1] - center.y, dz = b.positions[v + 2] - center.z;
+            const double dx = b.positions[v] - center.x, dy = b.positions[v + 1] - center.y,
+                         dz = b.positions[v + 2] - center.z;
             radius = std::max(radius, std::sqrt(dx * dx + dy * dy + dz * dz));
         }
     } else {
@@ -567,12 +604,16 @@ void Editor::anim3d_viewport() {
 
     if (ImGui::RadioButton("Rotate", u.tool == Bone3DTool::Rotate)) u.tool = Bone3DTool::Rotate;
     at_track("a3:tool:rotate");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Three rings turn the picked bone about the axes of its parent's frame; the root also has arrows that slide it.\nLetting go keys the bone at the playhead (one undo step).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Three rings turn the picked bone about the axes of its parent's frame; the root also has "
+                          "arrows that slide it.\nLetting go keys the bone at the playhead (one undo step).");
     ImGui::SameLine();
     if (ImGui::RadioButton("IK", u.tool == Bone3DTool::Ik)) u.tool = Bone3DTool::Ik;
     at_track("a3:tool:ik");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("On a hand or a foot (a bone with two bones above it): drag its target, and the pole that says where the elbow or knee points.\nOn the head or neck: drag the point it looks at. Letting go keys the whole chain (ik3d.key).");
+        ImGui::SetTooltip("On a hand or a foot (a bone with two bones above it): drag its target, and the pole that "
+                          "says where the elbow or knee points.\nOn the head or neck: drag the point it looks at. "
+                          "Letting go keys the whole chain (ik3d.key).");
     ImGui::SameLine();
     ImGui::Checkbox("Bones", &u.showBones);
     at_track("a3:showbones");
@@ -591,7 +632,8 @@ void Editor::anim3d_viewport() {
     at_track("a3:resetview");
     if (!rig || !clip) {
         ImGui::TextColored(kWarn, "%s", m.error().empty() ? "Choose a rig to see the model." : m.error().c_str());
-        ImGui::TextDisabled("The dopesheet works without one; the view and the bone tools need the baked rig (*.rig.glb) the clip is for.");
+        ImGui::TextDisabled("The dopesheet works without one; the view and the bone tools need the baked rig "
+                            "(*.rig.glb) the clip is for.");
         return;
     }
     if (u.frameRig != m.rig_path()) {
@@ -617,7 +659,9 @@ void Editor::anim3d_viewport() {
     o.radius = u.frameRadius;
     o.supersample = (u.playing || u.drag != Anim3DUi::Drag::None) ? 1 : 2;
     std::uint64_t key = 1469598103934665603ULL;
-    auto mix = [&](std::uint64_t v) { key = (key ^ (v + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2))) * 0x100000001b3ULL; };
+    auto mix = [&](std::uint64_t v) {
+        key = (key ^ (v + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2))) * 0x100000001b3ULL;
+    };
     mix(m.revision());
     mix(std::uint64_t(key3d_ms(u.playhead)));
     mix(u.live ? u.liveSerial + 1 : 0);
@@ -647,12 +691,15 @@ void Editor::anim3d_viewport() {
     u.viewY0 = p0.y;
     u.viewW = float(w);
     u.viewH = float(h);
-    ImGui::InvisibleButton("##a3_canvas", ImVec2(float(w), float(h)), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##a3_canvas", ImVec2(float(w), float(h)),
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     at_track("a3:view");
     const bool hovered = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(p0, ImVec2(p0.x + float(w), p0.y + float(h)), true);
-    if (u.picture.view) dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.picture.view, true))), p0, ImVec2(p0.x + float(w), p0.y + float(h)));
+    if (u.picture.view)
+        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.picture.view, true))), p0,
+                     ImVec2(p0.x + float(w), p0.y + float(h)));
 
     // ---- where the bones and the handles are on the picture
     auto P = [&](Vec3 p) {
@@ -691,7 +738,7 @@ void Editor::anim3d_viewport() {
         for (std::size_t i = 0; i < rows.size(); ++i) {
             if (!heads[i].ok) continue;
             const double d = std::hypot(heads[i].x - mx, heads[i].y - my);
-            if (d <= bestD) best = int(i), bestD = d;   // parents come first, so a child wins a tie
+            if (d <= bestD) best = int(i), bestD = d;  // parents come first, so a child wins a tie
         }
         if (best >= 0) return best;
         bestD = 7.0;
@@ -721,7 +768,9 @@ void Editor::anim3d_viewport() {
             for (int a = 0; a < 3; ++a) {
                 axisW[std::size_t(a)] = gizmo_axis_world(*rig, pose, node, a);
                 const int N = 48;
-                for (int k = 0; k <= N; ++k) ring[std::size_t(a)].push_back(P(ring_point(headW, axisW[std::size_t(a)], ringR, 2.0 * kPi * double(k) / double(N))));
+                for (int k = 0; k <= N; ++k)
+                    ring[std::size_t(a)].push_back(
+                        P(ring_point(headW, axisW[std::size_t(a)], ringR, 2.0 * kPi * double(k) / double(N))));
                 arrowTip[std::size_t(a)] = P(headW + axisW[std::size_t(a)] * float(arrowLen));
             }
             showArrows = !r3.is_bone(r3.node(node).parent) || m.track_index(u.bone, 1) >= 0;
@@ -757,8 +806,10 @@ void Editor::anim3d_viewport() {
                 double best = 9.0;
                 for (int a = 0; a < 3; ++a) {
                     if (!arrowTip[std::size_t(a)].ok || !headS.ok) continue;
-                    const double d = std::min(std::hypot(arrowTip[std::size_t(a)].x - mx, arrowTip[std::size_t(a)].y - my),
-                                              segment_distance(mx, my, headS.x, headS.y, arrowTip[std::size_t(a)].x, arrowTip[std::size_t(a)].y));
+                    const double d =
+                        std::min(std::hypot(arrowTip[std::size_t(a)].x - mx, arrowTip[std::size_t(a)].y - my),
+                                 segment_distance(mx, my, headS.x, headS.y, arrowTip[std::size_t(a)].x,
+                                                  arrowTip[std::size_t(a)].y));
                     if (d < best) best = d, hit = {HandleHit::Arrow, a};
                 }
                 if (hit.kind != HandleHit::None) return hit;
@@ -800,7 +851,7 @@ void Editor::anim3d_viewport() {
         u.dragMoved = false;
         u.pressX = io.MousePos.x;
         u.pressY = io.MousePos.y;
-        u.playhead = anim3d_snap(u.playhead);   // the result is keyed on the grid: show the pose there
+        u.playhead = anim3d_snap(u.playhead);  // the result is keyed on the grid: show the pose there
         u.dragTime = u.playhead;
         u.dragBase = m.pose_at(u.playhead);
         const Pose& base = u.dragBase;
@@ -827,7 +878,9 @@ void Editor::anim3d_viewport() {
             }
             u.dragEnd = head;
             Vec3 pt = hit.kind == HandleHit::Target ? head : hit.kind == HandleHit::Pole ? u.ikPole : u.lookPoint;
-            u.drag = hit.kind == HandleHit::Target ? D::IkTarget : hit.kind == HandleHit::Pole ? D::IkPole : D::LookTarget;
+            u.drag = hit.kind == HandleHit::Target ? D::IkTarget
+                     : hit.kind == HandleHit::Pole ? D::IkPole
+                                                   : D::LookTarget;
             Vec3 hp;
             u.dragOffset = plane_hit(u.cam, mx, my, pt, u.cam.forward, hp) ? pt - hp : Vec3{};
             u.dragPoint = pt;
@@ -839,8 +892,10 @@ void Editor::anim3d_viewport() {
             begin_orbit(1);
         } else if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
             const HandleHit hit = hit_handle(mx, my);
-            if (hit.kind == HandleHit::None) begin_orbit(0);
-            else begin_handle(hit);
+            if (hit.kind == HandleHit::None)
+                begin_orbit(0);
+            else
+                begin_handle(hit);
             u.playing = false;
         }
     }
@@ -852,7 +907,8 @@ void Editor::anim3d_viewport() {
             u.live = false;
             ++u.liveSerial;
         } else if (io.MouseDown[b]) {
-            if (!u.dragMoved && std::hypot(io.MousePos.x - u.pressX, io.MousePos.y - u.pressY) > 4.0f) u.dragMoved = u.drag == D::Orbit;
+            if (!u.dragMoved && std::hypot(io.MousePos.x - u.pressX, io.MousePos.y - u.pressY) > 4.0f)
+                u.dragMoved = u.drag == D::Orbit;
             if (u.drag == D::Orbit) {
                 u.yaw -= io.MouseDelta.x * 0.5f;
                 u.pitch = std::clamp(u.pitch + io.MouseDelta.y * 0.5f, -89.0f, 89.0f);
@@ -871,7 +927,8 @@ void Editor::anim3d_viewport() {
             } else if (u.drag == D::Arrow) {
                 const Vec3 head = bone_head(*rig, u.dragBase, node);
                 double s = 0;
-                if (line_param(u.cam, mx, my, head, gizmo_axis_world(*rig, u.dragBase, node, u.dragAxis), s)) u.dragTotal = s - u.dragStartS;
+                if (line_param(u.cam, mx, my, head, gizmo_axis_world(*rig, u.dragBase, node, u.dragAxis), s))
+                    u.dragTotal = s - u.dragStartS;
                 const Vec3 delta = gizmo_axis_world(*rig, u.dragBase, node, u.dragAxis) * float(u.dragTotal);
                 Vec3 local{};
                 for (int a = 0; a < 3; ++a) {
@@ -887,9 +944,12 @@ void Editor::anim3d_viewport() {
                 Vec3 hp;
                 if (plane_hit(u.cam, mx, my, u.dragPoint, u.cam.forward, hp)) u.dragPoint = hp + u.dragOffset;
                 Json solver;
-                if (u.drag == D::IkTarget) solver = two_bone_solver(*rig, limb, u.dragPoint, u.ikPole);
-                else if (u.drag == D::IkPole) solver = two_bone_solver(*rig, limb, u.dragEnd, u.dragPoint);
-                else solver = look_at_solver(*rig, node, u.dragPoint);
+                if (u.drag == D::IkTarget)
+                    solver = two_bone_solver(*rig, limb, u.dragPoint, u.ikPole);
+                else if (u.drag == D::IkPole)
+                    solver = two_bone_solver(*rig, limb, u.dragEnd, u.dragPoint);
+                else
+                    solver = look_at_solver(*rig, node, u.dragPoint);
                 Pose solved = u.dragBase;
                 const auto res = ik3d_solve_once(r3, solved, solver, 0.0f);
                 if (res.ok()) {
@@ -902,7 +962,7 @@ void Editor::anim3d_viewport() {
             }
             if (u.yaw > 180.0f) u.yaw -= 360.0f;
             if (u.yaw < -180.0f) u.yaw += 360.0f;
-        } else {   // let go
+        } else {  // let go
             const D kind = u.drag;
             u.drag = D::None;
             if (kind == D::Orbit) {
@@ -940,7 +1000,8 @@ void Editor::anim3d_viewport() {
     // ---- the overlay
     u.bonesDrawn = 0;
     u.handlesDrawn = 0;
-    const ImU32 boneCol = IM_COL32(120, 190, 255, 215), pickCol = IM_COL32(255, 170, 60, 255), hoverCol = IM_COL32(255, 255, 255, 255);
+    const ImU32 boneCol = IM_COL32(120, 190, 255, 215), pickCol = IM_COL32(255, 170, 60, 255),
+                hoverCol = IM_COL32(255, 255, 255, 255);
     if (u.showBones) {
         for (std::size_t i = 0; i < rows.size(); ++i) {
             if (!heads[i].ok) continue;
@@ -949,7 +1010,8 @@ void Editor::anim3d_viewport() {
             if (tails[i].ok) dl->AddLine(S(heads[i]), S(tails[i]), col, picked ? 3.0f : 1.8f);
             dl->AddCircleFilled(S(heads[i]), picked ? 5.0f : 3.2f, col);
             ++u.bonesDrawn;
-            if (autotest_) at_track_at("a3:joint:" + rows[i].name, Vec2{p0.x + float(heads[i].x), p0.y + float(heads[i].y)});
+            if (autotest_)
+                at_track_at("a3:joint:" + rows[i].name, Vec2{p0.x + float(heads[i].x), p0.y + float(heads[i].y)});
         }
     }
     if (hoverBone >= 0 && hovered) ImGui::SetTooltip("%s", rows[std::size_t(hoverBone)].name.c_str());
@@ -960,13 +1022,17 @@ void Editor::anim3d_viewport() {
             if (hovered && u.drag == D::None) over = hit_handle(mx, my);
             for (int a = 0; a < 3; ++a) {
                 const auto& pts = ring[std::size_t(a)];
-                const bool hot = (u.drag == D::Ring && u.dragAxis == a) || (over.kind == HandleHit::Ring && over.axis == a);
+                const bool hot =
+                    (u.drag == D::Ring && u.dragAxis == a) || (over.kind == HandleHit::Ring && over.axis == a);
                 std::vector<ImVec2> line;
                 for (const Scr& s : pts)
                     if (s.ok) line.push_back(S(s));
-                if (line.size() > 1) dl->AddPolyline(line.data(), int(line.size()), axis_color(a, hot), ImDrawFlags_None, hot ? 3.4f : 2.0f);
+                if (line.size() > 1)
+                    dl->AddPolyline(line.data(), int(line.size()), axis_color(a, hot), ImDrawFlags_None,
+                                    hot ? 3.4f : 2.0f);
                 ++u.handlesDrawn;
-                if (autotest_ && !pts.empty()) {   // the point of the ring farthest from the other two: a click there picks this ring
+                if (autotest_ &&
+                    !pts.empty()) {  // the point of the ring farthest from the other two: a click there picks this ring
                     std::size_t bestK = 0;
                     double bestD = -1;
                     for (std::size_t k = 0; k < pts.size(); ++k) {
@@ -976,26 +1042,37 @@ void Editor::anim3d_viewport() {
                             if (b == a) continue;
                             const auto& other = ring[std::size_t(b)];
                             for (std::size_t j = 0; j + 1 < other.size(); ++j)
-                                if (other[j].ok && other[j + 1].ok) d = std::min(d, segment_distance(pts[k].x, pts[k].y, other[j].x, other[j].y, other[j + 1].x, other[j + 1].y));
+                                if (other[j].ok && other[j + 1].ok)
+                                    d = std::min(d, segment_distance(pts[k].x, pts[k].y, other[j].x, other[j].y,
+                                                                     other[j + 1].x, other[j + 1].y));
                         }
                         if (d > bestD) bestD = d, bestK = k;
                     }
-                    at_track_at(std::string("a3:ring:") + "xyz"[a], Vec2{p0.x + float(pts[bestK].x), p0.y + float(pts[bestK].y)});
+                    at_track_at(
+                        std::string("a3:ring:") + "xyz" [a],
+                        Vec2 { p0.x + float(pts[bestK].x), p0.y + float(pts[bestK].y) });
                 }
             }
             if (showArrows && headS.ok) {
                 for (int a = 0; a < 3; ++a) {
                     if (!arrowTip[std::size_t(a)].ok) continue;
-                    const bool hot = (u.drag == D::Arrow && u.dragAxis == a) || (over.kind == HandleHit::Arrow && over.axis == a);
+                    const bool hot =
+                        (u.drag == D::Arrow && u.dragAxis == a) || (over.kind == HandleHit::Arrow && over.axis == a);
                     dl->AddLine(S(headS), S(arrowTip[std::size_t(a)]), axis_color(a, hot), hot ? 3.4f : 2.0f);
                     dl->AddCircleFilled(S(arrowTip[std::size_t(a)]), hot ? 6.0f : 4.5f, axis_color(a, hot));
                     ++u.handlesDrawn;
-                    if (autotest_) at_track_at(std::string("a3:arrow:") + "xyz"[a], Vec2{p0.x + float(arrowTip[std::size_t(a)].x), p0.y + float(arrowTip[std::size_t(a)].y)});
+                    if (autotest_)
+                        at_track_at(
+                            std::string("a3:arrow:") + "xyz" [a], Vec2 {
+                                p0.x + float(arrowTip[std::size_t(a)].x), p0.y + float(arrowTip[std::size_t(a)].y)
+                            });
                 }
             }
             if (dragging && (u.drag == D::Ring || u.drag == D::Arrow)) {
-                const std::string note = u.drag == D::Ring ? std::format("{} {:+.1f} deg about {}", u.bone, u.dragTotal * 180.0 / kPi, "xyz"[u.dragAxis])
-                                                           : std::format("{} {:+.3f} along {}", u.bone, u.dragTotal, "xyz"[u.dragAxis]);
+                const std::string note =
+                    u.drag == D::Ring
+                        ? std::format("{} {:+.1f} deg about {}", u.bone, u.dragTotal * 180.0 / kPi, "xyz"[u.dragAxis])
+                        : std::format("{} {:+.3f} along {}", u.bone, u.dragTotal, "xyz"[u.dragAxis]);
                 dl->AddText(ImVec2(p0.x + 8, p0.y + float(h) - 20), IM_COL32(255, 230, 160, 255), note.c_str());
             }
         } else {
@@ -1014,7 +1091,8 @@ void Editor::anim3d_viewport() {
                     const bool hot = u.drag == D::IkPole || over.kind == HandleHit::Pole;
                     const ImVec2 c = S(poleS);
                     const float rr = hot ? 9.0f : 7.0f;
-                    dl->AddQuadFilled(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr), ImVec2(c.x - rr, c.y), IM_COL32(190, 140, 255, 230));
+                    dl->AddQuadFilled(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr),
+                                      ImVec2(c.x - rr, c.y), IM_COL32(190, 140, 255, 230));
                     ++u.handlesDrawn;
                     if (autotest_) at_track_at("a3:ik:pole", Vec2{c.x, c.y});
                 }
@@ -1031,14 +1109,17 @@ void Editor::anim3d_viewport() {
             }
             if (dragging) {
                 dl->AddText(ImVec2(p0.x + 8, p0.y + float(h) - 20), IM_COL32(255, 230, 160, 255),
-                            u.drag == D::LookTarget ? (u.bone + " looks at the point").c_str() : ("IK " + u.bone + (u.drag == D::IkPole ? ": pole" : ": target")).c_str());
+                            u.drag == D::LookTarget
+                                ? (u.bone + " looks at the point").c_str()
+                                : ("IK " + u.bone + (u.drag == D::IkPole ? ": pole" : ": target")).c_str());
             }
         }
     }
-    const char* hint = !canEdit ? ""
+    const char* hint = !canEdit   ? ""
                        : node < 0 ? "Click a bone to pick it. Drag to orbit, wheel to zoom."
-                       : (!rotateTool && !ikOk && !lookOk) ? "IK handles: pick a hand or a foot (two bones above it), or the head."
-                                                           : "";
+                       : (!rotateTool && !ikOk && !lookOk)
+                           ? "IK handles: pick a hand or a foot (two bones above it), or the head."
+                           : "";
     if (*hint) dl->AddText(ImVec2(p0.x + 8, p0.y + 6), IM_COL32(200, 205, 215, 220), hint);
     dl->PopClipRect();
 }
@@ -1068,7 +1149,9 @@ struct SheetRow {
 
 ImU32 channel_color(int channel, bool selected) {
     if (selected) return IM_COL32(255, 235, 140, 255);
-    return channel == 0 ? IM_COL32(240, 150, 80, 255) : channel == 1 ? IM_COL32(110, 205, 120, 255) : IM_COL32(120, 160, 240, 255);
+    return channel == 0   ? IM_COL32(240, 150, 80, 255)
+           : channel == 1 ? IM_COL32(110, 205, 120, 255)
+                          : IM_COL32(120, 160, 240, 255);
 }
 
 }  // namespace
@@ -1076,7 +1159,8 @@ ImU32 channel_color(int channel, bool selected) {
 void Editor::anim3d_dopesheet() {
     Anim3DUi& u = anim3d_;
     Anim3DModel& m = *u.model;
-    const std::shared_ptr<const Anim3DClip> clip = m.clip();   // a copy: an edit below reloads the model, and the clip it replaced stays valid here
+    const std::shared_ptr<const Anim3DClip> clip =
+        m.clip();  // a copy: an edit below reloads the model, and the clip it replaced stays valid here
     if (!clip) return;
     const double dur = double(clip->duration);
     using SD = Anim3DUi::SheetDrag;
@@ -1086,7 +1170,7 @@ void Editor::anim3d_dopesheet() {
     std::vector<SheetRow> rows;
     {
         const std::vector<Anim3DBoneRow> bones = m.rows();
-        std::map<std::string, std::pair<int, int>> order;   // bone -> (index in the rig, depth)
+        std::map<std::string, std::pair<int, int>> order;  // bone -> (index in the rig, depth)
         for (std::size_t i = 0; i < bones.size(); ++i) order[bones[i].name] = {int(i), bones[i].depth};
         for (std::size_t i = 0; i < clip->tracks.size(); ++i) {
             const Anim3DTrack& t = clip->tracks[i];
@@ -1096,7 +1180,8 @@ void Editor::anim3d_dopesheet() {
         }
         std::stable_sort(rows.begin(), rows.end(), [&](const SheetRow& a, const SheetRow& b) {
             const auto ia = order.find(a.bone), ib = order.find(b.bone);
-            const int oa = ia == order.end() ? 1 << 20 : ia->second.first, ob = ib == order.end() ? 1 << 20 : ib->second.first;
+            const int oa = ia == order.end() ? 1 << 20 : ia->second.first,
+                      ob = ib == order.end() ? 1 << 20 : ib->second.first;
             if (oa != ob) return oa < ob;
             if (a.bone != b.bone) return a.bone < b.bone;
             return a.channel < b.channel;
@@ -1131,7 +1216,8 @@ void Editor::anim3d_dopesheet() {
         }
         at_track("a3:interp", !u.selection.empty());
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("How the picked keys ease into the next one: linear, step (holds), bezier or one of the M42 easings.");
+            ImGui::SetTooltip(
+                "How the picked keys ease into the next one: linear, step (holds), bezier or one of the M42 easings.");
     }
     ImGui::SameLine();
     if (ImGui::Button("Delete keys")) {
@@ -1141,7 +1227,8 @@ void Editor::anim3d_dopesheet() {
     at_track("a3:delete", !u.selection.empty());
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::TextDisabled("%d key%s picked   click: pick (shift adds)   drag: move   double click a row: key the current pose   Ctrl+wheel: zoom",
+    ImGui::TextDisabled("%d key%s picked   click: pick (shift adds)   drag: move   double click a row: key the current "
+                        "pose   Ctrl+wheel: zoom",
                         int(u.selection.size()), u.selection.size() == 1 ? "" : "s");
 
     // ---- layout
@@ -1159,7 +1246,9 @@ void Editor::anim3d_dopesheet() {
     }
     auto x_of = [&](double t) { return u.timeX0 + 12.0f + float((t - u.viewStart) * double(u.pps)); };
     auto t_of = [&](double x) { return u.viewStart + (x - double(u.timeX0) - 12.0) / double(u.pps); };
-    auto snap_free = [&](double t) { return u.snap && u.fps > 0 ? std::round(t * u.fps) / u.fps : std::round(t * 1000.0) / 1000.0; };
+    auto snap_free = [&](double t) {
+        return u.snap && u.fps > 0 ? std::round(t * u.fps) / u.fps : std::round(t * 1000.0) / 1000.0;
+    };
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     // zoom with Ctrl+wheel, pan with Shift+wheel, over the whole sheet
@@ -1202,12 +1291,14 @@ void Editor::anim3d_dopesheet() {
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         const int hit = event_at(io.MousePos.x);
         if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hit < 0) {
-            const Anim3DEdit e = m.add_event(anim3d_snap(t_of(io.MousePos.x)), u.eventName.empty() ? "event" : u.eventName);
+            const Anim3DEdit e =
+                m.add_event(anim3d_snap(t_of(io.MousePos.x)), u.eventName.empty() ? "event" : u.eventName);
             anim3d_commit(e);
             if (e.ok) {
                 u.selectedEvent = -1;
                 for (std::size_t i = 0; m.clip() && i < m.clip()->events.size(); ++i)
-                    if (std::fabs(double(m.clip()->events[i].t) - anim3d_snap(t_of(io.MousePos.x))) < 0.0006) u.selectedEvent = int(i);
+                    if (std::fabs(double(m.clip()->events[i].t) - anim3d_snap(t_of(io.MousePos.x))) < 0.0006)
+                        u.selectedEvent = int(i);
             }
         } else {
             u.selectedEvent = hit;
@@ -1229,7 +1320,7 @@ void Editor::anim3d_dopesheet() {
             u.sheetDrag = SD::None;
             if (u.sheetMoved && u.sheetEvent >= 0 && u.sheetEvent < int(clip->events.size())) {
                 anim3d_commit(m.set_event(u.sheetEvent, Json::object({{"t", u.sheetPressT + u.sheetDt}})));
-                if (m.clip())   // the events stay in time order: follow the one that moved
+                if (m.clip())  // the events stay in time order: follow the one that moved
                     for (std::size_t i = 0; i < m.clip()->events.size(); ++i)
                         if (std::fabs(double(m.clip()->events[i].t) - (u.sheetPressT + u.sheetDt)) < 0.0006 &&
                             m.clip()->events[i].name == clip->events[std::size_t(u.sheetEvent)].name)
@@ -1241,11 +1332,12 @@ void Editor::anim3d_dopesheet() {
     }
     // the ruler and the lane themselves
     {
-        const ImU32 bg = IM_COL32(34, 36, 42, 255), tick = IM_COL32(150, 155, 165, 255), text = IM_COL32(200, 205, 215, 255);
+        const ImU32 bg = IM_COL32(34, 36, 42, 255), tick = IM_COL32(150, 155, 165, 255),
+                    text = IM_COL32(200, 205, 215, 255);
         dl->AddRectFilled(ImVec2(u.timeX0, o.y), ImVec2(u.timeX1, o.y + kRulerH + kLaneH), bg);
         dl->PushClipRect(ImVec2(u.timeX0, o.y), ImVec2(u.timeX1, o.y + kRulerH + kLaneH), true);
         const double firstT = std::floor(t_of(u.timeX0) * 20.0) / 20.0, lastT = t_of(u.timeX1);
-        double step = 0.05;   // a label every >= 60 px
+        double step = 0.05;  // a label every >= 60 px
         for (double s : {0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0}) {
             step = s;
             if (s * double(u.pps) >= 60.0) break;
@@ -1258,8 +1350,10 @@ void Editor::anim3d_dopesheet() {
         }
         // frames, when there is room
         if (u.snap && u.fps > 0 && double(u.pps) / double(u.fps) >= 6.0) {
-            for (int f = int(std::max(0.0, std::floor(t_of(u.timeX0) * u.fps))); double(f) / u.fps <= std::min(lastT, dur) + 1e-9; ++f)
-                dl->AddLine(ImVec2(x_of(double(f) / u.fps), o.y + kRulerH - 4), ImVec2(x_of(double(f) / u.fps), o.y + kRulerH), IM_COL32(100, 105, 115, 255));
+            for (int f = int(std::max(0.0, std::floor(t_of(u.timeX0) * u.fps)));
+                 double(f) / u.fps <= std::min(lastT, dur) + 1e-9; ++f)
+                dl->AddLine(ImVec2(x_of(double(f) / u.fps), o.y + kRulerH - 4),
+                            ImVec2(x_of(double(f) / u.fps), o.y + kRulerH), IM_COL32(100, 105, 115, 255));
         }
         // the end of the clip
         dl->AddRectFilled(ImVec2(x_of(dur), o.y), ImVec2(u.timeX1 + 1, o.y + kRulerH + kLaneH), IM_COL32(0, 0, 0, 90));
@@ -1272,11 +1366,13 @@ void Editor::anim3d_dopesheet() {
             const bool sel = int(i) == u.selectedEvent;
             const ImU32 col = sel ? IM_COL32(255, 235, 140, 255) : IM_COL32(120, 200, 255, 255);
             dl->AddTriangleFilled(ImVec2(x, cy + 6), ImVec2(x - 5, cy - 5), ImVec2(x + 5, cy - 5), col);
-            dl->AddText(ImVec2(x + 7, cy - 7), sel ? col : IM_COL32(170, 190, 215, 255), anim3d_event_label(clip->events[i]).c_str());
+            dl->AddText(ImVec2(x + 7, cy - 7), sel ? col : IM_COL32(170, 190, 215, 255),
+                        anim3d_event_label(clip->events[i]).c_str());
             at_track_at("a3:event:" + std::to_string(i) + ":mark", Vec2{x, cy});
         }
         dl->PopClipRect();
-        if (laneHover && event_at(io.MousePos.x) < 0) ImGui::SetTooltip("Double click: add an event \"%s\" here", u.eventName.c_str());
+        if (laneHover && event_at(io.MousePos.x) < 0)
+            ImGui::SetTooltip("Double click: add an event \"%s\" here", u.eventName.c_str());
     }
 
     // ---- the rows
@@ -1316,7 +1412,7 @@ void Editor::anim3d_dopesheet() {
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
             Key3D hit;
             const int row = row_at(io.MousePos.y);
-            if (io.MousePos.x < u.timeX0) {                 // the label column: pick the bone
+            if (io.MousePos.x < u.timeX0) {  // the label column: pick the bone
                 if (row >= 0) u.bone = rows[std::size_t(row)].bone;
             } else if (key_hit(io.MousePos.x, io.MousePos.y, hit)) {
                 if (io.KeyShift) {
@@ -1341,7 +1437,7 @@ void Editor::anim3d_dopesheet() {
             } else {
                 if (!io.KeyShift) u.selection.clear();
                 if (row >= 0) u.bone = rows[std::size_t(row)].bone;
-                if (io.MousePos.x >= u.timeX0 && !io.KeyShift && row < 0) {   // below the last row: move the playhead
+                if (io.MousePos.x >= u.timeX0 && !io.KeyShift && row < 0) {  // below the last row: move the playhead
                     u.playhead = anim3d_snap(t_of(io.MousePos.x));
                 }
             }
@@ -1361,7 +1457,8 @@ void Editor::anim3d_dopesheet() {
                     anim3d_commit(e);
                     if (e.ok) {
                         Key3DSet moved;
-                        for (const Key3D& k : u.selection) moved.insert(Key3D{k.bone, k.channel, k.ms + std::llround(dt * 1000.0)});
+                        for (const Key3D& k : u.selection)
+                            moved.insert(Key3D{k.bone, k.channel, k.ms + std::llround(dt * 1000.0)});
                         u.selection = moved;
                     }
                 }
@@ -1382,11 +1479,15 @@ void Editor::anim3d_dopesheet() {
             if (y + kRowH < winTop || y > winBottom) continue;
             const bool picked = r.bone == pickedBone;
             rl->AddRectFilled(ImVec2(start.x, y), ImVec2(start.x + width, y + kRowH),
-                              picked ? IM_COL32(60, 70, 95, 255) : (row % 2 ? IM_COL32(40, 42, 48, 255) : IM_COL32(35, 37, 42, 255)));
-            const std::string label = std::string(std::size_t(std::min(r.depth, 6)) * 2, ' ') + (r.bone == lastBone ? std::string("   ") : r.bone + " ") + channel3d_short(r.channel);
+                              picked ? IM_COL32(60, 70, 95, 255)
+                                     : (row % 2 ? IM_COL32(40, 42, 48, 255) : IM_COL32(35, 37, 42, 255)));
+            const std::string label = std::string(std::size_t(std::min(r.depth, 6)) * 2, ' ') +
+                                      (r.bone == lastBone ? std::string("   ") : r.bone + " ") +
+                                      channel3d_short(r.channel);
             lastBone = r.bone;
             rl->PushClipRect(ImVec2(start.x, y), ImVec2(u.timeX0, y + kRowH), true);
-            rl->AddText(ImVec2(start.x + 6, y + 2), picked ? IM_COL32(255, 220, 150, 255) : IM_COL32(200, 205, 215, 255), label.c_str());
+            rl->AddText(ImVec2(start.x + 6, y + 2),
+                        picked ? IM_COL32(255, 220, 150, 255) : IM_COL32(200, 205, 215, 255), label.c_str());
             rl->PopClipRect();
             at_track_at("a3:row:" + r.bone + ":" + std::to_string(r.channel), Vec2{start.x + 40, y + kRowH * 0.5f});
             rl->PushClipRect(ImVec2(u.timeX0, y), ImVec2(u.timeX1, y + kRowH), true);
@@ -1397,8 +1498,10 @@ void Editor::anim3d_dopesheet() {
                 if (c.from <= c.to) {
                     rl->AddRectFilled(ImVec2(a, y + kRowH - 4), ImVec2(b, y + kRowH - 1), IM_COL32(90, 170, 100, 150));
                 } else {
-                    rl->AddRectFilled(ImVec2(a, y + kRowH - 4), ImVec2(x_of(dur), y + kRowH - 1), IM_COL32(90, 170, 100, 150));
-                    rl->AddRectFilled(ImVec2(x_of(0), y + kRowH - 4), ImVec2(b, y + kRowH - 1), IM_COL32(90, 170, 100, 150));
+                    rl->AddRectFilled(ImVec2(a, y + kRowH - 4), ImVec2(x_of(dur), y + kRowH - 1),
+                                      IM_COL32(90, 170, 100, 150));
+                    rl->AddRectFilled(ImVec2(x_of(0), y + kRowH - 4), ImVec2(b, y + kRowH - 1),
+                                      IM_COL32(90, 170, 100, 150));
                 }
             }
             for (const ClipKey& k : clip->tracks[r.track].keys) {
@@ -1413,18 +1516,24 @@ void Editor::anim3d_dopesheet() {
                 if (k.interp == ClipInterp::Step)
                     rl->AddRectFilled(ImVec2(c.x - rr + 1, c.y - rr + 1), ImVec2(c.x + rr - 1, c.y + rr - 1), col);
                 else
-                    rl->AddQuadFilled(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr), ImVec2(c.x - rr, c.y), col);
-                rl->AddQuad(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr), ImVec2(c.x - rr, c.y), IM_COL32(20, 20, 24, 255));
+                    rl->AddQuadFilled(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr),
+                                      ImVec2(c.x - rr, c.y), col);
+                rl->AddQuad(ImVec2(c.x, c.y - rr), ImVec2(c.x + rr, c.y), ImVec2(c.x, c.y + rr), ImVec2(c.x - rr, c.y),
+                            IM_COL32(20, 20, 24, 255));
                 ++u.keysDrawn;
-                at_track_at("a3:key:" + r.bone + ":" + std::to_string(r.channel) + ":" + std::to_string(id.ms), Vec2{c.x, c.y});
+                at_track_at("a3:key:" + r.bone + ":" + std::to_string(r.channel) + ":" + std::to_string(id.ms),
+                            Vec2{c.x, c.y});
             }
             rl->PopClipRect();
         }
         // the playhead over the rows
         rl->PushClipRect(ImVec2(u.timeX0, winTop), ImVec2(u.timeX1, winBottom), true);
-        rl->AddLine(ImVec2(x_of(u.playhead), winTop), ImVec2(x_of(u.playhead), winBottom), IM_COL32(255, 90, 90, 220), 1.5f);
+        rl->AddLine(ImVec2(x_of(u.playhead), winTop), ImVec2(x_of(u.playhead), winBottom), IM_COL32(255, 90, 90, 220),
+                    1.5f);
         rl->PopClipRect();
-        if (rows.empty()) rl->AddText(ImVec2(start.x + 8, start.y + 4), IM_COL32(150, 155, 165, 255), "This clip has no tracks yet: pick a bone and use Key rotation, or turn it with a gizmo.");
+        if (rows.empty())
+            rl->AddText(ImVec2(start.x + 8, start.y + 4), IM_COL32(150, 155, 165, 255),
+                        "This clip has no tracks yet: pick a bone and use Key rotation, or turn it with a gizmo.");
     }
     ImGui::EndChild();
     // the playhead over the ruler and the lane
@@ -1457,8 +1566,10 @@ void Editor::anim3d_inspector() {
                 const Pose pose = u.live ? u.livePose : m.pose_at(u.playhead);
                 const auto v = rotation_key_value(*clip, pose_delta_rotation(rig->rig, pose, node));
                 const Vec3 t = pose.translation[std::size_t(node)] - rig->rig.rest.translation[std::size_t(node)];
-                if (clip->quat) ImGui::Text("rotation  %.3f %.3f %.3f %.3f", v[0], v[1], v[2], v[3]);
-                else ImGui::Text("rotation  %.1f %.1f %.1f deg", v[0], v[1], v[2]);
+                if (clip->quat)
+                    ImGui::Text("rotation  %.3f %.3f %.3f %.3f", v[0], v[1], v[2], v[3]);
+                else
+                    ImGui::Text("rotation  %.1f %.1f %.1f deg", v[0], v[1], v[2]);
                 ImGui::Text("position  %+.3f %+.3f %+.3f", t.x, t.y, t.z);
             }
         }
@@ -1477,23 +1588,29 @@ void Editor::anim3d_inspector() {
                         u.keyShownRev = m.revision();
                     }
                 }
-                ImGui::Text("%s %s at %.3f s (%s)", k.bone.c_str(), channel3d_name(k.channel), double(ck->t), key3d_interp(*ck).c_str());
+                ImGui::Text("%s %s at %.3f s (%s)", k.bone.c_str(), channel3d_name(k.channel), double(ck->t),
+                            key3d_interp(*ck).c_str());
                 const bool quat = k.channel == 0 && clip->quat;
                 ImGui::SetNextItemWidth(-1);
-                if (quat) ImGui::DragFloat4("##a3_keyval", u.keyVals.data(), 0.01f);
-                else ImGui::DragFloat3("##a3_keyval", u.keyVals.data(), k.channel == 0 ? 0.5f : 0.005f);
+                if (quat)
+                    ImGui::DragFloat4("##a3_keyval", u.keyVals.data(), 0.01f);
+                else
+                    ImGui::DragFloat3("##a3_keyval", u.keyVals.data(), k.channel == 0 ? 0.5f : 0.005f);
                 at_track("a3:keyvalue");
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     const Anim3DEdit e = m.set_key(k.bone, k.channel, double(ck->t), u.keyVals);
                     anim3d_commit(e);
                     u.keyShownRev = ~0ULL;
                 }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(k.channel == 0 && !quat ? "Euler degrees, the way the file stores them." : "Local units (the offset from the bone's rest pose).");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(k.channel == 0 && !quat ? "Euler degrees, the way the file stores them."
+                                                              : "Local units (the offset from the bone's rest pose).");
             }
         } else if (u.selection.empty()) {
             ImGui::TextDisabled("No key picked.");
         } else {
-            ImGui::Text("%d keys picked (%.2f s to %.2f s)", int(u.selection.size()), earliest_time3d(u.selection), latest_time3d(u.selection));
+            ImGui::Text("%d keys picked (%.2f s to %.2f s)", int(u.selection.size()), earliest_time3d(u.selection),
+                        latest_time3d(u.selection));
         }
     }
 
@@ -1504,14 +1621,17 @@ void Editor::anim3d_inspector() {
         ImGui::SetNextItemWidth(110);
         ImGui::InputFloat("duration (s)", &duration, 0, 0, "%.3f");
         at_track("a3:duration");
-        if (ImGui::IsItemDeactivatedAfterEdit() && duration > 0) anim3d_commit(m.set_clip(Json::object({{"duration", double(duration)}})));
+        if (ImGui::IsItemDeactivatedAfterEdit() && duration > 0)
+            anim3d_commit(m.set_clip(Json::object({{"duration", double(duration)}})));
         if (ImGui::Checkbox("loop", &loop)) anim3d_commit(m.set_clip(Json::object({{"loop", loop}})));
         at_track("a3:cliploop");
         ImGui::SetNextItemWidth(110);
         ImGui::InputFloat("ground speed", &ground, 0, 0, "%.3f");
         at_track("a3:groundspeed");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Model units per second the ground moves under the feet in stance (0 = in place).");
-        if (ImGui::IsItemDeactivatedAfterEdit() && ground >= 0) anim3d_commit(m.set_clip(Json::object({{"groundSpeed", double(ground)}})));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Model units per second the ground moves under the feet in stance (0 = in place).");
+        if (ImGui::IsItemDeactivatedAfterEdit() && ground >= 0)
+            anim3d_commit(m.set_clip(Json::object({{"groundSpeed", double(ground)}})));
         ImGui::TextDisabled("rig  %s", clip->rig.empty() ? "(any)" : clip->rig.c_str());
         if (!clip->generated.is_null()) ImGui::TextDisabled("generated  %s", clip->generated.dump().c_str());
     }
@@ -1520,13 +1640,19 @@ void Editor::anim3d_inspector() {
     if (ImGui::CollapsingHeader("Events", ImGuiTreeNodeFlags_DefaultOpen)) {
         for (std::size_t i = 0; i < clip->events.size(); ++i) {
             const bool sel = int(i) == u.selectedEvent;
-            if (ImGui::Selectable((std::format("{:.3f}  {}", double(clip->events[i].t), anim3d_event_label(clip->events[i])) + "##a3_ev" + std::to_string(i)).c_str(), sel)) u.selectedEvent = int(i);
+            if (ImGui::Selectable(
+                    (std::format("{:.3f}  {}", double(clip->events[i].t), anim3d_event_label(clip->events[i])) +
+                     "##a3_ev" + std::to_string(i))
+                        .c_str(),
+                    sel))
+                u.selectedEvent = int(i);
             at_track("a3:event:" + std::to_string(i));
         }
         if (clip->events.empty()) ImGui::TextDisabled("None. Double click the lane under the ruler, or Add.");
         if (u.selectedEvent >= 0 && u.selectedEvent < int(clip->events.size())) {
             const ClipEvent& ev = clip->events[std::size_t(u.selectedEvent)];
-            const std::string key = clip->path + "#" + std::to_string(u.selectedEvent) + "@" + std::to_string(m.revision());
+            const std::string key =
+                clip->path + "#" + std::to_string(u.selectedEvent) + "@" + std::to_string(m.revision());
             if (u.eventTextKey != key && !ImGui::IsAnyItemActive()) {
                 u.eventTextKey = key;
                 u.eventText = ev.name;
@@ -1539,22 +1665,28 @@ void Editor::anim3d_inspector() {
             ImGui::SetNextItemWidth(-60);
             ImGui::InputText("name##a3_evname", &u.eventText);
             at_track("a3:event:name");
-            if (ImGui::IsItemDeactivatedAfterEdit() && !u.eventText.empty()) anim3d_commit(m.set_event(u.selectedEvent, Json::object({{"name", u.eventText}})));
+            if (ImGui::IsItemDeactivatedAfterEdit() && !u.eventText.empty())
+                anim3d_commit(m.set_event(u.selectedEvent, Json::object({{"name", u.eventText}})));
             ImGui::SetNextItemWidth(110);
             ImGui::InputFloat("time (s)##a3_evtime", &u.eventTime, 0, 0, "%.3f");
             at_track("a3:event:time");
-            if (ImGui::IsItemDeactivatedAfterEdit()) anim3d_commit(m.set_event(u.selectedEvent, Json::object({{"t", double(std::clamp(u.eventTime, 0.0f, clip->duration))}})));
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                anim3d_commit(m.set_event(
+                    u.selectedEvent, Json::object({{"t", double(std::clamp(u.eventTime, 0.0f, clip->duration))}})));
             ImGui::SetNextItemWidth(-60);
             ImGui::InputText("data##a3_evdata", &u.eventData);
             at_track("a3:event:data");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("A JSON object sent with the event, e.g. {\"foot\":\"left\"}.");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A JSON object sent with the event, e.g. {\"foot\":\"left\"}.");
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 Json data = Json::object();
                 bool good = true;
                 if (!trim(u.eventData).empty()) {
                     auto parsed = Json::parse(u.eventData, nullptr, false);
-                    if (parsed.is_discarded() || !parsed.is_object()) good = false;
-                    else data = parsed;
+                    if (parsed.is_discarded() || !parsed.is_object())
+                        good = false;
+                    else
+                        data = parsed;
                 }
                 if (good) {
                     u.eventDataError.clear();
@@ -1568,8 +1700,10 @@ void Editor::anim3d_inspector() {
             ImGui::InputText("feel##a3_evfeel", &u.eventFeel);
             at_track("a3:event:feel");
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Game feel actions run on the entity that plays the clip: one JSON object or an array, e.g. [{\"action\":\"hitStop\",\"duration\":0.06}]. "
-                                  "The actions are shake, hitStop, flash, knockback or push, squash, spawn and sound (docs/GAME_FEEL.md).");
+                ImGui::SetTooltip("Game feel actions run on the entity that plays the clip: one JSON object or an "
+                                  "array, e.g. [{\"action\":\"hitStop\",\"duration\":0.06}]. "
+                                  "The actions are shake, hitStop, flash, knockback or push, squash, spawn and sound "
+                                  "(docs/GAME_FEEL.md).");
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 Json feel;  // null removes them
                 bool good = true;
@@ -1583,7 +1717,8 @@ void Editor::anim3d_inspector() {
                     anim3d_commit(edit);
                     if (!edit.ok) u.eventFeelError = edit.error;
                 } else {
-                    u.eventFeelError = "The feel actions must be a JSON object or array, e.g. {\"action\":\"hitStop\"}.";
+                    u.eventFeelError =
+                        "The feel actions must be a JSON object or array, e.g. {\"action\":\"hitStop\"}.";
                 }
             }
             if (!u.eventFeelError.empty()) {
@@ -1600,7 +1735,9 @@ void Editor::anim3d_inspector() {
         ImGui::SetNextItemWidth(110);
         ImGui::InputText("##a3_evnew", &u.eventName);
         at_track("a3:event:newname");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game event name world.on(name, fn) listens to. Leave it empty to add an event that only runs the feel actions.");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The game event name world.on(name, fn) listens to. Leave it empty to add an event that "
+                              "only runs the feel actions.");
         ImGui::SameLine();
         if (ImGui::Button("Add at playhead")) {
             Json feel;
@@ -1622,7 +1759,9 @@ void Editor::anim3d_inspector() {
                 if (e.ok && m.clip()) {
                     u.selectedEvent = -1;
                     for (std::size_t i = 0; i < m.clip()->events.size(); ++i)
-                        if (std::fabs(double(m.clip()->events[i].t) - t) < 0.0006 && m.clip()->events[i].name == u.eventName) u.selectedEvent = int(i);
+                        if (std::fabs(double(m.clip()->events[i].t) - t) < 0.0006 &&
+                            m.clip()->events[i].name == u.eventName)
+                            u.selectedEvent = int(i);
                 }
             }
         }
@@ -1631,7 +1770,8 @@ void Editor::anim3d_inspector() {
         ImGui::InputTextWithHint("##a3_evnewfeel", "feel (JSON)", &u.newEventFeel);
         at_track("a3:event:newfeel");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Optional game feel actions: one JSON object or an array, e.g. {\"action\":\"hitStop\",\"duration\":0.06}. "
+            ImGui::SetTooltip("Optional game feel actions: one JSON object or an array, e.g. "
+                              "{\"action\":\"hitStop\",\"duration\":0.06}. "
                               "With no name the event only runs them (docs/GAME_FEEL.md).");
         if (!u.newEventError.empty()) {
             ImGui::PushTextWrapPos(0.0f);
@@ -1645,7 +1785,7 @@ void Editor::anim3d_inspector() {
     const std::string rigStem = stem_of(rigPath.empty() ? clip->rig : rigPath);
     const bool generateOpen = ImGui::CollapsingHeader("Generate a clip");
     at_track("a3:section:generate");
-    if (ImGui::IsItemToggledOpen()) ImGui::SetScrollHereY(0.0f);   // a form that just opened is brought into view
+    if (ImGui::IsItemToggledOpen()) ImGui::SetScrollHereY(0.0f);  // a form that just opened is brought into view
     if (generateOpen) {
         if (rigPath.empty()) {
             ImGui::TextDisabled("Needs the baked rig: choose one in the toolbar.");
@@ -1676,8 +1816,10 @@ void Editor::anim3d_inspector() {
             Json params = Json::object();
             if (!trim(u.generateParams).empty()) {
                 auto parsed = Json::parse(u.generateParams, nullptr, false);
-                if (parsed.is_discarded() || !parsed.is_object()) problem = "The parameters must be a JSON object.";
-                else params = parsed;
+                if (parsed.is_discarded() || !parsed.is_object())
+                    problem = "The parameters must be a JSON object.";
+                else
+                    params = parsed;
             }
             if (!problem.empty()) ImGui::TextColored(kBad, "%s", problem.c_str());
             ImGui::BeginDisabled(!problem.empty() || u.generateOut.empty());
@@ -1688,17 +1830,19 @@ void Editor::anim3d_inspector() {
                 if (e.ok) {
                     open_anim3d_clip(out, rigPath);
                     ImGui::EndDisabled();
-                    return;   // the clip on show is another one now
+                    return;  // the clip on show is another one now
                 }
             }
             at_track("a3:generate", problem.empty() && !u.generateOut.empty());
             ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("anim3d.generate: writes the clip with the rig's bones and opens it. Undo deletes the file again.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "anim3d.generate: writes the clip with the rig's bones and opens it. Undo deletes the file again.");
         }
     }
     const bool retargetOpen = ImGui::CollapsingHeader("Retarget to another rig");
     at_track("a3:section:retarget");
-    if (ImGui::IsItemToggledOpen()) ImGui::SetScrollHereY(0.0f);   // a form that just opened is brought into view
+    if (ImGui::IsItemToggledOpen()) ImGui::SetScrollHereY(0.0f);  // a form that just opened is brought into view
     if (retargetOpen) {
         if (rigPath.empty()) {
             ImGui::TextDisabled("Needs the baked rig the clip is for.");
@@ -1736,7 +1880,9 @@ void Editor::anim3d_inspector() {
             }
             at_track("a3:retarget", !u.retargetTo.empty() && !u.retargetOut.empty());
             ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("anim3d.retarget: carries the clip over to the rig by bone role, keeping the feet planted through the stance bars.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("anim3d.retarget: carries the clip over to the rig by bone role, keeping the feet "
+                                  "planted through the stance bars.");
         }
     }
 }
@@ -1749,7 +1895,8 @@ void Editor::anim3d_load_sheet(Anim3DUi::Sheet& sheet, const std::string& what, 
     sheet.note.clear();
     sheet.clip = u.model ? u.model->path() : std::string();
     sheet.revision = u.model ? u.model->revision() : 0;
-    if (!result.is_object() || !result.contains("$image") || !result["$image"].is_object() || !result["$image"].contains("path")) {
+    if (!result.is_object() || !result.contains("$image") || !result["$image"].is_object() ||
+        !result["$image"].contains("path")) {
         sheet.error = "The command returned no picture.";
         return;
     }
@@ -1785,7 +1932,8 @@ void Editor::anim3d_show_filmstrip() {
     }
     const std::string clipPath = m.path();
     const std::uint64_t revision = m.revision();
-    const Json args = Json::object({{"path", clipPath}, {"rig", m.rig_path()}, {"frames", 6}, {"cell", 150}, {"yaws", Json::array({-70, 0, 90})}});
+    const Json args = Json::object(
+        {{"path", clipPath}, {"rig", m.rig_path()}, {"frames", 6}, {"cell", 150}, {"yaws", Json::array({-70, 0, 90})}});
     CommandResult r = engine_->commands().call("anim3d.preview", args);
     // The command is synchronous: the clip on show is the one it drew (checked all the same, as a result that outlives its clip would mislead).
     if (!m.is_open() || m.path() != clipPath || m.revision() != revision) return;
@@ -1848,16 +1996,23 @@ void Editor::draw_anim3d_sheets() {
                     u.sheetTab = part.index;
                     ImGui::PushID(part.index);
                     if (s.what.empty()) {
-                        ImGui::TextDisabled("Nothing drawn yet: use the %s button in the toolbar.", part.index == 0 ? "Filmstrip" : "Weights");
+                        ImGui::TextDisabled("Nothing drawn yet: use the %s button in the toolbar.",
+                                            part.index == 0 ? "Filmstrip" : "Weights");
                     } else {
-                        if (!s.clip.empty() && s.clip != current) ImGui::TextColored(kWarn, "This is the picture of %s, not the clip on show.", s.clip.c_str());
-                        else if (s.revision != revision && part.index == 0) ImGui::TextColored(kWarn, "The clip changed since this picture was made: press Filmstrip again.");
+                        if (!s.clip.empty() && s.clip != current)
+                            ImGui::TextColored(kWarn, "This is the picture of %s, not the clip on show.",
+                                               s.clip.c_str());
+                        else if (s.revision != revision && part.index == 0)
+                            ImGui::TextColored(kWarn,
+                                               "The clip changed since this picture was made: press Filmstrip again.");
                         if (!s.note.empty()) ImGui::TextDisabled("%s", s.note.c_str());
                         if (!s.error.empty()) ImGui::TextColored(kBad, "%s", s.error.c_str());
                         if (s.tex.view) {
                             const ImVec2 room = ImGui::GetContentRegionAvail();
-                            const float scale = std::min(1.0f, std::min(room.x / float(s.tex.w), room.y / float(s.tex.h)));
-                            ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(s.tex.view, true))), ImVec2(float(s.tex.w) * scale, float(s.tex.h) * scale));
+                            const float scale =
+                                std::min(1.0f, std::min(room.x / float(s.tex.w), room.y / float(s.tex.h)));
+                            ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(s.tex.view, true))),
+                                         ImVec2(float(s.tex.w) * scale, float(s.tex.h) * scale));
                             at_track(part.index == 0 ? "a3:sheet:filmstrip" : "a3:sheet:weights");
                         }
                     }

@@ -19,7 +19,8 @@ void set_current_thread_name(const char* name) {
     static const SetDescriptionFn fn = [] {
         HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
         if (!kernel) return SetDescriptionFn(nullptr);
-        return reinterpret_cast<SetDescriptionFn>(reinterpret_cast<void*>(GetProcAddress(kernel, "SetThreadDescription")));
+        return reinterpret_cast<SetDescriptionFn>(
+            reinterpret_cast<void*>(GetProcAddress(kernel, "SetThreadDescription")));
     }();
     if (!fn || !name) return;
     std::wstring wide;

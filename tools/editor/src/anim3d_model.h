@@ -41,10 +41,10 @@ struct Key3D {
 };
 using Key3DSet = std::set<Key3D>;
 
-long long key3d_ms(double seconds);                         // rounded to a millisecond
-const char* channel3d_name(int channel);                    // "rotation", "translation", "scale"
-const char* channel3d_short(int channel);                   // "rot", "pos", "scl": the label of a dopesheet row
-Json key3d_refs(const Key3DSet& keys);                      // [{bone, channel, t}] for the commands' `keys`
+long long key3d_ms(double seconds);        // rounded to a millisecond
+const char* channel3d_name(int channel);   // "rotation", "translation", "scale"
+const char* channel3d_short(int channel);  // "rot", "pos", "scl": the label of a dopesheet row
+Json key3d_refs(const Key3DSet& keys);     // [{bone, channel, t}] for the commands' `keys`
 double earliest_time3d(const Key3DSet& keys);
 double latest_time3d(const Key3DSet& keys);
 // "linear", "step", "bezier" or the easing name of a key.
@@ -56,8 +56,9 @@ bool anim3d_file_is_3d(const std::string& projectDir, const std::string& rel);
 // ---------------------------------------------------------------------------------------------------------------- results --
 struct Anim3DEdit {
     bool ok = true;
-    std::string error;   // what went wrong, with the command's hint
-    Json undo;           // {command: "anim3d.restore", args}: what the editor's undo stack keeps (null when the call wrote nothing)
+    std::string error;  // what went wrong, with the command's hint
+    Json
+        undo;  // {command: "anim3d.restore", args}: what the editor's undo stack keeps (null when the call wrote nothing)
     Json result;
 };
 
@@ -78,28 +79,28 @@ public:
     // Opens a 3D clip. The rig is `rigRel` (a .rig.glb or .rig.json) or, when empty, the clip's own. Without a rig the clip still opens
     // (the dopesheet works); has_rig() is false and error() says which rig is missing. False when the clip itself does not load.
     bool open(const std::string& clipRel, const std::string& rigRel = {});
-    bool set_rig(const std::string& rigRel);   // pose another baked rig with the open clip
+    bool set_rig(const std::string& rigRel);  // pose another baked rig with the open clip
     void close();
     bool is_open() const { return open_; }
     bool has_rig() const { return rig_ != nullptr; }
     const std::string& path() const { return clipRel_; }
     const std::string& rig_path() const { return rigRel_; }
     const std::string& error() const { return clipError_.empty() ? rigError_ : clipError_; }
-    bool reload();                             // reads the clip again; true when it loaded
-    bool poll();                               // reads it again when the file changed on disk; true when it did
-    std::uint64_t revision() const { return revision_; }   // bumped on every (re)load, open and close
+    bool reload();  // reads the clip again; true when it loaded
+    bool poll();    // reads it again when the file changed on disk; true when it did
+    std::uint64_t revision() const { return revision_; }  // bumped on every (re)load, open and close
     const std::shared_ptr<const Anim3DClip>& clip() const { return clip_; }
     const Anim3DRigModel* rig() const { return rig_.get(); }
     const std::string& projectDir() const { return projectDir_; }
 
     // ---- the pose -------------------------------------------------------------------------------------------------
-    Pose pose_at(double t) const;              // the clip sampled at t (the rig's rest pose when there is no rig)
-    MeshData skin(const Pose& pose) const;     // the bind mesh skinned by a pose
+    Pose pose_at(double t) const;           // the clip sampled at t (the rig's rest pose when there is no rig)
+    MeshData skin(const Pose& pose) const;  // the bind mesh skinned by a pose
     std::vector<Anim3DBoneRow> rows() const;
-    int node_of(const std::string& bone) const;           // -1 when the rig has no such joint
+    int node_of(const std::string& bone) const;  // -1 when the rig has no such joint
     std::string bone_name(int node) const;
-    int track_index(const std::string& bone, int channel) const;   // -1 when the clip has no such track
-    const ClipKey* key_at(const Key3D& key) const;        // nullptr when there is no such key
+    int track_index(const std::string& bone, int channel) const;  // -1 when the clip has no such track
+    const ClipKey* key_at(const Key3D& key) const;                // nullptr when there is no such key
     int key_count(const std::string& bone) const;
 
     // ---- edits: each is one command; `undo` is what the editor's undo stack keeps ----------------------------------
@@ -107,16 +108,18 @@ public:
     Anim3DEdit remove_keys(const Key3DSet& keys);
     Anim3DEdit set_interp(const Key3DSet& keys, const std::string& interp);
     // One key: `value` is 3 numbers (4 for a quaternion rotation). interp "" keeps what an existing key has.
-    Anim3DEdit set_key(const std::string& bone, int channel, double t, const std::array<float, 4>& value, const std::string& interp = {});
+    Anim3DEdit set_key(const std::string& bone, int channel, double t, const std::array<float, 4>& value,
+                       const std::string& interp = {});
     // Keys what the clip gives for `bone`/`channel` at t (the current pose: a key that changes nothing but pins the value).
     Anim3DEdit key_sampled(const std::string& bone, int channel, double t);
     Anim3DEdit ik_key(double t, const Json& solver);
     Anim3DEdit mirror(double t, double to, const std::string& from);
     // `name` may be empty when `feel` (game feel actions, an object or array) is given: an event that only runs actions.
-    Anim3DEdit add_event(double t, const std::string& name, const Json& data = Json::object(), const Json& feel = Json());
-    Anim3DEdit set_event(int index, const Json& changes);   // any of t, name, data
+    Anim3DEdit add_event(double t, const std::string& name, const Json& data = Json::object(),
+                         const Json& feel = Json());
+    Anim3DEdit set_event(int index, const Json& changes);  // any of t, name, data
     Anim3DEdit remove_event(int index);
-    Anim3DEdit set_clip(const Json& changes);                // any of duration, loop, groundSpeed, doc
+    Anim3DEdit set_clip(const Json& changes);  // any of duration, loop, groundSpeed, doc
     Anim3DEdit generate(const std::string& kind, const Json& params, const std::string& out, bool overwrite = false);
     Anim3DEdit retarget(const std::string& toRig, const std::string& out, bool overwrite = false);
     // Any other command, with the clip's `path` (and the rig) put in; for the panel's one-off calls.

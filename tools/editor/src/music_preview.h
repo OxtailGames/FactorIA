@@ -65,10 +65,10 @@ public:
 
 private:
     struct Chunk {
-        double songFrame;     // the transport's position when the chunk started
+        double songFrame;  // the transport's position when the chunk started
         std::size_t frames;
-        double cum;           // frames pushed before it
-        double endFrame;      // the transport's position after mixing it (not songFrame + frames when it jumped)
+        double cum;       // frames pushed before it
+        double endFrame;  // the transport's position after mixing it (not songFrame + frames when it jumped)
     };
     void fill();
     void finish();

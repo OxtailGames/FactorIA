@@ -42,8 +42,9 @@ Result<void> stage_builtin_fonts(ExportAssets& ea) {
         for (const std::string& file : font->files) {
             const auto bytes = bundled_read("engine/render/assets/fonts/extra/" + file);
             if (!bytes)
-                return err("export: the built-in font file " + file + " (" + name + ") is missing from this factoria build",
-                           "Use a factoria built from a complete FactorIA checkout (engine/render/assets/fonts/extra/).");
+                return err(
+                    "export: the built-in font file " + file + " (" + name + ") is missing from this factoria build",
+                    "Use a factoria built from a complete FactorIA checkout (engine/render/assets/fonts/extra/).");
             const std::string shipped = std::string(kBuiltinFontDir) + "/" + file;
             const stdfs::path source = ea.cacheDir / shipped;
             std::string e;

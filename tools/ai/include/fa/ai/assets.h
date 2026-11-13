@@ -22,27 +22,27 @@ struct ReferenceImage {
 
 struct AssetRequest {
     MediaKind kind = MediaKind::Image;
-    std::string prompt;                       // what to make; for voice, the text to speak
-    std::string model;                        // "" = the provider's default for the kind
-    std::string voice;                        // voice: the voice to speak with
-    int width = 0, height = 0;                // image: the size the caller ends up with (providers draw at their own sizes)
-    int columns = 0, rows = 0;                // image: > 0 asks for a sprite sheet of this grid
-    bool transparent = false;                 // image: transparent background
-    std::string quality;                      // image: the provider's quality tier ("low", "medium", "high"; "" = the provider's default)
-    double seconds = 0;                       // sound, music: length; 0 = the provider's choice
+    std::string prompt;         // what to make; for voice, the text to speak
+    std::string model;          // "" = the provider's default for the kind
+    std::string voice;          // voice: the voice to speak with
+    int width = 0, height = 0;  // image: the size the caller ends up with (providers draw at their own sizes)
+    int columns = 0, rows = 0;  // image: > 0 asks for a sprite sheet of this grid
+    bool transparent = false;   // image: transparent background
+    std::string quality;  // image: the provider's quality tier ("low", "medium", "high"; "" = the provider's default)
+    double seconds = 0;   // sound, music: length; 0 = the provider's choice
     std::optional<i64> seed;
-    std::vector<ReferenceImage> references;   // image: pictures the result should follow
+    std::vector<ReferenceImage> references;  // image: pictures the result should follow
     // image, inpainting (asset_can_inpaint): the picture to repaint and where. Both are PNGs of the same size (width x height);
     // `editMask` is grey, white = repaint, black = keep, grey = partly. Empty = a plain generation.
     std::string editImage, editMask;
 };
 
 struct AssetResult {
-    std::string bytes;                // the file as the provider made it (PNG, MP3, WAV, GLB...)
-    std::string model;                // the model that made it; "" when the provider has none
-    std::string voice;                // voice: the voice that spoke, when the provider chose or took one
-    bool usedReferences = false;      // false: the provider has no way to take reference images
-    std::optional<i64> seed;          // the seed the provider used, when it took one
+    std::string bytes;            // the file as the provider made it (PNG, MP3, WAV, GLB...)
+    std::string model;            // the model that made it; "" when the provider has none
+    std::string voice;            // voice: the voice that spoke, when the provider chose or took one
+    bool usedReferences = false;  // false: the provider has no way to take reference images
+    std::optional<i64> seed;      // the seed the provider used, when it took one
 };
 
 // What assets.<kind> (or `providerOverride`) resolves to. Errors say what to add to ai.json; there is no default provider.
@@ -71,8 +71,8 @@ std::string asset_provider_report(const AiConfig& cfg, MediaKind kind, const Env
 
 // Makes one asset. HTTP and process failures are Errors that say what to check. rt.transport, rt.env and rt.sleep are the
 // seams tests use.
-Result<AssetResult> generate_asset(const ProviderConfig& provider, const AssetRequest& request, const ProviderRuntime& rt = {},
-                                   const CancelFlag* cancel = nullptr);
+Result<AssetResult> generate_asset(const ProviderConfig& provider, const AssetRequest& request,
+                                   const ProviderRuntime& rt = {}, const CancelFlag* cancel = nullptr);
 
 // The extension of the file `provider` returns for `kind` (".png", ".mp3", ".wav", ".glb"), so a wrong path is refused
 // before anything is paid for.

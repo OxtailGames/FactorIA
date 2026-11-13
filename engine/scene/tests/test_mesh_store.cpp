@@ -76,11 +76,13 @@ TEST_CASE("mesh data: shared vertices get smooth normals, supplied normals are k
     in.hasIndices = true;
     auto d = build_mesh_data(in);
     REQUIRE(d.ok());
-    CHECK(std::fabs(d->normals[1]) > 0.7f);  // the ridge normal is the average of two slopes: vertical, not either slope's normal
+    CHECK(std::fabs(d->normals[1]) >
+          0.7f);  // the ridge normal is the average of two slopes: vertical, not either slope's normal
     CHECK(std::fabs(d->normals[2]) < 0.1f);
     for (std::size_t i = 0; i < d->vertex_count(); ++i) {
-        const float l = std::sqrt(d->normals[i * 3] * d->normals[i * 3] + d->normals[i * 3 + 1] * d->normals[i * 3 + 1] +
-                                  d->normals[i * 3 + 2] * d->normals[i * 3 + 2]);
+        const float l =
+            std::sqrt(d->normals[i * 3] * d->normals[i * 3] + d->normals[i * 3 + 1] * d->normals[i * 3 + 1] +
+                      d->normals[i * 3 + 2] * d->normals[i * 3 + 2]);
         CHECK(l == doctest::Approx(1.0f).epsilon(1e-4));
     }
 
@@ -313,7 +315,8 @@ TEST_CASE("mesh store: the geometry follows the version, and mesh_geometry_for p
 
 TEST_CASE("mesh store: a ray hits the triangles of a mesh, not its box") {
     MeshStore store;
-    MeshInput tri;  // a triangle in the XY plane whose box is a unit square: the corner (0.9, 0.9) is in the box but not on the triangle
+    MeshInput
+        tri;  // a triangle in the XY plane whose box is a unit square: the corner (0.9, 0.9) is in the box but not on the triangle
     tri.positions = {0, 0, 0, 1, 0, 0, 0, 1, 0};
     tri.indices = {0, 1, 2};
     tri.hasIndices = true;

@@ -52,7 +52,8 @@ unsigned parse_app_id(const Json& v) {
     }
     if (v.is_string()) {
         const std::string s = v.get<std::string>();
-        if (s.empty() || s.size() > 10 || !std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; })) return 0;
+        if (s.empty() || s.size() > 10 || !std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; }))
+            return 0;
         const long long n = std::stoll(s);
         return n >= 1 && n <= 4294967295LL ? static_cast<unsigned>(n) : 0;
     }
@@ -65,8 +66,10 @@ std::string read_app_id(const stdfs::path& file) {
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::string number;
     for (char c : text) {
-        if (c >= '0' && c <= '9') number += c;
-        else if (!number.empty()) break;
+        if (c >= '0' && c <= '9')
+            number += c;
+        else if (!number.empty())
+            break;
     }
     return number;
 }
@@ -86,8 +89,10 @@ std::string lower(std::string s) {
     return s;
 }
 
-const std::string kSdkHelp = std::string("The Steamworks SDK is a download of Valve's (") + kSdkPage + ", needs a free Steamworks account); "
-                             "its license does not let FactorIA ship the files. Pass the .zip or the unpacked folder as \"sdk\".";
+const std::string kSdkHelp =
+    std::string("The Steamworks SDK is a download of Valve's (") + kSdkPage +
+    ", needs a free Steamworks account); "
+    "its license does not let FactorIA ship the files. Pass the .zip or the unpacked folder as \"sdk\".";
 
 // Resolves the "sdk" argument to the redistributable_bin folder (unpacking a zip into `scratch`), or throws a teaching error.
 stdfs::path resolve_sdk(const std::string& sdk, const std::string& projectDir, Scratch& scratch) {
@@ -98,21 +103,28 @@ stdfs::path resolve_sdk(const std::string& sdk, const std::string& projectDir, S
     stdfs::path base = path;
     if (is_file(path)) {
         if (lower(path.extension().string()) != ".zip")
-            throw CommandError("invalid_argument", "the Steamworks SDK '" + path.generic_string() + "' is a file, but not a .zip", kSdkHelp);
+            throw CommandError("invalid_argument",
+                               "the Steamworks SDK '" + path.generic_string() + "' is a file, but not a .zip",
+                               kSdkHelp);
         auto scratchDir = fs::make_temp_dir("fa_steam_sdk");
         if (!scratchDir.ok())
-            throw CommandError("failed", "cannot unpack the SDK " + path.generic_string() + ": " + scratchDir.error().message,
+            throw CommandError("failed",
+                               "cannot unpack the SDK " + path.generic_string() + ": " + scratchDir.error().message,
                                scratchDir.error().hint);
         scratch.dir = *scratchDir;
         if (auto fail = setup_detail::extract_archive(fa::SetupContext{}, path, scratch.dir))
-            throw CommandError(fail->code, "cannot unpack the Steamworks SDK " + path.generic_string() + ": " + fail->error.message,
-                               fail->error.hint.empty() ? "Unpack the .zip yourself and pass the folder as \"sdk\"." : fail->error.hint);
+            throw CommandError(fail->code,
+                               "cannot unpack the Steamworks SDK " + path.generic_string() + ": " + fail->error.message,
+                               fail->error.hint.empty() ? "Unpack the .zip yourself and pass the folder as \"sdk\"."
+                                                        : fail->error.hint);
         base = scratch.dir;
     }
     if (auto bin = find_redistributable_bin(base)) return *bin;
-    throw CommandError("invalid_argument",
-                       "'" + path.generic_string() + "' is not a Steamworks SDK: it has no redistributable_bin/ folder (with win64/, osx/ and linux64/)",
-                       kSdkHelp + " The SDK folder holds public/, redistributable_bin/ and sdk_licenses/.");
+    throw CommandError(
+        "invalid_argument",
+        "'" + path.generic_string() +
+            "' is not a Steamworks SDK: it has no redistributable_bin/ folder (with win64/, osx/ and linux64/)",
+        kSdkHelp + " The SDK folder holds public/, redistributable_bin/ and sdk_licenses/.");
 }
 
 // Writes steam_appid.txt unless the project has one (and `appId` was not asked for): returns the id the file holds.
@@ -134,12 +146,14 @@ unsigned write_app_id(Context& ctx, unsigned wanted, bool asked) {
         out << wanted << "\n";
         out.close();
         if (!out)
-            throw CommandError("failed", "cannot write " + file.generic_string(), "Check that the project folder can be written to.");
+            throw CommandError("failed", "cannot write " + file.generic_string(),
+                               "Check that the project folder can be written to.");
     }
     ctx.wrote(file.generic_string());
-    ctx.done.push_back(std::string(ctx.dryRun ? "would write" : "wrote") + " steam_appid.txt with app id " + std::to_string(wanted) +
-                       (wanted == kTestAppId ? " (Valve's test app Spacewar): for development only, `factoria export` never ships it" :
-                                               ": for development only, `factoria export` never ships it"));
+    ctx.done.push_back(
+        std::string(ctx.dryRun ? "would write" : "wrote") + " steam_appid.txt with app id " + std::to_string(wanted) +
+        (wanted == kTestAppId ? " (Valve's test app Spacewar): for development only, `factoria export` never ships it"
+                              : ": for development only, `factoria export` never ships it"));
     return wanted;
 }
 
@@ -148,19 +162,28 @@ unsigned write_app_id(Context& ctx, unsigned wanted, bool asked) {
 Backend steam_backend() {
     Backend b;
     b.name = "steam";
-    b.summary = "the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): "
-                "writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK (\"sdk\": "
-                "its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt (\"appId\", default "
-                "Valve's test app 480) for development.";
-    b.properties = Json::object({
-        {"sdk", Json::object({{"type", "string"},
-                              {"description", "(steam) The Steamworks SDK: its folder, or the steamworks_sdk_*.zip from partner.steamgames.com/downloads/"
-                                              "list (a free Steamworks account). Valve's redistributable libraries are copied from it next to the plugin. "
-                                              "Without it they are not copied: nextSteps says where to put them. Relative paths start in the project folder."}})},
-        {"appId", Json::object({{"type", "integer"}, {"minimum", 1},
-                                {"description", "(steam) Your game's Steam app id, written to steam_appid.txt for development. Without it "
-                                                "an existing steam_appid.txt is kept, else the file gets 480, Valve's test app "
-                                                "(Spacewar), which any Steam account can run."}})}});
+    b.summary =
+        "the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich "
+        "presence): "
+        "writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK "
+        "(\"sdk\": "
+        "its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt (\"appId\", default "
+        "Valve's test app 480) for development.";
+    b.properties = Json::object(
+        {{"sdk", Json::object({{"type", "string"},
+                               {"description", "(steam) The Steamworks SDK: its folder, or the steamworks_sdk_*.zip "
+                                               "from partner.steamgames.com/downloads/"
+                                               "list (a free Steamworks account). Valve's redistributable libraries "
+                                               "are copied from it next to the plugin. "
+                                               "Without it they are not copied: nextSteps says where to put them. "
+                                               "Relative paths start in the project folder."}})},
+         {"appId",
+          Json::object({{"type", "integer"},
+                        {"minimum", 1},
+                        {"description",
+                         "(steam) Your game's Steam app id, written to steam_appid.txt for development. Without it "
+                         "an existing steam_appid.txt is kept, else the file gets 480, Valve's test app "
+                         "(Spacewar), which any Steam account can run."}})}});
     b.run = [](Context& ctx) {
         // Check everything that can be wrong before anything is written.
         const bool askedAppId = ctx.args.contains("appId") && !ctx.args["appId"].is_null();
@@ -168,8 +191,10 @@ Backend steam_backend() {
         if (askedAppId) {
             appId = parse_app_id(ctx.args["appId"]);
             if (!appId)
-                throw CommandError("invalid_argument", "\"appId\" " + ctx.args["appId"].dump() + " is not a Steam app id",
-                                   "Use the number of your game from the Steamworks partner site, or 480 (Valve's test app) to try it.");
+                throw CommandError("invalid_argument",
+                                   "\"appId\" " + ctx.args["appId"].dump() + " is not a Steam app id",
+                                   "Use the number of your game from the Steamworks partner site, or 480 (Valve's test "
+                                   "app) to try it.");
         }
         Scratch scratch;
         std::optional<stdfs::path> redistributableBin;
@@ -180,9 +205,12 @@ Backend steam_backend() {
             for (const Redistributable& r : kRedistributables)
                 if (host == r.platform && !is_file(*redistributableBin / r.inSdk))
                     throw CommandError("not_found",
-                                       "the Steamworks SDK (" + redistributableBin->parent_path().generic_string() + ") has no redistributable_bin/" +
-                                           r.inSdk + ", the library this computer (" + host + ") needs",
-                                       "Use the complete SDK download (this plugin was checked against Steamworks SDK 1.58 to 1.64): " + kSdkHelp);
+                                       "the Steamworks SDK (" + redistributableBin->parent_path().generic_string() +
+                                           ") has no redistributable_bin/" + r.inSdk + ", the library this computer (" +
+                                           host + ") needs",
+                                       "Use the complete SDK download (this plugin was checked against Steamworks SDK "
+                                       "1.58 to 1.64): " +
+                                           kSdkHelp);
 
         const std::string folder = ctx.ensure_plugin({"windows", "macos", "linux"});
         ctx.build_plugin(folder);
@@ -204,14 +232,18 @@ Backend steam_backend() {
                 }
                 ctx.wrote(destination.generic_string());
                 if (ec)
-                    throw CommandError("failed", "cannot copy " + source.generic_string() + " to " + destination.generic_string() + ": " + ec.message(),
-                                       "Check that the plugin's folder can be written to, and run platform.add_backend again.");
+                    throw CommandError(
+                        "failed",
+                        "cannot copy " + source.generic_string() + " to " + destination.generic_string() + ": " +
+                            ec.message(),
+                        "Check that the plugin's folder can be written to, and run platform.add_backend again.");
                 copied.push_back(std::string(r.platform) + "/" + r.file);
             }
-            ctx.done.push_back(std::string(ctx.dryRun ? "would copy" : "copied") + " Valve's redistributable libraries next to the plugin (" +
-                               join(copied, ", ") + ")");
+            ctx.done.push_back(std::string(ctx.dryRun ? "would copy" : "copied") +
+                               " Valve's redistributable libraries next to the plugin (" + join(copied, ", ") + ")");
         }
-        bool hostLibrary = false;  // Valve's library for this computer is next to the plugin (copied now, or already there)
+        bool hostLibrary =
+            false;  // Valve's library for this computer is next to the plugin (copied now, or already there)
         for (const Redistributable& r : kRedistributables)
             if (host == r.platform) hostLibrary = is_file(stdfs::path(folder) / r.platform / r.file);
 
@@ -223,34 +255,46 @@ Backend steam_backend() {
 
         // What only a person can do.
         if (!hostLibrary)
-            ctx.nextSteps.push_back("Copy Valve's library for this computer next to the plugin: redistributable_bin/" +
-                                    std::string(host == "windows" ? "win64/steam_api64.dll to " + folder + "/windows/"
-                                                : host == "macos" ? "osx/libsteam_api.dylib to " + folder + "/macos/"
-                                                                  : "linux64/libsteam_api.so to " + folder + "/linux/") +
-                                    " from the Steamworks SDK (" + kSdkPage + ", a free Steamworks account), or run this command again with "
-                                    "\"sdk\": \"<the SDK folder or .zip>\". Without it the game uses the fake store in development.");
+            ctx.nextSteps.push_back(
+                "Copy Valve's library for this computer next to the plugin: redistributable_bin/" +
+                std::string(host == "windows" ? "win64/steam_api64.dll to " + folder + "/windows/"
+                            : host == "macos" ? "osx/libsteam_api.dylib to " + folder + "/macos/"
+                                              : "linux64/libsteam_api.so to " + folder + "/linux/") +
+                " from the Steamworks SDK (" + kSdkPage +
+                ", a free Steamworks account), or run this command again with "
+                "\"sdk\": \"<the SDK folder or .zip>\". Without it the game uses the fake store in development.");
         else if (!absent.empty())
-            ctx.nextSteps.push_back("The SDK has no " + join(absent, ", ") + ": copy that library next to the plugin for that platform before exporting for it.");
-        ctx.nextSteps.push_back(
-            "Build the plugin on the other computers you export on (Windows, macOS, Linux): the same command there, or `cmake -S \"" + folder +
-            "\" -B \"" + folder + "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" + folder + "/build\" --config Release`. " +
-            (copied.size() == 3 ? "Valve's libraries for all three are in place already." : "Put Valve's library for each platform next to it too."));
+            ctx.nextSteps.push_back(
+                "The SDK has no " + join(absent, ", ") +
+                ": copy that library next to the plugin for that platform before exporting for it.");
+        ctx.nextSteps.push_back("Build the plugin on the other computers you export on (Windows, macOS, Linux): the "
+                                "same command there, or `cmake -S \"" +
+                                folder + "\" -B \"" + folder +
+                                "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" + folder +
+                                "/build\" --config Release`. " +
+                                (copied.size() == 3 ? "Valve's libraries for all three are in place already."
+                                                    : "Put Valve's library for each platform next to it too."));
         if (appId == kTestAppId)
-            ctx.nextSteps.push_back(
-                "Try it with Valve's test app 480: start the Steam client and sign in, then `factoria run`. Map your catalog to what Spacewar has "
-                "in factoria.json platform: achievement ids.steam \"ACH_WIN_ONE_GAME\", int stat ids.steam \"NumWins\", float stat \"FeetTraveled\", "
-                "leaderboard \"Feet Traveled\". `factoria call steam.status` shows what the plugin found. The manual check is in docs/PLATFORM.md "
-                "(\"Steam\").");
+            ctx.nextSteps.push_back("Try it with Valve's test app 480: start the Steam client and sign in, then "
+                                    "`factoria run`. Map your catalog to what Spacewar has "
+                                    "in factoria.json platform: achievement ids.steam \"ACH_WIN_ONE_GAME\", int stat "
+                                    "ids.steam \"NumWins\", float stat \"FeetTraveled\", "
+                                    "leaderboard \"Feet Traveled\". `factoria call steam.status` shows what the plugin "
+                                    "found. The manual check is in docs/PLATFORM.md "
+                                    "(\"Steam\").");
         else
-            ctx.nextSteps.push_back(
-                "Create your game's achievements, stats, leaderboards and DLC in the Steamworks partner site (partner.steamgames.com, App Admin) "
-                "and publish them, then set ids.steam on each entry of factoria.json platform: the API name of the achievement, stat or "
-                "leaderboard, and for a product the app id of its DLC. Start the Steam client with an account that owns app " +
-                std::to_string(appId) + ", then `factoria run`.");
-        ctx.nextSteps.push_back(
-            "Ship it: `factoria export` copies the plugin and Valve's library next to the game and never copies steam_appid.txt. Upload the "
-            "export with Steamworks' SteamPipe; a game started from the Steam client gets its app id from Steam. Consumables and "
-            "subscriptions are not available on Steam (docs/PLATFORM.md, \"Steam\").");
+            ctx.nextSteps.push_back("Create your game's achievements, stats, leaderboards and DLC in the Steamworks "
+                                    "partner site (partner.steamgames.com, App Admin) "
+                                    "and publish them, then set ids.steam on each entry of factoria.json platform: the "
+                                    "API name of the achievement, stat or "
+                                    "leaderboard, and for a product the app id of its DLC. Start the Steam client with "
+                                    "an account that owns app " +
+                                    std::to_string(appId) + ", then `factoria run`.");
+        ctx.nextSteps.push_back("Ship it: `factoria export` copies the plugin and Valve's library next to the game and "
+                                "never copies steam_appid.txt. Upload the "
+                                "export with Steamworks' SteamPipe; a game started from the Steam client gets its app "
+                                "id from Steam. Consumables and "
+                                "subscriptions are not available on Steam (docs/PLATFORM.md, \"Steam\").");
     };
     return b;
 }

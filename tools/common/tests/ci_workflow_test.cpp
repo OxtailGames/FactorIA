@@ -20,7 +20,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 bool any_has(const std::vector<std::string>& v, const std::string& needle) {
     return std::any_of(v.begin(), v.end(), [&](const std::string& s) { return has_text(s, needle); });
@@ -28,7 +30,9 @@ bool any_has(const std::vector<std::string>& v, const std::string& needle) {
 
 std::size_t count_of(const std::string& haystack, const std::string& needle) {
     std::size_t n = 0;
-    for (std::size_t at = haystack.find(needle); at != std::string::npos; at = haystack.find(needle, at + needle.size())) ++n;
+    for (std::size_t at = haystack.find(needle); at != std::string::npos;
+         at = haystack.find(needle, at + needle.size()))
+        ++n;
     return n;
 }
 
@@ -40,7 +44,8 @@ std::string job_of(const std::string& yaml, const std::string& name) {
     const std::size_t at = yaml.find(head);
     if (at == std::string::npos) return {};
     std::size_t end = yaml.size();
-    for (std::size_t i = at + head.size(); i < yaml.size();) {  // the next line indented by exactly two spaces ends the job
+    for (std::size_t i = at + head.size();
+         i < yaml.size();) {  // the next line indented by exactly two spaces ends the job
         std::size_t nl = yaml.find('\n', i);
         if (nl == std::string::npos) nl = yaml.size();
         if (nl > i + 2 && yaml[i] == ' ' && yaml[i + 1] == ' ' && yaml[i + 2] != ' ') {
@@ -57,7 +62,9 @@ struct Game {
     testing::TempDir tmp;
     std::string dir = tmp.sub("game");
     Game() { testing::write_all(stdfs::path(dir) / "factoria.json", "{}"); }
-    std::string file(const std::string& rel = ".github/workflows/factoria.yml") const { return (stdfs::path(dir) / rel).string(); }
+    std::string file(const std::string& rel = ".github/workflows/factoria.yml") const {
+        return (stdfs::path(dir) / rel).string();
+    }
     CiWorkflowOptions release() const {
         CiWorkflowOptions o;
         o.projectDir = dir;
@@ -80,7 +87,8 @@ TEST_CASE("ci workflow: the text has the steps a game needs") {
     // One pinned version and the repository it comes from: nothing else in the file says either.
     CHECK(has_text(y, "\nenv:\n  FACTORIA_VERSION: \"0.1.6\"\n  FACTORIA_REPO: \"OxtailGames/FactorIA\"\n"));
     CHECK(count_of(y, "0.1.6") == 1);  // nowhere else: changing the version means changing this one line
-    CHECK(count_of(y, "OxtailGames/FactorIA") == 2);  // the env block, and the comment that says where the download comes from
+    CHECK(count_of(y, "OxtailGames/FactorIA") ==
+          2);  // the env block, and the comment that says where the download comes from
     CHECK(has_text(y, "releases/download/v$FACTORIA_VERSION/$asset"));
     CHECK(has_text(y, "releases/latest/download/$asset"));  // FACTORIA_VERSION: "latest" works too
 
@@ -89,7 +97,8 @@ TEST_CASE("ci workflow: the text has the steps a game needs") {
     REQUIRE_FALSE(check.empty());
     CHECK(has_text(check, "runs-on: ubuntu-24.04"));
     CHECK(has_text(check, "uses: actions/checkout@v4"));
-    CHECK(has_text(check, "apt-get install -y --no-install-recommends xvfb libegl1 libopengl0 libx11-6 libxcursor1 libxi6 libasound2t64 libgl1-mesa-dri libegl-mesa0"));
+    CHECK(has_text(check, "apt-get install -y --no-install-recommends xvfb libegl1 libopengl0 libx11-6 libxcursor1 "
+                          "libxi6 libasound2t64 libgl1-mesa-dri libegl-mesa0"));
     CHECK(has_text(check, "asset=\"FactorIA-linux-x64.tar.gz\""));
     CHECK(has_text(check, "digest"));  // the SHA-256 GitHub lists for the asset
     CHECK(has_text(check, "hashlib.sha256"));
@@ -102,14 +111,17 @@ TEST_CASE("ci workflow: the text has the steps a game needs") {
     const std::size_t exportLinux = check.find("run: factoria export --platform linux");
     const std::size_t exportWindows = check.find("run: factoria export --platform windows");
     const std::size_t upload = check.find("uses: actions/upload-artifact@v4");
-    for (std::size_t at : {install, validate, test, players, exportLinux, exportWindows, upload}) REQUIRE(at != std::string::npos);
+    for (std::size_t at : {install, validate, test, players, exportLinux, exportWindows, upload})
+        REQUIRE(at != std::string::npos);
     CHECK(install < validate);
     CHECK(validate < test);
     CHECK(test < players);
     CHECK(players < exportWindows);
     CHECK(exportLinux < upload);
     CHECK(exportWindows < upload);
-    CHECK(has_text(check, "python3 -m zipfile -c"));  // the Windows export is a zip, the Linux one a tar (the executable bit survives)
+    CHECK(has_text(
+        check,
+        "python3 -m zipfile -c"));  // the Windows export is a zip, the Linux one a tar (the executable bit survives)
     CHECK(has_text(check, "tar -czf \"dist/$name.tar.gz\" -C build/export \"$name\""));
     CHECK(has_text(check, "path: dist/*"));
     CHECK(has_text(check, "if-no-files-found: error"));
@@ -133,22 +145,24 @@ TEST_CASE("ci workflow: the text has the steps a game needs") {
 }
 
 TEST_CASE("ci workflow: the text is plain YAML") {
-    for (const std::vector<std::string>& platforms : std::vector<std::vector<std::string>>{kAll, {"linux"}, {"windows"}, {"macos"}, {"linux", "windows"}}) {
+    for (const std::vector<std::string>& platforms :
+         std::vector<std::vector<std::string>>{kAll, {"linux"}, {"windows"}, {"macos"}, {"linux", "windows"}}) {
         for (const char* wd : {".", "games/my game"}) {
             const std::string y = ci_workflow_yaml("latest", "OxtailGames/FactorIA", platforms, wd);
             INFO(platforms.size() << " platforms, working directory " << wd);
             CHECK(y.back() == '\n');
             CHECK_FALSE(has_text(y, "\t"));
             CHECK_FALSE(has_text(y, "\r"));
-            CHECK_FALSE(has_text(y, " \n"));        // no trailing blanks
-            CHECK_FALSE(has_text(y, "\n\n\n"));      // no stacked blank lines
+            CHECK_FALSE(has_text(y, " \n"));                             // no trailing blanks
+            CHECK_FALSE(has_text(y, "\n\n\n"));                          // no stacked blank lines
             CHECK_FALSE(std::regex_search(y, std::regex("@[A-Z_]+@")));  // every placeholder was filled
             for (const std::string& line : split(y, '\n', false)) {
                 std::size_t spaces = 0;
                 while (spaces < line.size() && line[spaces] == ' ') ++spaces;
                 CHECK_MESSAGE(spaces % 2 == 0, line);  // the shell blocks nest in steps of two
             }
-            for (const char* key : {"name: FactorIA\n", "\non:\n", "\npermissions:\n", "\nenv:\n", "\njobs:\n"}) CHECK_MESSAGE(count_of(y, key) == 1, key);
+            for (const char* key : {"name: FactorIA\n", "\non:\n", "\npermissions:\n", "\nenv:\n", "\njobs:\n"})
+                CHECK_MESSAGE(count_of(y, key) == 1, key);
         }
     }
 }
@@ -335,7 +349,8 @@ TEST_CASE("ci workflow: the file goes where GitHub reads workflows") {
     Game g;
     CiWorkflowOptions o = g.release();
     o.dryRun = true;
-    for (const char* bad : {"../factoria.yml", "factoria.yml", "docs/factoria.yml", ".github/factoria.yml", ".github/workflows/factoria.txt", ".github/workflows/sub/factoria.yml",
+    for (const char* bad : {"../factoria.yml", "factoria.yml", "docs/factoria.yml", ".github/factoria.yml",
+                            ".github/workflows/factoria.txt", ".github/workflows/sub/factoria.yml",
                             ".github/workflows/", "/etc/factoria.yml"}) {
         INFO(bad);
         o.path = bad;
@@ -451,12 +466,15 @@ TEST_CASE("ci workflow: the command") {
     const CommandInfo* info = registry.info("project.new_ci_workflow");
     REQUIRE(info != nullptr);
     CHECK_FALSE(info->readOnly);
-    for (const char* key : {"platforms", "path", "workingDirectory", "version", "overwrite", "dryRun"}) CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
+    for (const char* key : {"platforms", "path", "workingDirectory", "version", "overwrite", "dryRun"})
+        CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
     CHECK(has_text(info->description, "never overwrites"));
     CHECK(has_text(info->description, "workingDirectory"));
     CHECK(has_text(info->description, "xvfb"));
 
-    auto dry = registry.call("project.new_ci_workflow", Json::object({{"platforms", Json::array({"linux", "windows"})}, {"dryRun", true}, {"version", "0.1.6"}}));
+    auto dry = registry.call(
+        "project.new_ci_workflow",
+        Json::object({{"platforms", Json::array({"linux", "windows"})}, {"dryRun", true}, {"version", "0.1.6"}}));
     REQUIRE_MESSAGE(dry.ok, dry.error.dump());
     CHECK(dry.result["dryRun"] == true);
     CHECK(dry.result["written"] == false);
@@ -485,5 +503,6 @@ TEST_CASE("ci workflow and sign.macos are part of the tooling every game project
     testing::TempDir tmp;
     CommandRegistry registry;
     register_tooling_commands(registry, tmp.str());
-    for (const char* name : {"project.new_ci_workflow", "sign.macos", "project.export"}) CHECK_MESSAGE(registry.has(name), name);
+    for (const char* name : {"project.new_ci_workflow", "sign.macos", "project.export"})
+        CHECK_MESSAGE(registry.has(name), name);
 }

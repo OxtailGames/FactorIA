@@ -25,8 +25,8 @@ ModelSdfShapeParams sphere(float r) {
     return s;
 }
 
-int add_sphere(ModelSdf& sdf, float r, Vec3 at, ModelSdfBlend blend = ModelSdfBlend::Union, float smooth = 0, std::uint32_t group = 0,
-               std::optional<Vec4> color = std::nullopt) {
+int add_sphere(ModelSdf& sdf, float r, Vec3 at, ModelSdfBlend blend = ModelSdfBlend::Union, float smooth = 0,
+               std::uint32_t group = 0, std::optional<Vec4> color = std::nullopt) {
     return sdf.add_shape(sphere(r), Mat4::translate(at), blend, smooth, group, color);
 }
 
@@ -92,7 +92,8 @@ TEST_CASE("sdf field: the shapes are exact distances where they should be") {
     CHECK(dist(cap, {0, 1.5f, 0}) == doctest::Approx(0.5f));
     CHECK(dist(cap, {1, 0, 0}) == doctest::Approx(0.75f));
     CHECK(dist(cap, {0, 0, 0}) == doctest::Approx(-0.25f));
-    cap.radiusTop = 0.1f;  // a round cone: tip to tip is still 2, centred between the ball centres (-0.825 and +0.825), so the tips are at -1.075 and 0.925
+    cap.radiusTop =
+        0.1f;  // a round cone: tip to tip is still 2, centred between the ball centres (-0.825 and +0.825), so the tips are at -1.075 and 0.925
     CHECK(std::fabs(dist(cap, {0, 0.925f, 0})) < 1e-5f);
     CHECK(std::fabs(dist(cap, {0, -1.075f, 0})) < 1e-5f);
     CHECK(dist(cap, {0.2f, 0.825f, 0}) > 0);  // the top ball is thinner than the bottom one
@@ -144,7 +145,8 @@ TEST_CASE("sdf field: the shapes are exact distances where they should be") {
 
 TEST_CASE("sdf field: node transforms move, turn and scale a shape; a group mirrors") {
     ModelSdf sdf;
-    sdf.set_root(sdf.add_shape(sphere(1), Mat4::trs({5, 0, 0}, {0, 0, 0}, {2, 2, 2}), ModelSdfBlend::Union, 0, 0, std::nullopt));
+    sdf.set_root(
+        sdf.add_shape(sphere(1), Mat4::trs({5, 0, 0}, {0, 0, 0}, {2, 2, 2}), ModelSdfBlend::Union, 0, 0, std::nullopt));
     CHECK(sdf.distance({5, 0, 0}) == doctest::Approx(-2));
     CHECK(sdf.distance({9, 0, 0}) == doctest::Approx(2));
 
@@ -164,7 +166,8 @@ TEST_CASE("sdf field: union, subtraction and intersection, hard and smooth") {
         return joined({a, b}, std::move(sdf));
     };
     const ModelSdf hardUnion = two(ModelSdfBlend::Union, 0), softUnion = two(ModelSdfBlend::Union, 0.5f);
-    CHECK(hardUnion.distance({0, 0.9f, 0}) == doctest::Approx(std::min(std::sqrt(0.36f + 0.81f) - 1, std::sqrt(0.36f + 0.81f) - 1)));
+    CHECK(hardUnion.distance({0, 0.9f, 0}) ==
+          doctest::Approx(std::min(std::sqrt(0.36f + 0.81f) - 1, std::sqrt(0.36f + 0.81f) - 1)));
     CHECK(hardUnion.distance({0, 0, 0}) == doctest::Approx(-0.4f));
     // a smooth union is never above the hard one and fills the crease between the balls
     for (Vec3 p : {Vec3{0, 0.9f, 0}, Vec3{0, 1.1f, 0}, Vec3{0, 0, 1.2f}, Vec3{3, 0, 0}})
@@ -174,9 +177,9 @@ TEST_CASE("sdf field: union, subtraction and intersection, hard and smooth") {
     CHECK(softUnion.distance({-3, 0, 0}) == doctest::Approx(hardUnion.distance({-3, 0, 0})).epsilon(1e-4));
 
     const ModelSdf cut = two(ModelSdfBlend::Subtract, 0);
-    CHECK(cut.distance({-1.4f, 0, 0}) < 0);   // far side of the first ball is kept
-    CHECK(cut.distance({0.6f, 0, 0}) > 0);    // the middle of the cutter is gone
-    CHECK(cut.distance({0, 0, 0}) > 0);       // and so is the overlap
+    CHECK(cut.distance({-1.4f, 0, 0}) < 0);  // far side of the first ball is kept
+    CHECK(cut.distance({0.6f, 0, 0}) > 0);   // the middle of the cutter is gone
+    CHECK(cut.distance({0, 0, 0}) > 0);      // and so is the overlap
     const ModelSdf common = two(ModelSdfBlend::Intersect, 0);
     CHECK(common.distance({0, 0, 0}) < 0);
     CHECK(common.distance({-1.4f, 0, 0}) > 0);
@@ -224,8 +227,8 @@ TEST_CASE("sdf mesh: a sphere is a closed manifold with outward normals and the 
         worstNormal = std::min(worstNormal, dot(m.normals[i], normalize(m.positions[i])));
         CHECK(length(m.normals[i]) == doctest::Approx(1).epsilon(1e-3));
     }
-    CHECK(worst < 0.5f * info.voxelSize);   // decimation (error limit: a quarter of a cell) may move a vertex a little
-    CHECK(worstNormal > 0.97f);             // the gradient of the field: smooth and pointing out
+    CHECK(worst < 0.5f * info.voxelSize);  // decimation (error limit: a quarter of a cell) may move a vertex a little
+    CHECK(worstNormal > 0.97f);            // the gradient of the field: smooth and pointing out
     CHECK(m.uvs.size() == m.positions.size());
 }
 
@@ -318,9 +321,12 @@ TEST_CASE("sdf mesh: every triangle belongs to the part of the shape that owns i
     REQUIRE(m.triParts.size() == m.triangle_count());
     std::size_t left = 0, right = 0;
     for (std::size_t t = 0; t < m.triangle_count(); ++t) {
-        const Vec3 c = (m.positions[m.indices[t * 3]] + m.positions[m.indices[t * 3 + 1]] + m.positions[m.indices[t * 3 + 2]]) / 3.0f;
+        const Vec3 c =
+            (m.positions[m.indices[t * 3]] + m.positions[m.indices[t * 3 + 1]] + m.positions[m.indices[t * 3 + 2]]) /
+            3.0f;
         CHECK((m.triParts[t] == 3 || m.triParts[t] == 5));
-        if (std::fabs(c.x) > 1.3f) CHECK(m.triParts[t] == (c.x < 0 ? 3u : 5u));  // far from the join the owner is obvious
+        if (std::fabs(c.x) > 1.3f)
+            CHECK(m.triParts[t] == (c.x < 0 ? 3u : 5u));  // far from the join the owner is obvious
         (m.triParts[t] == 3 ? left : right)++;
     }
     CHECK(left > 100);
@@ -366,7 +372,9 @@ TEST_CASE("sdf mesh: decimation reaches the target, keeps the surface closed and
         CHECK(two > 0);
         // the part boundary still runs between the balls: the left part keeps its far end, the right part its own
         for (std::size_t t = 0; t < m.triangle_count(); ++t) {
-            const Vec3 c = (m.positions[m.indices[t * 3]] + m.positions[m.indices[t * 3 + 1]] + m.positions[m.indices[t * 3 + 2]]) / 3.0f;
+            const Vec3 c = (m.positions[m.indices[t * 3]] + m.positions[m.indices[t * 3 + 1]] +
+                            m.positions[m.indices[t * 3 + 2]]) /
+                           3.0f;
             if (c.x < -1.4f) CHECK(m.triParts[t] == 1u);
             if (c.x > 1.4f) CHECK(m.triParts[t] == 2u);
         }
@@ -383,7 +391,8 @@ TEST_CASE("sdf mesh: decimation reaches the target, keeps the surface closed and
 TEST_CASE("sdf mesh: decimation on its own works on a plain welded mesh") {
     // a box: eight welded corners, 12 triangles, nothing to collapse without opening it up -> stays closed and does not grow
     std::vector<Vec3> pos = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
-    std::vector<std::uint32_t> idx = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
+    std::vector<std::uint32_t> idx = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                                      3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
     std::vector<std::uint32_t> parts;
     ModelDecimateParams p;
     p.targetTriangles = 4;
@@ -408,12 +417,14 @@ TEST_CASE("decimation: a big flat region collapses evenly, keeps its border and 
             for (std::uint32_t v : {a, b, d, a, d, c}) idx.push_back(v);
         }
     ModelDecimateParams p;
-    p.targetTriangles = 1200;  // the border alone is 480 vertices: an open border is never merged along, so a lower target cannot be reached
+    p.targetTriangles =
+        1200;  // the border alone is 480 vertices: an open border is never merged along, so a lower target cannot be reached
     const ModelDecimateStats s = model_decimate(pos, idx, parts, p);
     CHECK(s.trianglesBefore == 28800);
     CHECK(s.trianglesAfter <= 1200);
     CHECK(s.trianglesAfter >= 480);
-    CHECK(s.maxErrorReached < 1e-2);  // a plane loses nothing (the simplifier measures in float: noise of a few 1e-3 on a 120 m grid)
+    CHECK(s.maxErrorReached <
+          1e-2);  // a plane loses nothing (the simplifier measures in float: noise of a few 1e-3 on a 120 m grid)
     // the corners and the border survive: nothing left outside the square, the four corners are still there
     int corners = 0;
     std::vector<int> valence(pos.size(), 0);
@@ -485,7 +496,9 @@ TEST_CASE("sdf mesh: a request that would cost too much is refused with the voxe
     // many shapes at a fine grid hit the evaluation cost bound
     ModelSdf many;
     std::vector<int> kids;
-    for (int i = 0; i < 400; ++i) kids.push_back(add_sphere(many, 0.5f, {float(i % 20) * 0.3f, float(i / 20) * 0.3f, 0}, ModelSdfBlend::Union, 0.1f));
+    for (int i = 0; i < 400; ++i)
+        kids.push_back(
+            add_sphere(many, 0.5f, {float(i % 20) * 0.3f, float(i / 20) * 0.3f, 0}, ModelSdfBlend::Union, 0.1f));
     many = joined(kids, std::move(many));
     ModelSdfMeshParams fine;
     fine.voxelSize = 0.01f;
@@ -508,19 +521,23 @@ TEST_CASE("sdf node: a document with sdf children makes a closed mesh with parts
     CHECK(std::find(parts.begin(), parts.end(), "body") != parts.end());
     CHECK(std::find(parts.begin(), parts.end(), "head") != parts.end());
     CHECK(std::find(parts.begin(), parts.end(), "eye") != parts.end());
-    auto again = build_doc(R"({"format":"factoria.model/1","materials":{"skin":{"color":[0.8,0.6,0.5,1]},"eye":{"color":[0,0,0,1]}},
+    auto again = build_doc(
+        R"({"format":"factoria.model/1","materials":{"skin":{"color":[0.8,0.6,0.5,1]},"eye":{"color":[0,0,0,1]}},
         "nodes":[{"op":"sdf","id":"blob","children":[
             {"op":"sdf_ellipsoid","radii":[0.6,0.45,0.5],"part":"body","material":"skin"},
             {"op":"sdf_sphere","radius":0.3,"position":[0.5,0.2,0],"part":"head","material":"skin","smooth":0.2},
             {"op":"sdf_sphere","radius":0.06,"position":[0.75,0.3,0.12],"part":"eye","material":"eye"}]}]})");
     REQUIRE(again.ok());
     REQUIRE(built->data.positions.size() == again->data.positions.size());
-    CHECK(std::memcmp(built->data.positions.data(), again->data.positions.data(), built->data.positions.size() * sizeof(float)) == 0);
-    CHECK(std::memcmp(built->data.normals.data(), again->data.normals.data(), built->data.normals.size() * sizeof(float)) == 0);
+    CHECK(std::memcmp(built->data.positions.data(), again->data.positions.data(),
+                      built->data.positions.size() * sizeof(float)) == 0);
+    CHECK(std::memcmp(built->data.normals.data(), again->data.normals.data(),
+                      built->data.normals.size() * sizeof(float)) == 0);
 }
 
 TEST_CASE("sdf node: align, the node transform and a group with mirror") {
-    auto stand = build_doc(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","align":"bottom","position":[0,2,0],"children":[{"op":"sdf_sphere","radius":0.5}]}]})");
+    auto stand = build_doc(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sdf","align":"bottom","position":[0,2,0],"children":[{"op":"sdf_sphere","radius":0.5}]}]})");
     REQUIRE(stand.ok());
     CHECK(stand->stats.bmin.y == doctest::Approx(2.0f).epsilon(0.001));
     auto pair = build_doc(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[
@@ -544,7 +561,8 @@ TEST_CASE("sdf node: it is a mesh like any other, so modifiers wrap it and boole
         {"op":"box","size":[0.46,2,0.46]}]}]})");
     REQUIRE_MESSAGE(cut.ok(), (cut.ok() ? std::string() : cut.error().to_string()));
     CHECK(cut->stats.closed());
-    auto whole = build_doc(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","radius":0.6}]}]})");
+    auto whole = build_doc(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","radius":0.6}]}]})");
     REQUIRE(whole.ok());
     CHECK(whole->stats.closed());
     CHECK(cut->stats.volume < whole->stats.volume);
@@ -560,26 +578,38 @@ TEST_CASE("sdf node: mistakes name the pointer and teach") {
     CHECK(has_issue(out, "/nodes/0/op", "works only inside"));
     auto in = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"box"}]}]})");
     CHECK(has_issue(in, "/nodes/0/children/0/op", "cannot go inside"));
-    auto nested = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_group","children":[{"op":"group"}]}]}]})");
+    auto nested = issues_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_group","children":[{"op":"group"}]}]}]})");
     CHECK(has_issue(nested, "/nodes/0/children/0/children/0/op", "cannot go inside"));
     // shape rules
-    CHECK(has_issue(issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_capsule","radius":1,"height":1}]}]})"),
-                    "/nodes/0/children/0/height", "do not fit"));
-    CHECK(has_issue(issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_torus","radius":0.2,"tube":0.5}]}]})"),
-                    "/nodes/0/children/0/tube", "tube"));
-    CHECK(has_issue(issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_box","size":[1,1,1],"round":0.9}]}]})"),
-                    "/nodes/0/children/0/round", "half"));
-    CHECK(has_issue(issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","blend":"unite"}]}]})"),
-                    "/nodes/0/children/0/blend", ""));
-    CHECK(has_issue(issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","radius":-1}]}]})"),
-                    "/nodes/0/children/0/radius", ""));
+    CHECK(has_issue(
+        issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_capsule","radius":1,"height":1}]}]})"),
+        "/nodes/0/children/0/height", "do not fit"));
+    CHECK(has_issue(
+        issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_torus","radius":0.2,"tube":0.5}]}]})"),
+        "/nodes/0/children/0/tube", "tube"));
+    CHECK(has_issue(
+        issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_box","size":[1,1,1],"round":0.9}]}]})"),
+        "/nodes/0/children/0/round", "half"));
+    CHECK(has_issue(
+        issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","blend":"unite"}]}]})"),
+        "/nodes/0/children/0/blend", ""));
+    CHECK(has_issue(
+        issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"sdf","children":[{"op":"sdf_sphere","radius":-1}]}]})"),
+        "/nodes/0/children/0/radius", ""));
     // an sdf without shapes reads fine and fails to evaluate, naming the node
     auto empty = build_doc(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","id":"nothing","children":[]}]})");
     REQUIRE_FALSE(empty.ok());
     CHECK(empty.error().message.find("/nodes/0") != std::string::npos);
     CHECK(empty.error().message.find("at least one") != std::string::npos);
     // a request that costs too much names the node and the fix
-    auto huge = build_doc(R"({"format":"factoria.model/1","nodes":[{"op":"sdf","voxelSize":0.001,"children":[{"op":"sdf_sphere","radius":20}]}]})");
+    auto huge = build_doc(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sdf","voxelSize":0.001,"children":[{"op":"sdf_sphere","radius":20}]}]})");
     REQUIRE_FALSE(huge.ok());
     CHECK(huge.error().message.find("/nodes/0") != std::string::npos);
     CHECK(huge.error().message.find("voxelSize") != std::string::npos);

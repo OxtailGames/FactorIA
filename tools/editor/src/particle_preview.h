@@ -24,8 +24,8 @@
 
 namespace fa::editor {
 
-inline constexpr double kPreviewStep = 1.0 / 60.0;   // seconds per simulation step
-inline constexpr double kPreviewMaxTime = 30.0;      // the scrubber never goes past this
+inline constexpr double kPreviewStep = 1.0 / 60.0;  // seconds per simulation step
+inline constexpr double kPreviewMaxTime = 30.0;     // the scrubber never goes past this
 // Work one call of seek/catch_up may do: at most kPreviewStepBudget steps, and fewer when the particles are many (a step costs
 // kPreviewStepCost + the live particles of all the emitters; the call stops once the sum reaches kPreviewWorkBudget). One step is always done.
 inline constexpr int kPreviewStepBudget = 240;
@@ -33,16 +33,16 @@ inline constexpr int kPreviewStepCost = 16;
 inline constexpr long kPreviewWorkBudget = 30000;
 
 struct PreviewDot {
-    float x = 0, y = 0;      // world units, +y DOWN (screen orientation); the emitter's matrix is applied
-    float size = 0;          // world units
-    Color color;             // alpha included
+    float x = 0, y = 0;  // world units, +y DOWN (screen orientation); the emitter's matrix is applied
+    float size = 0;      // world units
+    Color color;         // alpha included
     bool additive = false;
-    float rotation = 0;      // degrees
+    float rotation = 0;  // degrees
 };
 
 struct PreviewLight {
     float x = 0, y = 0;
-    float radius = 0;        // world units (a 3D light: its range in metres times 32)
+    float radius = 0;  // world units (a 3D light: its range in metres times 32)
     Color color;
     float intensity = 1;
 };
@@ -91,27 +91,27 @@ public:
 
 private:
     void rebuild();
-    void run_slice();   // one bounded share of the steps a seek still owes
-    long step_once();   // returns the work it cost (see kPreviewStepCost)
+    void run_slice();  // one bounded share of the steps a seek still owes
+    long step_once();  // returns the work it cost (see kPreviewStepCost)
     void snapshot();
 
     std::shared_ptr<const VfxDoc> doc_;
     std::unique_ptr<World> world_;
     Entity vfx_ = kNullEntity;
-    std::map<std::uint64_t, ParticleSim> sims_;   // by entity bits
+    std::map<std::uint64_t, ParticleSim> sims_;  // by entity bits
     std::uint32_t seed_ = 1;
     double time_ = 0.0;
     double carry_ = 0.0;
     int steps_ = 0;
-    int targetSteps_ = 0;     // the step the last seek asked for
-    bool stale_ = true;       // the world does not belong to the current document and seed: the next seek builds it again
+    int targetSteps_ = 0;  // the step the last seek asked for
+    bool stale_ = true;    // the world does not belong to the current document and seed: the next seek builds it again
     int emitters_ = 0;
     std::vector<PreviewDot> dots_;
     std::vector<PreviewLight> lights_;
     std::vector<int> fired_;
-    bool framed_ = false;          // begin_frame() was called at least once: the work of one frame is one share
+    bool framed_ = false;  // begin_frame() was called at least once: the work of one frame is one share
     bool slicedThisFrame_ = false;
-    mutable double length_ = 1.0;        // timeline_length(), worked out once per document
+    mutable double length_ = 1.0;  // timeline_length(), worked out once per document
     mutable bool lengthValid_ = false;
 };
 

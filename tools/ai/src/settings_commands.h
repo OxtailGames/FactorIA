@@ -18,8 +18,8 @@ namespace fa::ai {
 // `onUserConfigChanged` runs after a successful scope "user" set wrote ai.json, `onProjectConfigChanged` after a project one wrote (or
 // removed) the project's file; both on the thread that runs the command (an AI or MCP thread in the editor), possibly from several
 // threads at once: they must be thread-safe and quick. Empty = nothing to tell.
-void register_settings_commands(CommandRegistry& registry, std::function<std::string()> projectDir, std::string aiConfigPath,
-                                EnvLookup env, std::function<void()> onUserConfigChanged = {},
+void register_settings_commands(CommandRegistry& registry, std::function<std::string()> projectDir,
+                                std::string aiConfigPath, EnvLookup env, std::function<void()> onUserConfigChanged = {},
                                 std::function<void()> onProjectConfigChanged = {});
 
 }  // namespace fa::ai

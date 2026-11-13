@@ -23,19 +23,41 @@ struct KeyNames {
         auto set = [&](Key k, const char* n) { names[size_t(k)] = n; };
         for (int i = 0; i < 26; ++i) names[size_t(Key::A) + i] = std::string(1, char('A' + i));
         for (int i = 0; i < 10; ++i) names[size_t(Key::Num0) + i] = std::string(1, char('0' + i));
-        set(Key::Space, "Space"); set(Key::Enter, "Enter"); set(Key::Escape, "Escape"); set(Key::Tab, "Tab");
-        set(Key::Backspace, "Backspace"); set(Key::Insert, "Insert"); set(Key::Delete, "Delete");
-        set(Key::Left, "Left"); set(Key::Right, "Right"); set(Key::Up, "Up"); set(Key::Down, "Down");
-        set(Key::PageUp, "PageUp"); set(Key::PageDown, "PageDown"); set(Key::Home, "Home"); set(Key::End, "End");
-        set(Key::LeftShift, "LeftShift"); set(Key::RightShift, "RightShift");
-        set(Key::LeftControl, "LeftControl"); set(Key::RightControl, "RightControl");
-        set(Key::LeftAlt, "LeftAlt"); set(Key::RightAlt, "RightAlt");
-        set(Key::LeftSuper, "LeftSuper"); set(Key::RightSuper, "RightSuper");
+        set(Key::Space, "Space");
+        set(Key::Enter, "Enter");
+        set(Key::Escape, "Escape");
+        set(Key::Tab, "Tab");
+        set(Key::Backspace, "Backspace");
+        set(Key::Insert, "Insert");
+        set(Key::Delete, "Delete");
+        set(Key::Left, "Left");
+        set(Key::Right, "Right");
+        set(Key::Up, "Up");
+        set(Key::Down, "Down");
+        set(Key::PageUp, "PageUp");
+        set(Key::PageDown, "PageDown");
+        set(Key::Home, "Home");
+        set(Key::End, "End");
+        set(Key::LeftShift, "LeftShift");
+        set(Key::RightShift, "RightShift");
+        set(Key::LeftControl, "LeftControl");
+        set(Key::RightControl, "RightControl");
+        set(Key::LeftAlt, "LeftAlt");
+        set(Key::RightAlt, "RightAlt");
+        set(Key::LeftSuper, "LeftSuper");
+        set(Key::RightSuper, "RightSuper");
         for (int i = 0; i < 12; ++i) names[size_t(Key::F1) + i] = "F" + std::to_string(i + 1);
-        set(Key::Minus, "Minus"); set(Key::Equal, "Equal"); set(Key::LeftBracket, "LeftBracket");
-        set(Key::RightBracket, "RightBracket"); set(Key::Backslash, "Backslash"); set(Key::Semicolon, "Semicolon");
-        set(Key::Apostrophe, "Apostrophe"); set(Key::Comma, "Comma"); set(Key::Period, "Period");
-        set(Key::Slash, "Slash"); set(Key::GraveAccent, "GraveAccent");
+        set(Key::Minus, "Minus");
+        set(Key::Equal, "Equal");
+        set(Key::LeftBracket, "LeftBracket");
+        set(Key::RightBracket, "RightBracket");
+        set(Key::Backslash, "Backslash");
+        set(Key::Semicolon, "Semicolon");
+        set(Key::Apostrophe, "Apostrophe");
+        set(Key::Comma, "Comma");
+        set(Key::Period, "Period");
+        set(Key::Slash, "Slash");
+        set(Key::GraveAccent, "GraveAccent");
         set(Key::Unknown, "Unknown");
         for (size_t i = 1; i < size_t(Key::Count); ++i) all.push_back(names[i]);
     }
@@ -46,8 +68,10 @@ const KeyNames& key_names() {
 }
 
 const char* const kMouseNames[3] = {"MouseLeft", "MouseRight", "MouseMiddle"};
-const char* const kPadButtonNames[] = {"A", "B", "X", "Y", "Start", "Back", "Guide", "DpadLeft", "DpadRight", "DpadUp",
-                                       "DpadDown", "LeftShoulder", "RightShoulder", "LeftThumb", "RightThumb"};
+const char* const kPadButtonNames[] = {
+    "A",         "B",         "X",      "Y",        "Start",        "Back",          "Guide",
+    "DpadLeft",  "DpadRight", "DpadUp", "DpadDown", "LeftShoulder", "RightShoulder", "LeftThumb",
+    "RightThumb"};
 const char* const kPadAxisNames[] = {"LeftX", "LeftY", "RightX", "RightY", "LeftTrigger", "RightTrigger"};
 static_assert(std::size(kPadButtonNames) == size_t(GamepadButton::Count), "kPadButtonNames out of sync");
 static_assert(std::size(kPadAxisNames) == size_t(GamepadAxis::Count), "kPadAxisNames out of sync");
@@ -83,17 +107,44 @@ const std::vector<PadBindingName>& pad_binding_names() {
 
 // Alternative spellings accepted for keys.
 Key key_alias(std::string_view lower) {
-    struct Alias { const char* name; Key key; };
+    struct Alias {
+        const char* name;
+        Key key;
+    };
     static const Alias aliases[] = {
-        {"esc", Key::Escape}, {"return", Key::Enter}, {"del", Key::Delete}, {"ins", Key::Insert},
-        {"pgup", Key::PageUp}, {"pgdn", Key::PageDown}, {"pagedn", Key::PageDown}, {"spacebar", Key::Space},
-        {"lshift", Key::LeftShift}, {"rshift", Key::RightShift}, {"lctrl", Key::LeftControl},
-        {"rctrl", Key::RightControl}, {"lalt", Key::LeftAlt}, {"ralt", Key::RightAlt},
-        {"leftctrl", Key::LeftControl}, {"rightctrl", Key::RightControl},
-        {"num0", Key::Num0}, {"num1", Key::Num1}, {"num2", Key::Num2}, {"num3", Key::Num3}, {"num4", Key::Num4},
-        {"num5", Key::Num5}, {"num6", Key::Num6}, {"num7", Key::Num7}, {"num8", Key::Num8}, {"num9", Key::Num9},
-        {"arrowleft", Key::Left}, {"arrowright", Key::Right}, {"arrowup", Key::Up}, {"arrowdown", Key::Down},
-        {"backquote", Key::GraveAccent}, {"grave", Key::GraveAccent}, {"quote", Key::Apostrophe},
+        {"esc", Key::Escape},
+        {"return", Key::Enter},
+        {"del", Key::Delete},
+        {"ins", Key::Insert},
+        {"pgup", Key::PageUp},
+        {"pgdn", Key::PageDown},
+        {"pagedn", Key::PageDown},
+        {"spacebar", Key::Space},
+        {"lshift", Key::LeftShift},
+        {"rshift", Key::RightShift},
+        {"lctrl", Key::LeftControl},
+        {"rctrl", Key::RightControl},
+        {"lalt", Key::LeftAlt},
+        {"ralt", Key::RightAlt},
+        {"leftctrl", Key::LeftControl},
+        {"rightctrl", Key::RightControl},
+        {"num0", Key::Num0},
+        {"num1", Key::Num1},
+        {"num2", Key::Num2},
+        {"num3", Key::Num3},
+        {"num4", Key::Num4},
+        {"num5", Key::Num5},
+        {"num6", Key::Num6},
+        {"num7", Key::Num7},
+        {"num8", Key::Num8},
+        {"num9", Key::Num9},
+        {"arrowleft", Key::Left},
+        {"arrowright", Key::Right},
+        {"arrowup", Key::Up},
+        {"arrowdown", Key::Down},
+        {"backquote", Key::GraveAccent},
+        {"grave", Key::GraveAccent},
+        {"quote", Key::Apostrophe},
     };
     for (const auto& a : aliases)
         if (lower == a.name) return a.key;
@@ -168,18 +219,28 @@ std::string modifier_prefix(std::uint8_t mods) {
 }
 }  // namespace
 
-const char* gamepad_button_name(GamepadButton b) { return size_t(b) < size_t(GamepadButton::Count) ? kPadButtonNames[size_t(b)] : "Unknown"; }
-const char* gamepad_axis_name(GamepadAxis a) { return size_t(a) < size_t(GamepadAxis::Count) ? kPadAxisNames[size_t(a)] : "Unknown"; }
+const char* gamepad_button_name(GamepadButton b) {
+    return size_t(b) < size_t(GamepadButton::Count) ? kPadButtonNames[size_t(b)] : "Unknown";
+}
+const char* gamepad_axis_name(GamepadAxis a) {
+    return size_t(a) < size_t(GamepadAxis::Count) ? kPadAxisNames[size_t(a)] : "Unknown";
+}
 
 bool gamepad_button_from_name(std::string_view name, GamepadButton& out) {
     for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
-        if (iequals(kPadButtonNames[i], trim(name))) { out = GamepadButton(i); return true; }
+        if (iequals(kPadButtonNames[i], trim(name))) {
+            out = GamepadButton(i);
+            return true;
+        }
     return false;
 }
 
 bool gamepad_axis_from_name(std::string_view name, GamepadAxis& out) {
     for (size_t i = 0; i < size_t(GamepadAxis::Count); ++i)
-        if (iequals(kPadAxisNames[i], trim(name))) { out = GamepadAxis(i); return true; }
+        if (iequals(kPadAxisNames[i], trim(name))) {
+            out = GamepadAxis(i);
+            return true;
+        }
     return false;
 }
 
@@ -191,21 +252,28 @@ const char* const kPadTypeNames[] = {"generic", "xbox", "playstation", "nintendo
 const char* const kDeviceNames[] = {"keyboard", "mouse", "gamepad", "touch"};
 }  // namespace
 
-const char* gamepad_type_name(GamepadType t) { return size_t(t) < std::size(kPadTypeNames) ? kPadTypeNames[size_t(t)] : "generic"; }
+const char* gamepad_type_name(GamepadType t) {
+    return size_t(t) < std::size(kPadTypeNames) ? kPadTypeNames[size_t(t)] : "generic";
+}
 bool gamepad_type_from_name(std::string_view name, GamepadType& out) {
     for (size_t i = 0; i < std::size(kPadTypeNames); ++i)
-        if (iequals(kPadTypeNames[i], trim(name))) { out = GamepadType(i); return true; }
+        if (iequals(kPadTypeNames[i], trim(name))) {
+            out = GamepadType(i);
+            return true;
+        }
     return false;
 }
 std::vector<std::string> gamepad_type_names() { return {std::begin(kPadTypeNames), std::end(kPadTypeNames)}; }
-const char* input_device_name(InputDevice d) { return size_t(d) < std::size(kDeviceNames) ? kDeviceNames[size_t(d)] : "keyboard"; }
+const char* input_device_name(InputDevice d) {
+    return size_t(d) < std::size(kDeviceNames) ? kDeviceNames[size_t(d)] : "keyboard";
+}
 
 GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name) {
     switch (vendorId) {
         case 0x045e: return GamepadType::Xbox;         // Microsoft
         case 0x054c: return GamepadType::PlayStation;  // Sony
         case 0x057e: return GamepadType::Nintendo;
-        case 0x28de: return GamepadType::SteamDeck;    // Valve
+        case 0x28de: return GamepadType::SteamDeck;  // Valve
         default: break;
     }
     const std::string n = to_lower(name);
@@ -221,7 +289,8 @@ GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name)
     return GamepadType::Generic;
 }
 
-std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name, std::string_view unique) {
+std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name,
+                            std::string_view unique) {
     std::string id = std::format("{:04x}:{:04x}:{}", vendor, product, name);
     if (!unique.empty()) {
         id += '#';
@@ -322,7 +391,8 @@ void Input::forget_fixed_consumption() {
     for (size_t v : {kFixedLayer, kLateLayer}) {
         active_ = v;
         Layer& l = layers_[v];
-        std::erase_if(l.consumedBindings, [&](const Binding& b) { return binding_value(b, false) < kActionDownThreshold; });
+        std::erase_if(l.consumedBindings,
+                      [&](const Binding& b) { return binding_value(b, false) < kActionDownThreshold; });
         std::erase_if(l.consumedActions, [&](const std::string& a) { return !action_down(a); });
     }
     active_ = shown;
@@ -344,7 +414,8 @@ void Input::discard_idle_motion() {
 }
 
 void Input::vibrate(float seconds) {
-    if (vibrations_.size() < 256) vibrations_.push_back(seconds);  // nobody plays them in a headless run: keep the log short
+    if (vibrations_.size() < 256)
+        vibrations_.push_back(seconds);  // nobody plays them in a headless run: keep the log short
 }
 
 void Input::on_key(Key key, bool down) {
@@ -462,7 +533,8 @@ void Input::on_touch_end(std::uint64_t id) {
     auto it = std::find_if(touches_.begin(), touches_.end(), [&](const Touch& t) { return t.id == id; });
     if (it == touches_.end()) return;
     Vec2 last = it->position;
-    if (touch_unseen(*it)) endedTouches_.push_back(*it);  // landed and lifted before every view looked: they still see it land
+    if (touch_unseen(*it))
+        endedTouches_.push_back(*it);  // landed and lifted before every view looked: they still see it land
     if (endedTouches_.size() > 64) endedTouches_.erase(endedTouches_.begin());
     touches_.erase(it);
     if (touches_.empty() && touchDown_) {
@@ -545,9 +617,12 @@ bool Input::modifier_released(std::uint8_t bit) const {
 }
 
 bool Input::command_chord_down() const {
-    return key_down(Key::LeftControl) || key_down(Key::RightControl) || key_down(Key::LeftSuper) || key_down(Key::RightSuper);
+    return key_down(Key::LeftControl) || key_down(Key::RightControl) || key_down(Key::LeftSuper) ||
+           key_down(Key::RightSuper);
 }
-bool Input::paste_pressed() const { return L().paste || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down()); }
+bool Input::paste_pressed() const {
+    return L().paste || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down());
+}
 bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
 
 void Input::on_text(std::uint32_t codepoint) {
@@ -556,8 +631,10 @@ void Input::on_text(std::uint32_t codepoint) {
             l.text.push_back(char32_t(codepoint));
         } else if (!textCapWarned_) {
             textCapWarned_ = true;  // one line per Input: a big paste would otherwise log once per character
-            FA_WARN("platform", "more than {} characters of text arrived before they were read (a very large paste?): the rest "
-                    "is dropped", kMaxTextPerView);
+            FA_WARN("platform",
+                    "more than {} characters of text arrived before they were read (a very large paste?): the rest "
+                    "is dropped",
+                    kMaxTextPerView);
         }
     }
 }
@@ -616,7 +693,9 @@ void Input::release_pad(int index) {
 void Input::set_gamepad_info(int index, GamepadInfo info) {
     if (index < 0 || index >= kMaxGamepads) return;
     Pad& pad = pads_[size_t(index)];
-    if (info.id.empty()) info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "slot " + std::to_string(index));
+    if (info.id.empty())
+        info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name,
+                                  "slot " + std::to_string(index));
     if (info.name.empty()) info.name = "Gamepad";
     pad.type = info.type;
     pad.info = std::move(info);
@@ -628,7 +707,9 @@ const GamepadInfo& Input::gamepad_info(int index) const {
 }
 
 int Input::choose_gamepad_slot(std::string_view id, std::span<const bool> occupied) const {
-    auto free = [&](int i) { return i >= 0 && i < kMaxGamepads && (size_t(i) >= occupied.size() || !occupied[size_t(i)]); };
+    auto free = [&](int i) {
+        return i >= 0 && i < kMaxGamepads && (size_t(i) >= occupied.size() || !occupied[size_t(i)]);
+    };
     for (const auto& [rememberedId, slot] : padSlotMemory_)
         if (rememberedId == id && free(slot)) return slot;
     for (int i = 0; i < kMaxGamepads; ++i)
@@ -680,8 +761,10 @@ GamepadType Input::gamepad_type(int index) const {
 
 void Input::reset_options() {
     reset_bindings();
-    for (PlayerState& player : players_) player = PlayerState{};  // no devices, no rebinds (the schemes are the project's)
-    mouse_ = {};  // the pointer of a fresh process: where an earlier click or test left it must not decide what is hovered
+    for (PlayerState& player : players_)
+        player = PlayerState{};  // no devices, no rebinds (the schemes are the project's)
+    mouse_ =
+        {};  // the pointer of a fresh process: where an earlier click or test left it must not decide what is hovered
     for (Layer& l : layers_) {
         l.mouseDelta = {};
         l.wheel = 0.0f;
@@ -699,7 +782,8 @@ void Input::reset_options() {
     padEvents_.clear();
     padSlotMemory_.clear();
     endedTouches_.clear();
-    for (Touch& t : touches_) t.pressedThisFrame = t.pressedThisStep = t.pressedLate = false;  // a tap of the last test is not new
+    for (Touch& t : touches_)
+        t.pressedThisFrame = t.pressedThisStep = t.pressedLate = false;  // a tap of the last test is not new
 }
 
 void Input::release_all() {
@@ -723,7 +807,7 @@ void Input::release_all() {
     if (endedTouches_.size() > 64) endedTouches_.erase(endedTouches_.begin(), endedTouches_.end() - 64);
     touches_.clear();
     touchDown_ = false;
-    primaryTouchDown_ = false;  // its mouse button was released above
+    primaryTouchDown_ = false;                              // its mouse button was released above
     for (int i = 0; i < kMaxGamepads; ++i) release_pad(i);  // not announced: the pad is still plugged in
     for (TouchControl& c : touchControls_) {
         c.down = false;
@@ -739,25 +823,35 @@ bool Input::key_down(Key k) const { return size_t(k) < keys_.size() && keys_[siz
 bool Input::key_pressed(Key k) const { return size_t(k) < keys_.size() && L().keyPressed[size_t(k)]; }
 bool Input::key_released(Key k) const { return size_t(k) < keys_.size() && L().keyReleased[size_t(k)]; }
 bool Input::mouse_down(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && mouse_buttons_[size_t(b)]; }
-bool Input::mouse_pressed(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && L().mousePressed[size_t(b)]; }
-bool Input::mouse_released(MouseButton b) const { return size_t(b) < mouse_buttons_.size() && L().mouseReleased[size_t(b)]; }
+bool Input::mouse_pressed(MouseButton b) const {
+    return size_t(b) < mouse_buttons_.size() && L().mousePressed[size_t(b)];
+}
+bool Input::mouse_released(MouseButton b) const {
+    return size_t(b) < mouse_buttons_.size() && L().mouseReleased[size_t(b)];
+}
 
-bool Input::gamepad_connected(int index) const { return index >= 0 && index < kMaxGamepads && pads_[size_t(index)].connected; }
+bool Input::gamepad_connected(int index) const {
+    return index >= 0 && index < kMaxGamepads && pads_[size_t(index)].connected;
+}
 bool Input::gamepad_down(int index, GamepadButton b) const {
-    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) && pads_[size_t(index)].buttons[size_t(b)];
+    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) &&
+           pads_[size_t(index)].buttons[size_t(b)];
 }
 bool Input::gamepad_pressed(int index, GamepadButton b) const {
-    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) && pads_[size_t(index)].edges[active_].pressed[size_t(b)];
+    return gamepad_connected(index) && size_t(b) < size_t(GamepadButton::Count) &&
+           pads_[size_t(index)].edges[active_].pressed[size_t(b)];
 }
 bool Input::gamepad_released(int index, GamepadButton b) const {
     return index >= 0 && index < kMaxGamepads && size_t(b) < size_t(GamepadButton::Count) &&
            pads_[size_t(index)].edges[active_].released[size_t(b)];  // also on the frame the pad was unplugged
 }
 float Input::gamepad_raw_axis(int index, GamepadAxis a) const {
-    return gamepad_connected(index) && size_t(a) < size_t(GamepadAxis::Count) ? pads_[size_t(index)].axes[size_t(a)] : 0.0f;
+    return gamepad_connected(index) && size_t(a) < size_t(GamepadAxis::Count) ? pads_[size_t(index)].axes[size_t(a)]
+                                                                              : 0.0f;
 }
 float Input::gamepad_axis(int index, GamepadAxis a) const {
-    return gamepad_connected(index) && size_t(a) < size_t(GamepadAxis::Count) ? pad_axis(pads_[size_t(index)], a, false) : 0.0f;
+    return gamepad_connected(index) && size_t(a) < size_t(GamepadAxis::Count) ? pad_axis(pads_[size_t(index)], a, false)
+                                                                              : 0.0f;
 }
 void Input::set_gamepad_deadzone(float deadzone) { deadzone_ = std::clamp(deadzone, 0.0f, 0.95f); }
 
@@ -769,7 +863,8 @@ float Input::pad_axis(const Pad& pad, GamepadAxis a, bool previous) const {
         float t = ax[size_t(a)];
         return t <= dz ? 0.0f : std::min(1.0f, (t - dz) / (1.0f - dz));
     }
-    const size_t xi = (a == GamepadAxis::LeftX || a == GamepadAxis::LeftY) ? size_t(GamepadAxis::LeftX) : size_t(GamepadAxis::RightX);
+    const size_t xi =
+        (a == GamepadAxis::LeftX || a == GamepadAxis::LeftY) ? size_t(GamepadAxis::LeftX) : size_t(GamepadAxis::RightX);
     const float x = ax[xi], y = ax[xi + 1];
     const float mag = std::sqrt(x * x + y * y);
     if (mag <= dz) return 0.0f;
@@ -930,7 +1025,10 @@ bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool rel
     for (const Binding& b : list) {
         switch (b.kind) {
             case Binding::Kind::PadButton:  // the touch pad too, for the global view
-                pads([&](const Pad& pad) { edge = edge || (released ? pad.edges[active_].released : pad.edges[active_].pressed)[size_t(b.button)]; });
+                pads([&](const Pad& pad) {
+                    edge =
+                        edge || (released ? pad.edges[active_].released : pad.edges[active_].pressed)[size_t(b.button)];
+                });
                 break;
             // An analog value has no event, only a level: it is a press when it is up now and was not at frame start (the
             // caller checks the second half); a release is "was down and is not now", which was_down_in covers.
@@ -940,7 +1038,8 @@ bool Input::edge_in(const std::vector<Binding>& list, const View& view, bool rel
             default: {  // keys, modifiers, mouse buttons and touch, plain or in a chord
                 bool e = main_edge(b, view, released);
                 if (e && b.mods) {  // a release counts when the chord's modifiers were held at either end of the frame
-                    const bool held = !(b.mods & ~mods_held(false, view)) || (released && !(b.mods & ~mods_held(true, view)));
+                    const bool held =
+                        !(b.mods & ~mods_held(false, view)) || (released && !(b.mods & ~mods_held(true, view)));
                     e = held;
                 }
                 if (e && (shadowed(b, false, view) || (released && shadowed(b, true, view)))) e = false;
@@ -982,9 +1081,16 @@ bool Input::parse_single_binding(std::string_view name, Binding& out) {
     std::string_view text = trim(name);
     std::string lower = to_lower(text);
     out = Binding{};
-    if (lower == "touch") { out.kind = Binding::Kind::Touch; return true; }
+    if (lower == "touch") {
+        out.kind = Binding::Kind::Touch;
+        return true;
+    }
     for (int i = 0; i < 3; ++i)
-        if (lower == to_lower(kMouseNames[i])) { out.kind = Binding::Kind::Mouse; out.mouse = MouseButton(i); return true; }
+        if (lower == to_lower(kMouseNames[i])) {
+            out.kind = Binding::Kind::Mouse;
+            out.mouse = MouseButton(i);
+            return true;
+        }
     if (starts_with(lower, "gamepad")) {
         for (const auto& p : pad_binding_names()) {
             if (!iequals(p.name, text)) continue;
@@ -1013,7 +1119,8 @@ std::string Input::binding_problem(std::string_view name) {
     const std::vector<std::string> names = all_binding_names();
     if (text.find('+') == std::string_view::npos) return did_you_mean(text, names);
     const std::vector<std::string> mods = {"Ctrl", "Shift", "Alt", "Super"};
-    const std::string chordForm = "A chord is modifiers then ONE input joined by '+', e.g. \"Ctrl+Z\" or \"Shift+MouseLeft\".";
+    const std::string chordForm =
+        "A chord is modifiers then ONE input joined by '+', e.g. \"Ctrl+Z\" or \"Shift+MouseLeft\".";
     const std::vector<std::string> parts = split(text, '+', false);
     std::vector<std::string> fixed;  // the chord with what could be mended
     std::string why;
@@ -1034,12 +1141,15 @@ std::string Input::binding_problem(std::string_view name) {
                 fixed.push_back(part);
             } else {
                 Binding side;
-                if (parse_single_binding(part, side) && side.kind == Binding::Kind::Key && is_modifier_key(size_t(side.key))) {
-                    const char* both = modifier_name(side.key == Key::LeftShift || side.key == Key::RightShift ? modifier::Shift
-                                                     : side.key == Key::LeftControl || side.key == Key::RightControl ? modifier::Ctrl
-                                                     : side.key == Key::LeftAlt || side.key == Key::RightAlt ? modifier::Alt
-                                                                                                           : modifier::Super);
-                    why = std::format("'{}' names one side's key; a modifier names both sides. Did you mean '{}'?", part, both);
+                if (parse_single_binding(part, side) && side.kind == Binding::Kind::Key &&
+                    is_modifier_key(size_t(side.key))) {
+                    const char* both =
+                        modifier_name(side.key == Key::LeftShift || side.key == Key::RightShift       ? modifier::Shift
+                                      : side.key == Key::LeftControl || side.key == Key::RightControl ? modifier::Ctrl
+                                      : side.key == Key::LeftAlt || side.key == Key::RightAlt ? modifier::Alt
+                                                                                              : modifier::Super);
+                    why = std::format("'{}' names one side's key; a modifier names both sides. Did you mean '{}'?",
+                                      part, both);
                     fixed.push_back(both);
                 } else {
                     const std::string best = closest_match(part, mods);
@@ -1054,7 +1164,8 @@ std::string Input::binding_problem(std::string_view name) {
                 const std::string best = closest_match(part, names);
                 fixed.push_back(best.empty() ? part : best);
             } else if (main.kind == Binding::Kind::PadButton || main.kind == Binding::Kind::PadAxis) {
-                why = std::format("modifiers combine with keys, mouse buttons and Touch, not with the gamepad binding '{}'", part);
+                why = std::format(
+                    "modifiers combine with keys, mouse buttons and Touch, not with the gamepad binding '{}'", part);
             } else if (main.kind == Binding::Kind::Mod && (seen & main.modBit)) {
                 why = std::format("the modifier '{}' appears twice", part);
             } else {
@@ -1066,7 +1177,8 @@ std::string Input::binding_problem(std::string_view name) {
     std::string out = std::format("{}.", why);
     if (fixed.size() == parts.size()) {
         const std::string joined = join(fixed, "+");
-        if (iequals(joined, text) == false && is_binding_name(joined)) out += std::format(" Write it as \"{}\".", joined);
+        if (iequals(joined, text) == false && is_binding_name(joined))
+            out += std::format(" Write it as \"{}\".", joined);
     }
     return out;
 }
@@ -1089,15 +1201,15 @@ std::vector<Input::Binding> Input::parse_binding_list(const std::string& action,
     std::vector<Binding> out;
     auto add = [&](const Json& item) {
         if (!item.is_string()) {
-            problems.push_back(std::format("input.actions.{}: binding must be a string such as \"Space\", got {}", action,
-                                           describe_json_value(item)));
+            problems.push_back(std::format("input.actions.{}: binding must be a string such as \"Space\", got {}",
+                                           action, describe_json_value(item)));
             return;
         }
         Binding b;
         std::string text = item.get<std::string>();
         if (!parse_binding(text, b)) {
-            problems.push_back(std::format("input.actions.{}: unknown binding '{}'. {}", action, text,
-                                           binding_problem(text)));
+            problems.push_back(
+                std::format("input.actions.{}: unknown binding '{}'. {}", action, text, binding_problem(text)));
             return;
         }
         out.push_back(b);
@@ -1122,9 +1234,9 @@ std::vector<std::string> Input::set_actions(const Json& actions) {
         return problems;
     }
     if (!actions.is_object()) {
-        problems.push_back(std::format(
-            "input.actions must be an object mapping action names to binding lists, e.g. "
-            "{{\"jump\": [\"Space\", \"W\"]}}; got {}", describe_json_value(actions)));
+        problems.push_back(std::format("input.actions must be an object mapping action names to binding lists, e.g. "
+                                       "{{\"jump\": [\"Space\", \"W\"]}}; got {}",
+                                       describe_json_value(actions)));
         rebuild_player_defaults();
         return problems;
     }
@@ -1151,10 +1263,12 @@ std::string Input::binding_name(const Binding& b) {
 
 namespace {
 // "Unknown input action 'x'. Did you mean ...? Valid: ..." for the rebinding functions.
-std::string unknown_action_message(std::string_view what, std::string_view action, const std::vector<std::string>& names) {
+std::string unknown_action_message(std::string_view what, std::string_view action,
+                                   const std::vector<std::string>& names) {
     return std::format("{}: unknown input action '{}'. {}", what, action,
-                       names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
-                                     : did_you_mean(action, names));
+                       names.empty()
+                           ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                           : did_you_mean(action, names));
 }
 }  // namespace
 
@@ -1169,8 +1283,11 @@ std::vector<std::string> Input::rebind(std::string_view action, const std::vecto
     std::vector<Binding> parsed;
     for (const std::string& text : bindings) {
         Binding b;
-        if (parse_binding(text, b)) parsed.push_back(b);
-        else problems.push_back(std::format("input.rebind('{}'): unknown binding '{}'. {}", action, text, binding_problem(text)));
+        if (parse_binding(text, b))
+            parsed.push_back(b);
+        else
+            problems.push_back(
+                std::format("input.rebind('{}'): unknown binding '{}'. {}", action, text, binding_problem(text)));
     }
     if (problems.empty()) it->second = std::move(parsed);
     return problems;
@@ -1210,7 +1327,8 @@ std::string Input::chord_prefix(const View& view) const {
         const auto [l, r] = modifier_keys(bit);
         for (Key k : {l, r})
             if (view.keyboard && (!view.keySet || (*view.keySet)[size_t(k)]) &&
-                (keys_[size_t(k)] || L().prevKeys[size_t(k)] || L().keyPressed[size_t(k)] || L().keyReleased[size_t(k)]))
+                (keys_[size_t(k)] || L().prevKeys[size_t(k)] || L().keyPressed[size_t(k)] ||
+                 L().keyReleased[size_t(k)]))
                 mods |= bit;
     }
     return modifier_prefix(mods);
@@ -1253,16 +1371,19 @@ namespace {
 // Y = top), so a Nintendo pad, which letters its buttons by name, has B at the bottom and A at the right.
 const char* const kPadLabels[5][size_t(GamepadButton::Count)] = {
     // Generic: the Xbox names
-    {"A", "B", "X", "Y", "Menu", "View", "Guide", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB", "LS", "RS"},
+    {"A", "B", "X", "Y", "Menu", "View", "Guide", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB",
+     "LS", "RS"},
     // Xbox
-    {"A", "B", "X", "Y", "Menu", "View", "Xbox", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB", "LS", "RS"},
+    {"A", "B", "X", "Y", "Menu", "View", "Xbox", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB",
+     "LS", "RS"},
     // PlayStation
     {"Cross", "Circle", "Square", "Triangle", "Options", "Create", "PS", "D-Pad Left", "D-Pad Right", "D-Pad Up",
      "D-Pad Down", "L1", "R1", "L3", "R3"},
     // Nintendo
     {"B", "A", "Y", "X", "+", "-", "Home", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "L", "R", "LS", "RS"},
     // Steam Deck
-    {"A", "B", "X", "Y", "Menu", "View", "Steam", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "L1", "R1", "L3", "R3"},
+    {"A", "B", "X", "Y", "Menu", "View", "Steam", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "L1", "R1",
+     "L3", "R3"},
 };
 const char* const kTriggerLabels[5][2] = {{"LT", "RT"}, {"LT", "RT"}, {"L2", "R2"}, {"ZL", "ZR"}, {"L2", "R2"}};
 }  // namespace
@@ -1276,7 +1397,11 @@ std::string Input::binding_label(std::string_view binding, GamepadType type) {
         case Binding::Kind::Key: return prefix + key_name(b.key);
         case Binding::Kind::Mod: return prefix + modifier_name(b.modBit);
         case Binding::Kind::Mouse:
-            return prefix + std::string(b.mouse == MouseButton::Left ? "Left" : b.mouse == MouseButton::Right ? "Right" : "Middle") + " Click";
+            return prefix +
+                   std::string(b.mouse == MouseButton::Left    ? "Left"
+                               : b.mouse == MouseButton::Right ? "Right"
+                                                               : "Middle") +
+                   " Click";
         case Binding::Kind::Touch: return prefix + "Touch";
         case Binding::Kind::PadButton: return kPadLabels[t][size_t(b.button)];
         case Binding::Kind::PadAxis: {
@@ -1299,7 +1424,10 @@ std::string Input::button_name(std::string_view bindingOrAction, int pad) const 
     const Binding* pick = nullptr;
     for (const Binding& b : it->second) {
         const bool isPad = b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis;
-        if (isPad == wantPad) { pick = &b; break; }
+        if (isPad == wantPad) {
+            pick = &b;
+            break;
+        }
         if (!pick) pick = &b;  // fallback: the first binding of any kind
     }
     return pick ? binding_label(binding_name(*pick), type) : "";
@@ -1385,7 +1513,8 @@ bool Input::action_down(std::string_view action) const { return action_value(act
 bool Input::action_pressed(std::string_view action) const {
     std::string name(action);
     const Layer& view = L();
-    if (std::find(view.consumedActions.begin(), view.consumedActions.end(), name) != view.consumedActions.end()) return false;
+    if (std::find(view.consumedActions.begin(), view.consumedActions.end(), name) != view.consumedActions.end())
+        return false;
     bool wasDown = view.prevOverrides.count(name) != 0;
     bool edge = view.overridePressed.count(name) != 0;
     auto it = actions_.find(name);
@@ -1471,7 +1600,9 @@ Json Input::snapshot() const {
     Json buttons = Json::array();
     for (int i = 0; i < 3; ++i)
         if (mouse_buttons_[i]) buttons.push_back(kMouseNames[i]);
-    j["mouse"] = {{"position", to_json(mouse_)}, {"delta", to_json(L().mouseDelta)}, {"wheel", L().wheel},
+    j["mouse"] = {{"position", to_json(mouse_)},
+                  {"delta", to_json(L().mouseDelta)},
+                  {"wheel", L().wheel},
                   {"buttonsDown", buttons}};
     Json touches = Json::array();
     for (const auto& t : touches_)
@@ -1520,17 +1651,24 @@ bool valid_player(int player) { return player >= 0 && player < kMaxPlayers; }
 // The two halves of the keyboard: what a "left" player (WASD, Space) and a "right" player (arrows, Enter) own. Space is on
 // the left and Enter on the right, so two players on one keyboard share neither.
 const std::vector<Key>& left_half_keys() {
-    static const std::vector<Key> keys = {Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Q, Key::W, Key::E,
-        Key::R, Key::T, Key::A, Key::S, Key::D, Key::F, Key::G, Key::Z, Key::X, Key::C, Key::V, Key::B, Key::Tab,
+    static const std::vector<Key> keys = {
+        Key::Num1,      Key::Num2,        Key::Num3,    Key::Num4,        Key::Num5, Key::Q, Key::W,
+        Key::E,         Key::R,           Key::T,       Key::A,           Key::S,    Key::D, Key::F,
+        Key::G,         Key::Z,           Key::X,       Key::C,           Key::V,    Key::B, Key::Tab,
         Key::LeftShift, Key::LeftControl, Key::LeftAlt, Key::GraveAccent, Key::Space};
     return keys;
 }
 const std::vector<Key>& right_half_keys() {
-    static const std::vector<Key> keys = {Key::Num6, Key::Num7, Key::Num8, Key::Num9, Key::Num0, Key::Y, Key::U, Key::I,
-        Key::O, Key::P, Key::H, Key::J, Key::K, Key::L, Key::N, Key::M, Key::Minus, Key::Equal, Key::LeftBracket,
-        Key::RightBracket, Key::Backslash, Key::Semicolon, Key::Apostrophe, Key::Comma, Key::Period, Key::Slash,
-        Key::Enter, Key::Backspace, Key::RightShift, Key::RightControl, Key::RightAlt, Key::Left, Key::Right, Key::Up,
-        Key::Down, Key::Insert, Key::Delete, Key::Home, Key::End, Key::PageUp, Key::PageDown};
+    static const std::vector<Key> keys = {
+        Key::Num6,      Key::Num7,      Key::Num8,       Key::Num9,        Key::Num0,
+        Key::Y,         Key::U,         Key::I,          Key::O,           Key::P,
+        Key::H,         Key::J,         Key::K,          Key::L,           Key::N,
+        Key::M,         Key::Minus,     Key::Equal,      Key::LeftBracket, Key::RightBracket,
+        Key::Backslash, Key::Semicolon, Key::Apostrophe, Key::Comma,       Key::Period,
+        Key::Slash,     Key::Enter,     Key::Backspace,  Key::RightShift,  Key::RightControl,
+        Key::RightAlt,  Key::Left,      Key::Right,      Key::Up,          Key::Down,
+        Key::Insert,    Key::Delete,    Key::Home,       Key::End,         Key::PageUp,
+        Key::PageDown};
     return keys;
 }
 
@@ -1550,8 +1688,14 @@ Input::Input() {
 }
 
 bool Input::parse_family(std::string_view name, Family& out) {
-    if (iequals(name, "keys")) { out = Family::Keys; return true; }
-    if (iequals(name, "pad")) { out = Family::Pad; return true; }
+    if (iequals(name, "keys")) {
+        out = Family::Keys;
+        return true;
+    }
+    if (iequals(name, "pad")) {
+        out = Family::Pad;
+        return true;
+    }
     return false;
 }
 
@@ -1573,28 +1717,34 @@ std::vector<std::string> Input::key_scheme_keys(std::string_view name) const {
 
 std::vector<std::string> Input::set_key_schemes(const Json& schemes) {
     std::vector<std::string> problems;
-    for (auto it = schemes_.begin(); it != schemes_.end();) it = it->second.builtin ? std::next(it) : schemes_.erase(it);
+    for (auto it = schemes_.begin(); it != schemes_.end();)
+        it = it->second.builtin ? std::next(it) : schemes_.erase(it);
     if (!schemes.is_null()) {
         if (!schemes.is_object()) {
-            problems.push_back(std::format(
-                "input.schemes must be an object mapping scheme names to key sets, e.g. {{\"arrows\": {{\"extends\": \"right\"}}}}; got {}",
-                describe_json_value(schemes)));
+            problems.push_back(std::format("input.schemes must be an object mapping scheme names to key sets, e.g. "
+                                           "{{\"arrows\": {{\"extends\": \"right\"}}}}; got {}",
+                                           describe_json_value(schemes)));
         } else {
             const std::vector<std::string> keyCandidates = key_names().all;
             const std::vector<std::string> builtin(std::begin(kBuiltinSchemes), std::end(kBuiltinSchemes));
             for (auto it = schemes.begin(); it != schemes.end(); ++it) {
                 const std::string& name = it.key();
                 const std::string at = "input.schemes." + name;
-                if (name.empty()) { problems.push_back("input.schemes: a scheme needs a name"); continue; }
+                if (name.empty()) {
+                    problems.push_back("input.schemes: a scheme needs a name");
+                    continue;
+                }
                 if (std::find(builtin.begin(), builtin.end(), name) != builtin.end()) {
-                    problems.push_back(std::format("{}: '{}' is a built-in scheme ({}); pick another name, or use \"extends\": \"{}\" to start from it",
+                    problems.push_back(std::format("{}: '{}' is a built-in scheme ({}); pick another name, or use "
+                                                   "\"extends\": \"{}\" to start from it",
                                                    at, name, join(builtin, ", "), name));
                     continue;
                 }
                 Json spec = it.value();
                 if (spec.is_array()) spec = Json::object({{"keys", spec}});
                 if (!spec.is_object()) {
-                    problems.push_back(std::format("{}: expected an object like {{\"extends\": \"left\", \"actions\": {{...}}}} or an array of key names, got {}",
+                    problems.push_back(std::format("{}: expected an object like {{\"extends\": \"left\", \"actions\": "
+                                                   "{{...}}}} or an array of key names, got {}",
                                                    at, describe_json_value(spec)));
                     continue;
                 }
@@ -1602,7 +1752,8 @@ std::vector<std::string> Input::set_key_schemes(const Json& schemes) {
                 const size_t before = problems.size();
                 for (auto f = spec.begin(); f != spec.end(); ++f)
                     if (std::find(fields.begin(), fields.end(), f.key()) == fields.end())
-                        problems.push_back(std::format("{}: unknown field '{}'. {}", at, f.key(), did_you_mean(f.key(), fields)));
+                        problems.push_back(
+                            std::format("{}: unknown field '{}'. {}", at, f.key(), did_you_mean(f.key(), fields)));
                 KeyScheme scheme;
                 auto add_key = [&](const Json& item, const std::string& where) {
                     const std::string text = item.is_string() ? item.get<std::string>() : std::string();
@@ -1619,32 +1770,39 @@ std::vector<std::string> Input::set_key_schemes(const Json& schemes) {
                     const Json& e = spec["extends"];
                     auto base = e.is_string() ? schemes_.find(e.get<std::string>()) : schemes_.end();
                     if (base == schemes_.end() || !base->second.builtin)
-                        problems.push_back(std::format("{}/extends: expected one of {}, got {}. {}", at, join(builtin, ", "),
-                                                       describe_json_value(e),
-                                                       e.is_string() ? did_you_mean(e.get<std::string>(), builtin) : std::string()));
+                        problems.push_back(
+                            std::format("{}/extends: expected one of {}, got {}. {}", at, join(builtin, ", "),
+                                        describe_json_value(e),
+                                        e.is_string() ? did_you_mean(e.get<std::string>(), builtin) : std::string()));
                     else
-                        for (size_t i = 0; i < scheme.keys.size(); ++i) scheme.keys[i] = scheme.keys[i] || base->second.keys[i];
+                        for (size_t i = 0; i < scheme.keys.size(); ++i)
+                            scheme.keys[i] = scheme.keys[i] || base->second.keys[i];
                 }
                 if (spec.contains("keys")) {
                     if (!spec["keys"].is_array())
-                        problems.push_back(std::format("{}/keys: expected an array of key names, got {}", at, describe_json_value(spec["keys"])));
+                        problems.push_back(std::format("{}/keys: expected an array of key names, got {}", at,
+                                                       describe_json_value(spec["keys"])));
                     else
                         for (const Json& k : spec["keys"]) add_key(k, at + "/keys");
                 }
                 if (spec.contains("actions")) {
                     const Json& acts = spec["actions"];
                     if (!acts.is_object()) {
-                        problems.push_back(std::format("{}/actions: expected an object mapping action names to key lists, got {}", at, describe_json_value(acts)));
+                        problems.push_back(
+                            std::format("{}/actions: expected an object mapping action names to key lists, got {}", at,
+                                        describe_json_value(acts)));
                     } else {
                         const std::vector<std::string> names = action_names();
                         for (auto a = acts.begin(); a != acts.end(); ++a) {
                             const std::string where = at + "/actions/" + a.key();
                             if (!projectActions_.is_object() || !projectActions_.contains(a.key())) {
-                                problems.push_back(std::format("{}: unknown input action '{}'. {}", where, a.key(), did_you_mean(a.key(), names)));
+                                problems.push_back(std::format("{}: unknown input action '{}'. {}", where, a.key(),
+                                                               did_you_mean(a.key(), names)));
                                 continue;
                             }
                             if (!a.value().is_array()) {
-                                problems.push_back(std::format("{}: expected an array of key names, got {}", where, describe_json_value(a.value())));
+                                problems.push_back(std::format("{}: expected an array of key names, got {}", where,
+                                                               describe_json_value(a.value())));
                                 continue;
                             }
                             std::vector<Binding> list;
@@ -1663,7 +1821,9 @@ std::vector<std::string> Input::set_key_schemes(const Json& schemes) {
                 bool any = false;
                 for (bool k : scheme.keys) any = any || k;
                 if (!any && problems.size() == before)
-                    problems.push_back(std::format("{}: the scheme has no keys. Give \"extends\" (a built-in scheme) or \"keys\", e.g. {{\"keys\": [\"W\", \"A\", \"S\", \"D\"]}}", at));
+                    problems.push_back(std::format("{}: the scheme has no keys. Give \"extends\" (a built-in scheme) "
+                                                   "or \"keys\", e.g. {{\"keys\": [\"W\", \"A\", \"S\", \"D\"]}}",
+                                                   at));
                 if (problems.size() == before) schemes_[name] = std::move(scheme);
             }
         }
@@ -1677,7 +1837,8 @@ void Input::rebuild_player_defaults() {
     keyDefaults_.clear();
     for (const auto& [name, scheme] : schemes_) keyDefaults_[name];  // a scheme with no actions still exists
     for (const auto& [action, all] : actions_) {
-        if (!projectActions_.is_object() || !projectActions_.contains(action)) continue;  // made by bind(), not the project's
+        if (!projectActions_.is_object() || !projectActions_.contains(action))
+            continue;  // made by bind(), not the project's
         std::vector<Binding> pad;
         for (const Binding& b : all)
             if (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis) pad.push_back(b);
@@ -1712,7 +1873,8 @@ std::vector<std::string> Input::use_player_device(int player, const PlayerDevice
         problems.push_back(std::format("input.player({}).use: pad must be a gamepad slot from 0 to {}, got {}", player,
                                        kMaxGamepads - 1, device.pad));
     if (device.pad >= 0 && !device.padId.empty())
-        problems.push_back(std::format("input.player({}).use: give pad (a slot) or padId (a pad's stable id), not both", player));
+        problems.push_back(
+            std::format("input.player({}).use: give pad (a slot) or padId (a pad's stable id), not both", player));
     if (!device.keys.empty() && !schemes_.count(device.keys))
         problems.push_back(std::format("input.player({}).use: unknown key scheme '{}'. {}", player, device.keys,
                                        did_you_mean(device.keys, key_scheme_names())));
@@ -1842,8 +2004,8 @@ std::vector<std::string> Input::player_bindings(int player, std::string_view act
     return out;
 }
 
-std::vector<std::string> Input::player_rebind(int player, std::string_view action, const std::vector<std::string>& bindings,
-                                              std::string_view family) {
+std::vector<std::string> Input::player_rebind(int player, std::string_view action,
+                                              const std::vector<std::string>& bindings, std::string_view family) {
     std::vector<std::string> problems;
     const std::string who = std::format("input.player({}).rebind('{}')", player, action);
     if (!valid_player(player)) {
@@ -1874,8 +2036,10 @@ std::vector<std::string> Input::player_rebind(int player, std::string_view actio
         }
         const std::string canonical = binding_name(b);
         if (b.kind == Binding::Kind::Mouse || b.kind == Binding::Kind::Touch) {
-            problems.push_back(std::format("{}: '{}' is the shared pointer, which players do not read; use the global input.* actions for the mouse and touch, "
-                                           "or a key or a gamepad binding here", who, canonical));
+            problems.push_back(std::format("{}: '{}' is the shared pointer, which players do not read; use the global "
+                                           "input.* actions for the mouse and touch, "
+                                           "or a key or a gamepad binding here",
+                                           who, canonical));
             continue;
         }
         const bool isPad = b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis;
@@ -1885,10 +2049,10 @@ std::vector<std::string> Input::player_rebind(int player, std::string_view actio
             continue;
         }
         if (!isPad && scheme != schemes_.end() && !in_key_set(b, scheme->second.keys)) {
-            problems.push_back(std::format(
-                "{}: '{}' is not a key of this player's scheme '{}'. Pick one of its keys (input.keySchemeKeys('{}')), or give the "
-                "player another scheme with input.player({}).use({{keys: ...}}) first",
-                who, canonical, schemeName, schemeName, player));
+            problems.push_back(std::format("{}: '{}' is not a key of this player's scheme '{}'. Pick one of its keys "
+                                           "(input.keySchemeKeys('{}')), or give the "
+                                           "player another scheme with input.player({}).use({{keys: ...}}) first",
+                                           who, canonical, schemeName, schemeName, player));
             continue;
         }
         (isPad ? pad : keys).push_back(b);
@@ -1896,7 +2060,8 @@ std::vector<std::string> Input::player_rebind(int player, std::string_view actio
     if (!problems.empty()) return problems;
     if (!haveFamily && !bindings.empty() && !keys.empty() && !pad.empty()) {
         problems.push_back(std::format("{}: the names mix keyboard and gamepad bindings; rebind one family at a time "
-                                       "(pass \"keys\" or \"pad\" as the family)", who));
+                                       "(pass \"keys\" or \"pad\" as the family)",
+                                       who));
         return problems;
     }
     PlayerState& st = players_[size_t(player)];
@@ -1977,30 +2142,35 @@ std::vector<std::string> Input::player_import(int player, const Json& data) {
     if (!data.is_null()) {
         const std::string who = std::format("input.player({}).import", player);
         if (!data.is_object()) {
-            problems.push_back(std::format("{}: expected {{\"keys\": {{...}}, \"pad\": {{...}}}} as input.player(i).export() gives, got {}",
-                                           who, describe_json_value(data)));
+            problems.push_back(std::format(
+                "{}: expected {{\"keys\": {{...}}, \"pad\": {{...}}}} as input.player(i).export() gives, got {}", who,
+                describe_json_value(data)));
             return problems;
         }
         const std::vector<std::string> fields = {"keys", "pad"};
         for (auto it = data.begin(); it != data.end(); ++it)
             if (std::find(fields.begin(), fields.end(), it.key()) == fields.end())
-                problems.push_back(std::format("{}: unknown field '{}' skipped. {}", who, it.key(), did_you_mean(it.key(), fields)));
+                problems.push_back(
+                    std::format("{}: unknown field '{}' skipped. {}", who, it.key(), did_you_mean(it.key(), fields)));
         for (Family f : {Family::Keys, Family::Pad}) {
             const char* fname = f == Family::Keys ? "keys" : "pad";
             if (!data.contains(fname)) continue;
             const Json& table = data[fname];
             if (!table.is_object()) {
-                problems.push_back(std::format("{}: \"{}\" must map action names to binding lists, got {}", who, fname, describe_json_value(table)));
+                problems.push_back(std::format("{}: \"{}\" must map action names to binding lists, got {}", who, fname,
+                                               describe_json_value(table)));
                 continue;
             }
             for (auto it = table.begin(); it != table.end(); ++it) {
                 const std::string where = std::format("{}: {}.{}", who, fname, it.key());
                 if (!has_player_action(it.key())) {
-                    problems.push_back(std::format("{}: the project has no such action, skipped. {}", where, did_you_mean(it.key(), action_names())));
+                    problems.push_back(std::format("{}: the project has no such action, skipped. {}", where,
+                                                   did_you_mean(it.key(), action_names())));
                     continue;
                 }
                 if (!it.value().is_array()) {
-                    problems.push_back(std::format("{}: expected an array of binding names, got {}, skipped", where, describe_json_value(it.value())));
+                    problems.push_back(std::format("{}: expected an array of binding names, got {}, skipped", where,
+                                                   describe_json_value(it.value())));
                     continue;
                 }
                 std::vector<Binding> list;
@@ -2008,11 +2178,13 @@ std::vector<std::string> Input::player_import(int player, const Json& data) {
                 for (const Json& item : it.value()) {
                     Binding b;
                     const bool parsed = item.is_string() && parse_binding(item.get<std::string>(), b);
-                    const bool isPad = parsed && (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis);
+                    const bool isPad =
+                        parsed && (b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis);
                     const bool isKey = parsed && is_key_family(b);
                     if (!(f == Family::Pad ? isPad : isKey)) {
                         problems.push_back(std::format("{}: {} is not a {} binding, the action was skipped", where,
-                                                       describe_json_value(item), f == Family::Pad ? "gamepad" : "key"));
+                                                       describe_json_value(item),
+                                                       f == Family::Pad ? "gamepad" : "key"));
                         ok = false;
                         break;
                     }

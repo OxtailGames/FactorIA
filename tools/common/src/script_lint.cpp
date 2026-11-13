@@ -27,7 +27,10 @@ struct Cursor {
     }
     bool eat(char c) {
         blanks();
-        if (i < s.size() && s[i] == c) { ++i; return true; }
+        if (i < s.size() && s[i] == c) {
+            ++i;
+            return true;
+        }
         return false;
     }
     // An identifier or reserved word; start offset in `at`.
@@ -66,27 +69,48 @@ void parse_imports(const Masked& m, std::vector<ImportedName>& names, std::vecto
         bool ok = true;
         while (ok) {
             c.blanks();
-            if (c.i >= b.size()) { ok = false; break; }
+            if (c.i >= b.size()) {
+                ok = false;
+                break;
+            }
             if (b[c.i] == '*') {
                 ++c.i;
                 std::string as, local;
                 std::size_t lat = 0;
-                if (!c.ident(as) || as != "as" || !c.ident(local, &lat)) { ok = false; break; }
+                if (!c.ident(as) || as != "as" || !c.ident(local, &lat)) {
+                    ok = false;
+                    break;
+                }
                 found.push_back({"", "*", local, lat});
             } else if (b[c.i] == '{') {
                 ++c.i;
                 while (true) {
                     c.blanks();
-                    if (c.i >= b.size()) { ok = false; break; }
-                    if (b[c.i] == '}') { ++c.i; break; }
-                    if (b[c.i] == ',') { ++c.i; continue; }
+                    if (c.i >= b.size()) {
+                        ok = false;
+                        break;
+                    }
+                    if (b[c.i] == '}') {
+                        ++c.i;
+                        break;
+                    }
+                    if (b[c.i] == ',') {
+                        ++c.i;
+                        continue;
+                    }
                     std::string name, as, local;
                     std::size_t nat = 0;
-                    if (!c.ident(name, &nat)) { ok = false; break; }
+                    if (!c.ident(name, &nat)) {
+                        ok = false;
+                        break;
+                    }
                     local = name;
                     const std::size_t save = c.i;
                     if (c.ident(as) && as == "as") {
-                        if (!c.ident(local)) { ok = false; break; }
+                        if (!c.ident(local)) {
+                            ok = false;
+                            break;
+                        }
                     } else {
                         c.i = save;
                     }
@@ -95,12 +119,18 @@ void parse_imports(const Masked& m, std::vector<ImportedName>& names, std::vecto
             } else {
                 std::string local;
                 std::size_t lat = 0;
-                if (!c.ident(local, &lat)) { ok = false; break; }
+                if (!c.ident(local, &lat)) {
+                    ok = false;
+                    break;
+                }
                 found.push_back({"", "default", local, lat});
             }
             if (!ok) break;
             c.blanks();
-            if (c.i < b.size() && b[c.i] == ',') { ++c.i; continue; }
+            if (c.i < b.size() && b[c.i] == ',') {
+                ++c.i;
+                continue;
+            }
             break;
         }
         if (!ok) continue;
@@ -130,8 +160,10 @@ std::set<std::string> declared_names(const std::string& b) {
         std::size_t i = from;
         while (i < b.size() && depth > 0) {
             const char c = b[i];
-            if (c == '(' || c == '{' || c == '[') ++depth;
-            else if (c == ')' || c == '}' || c == ']') --depth;
+            if (c == '(' || c == '{' || c == '[')
+                ++depth;
+            else if (c == ')' || c == '}' || c == ']')
+                --depth;
             else if (is_ident_start(c) && (i == 0 || !js_ident_char(b[i - 1]))) {
                 std::size_t e = i;
                 while (e < b.size() && js_ident_char(b[e])) ++e;
@@ -163,9 +195,12 @@ std::set<std::string> declared_names(const std::string& b) {
                     int depth = 0;
                     for (std::size_t k = c.i; k < b.size() && k < c.i + 4000 && depth >= 0; ++k) {
                         const char ch = b[k];
-                        if (ch == '(' || ch == '{' || ch == '[') ++depth;
-                        else if (ch == ')' || ch == '}' || ch == ']') --depth;
-                        else if (ch == ';' && depth == 0) break;
+                        if (ch == '(' || ch == '{' || ch == '[')
+                            ++depth;
+                        else if (ch == ')' || ch == '}' || ch == ']')
+                            --depth;
+                        else if (ch == ';' && depth == 0)
+                            break;
                         else if (ch == ',' && depth == 0) {
                             Cursor d{b, k + 1};
                             std::string more;
@@ -193,8 +228,10 @@ std::set<std::string> declared_names(const std::string& b) {
         std::size_t k = i;
         while (k > 0 && depth > 0) {
             --k;
-            if (b[k] == ')') ++depth;
-            else if (b[k] == '(') --depth;
+            if (b[k] == ')')
+                ++depth;
+            else if (b[k] == '(')
+                --depth;
         }
         if (depth != 0) continue;
         if (body && !arrow) {
@@ -240,8 +277,10 @@ ApiIndex index_api(const Json& manifest) {
                 if (!e.contains(list)) continue;
                 for (const Json& mem : e[list]) {
                     const std::string mn = mem.value("name", "");
-                    if (is_ident_name(mn)) names.insert(mn);
-                    else names.insert("");
+                    if (is_ident_name(mn))
+                        names.insert(mn);
+                    else
+                        names.insert("");
                 }
             }
         }
@@ -262,9 +301,20 @@ std::string at_text(const std::string& file, const std::string& text, std::size_
 }
 
 bool object_builtin(const std::string& m) {
-    static const std::set<std::string> kBuiltins = {"constructor", "toString", "toLocaleString", "valueOf", "hasOwnProperty",
-                                                    "isPrototypeOf", "propertyIsEnumerable", "__proto__", "name", "length",
-                                                    "prototype", "call", "apply", "bind"};
+    static const std::set<std::string> kBuiltins = {"constructor",
+                                                    "toString",
+                                                    "toLocaleString",
+                                                    "valueOf",
+                                                    "hasOwnProperty",
+                                                    "isPrototypeOf",
+                                                    "propertyIsEnumerable",
+                                                    "__proto__",
+                                                    "name",
+                                                    "length",
+                                                    "prototype",
+                                                    "call",
+                                                    "apply",
+                                                    "bind"};
     return kBuiltins.count(m) != 0;
 }
 
@@ -288,7 +338,8 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
     parse_imports(m, imports, spans);
     const std::set<std::string> declared = declared_names(m.bare);
     auto in_import = [&](std::size_t at) {
-        return std::any_of(spans.begin(), spans.end(), [&](const ImportStatement& s) { return at >= s.begin && at < s.end; });
+        return std::any_of(spans.begin(), spans.end(),
+                           [&](const ImportStatement& s) { return at >= s.begin && at < s.end; });
     };
     // The locals bound to a constant of the engine API (`world`, `physics`): not entities.
     std::set<std::string> apiConsts;
@@ -310,7 +361,10 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
             // `ns.member` on the whole module: member must be an export
             owned.emplace_back();
             std::set<std::string>& names = owned.back();
-            for (const auto& [en, item] : exports) { (void)item; names.insert(en); }
+            for (const auto& [en, item] : exports) {
+                (void)item;
+                names.insert(en);
+            }
             if (imp.module == "factoria")
                 for (const std::string& c : componentNames) names.insert(c);
             if (!declared.count(imp.local)) targets.push_back({imp.local, "the \"" + imp.module + "\" module", &names});
@@ -323,9 +377,14 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
         }
         if (!known) {
             std::vector<std::string> names;
-            for (const auto& [en, it] : exports) { (void)it; names.push_back(en); }
-            out.errors.push_back({file, "", at_text(file, text, imp.at) + ": \"" + imp.module + "\" does not export '" + imp.exported + "'",
-                                  did_you_mean(imp.exported, names) + " (every export: types/factoria.d.ts, or `factoria api`)"});
+            for (const auto& [en, it] : exports) {
+                (void)it;
+                names.push_back(en);
+            }
+            out.errors.push_back(
+                {file, "",
+                 at_text(file, text, imp.at) + ": \"" + imp.module + "\" does not export '" + imp.exported + "'",
+                 did_you_mean(imp.exported, names) + " (every export: types/factoria.d.ts, or `factoria api`)"});
             continue;
         }
         if (item == exports.end()) continue;
@@ -361,9 +420,11 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
             while (e < b.size() && js_ident_char(b[e])) ++e;
             const std::string member = b.substr(i, e - i);
             if (t.members->count(member) || object_builtin(member)) continue;
-            out.errors.push_back({file, "", at_text(file, text, i) + ": '" + t.local + "." + member + "' does not exist: " + t.label +
-                                                " has no member '" + member + "'",
-                                  did_you_mean(member, keys_of(*t.members)) + " (the members: types/factoria.d.ts, or `factoria api`)"});
+            out.errors.push_back(
+                {file, "",
+                 at_text(file, text, i) + ": '" + t.local + "." + member + "' does not exist: " + t.label +
+                     " has no member '" + member + "'",
+                 did_you_mean(member, keys_of(*t.members)) + " (the members: types/factoria.d.ts, or `factoria api`)"});
         }
     }
 
@@ -392,9 +453,10 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
             std::string last = receiver.substr(receiver.rfind('.') == std::string::npos ? 0 : receiver.rfind('.') + 1);
             const std::string lastLower = to_lower(last);
             bool container = false;
-            for (const char* w : {"map", "set", "cache", "store", "storage", "registry", "table", "dict", "memo", "index", "lookup",
-                                  "list", "array", "params", "args", "options", "opts", "props", "data", "config", "settings", "state",
-                                  "json", "obj", "object", "bag"})
+            for (const char* w :
+                 {"map",   "set",    "cache",    "store", "storage", "registry", "table",   "dict", "memo",
+                  "index", "lookup", "list",     "array", "params",  "args",     "options", "opts", "props",
+                  "data",  "config", "settings", "state", "json",    "obj",      "object",  "bag"})
                 container = container || lastLower.find(w) != std::string::npos;
             if (container) continue;
             if (name.empty() || !is_ident_name(name)) continue;
@@ -408,12 +470,15 @@ ScriptLintResult lint_script(const std::string& file, const std::string& text, c
                 continue;
             std::string msg = at_text(file, text, qat) + ": ." + method + "(\"" + name + "\"): ";
             if (ci) {
-                msg += "there is no component '" + name + "', and a component is found by its exact name; the one meant is '" + ci->name +
+                msg += "there is no component '" + name +
+                       "', and a component is found by its exact name; the one meant is '" + ci->name +
                        "' (if this is not an entity, ignore this warning)";
                 out.warnings.push_back({file, "", msg, "Write ." + std::string(method) + "(\"" + ci->name + "\")."});
             } else {
                 msg += "no component is called '" + name + "' (if this is not an entity, ignore this warning)";
-                out.warnings.push_back({file, "", msg, did_you_mean(name, componentNames) + " (every component: `factoria api components`)"});
+                out.warnings.push_back(
+                    {file, "", msg,
+                     did_you_mean(name, componentNames) + " (every component: `factoria api components`)"});
             }
         }
     }

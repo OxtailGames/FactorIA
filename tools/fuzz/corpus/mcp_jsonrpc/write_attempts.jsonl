@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"scene_save","arguments":{"path":"/tmp/fuzz_must_not_exist.json"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project_create","arguments":{"name":"x","path":"../x"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"assets_import","arguments":{"source":"/etc/passwd"}}}

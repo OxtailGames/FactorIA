@@ -17,7 +17,8 @@ Tilemap map_with(int w, int h, const char* tilesJson, const char* solidJson = "[
     return tm;
 }
 
-const TilemapIssue* find_issue(const std::vector<TilemapIssue>& issues, const std::string& pointer, const std::string& needle = "") {
+const TilemapIssue* find_issue(const std::vector<TilemapIssue>& issues, const std::string& pointer,
+                               const std::string& needle = "") {
     for (const TilemapIssue& i : issues)
         if (i.pointer == pointer && i.message.find(needle) != std::string::npos) return &i;
     return nullptr;
@@ -171,7 +172,7 @@ TEST_CASE("tilemap: tilemap_grid is the one definition of the map size, for both
     CHECK(g.tiles == std::vector<int>{-1, 0, 1, 2, 2, 2});
     CHECK(g.at(2, 0) == 1);
     CHECK(g.at(0, 1) == 2);
-    CHECK(g.at(3, 0) == -1);   // outside the map
+    CHECK(g.at(3, 0) == -1);  // outside the map
     CHECK(g.at(0, -1) == -1);
     CHECK_FALSE(g.empty());
 

@@ -55,26 +55,30 @@ const char* kIdsFile = "plugins/googleplay/android/src/main/res/values/games-ids
 
 }  // namespace
 
-TEST_CASE("googleplay template: every placeholder is replaced and the backend is the one the catalog's ids are keyed by") {
+TEST_CASE(
+    "googleplay template: every placeholder is replaced and the backend is the one the catalog's ids are keyed by") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     CommandRegistry reg;
     register_plugin_commands(reg, dir);
-    auto r = reg.call("project.new_plugin", Json::parse(R"({"name": "googleplay", "template": "googleplay", "platforms": ["android"]})"));
+    auto r = reg.call("project.new_plugin",
+                      Json::parse(R"({"name": "googleplay", "template": "googleplay", "platforms": ["android"]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const stdfs::path plugin = stdfs::path(dir) / "plugins/googleplay";
 
     // No file or folder name and no text keeps a {{NAME}}.
     for (const auto& entry : stdfs::recursive_directory_iterator(plugin)) {
         CHECK_MESSAGE(entry.path().generic_string().find("{{") == std::string::npos, entry.path().generic_string());
-        if (entry.is_regular_file()) CHECK_MESSAGE(testing::read_all(entry.path()).find("{{NAME}}") == std::string::npos, entry.path().generic_string());
+        if (entry.is_regular_file())
+            CHECK_MESSAGE(testing::read_all(entry.path()).find("{{NAME}}") == std::string::npos,
+                          entry.path().generic_string());
     }
 
     const std::string cmake = testing::read_all(plugin / "CMakeLists.txt");
     CHECK(cmake.find("project(googleplay C)") != std::string::npos);
     CHECK(cmake.find("android/src/main/jniLibs/") != std::string::npos);
     CHECK(cmake.find("max-page-size=16384") != std::string::npos);  // 16 KB pages
-    CHECK(cmake.find("sdkmanager") != std::string::npos);            // the configure error on a host build teaches
+    CHECK(cmake.find("sdkmanager") != std::string::npos);           // the configure error on a host build teaches
 
     // The bridge registers the backend "googleplay" and loads the Java class of the plugin.
     const std::string bridge = testing::read_all(plugin / "src/plugin.c");
@@ -93,7 +97,8 @@ TEST_CASE("googleplay template: every placeholder is replaced and the backend is
     const std::string manifest = testing::read_all(module / "src/main/AndroidManifest.xml");
     CHECK(manifest.find("com.google.android.gms.games.APP_ID") != std::string::npos);
     CHECK(manifest.find("@string/game_services_project_id") != std::string::npos);
-    CHECK(testing::read_all(plugin / "android/src/main/res/values/games-ids.xml").find("game_services_project_id\" translatable=\"false\"></string>") !=
+    CHECK(testing::read_all(plugin / "android/src/main/res/values/games-ids.xml")
+              .find("game_services_project_id\" translatable=\"false\"></string>") !=
           std::string::npos);  // empty: Play Games is off until a project id is set
 
     // The Java: services that never include stats or presence; the Play Games ones only with a project id.
@@ -121,7 +126,8 @@ TEST_CASE("platform.add_backend googleplay: is listed with the arguments it read
     CHECK(info->full_description().find("googleplay: the Google Play Billing") != std::string::npos);
 }
 
-TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps and sets the Play Games id, lists the Play Console steps") {
+TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps and sets the Play Games id, lists the "
+          "Play Console steps") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     const AndroidToolchainSearch none = nothing_found();
@@ -130,11 +136,13 @@ TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps
     register_platform_setup_commands(reg, dir, &none);
 
     SUBCASE("googleplayBuild false writes and declares the plugin without building, for Android only") {
-        auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
+        auto r =
+            reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["backend"] == "googleplay");
         CHECK(stdfs::exists(stdfs::path(dir) / "plugins/googleplay/src/plugin.c"));
-        CHECK(stdfs::exists(stdfs::path(dir) / "plugins/googleplay/android/src/main/java/factoria/plugin/googleplay/Backend.java"));
+        CHECK(stdfs::exists(stdfs::path(dir) /
+                            "plugins/googleplay/android/src/main/java/factoria/plugin/googleplay/Backend.java"));
         CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins/googleplay/build-arm64-v8a"));
         CHECK_FALSE(r.result.contains("libraries"));
         CHECK(r.result["playGamesId"] == "");
@@ -160,8 +168,9 @@ TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps
         CHECK(steps.find("\"first_win\"") != std::string::npos);
         CHECK(steps.find("\"CgkIperfect123\"") != std::string::npos);
         CHECK(steps.find("\"high_score\"") != std::string::npos);
-        CHECK(steps.find("achievement first_win, leaderboard high_score") != std::string::npos);  // no ids.googleplay yet
-        CHECK(steps.find("achievement perfect") == std::string::npos);                              // this one has it
+        CHECK(steps.find("achievement first_win, leaderboard high_score") !=
+              std::string::npos);                                       // no ids.googleplay yet
+        CHECK(steps.find("achievement perfect") == std::string::npos);  // this one has it
         CHECK(steps.find("ids.googleplay") != std::string::npos);
         CHECK(steps.find("playGamesId") != std::string::npos);  // Play Games is still off
         CHECK(steps.find("Saved Games") != std::string::npos);
@@ -170,38 +179,50 @@ TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps
         CHECK(steps.find("googleplay.status") != std::string::npos);
 
         // Without a playGamesId the file is left as it is (empty).
-        CHECK(testing::read_all(stdfs::path(dir) / kIdsFile).find("translatable=\"false\"></string>") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(dir) / kIdsFile).find("translatable=\"false\"></string>") !=
+              std::string::npos);
     }
 
-    SUBCASE("playGamesId is written to games-ids.xml, kept when the next call does not pass it, and \"\" turns Play Games off") {
-        auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": "123456789012"})"));
+    SUBCASE("playGamesId is written to games-ids.xml, kept when the next call does not pass it, and \"\" turns Play "
+            "Games off") {
+        auto r = reg.call(
+            "platform.add_backend",
+            Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": "123456789012"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["playGamesId"] == "123456789012");
         const std::string xml = testing::read_all(stdfs::path(dir) / kIdsFile);
-        CHECK(xml.find("<string name=\"game_services_project_id\" translatable=\"false\">123456789012</string>") != std::string::npos);
+        CHECK(xml.find("<string name=\"game_services_project_id\" translatable=\"false\">123456789012</string>") !=
+              std::string::npos);
         CHECK(xml.find("<resources>") != std::string::npos);  // the rest of the file is untouched
         CHECK(joined(r.result["done"]).find("set the Play Games project id 123456789012") != std::string::npos);
         CHECK(joined(r.result["nextSteps"]).find("The project id 123456789012 is set already") != std::string::npos);
 
-        auto again = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
+        auto again =
+            reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
         REQUIRE_MESSAGE(again.ok, again.error.dump());
         CHECK(again.result["playGamesId"] == "123456789012");
         CHECK(testing::read_all(stdfs::path(dir) / kIdsFile) == xml);
         CHECK(joined(again.result["done"]).find("kept the plugin 'googleplay'") != std::string::npos);
         CHECK(load_project(dir)->plugins.size() == 1);
 
-        auto same = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": 123456789012})"));
+        auto same = reg.call(
+            "platform.add_backend",
+            Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": 123456789012})"));
         REQUIRE_MESSAGE(same.ok, same.error.dump());  // a number works too
         CHECK(joined(same.result["done"]).find("kept the Play Games project id 123456789012") != std::string::npos);
 
-        auto off = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": ""})"));
+        auto off = reg.call("platform.add_backend",
+                            Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": ""})"));
         REQUIRE_MESSAGE(off.ok, off.error.dump());
-        CHECK(testing::read_all(stdfs::path(dir) / kIdsFile).find("translatable=\"false\"></string>") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(dir) / kIdsFile).find("translatable=\"false\"></string>") !=
+              std::string::npos);
         CHECK(joined(off.result["done"]).find("turned Play Games off") != std::string::npos);
     }
 
     SUBCASE("a project id that is not a number is refused before anything is written") {
-        auto bad = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": "CgkI12345"})"));
+        auto bad =
+            reg.call("platform.add_backend",
+                     Json::parse(R"({"backend": "googleplay", "googleplayBuild": false, "playGamesId": "CgkI12345"})"));
         REQUIRE_FALSE(bad.ok);
         CHECK(bad.error["message"].get<std::string>().find("CgkI12345") != std::string::npos);
         CHECK(bad.error["hint"].get<std::string>().find("Setup and management > Configuration") != std::string::npos);
@@ -212,7 +233,8 @@ TEST_CASE("platform.add_backend googleplay: writes the plugin for Android, keeps
     }
 }
 
-TEST_CASE("platform.add_backend googleplay: a computer without the Android NDK says what to install and writes nothing") {
+TEST_CASE(
+    "platform.add_backend googleplay: a computer without the Android NDK says what to install and writes nothing") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     AndroidToolchainSearch search = nothing_found();
@@ -262,14 +284,16 @@ TEST_CASE("platform.add_backend googleplay: a computer without the Android NDK s
     CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins/googleplay"));
 
     // googleplayBuild false needs none of it.
-    auto written = reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
+    auto written =
+        reg.call("platform.add_backend", Json::parse(R"({"backend": "googleplay", "googleplayBuild": false})"));
     CHECK_MESSAGE(written.ok, written.error.dump());
 }
 
 #if !defined(_WIN32)
 // The whole build, with an SDK made of scripts: it checks which NDK, CMake and Ninja are used, the arguments of each ABI's configure
 // and build, the library each ABI must leave, and the notes about the versions that were used instead of the pinned ones.
-TEST_CASE("platform.add_backend googleplay: builds the bridge for each ABI with the SDK's newest NDK and CMake when the pinned ones are missing") {
+TEST_CASE("platform.add_backend googleplay: builds the bridge for each ABI with the SDK's newest NDK and CMake when "
+          "the pinned ones are missing") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     auto project = load_json_file(dir + "/factoria.json");
@@ -293,7 +317,8 @@ if [ "$1" = "--build" ]; then
   : > "$folder/android/src/main/jniLibs/$abi/libgoogleplay.so"
 fi
 )");
-    stdfs::permissions(cmake, stdfs::perms::owner_exec | stdfs::perms::owner_read | stdfs::perms::owner_write, stdfs::perm_options::add);
+    stdfs::permissions(cmake, stdfs::perms::owner_exec | stdfs::perms::owner_read | stdfs::perms::owner_write,
+                       stdfs::perm_options::add);
 
     AndroidToolchainSearch search = nothing_found();
     search.env = [&](const std::string& name) { return name == "ANDROID_HOME" ? sdk.string() : std::string(); };
@@ -319,7 +344,8 @@ fi
         CHECK(calls.find("--build " + folder + "/build-" + abi) != std::string::npos);
     }
     CHECK(calls.find("-DCMAKE_MAKE_PROGRAM=" + sdk.generic_string() + "/cmake/3.30.5/bin/ninja") != std::string::npos);
-    CHECK(calls.find("-DCMAKE_TOOLCHAIN_FILE=" + sdk.generic_string() + "/ndk/28.0.12433566/build/cmake/android.toolchain.cmake") != std::string::npos);
+    CHECK(calls.find("-DCMAKE_TOOLCHAIN_FILE=" + sdk.generic_string() +
+                     "/ndk/28.0.12433566/build/cmake/android.toolchain.cmake") != std::string::npos);
     CHECK(calls.find("-DANDROID_PLATFORM=android-28") != std::string::npos);  // the project's minSdk
     CHECK(calls.find("-DCMAKE_BUILD_TYPE=Release") != std::string::npos);
     CHECK(testing::read_all(stdfs::path(dir) / kIdsFile).find(">42</string>") != std::string::npos);

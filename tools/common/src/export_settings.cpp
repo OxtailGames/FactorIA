@@ -25,11 +25,16 @@ namespace stdfs = std::filesystem;
 
 std::string ProjectExportSettings::icon_for(const std::string& platform) const {
     const std::string* own = nullptr;
-    if (platform == "windows") own = &windows.icon;
-    else if (platform == "macos") own = &macos.icon;
-    else if (platform == "linux") own = &linux.icon;
-    else if (platform == "android") own = &android.icon;
-    else if (platform == "ios") own = &ios.icon;
+    if (platform == "windows")
+        own = &windows.icon;
+    else if (platform == "macos")
+        own = &macos.icon;
+    else if (platform == "linux")
+        own = &linux.icon;
+    else if (platform == "android")
+        own = &android.icon;
+    else if (platform == "ios")
+        own = &ios.icon;
     return own && !own->empty() ? *own : icon;
 }
 
@@ -39,10 +44,13 @@ int android_version_code_from(const std::string& v) {
     std::size_t i = 0;
     while (idx < 3 && i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) {
         long n = 0;
-        while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) n = std::min(n * 10 + (v[i++] - '0'), 99L);
+        while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i])))
+            n = std::min(n * 10 + (v[i++] - '0'), 99L);
         parts[idx++] = n;
-        if (i < v.size() && v[i] == '.') ++i;
-        else break;
+        if (i < v.size() && v[i] == '.')
+            ++i;
+        else
+            break;
     }
     const long code = parts[0] * 10000 + parts[1] * 100 + parts[2];
     return int(code < 1 ? 1 : code);
@@ -63,7 +71,8 @@ std::string ProjectExportSettings::msix_version() const {
     std::size_t i = 0;
     for (int part = 0; part < 3; ++part) {
         long n = 0;
-        while (i < projectVersion.size() && std::isdigit(static_cast<unsigned char>(projectVersion[i]))) n = std::min(n * 10 + (projectVersion[i++] - '0'), 65535L);
+        while (i < projectVersion.size() && std::isdigit(static_cast<unsigned char>(projectVersion[i])))
+            n = std::min(n * 10 + (projectVersion[i++] - '0'), 65535L);
         while (i < projectVersion.size() && projectVersion[i] != '.') ++i;  // "1.2.3-beta": the suffix is dropped
         if (i < projectVersion.size()) ++i;
         out += std::to_string(n) + ".";
@@ -73,7 +82,8 @@ std::string ProjectExportSettings::msix_version() const {
 
 std::vector<std::string> ProjectExportSettings::msix_languages() const {
     std::vector<std::string> out;
-    for (const std::string& l : !windows.msix.languages.empty() ? windows.msix.languages : projectLanguages) out.push_back(to_lower(l));
+    for (const std::string& l : !windows.msix.languages.empty() ? windows.msix.languages : projectLanguages)
+        out.push_back(to_lower(l));
     if (out.empty()) out.push_back("en-us");
     return out;
 }
@@ -131,7 +141,8 @@ bool is_dotted_version(const std::string& s) {
 // ===========================================================================
 
 struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
-    bool take_string(const Json& obj, const std::string& base, const char* key, std::string& out, const std::string& hint) {
+    bool take_string(const Json& obj, const std::string& base, const char* key, std::string& out,
+                     const std::string& hint) {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) return false;
         if (!it->is_string()) {
@@ -143,7 +154,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
     }
 
     // A non-empty string.
-    bool take_nonempty(const Json& obj, const std::string& base, const char* key, std::string& out, const std::string& hint) {
+    bool take_nonempty(const Json& obj, const std::string& base, const char* key, std::string& out,
+                       const std::string& hint) {
         std::string v;
         if (!take_string(obj, base, key, v, hint)) return false;
         if (v.empty()) {
@@ -161,14 +173,16 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         const bool absolute = !v.empty() && (v[0] == '/' || (v.size() >= 2 && v[1] == ':'));
         if (absolute && !allowAbsolute) {
             error(pointer, "'" + v + "' is an absolute path",
-                  "Copy the file into the project and write its path relative to factoria.json, e.g. \"assets/icon.png\".");
+                  "Copy the file into the project and write its path relative to factoria.json, e.g. "
+                  "\"assets/icon.png\".");
             return false;
         }
         if (!absolute) {
             for (const std::string& seg : split(v, '/'))
                 if (seg == "..") {
-                    error(pointer, "'" + v + "' leaves the project folder",
-                          "The file must be inside the project: move it there and use a path like \"assets/icon.png\".");
+                    error(
+                        pointer, "'" + v + "' leaves the project folder",
+                        "The file must be inside the project: move it there and use a path like \"assets/icon.png\".");
                     return false;
                 }
         }
@@ -176,9 +190,12 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
     }
 
     // A project-relative file (forward slashes; backslashes are converted). "" means "not set".
-    bool take_path(const Json& obj, const std::string& base, const char* key, std::string& out, bool allowAbsolute = false) {
+    bool take_path(const Json& obj, const std::string& base, const char* key, std::string& out,
+                   bool allowAbsolute = false) {
         std::string v;
-        if (!take_string(obj, base, key, v, "Use a path relative to factoria.json with forward slashes, e.g. \"assets/icon.png\".")) return false;
+        if (!take_string(obj, base, key, v,
+                         "Use a path relative to factoria.json with forward slashes, e.g. \"assets/icon.png\"."))
+            return false;
         if (!check_path(base + "/" + key, v, allowAbsolute)) return false;
         out = v;
         return true;
@@ -231,8 +248,10 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 // "" = not set
             } else if (!std::regex_match(v, re)) {
                 error(base + "/identityName", "'" + v + "' is not a package identity name",
-                      "An identity name has 3 to 50 characters: letters, digits, '.' and '-', starting and ending with a letter or digit "
-                      "(e.g. \"12345MyStudio.MyGame\"). " + partner);
+                      "An identity name has 3 to 50 characters: letters, digits, '.' and '-', starting and ending with "
+                      "a letter or digit "
+                      "(e.g. \"12345MyStudio.MyGame\"). " +
+                          partner);
             } else {
                 s.identityName = v;
             }
@@ -240,45 +259,58 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         if (take_string(o, base, "publisher", v, partner)) {
             if (!v.empty() && (v.size() < 4 || to_lower(v.substr(0, 3)) != "cn=")) {
                 error(base + "/publisher", "'" + v + "' is not a publisher",
-                      "The publisher is the subject of your certificate and starts with \"CN=\", e.g. \"CN=0123ABCD-4567-89EF-0123-456789ABCDEF\". " + partner);
+                      "The publisher is the subject of your certificate and starts with \"CN=\", e.g. "
+                      "\"CN=0123ABCD-4567-89EF-0123-456789ABCDEF\". " +
+                          partner);
             } else {
                 s.publisher = v;
             }
         }
         take_string(o, base, "publisherDisplayName", s.publisherDisplayName,
                     "Write the name players see as the publisher, e.g. \"My Studio\". " + partner);
-        take_string(o, base, "displayName", s.displayName, "Write the app name as text, or remove the key to use the game's name.");
-        take_string(o, base, "description", s.description, "Write a short description as text, or remove the key to use the display name.");
+        take_string(o, base, "displayName", s.displayName,
+                    "Write the app name as text, or remove the key to use the game's name.");
+        take_string(o, base, "description", s.description,
+                    "Write a short description as text, or remove the key to use the display name.");
         if (take_string(o, base, "backgroundColor", v, "Use \"#RRGGBB\" (e.g. \"#2B3350\") or \"transparent\".")) {
             if (v != "transparent" && !is_hex_color(v))
-                error(base + "/backgroundColor", "'" + v + "' is not a colour", "Use \"#RRGGBB\" (e.g. \"#2B3350\") or \"transparent\".");
+                error(base + "/backgroundColor", "'" + v + "' is not a colour",
+                      "Use \"#RRGGBB\" (e.g. \"#2B3350\") or \"transparent\".");
             else
                 s.backgroundColor = v;
         }
-        if (take_string(o, base, "version", v, "Write four numbers, e.g. \"1.2.3.0\"; remove the key to derive it from the project's \"version\".")) {
+        if (take_string(
+                o, base, "version", v,
+                "Write four numbers, e.g. \"1.2.3.0\"; remove the key to derive it from the project's \"version\".")) {
             if (v.empty()) {
                 // "" = derived
             } else if (!is_msix_version(v)) {
                 error(base + "/version", "'" + v + "' is not a package version",
-                      "An MSIX version is four numbers from 0 to 65535 separated by dots, e.g. \"1.2.3.0\". Remove the key to derive it from "
+                      "An MSIX version is four numbers from 0 to 65535 separated by dots, e.g. \"1.2.3.0\". Remove the "
+                      "key to derive it from "
                       "\"version\" (1.2.3 -> 1.2.3.0).");
             } else {
                 s.version = v;
                 if (split(v, '.')[3] != "0")
                     warn(base + "/version", "the fourth number of '" + v + "' is not 0",
-                         "The Microsoft Store reserves the fourth number of the version and rejects a package where it is not 0: use e.g. \"" +
-                             split(v, '.')[0] + "." + split(v, '.')[1] + "." + split(v, '.')[2] + ".0\" (a Store upload only needs the first three to grow).");
+                         "The Microsoft Store reserves the fourth number of the version and rejects a package where it "
+                         "is not 0: use e.g. \"" +
+                             split(v, '.')[0] + "." + split(v, '.')[1] + "." + split(v, '.')[2] +
+                             ".0\" (a Store upload only needs the first three to grow).");
             }
         }
-        if (take_string(o, base, "minVersion", v, "Write four numbers, e.g. \"10.0.17763.0\" (Windows 10 version 1809).")) {
+        if (take_string(o, base, "minVersion", v,
+                        "Write four numbers, e.g. \"10.0.17763.0\" (Windows 10 version 1809).")) {
             if (!is_msix_version(v))
                 error(base + "/minVersion", "'" + v + "' is not a Windows version",
-                      "Write four numbers separated by dots, e.g. \"10.0.17763.0\" (Windows 10 version 1809, the oldest the engine's player runs on).");
+                      "Write four numbers separated by dots, e.g. \"10.0.17763.0\" (Windows 10 version 1809, the "
+                      "oldest the engine's player runs on).");
             else
                 s.minVersion = v;
         }
         if (auto it = o.find("languages"); it != o.end() && !it->is_null()) {
-            const std::string hint = "Write an array of language tags, e.g. [\"en-us\", \"es-es\"]; remove the key to use localization.languages.";
+            const std::string hint = "Write an array of language tags, e.g. [\"en-us\", \"es-es\"]; remove the key to "
+                                     "use localization.languages.";
             if (!it->is_array()) {
                 error(base + "/languages", "expected an array of strings, got " + describe_json_value(*it), hint);
             } else {
@@ -301,25 +333,31 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 if (ok) s.languages = std::move(languages);
             }
         }
-        unknown_keys(o, base, names_of({"identityName", "publisher", "publisherDisplayName", "displayName", "description", "backgroundColor",
-                                        "version", "minVersion", "languages"}));
+        unknown_keys(o, base,
+                     names_of({"identityName", "publisher", "publisherDisplayName", "displayName", "description",
+                               "backgroundColor", "version", "minVersion", "languages"}));
     }
 
     // buildNumber -> CFBundleVersion (iOS and macOS).
     void take_build_number(const Json& o, const std::string& base, std::string& out) {
         if (auto it = o.find("buildNumber"); it != o.end() && !it->is_null()) {
-            const std::string hint = "CFBundleVersion is up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\".";
+            const std::string hint =
+                "CFBundleVersion is up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\".";
             std::string v;
             bool valid = true;
-            if (it->is_string()) v = it->get<std::string>();
-            else if (it->is_number_integer()) v = std::to_string(it->get<long long>());
+            if (it->is_string())
+                v = it->get<std::string>();
+            else if (it->is_number_integer())
+                v = std::to_string(it->get<long long>());
             else {
                 error(base + "/buildNumber", "expected a string, got " + describe_json_value(*it), hint);
                 valid = false;
             }
             if (valid) {
-                if (!v.empty() && !is_dotted_version(v)) error(base + "/buildNumber", "'" + v + "' is not a build number", hint);
-                else out = v;
+                if (!v.empty() && !is_dotted_version(v))
+                    error(base + "/buildNumber", "'" + v + "' is not a build number", hint);
+                else
+                    out = v;
             }
         }
     }
@@ -346,7 +384,9 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
             else
                 s.format = format;
         }
-        if (const Json* m = object_member(o, base, "msix", "{\"identityName\": \"12345MyStudio.MyGame\", \"publisher\": \"CN=...\", \"publisherDisplayName\": \"My Studio\"}"))
+        if (const Json* m = object_member(o, base, "msix",
+                                          "{\"identityName\": \"12345MyStudio.MyGame\", \"publisher\": \"CN=...\", "
+                                          "\"publisherDisplayName\": \"My Studio\"}"))
             msix(*m, base + "/msix", s.msix);
         unknown_keys(o, base, names_of({"icon", "format", "msix"}));
     }
@@ -354,7 +394,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
     void macos(const Json& o, const std::string& base, MacosExportSettings& s) {
         take_path(o, base, "icon", s.icon);
         take_nonempty(o, base, "category", s.category,
-                      "Use an LSApplicationCategoryType such as \"public.app-category.games\" (or remove the key for that default).");
+                      "Use an LSApplicationCategoryType such as \"public.app-category.games\" (or remove the key for "
+                      "that default).");
         std::string minVersion;
         if (take_nonempty(o, base, "minimumSystemVersion", minVersion,
                           "Use a macOS version like \"11.0\" (or remove the key for that default).")) {
@@ -372,29 +413,31 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         take_encryption_flag(o, base, s.usesNonExemptEncryption, "macOS");
         if (const Json* e = object_member(o, base, "entitlements", "{\"com.apple.security.network.client\": true}"))
             entitlements(*e, base + "/entitlements", s.entitlements);
-        unknown_keys(o, base, names_of({"icon", "category", "minimumSystemVersion", "copyright", "buildNumber", "usesNonExemptEncryption", "entitlements"}));
+        unknown_keys(o, base,
+                     names_of({"icon", "category", "minimumSystemVersion", "copyright", "buildNumber",
+                               "usesNonExemptEncryption", "entitlements"}));
     }
 
     // export.macos.entitlements: the sandbox capabilities a game adds to its Mac App Store signature.
     void entitlements(const Json& o, const std::string& base, Json& out) {
-        static const std::vector<std::string> sandboxKeys = {
-            "com.apple.security.network.client",
-            "com.apple.security.network.server",
-            "com.apple.security.files.user-selected.read-only",
-            "com.apple.security.files.user-selected.read-write",
-            "com.apple.security.files.downloads.read-only",
-            "com.apple.security.files.downloads.read-write",
-            "com.apple.security.device.audio-input",
-            "com.apple.security.device.camera",
-            "com.apple.security.device.usb",
-            "com.apple.security.device.bluetooth",
-            "com.apple.security.personal-information.location",
-            "com.apple.security.print",
-            "com.apple.security.cs.allow-jit",
-            "com.apple.security.cs.disable-library-validation",
-            "com.apple.security.application-groups"};
-        static const std::vector<std::string> owned = {"com.apple.security.app-sandbox", "com.apple.application-identifier",
-                                                       "com.apple.developer.team-identifier", "com.apple.security.inherit"};
+        static const std::vector<std::string> sandboxKeys = {"com.apple.security.network.client",
+                                                             "com.apple.security.network.server",
+                                                             "com.apple.security.files.user-selected.read-only",
+                                                             "com.apple.security.files.user-selected.read-write",
+                                                             "com.apple.security.files.downloads.read-only",
+                                                             "com.apple.security.files.downloads.read-write",
+                                                             "com.apple.security.device.audio-input",
+                                                             "com.apple.security.device.camera",
+                                                             "com.apple.security.device.usb",
+                                                             "com.apple.security.device.bluetooth",
+                                                             "com.apple.security.personal-information.location",
+                                                             "com.apple.security.print",
+                                                             "com.apple.security.cs.allow-jit",
+                                                             "com.apple.security.cs.disable-library-validation",
+                                                             "com.apple.security.application-groups"};
+        static const std::vector<std::string> owned = {
+            "com.apple.security.app-sandbox", "com.apple.application-identifier", "com.apple.developer.team-identifier",
+            "com.apple.security.inherit"};
         Json clean = Json::object();
         bool ok = true;
         for (auto it = o.begin(); it != o.end(); ++it) {
@@ -411,22 +454,31 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 if (key == "com.apple.security.app-sandbox" && v == true) continue;  // redundant, harmless
                 error(ptr, "'" + key + "' is set by sign.macos itself",
                       key == "com.apple.security.app-sandbox"
-                          ? "The Mac App Store requires the sandbox: remove the key (sign.macos with distribution \"appStore\" turns it on)."
-                          : "Remove the key: sign.macos fills it in from the provisioning profile (or the nested helper's signature).");
+                          ? "The Mac App Store requires the sandbox: remove the key (sign.macos with distribution "
+                            "\"appStore\" turns it on)."
+                          : "Remove the key: sign.macos fills it in from the provisioning profile (or the nested "
+                            "helper's signature).");
                 ok = false;
                 continue;
             }
-            const bool stringArray = v.is_array() && std::all_of(v.begin(), v.end(), [](const Json& x) { return x.is_string(); });
+            const bool stringArray =
+                v.is_array() && std::all_of(v.begin(), v.end(), [](const Json& x) { return x.is_string(); });
             if (!(v.is_boolean() || v.is_string() || v.is_number_integer() || stringArray)) {
-                error(ptr, "expected true/false, a string, a whole number or an array of strings, got " + describe_json_value(v),
+                error(ptr,
+                      "expected true/false, a string, a whole number or an array of strings, got " +
+                          describe_json_value(v),
                       "Most entitlements are booleans: \"" + key + "\": true.");
                 ok = false;
                 continue;
             }
-            if (starts_with(key, "com.apple.security.") && std::find(sandboxKeys.begin(), sandboxKeys.end(), key) == sandboxKeys.end()) {
+            if (starts_with(key, "com.apple.security.") &&
+                std::find(sandboxKeys.begin(), sandboxKeys.end(), key) == sandboxKeys.end()) {
                 const std::string guess = did_you_mean(key, sandboxKeys);
                 if (!guess.empty())
-                    warn(ptr, "'" + key + "' is not a sandbox entitlement FactorIA knows; it is written to the signature as it is.", guess);
+                    warn(ptr,
+                         "'" + key +
+                             "' is not a sandbox entitlement FactorIA knows; it is written to the signature as it is.",
+                         guess);
             }
             clean[key] = v;
         }
@@ -450,7 +502,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                         ok = false;
                     } else if (e.get<std::string>().empty() || e.get<std::string>().find(';') != std::string::npos) {
                         error(ptr, "category names must be non-empty and must not contain ';'",
-                              "Each array element is one category: [\"Game\", \"ActionGame\"]; FactorIA joins them with ';'.");
+                              "Each array element is one category: [\"Game\", \"ActionGame\"]; FactorIA joins them "
+                              "with ';'.");
                         ok = false;
                     } else {
                         cats.push_back(e.get<std::string>());
@@ -468,10 +521,14 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         std::string bg;
         if (take_string(o, base, "background", bg, "Use \"#RRGGBB\" or the project-relative path of an image.")) {
             if (bg.empty()) {
-                error(base + "/background", "must not be empty", "Use \"#RRGGBB\" (default \"#FFFFFF\") or the path of an image.");
+                error(base + "/background", "must not be empty",
+                      "Use \"#RRGGBB\" (default \"#FFFFFF\") or the path of an image.");
             } else if (bg[0] == '#') {
-                if (is_hex_color(bg)) s.background = bg;
-                else error(base + "/background", "'" + bg + "' is not a colour", "Write the colour as \"#RRGGBB\", e.g. \"#202020\".");
+                if (is_hex_color(bg))
+                    s.background = bg;
+                else
+                    error(base + "/background", "'" + bg + "' is not a colour",
+                          "Write the colour as \"#RRGGBB\", e.g. \"#202020\".");
             } else if (check_path(base + "/background", bg, false)) {
                 s.background = bg;
             }
@@ -485,10 +542,12 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         unknown_keys(o, base, names_of({"keystore", "alias"}));
         if (!s.keystore.empty() && s.alias.empty())
             warn(base + "/alias", "signing.keystore is set but signing.alias is not",
-                 "Add \"alias\": \"<key alias>\" (the name you gave the key in keytool -genkeypair -alias ...); a release build cannot be signed without it.");
+                 "Add \"alias\": \"<key alias>\" (the name you gave the key in keytool -genkeypair -alias ...); a "
+                 "release build cannot be signed without it.");
         if (s.keystore.empty() && !s.alias.empty())
             warn(base + "/keystore", "signing.alias is set but signing.keystore is not",
-                 "Add \"keystore\": \"<path to the .keystore or .jks file>\"; a release build cannot be signed without it.");
+                 "Add \"keystore\": \"<path to the .keystore or .jks file>\"; a release build cannot be signed without "
+                 "it.");
     }
 
     void android(const Json& o, const std::string& base, AndroidExportSettings& s) {
@@ -501,10 +560,12 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
             else
                 s.format = format;
         }
-        if (const Json* a = object_member(o, base, "adaptiveIcon", "{\"foreground\": \"assets/icon_fg.png\", \"background\": \"#FFFFFF\"}"))
+        if (const Json* a = object_member(o, base, "adaptiveIcon",
+                                          "{\"foreground\": \"assets/icon_fg.png\", \"background\": \"#FFFFFF\"}"))
             adaptive_icon(*a, base + "/adaptiveIcon", s.adaptiveIcon);
         take_int(o, base, "versionCode", s.versionCode, 1, 2100000000,
-                 "Use a whole number from 1 up; every upload to Google Play needs a higher one. Remove the key to derive it from \"version\" (1.2.3 -> 10203).");
+                 "Use a whole number from 1 up; every upload to Google Play needs a higher one. Remove the key to "
+                 "derive it from \"version\" (1.2.3 -> 10203).");
         int minSdk = s.minSdk, targetSdk = s.targetSdk;
         const std::size_t errorsBefore = result.errors.size();
         take_int(o, base, "minSdk", minSdk, 26, 99, "Use an Android API level of at least 26 (Android 8.0), e.g. 26.");
@@ -512,7 +573,9 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                  "Use an Android API level of at least 26; Google Play asks for the latest one (default 36).");
         if (result.errors.size() == errorsBefore) {
             if (minSdk > targetSdk)
-                error(base + "/minSdk", "minSdk (" + std::to_string(minSdk) + ") is higher than targetSdk (" + std::to_string(targetSdk) + ")",
+                error(base + "/minSdk",
+                      "minSdk (" + std::to_string(minSdk) + ") is higher than targetSdk (" + std::to_string(targetSdk) +
+                          ")",
                       "Keep 26 <= minSdk <= targetSdk: lower minSdk or raise targetSdk.");
             else {
                 s.minSdk = minSdk;
@@ -520,7 +583,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
             }
         }
         if (auto it = o.find("permissions"); it != o.end() && !it->is_null()) {
-            const std::string hint = "Write an array of Android permission names, e.g. [\"android.permission.VIBRATE\"].";
+            const std::string hint =
+                "Write an array of Android permission names, e.g. [\"android.permission.VIBRATE\"].";
             if (!it->is_array()) {
                 error(base + "/permissions", "expected an array of strings, got " + describe_json_value(*it), hint);
             } else {
@@ -535,7 +599,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                         ok = false;
                     } else if (!std::regex_match(e.get<std::string>(), re)) {
                         error(ptr, "'" + e.get<std::string>() + "' is not a permission name",
-                              "Permission names are dotted, e.g. \"android.permission.VIBRATE\" or \"com.google.android.gms.permission.AD_ID\".");
+                              "Permission names are dotted, e.g. \"android.permission.VIBRATE\" or "
+                              "\"com.google.android.gms.permission.AD_ID\".");
                         ok = false;
                     } else {
                         perms.push_back(e.get<std::string>());
@@ -544,28 +609,36 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 if (ok) s.permissions = std::move(perms);
             }
         }
-        if (const Json* sg = object_member(o, base, "signing", "{\"keystore\": \"keys/upload.keystore\", \"alias\": \"upload\"}"))
+        if (const Json* sg =
+                object_member(o, base, "signing", "{\"keystore\": \"keys/upload.keystore\", \"alias\": \"upload\"}"))
             signing(*sg, base + "/signing", s.signing);
-        unknown_keys(o, base, names_of({"icon", "format", "adaptiveIcon", "versionCode", "minSdk", "targetSdk", "permissions", "signing"}));
+        unknown_keys(o, base,
+                     names_of({"icon", "format", "adaptiveIcon", "versionCode", "minSdk", "targetSdk", "permissions",
+                               "signing"}));
     }
 
     void ios(const Json& o, const std::string& base, IosExportSettings& s) {
         take_path(o, base, "icon", s.icon);
         take_hex_color(o, base, "iconBackground", s.iconBackground);
         std::string team;
-        if (take_string(o, base, "teamId", team, "Use the 10-character Team ID of your Apple developer account, e.g. \"ABCDE12345\".")) {
+        if (take_string(o, base, "teamId", team,
+                        "Use the 10-character Team ID of your Apple developer account, e.g. \"ABCDE12345\".")) {
             static const std::regex re("^[A-Z0-9]{10}$");
             if (!team.empty() && !std::regex_match(team, re))
                 error(base + "/teamId", "'" + team + "' is not a team ID",
-                      "A Team ID is 10 capital letters and digits (developer.apple.com/account > Membership details), e.g. \"ABCDE12345\".");
+                      "A Team ID is 10 capital letters and digits (developer.apple.com/account > Membership details), "
+                      "e.g. \"ABCDE12345\".");
             else
                 s.teamId = team;
         }
         take_build_number(o, base, s.buildNumber);
         take_encryption_flag(o, base, s.usesNonExemptEncryption, "iOS");
-        if (const Json* pv = object_member(o, base, "privacy", "{\"accessedApis\": [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]}"))
+        if (const Json* pv = object_member(
+                o, base, "privacy", "{\"accessedApis\": [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]}"))
             privacy(*pv, base + "/privacy", s.privacy);
-        unknown_keys(o, base, names_of({"icon", "iconBackground", "teamId", "buildNumber", "usesNonExemptEncryption", "privacy"}));
+        unknown_keys(
+            o, base,
+            names_of({"icon", "iconBackground", "teamId", "buildNumber", "usesNonExemptEncryption", "privacy"}));
     }
 
     // An array of strings, each checked against `allowed` (when not empty) with a "did you mean"; duplicates are dropped.
@@ -605,18 +678,22 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         if (auto it = o.find("tracking"); it != o.end() && !it->is_null()) {
             if (!it->is_boolean())
                 error(base + "/tracking", "expected true or false, got " + describe_json_value(*it),
-                      "Write true only when the app or an SDK in it tracks users (NSPrivacyTracking); the default is false.");
+                      "Write true only when the app or an SDK in it tracks users (NSPrivacyTracking); the default is "
+                      "false.");
             else
                 s.tracking = it->get<bool>();
         }
-        take_names(o, base, "trackingDomains", "Write the domains that are used to track, e.g. [\"ads.example.com\"].", {}, s.trackingDomains);
+        take_names(o, base, "trackingDomains", "Write the domains that are used to track, e.g. [\"ads.example.com\"].",
+                   {}, s.trackingDomains);
         if (s.tracking && s.trackingDomains.empty())
             warn(base + "/tracking", "tracking is true but trackingDomains is empty",
-                 "Apple expects the domains that connect to tracking services in trackingDomains; list them, or set tracking back to false.");
+                 "Apple expects the domains that connect to tracking services in trackingDomains; list them, or set "
+                 "tracking back to false.");
         std::vector<std::string> categoryNames;
         for (const IosPrivacyApiCategory& c : ios_privacy_api_categories()) categoryNames.push_back(c.category);
         if (auto it = o.find("accessedApis"); it != o.end() && !it->is_null()) {
-            const std::string hint = "Write [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]; docs/MOBILE.md lists the categories and codes.";
+            const std::string hint = "Write [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]; docs/MOBILE.md "
+                                     "lists the categories and codes.";
             if (!it->is_array()) {
                 error(base + "/accessedApis", "expected an array of objects, got " + describe_json_value(*it), hint);
             } else {
@@ -632,22 +709,27 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                     }
                     std::string category;
                     if (!take_nonempty(e, ptr, "category", category, "Name the API category, e.g. \"DiskSpace\".")) {
-                        if (!e.contains("category")) error(ptr + "/category", "missing", "Name the API category, e.g. \"DiskSpace\".");
+                        if (!e.contains("category"))
+                            error(ptr + "/category", "missing", "Name the API category, e.g. \"DiskSpace\".");
                         ok = false;
                         continue;
                     }
-                    const auto known = std::find_if(ios_privacy_api_categories().begin(), ios_privacy_api_categories().end(),
-                                                    [&](const IosPrivacyApiCategory& c) { return c.category == category; });
+                    const auto known =
+                        std::find_if(ios_privacy_api_categories().begin(), ios_privacy_api_categories().end(),
+                                     [&](const IosPrivacyApiCategory& c) { return c.category == category; });
                     if (known == ios_privacy_api_categories().end()) {
-                        error(ptr + "/category", "'" + category + "' is not a required-reason API category", did_you_mean(category, categoryNames));
+                        error(ptr + "/category", "'" + category + "' is not a required-reason API category",
+                              did_you_mean(category, categoryNames));
                         ok = false;
                         continue;
                     }
-                    const std::string reasonHint = "Pick from " + join(known->reasons, ", ") + " (docs/MOBILE.md says what each one allows).";
+                    const std::string reasonHint =
+                        "Pick from " + join(known->reasons, ", ") + " (docs/MOBILE.md says what each one allows).";
                     IosPrivacyApi api;
                     api.category = category;
                     if (!e.contains("reasons") || !e["reasons"].is_array() || e["reasons"].empty()) {
-                        error(ptr + "/reasons", "missing or empty: Apple wants at least one reason code per category", reasonHint);
+                        error(ptr + "/reasons", "missing or empty: Apple wants at least one reason code per category",
+                              reasonHint);
                         ok = false;
                         continue;
                     }
@@ -662,7 +744,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
             }
         }
         if (auto it = o.find("collectedData"); it != o.end() && !it->is_null()) {
-            const std::string hint = "Write [{\"type\": \"PurchaseHistory\", \"linked\": true, \"purposes\": [\"AppFunctionality\"]}].";
+            const std::string hint =
+                "Write [{\"type\": \"PurchaseHistory\", \"linked\": true, \"purposes\": [\"AppFunctionality\"]}].";
             if (!it->is_array()) {
                 error(base + "/collectedData", "expected an array of objects, got " + describe_json_value(*it), hint);
             } else {
@@ -678,11 +761,13 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                     }
                     std::string type;
                     if (!take_nonempty(e, ptr, "type", type, "Name the kind of data, e.g. \"PurchaseHistory\".")) {
-                        if (!e.contains("type")) error(ptr + "/type", "missing", "Name the kind of data, e.g. \"PurchaseHistory\".");
+                        if (!e.contains("type"))
+                            error(ptr + "/type", "missing", "Name the kind of data, e.g. \"PurchaseHistory\".");
                         ok = false;
                         continue;
                     }
-                    if (std::find(ios_privacy_data_types().begin(), ios_privacy_data_types().end(), type) == ios_privacy_data_types().end()) {
+                    if (std::find(ios_privacy_data_types().begin(), ios_privacy_data_types().end(), type) ==
+                        ios_privacy_data_types().end()) {
                         error(ptr + "/type", "'" + type + "' is not a data type of Apple's privacy manifest",
                               did_you_mean(type, ios_privacy_data_types()) + " docs/MOBILE.md lists them.");
                         ok = false;
@@ -702,7 +787,9 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                     }
                     const std::string purposeHint = "Pick from " + join(ios_privacy_purposes(), ", ") + ".";
                     if (!e.contains("purposes") || !e["purposes"].is_array() || e["purposes"].empty()) {
-                        error(ptr + "/purposes", "missing or empty: Apple wants at least one purpose per collected data type", purposeHint);
+                        error(ptr + "/purposes",
+                              "missing or empty: Apple wants at least one purpose per collected data type",
+                              purposeHint);
                         ok = false;
                     } else if (!take_names(e, ptr, "purposes", purposeHint, ios_privacy_purposes(), d.purposes)) {
                         ok = false;
@@ -746,13 +833,15 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     if (auto b = exp.find("scriptBytecode"); b != exp.end() && !b->is_null()) {
         if (!b->is_boolean())
             r.error("/export/scriptBytecode", "expected true or false, got " + describe_json_value(*b),
-                    "Write \"scriptBytecode\": false to ship the scripts of a --release export as plain source, or remove the key "
+                    "Write \"scriptBytecode\": false to ship the scripts of a --release export as plain source, or "
+                    "remove the key "
                     "(the default, true, compiles them to bytecode).");
         else
             s.scriptBytecode = b->get<bool>();
     }
     if (auto ex = exp.find("exclude"); ex != exp.end() && !ex->is_null()) {
-        const std::string hint = "Write a list of project-relative globs, e.g. \"exclude\": [\"store/**\", \"levels/*.tmx\"].";
+        const std::string hint =
+            "Write a list of project-relative globs, e.g. \"exclude\": [\"store/**\", \"levels/*.tmx\"].";
         if (!ex->is_array()) {
             r.error("/export/exclude", "expected an array of glob strings, got " + describe_json_value(*ex), hint);
         } else {
@@ -763,29 +852,35 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                     continue;
                 }
                 std::string g = (*ex)[i].get<std::string>();
-                if (g.empty()) r.error(ptr, "the glob is empty", hint);
-                else if (r.check_path(ptr, g, false)) s.exclude.push_back(g);
+                if (g.empty())
+                    r.error(ptr, "the glob is empty", hint);
+                else if (r.check_path(ptr, g, false))
+                    s.exclude.push_back(g);
             }
         }
     }
-    if (const Json* o = r.object_member(exp, "/export", "pack", "{\"codecs\": {\".json\": \"zstd\"}, \"useLoadOrder\": true}")) {
+    if (const Json* o =
+            r.object_member(exp, "/export", "pack", "{\"codecs\": {\".json\": \"zstd\"}, \"useLoadOrder\": true}")) {
         r.unknown_keys(*o, "/export/pack", names_of({"codecs", "useLoadOrder"}));
         if (auto b = o->find("useLoadOrder"); b != o->end() && !b->is_null()) {
             if (!b->is_boolean())
                 r.error("/export/pack/useLoadOrder", "expected true or false, got " + describe_json_value(*b),
-                        "Write \"useLoadOrder\": false to pack the files by path, or remove the key (the default, true, packs them in "
+                        "Write \"useLoadOrder\": false to pack the files by path, or remove the key (the default, "
+                        "true, packs them in "
                         "the order play sessions first read them).");
             else
                 s.pack.useLoadOrder = b->get<bool>();
         }
-        if (const Json* c = r.object_member(*o, "/export/pack", "codecs", "{\".json\": \"zstd\", \".bin\": \"store\"}")) {
+        if (const Json* c =
+                r.object_member(*o, "/export/pack", "codecs", "{\".json\": \"zstd\", \".bin\": \"store\"}")) {
             for (auto e = c->begin(); e != c->end(); ++e) {
                 const std::string ptr = "/export/pack/codecs/" + tooling_detail::escape_token(e.key());
                 const std::string& ext = e.key();
                 if (ext.size() < 2 || ext[0] != '.' || ext.find_first_of("/\\") != std::string::npos ||
                     ext.find('.', 1) != std::string::npos) {
                     r.error(ptr, "'" + ext + "' is not a file extension",
-                            "Write the extension with its dot and nothing before it, e.g. \".json\" (a scene.json counts as .json).");
+                            "Write the extension with its dot and nothing before it, e.g. \".json\" (a scene.json "
+                            "counts as .json).");
                     continue;
                 }
                 std::string lower = ext;
@@ -804,11 +899,16 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
             }
         }
     }
-    if (const Json* o = r.object_member(exp, "/export", "windows", "{\"icon\": \"assets/icon.png\"}")) r.windows(*o, "/export/windows", s.windows);
-    if (const Json* o = r.object_member(exp, "/export", "macos", "{\"category\": \"public.app-category.games\"}")) r.macos(*o, "/export/macos", s.macos);
-    if (const Json* o = r.object_member(exp, "/export", "linux", "{\"categories\": [\"Game\"]}")) r.linux_(*o, "/export/linux", s.linux);
-    if (const Json* o = r.object_member(exp, "/export", "android", "{\"format\": \"apk\"}")) r.android(*o, "/export/android", s.android);
-    if (const Json* o = r.object_member(exp, "/export", "ios", "{\"teamId\": \"ABCDE12345\"}")) r.ios(*o, "/export/ios", s.ios);
+    if (const Json* o = r.object_member(exp, "/export", "windows", "{\"icon\": \"assets/icon.png\"}"))
+        r.windows(*o, "/export/windows", s.windows);
+    if (const Json* o = r.object_member(exp, "/export", "macos", "{\"category\": \"public.app-category.games\"}"))
+        r.macos(*o, "/export/macos", s.macos);
+    if (const Json* o = r.object_member(exp, "/export", "linux", "{\"categories\": [\"Game\"]}"))
+        r.linux_(*o, "/export/linux", s.linux);
+    if (const Json* o = r.object_member(exp, "/export", "android", "{\"format\": \"apk\"}"))
+        r.android(*o, "/export/android", s.android);
+    if (const Json* o = r.object_member(exp, "/export", "ios", "{\"teamId\": \"ABCDE12345\"}"))
+        r.ios(*o, "/export/ios", s.ios);
     return r.result;
 }
 
@@ -826,7 +926,8 @@ Result<ProjectExportSettings> load_export_settings(const std::string& projectDir
     std::string path;
     const auto text = read_project_file(projectDir, &path);
     if (!text)
-        return make_error("Cannot read " + path + ".", "Run from the project folder or pass the folder that contains factoria.json.");
+        return make_error("Cannot read " + path + ".",
+                          "Run from the project folder or pass the folder that contains factoria.json.");
     auto parsed = parse_json(*text, path);
     if (!parsed.ok()) return parsed.error();
     if (!parsed->is_object())
@@ -856,8 +957,10 @@ namespace {
 template <class T>
 void sync_field(Json& obj, const char* key, const T& before, const T& now, const T& def) {
     if (now == before) return;
-    if (now == def) obj.erase(key);
-    else obj[key] = now;
+    if (now == def)
+        obj.erase(key);
+    else
+        obj[key] = now;
 }
 
 Json& object_at(Json& parent, const char* key) {
@@ -875,7 +978,10 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
                           "Create the project with `factoria new` or pass the folder that contains factoria.json.");
     const std::string& text = *fileText;
     auto parsed = parse_json(text, path);
-    if (!parsed.ok()) return make_error(parsed.error().message, "Fix the JSON syntax of factoria.json first; the export settings are not saved over a broken file.");
+    if (!parsed.ok())
+        return make_error(
+            parsed.error().message,
+            "Fix the JSON syntax of factoria.json first; the export settings are not saved over a broken file.");
     if (!parsed->is_object())
         return make_error(path + ": the project file must be a JSON object, got " + describe_json_value(*parsed),
                           "Start from {\"format\": \"factoria.project/1\", \"name\": \"My Game\"}.");
@@ -900,7 +1006,8 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
             const WindowsMsixSettings &b = before.windows.msix, &n = now.windows.msix, &d = def.windows.msix;
             sync_field(m, "identityName", b.identityName, n.identityName, d.identityName);
             sync_field(m, "publisher", b.publisher, n.publisher, d.publisher);
-            sync_field(m, "publisherDisplayName", b.publisherDisplayName, n.publisherDisplayName, d.publisherDisplayName);
+            sync_field(m, "publisherDisplayName", b.publisherDisplayName, n.publisherDisplayName,
+                       d.publisherDisplayName);
             sync_field(m, "displayName", b.displayName, n.displayName, d.displayName);
             sync_field(m, "description", b.description, n.description, d.description);
             sync_field(m, "backgroundColor", b.backgroundColor, n.backgroundColor, d.backgroundColor);
@@ -915,11 +1022,12 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
         Json& o = object_at(exp, "macos");
         sync_field(o, "icon", before.macos.icon, now.macos.icon, def.macos.icon);
         sync_field(o, "category", before.macos.category, now.macos.category, def.macos.category);
-        sync_field(o, "minimumSystemVersion", before.macos.minimumSystemVersion, now.macos.minimumSystemVersion, def.macos.minimumSystemVersion);
+        sync_field(o, "minimumSystemVersion", before.macos.minimumSystemVersion, now.macos.minimumSystemVersion,
+                   def.macos.minimumSystemVersion);
         sync_field(o, "copyright", before.macos.copyright, now.macos.copyright, def.macos.copyright);
         sync_field(o, "buildNumber", before.macos.buildNumber, now.macos.buildNumber, def.macos.buildNumber);
-        sync_field(o, "usesNonExemptEncryption", before.macos.usesNonExemptEncryption, now.macos.usesNonExemptEncryption,
-                   def.macos.usesNonExemptEncryption);
+        sync_field(o, "usesNonExemptEncryption", before.macos.usesNonExemptEncryption,
+                   now.macos.usesNonExemptEncryption, def.macos.usesNonExemptEncryption);
         sync_field(o, "entitlements", before.macos.entitlements, now.macos.entitlements, def.macos.entitlements);
         finish("macos");
     }
@@ -936,9 +1044,12 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
         sync_field(o, "format", b.format, n.format, d.format);
         if (!(b.adaptiveIcon == n.adaptiveIcon)) {
             Json& a = object_at(o, "adaptiveIcon");
-            sync_field(a, "foreground", b.adaptiveIcon.foreground, n.adaptiveIcon.foreground, d.adaptiveIcon.foreground);
-            sync_field(a, "background", b.adaptiveIcon.background, n.adaptiveIcon.background, d.adaptiveIcon.background);
-            sync_field(a, "monochrome", b.adaptiveIcon.monochrome, n.adaptiveIcon.monochrome, d.adaptiveIcon.monochrome);
+            sync_field(a, "foreground", b.adaptiveIcon.foreground, n.adaptiveIcon.foreground,
+                       d.adaptiveIcon.foreground);
+            sync_field(a, "background", b.adaptiveIcon.background, n.adaptiveIcon.background,
+                       d.adaptiveIcon.background);
+            sync_field(a, "monochrome", b.adaptiveIcon.monochrome, n.adaptiveIcon.monochrome,
+                       d.adaptiveIcon.monochrome);
             if (a.empty()) o.erase("adaptiveIcon");
         }
         sync_field(o, "versionCode", b.versionCode, n.versionCode, d.versionCode);
@@ -1003,10 +1114,12 @@ std::string machine_export_config_path(const ExportEnvLookup& env) {
     return ".factoria/export.json";
 }
 
-Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env, const std::string& configPathIn) {
+Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env,
+                                           const std::string& configPathIn) {
     const std::string configPath = configPathIn.empty() ? machine_export_config_path(env) : configPathIn;
-    const std::string where = "To set it up: download it from " + tool.download + ", then put it on PATH, set " + tool.envVar +
-                              " to the executable (or its folder), or write {\"publish\": {\"" + tool.configKey + "\": \"<path>\"}} in " + configPath + ".";
+    const std::string where = "To set it up: download it from " + tool.download + ", then put it on PATH, set " +
+                              tool.envVar + " to the executable (or its folder), or write {\"publish\": {\"" +
+                              tool.configKey + "\": \"<path>\"}} in " + configPath + ".";
     const auto generic = [](const stdfs::path& p) { return p.generic_string(); };
     // `value` names the executable, or the folder that holds it. "" when there is none.
     const auto resolve = [&](const std::string& value) -> std::string {
@@ -1027,45 +1140,61 @@ Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const Export
     };
     if (const std::string value = env(tool.envVar); !value.empty()) {
         if (std::string found = resolve(value); !found.empty()) return MachineToolFound{found, tool.envVar};
-        return make_error(tool.label + ": " + tool.envVar + " is '" + value + "', which is not " + tool.tool + " (it must be the executable or the folder that holds it)",
+        return make_error(tool.label + ": " + tool.envVar + " is '" + value + "', which is not " + tool.tool +
+                              " (it must be the executable or the folder that holds it)",
                           "Fix or unset " + tool.envVar + ". " + where);
     }
     std::error_code ec;
     if (stdfs::exists(stdfs::path(configPath), ec)) {
         auto text = tooling_detail::read_file(stdfs::path(configPath));
-        auto parsed = text ? parse_json(*text, configPath) : Result<Json>(Error{"Cannot read " + configPath + ".", "Check that the file is readable."});
-        if (!parsed.ok()) return make_error(tool.label + ": " + parsed.error().message, "Fix the JSON of " + configPath + " (or delete it).");
+        auto parsed = text ? parse_json(*text, configPath)
+                           : Result<Json>(Error{"Cannot read " + configPath + ".", "Check that the file is readable."});
+        if (!parsed.ok())
+            return make_error(tool.label + ": " + parsed.error().message,
+                              "Fix the JSON of " + configPath + " (or delete it).");
         if (parsed->is_object())
             if (auto pub = parsed->find("publish"); pub != parsed->end() && pub->is_object())
-                if (auto v = pub->find(tool.configKey); v != pub->end() && v->is_string() && !v->get<std::string>().empty()) {
-                    if (std::string found = resolve(v->get<std::string>()); !found.empty()) return MachineToolFound{found, "export.json"};
-                    return make_error(tool.label + ": " + configPath + "#/publish/" + tool.configKey + " is '" + v->get<std::string>() + "', which is not " + tool.tool +
+                if (auto v = pub->find(tool.configKey);
+                    v != pub->end() && v->is_string() && !v->get<std::string>().empty()) {
+                    if (std::string found = resolve(v->get<std::string>()); !found.empty())
+                        return MachineToolFound{found, "export.json"};
+                    return make_error(tool.label + ": " + configPath + "#/publish/" + tool.configKey + " is '" +
+                                          v->get<std::string>() + "', which is not " + tool.tool +
                                           " (it must be the executable or the folder that holds it)",
                                       "Fix or remove that entry. " + where);
                 }
     }
     for (const std::string& name : tool.exeNames)
-        if (std::string found = which(name); !found.empty()) return MachineToolFound{generic(stdfs::path(found)), "PATH"};
-    return make_error(tool.label + ": " + tool.tool + " was not found on this computer (not on PATH, " + tool.envVar + " is not set, and " + configPath +
-                          " has no publish." + tool.configKey + ")",
+        if (std::string found = which(name); !found.empty())
+            return MachineToolFound{generic(stdfs::path(found)), "PATH"};
+    return make_error(tool.label + ": " + tool.tool + " was not found on this computer (not on PATH, " + tool.envVar +
+                          " is not set, and " + configPath + " has no publish." + tool.configKey + ")",
                       where + " Nothing is downloaded for you.");
 }
 
-Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env, const std::string& configPath, const std::string& installedPath) {
-    auto found = find_machine_tool({"ffmpeg", "ffmpeg", "FACTORIA_FFMPEG", "ffmpeg", {"ffmpeg"}, "https://ffmpeg.org/download.html"}, env, configPath);
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env, const std::string& configPath,
+                                     const std::string& installedPath) {
+    auto found = find_machine_tool(
+        {"ffmpeg", "ffmpeg", "FACTORIA_FFMPEG", "ffmpeg", {"ffmpeg"}, "https://ffmpeg.org/download.html"}, env,
+        configPath);
     if (found.ok() || found.error().message.find("was not found on this computer") == std::string::npos) return found;
     // Not named anywhere and not on PATH: the copy `factoria setup ffmpeg` installs, when it is there.
     SetupContext context;
     context.env = env;
     std::error_code ec;
     const stdfs::path installed = stdfs::path(installedPath.empty() ? ffmpeg_install_path(context) : installedPath);
-    if (stdfs::is_regular_file(fs::os_path(installed), ec)) return MachineToolFound{installed.generic_string(), "factoria setup ffmpeg"};
-    return make_error(found.error().message, "Run `factoria setup ffmpeg` to download one (setup.install {\"component\":\"ffmpeg\"}). " + found.error().hint);
+    if (stdfs::is_regular_file(fs::os_path(installed), ec))
+        return MachineToolFound{installed.generic_string(), "factoria setup ffmpeg"};
+    return make_error(found.error().message,
+                      "Run `factoria setup ffmpeg` to download one (setup.install {\"component\":\"ffmpeg\"}). " +
+                          found.error().hint);
 }
 
 namespace {
 
-std::string config_path_or_default(const std::string& path) { return path.empty() ? machine_export_config_path() : path; }
+std::string config_path_or_default(const std::string& path) {
+    return path.empty() ? machine_export_config_path() : path;
+}
 
 }  // namespace
 
@@ -1075,29 +1204,37 @@ Result<MachineExportConfig> load_machine_export_config(const std::string& pathIn
     std::error_code ec;
     if (!stdfs::exists(stdfs::path(path), ec)) return cfg;
     auto text = tooling_detail::read_file(stdfs::path(path));
-    if (!text) return make_error("Cannot read " + path + ".", "Check that the file is readable, or delete it to start over.");
+    if (!text)
+        return make_error("Cannot read " + path + ".", "Check that the file is readable, or delete it to start over.");
     auto parsed = parse_json(*text, path);
-    if (!parsed.ok()) return make_error(parsed.error().message, "Fix the JSON syntax or delete the file; the editor's Platform settings > Android rewrites it.");
+    if (!parsed.ok())
+        return make_error(
+            parsed.error().message,
+            "Fix the JSON syntax or delete the file; the editor's Platform settings > Android rewrites it.");
     const Json& j = *parsed;
     const std::string fix = "Expected {\"format\": \"" + std::string(kConfigFormat) +
-                            "\", \"android\": {\"sdk\": \"...\", \"jdk\": \"...\", \"keystorePassword\": \"...\", \"keyPassword\": \"...\"}}.";
+                            "\", \"android\": {\"sdk\": \"...\", \"jdk\": \"...\", \"keystorePassword\": \"...\", "
+                            "\"keyPassword\": \"...\"}}.";
     if (!j.is_object()) return make_error(path + ": expected a JSON object, got " + describe_json_value(j), fix);
     if (auto it = j.find("format"); it != j.end() && (!it->is_string() || it->get<std::string>() != kConfigFormat))
-        return make_error(path + "#/format: unsupported format " + describe_json_value(*it), "Use \"" + std::string(kConfigFormat) + "\" (or remove the key).");
+        return make_error(path + "#/format: unsupported format " + describe_json_value(*it),
+                          "Use \"" + std::string(kConfigFormat) + "\" (or remove the key).");
     if (auto it = j.find("android"); it != j.end() && !it->is_null()) {
-        if (!it->is_object()) return make_error(path + "#/android: expected an object, got " + describe_json_value(*it), fix);
+        if (!it->is_object())
+            return make_error(path + "#/android: expected an object, got " + describe_json_value(*it), fix);
         auto read = [&](const char* key, std::string& out) -> Result<void> {
             auto f = it->find(key);
             if (f == it->end() || f->is_null()) return {};
             if (!f->is_string())
-                return make_error(path + "#/android/" + key + ": expected a string, got " + describe_json_value(*f), fix);
+                return make_error(path + "#/android/" + key + ": expected a string, got " + describe_json_value(*f),
+                                  fix);
             out = f->get<std::string>();
             return {};
         };
         const std::pair<const char*, std::string*> fields[] = {{"sdk", &cfg.androidSdk},
-                                                                {"jdk", &cfg.androidJdk},
-                                                                {"keystorePassword", &cfg.androidKeystorePassword},
-                                                                {"keyPassword", &cfg.androidKeyPassword}};
+                                                               {"jdk", &cfg.androidJdk},
+                                                               {"keystorePassword", &cfg.androidKeystorePassword},
+                                                               {"keyPassword", &cfg.androidKeyPassword}};
         for (const auto& [key, out] : fields) {
             auto r = read(key, *out);
             if (!r.ok()) return r.error();
@@ -1108,7 +1245,8 @@ Result<MachineExportConfig> load_machine_export_config(const std::string& pathIn
     if (!cfg.androidKeystorePassword.empty() || !cfg.androidKeyPassword.empty()) {
         const auto perms = stdfs::status(stdfs::path(path), ec).permissions();
         if ((perms & (stdfs::perms::group_read | stdfs::perms::others_read)) != stdfs::perms::none)
-            cfg.warnings.push_back(path + " contains Android signing passwords but other users can read it. Run: chmod 600 " + path);
+            cfg.warnings.push_back(
+                path + " contains Android signing passwords but other users can read it. Run: chmod 600 " + path);
     }
 #endif
     return cfg;
@@ -1128,15 +1266,19 @@ Result<void> save_machine_export_config(const MachineExportConfig& cfg, const st
     j["format"] = kConfigFormat;
     Json android = j.contains("android") && j["android"].is_object() ? j["android"] : Json::object();
     auto put = [&](const char* key, const std::string& v) {
-        if (v.empty()) android.erase(key);
-        else android[key] = v;
+        if (v.empty())
+            android.erase(key);
+        else
+            android[key] = v;
     };
     put("sdk", cfg.androidSdk);
     put("jdk", cfg.androidJdk);
     put("keystorePassword", cfg.androidKeystorePassword);
     put("keyPassword", cfg.androidKeyPassword);
-    if (android.empty()) j.erase("android");
-    else j["android"] = android;
+    if (android.empty())
+        j.erase("android");
+    else
+        j["android"] = android;
 
     const stdfs::path p(path);
     if (p.has_parent_path()) stdfs::create_directories(p.parent_path(), ec);
@@ -1179,7 +1321,8 @@ AndroidSigningSecrets resolve_android_signing_secrets(const MachineExportConfig&
 // ===========================================================================
 
 Json AndroidToolchain::to_json() const {
-    Json j = Json::object({{"ok", ok()}, {"jdk", jdk}, {"jdkFrom", jdkFrom}, {"jdkMajor", jdkMajor}, {"sdk", sdk}, {"sdkFrom", sdkFrom}});
+    Json j = Json::object(
+        {{"ok", ok()}, {"jdk", jdk}, {"jdkFrom", jdkFrom}, {"jdkMajor", jdkMajor}, {"sdk", sdk}, {"sdkFrom", sdkFrom}});
     j["problems"] = problems;
     j["warnings"] = warnings;
     return j;
@@ -1227,7 +1370,8 @@ void expand_pattern(const stdfs::path& done, std::vector<stdfs::path> rest, std:
     std::vector<std::string> names;
     for (const auto& e : stdfs::directory_iterator(done, ec))
         if (e.is_directory(ec)) names.push_back(e.path().filename().string());
-    std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return natural_less(b, a); });
+    std::sort(names.begin(), names.end(),
+              [](const std::string& a, const std::string& b) { return natural_less(b, a); });
     for (const std::string& n : names) expand_pattern(done / n, rest, out);
 }
 
@@ -1264,13 +1408,17 @@ std::string jdk_issue(const std::string& dir, int& major, bool& exists) {
     if (!exists) return "'" + dir + "' does not exist.";
     const stdfs::path root(dir);
     if (!is_file(root / "bin" / "java") && !is_file(root / "bin" / "java.exe"))
-        return "'" + dir + "' has no bin/java, so it is not a JDK folder (it must be the folder that contains bin/, lib/ and release).";
+        return "'" + dir +
+               "' has no bin/java, so it is not a JDK folder (it must be the folder that contains bin/, lib/ and "
+               "release).";
     if (!is_file(root / "bin" / "javac") && !is_file(root / "bin" / "javac.exe"))
         return "'" + dir + "' is a Java runtime without javac; Gradle needs a full JDK.";
     major = jdk_major_version(dir);
-    if (major == 0) return "Cannot tell the Java version of '" + dir + "': its 'release' file is missing or has no JAVA_VERSION.";
+    if (major == 0)
+        return "Cannot tell the Java version of '" + dir + "': its 'release' file is missing or has no JAVA_VERSION.";
     if (major < kMinJdk)
-        return "'" + dir + "' is Java " + std::to_string(major) + "; the Android Gradle plugin needs Java " + std::to_string(kMinJdk) + " or newer.";
+        return "'" + dir + "' is Java " + std::to_string(major) + "; the Android Gradle plugin needs Java " +
+               std::to_string(kMinJdk) + " or newer.";
     return {};
 }
 
@@ -1280,7 +1428,8 @@ std::string sdk_issue(const std::string& dir, bool& exists) {
     if (!exists) return "'" + dir + "' does not exist.";
     const stdfs::path root(dir);
     if (!is_dir(root / "platform-tools") && !is_dir(root / "platforms") && !is_dir(root / "licenses"))
-        return "'" + dir + "' does not look like an Android SDK (it has no platform-tools, platforms or licenses folder).";
+        return "'" + dir +
+               "' does not look like an Android SDK (it has no platform-tools, platforms or licenses folder).";
     return {};
 }
 
@@ -1370,7 +1519,8 @@ AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& e
     s.sdk.push_back({(factoriaHome / "android" / "sdk").string(), "FactorIA"});
 #if defined(__APPLE__)
     s.jdk.push_back({"/Applications/Android Studio.app/Contents/jbr/Contents/Home", "Android Studio"});
-    if (!home.empty()) s.jdk.push_back({under("Applications/Android Studio.app/Contents/jbr/Contents/Home"), "Android Studio"});
+    if (!home.empty())
+        s.jdk.push_back({under("Applications/Android Studio.app/Contents/jbr/Contents/Home"), "Android Studio"});
     s.jdk.push_back({"/Applications/Unity/Hub/Editor/*/PlaybackEngines/AndroidPlayer/OpenJDK", "Unity Hub"});
     if (!home.empty()) s.sdk.push_back({under("Library/Android/sdk"), "default location"});
     s.sdk.push_back({"/Applications/Unity/Hub/Editor/*/PlaybackEngines/AndroidPlayer/SDK", "Unity Hub"});
@@ -1378,16 +1528,25 @@ AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& e
     std::string programFiles = env("ProgramFiles");
     if (programFiles.empty()) programFiles = "C:\\Program Files";
     s.jdk.push_back({(stdfs::path(programFiles) / "Android" / "Android Studio" / "jbr").string(), "Android Studio"});
-    s.jdk.push_back({(stdfs::path(programFiles) / "Unity" / "Hub" / "Editor" / "*" / "Editor" / "Data" / "PlaybackEngines" / "AndroidPlayer" / "OpenJDK").string(), "Unity Hub"});
-    if (auto local = env("LOCALAPPDATA"); !local.empty()) s.sdk.push_back({(stdfs::path(local) / "Android" / "Sdk").string(), "default location"});
-    s.sdk.push_back({(stdfs::path(programFiles) / "Unity" / "Hub" / "Editor" / "*" / "Editor" / "Data" / "PlaybackEngines" / "AndroidPlayer" / "SDK").string(), "Unity Hub"});
+    s.jdk.push_back({(stdfs::path(programFiles) / "Unity" / "Hub" / "Editor" / "*" / "Editor" / "Data" /
+                      "PlaybackEngines" / "AndroidPlayer" / "OpenJDK")
+                         .string(),
+                     "Unity Hub"});
+    if (auto local = env("LOCALAPPDATA"); !local.empty())
+        s.sdk.push_back({(stdfs::path(local) / "Android" / "Sdk").string(), "default location"});
+    s.sdk.push_back({(stdfs::path(programFiles) / "Unity" / "Hub" / "Editor" / "*" / "Editor" / "Data" /
+                      "PlaybackEngines" / "AndroidPlayer" / "SDK")
+                         .string(),
+                     "Unity Hub"});
 #else
     s.jdk.push_back({"/opt/android-studio/jbr", "Android Studio"});
     if (!home.empty()) s.jdk.push_back({under("android-studio/jbr"), "Android Studio"});
     s.jdk.push_back({"/snap/android-studio/current/android-studio/jbr", "Android Studio"});
-    if (!home.empty()) s.jdk.push_back({under("Unity/Hub/Editor/*/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK"), "Unity Hub"});
+    if (!home.empty())
+        s.jdk.push_back({under("Unity/Hub/Editor/*/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK"), "Unity Hub"});
     if (!home.empty()) s.sdk.push_back({under("Android/Sdk"), "default location"});
-    if (!home.empty()) s.sdk.push_back({under("Unity/Hub/Editor/*/Editor/Data/PlaybackEngines/AndroidPlayer/SDK"), "Unity Hub"});
+    if (!home.empty())
+        s.sdk.push_back({under("Unity/Hub/Editor/*/Editor/Data/PlaybackEngines/AndroidPlayer/SDK"), "Unity Hub"});
 #endif
     return s;
 }
@@ -1412,7 +1571,8 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
             tc.jdkFrom = pick.chosen->from;
             tc.jdkMajor = pick.chosenMajor;
             for (const std::string& w : pick.explicitIssues)
-                tc.warnings.push_back(w + " Using the " + pick.chosen->from + " JDK at '" + pick.chosen->path + "' instead.");
+                tc.warnings.push_back(w + " Using the " + pick.chosen->from + " JDK at '" + pick.chosen->path +
+                                      "' instead.");
         } else {
             tc.problems = pick.explicitIssues;
             if (pick.unusable) {
@@ -1420,13 +1580,17 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
                 tc.jdkFrom = pick.unusable->from;
                 tc.jdkMajor = pick.unusableMajor;
                 if (!pick.unusable->explicitEntry)
-                    tc.problems.push_back("The JDK found at '" + pick.unusable->path + "' (" + pick.unusable->from + ") is not usable: " + pick.unusableIssue);
+                    tc.problems.push_back("The JDK found at '" + pick.unusable->path + "' (" + pick.unusable->from +
+                                          ") is not usable: " + pick.unusableIssue);
             }
             tc.problems.push_back(
-                "No JDK " + std::to_string(kMinJdk) + " or newer found. Quickest: run `factoria setup android` (the command `setup.install` does the same), "
-                "which downloads a JDK and the Android SDK for you. Or install Android Studio (it bundles a JDK) or a JDK " +
-                std::to_string(kMinJdk) + "+ (https://adoptium.net), then point FactorIA at it: " + editor + ", \"android\": {\"jdk\": \"<folder>\"} in " +
-                configFile + ", or the JAVA_HOME environment variable. The folder is the one that contains bin/java and release.");
+                "No JDK " + std::to_string(kMinJdk) +
+                " or newer found. Quickest: run `factoria setup android` (the command `setup.install` does the same), "
+                "which downloads a JDK and the Android SDK for you. Or install Android Studio (it bundles a JDK) or a "
+                "JDK " +
+                std::to_string(kMinJdk) + "+ (https://adoptium.net), then point FactorIA at it: " + editor +
+                ", \"android\": {\"jdk\": \"<folder>\"} in " + configFile +
+                ", or the JAVA_HOME environment variable. The folder is the one that contains bin/java and release.");
         }
     }
 
@@ -1440,30 +1604,40 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
         add_explicit(entries, expand_home(env("ANDROID_SDK_ROOT"), env), "ANDROID_SDK_ROOT", "ANDROID_SDK_ROOT",
                      "Fix or unset ANDROID_SDK_ROOT, or choose the SDK in " + editor + ".");
         add_candidates(entries, search.sdk);
-        const Pick pick = pick_entry(entries, [](const std::string& dir, int&, bool& exists) { return sdk_issue(dir, exists); });
+        const Pick pick =
+            pick_entry(entries, [](const std::string& dir, int&, bool& exists) { return sdk_issue(dir, exists); });
         if (pick.chosen) {
             tc.sdk = pick.chosen->path;
             tc.sdkFrom = pick.chosen->from;
             for (const std::string& w : pick.explicitIssues)
-                tc.warnings.push_back(w + " Using the SDK at '" + pick.chosen->path + "' (" + pick.chosen->from + ") instead.");
+                tc.warnings.push_back(w + " Using the SDK at '" + pick.chosen->path + "' (" + pick.chosen->from +
+                                      ") instead.");
             if (!is_file(stdfs::path(pick.chosen->path) / "licenses" / "android-sdk-license"))
                 tc.warnings.push_back(
-                    "The Android SDK at '" + pick.chosen->path + "' has no accepted license (licenses/android-sdk-license): Gradle cannot download a "
-                    "missing SDK platform until you accept the licenses. Run `factoria setup android` (it shows the license and records it once you "
-                    "agree), `sdkmanager --licenses` (cmdline-tools/<revision>/bin) or open Android Studio's SDK Manager.");
+                    "The Android SDK at '" + pick.chosen->path +
+                    "' has no accepted license (licenses/android-sdk-license): Gradle cannot download a "
+                    "missing SDK platform until you accept the licenses. Run `factoria setup android` (it shows the "
+                    "license and records it once you "
+                    "agree), `sdkmanager --licenses` (cmdline-tools/<revision>/bin) or open Android Studio's SDK "
+                    "Manager.");
         } else {
             tc.problems.insert(tc.problems.end(), pick.explicitIssues.begin(), pick.explicitIssues.end());
             if (pick.unusable) {
                 tc.sdk = pick.unusable->path;
                 tc.sdkFrom = pick.unusable->from;
                 if (!pick.unusable->explicitEntry)
-                    tc.problems.push_back("The folder found at '" + pick.unusable->path + "' (" + pick.unusable->from + ") is not usable: " + pick.unusableIssue);
+                    tc.problems.push_back("The folder found at '" + pick.unusable->path + "' (" + pick.unusable->from +
+                                          ") is not usable: " + pick.unusableIssue);
             }
-            tc.problems.push_back(
-                "No Android SDK found. Quickest: run `factoria setup android` (the command `setup.install` does the same), which downloads the SDK "
-                "and a JDK for you. Or install Android Studio (its SDK Manager downloads the SDK) or the command-line tools "
-                "(https://developer.android.com/studio#command-line-tools-only, then `sdkmanager \"platform-tools\"`), then point FactorIA at the "
-                "SDK folder: " + editor + ", \"android\": {\"sdk\": \"<folder>\"} in " + configFile + ", or the ANDROID_HOME environment variable.");
+            tc.problems.push_back("No Android SDK found. Quickest: run `factoria setup android` (the command "
+                                  "`setup.install` does the same), which downloads the SDK "
+                                  "and a JDK for you. Or install Android Studio (its SDK Manager downloads the SDK) or "
+                                  "the command-line tools "
+                                  "(https://developer.android.com/studio#command-line-tools-only, then `sdkmanager "
+                                  "\"platform-tools\"`), then point FactorIA at the "
+                                  "SDK folder: " +
+                                  editor + ", \"android\": {\"sdk\": \"<folder>\"} in " + configFile +
+                                  ", or the ANDROID_HOME environment variable.");
         }
     }
     return tc;

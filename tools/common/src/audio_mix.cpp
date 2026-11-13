@@ -6,7 +6,8 @@
 
 namespace fa::audio_mix {
 
-const char* const kBandNames[kBands] = {"31 Hz", "63 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"};
+const char* const kBandNames[kBands] = {"31 Hz", "63 Hz", "125 Hz", "250 Hz", "500 Hz",
+                                        "1 kHz", "2 kHz", "4 kHz",  "8 kHz",  "16 kHz"};
 
 namespace {
 
@@ -86,7 +87,8 @@ double true_peak(const std::vector<float>& x, double samplePeak) {
             for (int j = -kHalf + 1; j <= kHalf; ++j) {
                 const double d = double(j) - double(p) / 4.0;
                 const double sinc = std::sin(kPi * d) / (kPi * d);
-                t[std::size_t(p - 1)][std::size_t(j + kHalf - 1)] = sinc * 0.5 * (1.0 + std::cos(kPi * d / double(kHalf)));
+                t[std::size_t(p - 1)][std::size_t(j + kHalf - 1)] =
+                    sinc * 0.5 * (1.0 + std::cos(kPi * d / double(kHalf)));
             }
         return t;
     }();
@@ -171,14 +173,16 @@ Metrics measure(const DecodedAudio& audio, const std::optional<LoopPoints>& loop
         // Floors keep a clip of near silence from turning rounding noise into a huge ratio.
         const double stepFloor = std::max(rmsD, 1e-4), slopeFloor = std::max(rmsD2, 1e-5);
         if (frames >= 4) {
-            const double fs = std::fabs(double(x[1]) - double(x[0])), ls = std::fabs(double(x[frames - 1]) - double(x[frames - 2]));
+            const double fs = std::fabs(double(x[1]) - double(x[0])),
+                         ls = std::fabs(double(x[frames - 1]) - double(x[frames - 2]));
             if (std::max(fs, ls) / stepFloor > bestStepRatio) {
                 bestStepRatio = std::max(fs, ls) / stepFloor;
                 m.firstStep = fs;
                 m.lastStep = ls;
             }
             const double jump = std::fabs(double(x[seamFirst]) - double(x[seamEnd - 1]));
-            const double slope = std::fabs((double(x[seamFirst + 1]) - double(x[seamFirst])) - (double(x[seamEnd - 1]) - double(x[seamEnd - 2])));
+            const double slope = std::fabs((double(x[seamFirst + 1]) - double(x[seamFirst])) -
+                                           (double(x[seamEnd - 1]) - double(x[seamEnd - 2])));
             if (jump / stepFloor > m.seamJumpRatio) {
                 m.seamJumpRatio = jump / stepFloor;
                 m.seamJump = jump;
@@ -207,7 +211,8 @@ Metrics measure(const DecodedAudio& audio, const std::optional<LoopPoints>& loop
     if (count <= 400) {
         for (std::size_t i = 0; i < count; ++i) starts.push_back(i * hop);
     } else {
-        for (std::size_t i = 0; i < 400; ++i) starts.push_back(std::size_t(double(i) * double(count - 1) / 399.0) * hop);
+        for (std::size_t i = 0; i < 400; ++i)
+            starts.push_back(std::size_t(double(i) * double(count - 1) / 399.0) * hop);
     }
     std::vector<double> re(n), im(n);
     std::vector<std::vector<double>> framePower;  // per frame: power per band
@@ -265,12 +270,16 @@ Spectrogram spectrogram(const DecodedAudio& audio, int columns, int rows) {
     for (double v : w) sumW += v;
     const std::vector<float> mid = mid_of(audio);
     const double df = double(audio.rate) / double(n);
-    struct Row { std::size_t k0, k1; double pos; };  // bins covered by a row; pos = its centre in bins
+    struct Row {
+        std::size_t k0, k1;
+        double pos;
+    };  // bins covered by a row; pos = its centre in bins
     std::vector<Row> rowBins(std::size_t(s.rows));
     for (int r = 0; r < s.rows; ++r) {
         auto freq = [&](double edge) { return s.minHz * std::pow(s.maxHz / s.minHz, 1.0 - edge / double(s.rows)); };
         const double lo = freq(double(r) + 1.0), hi = freq(double(r)), mid_f = freq(double(r) + 0.5);
-        rowBins[std::size_t(r)] = {std::size_t(std::max(1.0, std::floor(lo / df))), std::size_t(std::min(double(n / 2 - 1), std::ceil(hi / df))), mid_f / df};
+        rowBins[std::size_t(r)] = {std::size_t(std::max(1.0, std::floor(lo / df))),
+                                   std::size_t(std::min(double(n / 2 - 1), std::ceil(hi / df))), mid_f / df};
     }
     std::vector<double> re(n), im(n), amp(n / 2);
     for (int c = 0; c < s.columns; ++c) {

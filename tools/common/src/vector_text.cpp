@@ -6,9 +6,11 @@
 
 namespace fa::vec {
 
-Result<Path> build_text(const std::string& text, const std::string& font, double size, P at, const std::string& anchor, double letterSpacing,
-                        double lineSpacing, TextMetrics* metrics) {
-    const TextAnchor a = anchor == "middle" ? TextAnchor::Middle : anchor == "end" ? TextAnchor::End : TextAnchor::Start;
+Result<Path> build_text(const std::string& text, const std::string& font, double size, P at, const std::string& anchor,
+                        double letterSpacing, double lineSpacing, TextMetrics* metrics) {
+    const TextAnchor a = anchor == "middle" ? TextAnchor::Middle
+                         : anchor == "end"  ? TextAnchor::End
+                                            : TextAnchor::Start;
     auto outline = outline_text(text, font, float(size), a, float(letterSpacing), float(lineSpacing));
     if (!outline) return outline.error();
     Path path;
@@ -77,8 +79,9 @@ Result<Path> build_text(const std::string& text, const std::string& font, double
 
 namespace fa {
 
-Result<std::string> vector_text_path(const std::string& text, const std::string& font, double size, VecPoint at, const std::string& anchor,
-                                     double letterSpacing, int decimals, double* advance, int* glyphs) {
+Result<std::string> vector_text_path(const std::string& text, const std::string& font, double size, VecPoint at,
+                                     const std::string& anchor, double letterSpacing, int decimals, double* advance,
+                                     int* glyphs) {
     vec::TextMetrics m;
     auto path = vec::build_text(text, font, size, {at.x, at.y}, anchor, letterSpacing, 1.0, &m);
     if (!path) return path.error();

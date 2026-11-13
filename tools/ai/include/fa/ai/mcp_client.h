@@ -34,9 +34,9 @@ struct McpCallResult {
 };
 
 struct McpOptions {
-    HttpTransport transport;            // empty = http_request (tests inject a fake server)
-    const CancelFlag* cancel = nullptr; // set to true: a running call stops waiting
-    double connectTimeoutSeconds = 30;  // initialize and tools/list
+    HttpTransport transport;             // empty = http_request (tests inject a fake server)
+    const CancelFlag* cancel = nullptr;  // set to true: a running call stops waiting
+    double connectTimeoutSeconds = 30;   // initialize and tools/list
     std::string clientVersion = "dev";
 };
 

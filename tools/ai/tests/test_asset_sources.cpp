@@ -20,8 +20,8 @@ TEST_CASE("asset_site_host: a web address or a bare domain becomes the host; any
     CHECK(asset_site_host("user@fonts.google.com") == "fonts.google.com");
     CHECK(asset_site_host("localhost:3000") == "localhost");
     CHECK(asset_site_host("example.com.") == "example.com");
-    for (const char* bad : {"", "   ", "not a site", "opengameart", "a..b", "-a.com", "a-.com", "http://", "://x.com", "exa$mple.com",
-                            "host:port.com", "https:/x.com"})
+    for (const char* bad : {"", "   ", "not a site", "opengameart", "a..b", "-a.com", "a-.com", "http://", "://x.com",
+                            "exa$mple.com", "host:port.com", "https:/x.com"})
         CHECK_MESSAGE(asset_site_host(bad).empty(), bad);
 }
 
@@ -30,9 +30,10 @@ TEST_CASE("assetSources: the schema takes strings and objects and rejects typos;
         "images": [{"url": "https://opengameart.org", "note": "CC0 packs"}, "kenney.nl"],
         "models": ["poly.pizza"], "audio": [{"url": "freesound.org"}], "fonts": [], "onlyListed": true}})");
     CHECK(validate_config_json(good).empty());
-    for (const char* bad : {R"({"assetSources": {"image": []}})", R"({"assetSources": {"images": [{"link": "x.com"}]}})",
-                            R"({"assetSources": {"images": [{"url": ""}]}})", R"({"assetSources": {"onlyListed": "yes"}})",
-                            R"({"assetSources": {"images": "kenney.nl"}})", R"({"assetSources": {"images": [3]}})"})
+    for (const char* bad :
+         {R"({"assetSources": {"image": []}})", R"({"assetSources": {"images": [{"link": "x.com"}]}})",
+          R"({"assetSources": {"images": [{"url": ""}]}})", R"({"assetSources": {"onlyListed": "yes"}})",
+          R"({"assetSources": {"images": "kenney.nl"}})", R"({"assetSources": {"images": [3]}})"})
         CHECK_MESSAGE(!validate_config_json(Json::parse(bad)).empty(), bad);
 
     auto cfg = parse_config(good);
@@ -47,7 +48,8 @@ TEST_CASE("assetSources: the schema takes strings and objects and rejects typos;
     CHECK(cfg->assetSources.audio.size() == 1);
     CHECK(cfg->assetSources.fonts.empty());
     CHECK(cfg->assetSources.other.empty());
-    CHECK(asset_source_hosts(cfg->assetSources) == std::vector<std::string>{"opengameart.org", "kenney.nl", "poly.pizza", "freesound.org"});
+    CHECK(asset_source_hosts(cfg->assetSources) ==
+          std::vector<std::string>{"opengameart.org", "kenney.nl", "poly.pizza", "freesound.org"});
 
     auto back = parse_config(config_to_json(*cfg));
     REQUIRE(back);
@@ -63,7 +65,8 @@ TEST_CASE("assetSources: the schema takes strings and objects and rejects typos;
 }
 
 TEST_CASE("assetSources: an entry that is not a web address says where, why and how to fix it") {
-    auto bad = parse_config(Json::parse(R"({"assetSources": {"audio": ["freesound.org", {"url": "not a site"}]}})"), "ai.json");
+    auto bad = parse_config(Json::parse(R"({"assetSources": {"audio": ["freesound.org", {"url": "not a site"}]}})"),
+                            "ai.json");
     REQUIRE_FALSE(bad);
     CHECK(has(bad.error().message, "ai.json"));
     CHECK(has(bad.error().message, "/assetSources/audio/1/url"));
@@ -123,7 +126,8 @@ TEST_CASE("save_asset_settings: rewrites assets and assetSources, keeps every ot
     CHECK(cleared["limits"]["maxTurns"] == 7);
 }
 
-TEST_CASE("save_asset_settings: creates the file, a key is written and removed, a local program gets its provider entry") {
+TEST_CASE(
+    "save_asset_settings: creates the file, a key is written and removed, a local program gets its provider entry") {
     TempDir dir;
     const std::string file = (dir.path / "sub" / "ai.json").string();  // neither the folder nor the file exist
     AssetSettings s;
@@ -149,7 +153,8 @@ TEST_CASE("save_asset_settings: creates the file, a key is written and removed, 
     REQUIRE(resolve_asset_target(*loaded, MediaKind::Image));
 #ifndef _WIN32
     const auto perms = std::filesystem::status(file).permissions();
-    CHECK((perms & (std::filesystem::perms::group_all | std::filesystem::perms::others_all)) == std::filesystem::perms::none);
+    CHECK((perms & (std::filesystem::perms::group_all | std::filesystem::perms::others_all)) ==
+          std::filesystem::perms::none);
     CHECK_FALSE(has(loaded->warnings.empty() ? std::string() : loaded->warnings[0], "readable by other users"));
 #endif
     // the redacted view never shows it
@@ -160,7 +165,8 @@ TEST_CASE("save_asset_settings: creates the file, a key is written and removed, 
     again.routes = s.routes;
     again.providers["comfy"] = AssetProviderEdit{};
     REQUIRE(save_asset_settings(again, file));
-    CHECK(Json::parse(*fs::read_text(file))["providers"]["elevenlabs"]["apiKey"] == "sk-test-key-for-unit-tests-0123456789");
+    CHECK(Json::parse(*fs::read_text(file))["providers"]["elevenlabs"]["apiKey"] ==
+          "sk-test-key-for-unit-tests-0123456789");
     AssetSettings remove;
     remove.routes = s.routes;
     AssetProviderEdit clear;
@@ -211,7 +217,8 @@ TEST_CASE("asset_sources_prompt: the sites per category and the rule, with and w
     CHECK(has(only, "sourceUrl"));
 }
 
-TEST_CASE("build_system_prompt: the roles that bring assets in get the sites; the critics and reviewers do not; none configured = no section") {
+TEST_CASE("build_system_prompt: the roles that bring assets in get the sites; the critics and reviewers do not; none "
+          "configured = no section") {
     TempDir dir;
     std::ofstream(dir.path / "factoria.json") << R"({"name":"g"})";
     AssetSources s;
@@ -250,9 +257,10 @@ TEST_CASE("Claude Code: the listed sites become WebFetch rules, onlyListed also 
     // the sites are allowed (in the --allowedTools list the argv already has); WebSearch stays available
     auto prefer = base;
     apply_role_restrictions(ProviderKind::ClaudeCode, true, req, prefer);
-    CHECK(prefer == std::vector<std::string>{"-p", "--allowedTools",
-                                             "mcp__factoria,WebFetch(domain:opengameart.org),WebFetch(domain:www.opengameart.org)",
-                                             "--permission-mode", "acceptEdits", "--disallowedTools", "Agent,Task"});
+    CHECK(prefer == std::vector<std::string>{
+                        "-p", "--allowedTools",
+                        "mcp__factoria,WebFetch(domain:opengameart.org),WebFetch(domain:www.opengameart.org)",
+                        "--permission-mode", "acceptEdits", "--disallowedTools", "Agent,Task"});
 
     req.webOnlyListed = true;
     auto only = base;
@@ -282,7 +290,8 @@ TEST_CASE("Claude Code: the listed sites become WebFetch rules, onlyListed also 
     CHECK(codex == base);
 }
 
-TEST_CASE("assets.generate_*: the no_provider hint points at the editor's AI settings; asset_default_model names the defaults") {
+TEST_CASE("assets.generate_*: the no_provider hint points at the editor's AI settings; asset_default_model names the "
+          "defaults") {
     AiConfig cfg = default_config();
     auto target = resolve_asset_target(cfg, MediaKind::Image);
     REQUIRE_FALSE(target);
@@ -297,7 +306,8 @@ TEST_CASE("assets.generate_*: the no_provider hint points at the editor's AI set
 }
 
 TEST_CASE("split_args and join_args round-trip the asset-command arguments line") {
-    CHECK(split_args("--prompt {prompt} --out {output}") == std::vector<std::string>{"--prompt", "{prompt}", "--out", "{output}"});
+    CHECK(split_args("--prompt {prompt} --out {output}") ==
+          std::vector<std::string>{"--prompt", "{prompt}", "--out", "{output}"});
     CHECK(split_args("  a   \"b c\" \"\" d\\e ") == std::vector<std::string>{"a", "b c", "", "d\\e"});
     CHECK(split_args("").empty());
     const std::vector<std::string> tricky{"plain", "with space", "", "quo\"te", "back\\slash", "{prompt}"};

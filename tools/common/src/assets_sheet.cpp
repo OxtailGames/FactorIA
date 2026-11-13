@@ -35,8 +35,8 @@ const std::uint8_t* px(const Image& img, int x, int y) { return &img.rgba[(std::
 std::uint8_t* px(Image& img, int x, int y) { return &img.rgba[(std::size_t(y) * img.width + x) * 4]; }
 
 bool near_color(const std::uint8_t* p, const std::array<std::uint8_t, 3>& c) {
-    return p[3] == 255 && std::abs(int(p[0]) - c[0]) <= kBackgroundTolerance && std::abs(int(p[1]) - c[1]) <= kBackgroundTolerance &&
-           std::abs(int(p[2]) - c[2]) <= kBackgroundTolerance;
+    return p[3] == 255 && std::abs(int(p[0]) - c[0]) <= kBackgroundTolerance &&
+           std::abs(int(p[1]) - c[1]) <= kBackgroundTolerance && std::abs(int(p[2]) - c[2]) <= kBackgroundTolerance;
 }
 
 // Makes the solid background that touches the corners transparent (flood fill: the same colour inside a sprite stays).
@@ -116,7 +116,8 @@ void merge_overlapping(std::vector<Rect>& rects) {
 
 // Rows from the top, left to right inside a row: a sprite joins the current row while it starts above the row's bottom.
 std::vector<std::vector<Rect>> group_rows(std::vector<Rect> rects) {
-    std::sort(rects.begin(), rects.end(), [](const Rect& a, const Rect& b) { return a.y0 != b.y0 ? a.y0 < b.y0 : a.x0 < b.x0; });
+    std::sort(rects.begin(), rects.end(),
+              [](const Rect& a, const Rect& b) { return a.y0 != b.y0 ? a.y0 < b.y0 : a.x0 < b.x0; });
     std::vector<std::vector<Rect>> rows;
     int bottom = 0;
     for (const Rect& r : rects) {
@@ -144,17 +145,23 @@ struct Grid {
 
 }  // namespace
 
-Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips,
-                 int padding, std::optional<std::array<double, 2>> pivot) {
-    Json sheet = Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameWidth},
-                               {"frameHeight", frameHeight}, {"frames", frames}});
+Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames,
+                 const std::vector<SheetClip>& clips, int padding, std::optional<std::array<double, 2>> pivot) {
+    Json sheet = Json::object({{"columns", columns},
+                               {"rows", rows},
+                               {"frameWidth", frameWidth},
+                               {"frameHeight", frameHeight},
+                               {"frames", frames}});
     if (padding > 0) sheet["padding"] = padding;
     if (pivot) sheet["pivot"] = Json::array({(*pivot)[0], (*pivot)[1]});
     if (!clips.empty()) {
         Json list = Json::array();
         for (const SheetClip& c : clips) {
-            Json clip = Json::object({{"name", c.name}, {"firstFrame", c.firstFrame}, {"lastFrame", c.lastFrame},
-                                      {"fps", c.fps}, {"loop", c.loop}});
+            Json clip = Json::object({{"name", c.name},
+                                      {"firstFrame", c.firstFrame},
+                                      {"lastFrame", c.lastFrame},
+                                      {"fps", c.fps},
+                                      {"loop", c.loop}});
             if (c.pivot) clip["pivot"] = Json::array({(*c.pivot)[0], (*c.pivot)[1]});
             list.push_back(clip);
         }
@@ -165,24 +172,35 @@ Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int fra
 
 std::vector<std::string> sheet_next_steps(const std::string& texture, const Json& sheet, double fps) {
     const int frames = sheet.value("frames", 1);
-    std::vector<std::string> steps = {
-        std::format("Draw it: a Sprite with \"texture\": \"{}\" (leave region and size empty: SpriteAnimator sets the region, and the "
-                    "frame size is the sprite size).", texture),
-        std::format("Play all of it: a SpriteAnimator with {{\"columns\": {}, \"rows\": {}, \"firstFrame\": 0, \"lastFrame\": {}, "
-                    "\"fps\": {}}}.", sheet.value("columns", 1), sheet.value("rows", 1), frames - 1, fps)};
+    std::vector<std::string> steps = {std::format("Draw it: a Sprite with \"texture\": \"{}\" (leave region and size "
+                                                  "empty: SpriteAnimator sets the region, and the "
+                                                  "frame size is the sprite size).",
+                                                  texture),
+                                      std::format("Play all of it: a SpriteAnimator with {{\"columns\": {}, \"rows\": "
+                                                  "{}, \"firstFrame\": 0, \"lastFrame\": {}, "
+                                                  "\"fps\": {}}}.",
+                                                  sheet.value("columns", 1), sheet.value("rows", 1), frames - 1, fps)};
     if (sheet.contains("clips") && !sheet["clips"].empty()) {
         std::string names, numeric;
         for (const Json& c : sheet["clips"]) {
             names += std::format("{}\"{}\"", names.empty() ? "" : ", ", c.value("name", ""));
-            numeric += std::format("{}{} = firstFrame {}, lastFrame {}, fps {}", numeric.empty() ? "" : "; ", c.value("name", ""),
-                                   c.value("firstFrame", 0), c.value("lastFrame", 0), c.value("fps", 10.0));
+            numeric += std::format("{}{} = firstFrame {}, lastFrame {}, fps {}", numeric.empty() ? "" : "; ",
+                                   c.value("name", ""), c.value("firstFrame", 0), c.value("lastFrame", 0),
+                                   c.value("fps", 10.0));
         }
-        steps.push_back(std::format("Play one clip by name: a SpriteAnimator with \"clip\": one of {} (it takes the grid, frames, fps, loop and pivot from the `sheet` entry of assets.json), "
-                                    "and entity.spriteAnimator.play(name) from a script switches clip. The same as numbers: {}.", names, numeric));
+        steps.push_back(
+            std::format("Play one clip by name: a SpriteAnimator with \"clip\": one of {} (it takes the grid, frames, "
+                        "fps, loop and pivot from the `sheet` entry of assets.json), "
+                        "and entity.spriteAnimator.play(name) from a script switches clip. The same as numbers: {}.",
+                        names, numeric));
     }
     if (sheet.value("padding", 0) > 0)
-        steps.push_back(std::format("The cells have a {} px transparent gutter (`padding` in the sheet entry): a SpriteAnimator on this texture skips it by itself.", sheet.value("padding", 0)));
-    steps.push_back(std::format("Look at it before wiring it: assets.preview_sheet {{\"path\": \"{}\"}} draws the frames with their numbers, cell edges and pivot, and warns about empty or cut frames.", texture));
+        steps.push_back(std::format("The cells have a {} px transparent gutter (`padding` in the sheet entry): a "
+                                    "SpriteAnimator on this texture skips it by itself.",
+                                    sheet.value("padding", 0)));
+    steps.push_back(std::format("Look at it before wiring it: assets.preview_sheet {{\"path\": \"{}\"}} draws the "
+                                "frames with their numbers, cell edges and pivot, and warns about empty or cut frames.",
+                                texture));
     return steps;
 }
 
@@ -190,7 +208,8 @@ std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& imag
     if (image.empty()) return std::nullopt;
     const std::uint8_t* first = px(image, 0, 0);
     const std::array<std::uint8_t, 3> color = {first[0], first[1], first[2]};
-    for (const auto& [x, y] : {std::pair{image.width - 1, 0}, std::pair{0, image.height - 1}, std::pair{image.width - 1, image.height - 1}})
+    for (const auto& [x, y] :
+         {std::pair{image.width - 1, 0}, std::pair{0, image.height - 1}, std::pair{image.width - 1, image.height - 1}})
         if (!near_color(px(image, x, y), color)) return std::nullopt;
     return near_color(first, color) ? std::optional(color) : std::nullopt;
 }
@@ -203,7 +222,8 @@ Image read_image(const std::string& projectDir, const std::string& rel) {
     const stdfs::path file = project_file(projectDir, rel);
     std::error_code ec;
     if (!stdfs::is_regular_file(file, ec))
-        fail("not_found", "'" + rel + "' does not exist.", "Use assets.list to see the images of the project, or assets.import to bring one in.");
+        fail("not_found", "'" + rel + "' does not exist.",
+             "Use assets.list to see the images of the project, or assets.import to bring one in.");
     auto image = load_image(file);
     if (!image.ok()) fail("invalid_argument", "'" + rel + "': " + image.error().message, image.error().hint);
     return std::move(*image);
@@ -226,22 +246,30 @@ Grid resolve_grid(const Image& img, const Json& a) {
     };
     for (const Axis& axis : {Axis{"columns", "frameWidth", "width", img.width, &g.columns, &g.frameWidth},
                              Axis{"rows", "frameHeight", "height", img.height, &g.rows, &g.frameHeight}}) {
-        const std::string fix = std::format("Pass {} or {} values that divide {}: {}. Or, when the frames are separated by gutters or "
-                                            "have different sizes, pass auto: true.", axis.count, axis.size, axis.total, divisors_of(axis.total));
+        const std::string fix =
+            std::format("Pass {} or {} values that divide {}: {}. Or, when the frames are separated by gutters or "
+                        "have different sizes, pass auto: true.",
+                        axis.count, axis.size, axis.total, divisors_of(axis.total));
         if (*axis.frame > 0) {
             if (axis.total % *axis.frame != 0)
-                fail("invalid_argument", std::format("{} {} does not divide the image {} ({} px): {} frames fit and {} px are left over.",
-                                                     axis.size, *axis.frame, axis.side, axis.total, axis.total / *axis.frame, axis.total % *axis.frame), fix);
+                fail("invalid_argument",
+                     std::format("{} {} does not divide the image {} ({} px): {} frames fit and {} px are left over.",
+                                 axis.size, *axis.frame, axis.side, axis.total, axis.total / *axis.frame,
+                                 axis.total % *axis.frame),
+                     fix);
             if (*axis.n > 0 && *axis.n != axis.total / *axis.frame)
-                fail("invalid_argument", std::format("{} {} and {} {} disagree: the image {} is {} px.", axis.count, *axis.n, axis.size,
-                                                     *axis.frame, axis.side, axis.total),
+                fail("invalid_argument",
+                     std::format("{} {} and {} {} disagree: the image {} is {} px.", axis.count, *axis.n, axis.size,
+                                 *axis.frame, axis.side, axis.total),
                      std::format("Give only one of {} and {}.", axis.count, axis.size));
             *axis.n = axis.total / *axis.frame;
         } else {
             if (*axis.n == 0) *axis.n = 1;
             if (axis.total % *axis.n != 0)
-                fail("invalid_argument", std::format("The image {} is {} px: it cannot be cut into {} {} ({:.1f} px each).", axis.side,
-                                                     axis.total, *axis.n, axis.count, double(axis.total) / *axis.n), fix);
+                fail("invalid_argument",
+                     std::format("The image {} is {} px: it cannot be cut into {} {} ({:.1f} px each).", axis.side,
+                                 axis.total, *axis.n, axis.count, double(axis.total) / *axis.n),
+                     fix);
             *axis.frame = axis.total / *axis.n;
         }
     }
@@ -275,18 +303,24 @@ Grid slice_auto(const Image& img, const Json& a, Image& packed, std::vector<Rect
              "Check that the image is the right one (assets.list); regenerate it if it came out empty.");
     merge_overlapping(rects);
     if (rects.size() == 1 && rects[0].width() == img.width && rects[0].height() == img.height)
-        fail("invalid_argument", "The image is one single sprite: there are no transparent gutters between frames to find.",
-             "If the frames sit on a solid background pass background: \"auto\" to make it transparent first (or regenerate the "
+        fail("invalid_argument",
+             "The image is one single sprite: there are no transparent gutters between frames to find.",
+             "If the frames sit on a solid background pass background: \"auto\" to make it transparent first (or "
+             "regenerate the "
              "image with transparent: true); if it is a regular grid, pass columns and rows instead of auto.");
     const int expected = int(tooling_detail::arg_int(a, "frames", 0));
     if (expected > 0 && int(rects.size()) != expected) {
         std::string list;
         for (std::size_t i = 0; i < rects.size() && i < 12; ++i)
-            list += std::format("{}[x {}, y {}, {}x{}]", list.empty() ? "" : ", ", rects[i].x0, rects[i].y0, rects[i].width(), rects[i].height());
-        fail("invalid_argument", std::format("Found {} sprites but frames is {}. Found: {}{}.", rects.size(), expected, list, rects.size() > 12 ? ", ..." : ""),
+            list += std::format("{}[x {}, y {}, {}x{}]", list.empty() ? "" : ", ", rects[i].x0, rects[i].y0,
+                                rects[i].width(), rects[i].height());
+        fail("invalid_argument",
+             std::format("Found {} sprites but frames is {}. Found: {}{}.", rects.size(), expected, list,
+                         rects.size() > 12 ? ", ..." : ""),
              rects.size() > size_t(expected)
                  ? "Specks or stray pixels count as sprites; clean the image, or drop `frames` to take what is found."
-                 : "Sprites that touch or overlap are one frame; leave a transparent gutter between them, or drop `frames`.");
+                 : "Sprites that touch or overlap are one frame; leave a transparent gutter between them, or drop "
+                   "`frames`.");
     }
     auto rows = group_rows(rects);
     rects.clear();
@@ -307,8 +341,10 @@ Grid slice_auto(const Image& img, const Json& a, Image& packed, std::vector<Rect
     g.frameWidth = cellW;
     g.frameHeight = cellH;
     if (std::size_t(g.columns) * cellW > kMaxSide || std::size_t(g.rows) * cellH > kMaxSide)
-        fail("invalid_argument", std::format("The repacked sheet would be {}x{} px ({} frames of {}x{}), more than the {} px a texture can have.",
-                                             g.columns * cellW, g.rows * cellH, rects.size(), cellW, cellH, kMaxSide),
+        fail("invalid_argument",
+             std::format(
+                 "The repacked sheet would be {}x{} px ({} frames of {}x{}), more than the {} px a texture can have.",
+                 g.columns * cellW, g.rows * cellH, rects.size(), cellW, cellH, kMaxSide),
              "The largest sprite sets the frame size: remove an oversized sprite, or scale the image down first.");
     const bool bottom = a.value("align", std::string("center")) == "bottom";
     packed.width = g.columns * cellW;
@@ -327,12 +363,16 @@ Grid slice_auto(const Image& img, const Json& a, Image& packed, std::vector<Rect
 Json slice_sheet(const std::string& projectDir, const Json& a) {
     const std::string pathArg = tooling_detail::arg_string(a, "path", true);
     auto path = fs::normalize_checked(pathArg);
-    if (!path.ok() || path->empty()) fail("invalid_argument", "Invalid path '" + pathArg + "'.", "Use a project-relative path such as \"assets/hero.png\".");
+    if (!path.ok() || path->empty())
+        fail("invalid_argument", "Invalid path '" + pathArg + "'.",
+             "Use a project-relative path such as \"assets/hero.png\".");
     const bool autoMode = tooling_detail::arg_bool(a, "auto", false);
     const std::string background = a.value("background", std::string("none"));
     if (autoMode && (a.contains("rows") || a.contains("frameWidth") || a.contains("frameHeight")))
-        fail("invalid_argument", "`rows`, `frameWidth` and `frameHeight` describe a grid; auto: true finds the frames itself.",
-             "Drop them, or drop auto. `columns` and `frames` (the number of sprites you expect) are allowed with auto.");
+        fail("invalid_argument",
+             "`rows`, `frameWidth` and `frameHeight` describe a grid; auto: true finds the frames itself.",
+             "Drop them, or drop auto. `columns` and `frames` (the number of sprites you expect) are allowed with "
+             "auto.");
     require_usable_manifest(projectDir);
 
     Image image = read_image(projectDir, *path);
@@ -344,8 +384,11 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
             cleared = clear_background(image, *color);
             changed = true;
         } else if (px(image, 0, 0)[3] != 0 || px(image, image.width - 1, 0)[3] != 0) {
-            fail("invalid_argument", "background \"auto\" needs the four corners of the image to be the same opaque colour, and they are not.",
-                 "Remove the background in an image editor, or regenerate the image with transparent: true. A plain white or "
+            fail("invalid_argument",
+                 "background \"auto\" needs the four corners of the image to be the same opaque colour, and they are "
+                 "not.",
+                 "Remove the background in an image editor, or regenerate the image with transparent: true. A plain "
+                 "white or "
                  "green-screen background must be the same colour in all four corners.");
         } else {
             warnings.push_back("The corners are already transparent: the background was left as it is.");
@@ -365,25 +408,32 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
     const int available = grid.columns * grid.rows;
     const int frames = autoMode ? int(rects.size()) : int(tooling_detail::arg_int(a, "frames", available));
     if (frames < 1 || frames > available)
-        fail("invalid_argument", std::format("frames is {} but a {} x {} grid has {} cells.", frames, grid.columns, grid.rows, available),
+        fail("invalid_argument",
+             std::format("frames is {} but a {} x {} grid has {} cells.", frames, grid.columns, grid.rows, available),
              "frames counts the used cells, row by row from the top-left: 1.." + std::to_string(available) + ".");
     if (!autoMode)
         if (auto empty = empty_frames(image, grid, frames); !empty.empty())
-            warnings.push_back(std::format("{} of the {} frames are empty (frames {}): the grid or `frames` may be wrong.", empty.size(), frames, list_numbers(empty)));
+            warnings.push_back(
+                std::format("{} of the {} frames are empty (frames {}): the grid or `frames` may be wrong.",
+                            empty.size(), frames, list_numbers(empty)));
     if (std::max(sheetImage.width, sheetImage.height) > 4096)
-        warnings.push_back(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.", sheetImage.width, sheetImage.height));
+        warnings.push_back(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.",
+                                       sheetImage.width, sheetImage.height));
 
     // Where the sheet is: the image itself, or a new PNG when the pixels changed (or `out` asks for one).
     std::string target = *path;
     if (changed || a.contains("out")) {
-        const std::string defaultOut = (stdfs::path(*path).parent_path() / (stdfs::path(*path).stem().string() + "_sheet.png")).generic_string();
+        const std::string defaultOut =
+            (stdfs::path(*path).parent_path() / (stdfs::path(*path).stem().string() + "_sheet.png")).generic_string();
         auto out = fs::normalize_checked(tooling_detail::arg_string(a, "out", false, defaultOut));
         if (!out.ok() || out->empty() || to_lower(fs::extension(*out)) != ".png")
-            fail("invalid_argument", "`out` must be a project-relative .png path.", "For example \"assets/hero_sheet.png\".");
+            fail("invalid_argument", "`out` must be a project-relative .png path.",
+                 "For example \"assets/hero_sheet.png\".");
         (void)project_write_file(projectDir, *out);  // refused before the PNG is encoded: managed folders, links out
         const auto png = encode_png(sheetImage);
         std::string err;
-        if (!tooling_detail::write_file(project_write_file(projectDir, *out), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, *out),
+                                        std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
             fail("failed", err);
         target = *out;
     }
@@ -398,13 +448,17 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
         Json recipe;
         if (target == *path) {
             if (changed || a.contains("out"))
-                warnings.push_back("'" + *path + "' was replaced by its own sliced version, so no recipe was recorded (the original image is gone). Slice into another file with `out` to keep it regenerable.");
+                warnings.push_back("'" + *path +
+                                   "' was replaced by its own sliced version, so no recipe was recorded (the original "
+                                   "image is gone). Slice into another file with `out` to keep it regenerable.");
         } else if (provenance.is_object()) {
             Json args = recipe_args(a, {{"path", *path}, {"out", target}});
             if (args.contains("fps")) args.erase("fps");  // only the result's SpriteAnimator fields use it
             recipe = make_recipe(projectDir, "assets.slice_sheet", std::move(args), {*path});
         } else {
-            warnings.push_back("'" + *path + "' has no provenance record, so '" + target + "' got none and no recipe. Record where it came from with assets.set_provenance and slice again.");
+            warnings.push_back(
+                "'" + *path + "' has no provenance record, so '" + target +
+                "' got none and no recipe. Record where it came from with assets.set_provenance and slice again.");
         }
         const bool replaced = target == *path && (changed || a.contains("out"));
         auto r = assets::update_entry(target, [&](Json& e) {
@@ -414,7 +468,8 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
             if (!provenance.is_null()) {
                 Json copy = provenance;
                 const std::string note = "Sliced from " + *path + " by assets.slice_sheet.";
-                copy["notes"] = copy.contains("notes") ? Json(copy["notes"].get<std::string>() + " " + note) : Json(note);
+                copy["notes"] =
+                    copy.contains("notes") ? Json(copy["notes"].get<std::string>() + " " + note) : Json(note);
                 copy.erase("recipe");  // the source's own recipe made the source, not this sheet
                 if (!recipe.is_null()) copy["recipe"] = recipe;
                 e["provenance"] = copy;
@@ -424,10 +479,17 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
     }
 
     const double fps = a.value("fps", 10.0);
-    Json result = Json::object({{"path", target}, {"mode", autoMode ? "auto" : "grid"}, {"written", target != *path},
-                                {"imageSize", Json::array({sheetImage.width, sheetImage.height})}, {"sheet", sheet},
-                                {"spriteAnimator", Json::object({{"columns", grid.columns}, {"rows", grid.rows}, {"firstFrame", 0},
-                                                                 {"lastFrame", frames - 1}, {"fps", fps}, {"loop", true}})}});
+    Json result = Json::object({{"path", target},
+                                {"mode", autoMode ? "auto" : "grid"},
+                                {"written", target != *path},
+                                {"imageSize", Json::array({sheetImage.width, sheetImage.height})},
+                                {"sheet", sheet},
+                                {"spriteAnimator", Json::object({{"columns", grid.columns},
+                                                                 {"rows", grid.rows},
+                                                                 {"firstFrame", 0},
+                                                                 {"lastFrame", frames - 1},
+                                                                 {"fps", fps},
+                                                                 {"loop", true}})}});
     if (autoMode) {
         Json found = Json::array();
         for (std::size_t i = 0; i < rects.size() && i < 64; ++i)
@@ -447,7 +509,8 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
     info.name = "assets.slice_sheet";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them.";
+    info.summary = "Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven "
+                   "sheet and repack them.";
     info.description =
         "SpriteAnimator plays a uniform grid of frames (columns x rows, row-major from the top-left). Two "
         "ways to get one:\n"
@@ -461,8 +524,8 @@ void register_slice_sheet_command(CommandRegistry& registry, const std::string& 
         "largest sprite's size, each centred (align \"bottom\" stands characters on the same ground line). "
         "The new PNG is `out` (default <name>_sheet.png next to the image; the source is kept). `frames` is "
         "the number of sprites you expect: a different count is an error that lists what was found. Example: "
-        "{\"path\":\"assets/hero_raw.png\",\"auto\":true,\"frames\":8,\"align\":\"bottom\",\"background\":\"auto\"}."
-        FA_COMMAND_DETAILS
+        "{\"path\":\"assets/"
+        "hero_raw.png\",\"auto\":true,\"frames\":8,\"align\":\"bottom\",\"background\":\"auto\"}." FA_COMMAND_DETAILS
         "background \"auto\" first makes a solid background transparent (the four corners must be the same "
         "opaque colour; the background that touches them is cleared, the same colour inside a sprite stays), "
         "also for a grid. The result has the `sheet`, the SpriteAnimator fields and the Sprite texture to "

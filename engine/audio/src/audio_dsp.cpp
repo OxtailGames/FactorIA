@@ -15,7 +15,9 @@ using sfx_math::sin_turns;
 
 constexpr double kPiD = 3.141592653589793;
 
-double at(const std::vector<double>& x, long long i) { return i >= 0 && i < (long long)x.size() ? x[std::size_t(i)] : 0.0; }
+double at(const std::vector<double>& x, long long i) {
+    return i >= 0 && i < (long long)x.size() ? x[std::size_t(i)] : 0.0;
+}
 
 }  // namespace
 
@@ -64,11 +66,13 @@ void audio_time_stretch(std::vector<std::vector<double>>& x, int rate, double fa
         for (std::size_t i = 0; i < n; ++i) mid[i] += c[i];
     for (double& v : mid) v /= double(x.size());
 
-    std::vector<double> window(static_cast<std::size_t>(frame));  // periodic Hann: overlapped by half it sums to exactly 1
+    std::vector<double> window(
+        static_cast<std::size_t>(frame));  // periodic Hann: overlapped by half it sums to exactly 1
     for (long long j = 0; j < frame; ++j) window[std::size_t(j)] = 0.5 - 0.5 * cos_turns(double(j) / double(frame));
 
     std::vector<std::vector<double>> out(x.size(), std::vector<double>(outLen, 0.0));
-    constexpr long long kCoarse = 4;  // the search looks at every 4th offset and sample, then refines around the best one
+    constexpr long long kCoarse =
+        4;  // the search looks at every 4th offset and sample, then refines around the best one
     const long long frames = (long long)(outLen / std::size_t(synHop)) + 2;
     long long prev = 0;
     std::vector<double> target(static_cast<std::size_t>(frame));

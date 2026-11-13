@@ -27,18 +27,23 @@ std::optional<std::string> read_file(const stdfs::path& p) {
     return ss.str();
 }
 
-std::uint64_t mix_hash(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix_hash(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 double now_ms() {
     using clock = std::chrono::steady_clock;  // UI timing only: no simulation reads it
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
-bool ends_with_(const std::string& s, const std::string& suffix) { return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0; }
+bool ends_with_(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
 std::string issues_line(const std::vector<SongIssue>& issues) {
     std::string out;
-    for (std::size_t i = 0; i < issues.size() && i < 3; ++i) out += (i ? " " : "") + issues[i].pointer + ": " + issues[i].message;
+    for (std::size_t i = 0; i < issues.size() && i < 3; ++i)
+        out += (i ? " " : "") + issues[i].pointer + ": " + issues[i].message;
     return out;
 }
 
@@ -100,9 +105,11 @@ Json MusicDrumGrid::op_fields(const SongMeter& meter) const {
 }
 
 std::optional<MusicDrumGrid> music_drum_grid(const SongPattern& pattern) {
-    if (!pattern.grid.is_object() || !pattern.grid.contains("grid") || !pattern.grid["grid"].is_object()) return std::nullopt;
+    if (!pattern.grid.is_object() || !pattern.grid.contains("grid") || !pattern.grid["grid"].is_object())
+        return std::nullopt;
     MusicDrumGrid g;
-    g.step = pattern.grid.contains("step") && pattern.grid["step"].is_string() ? pattern.grid["step"].get<std::string>() : "16";
+    g.step = pattern.grid.contains("step") && pattern.grid["step"].is_string() ? pattern.grid["step"].get<std::string>()
+                                                                               : "16";
     g.bars = std::max(1, pattern.bars);
     for (auto it = pattern.grid["grid"].begin(); it != pattern.grid["grid"].end(); ++it) {
         if (!it.value().is_string()) continue;
@@ -118,14 +125,15 @@ std::optional<MusicDrumGrid> music_drum_grid(const SongPattern& pattern) {
 
 bool music_in_scale(const SongDoc& song, int pitch) {
     const std::vector<int> pcs = song.scale_pitch_classes();
-    if (pcs.empty()) return true;   // an unknown scale highlights nothing out of key
+    if (pcs.empty()) return true;  // an unknown scale highlights nothing out of key
     const int pc = ((pitch % 12) + 12) % 12;
     return std::find(pcs.begin(), pcs.end(), pc) != pcs.end();
 }
 
 // ---- the document ---------------------------------------------------------------------------------------------------------------
 
-MusicModel::MusicModel(std::string projectDir, MusicCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+MusicModel::MusicModel(std::string projectDir, MusicCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 MusicModel::~MusicModel() {
     if (running_.valid && running_.future.valid()) running_.future.wait();
@@ -210,7 +218,8 @@ bool MusicModel::load_from_disk() {
     if (d.ok()) {
         doc_ = std::move(*d);
         auto tl = expand_song(*doc_);
-        if (tl.ok()) timeline_ = std::move(*tl);
+        if (tl.ok())
+            timeline_ = std::move(*tl);
         else {
             error_ = tl.error().message + " " + tl.error().hint;
             doc_.reset();
@@ -279,7 +288,8 @@ std::vector<std::string> MusicModel::drum_tracks() const {
     return out;
 }
 
-std::optional<double> MusicModel::pattern_tick(const MusicMap& map, double frame, const std::string& trackName, const std::string& patternName) const {
+std::optional<double> MusicModel::pattern_tick(const MusicMap& map, double frame, const std::string& trackName,
+                                               const std::string& patternName) const {
     if (!doc_ || map.barFrames <= 0.0) return std::nullopt;
     const int si = map.span_at(frame);
     if (si < 0) return std::nullopt;
@@ -362,7 +372,7 @@ MusicEditOutcome MusicModel::run(const std::string& label, const std::function<C
     MusicBlob before = read_blob(rel_);
     CommandResult r = body();
     if (!r.ok) {
-        write_blob(before);   // the command wrote nothing valid; a half-done change would not be an undo step
+        write_blob(before);  // the command wrote nothing valid; a half-done change would not be an undo step
         load_from_disk();
         return fail(out, label + ": " + command_error_text(r.error));
     }
@@ -391,10 +401,12 @@ MusicEditOutcome MusicModel::edit(const std::string& label, const Json& ops) {
     return run(label, [&] { return call_("music.edit", Json::object({{"path", rel_}, {"ops", ops}})); });
 }
 
-MusicEditOutcome MusicModel::set_notes(const std::string& trackName, const std::string& patternName, const std::vector<SongRollNote>& notes, int bars, const std::string& label) {
+MusicEditOutcome MusicModel::set_notes(const std::string& trackName, const std::string& patternName,
+                                       const std::vector<SongRollNote>& notes, int bars, const std::string& label) {
     Json list = Json::array();
     for (const SongRollNote& n : notes) {
-        Json j = Json::object({{"pitch", n.pitch}, {"tick", n.tick}, {"duration", n.duration}, {"velocity", n.velocity}});
+        Json j =
+            Json::object({{"pitch", n.pitch}, {"tick", n.tick}, {"duration", n.duration}, {"velocity", n.velocity}});
         if (n.accent) j["accent"] = true;
         if (n.staccato) j["staccato"] = true;
         list.push_back(j);
@@ -407,7 +419,8 @@ MusicEditOutcome MusicModel::set_notes(const std::string& trackName, const std::
     return edit(label, Json::array({op}));
 }
 
-MusicEditOutcome MusicModel::set_grid(const std::string& trackName, const std::string& patternName, const MusicDrumGrid& grid, const std::string& label) {
+MusicEditOutcome MusicModel::set_grid(const std::string& trackName, const std::string& patternName,
+                                      const MusicDrumGrid& grid, const std::string& label) {
     Json op = set_pattern_op(trackName, patternName);
     const SongMeter meter = doc_ ? doc_->meter : SongMeter{};
     const Json fields = grid.op_fields(meter);
@@ -415,7 +428,8 @@ MusicEditOutcome MusicModel::set_grid(const std::string& trackName, const std::s
     return edit(label, Json::array({op}));
 }
 
-MusicEditOutcome MusicModel::add_pattern(const std::string& trackName, const std::string& patternName, int bars, bool drums) {
+MusicEditOutcome MusicModel::add_pattern(const std::string& trackName, const std::string& patternName, int bars,
+                                         bool drums) {
     Json op = set_pattern_op(trackName, patternName);
     if (drums) {
         op["grid"] = Json::object({{"kick", "."}});
@@ -429,7 +443,9 @@ MusicEditOutcome MusicModel::add_pattern(const std::string& trackName, const std
 }
 
 MusicEditOutcome MusicModel::remove_pattern(const std::string& trackName, const std::string& patternName) {
-    return edit("Remove pattern " + patternName, Json::array({Json::object({{"op", "remove_pattern"}, {"track", trackName}, {"pattern", patternName}})}));
+    return edit(
+        "Remove pattern " + patternName,
+        Json::array({Json::object({{"op", "remove_pattern"}, {"track", trackName}, {"pattern", patternName}})}));
 }
 
 MusicEditOutcome MusicModel::set_track(const std::string& trackName, const Json& fields, const std::string& label) {
@@ -614,7 +630,7 @@ bool MusicModel::apply_step(int id, bool forward) {
     if (running_.valid) running_.future.wait();
     collect();
     const std::string keep = rel_;
-    rel_ = s.rel;   // write_blob writes the file the step belongs to
+    rel_ = s.rel;  // write_blob writes the file the step belongs to
     const bool ok = write_blob(forward ? s.after : s.before);
     rel_ = keep;
     if (!ok) return false;
@@ -628,8 +644,10 @@ bool MusicModel::apply_step(int id, bool forward) {
 
 void MusicModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 

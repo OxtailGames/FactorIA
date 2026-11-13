@@ -31,14 +31,14 @@ constexpr double kNear = 0.01;
 struct Camera {
     V3d eye, right, up, forward;
     bool ortho = false;
-    double focal = 1;   // pixels per unit at depth 1 (perspective) or per metre (orthographic)
+    double focal = 1;  // pixels per unit at depth 1 (perspective) or per metre (orthographic)
     double cx = 0, cy = 0;
 };
 
 struct Buffers {
     int w = 0, h = 0;
     std::vector<float> r, g, b;
-    std::vector<float> key;  // larger = closer
+    std::vector<float> key;           // larger = closer
     float bgR = 0, bgG = 0, bgB = 0;  // the background, which a hidden-line view paints surfaces with
 };
 
@@ -88,7 +88,7 @@ void draw_line(Buffers& bf, Projected a, Projected b, float r, float g, float bl
 
 struct ShadedVertex {
     Projected p;
-    V3d n;                 // view space
+    V3d n;  // view space
     float cr = 1, cg = 1, cb = 1;
 };
 
@@ -96,8 +96,10 @@ void fill_triangle(Buffers& bf, const ShadedVertex& v0, const ShadedVertex& v1, 
     const double area = (v1.p.sx - v0.p.sx) * (v2.p.sy - v0.p.sy) - (v2.p.sx - v0.p.sx) * (v1.p.sy - v0.p.sy);
     if (std::fabs(area) < 1e-12) return;
     const bool front = area < 0;  // counter-clockwise seen from the camera is clockwise with y down
-    const int x0 = std::max(0, int(std::floor(std::min({v0.p.sx, v1.p.sx, v2.p.sx})))), x1 = std::min(bf.w - 1, int(std::ceil(std::max({v0.p.sx, v1.p.sx, v2.p.sx}))));
-    const int y0 = std::max(0, int(std::floor(std::min({v0.p.sy, v1.p.sy, v2.p.sy})))), y1 = std::min(bf.h - 1, int(std::ceil(std::max({v0.p.sy, v1.p.sy, v2.p.sy}))));
+    const int x0 = std::max(0, int(std::floor(std::min({v0.p.sx, v1.p.sx, v2.p.sx})))),
+              x1 = std::min(bf.w - 1, int(std::ceil(std::max({v0.p.sx, v1.p.sx, v2.p.sx}))));
+    const int y0 = std::max(0, int(std::floor(std::min({v0.p.sy, v1.p.sy, v2.p.sy})))),
+              y1 = std::min(bf.h - 1, int(std::ceil(std::max({v0.p.sy, v1.p.sy, v2.p.sy}))));
     const double inv = 1.0 / area;
     static const V3d toLight = norm3({-0.4, 0.6, -0.7});  // view space: toward the camera, above and to the left
     for (int y = y0; y <= y1; ++y) {
@@ -118,11 +120,13 @@ void fill_triangle(Buffers& bf, const ShadedVertex& v0, const ShadedVertex& v1, 
                 bf.b[at] = bf.bgB;
                 continue;
             }
-            V3d n = norm3({w0 * v0.n.x + w1 * v1.n.x + w2 * v2.n.x, w0 * v0.n.y + w1 * v1.n.y + w2 * v2.n.y, w0 * v0.n.z + w1 * v1.n.z + w2 * v2.n.z});
+            V3d n = norm3({w0 * v0.n.x + w1 * v1.n.x + w2 * v2.n.x, w0 * v0.n.y + w1 * v1.n.y + w2 * v2.n.y,
+                           w0 * v0.n.z + w1 * v1.n.z + w2 * v2.n.z});
             if (!front) n = {-n.x, -n.y, -n.z};
             const double diffuse = std::max(0.0, dot3(n, toLight));
             const double light = 0.28 + 0.12 * n.y + 0.72 * diffuse;
-            double cr = w0 * v0.cr + w1 * v1.cr + w2 * v2.cr, cg = w0 * v0.cg + w1 * v1.cg + w2 * v2.cg, cb = w0 * v0.cb + w1 * v1.cb + w2 * v2.cb;
+            double cr = w0 * v0.cr + w1 * v1.cr + w2 * v2.cr, cg = w0 * v0.cg + w1 * v1.cg + w2 * v2.cg,
+                   cb = w0 * v0.cb + w1 * v1.cb + w2 * v2.cb;
             if (!front) {  // the inside of a surface: a dark red tint
                 cr = cr * 0.2 + 0.85 * 0.8;
                 cg = cg * 0.2 + 0.03 * 0.8;
@@ -170,7 +174,9 @@ Camera make_camera(const ModelViewOptions& o, Vec3 center, double radius, int w,
     return c;
 }
 
-bool accent_part(const MeshSubmesh& s, const ModelViewItem& item) { return !item.highlightPart.empty() && s.part == item.highlightPart; }
+bool accent_part(const MeshSubmesh& s, const ModelViewItem& item) {
+    return !item.highlightPart.empty() && s.part == item.highlightPart;
+}
 
 const char* kFigureDoc = R"({"format":"factoria.model/1","nodes":[
     {"op":"sphere","radius":0.105,"segments":20,"rings":10,"position":[0,1.695,0]},
@@ -248,14 +254,16 @@ bool ModelViewCamera::project(Vec3 p, double& sx, double& sy, double& depth) con
 }
 
 void ModelViewCamera::ray(double sx, double sy, Vec3& origin, Vec3& direction) const {
-    const double x = (sx - cx) / focal, y = (cy - sy) / focal;  // view-plane units: per metre (orthographic) or per unit depth
+    const double x = (sx - cx) / focal,
+                 y = (cy - sy) / focal;  // view-plane units: per metre (orthographic) or per unit depth
     V3d dir;
     V3d org{eye.x, eye.y, eye.z};
     if (orthographic) {
         org = {eye.x + right.x * x + up.x * y, eye.y + right.y * x + up.y * y, eye.z + right.z * x + up.z * y};
         dir = {forward.x, forward.y, forward.z};
     } else {
-        dir = norm3({forward.x + right.x * x + up.x * y, forward.y + right.y * x + up.y * y, forward.z + right.z * x + up.z * y});
+        dir = norm3({forward.x + right.x * x + up.x * y, forward.y + right.y * x + up.y * y,
+                     forward.z + right.z * x + up.z * y});
     }
     origin = {float(org.x), float(org.y), float(org.z)};
     direction = {float(dir.x), float(dir.y), float(dir.z)};
@@ -275,7 +283,9 @@ const MeshData& model_reference_figure() {
     return figure;
 }
 
-Vec3 reference_figure_offset(Vec3 modelMin, Vec3 modelMax) { return {modelMax.x + 0.55f, 0.0f, (modelMin.z + modelMax.z) * 0.5f}; }
+Vec3 reference_figure_offset(Vec3 modelMin, Vec3 modelMax) {
+    return {modelMax.x + 0.55f, 0.0f, (modelMin.z + modelMax.z) * 0.5f};
+}
 
 Image render_model_view(const std::vector<ModelViewItem>& items, const ModelViewOptions& o) {
     Image out;
@@ -310,7 +320,8 @@ Image render_model_view(const std::vector<ModelViewItem>& items, const ModelView
         std::vector<Projected> proj(vc);
         std::vector<V3d> nrm(vc);
         for (std::size_t i = 0; i < vc; ++i) {
-            V3d p{m.positions[i * 3] + item.offset.x, m.positions[i * 3 + 1] + item.offset.y, m.positions[i * 3 + 2] + item.offset.z};
+            V3d p{m.positions[i * 3] + item.offset.x, m.positions[i * 3 + 1] + item.offset.y,
+                  m.positions[i * 3 + 2] + item.offset.z};
             proj[i] = project(cam, p);
             if (hasN) {
                 V3d wn{m.normals[i * 3], m.normals[i * 3 + 1], m.normals[i * 3 + 2]};
@@ -319,7 +330,9 @@ Image render_model_view(const std::vector<ModelViewItem>& items, const ModelView
         }
         for (const MeshSubmesh& sm : m.submeshes) {
             Color base = item.flat ? item.flatColor : sm.material.color;
-            if (accent_part(sm, item)) base = Color{base.r * 0.35f + 1.0f * 0.65f, base.g * 0.35f + 0.55f * 0.65f, base.b * 0.35f + 0.1f * 0.65f, 1};
+            if (accent_part(sm, item))
+                base = Color{base.r * 0.35f + 1.0f * 0.65f, base.g * 0.35f + 0.55f * 0.65f,
+                             base.b * 0.35f + 0.1f * 0.65f, 1};
             const std::size_t end = std::min<std::size_t>(std::size_t(sm.start) + sm.count, m.indices.size());
             for (std::size_t k = sm.start; k + 3 <= end; k += 3) {
                 std::uint32_t id[3] = {m.indices[k], m.indices[k + 1], m.indices[k + 2]};
@@ -346,15 +359,19 @@ Image render_model_view(const std::vector<ModelViewItem>& items, const ModelView
                     V3d vn{dot3(wn, cam.right), dot3(wn, cam.up), dot3(wn, cam.forward)};
                     for (auto& t : tri) t.n = vn;
                 }
-                fill_triangle(bf, tri[0], tri[1], tri[2], o.shaded || !item.wire);  // an item with no wireframe is always drawn solid
+                fill_triangle(bf, tri[0], tri[1], tri[2],
+                              o.shaded || !item.wire);  // an item with no wireframe is always drawn solid
             }
         }
     }
 
     if (o.ground) {  // a grid on y = 0, behind the model (depth-tested), with the origin's two axes brighter
-        const double spacing = frame.radius > 20 ? std::pow(10.0, std::ceil(std::log10(frame.radius / 4))) : frame.radius > 3 ? 1.0 : 0.5;
+        const double spacing = frame.radius > 20  ? std::pow(10.0, std::ceil(std::log10(frame.radius / 4)))
+                               : frame.radius > 3 ? 1.0
+                                                  : 0.5;
         const double extent = std::max(1.0, std::ceil(frame.radius * 1.4 / spacing)) * spacing;
-        const double cxg = std::round(frame.center.x / spacing) * spacing, czg = std::round(frame.center.z / spacing) * spacing;
+        const double cxg = std::round(frame.center.x / spacing) * spacing,
+                     czg = std::round(frame.center.z / spacing) * spacing;
         const int lines = std::min(40, int(std::round(extent / spacing)));
         for (int i = -lines; i <= lines; ++i) {
             const double off = i * spacing;
@@ -362,10 +379,14 @@ Image render_model_view(const std::vector<ModelViewItem>& items, const ModelView
             const bool axisZ = std::fabs(zLine) < spacing * 0.01, axisX = std::fabs(xLine) < spacing * 0.01;
             const float dim = 0.30f;
             Projected a = project(cam, {cxg - extent, 0, zLine}), b = project(cam, {cxg + extent, 0, zLine});
-            if (a.ok && b.ok) draw_line(bf, a, b, axisZ ? 0.62f : dim, axisZ ? 0.35f : dim + 0.02f, axisZ ? 0.35f : dim + 0.07f, true);
+            if (a.ok && b.ok)
+                draw_line(bf, a, b, axisZ ? 0.62f : dim, axisZ ? 0.35f : dim + 0.02f, axisZ ? 0.35f : dim + 0.07f,
+                          true);
             a = project(cam, {xLine, 0, czg - extent});
             b = project(cam, {xLine, 0, czg + extent});
-            if (a.ok && b.ok) draw_line(bf, a, b, axisX ? 0.35f : dim, axisX ? 0.45f : dim + 0.02f, axisX ? 0.65f : dim + 0.07f, true);
+            if (a.ok && b.ok)
+                draw_line(bf, a, b, axisX ? 0.35f : dim, axisX ? 0.45f : dim + 0.02f, axisX ? 0.65f : dim + 0.07f,
+                          true);
         }
     }
 
@@ -376,7 +397,9 @@ Image render_model_view(const std::vector<ModelViewItem>& items, const ModelView
             const MeshData& m = *item.mesh;
             const std::size_t vc = m.vertex_count();
             std::vector<Projected> proj(vc);
-            for (std::size_t i = 0; i < vc; ++i) proj[i] = project(cam, {m.positions[i * 3] + item.offset.x, m.positions[i * 3 + 1] + item.offset.y, m.positions[i * 3 + 2] + item.offset.z});
+            for (std::size_t i = 0; i < vc; ++i)
+                proj[i] = project(cam, {m.positions[i * 3] + item.offset.x, m.positions[i * 3 + 1] + item.offset.y,
+                                        m.positions[i * 3 + 2] + item.offset.z});
             for (const MeshSubmesh& sm : m.submeshes) {
                 const std::size_t end = std::min<std::size_t>(std::size_t(sm.start) + sm.count, m.indices.size());
                 for (std::size_t k = sm.start; k + 3 <= end; k += 3) {

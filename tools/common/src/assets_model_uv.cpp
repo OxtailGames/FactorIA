@@ -34,15 +34,18 @@ Json obj(std::initializer_list<std::pair<const char*, Json>> props) {
 std::string uv_doc_path(const std::string& arg) {
     auto norm = fs::normalize_checked(arg);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
-        fail("invalid_argument", "`path` '" + arg + "' is not a model document under assets/.", "Model documents live in assets/, e.g. \"assets/models/door.model.json\".");
+        fail("invalid_argument", "`path` '" + arg + "' is not a model document under assets/.",
+             "Model documents live in assets/, e.g. \"assets/models/door.model.json\".");
     if (!ends_with(to_lower(*norm), kModelDocSuffix))
-        fail("invalid_argument", "'" + *norm + "' does not end in .model.json.", "Name model documents <name>.model.json, e.g. \"assets/models/door.model.json\".");
+        fail("invalid_argument", "'" + *norm + "' does not end in .model.json.",
+             "Name model documents <name>.model.json, e.g. \"assets/models/door.model.json\".");
     return *norm;
 }
 
 Json issues_json(const std::vector<ModelIssue>& issues) {
     Json list = Json::array();
-    for (const ModelIssue& i : issues) list.push_back(Json::object({{"pointer", i.pointer}, {"message", i.message}, {"hint", i.hint}}));
+    for (const ModelIssue& i : issues)
+        list.push_back(Json::object({{"pointer", i.pointer}, {"message", i.message}, {"hint", i.hint}}));
     return list;
 }
 
@@ -63,13 +66,17 @@ Json merged_uv(const Json& base, const Json& set) {
                 }
                 Json one = parts.contains(p.key()) && parts[p.key()].is_object() ? parts[p.key()] : Json::object();
                 for (auto f = p.value().begin(); f != p.value().end(); ++f) {
-                    if (f.value().is_null()) one.erase(f.key());
-                    else one[f.key()] = f.value();
+                    if (f.value().is_null())
+                        one.erase(f.key());
+                    else
+                        one[f.key()] = f.value();
                 }
                 parts[p.key()] = one;
             }
-            if (parts.empty()) out.erase("parts");
-            else out["parts"] = parts;
+            if (parts.empty())
+                out.erase("parts");
+            else
+                out["parts"] = parts;
         } else if (it.value().is_null()) {
             out.erase(it.key());
         } else {
@@ -82,20 +89,25 @@ Json merged_uv(const Json& base, const Json& set) {
 // The mesh a build made, as the maker's measuring wants it, and the names of its parts.
 ModelMesh mesh_of(const MeshData& d, std::vector<std::string>& names) {
     ModelMesh m;
-    for (std::size_t i = 0; i + 2 < d.positions.size(); i += 3) m.positions.push_back({d.positions[i], d.positions[i + 1], d.positions[i + 2]});
-    for (std::size_t i = 0; i + 2 < d.normals.size(); i += 3) m.normals.push_back({d.normals[i], d.normals[i + 1], d.normals[i + 2]});
+    for (std::size_t i = 0; i + 2 < d.positions.size(); i += 3)
+        m.positions.push_back({d.positions[i], d.positions[i + 1], d.positions[i + 2]});
+    for (std::size_t i = 0; i + 2 < d.normals.size(); i += 3)
+        m.normals.push_back({d.normals[i], d.normals[i + 1], d.normals[i + 2]});
     for (std::size_t i = 0; i + 1 < d.uvs.size(); i += 2) m.uvs.push_back({d.uvs[i], d.uvs[i + 1]});
     m.indices = d.indices;
     m.triParts.assign(d.triangle_count(), 0);
     names.clear();
     for (std::size_t s = 0; s < d.submeshes.size(); ++s) {
         names.push_back(d.submeshes[s].part);
-        for (std::uint32_t k = d.submeshes[s].start; k < d.submeshes[s].start + d.submeshes[s].count && k / 3 < m.triParts.size(); k += 3) m.triParts[k / 3] = std::uint32_t(s);
+        for (std::uint32_t k = d.submeshes[s].start;
+             k < d.submeshes[s].start + d.submeshes[s].count && k / 3 < m.triParts.size(); k += 3)
+            m.triParts[k / 3] = std::uint32_t(s);
     }
     return m;
 }
 
-constexpr Rgb kPartColors[] = {{86, 180, 233}, {230, 159, 0}, {0, 190, 140}, {240, 228, 66}, {204, 121, 167}, {235, 110, 40}, {150, 150, 255}, {200, 200, 200}};
+constexpr Rgb kPartColors[] = {{86, 180, 233},  {230, 159, 0},  {0, 190, 140},   {240, 228, 66},
+                               {204, 121, 167}, {235, 110, 40}, {150, 150, 255}, {200, 200, 200}};
 
 std::filesystem::path next_layout_file(const std::string& projectDir) {
     static std::atomic<int> counter{0};
@@ -131,10 +143,13 @@ Image layout_picture(const ModelMesh& mesh, const std::vector<std::string>& name
             x[k] = px(uv.x);
             y[k] = py(uv.y);
         }
-        const double area = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);  // image space (y down): negative = drawn counter-clockwise
+        const double area = (x[1] - x[0]) * (y[2] - y[0]) -
+                            (x[2] - x[0]) * (y[1] - y[0]);  // image space (y down): negative = drawn counter-clockwise
         const Rgb fill = area > 0 ? Rgb{220, 60, 60} : kPartColors[mesh.triParts[t] % 8];
-        const int x0 = std::max(0, int(std::floor(std::min({x[0], x[1], x[2]})))), x1 = std::min(canvas.img.width - 1, int(std::ceil(std::max({x[0], x[1], x[2]}))));
-        const int y0 = std::max(0, int(std::floor(std::min({y[0], y[1], y[2]})))), y1 = std::min(canvas.img.height - 1, int(std::ceil(std::max({y[0], y[1], y[2]}))));
+        const int x0 = std::max(0, int(std::floor(std::min({x[0], x[1], x[2]})))),
+                  x1 = std::min(canvas.img.width - 1, int(std::ceil(std::max({x[0], x[1], x[2]}))));
+        const int y0 = std::max(0, int(std::floor(std::min({y[0], y[1], y[2]})))),
+                  y1 = std::min(canvas.img.height - 1, int(std::ceil(std::max({y[0], y[1], y[2]}))));
         if (area != 0 && (x1 - x0) * (y1 - y0) < 4000000)
             for (int yy = y0; yy <= y1; ++yy)
                 for (int xx = x0; xx <= x1; ++xx) {
@@ -152,13 +167,20 @@ Image layout_picture(const ModelMesh& mesh, const std::vector<std::string>& name
         canvas.vline(int(px(o ? 1.0f : 0.0f)), int(py(0)), int(py(1)), {240, 240, 240});
     }
     const int top = kSide + 2 * kMargin;
-    const std::string headline = r.layout == "tile"
-                                     ? std::format("tile layout: {:.0f} texels/m on a {}px texture, {} pieces, uv range {:.2f} x {:.2f} (the white square is one repeat)", r.texelsPerMeter, r.textureSize, r.charts, hi_u - lo_u, hi_v - lo_v)
-                                     : std::format("atlas {0}x{0}: {1:.0f} texels/m (asked {2:.0f}), {3} pieces, {4:.0f}% of the texture used", r.textureSize, r.texelsPerMeter, r.texelsPerUnit, r.charts, r.utilization * 100);
+    const std::string headline =
+        r.layout == "tile"
+            ? std::format("tile layout: {:.0f} texels/m on a {}px texture, {} pieces, uv range {:.2f} x {:.2f} (the "
+                          "white square is one repeat)",
+                          r.texelsPerMeter, r.textureSize, r.charts, hi_u - lo_u, hi_v - lo_v)
+            : std::format("atlas {0}x{0}: {1:.0f} texels/m (asked {2:.0f}), {3} pieces, {4:.0f}% of the texture used",
+                          r.textureSize, r.texelsPerMeter, r.texelsPerUnit, r.charts, r.utilization * 100);
     canvas.text(headline, kMargin, top + 4, 15, {235, 235, 235});
-    canvas.text(std::format("stretch mean {:.2f} worst {:.2f} | seams {} ({:.1f} m) | overlap {:.1f}% | mirrored {} | outside {}", r.stretchMean, std::min(r.stretchMax, 999.0), r.seamEdges, r.seamLength,
-                            r.overlap * 100, r.flippedTriangles, r.outsideTriangles),
-                kMargin, top + 24, 15, {235, 235, 235});
+    canvas.text(
+        std::format(
+            "stretch mean {:.2f} worst {:.2f} | seams {} ({:.1f} m) | overlap {:.1f}% | mirrored {} | outside {}",
+            r.stretchMean, std::min(r.stretchMax, 999.0), r.seamEdges, r.seamLength, r.overlap * 100,
+            r.flippedTriangles, r.outsideTriangles),
+        kMargin, top + 24, 15, {235, 235, 235});
     int lx = kMargin;
     for (std::size_t p = 0; p < names.size() && p < 8; ++p) {
         canvas.rect(lx, top + 46, lx + 10, top + 56, kPartColors[p % 8]);
@@ -172,25 +194,41 @@ Image layout_picture(const ModelMesh& mesh, const std::vector<std::string>& name
 Json model_uv_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("model.uv", a, "", {"path", "set", "replace", "clear", "bake", "overwrite", "picture"});
     const std::string rel = uv_doc_path(tooling_detail::arg_string(a, "path", true));
-    const bool clear = tooling_detail::arg_bool(a, "clear", false), replace = tooling_detail::arg_bool(a, "replace", false);
+    const bool clear = tooling_detail::arg_bool(a, "clear", false),
+               replace = tooling_detail::arg_bool(a, "replace", false);
     const bool hasSet = a.contains("set");
-    if (clear && hasSet) fail("invalid_argument", "model.uv: give `set` or `clear`, not both.", "`clear: true` removes the uv section; `set` changes it.");
+    if (clear && hasSet)
+        fail("invalid_argument", "model.uv: give `set` or `clear`, not both.",
+             "`clear: true` removes the uv section; `set` changes it.");
     if (hasSet && !a["set"].is_object())
-        fail("invalid_argument", "model.uv: `set` must be an object such as {\"method\": \"unwrap\", \"texelsPerUnit\": 128}.", "Fields: layout, method, axis, texelsPerUnit, textureSize, padding, seams, rotate, parts. A null value removes a field.");
-    if (replace && !hasSet) fail("invalid_argument", "model.uv: `replace` needs a `set` to put in place of the section.", "Example: {\"set\": {\"method\": \"box\"}, \"replace\": true}.");
+        fail("invalid_argument",
+             "model.uv: `set` must be an object such as {\"method\": \"unwrap\", \"texelsPerUnit\": 128}.",
+             "Fields: layout, method, axis, texelsPerUnit, textureSize, padding, seams, rotate, parts. A null value "
+             "removes a field.");
+    if (replace && !hasSet)
+        fail("invalid_argument", "model.uv: `replace` needs a `set` to put in place of the section.",
+             "Example: {\"set\": {\"method\": \"box\"}, \"replace\": true}.");
 
     auto text = tooling_detail::read_file(project_file(projectDir, rel));
     if (!text) {
         const std::vector<std::string> all = list_model_documents(projectDir);
-        fail("not_found", "'" + rel + "' does not exist.", all.empty() ? "Make one with model.create {\"path\":\"" + rel + "\"}." : did_you_mean(rel, all) + " Model documents: " + join(all, ", ") + ".");
+        fail("not_found", "'" + rel + "' does not exist.",
+             all.empty() ? "Make one with model.create {\"path\":\"" + rel + "\"}."
+                         : did_you_mean(rel, all) + " Model documents: " + join(all, ", ") + ".");
     }
     auto parsed = parse_json(*text, rel);
-    if (!parsed.ok()) fail("invalid_document", parsed.error().message, parsed.error().hint.empty() ? "Fix the JSON syntax; schemas/model.schema.json describes the format." : parsed.error().hint);
+    if (!parsed.ok())
+        fail("invalid_document", parsed.error().message,
+             parsed.error().hint.empty() ? "Fix the JSON syntax; schemas/model.schema.json describes the format."
+                                         : parsed.error().hint);
     Json json = std::move(*parsed);
-    if (!json.is_object()) fail("invalid_document", rel + ": the document is not an object.", "Fix it by hand or write it again with model.create overwrite: true.");
+    if (!json.is_object())
+        fail("invalid_document", rel + ": the document is not an object.",
+             "Fix it by hand or write it again with model.create overwrite: true.");
 
     const Json before = json.contains("uv") ? json["uv"] : Json();
-    if (clear) json.erase("uv");
+    if (clear)
+        json.erase("uv");
     else if (hasSet) {
         if (replace) {
             Json fresh = Json::object();
@@ -205,13 +243,18 @@ Json model_uv_command(const std::string& projectDir, const Json& a) {
     auto doc = parse_model_doc(json, rel, &issues);
     if (!doc.ok()) {
         Error e = doc.error();
-        if (changed) e.message += std::string(e.message.empty() || e.message.back() == '.' ? " " : ". ") + "Nothing was written.";
-        throw CommandError("invalid_document", e.message, e.hint.empty() ? "docs/MODELING.md, \"UVs\", lists the fields of the uv section." : e.hint, Json::object({{"path", rel}, {"issues", issues_json(issues)}}));
+        if (changed)
+            e.message +=
+                std::string(e.message.empty() || e.message.back() == '.' ? " " : ". ") + "Nothing was written.";
+        throw CommandError("invalid_document", e.message,
+                           e.hint.empty() ? "docs/MODELING.md, \"UVs\", lists the fields of the uv section." : e.hint,
+                           Json::object({{"path", rel}, {"issues", issues_json(issues)}}));
     }
     if (changed) {
         require_usable_manifest(projectDir);
         std::string err;
-        if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+        if (!tooling_detail::write_file(project_write_file(projectDir, rel), dump_json(json), &err))
+            fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     }
 
     ModelBuild build;
@@ -230,23 +273,33 @@ Json model_uv_command(const std::string& projectDir, const Json& a) {
     result["uv"] = doc->uv ? model_uv_settings_json(*doc->uv) : Json();
     result["source"] = made ? "uv section" : "the primitives' own uvs (the document has no uv section)";
     result["report"] = model_uv_report_json(report);
-    if (!build.warnings.empty()) result["warnings"] = build.warnings;  // the build's own: a part name `parts` does not know, a heavy mesh, ...
-    if (build.uv) result["styleTexelsPerUnit"] = style_texels_per_unit(projectDir) ? Json(*style_texels_per_unit(projectDir)) : Json();
+    if (!build.warnings.empty())
+        result["warnings"] = build.warnings;  // the build's own: a part name `parts` does not know, a heavy mesh, ...
+    if (build.uv)
+        result["styleTexelsPerUnit"] =
+            style_texels_per_unit(projectDir) ? Json(*style_texels_per_unit(projectDir)) : Json();
     std::vector<std::string> steps;
-    if (!made) steps.push_back("Add a uv section to give the model one unique, non-overlapping layout: model.uv {\"path\":\"" + rel + "\",\"set\":{\"method\":\"unwrap\"}}.");
-    if (!report.warnings.empty()) steps.push_back("Read `report.warnings`: each says what to change (`set` another method for a part, more `seams`, a bigger `textureSize`, a lower `texelsPerUnit`).");
+    if (!made)
+        steps.push_back("Add a uv section to give the model one unique, non-overlapping layout: model.uv {\"path\":\"" +
+                        rel + "\",\"set\":{\"method\":\"unwrap\"}}.");
+    if (!report.warnings.empty())
+        steps.push_back("Read `report.warnings`: each says what to change (`set` another method for a part, more "
+                        "`seams`, a bigger `textureSize`, a lower `texelsPerUnit`).");
 
     if (changed && tooling_detail::arg_bool(a, "bake", true)) {
         auto b = bake_model_document(projectDir, rel, {false, tooling_detail::arg_bool(a, "overwrite", false)});
         if (!b.ok()) {
-            result["bake"] = Json::object({{"state", "failed"}, {"message", b.error().message}, {"hint", b.error().hint}});
-            steps.push_back("The document was written but could not be baked: " + b.error().message + " " + b.error().hint);
+            result["bake"] =
+                Json::object({{"state", "failed"}, {"message", b.error().message}, {"hint", b.error().hint}});
+            steps.push_back("The document was written but could not be baked: " + b.error().message + " " +
+                            b.error().hint);
         } else {
             result["bake"] = Json::object({{"state", "baked"}, {"output", b->output}, {"bytes", b->bytes}});
         }
     } else {
         const ModelBakeStatus status = model_bake_status(projectDir, rel);
-        result["bake"] = Json::object({{"state", model_bake_state_name(status.state)}, {"output", status.output}, {"reason", status.reason}});
+        result["bake"] = Json::object(
+            {{"state", model_bake_state_name(status.state)}, {"output", status.output}, {"reason", status.reason}});
         if (changed) steps.push_back("The .glb was not rebuilt: model.bake {\"path\":\"" + rel + "\"} does it.");
     }
     if (tooling_detail::arg_bool(a, "picture", true) && mesh.triangle_count() > 0) {
@@ -254,7 +307,9 @@ Json model_uv_command(const std::string& projectDir, const Json& a) {
         const std::filesystem::path file = next_layout_file(projectDir);
         const std::vector<std::uint8_t> png = encode_png(picture);
         std::string err;
-        if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+        if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                        &err))
+            fail("failed", err);
         result["$image"] = Json::object({{"path", file.string()}, {"mimeType", "image/png"}, {"temporary", true}});
     }
     result["nextSteps"] = steps;
@@ -266,23 +321,31 @@ Json model_uv_command(const std::string& projectDir, const Json& a) {
 Json model_uv_report_json(const ModelUvReport& r) {
     Json parts = Json::array();
     for (const ModelUvPartReport& p : r.parts)
-        parts.push_back(obj({{"part", p.part}, {"method", p.method}, {"triangles", p.triangles}, {"charts", p.charts}, {"texelsPerMeter", round_to(p.texelsPerMeter, 2)},
-                             {"stretchMean", round_to(p.stretchMean, 3)}, {"stretchMax", round_to(std::min(p.stretchMax, 1e6), 3)}}));
-    Json out = obj({{"layout", r.layout},
-                    {"textureSize", r.textureSize},
-                    {"texelsPerUnit", round_to(r.texelsPerUnit, 2)},
-                    {"texelsPerUnitUsed", round_to(r.texelsPerUnitUsed, 2)},
-                    {"triangles", r.triangles},
-                    {"charts", r.charts},
-                    {"surfaceArea", round_to(r.surfaceArea, 4)},
-                    {"texelsPerMeter", obj({{"mean", round_to(r.texelsPerMeter, 2)}, {"min", round_to(r.texelsPerMeterMin, 2)}, {"max", round_to(r.texelsPerMeterMax, 2)}})},
-                    {"stretch", obj({{"mean", round_to(r.stretchMean, 3)}, {"max", round_to(std::min(r.stretchMax, 1e6), 3)}})},
-                    {"seams", obj({{"edges", r.seamEdges}, {"length", round_to(r.seamLength, 3)}})},
-                    {"flippedTriangles", r.flippedTriangles},
-                    {"utilization", round_to(r.utilization, 4)},
-                    {"overlap", round_to(r.overlap, 4)},
-                    {"outsideTriangles", r.outsideTriangles},
-                    {"parts", parts}});
+        parts.push_back(obj({{"part", p.part},
+                             {"method", p.method},
+                             {"triangles", p.triangles},
+                             {"charts", p.charts},
+                             {"texelsPerMeter", round_to(p.texelsPerMeter, 2)},
+                             {"stretchMean", round_to(p.stretchMean, 3)},
+                             {"stretchMax", round_to(std::min(p.stretchMax, 1e6), 3)}}));
+    Json out = obj(
+        {{"layout", r.layout},
+         {"textureSize", r.textureSize},
+         {"texelsPerUnit", round_to(r.texelsPerUnit, 2)},
+         {"texelsPerUnitUsed", round_to(r.texelsPerUnitUsed, 2)},
+         {"triangles", r.triangles},
+         {"charts", r.charts},
+         {"surfaceArea", round_to(r.surfaceArea, 4)},
+         {"texelsPerMeter", obj({{"mean", round_to(r.texelsPerMeter, 2)},
+                                 {"min", round_to(r.texelsPerMeterMin, 2)},
+                                 {"max", round_to(r.texelsPerMeterMax, 2)}})},
+         {"stretch", obj({{"mean", round_to(r.stretchMean, 3)}, {"max", round_to(std::min(r.stretchMax, 1e6), 3)}})},
+         {"seams", obj({{"edges", r.seamEdges}, {"length", round_to(r.seamLength, 3)}})},
+         {"flippedTriangles", r.flippedTriangles},
+         {"utilization", round_to(r.utilization, 4)},
+         {"overlap", round_to(r.overlap, 4)},
+         {"outsideTriangles", r.outsideTriangles},
+         {"parts", parts}});
     if (!r.warnings.empty()) out["warnings"] = r.warnings;
     return out;
 }
@@ -292,7 +355,9 @@ void register_model_uv_command(CommandRegistry& registry, const std::string& pro
     info.name = "model.uv";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.";
+    info.summary =
+        "Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed "
+        "into one texture at the style's texel density) and measure them; returns the UV layout picture.";
     info.description =
         "The `uv` section of a model document replaces the primitives' own uvs: `layout` \"atlas\" (default) "
         "packs every piece into one texture painted for this model, \"tile\" gives world-scale uvs that "
@@ -305,8 +370,9 @@ void register_model_uv_command(CommandRegistry& registry, const std::string& pro
         "pieces fit in, a fixed size the pieces do not fit lowers the density (a warning says so); `padding` "
         "empties texels around each piece; `seams` few, balanced or many; `rotate` lets the packer turn "
         "pieces. Example: "
-        "{\"path\":\"assets/models/crate.model.json\",\"set\":{\"method\":\"unwrap\",\"texelsPerUnit\":256,\"parts\":{\"wheel\":{\"method\":\"cylinder\",\"axis\":\"x\"}}}}"
-        FA_COMMAND_DETAILS
+        "{\"path\":\"assets/models/"
+        "crate.model.json\",\"set\":{\"method\":\"unwrap\",\"texelsPerUnit\":256,\"parts\":{\"wheel\":{\"method\":"
+        "\"cylinder\",\"axis\":\"x\"}}}}" FA_COMMAND_DETAILS
         "The same spec works on sdf organic shapes, whose default box uvs it replaces. With `set` the fields "
         "are merged into the section (a null value removes a field; `parts` merges part by part), `replace: "
         "true` puts `set` in place of the section, `clear: true` removes it; the document is checked as a "
@@ -318,17 +384,40 @@ void register_model_uv_command(CommandRegistry& registry, const std::string& pro
         "measured on its primitives' own uvs). Unless picture is false it returns the layout (`$image`): the "
         "texture square with every triangle at its uvs, a colour per part, mirrored triangles red.";
     info.inputSchema = Json::object(
-        {{"type", "object"}, {"required", Json::array({"path"})}, {"additionalProperties", false},
+        {{"type", "object"},
+         {"required", Json::array({"path"})},
+         {"additionalProperties", false},
          {"properties",
-          obj({{"path", Json::object({{"type", "string"}, {"description", "The model document, project-relative, under assets/, ending in .model.json."}})},
-               {"set", Json::object({{"type", "object"}, {"description", "Fields of the uv section to change: layout, method, axis, texelsPerUnit, textureSize, padding, seams, rotate, parts. A null value removes a field; parts merges part by part (a null part is removed)."}})},
-               {"replace", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Put `set` in place of the whole section instead of merging it."}})},
-               {"clear", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Remove the uv section: the model keeps its primitives' own uvs."}})},
-               {"bake", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Bake the .glb again after a change."}})},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace a .glb that no model document baked."}})},
-               {"picture", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Return the UV layout picture ($image)."}})}})}});
+          obj({{"path",
+                Json::object(
+                    {{"type", "string"},
+                     {"description", "The model document, project-relative, under assets/, ending in .model.json."}})},
+               {"set", Json::object(
+                           {{"type", "object"},
+                            {"description", "Fields of the uv section to change: layout, method, axis, texelsPerUnit, "
+                                            "textureSize, padding, seams, rotate, parts. A null value removes a field; "
+                                            "parts merges part by part (a null part is removed)."}})},
+               {"replace",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description", "Put `set` in place of the whole section instead of merging it."}})},
+               {"clear",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description", "Remove the uv section: the model keeps its primitives' own uvs."}})},
+               {"bake",
+                Json::object(
+                    {{"type", "boolean"}, {"default", true}, {"description", "Bake the .glb again after a change."}})},
+               {"overwrite", Json::object({{"type", "boolean"},
+                                           {"default", false},
+                                           {"description", "Replace a .glb that no model document baked."}})},
+               {"picture", Json::object({{"type", "boolean"},
+                                         {"default", true},
+                                         {"description", "Return the UV layout picture ($image)."}})}})}});
     mark_paths(info.inputSchema, "write", {"path"});
-    registry.add(info, [projectDir](const Json& args) { return model_uv_command(projectDir, args.is_null() ? Json::object() : args); });
+    registry.add(info, [projectDir](const Json& args) {
+        return model_uv_command(projectDir, args.is_null() ? Json::object() : args);
+    });
     using namespace capability_sets;  // capability.h: changes the document's uv section and bakes it
     declare_command_capabilities(registry, {{"model.uv", writes_project()}});
 }

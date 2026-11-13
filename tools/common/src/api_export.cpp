@@ -25,16 +25,20 @@ namespace {
 std::string md_escape(std::string s) {
     std::string out;
     for (char c : s) {
-        if (c == '|') out += "\\|";
-        else if (c == '\n') out += ' ';
-        else out += c;
+        if (c == '|')
+            out += "\\|";
+        else if (c == '\n')
+            out += ' ';
+        else
+            out += c;
     }
     return out;
 }
 std::string short_json(const Json& j) { return j.dump(); }
 // A range bound: an integer field's bounds are stored as doubles but read as integers ("3..64", not "3.0..64.0").
 std::string bound_text(const Json& j, bool integerField) {
-    if (integerField && j.is_number() && j.get<double>() == std::floor(j.get<double>()) && std::fabs(j.get<double>()) < 9e15)
+    if (integerField && j.is_number() && j.get<double>() == std::floor(j.get<double>()) &&
+        std::fabs(j.get<double>()) < 9e15)
         return std::to_string(static_cast<long long>(j.get<double>()));
     return short_json(j);
 }
@@ -58,11 +62,14 @@ std::string since_line(const std::string& since) {
 std::string components_preamble() {
     return "Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "
            "\"Since 0.1.x.\" line under its heading, and a field added later than its component ends with "
-           "\"(since 0.1.x)\"; \"Not released yet\" means it is only on the main branch, in no download. Nothing is printed "
+           "\"(since 0.1.x)\"; \"Not released yet\" means it is only on the main branch, in no download. Nothing is "
+           "printed "
            "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
-           "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. "
+           "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` "
+           "tag. "
            "In scene JSON a component is `\"Name\": { field: value, ... }` "
-           "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or `{x, y}`; "
+           "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or "
+           "`{x, y}`; "
            "colors accept `[r, g, b, a]` (0..1) or `\"#rrggbb\"`.\n\n";
 }
 std::string commands_preamble() {
@@ -76,25 +83,35 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
     o << heading << " " << t.value("name", "") << "\n\n";
     if (!since_line(compSince).empty()) o << since_line(compSince) << "\n\n";
     o << t.value("doc", "") << "\n\n";
-    if (t["fields"].empty()) { o << "_No fields._\n\n"; return; }
+    if (t["fields"].empty()) {
+        o << "_No fields._\n\n";
+        return;
+    }
     o << "| Field | Type | Default | Description |\n|---|---|---|---|\n";
     for (const auto& f : t["fields"]) {
         std::string type = f.value("kind", "");
         if (f.contains("enum")) {
             type = "enum: ";
             bool first = true;
-            for (const auto& e : f["enum"]) { type += (first ? "" : " | ") + e.get<std::string>(); first = false; }  // md_escape escapes the bars once
+            for (const auto& e : f["enum"]) {
+                type += (first ? "" : " | ") + e.get<std::string>();
+                first = false;
+            }  // md_escape escapes the bars once
         }
         if (f.contains("assetType")) type += " (" + f["assetType"].get<std::string>() + ")";
         std::string desc = f.value("doc", "");
-        if (f.contains("min")) desc += " Range " + bound_text(f["min"], f.value("kind", "") == "int") + ".." + bound_text(f["max"], f.value("kind", "") == "int") + ".";
+        if (f.contains("min"))
+            desc += " Range " + bound_text(f["min"], f.value("kind", "") == "int") + ".." +
+                    bound_text(f["max"], f.value("kind", "") == "int") + ".";
         if (f.value("readOnly", false)) desc += " Read-only.";
         if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
         const std::string fieldSince = f.value("since", "");
         if (!fieldSince.empty() && fieldSince != compSince && fieldSince != "0.1.0")
-            desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")" : " (since " + fieldSince + ")";
+            desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")"
+                                               : " (since " + fieldSince + ")";
         o << "| `" << f.value("name", "") << "` | " << md_escape(type) << " | "
-          << (f.contains("default") ? "`" + md_escape(short_json(f["default"])) + "`" : "") << " | " << md_escape(desc) << " |\n";
+          << (f.contains("default") ? "`" + md_escape(short_json(f["default"])) + "`" : "") << " | " << md_escape(desc)
+          << " |\n";
     }
     o << "\n";
 }
@@ -127,7 +144,8 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
                 desc += kind == "write" ? " Path the command writes; the write rules apply (docs/CLI.md, \"Paths\")."
                                         : " Path the command reads.";
             }
-            o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | " << md_escape(desc) << " |\n";
+            o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | "
+              << md_escape(desc) << " |\n";
         }
         o << "\n";
     }
@@ -146,8 +164,8 @@ std::string capabilities_line(const CommandInfo& info) {
 
 std::string command_details_pointer(const CommandInfo& info) {
     if (info.details.empty()) return {};
-    return "More (the rest of this description): docs_commands {\"name\":\"" + info.name +
-           "\"}, the section `" + info.name + "` of the docs reference.";
+    return "More (the rest of this description): docs_commands {\"name\":\"" + info.name + "\"}, the section `" +
+           info.name + "` of the docs reference.";
 }
 
 std::string api_since(std::string_view section, std::string_view key) {
@@ -192,7 +210,10 @@ std::string export_components_markdown() {
     std::string lastCategory;
     for (const auto& t : all) {
         std::string cat = t.value("category", "");
-        if (cat != lastCategory) { o << "## " << cat << "\n\n"; lastCategory = cat; }
+        if (cat != lastCategory) {
+            o << "## " << cat << "\n\n";
+            lastCategory = cat;
+        }
         write_component(o, t, "###");
     }
     return o.str();
@@ -228,8 +249,10 @@ std::string category_file(const std::string& category) {
     for (char c : category) {
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
         const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
-        if (ok) out += c;
-        else if (!out.empty() && out.back() != '-') out += '-';
+        if (ok)
+            out += c;
+        else if (!out.empty() && out.back() != '-')
+            out += '-';
     }
     while (!out.empty() && out.back() == '-') out.pop_back();
     return out.empty() ? "general" : out;
@@ -240,8 +263,10 @@ std::string heading_anchor(const std::string& heading) {
     std::string out;
     for (char c : heading) {
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out += c;
-        else if (c == ' ') out += '-';
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')
+            out += c;
+        else if (c == ' ')
+            out += '-';
     }
     return out;
 }
@@ -273,18 +298,25 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
     std::map<std::string, std::vector<Json>> comps;
     for (const Json& t : export_components_json()) comps[t.value("category", "")].push_back(t);
     for (auto& [cat, v] : comps)
-        std::sort(v.begin(), v.end(), [](const Json& a, const Json& b) { return a.value("name", "") < b.value("name", ""); });
+        std::sort(v.begin(), v.end(),
+                  [](const Json& a, const Json& b) { return a.value("name", "") < b.value("name", ""); });
     std::map<std::string, std::vector<const CommandInfo*>> cmds;
     for (const CommandInfo* c : registry.list()) cmds[c->category].push_back(c);
 
     std::ostringstream idx;
     idx << "# API reference\n\n"
-        << "Every component and every command of FactorIA, one page per category. The pages are generated from the engine itself "
-           "(`factoria call docs.write_reference '{\"out\":\"docs\"}'`), so they are exact for this version; a test fails when they "
-           "fall behind. The same data is available offline with `factoria api --md`, `factoria commands` and, over MCP, "
-           "`docs_components` and `docs_commands`. Use your browser's find (Ctrl+F) on this page to locate anything.\n\n"
-        << "Version marks: an entry added after 0.1.0 ends with \"(Since 0.1.x)\", and \"(Not released yet ...)\" means it is only "
-           "on the main branch, in no download. Nothing is shown for what existed in 0.1.0. If your factoria is older than a mark, "
+        << "Every component and every command of FactorIA, one page per category. The pages are generated from the "
+           "engine itself "
+           "(`factoria call docs.write_reference '{\"out\":\"docs\"}'`), so they are exact for this version; a test "
+           "fails when they "
+           "fall behind. The same data is available offline with `factoria api --md`, `factoria commands` and, over "
+           "MCP, "
+           "`docs_components` and `docs_commands`. Use your browser's find (Ctrl+F) on this page to locate "
+           "anything.\n\n"
+        << "Version marks: an entry added after 0.1.0 ends with \"(Since 0.1.x)\", and \"(Not released yet ...)\" "
+           "means it is only "
+           "on the main branch, in no download. Nothing is shown for what existed in 0.1.0. If your factoria is older "
+           "than a mark, "
            "that item is missing there (`factoria --version`).\n\n"
         << "## Components\n\n";
     std::vector<ApiReferencePage> catPages;
@@ -296,15 +328,17 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
         for (const Json& t : v) {
             const std::string name = t.value("name", "");
             write_component(page, t, "##");
-            idx << "- [" << name << "](" << file << "#" << heading_anchor(name) << "): " << first_sentence(t.value("doc", ""))
-                << index_mark(t.value("since", "")) << "\n";
+            idx << "- [" << name << "](" << file << "#" << heading_anchor(name)
+                << "): " << first_sentence(t.value("doc", "")) << index_mark(t.value("since", "")) << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
     }
     idx << "## Commands\n\n"
-        << "Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots become underscores) and a script "
-           "function (`fa.call(name, args)`). Commands of plugins (for example `steam.*`) and the project's own `tools/*.js` are not "
+        << "Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots become underscores) and a "
+           "script "
+           "function (`fa.call(name, args)`). Commands of plugins (for example `steam.*`) and the project's own "
+           "`tools/*.js` are not "
            "listed: they depend on the project.\n\n";
     for (const auto& [cat, v] : cmds) {
         const std::string file = "commands/" + category_file(cat) + ".md";
@@ -314,8 +348,8 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
         for (const CommandInfo* c : v) {
             write_command(page, c, "##");
             const std::string heading = "`" + c->name + "`" + (c->readOnly ? "" : " (modifies state)");
-            idx << "- [`" << c->name << "`](" << file << "#" << heading_anchor(heading) << "): " << md_escape(c->summary)
-                << index_mark(api_since("commands", c->name)) << "\n";
+            idx << "- [`" << c->name << "`](" << file << "#" << heading_anchor(heading)
+                << "): " << md_escape(c->summary) << index_mark(api_since("commands", c->name)) << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
@@ -329,26 +363,60 @@ namespace {
 // docs.components / docs.commands: no argument lists names with a one-line summary; `name` gives one entry in full, `filter`
 // narrows the list, `full` gives the entries in full. Lists and `full` come in pages of at most `maxBytes` (like docs.read), each
 // page ends at a whole entry and names the next one in `nextCursor`.
-constexpr long kDocsPageDefaultBytes = 40000;  // same as docs.read: ~10k tokens, an MCP tool result is capped near 25k tokens
+constexpr long kDocsPageDefaultBytes =
+    40000;  // same as docs.read: ~10k tokens, an MCP tool result is capped near 25k tokens
 constexpr long kDocsPageMaxBytes = 90000;
 
 Json docs_filter_schema(const char* what) {
     const std::string n = what;
-    return Json::object({{"type", "object"},
-        {"properties", Json::object({
-            {"name", Json::object({{"type", "string"}, {"description", "Exact " + n + " name (case-insensitive): returns its full reference."}})},
-            {"filter", Json::object({{"type", "string"}, {"description", "Keep the " + n + "s whose name, category or summary contains this text (case-insensitive)."}})},
-            {"full", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Return the " + n + "s in full, one page at a time (see maxBytes, cursor); with filter, only the matches."}})},
-            {"cursor", Json::object({{"type", "string"}, {"description", "The nextCursor of the previous page: continues the list or the full reference from there. Use it with the same filter, full and format, and without name. It is the name of the next entry: if plugins or tools/*.js were loaded between two calls, entries can be skipped or repeated (a cursor that no longer exists is refused)."}})},
-            {"maxBytes", Json::object({{"type", "integer"}, {"minimum", 1000}, {"maximum", kDocsPageMaxBytes}, {"default", kDocsPageDefaultBytes}, {"description", "Page size in bytes of the whole result (entries, header, next and nextCursor, JSON escaping): whole entries are added until the next would not fit (a page has at least one entry, so one huge entry can pass it)."}})},
-            {"format", Json::object({{"type", "string"}, {"enum", Json::array({"markdown", "json"})}, {"default", "markdown"}, {"description", "Output format."}})}})}});
+    return Json::object(
+        {{"type", "object"},
+         {"properties",
+          Json::object(
+              {{"name", Json::object(
+                            {{"type", "string"},
+                             {"description", "Exact " + n + " name (case-insensitive): returns its full reference."}})},
+               {"filter",
+                Json::object(
+                    {{"type", "string"},
+                     {"description",
+                      "Keep the " + n + "s whose name, category or summary contains this text (case-insensitive)."}})},
+               {"full",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description",
+                      "Return the " + n +
+                          "s in full, one page at a time (see maxBytes, cursor); with filter, only the matches."}})},
+               {"cursor",
+                Json::object({{"type", "string"},
+                              {"description",
+                               "The nextCursor of the previous page: continues the list or the full reference from "
+                               "there. Use it with the same filter, full and format, and without name. It is the name "
+                               "of the next entry: if plugins or tools/*.js were loaded between two calls, entries can "
+                               "be skipped or repeated (a cursor that no longer exists is refused)."}})},
+               {"maxBytes",
+                Json::object(
+                    {{"type", "integer"},
+                     {"minimum", 1000},
+                     {"maximum", kDocsPageMaxBytes},
+                     {"default", kDocsPageDefaultBytes},
+                     {"description", "Page size in bytes of the whole result (entries, header, next and nextCursor, "
+                                     "JSON escaping): whole entries are added until the next would not fit (a page has "
+                                     "at least one entry, so one huge entry can pass it)."}})},
+               {"format", Json::object({{"type", "string"},
+                                        {"enum", Json::array({"markdown", "json"})},
+                                        {"default", "markdown"},
+                                        {"description", "Output format."}})}})}});
 }
 
-bool contains_ci(const std::string& hay, const std::string& needle) { return to_lower(hay).find(to_lower(needle)) != std::string::npos; }
+bool contains_ci(const std::string& hay, const std::string& needle) {
+    return to_lower(hay).find(to_lower(needle)) != std::string::npos;
+}
 
 struct Entry {
     std::string name, category, summary;
-    const Json* json = nullptr;        // components
+    const Json* json = nullptr;         // components
     const CommandInfo* info = nullptr;  // commands
 };
 
@@ -356,16 +424,19 @@ struct Entry {
 struct FullRender {
     std::function<Json(const Entry&)> asJson;
     std::function<std::string(const Entry&)> asMarkdown;  // starts with "### Name"
-    std::string preamble;                                  // explanation printed once, on the first full markdown page
+    std::string preamble;                                 // explanation printed once, on the first full markdown page
 };
 
 // Bytes `s` takes inside a JSON string (quotes, backslashes and control characters are escaped; UTF-8 is kept as it is).
 size_t json_escaped_size(const std::string& s) {
     size_t n = 0;
     for (unsigned char c : s) {
-        if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') n += 2;
-        else if (c < 0x20) n += 6;
-        else n += 1;
+        if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f')
+            n += 2;
+        else if (c < 0x20)
+            n += 6;
+        else
+            n += 1;
     }
     return n;
 }
@@ -374,9 +445,11 @@ size_t json_escaped_size(const std::string& s) {
 constexpr long kDocsEnvelopeBytes = 700;
 
 // Returns one page of the (already filtered) entries: the list of summaries, or with `full` each entry in full.
-Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool json, const char* key, const std::string& title,
-               const std::string& tool, const std::string& example, const std::string& filter, const FullRender& render) {
-    double wanted = double(kDocsPageDefaultBytes);  // clamped as a double: a huge JSON number must not wrap when narrowed
+Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool json, const char* key,
+               const std::string& title, const std::string& tool, const std::string& example, const std::string& filter,
+               const FullRender& render) {
+    double wanted =
+        double(kDocsPageDefaultBytes);  // clamped as a double: a huge JSON number must not wrap when narrowed
     if (auto it = args.find("maxBytes"); it != args.end() && it->is_number()) wanted = it->get<double>();
     if (!(wanted >= 1000.0)) wanted = 1000.0;
     const long maxBytes = wanted > double(kDocsPageMaxBytes) ? kDocsPageMaxBytes : long(wanted);
@@ -391,19 +464,27 @@ Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool js
             if (!filter.empty()) restart["filter"] = filter;
             if (full) restart["full"] = true;
             throw CommandError("invalid_argument",
-                               "cursor '" + cursor + "' is not an entry of this " + title + " list" + (filter.empty() ? "" : " (filter '" + filter + "')") +
-                                   ": it was not returned by " + tool + " with these arguments, or the set of entries changed.",
-                               "Use the nextCursor of the previous page unchanged, with the same filter, full and format. To start again, call " + tool + " " +
-                                   restart.dump() + " without cursor.");
+                               "cursor '" + cursor + "' is not an entry of this " + title + " list" +
+                                   (filter.empty() ? "" : " (filter '" + filter + "')") + ": it was not returned by " +
+                                   tool + " with these arguments, or the set of entries changed.",
+                               "Use the nextCursor of the previous page unchanged, with the same filter, full and "
+                               "format. To start again, call " +
+                                   tool + " " + restart.dump() + " without cursor.");
         }
     }
     auto page_header = [&](size_t end) {
         std::ostringstream md;
         if (start == 0) {
-            md << "# " << title << " (" << v.size() << ")\n\n" << (filter.empty() ? "" : "Filter: `" + filter + "`.\n\n");
-            if (full) md << "Full reference, in pages of at most " << maxBytes << " bytes: follow `nextCursor` until it is absent.\n\n" << render.preamble;
-            else md << "One line per entry. Read one in full: `" << tool << " {\"name\":\"" << example << "\"}`; narrow the list with `{\"filter\":\"text\"}`; "
-                    << "all in full, page by page, with `{\"full\":true}`.\n\n";
+            md << "# " << title << " (" << v.size() << ")\n\n"
+               << (filter.empty() ? "" : "Filter: `" + filter + "`.\n\n");
+            if (full)
+                md << "Full reference, in pages of at most " << maxBytes
+                   << " bytes: follow `nextCursor` until it is absent.\n\n"
+                   << render.preamble;
+            else
+                md << "One line per entry. Read one in full: `" << tool << " {\"name\":\"" << example
+                   << "\"}`; narrow the list with `{\"filter\":\"text\"}`; "
+                   << "all in full, page by page, with `{\"full\":true}`.\n\n";
         } else {
             md << "# " << title << " (continued: entries " << start + 1 << "-" << end << " of " << v.size() << ")\n\n";
         }
@@ -411,7 +492,8 @@ Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool js
     };
     std::ostringstream o;
     Json arr = Json::array();
-    long used = kDocsEnvelopeBytes + long(2 * json_escaped_size(filter)) + (json ? 0 : long(json_escaped_size(page_header(v.size()))));
+    long used = kDocsEnvelopeBytes + long(2 * json_escaped_size(filter)) +
+                (json ? 0 : long(json_escaped_size(page_header(v.size()))));
     size_t i = start;
     std::string lastCat;
     for (; i < v.size(); ++i) {
@@ -419,19 +501,24 @@ Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool js
         std::string piece;
         Json item;
         if (json) {
-            item = full ? render.asJson(e) : Json::object({{"name", e.name}, {"category", e.category}, {"summary", e.summary}});
+            item = full ? render.asJson(e)
+                        : Json::object({{"name", e.name}, {"category", e.category}, {"summary", e.summary}});
             piece = item.dump();
             used += 1;  // the comma
         } else {
             if (i == start || e.category != lastCat)
-                piece += std::string(i == start ? "" : "\n") + "## " + (e.category.empty() ? "general" : e.category) + "\n\n";
+                piece += std::string(i == start ? "" : "\n") + "## " + (e.category.empty() ? "general" : e.category) +
+                         "\n\n";
             piece += full ? render.asMarkdown(e) : "- `" + e.name + "`: " + e.summary + "\n";
         }
         const long cost = json ? long(piece.size()) : long(json_escaped_size(piece));
         if (i > start && used + cost > maxBytes) break;
         used += cost;
         lastCat = e.category;
-        if (json) arr.push_back(std::move(item)); else o << piece;
+        if (json)
+            arr.push_back(std::move(item));
+        else
+            o << piece;
     }
     Json r = Json::object({{"total", v.size()}, {"returned", i - start}});
     if (i < v.size()) {
@@ -441,7 +528,8 @@ Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool js
         if (full) call["full"] = true;
         call["cursor"] = v[i].name;
         if (json) call["format"] = "json";
-        r["next"] = tool + " " + call.dump() + " returns the next page (" + std::to_string(v.size() - i) + " entries left).";
+        r["next"] =
+            tool + " " + call.dump() + " returns the next page (" + std::to_string(v.size() - i) + " entries left).";
     }
     if (json) {
         r[key] = std::move(arr);
@@ -453,26 +541,35 @@ Json docs_page(const std::vector<Entry>& v, const Json& args, bool full, bool js
 }
 
 // Picks the entries for the arguments; throws not_found (with a did-you-mean) for a `name` that does not exist.
-std::vector<Entry> select_entries(const std::vector<Entry>& all, const Json& args, const char* what, const char* listTool, const Entry** exact) {
+std::vector<Entry> select_entries(const std::vector<Entry>& all, const Json& args, const char* what,
+                                  const char* listTool, const Entry** exact) {
     *exact = nullptr;
     const std::string name = tooling_detail::arg_string(args, "name", false);
     if (!name.empty()) {
         if (!tooling_detail::arg_string(args, "cursor", false).empty())
-            throw CommandError("invalid_argument", std::string("'cursor' and 'name' cannot be used together: 'name' returns one ") + what +
-                                                       " in full and has no next page.",
-                               std::string("Drop 'cursor' to read '") + name + "', or drop 'name' to continue the list: " + listTool +
-                                   " {\"cursor\":\"<nextCursor>\"} (with the same filter and full as the previous page).");
+            throw CommandError(
+                "invalid_argument",
+                std::string("'cursor' and 'name' cannot be used together: 'name' returns one ") + what +
+                    " in full and has no next page.",
+                std::string("Drop 'cursor' to read '") + name + "', or drop 'name' to continue the list: " + listTool +
+                    " {\"cursor\":\"<nextCursor>\"} (with the same filter and full as the previous page).");
         for (const Entry& e : all)
-            if (to_lower(e.name) == to_lower(name)) { *exact = &e; return {e}; }
+            if (to_lower(e.name) == to_lower(name)) {
+                *exact = &e;
+                return {e};
+            }
         std::vector<std::string> names;
         for (const Entry& e : all) names.push_back(e.name);
-        throw CommandError("not_found", std::string("There is no ") + what + " named '" + name + "'. " + did_you_mean(name, names),
-                           std::string("Call ") + listTool + " {} for the list of names, or {\"filter\":\"" + name + "\"} to search.");
+        throw CommandError(
+            "not_found", std::string("There is no ") + what + " named '" + name + "'. " + did_you_mean(name, names),
+            std::string("Call ") + listTool + " {} for the list of names, or {\"filter\":\"" + name + "\"} to search.");
     }
     const std::string filter = tooling_detail::arg_string(args, "filter", false);
     std::vector<Entry> out;
     for (const Entry& e : all)
-        if (filter.empty() || contains_ci(e.name, filter) || contains_ci(e.category, filter) || contains_ci(e.summary, filter)) out.push_back(e);
+        if (filter.empty() || contains_ci(e.name, filter) || contains_ci(e.category, filter) ||
+            contains_ci(e.summary, filter))
+            out.push_back(e);
     return out;
 }
 }  // namespace
@@ -482,19 +579,27 @@ void register_api_export_commands(CommandRegistry& registry) {
         CommandInfo info;
         info.name = "docs.components";
         info.category = "docs";
-        info.summary = "Reference of components and fields (types, defaults, docs): a list of names, or one component in full.";
-        info.description = "Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. "
-                           "With no argument it lists every component with a one-line summary. {\"name\":\"Sprite\"} returns that component "
-                           "with all its fields, {\"filter\":\"physics\"} the components whose name, category or summary contains the text, "
-                           "{\"full\":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): "
-                           "pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; entries loaded "
-                           "between two pages can shift the pages).";
+        info.summary =
+            "Reference of components and fields (types, defaults, docs): a list of names, or one component in full.";
+        info.description =
+            "Generated from the engine's reflection data; always accurate for this build. Use before writing scene "
+            "JSON. "
+            "With no argument it lists every component with a one-line summary. {\"name\":\"Sprite\"} returns that "
+            "component "
+            "with all its fields, {\"filter\":\"physics\"} the components whose name, category or summary contains the "
+            "text, "
+            "{\"full\":true} every component in full (over 200 KB) in pages of at most maxBytes (default 40000): "
+            "pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with "
+            "name; entries loaded "
+            "between two pages can shift the pages).";
         info.inputSchema = docs_filter_schema("component");
         registry.add(info, [](const Json& args) {
             const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
             const Json all = export_components_json();
             std::vector<Entry> entries;
-            for (const Json& t : all) entries.push_back({t.value("name", ""), t.value("category", ""), first_sentence(t.value("doc", "")), &t, nullptr});
+            for (const Json& t : all)
+                entries.push_back(
+                    {t.value("name", ""), t.value("category", ""), first_sentence(t.value("doc", "")), &t, nullptr});
             const Entry* exact = nullptr;
             std::vector<Entry> picked = select_entries(entries, args, "component", "docs.components", &exact);
             if (exact) {
@@ -505,27 +610,38 @@ void register_api_export_commands(CommandRegistry& registry) {
             }
             FullRender render;
             render.asJson = [](const Entry& e) { return *e.json; };
-            render.asMarkdown = [](const Entry& e) { std::ostringstream o; write_component(o, *e.json, "###"); return o.str(); };
+            render.asMarkdown = [](const Entry& e) {
+                std::ostringstream o;
+                write_component(o, *e.json, "###");
+                return o.str();
+            };
             render.preamble = components_preamble();
-            return docs_page(picked, args, tooling_detail::arg_bool(args, "full", false), json, "components", "Components", "docs.components",
-                             picked.empty() ? "Sprite" : picked.front().name, tooling_detail::arg_string(args, "filter", false), render);
+            return docs_page(picked, args, tooling_detail::arg_bool(args, "full", false), json, "components",
+                             "Components", "docs.components", picked.empty() ? "Sprite" : picked.front().name,
+                             tooling_detail::arg_string(args, "filter", false), render);
         });
     }
     {
         CommandInfo info;
         info.name = "docs.commands";
         info.category = "docs";
-        info.summary = "Reference of the available commands (tools) with arguments: a list of names, or one command in full.";
-        info.description = "Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command "
-                           "with its summary. {\"name\":\"game.click\"} returns that command with its arguments, {\"filter\":\"ui\"} the commands "
-                           "whose name, category or summary contains the text, {\"full\":true} every command in full (over 200 KB) in pages of at "
-                           "most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, until it is absent (cursor is not used with name; a plugin or "
+        info.summary =
+            "Reference of the available commands (tools) with arguments: a list of names, or one command in full.";
+        info.description = "Lists the commands of this session, including project tools from tools/*.js. With no "
+                           "argument it lists every command "
+                           "with its summary. {\"name\":\"game.click\"} returns that command with its arguments, "
+                           "{\"filter\":\"ui\"} the commands "
+                           "whose name, category or summary contains the text, {\"full\":true} every command in full "
+                           "(over 200 KB) in pages of at "
+                           "most maxBytes (default 40000): pass the result's nextCursor as cursor for the next page, "
+                           "until it is absent (cursor is not used with name; a plugin or "
                            "tools/*.js loaded between two pages can make a page skip or repeat commands).";
         info.inputSchema = docs_filter_schema("command");
         registry.add(info, [&registry](const Json& args) {
             const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
             std::vector<Entry> entries;
-            for (const CommandInfo* c : registry.list()) entries.push_back({c->name, c->category, c->summary, nullptr, c});
+            for (const CommandInfo* c : registry.list())
+                entries.push_back({c->name, c->category, c->summary, nullptr, c});
             const Entry* exact = nullptr;
             std::vector<Entry> picked = select_entries(entries, args, "command", "docs.commands", &exact);
             const bool full = tooling_detail::arg_bool(args, "full", false);
@@ -545,15 +661,19 @@ void register_api_export_commands(CommandRegistry& registry) {
             }
             FullRender render;
             render.asJson = [&json_of](const Entry& e) { return json_of(e.name); };
-            render.asMarkdown = [](const Entry& e) { std::ostringstream o; write_command(o, e.info, "###"); return o.str(); };
+            render.asMarkdown = [](const Entry& e) {
+                std::ostringstream o;
+                write_command(o, e.info, "###");
+                return o.str();
+            };
             render.preamble = commands_preamble();
-            return docs_page(picked, args, full, json, "commands", "Commands", "docs.commands", picked.empty() ? "game.step" : picked.front().name,
+            return docs_page(picked, args, full, json, "commands", "Commands", "docs.commands",
+                             picked.empty() ? "game.step" : picked.front().name,
                              tooling_detail::arg_string(args, "filter", false), render);
         });
     }
-    declare_command_capabilities(registry, {
-        {"docs.components", capability_sets::reads()},
-        {"docs.commands", capability_sets::reads()}});
+    declare_command_capabilities(
+        registry, {{"docs.components", capability_sets::reads()}, {"docs.commands", capability_sets::reads()}});
 }
 
 void register_api_reference_command(CommandRegistry& registry, const ScriptSystem& scripts) {
@@ -564,16 +684,29 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
         info.readOnly = false;
         info.summary = "Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.";
         info.description =
-            "Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), "
-            "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in "
-            "section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and "
-            "nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) "
-            "so plugin and project commands are not included; the unit test api_reference compares the committed files with this "
+            "Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and "
+            "<out>/reference/: README.md (index of every component and command), "
+            "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between "
+            "the markers in "
+            "section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a "
+            "`warnings` entry and "
+            "nothing else changes); all generated from the registries of this session. Run it outside a project (the "
+            "scratch session) "
+            "so plugin and project commands are not included; the unit test api_reference compares the committed files "
+            "with this "
             "output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the repository root.";
-        info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
-            {"properties", Json::object({{"out", Json::object({{"type", "string"},
-                {"description", "Docs folder to write into, usually \"docs\". Relative to the project folder, and inside it, for an agent; the command line may also give an absolute folder, and its relative path is taken from the working directory."},
-                {"x-fa-path", "write"}})}})}});
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"required", Json::array({"out"})},
+             {"properties",
+              Json::object(
+                  {{"out",
+                    Json::object(
+                        {{"type", "string"},
+                         {"description", "Docs folder to write into, usually \"docs\". Relative to the project folder, "
+                                         "and inside it, for an agent; the command line may also give an absolute "
+                                         "folder, and its relative path is taken from the working directory."},
+                         {"x-fa-path", "write"}})}})}});
         registry.add(info, [&registry, &scripts](const Json& args) {
             // The command-line user names a folder relative to the working directory, or any absolute one. An agent (MCP, the
             // in-editor assistant) writes inside the project folder, wherever the process was started from.
@@ -581,8 +714,10 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             std::error_code cwdEc;
             std::filesystem::path root = std::filesystem::current_path(cwdEc);
             if (!anywhere && !fs::project_root().empty()) root = fs::project_root();
-            auto resolvedOut = fs::resolve_for_write_in(root, fs::WriteRoot::Project, tooling_detail::arg_string(args, "out", true), anywhere);
-            if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+            auto resolvedOut = fs::resolve_for_write_in(root, fs::WriteRoot::Project,
+                                                        tooling_detail::arg_string(args, "out", true), anywhere);
+            if (!resolvedOut.ok())
+                throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
             const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
@@ -596,21 +731,27 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
                 std::string err;
                 guideReady = splice_ai_guide_tools_table(*guide, registry, &err);
                 if (!guideReady)
-                    warnings.push_back(err + " AI_GUIDE.md was left as it is; restore the markers in section 4 and run the command again.");
+                    warnings.push_back(
+                        err +
+                        " AI_GUIDE.md was left as it is; restore the markers in section 4 and run the command again.");
             } else {
-                warnings.push_back("No AI_GUIDE.md in " + out.generic_string() + ": the generated tools table was not written (fine outside the repository's docs folder).");
+                warnings.push_back(
+                    "No AI_GUIDE.md in " + out.generic_string() +
+                    ": the generated tools table was not written (fine outside the repository's docs folder).");
             }
             for (const ApiReferencePage& p : export_api_reference(registry, scripts)) {
                 std::string err;
                 if (!tooling_detail::write_file(out / p.path, p.text, &err))
-                    throw CommandError("write_failed", "Cannot write " + p.path + " under " + out.generic_string() + ": " + err,
+                    throw CommandError("write_failed",
+                                       "Cannot write " + p.path + " under " + out.generic_string() + ": " + err,
                                        "Check that the folder exists and is writable.");
                 written.push_back(p.path);
             }
             if (guideReady) {
                 std::string err;
                 if (!tooling_detail::write_file(out / "AI_GUIDE.md", *guide, &err))
-                    throw CommandError("write_failed", "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
+                    throw CommandError("write_failed",
+                                       "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
                                        "Check that the file is writable.");
                 written.push_back("AI_GUIDE.md");
             }
@@ -620,8 +761,7 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
         });
     }
     // docs.write_reference writes <out>/ (inside the project for an MCP client or agent, any folder for the command line).
-    declare_command_capabilities(registry, {
-        {"docs.write_reference", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"docs.write_reference", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

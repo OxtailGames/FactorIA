@@ -68,7 +68,8 @@ TEST_CASE("camera set: it is a snapshot, a moved camera is seen by the next refr
     CHECK(set.screen_to_world({640, 360}, 0.0f).x == doctest::Approx(40.0f));
 }
 
-TEST_CASE("camera set: split screen picks the camera whose viewport holds the pointer; a camera being destroyed is skipped") {
+TEST_CASE(
+    "camera set: split screen picks the camera whose viewport holds the pointer; a camera being destroyed is skipped") {
     World w;
     const Entity left = add_camera(w, "left", {0, 0}, 0);
     const Entity right = add_camera(w, "right", {500, 0}, 1);

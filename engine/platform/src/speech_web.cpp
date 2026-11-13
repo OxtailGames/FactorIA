@@ -7,8 +7,11 @@
 
 #include "fa/platform/speech.h"
 
+// clang-format off
 EM_JS(int, fa_web_speech_available, (), { return (typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined') ? 1 : 0; });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_speech_speak, (const char* text, const char* lang, int interrupt), {
     const synth = window.speechSynthesis;
     if (!synth) return;
@@ -26,8 +29,11 @@ EM_JS(void, fa_web_speech_speak, (const char* text, const char* lang, int interr
     }
     synth.speak(u);
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_speech_stop, (), { if (window.speechSynthesis) window.speechSynthesis.cancel(); });
+// clang-format on
 
 namespace fa {
 

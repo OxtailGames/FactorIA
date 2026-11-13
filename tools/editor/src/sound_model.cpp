@@ -28,21 +28,28 @@ std::optional<std::string> read_file(const stdfs::path& p) {
     return ss.str();
 }
 
-std::uint64_t mix(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 double now_ms() {
     using clock = std::chrono::steady_clock;  // UI timing only: no simulation reads it
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
-bool ends_with_(const std::string& s, const std::string& suffix) { return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0; }
+bool ends_with_(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
-std::string without_suffix(const std::string& s, const std::string& suffix) { return ends_with_(s, suffix) ? s.substr(0, s.size() - suffix.size()) : s; }
+std::string without_suffix(const std::string& s, const std::string& suffix) {
+    return ends_with_(s, suffix) ? s.substr(0, s.size() - suffix.size()) : s;
+}
 
 // The text of the issues of a patch / document that does not parse.
 std::string issues_line(const std::vector<SfxIssue>& issues) {
     std::string out;
-    for (std::size_t i = 0; i < issues.size() && i < 3; ++i) out += (i ? " " : "") + issues[i].pointer + ": " + issues[i].message;
+    for (std::size_t i = 0; i < issues.size() && i < 3; ++i)
+        out += (i ? " " : "") + issues[i].pointer + ": " + issues[i].message;
     return out;
 }
 
@@ -89,7 +96,8 @@ SoundRenderPtr make_sound_render(const RenderedSound& sound) {
         std::vector<float> monoSamples(frames);
         for (std::size_t b = 0; b < blocks; ++b) {
             float lo = 1e9f, hi = -1e9f;
-            const std::size_t from = b * std::size_t(r->peakBlock), to = std::min(frames, from + std::size_t(r->peakBlock));
+            const std::size_t from = b * std::size_t(r->peakBlock),
+                              to = std::min(frames, from + std::size_t(r->peakBlock));
             for (std::size_t i = from; i < to; ++i) {
                 const float v = r->mid(i);
                 monoSamples[i] = v;
@@ -117,10 +125,10 @@ SoundRenderPtr make_sound_render(const RenderedSound& sound) {
 
 std::string sound_slot_label(const SoundSlot& s) {
     switch (s.kind) {
-    case SoundSlotKind::Current: return "Current";
-    case SoundSlotKind::Variant: return "Variant " + std::to_string(s.variant);
-    case SoundSlotKind::Before: return "Before the last edit";
-    case SoundSlotKind::Baked: return "Baked file";
+        case SoundSlotKind::Current: return "Current";
+        case SoundSlotKind::Variant: return "Variant " + std::to_string(s.variant);
+        case SoundSlotKind::Before: return "Before the last edit";
+        case SoundSlotKind::Baked: return "Baked file";
     }
     return "";
 }
@@ -133,7 +141,8 @@ std::pair<double, double> sound_level_match(double lufsA, double lufsB) {
 
 // ---- the document --------------------------------------------------------------------------------------------------------
 
-SoundModel::SoundModel(std::string projectDir, SoundCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+SoundModel::SoundModel(std::string projectDir, SoundCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 SoundModel::~SoundModel() {
     if (running_.valid && running_.future.valid()) running_.future.wait();
@@ -147,8 +156,10 @@ std::string SoundModel::title() const {
 bool SoundModel::open(const std::string& rel) {
     close();
     SoundKind k = SoundKind::None;
-    if (ends_with_(rel, ".sfx.json")) k = SoundKind::Patch;
-    else if (ends_with_(rel, ".audio.json")) k = SoundKind::Document;
+    if (ends_with_(rel, ".sfx.json"))
+        k = SoundKind::Patch;
+    else if (ends_with_(rel, ".audio.json"))
+        k = SoundKind::Document;
     else {
         const std::string ext = to_lower(stdfs::path(rel).extension().string());
         if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") k = SoundKind::File;
@@ -240,13 +251,17 @@ bool SoundModel::load_from_disk() {
     std::vector<SfxIssue> issues;
     if (kind_ == SoundKind::Patch) {
         auto p = parse_sfx(json_, rel_, &issues);
-        if (p.ok()) patch_ = std::move(*p);
-        else error_ = p.error().message + " " + issues_line(issues);
+        if (p.ok())
+            patch_ = std::move(*p);
+        else
+            error_ = p.error().message + " " + issues_line(issues);
         valid_ = p.ok();
     } else {
         auto d = parse_audio_doc(json_, rel_, &issues);
-        if (d.ok()) doc_ = std::move(*d);
-        else error_ = d.error().message + " " + issues_line(issues);
+        if (d.ok())
+            doc_ = std::move(*d);
+        else
+            error_ = d.error().message + " " + issues_line(issues);
         valid_ = d.ok();
     }
     if (valid_) error_.clear();
@@ -297,27 +312,28 @@ SoundSpec SoundModel::main_spec() const {
     spec.file = rel_;
     spec.seed = seed_;
     switch (kind_) {
-    case SoundKind::Patch:
-        spec.kind = SoundSpec::Kind::Patch;
-        spec.json = shown_json();
-        spec.macros = macroPreview_;
-        break;
-    case SoundKind::Document:
-        spec.kind = SoundSpec::Kind::Document;
-        spec.json = shown_json();
-        spec.seedSet = seed_ != 0;
-        spec.stopAfter = stopAfter_;
-        break;
-    default:
-        spec.kind = SoundSpec::Kind::File;
-        spec.maxSeconds = 30.0;
-        break;
+        case SoundKind::Patch:
+            spec.kind = SoundSpec::Kind::Patch;
+            spec.json = shown_json();
+            spec.macros = macroPreview_;
+            break;
+        case SoundKind::Document:
+            spec.kind = SoundSpec::Kind::Document;
+            spec.json = shown_json();
+            spec.seedSet = seed_ != 0;
+            spec.stopAfter = stopAfter_;
+            break;
+        default:
+            spec.kind = SoundSpec::Kind::File;
+            spec.maxSeconds = 30.0;
+            break;
     }
     return spec;
 }
 
 std::string SoundModel::key_of(const SoundSpec& spec) const {
-    std::string k = std::to_string(int(spec.kind)) + "|" + spec.file + "|" + std::to_string(spec.seed) + "|" + std::to_string(spec.seedSet) + "|" + std::to_string(spec.variant) + "|" +
+    std::string k = std::to_string(int(spec.kind)) + "|" + spec.file + "|" + std::to_string(spec.seed) + "|" +
+                    std::to_string(spec.seedSet) + "|" + std::to_string(spec.variant) + "|" +
                     std::to_string(spec.stopAfter) + "|";
     for (const auto& [n, v] : spec.macros) k += n + "=" + std::to_string(v) + ",";
     if (!spec.json.is_null()) k += "|" + spec.json.dump();
@@ -398,8 +414,10 @@ void SoundModel::collect() {
     results_[running_.key] = std::move(e);
     if (results_.size() > 48) {
         for (auto it = results_.begin(); it != results_.end();) {
-            if (it->first == mainKey_ || extras_.count(it->first)) ++it;
-            else it = results_.erase(it);
+            if (it->first == mainKey_ || extras_.count(it->first))
+                ++it;
+            else
+                it = results_.erase(it);
         }
     }
 }
@@ -495,7 +513,8 @@ SoundRenderPtr SoundModel::baked() {
         bakedStamp_ = ~0ULL;
         return nullptr;
     }
-    std::uint64_t h = mix(mix(1469598103934665603ULL, std::uint64_t(stdfs::file_size(*abs, ec))), std::uint64_t(stdfs::last_write_time(*abs, ec).time_since_epoch().count()));
+    std::uint64_t h = mix(mix(1469598103934665603ULL, std::uint64_t(stdfs::file_size(*abs, ec))),
+                          std::uint64_t(stdfs::last_write_time(*abs, ec).time_since_epoch().count()));
     if (baked_ && h == bakedStamp_) return baked_;
     SoundSpec spec;
     spec.kind = SoundSpec::Kind::File;
@@ -513,10 +532,10 @@ SoundRenderPtr SoundModel::baked() {
 
 SoundRenderPtr SoundModel::slot(const SoundSlot& s) {
     switch (s.kind) {
-    case SoundSlotKind::Current: return current_;
-    case SoundSlotKind::Variant: return variant(s.variant);
-    case SoundSlotKind::Before: return before_;
-    case SoundSlotKind::Baked: return baked();
+        case SoundSlotKind::Current: return current_;
+        case SoundSlotKind::Variant: return variant(s.variant);
+        case SoundSlotKind::Before: return before_;
+        case SoundSlotKind::Baked: return baked();
     }
     return nullptr;
 }
@@ -650,10 +669,13 @@ std::set<std::string> list_files(const std::string& projectDir, const std::strin
 
 }  // namespace
 
-SoundEditOutcome SoundModel::run(const std::string& label, const std::function<CommandResult()>& body, const std::string& scanDir, bool manifest) {
+SoundEditOutcome SoundModel::run(const std::string& label, const std::function<CommandResult()>& body,
+                                 const std::string& scanDir, bool manifest) {
     SoundEditOutcome out;
-    if (!editable()) return fail(out, label + ": this sound is read-only here. Use \"Make audio document\" to edit it.");
-    if (!valid_ && kind_ != SoundKind::None && json_.is_null()) return fail(out, label + ": the file does not load: " + error_);
+    if (!editable())
+        return fail(out, label + ": this sound is read-only here. Use \"Make audio document\" to edit it.");
+    if (!valid_ && kind_ != SoundKind::None && json_.is_null())
+        return fail(out, label + ": the file does not load: " + error_);
     // The command writes files and sets the VFS root: let a render on the worker finish first.
     if (running_.valid) running_.future.wait();
     collect();
@@ -681,7 +703,8 @@ SoundEditOutcome SoundModel::run(const std::string& label, const std::function<C
         if (!before.count(p)) before[p] = nullptr;
     for (auto it = before.begin(); it != before.end();) {
         auto f = after.find(it->first);
-        const bool same = f != after.end() && (f->second == it->second || (f->second && it->second && *f->second == *it->second));
+        const bool same =
+            f != after.end() && (f->second == it->second || (f->second && it->second && *f->second == *it->second));
         if (same) {
             after.erase(f);
             it = before.erase(it);
@@ -728,7 +751,8 @@ SoundEditOutcome SoundModel::remove_field(const std::string& pointer, const std:
     return run(label.empty() ? "Remove " + pointer : label, [&] { return call_("sfx.edit", a); });
 }
 
-SoundEditOutcome SoundModel::add_item(const std::string& pointer, const Json& value, int index, const std::string& label) {
+SoundEditOutcome SoundModel::add_item(const std::string& pointer, const Json& value, int index,
+                                      const std::string& label) {
     cancel_field_preview();
     Json a = step_target();
     a["op"] = "add";
@@ -820,7 +844,8 @@ SoundEditOutcome SoundModel::make_family(const std::string& preset, bool overwri
 
 std::vector<SoundChainStep> SoundModel::chain() const {
     std::vector<SoundChainStep> out;
-    if (kind_ != SoundKind::Document || !json_.is_object() || !json_.contains("steps") || !json_["steps"].is_array()) return out;
+    if (kind_ != SoundKind::Document || !json_.is_object() || !json_.contains("steps") || !json_["steps"].is_array())
+        return out;
     int i = 0;
     for (const Json& s : json_["steps"]) {
         SoundChainStep c;
@@ -867,7 +892,8 @@ SoundEditOutcome SoundModel::remove_step(int index) {
     a["index"] = index;
     a["bake"] = false;
     std::string type;
-    if (json_.contains("steps") && index >= 0 && std::size_t(index) < json_["steps"].size()) type = json_["steps"][std::size_t(index)].value("type", std::string());
+    if (json_.contains("steps") && index >= 0 && std::size_t(index) < json_["steps"].size())
+        type = json_["steps"][std::size_t(index)].value("type", std::string());
     return run("Remove " + type, [&] { return call_("audio.edit", a); });
 }
 
@@ -888,24 +914,31 @@ SoundEditOutcome SoundModel::set_step(int index, const Json& values, const std::
     a["values"] = values;
     a["bake"] = false;
     std::string type;
-    if (json_.contains("steps") && index >= 0 && std::size_t(index) < json_["steps"].size()) type = json_["steps"][std::size_t(index)].value("type", std::string());
+    if (json_.contains("steps") && index >= 0 && std::size_t(index) < json_["steps"].size())
+        type = json_["steps"][std::size_t(index)].value("type", std::string());
     return run(label.empty() ? "Edit " + type : label, [&] { return call_("audio.edit", a); });
 }
 
 SoundEditOutcome SoundModel::set_step_enabled(int index, bool enabled) {
     Json values = Json::object();
-    if (enabled) values["enabled"] = nullptr;  // null removes the field: enabled is the default
-    else values["enabled"] = false;
+    if (enabled)
+        values["enabled"] = nullptr;  // null removes the field: enabled is the default
+    else
+        values["enabled"] = false;
     return set_step(index, values, enabled ? "Enable step" : "Disable step");
 }
 
 void SoundModel::preview_step(int index, const Json& values) {
-    if (kind_ != SoundKind::Document || !json_.contains("steps") || index < 0 || std::size_t(index) >= json_["steps"].size()) return;
+    if (kind_ != SoundKind::Document || !json_.contains("steps") || index < 0 ||
+        std::size_t(index) >= json_["steps"].size())
+        return;
     Json j = json_;
     Json& step = j["steps"][std::size_t(index)];
     for (auto it = values.begin(); it != values.end(); ++it) {
-        if (it.value().is_null()) step.erase(it.key());
-        else step[it.key()] = it.value();
+        if (it.value().is_null())
+            step.erase(it.key());
+        else
+            step[it.key()] = it.value();
     }
     previewJson_ = std::move(j);
     jsonPreview_ = true;
@@ -934,7 +967,8 @@ SoundEditOutcome SoundModel::set_document(const Json& values) {
 }
 
 int SoundModel::loop_step() const {
-    if (kind_ != SoundKind::Document || !json_.is_object() || !json_.contains("steps") || !json_["steps"].is_array()) return -1;
+    if (kind_ != SoundKind::Document || !json_.is_object() || !json_.contains("steps") || !json_["steps"].is_array())
+        return -1;
     int found = -1, i = 0;
     for (const Json& s : json_["steps"]) {
         if (s.is_object() && s.value("type", std::string()) == "loop" && s.value("enabled", true)) found = i;
@@ -954,7 +988,8 @@ std::optional<std::pair<double, double>> SoundModel::loop_seconds() const {
     if (loopPreview_) return loopPreview_;
     if (kind_ == SoundKind::Document) {
         if (current_ && current_->loop && current_->rate > 0 && current_->loop->end > current_->loop->start)
-            return std::pair<double, double>{double(current_->loop->start) / current_->rate, double(current_->loop->end) / current_->rate};
+            return std::pair<double, double>{double(current_->loop->start) / current_->rate,
+                                             double(current_->loop->end) / current_->rate};
         return std::nullopt;
     }
     if (kind_ == SoundKind::File) return import_loop();
@@ -968,9 +1003,11 @@ std::optional<std::pair<double, double>> SoundModel::import_loop() const {
     auto text = read_file(*abs);
     if (!text) return std::nullopt;
     auto json = parse_json(*text, "assets.json");
-    if (!json.ok() || !json->is_object() || !json->contains("assets") || !(*json)["assets"].is_object()) return std::nullopt;
+    if (!json.ok() || !json->is_object() || !json->contains("assets") || !(*json)["assets"].is_object())
+        return std::nullopt;
     auto it = (*json)["assets"].find(rel_);
-    if (it == (*json)["assets"].end() || !it->is_object() || !it->contains("import") || !(*it)["import"].is_object()) return std::nullopt;
+    if (it == (*json)["assets"].end() || !it->is_object() || !it->contains("import") || !(*it)["import"].is_object())
+        return std::nullopt;
     const Json& imp = (*it)["import"];
     const double s = imp.value("loopStart", 0.0), e = imp.value("loopEnd", 0.0);
     if (e > s && s >= 0.0) return std::pair<double, double>{s, e};
@@ -1081,8 +1118,10 @@ bool SoundModel::apply_step(int id, bool forward) {
 
 void SoundModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 

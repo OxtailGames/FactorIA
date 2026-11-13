@@ -38,8 +38,8 @@ struct Section {
 
 // What the patchers need of the PE headers.
 struct PeLayout {
-    std::uint64_t opt = 0;           // the optional header
-    std::uint64_t dirBase = 0;       // its data directories
+    std::uint64_t opt = 0;      // the optional header
+    std::uint64_t dirBase = 0;  // its data directories
     std::uint32_t dirCount = 0;
     std::uint64_t endOfRawData = 0;  // where the sections end (an appended certificate table starts at or after it)
     std::vector<Section> sections;
@@ -55,18 +55,22 @@ struct PeLayout {
 };
 
 // The length of a 32-bit BMP icon image of `size` pixels (icon_bmp_entry): header, pixels, 1-bit AND mask.
-std::uint64_t bmp_image_length(std::uint64_t size) { return kBitmapHeaderSize + size * size * 4 + ((size + 31) / 32) * 4 * size; }
+std::uint64_t bmp_image_length(std::uint64_t size) {
+    return kBitmapHeaderSize + size * size * 4 + ((size + 31) / 32) * 4 * size;
+}
 
 // `what`: "icon" or "version information", for the messages.
 Error not_a_pe(const std::string& what, const std::string& why) {
-    return make_error("Cannot set the " + what + " of the Windows player: " + why,
-                      "Pass the factoria_player.exe built for Windows (`--player <path>`), the one next to factoria in the FactorIA "
-                      "download for Windows.");
+    return make_error(
+        "Cannot set the " + what + " of the Windows player: " + why,
+        "Pass the factoria_player.exe built for Windows (`--player <path>`), the one next to factoria in the FactorIA "
+        "download for Windows.");
 }
 
 Error damaged_resources(const std::string& what, const std::string& why) {
     return make_error("Cannot set the " + what + " of the Windows player: its resource table is damaged (" + why + ")",
-                      "Use the factoria_player.exe of the FactorIA download, or build it again (cmake --build <build dir> --target factoria_player).");
+                      "Use the factoria_player.exe of the FactorIA download, or build it again (cmake --build <build "
+                      "dir> --target factoria_player).");
 }
 
 Result<PeLayout> read_layout(const std::vector<std::uint8_t>& exe, const std::string& what) {
@@ -74,7 +78,8 @@ Result<PeLayout> read_layout(const std::vector<std::uint8_t>& exe, const std::st
     if (exe.size() < 0x40 || exe[0] != 'M' || exe[1] != 'Z')
         return not_a_pe(what, "the file is not a Windows executable (it does not start with 'MZ')");
     const std::uint64_t peOff = v.u32(0x3C);
-    if (!v.has(peOff, 24) || std::memcmp(&exe[peOff], "PE\0\0", 4) != 0) return not_a_pe(what, "the file has no PE header");
+    if (!v.has(peOff, 24) || std::memcmp(&exe[peOff], "PE\0\0", 4) != 0)
+        return not_a_pe(what, "the file has no PE header");
     PeLayout pe;
     const std::uint64_t coff = peOff + 4;
     pe.opt = coff + 20;
@@ -85,7 +90,8 @@ Result<PeLayout> read_layout(const std::vector<std::uint8_t>& exe, const std::st
     const bool pe32plus = magic == 0x20b;
     const std::uint64_t optEnd = pe.opt + optSize, dirCountOff = pe.opt + (pe32plus ? 108 : 92);
     pe.dirBase = pe.opt + (pe32plus ? 112 : 96);
-    if (v.has(dirCountOff, 4) && dirCountOff + 4 <= optEnd) pe.dirCount = std::min<std::uint32_t>(v.u32(dirCountOff), 16);
+    if (v.has(dirCountOff, 4) && dirCountOff + 4 <= optEnd)
+        pe.dirCount = std::min<std::uint32_t>(v.u32(dirCountOff), 16);
     pe.dirCount = std::min<std::uint32_t>(pe.dirCount, std::uint32_t((optEnd - std::min(pe.dirBase, optEnd)) / 8));
 
     if (!v.has(optEnd, std::uint64_t(numSections) * 40)) return not_a_pe(what, "its section table is truncated");
@@ -93,7 +99,8 @@ Result<PeLayout> read_layout(const std::vector<std::uint8_t>& exe, const std::st
     for (std::uint32_t i = 0; i < numSections; ++i) {
         const std::uint64_t s = optEnd + std::uint64_t(i) * 40;
         pe.sections.push_back({v.u32(s + 12), v.u32(s + 20), v.u32(s + 16)});
-        pe.endOfRawData = std::max<std::uint64_t>(pe.endOfRawData, std::uint64_t(pe.sections.back().rawPtr) + pe.sections.back().rawSize);
+        pe.endOfRawData = std::max<std::uint64_t>(pe.endOfRawData, std::uint64_t(pe.sections.back().rawPtr) +
+                                                                       pe.sections.back().rawSize);
     }
     return pe;
 }
@@ -105,7 +112,8 @@ struct ResourceData {
 
 // The data of every resource of `type` in the resource tree (data directory 2: type -> name -> language -> data entry).
 // Returns "" or what is damaged.
-std::string find_resources(const std::vector<std::uint8_t>& exe, const PeLayout& pe, std::uint32_t type, std::vector<ResourceData>& out) {
+std::string find_resources(const std::vector<std::uint8_t>& exe, const PeLayout& pe, std::uint32_t type,
+                           std::vector<ResourceData>& out) {
     const View v{exe};
     const std::uint32_t resRva = pe.dirCount > 2 ? v.u32(pe.dirBase + 2 * 8) : 0;
     if (resRva == 0) return {};
@@ -130,8 +138,10 @@ std::string find_resources(const std::vector<std::uint8_t>& exe, const PeLayout&
             const std::uint32_t nameField = v.u32(e), offField = v.u32(e + 4);
             if (level == 0 && !(i >= named && nameField == type)) continue;
             if (offField & kSubdirectoryFlag) {
-                if (level >= 2) problem = "the tree is deeper than type, name, language";
-                else self(self, offField & ~kSubdirectoryFlag, level + 1);
+                if (level >= 2)
+                    problem = "the tree is deeper than type, name, language";
+                else
+                    self(self, offField & ~kSubdirectoryFlag, level + 1);
                 continue;
             }
             if (level == 0) continue;  // a type that is a leaf: not one of ours
@@ -178,7 +188,8 @@ void version_numbers(const std::string& version, std::uint32_t out[4]) {
     std::size_t i = 0;
     for (int part = 0; part < 4; ++part) {
         std::uint32_t n = 0;
-        while (i < version.size() && version[i] >= '0' && version[i] <= '9') n = std::min<std::uint32_t>(n * 10 + std::uint32_t(version[i++] - '0'), 65535);
+        while (i < version.size() && version[i] >= '0' && version[i] <= '9')
+            n = std::min<std::uint32_t>(n * 10 + std::uint32_t(version[i++] - '0'), 65535);
         out[part] = n;
         if (i >= version.size() || version[i] != '.') {
             for (int rest = part + 1; rest < 4; ++rest) out[rest] = 0;
@@ -203,11 +214,13 @@ std::uint32_t pe_checksum(const std::vector<std::uint8_t>& bytes, std::size_t ch
 
 Result<PeIconPatch> patch_pe_icon(std::vector<std::uint8_t>& exe, const Image& icon) {
     if (icon.empty())
-        return make_error("Cannot set the icon of the Windows player: the icon image is empty", "Load it with load_icon_image first.");
+        return make_error("Cannot set the icon of the Windows player: the icon image is empty",
+                          "Load it with load_icon_image first.");
     auto pe = read_layout(exe, "icon");
     if (!pe.ok()) return pe.error();
     std::vector<ResourceData> images;
-    if (std::string problem = find_resources(exe, *pe, kRtIcon, images); !problem.empty()) return damaged_resources("icon", problem);
+    if (std::string problem = find_resources(exe, *pe, kRtIcon, images); !problem.empty())
+        return damaged_resources("icon", problem);
 
     // A 32-bit uncompressed BMP image of a square size: the placeholder's.
     PeIconPatch result;
@@ -219,11 +232,13 @@ Result<PeIconPatch> patch_pe_icon(std::vector<std::uint8_t>& exe, const Image& i
     const View v{exe};
     for (const ResourceData& r : images) {
         const std::uint32_t width = r.size >= kBitmapHeaderSize ? v.u32(r.offset + 4) : 0;
-        const bool bmp = r.size >= kBitmapHeaderSize && v.u32(r.offset) == kBitmapHeaderSize && width >= 1 && width <= 256 &&
-                         v.u32(r.offset + 8) == width * 2 && v.u16(r.offset + 12) == 1 && v.u16(r.offset + 14) == 32 &&
-                         v.u32(r.offset + 16) == 0 && r.size == bmp_image_length(width);
-        if (bmp) targets.push_back({r.offset, width});
-        else ++result.skipped;
+        const bool bmp = r.size >= kBitmapHeaderSize && v.u32(r.offset) == kBitmapHeaderSize && width >= 1 &&
+                         width <= 256 && v.u32(r.offset + 8) == width * 2 && v.u16(r.offset + 12) == 1 &&
+                         v.u16(r.offset + 14) == 32 && v.u32(r.offset + 16) == 0 && r.size == bmp_image_length(width);
+        if (bmp)
+            targets.push_back({r.offset, width});
+        else
+            ++result.skipped;
     }
     if (targets.empty()) return result;  // nothing to replace: the file stays exactly as it is
 
@@ -274,7 +289,8 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
             const std::uint64_t value = (k + 2 + 3) & ~std::uint64_t(3);
             if (depth == 0) {
                 if (key != "VS_VERSION_INFO") return false;
-                if (valueLen >= 52 && value + 52 <= blockEnd && v.u32(value) == kFixedFileInfoSignature) resFixedInfo = value;
+                if (valueLen >= 52 && value + 52 <= blockEnd && v.u32(value) == kFixedFileInfoSignature)
+                    resFixedInfo = value;
             }
             if (depth == 3) {  // a string of a string table
                 if (type != 1 || value + 2 > blockEnd) return true;
@@ -284,7 +300,8 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
                 std::u16string text = utf8_to_utf16(want->second);
                 if (text.size() > room) {
                     text.resize(room);
-                    if (room > 0 && text.back() >= 0xD800 && text.back() < 0xDC00) text.back() = 0;  // half a surrogate pair
+                    if (room > 0 && text.back() >= 0xD800 && text.back() < 0xDC00)
+                        text.back() = 0;  // half a surrogate pair
                     truncated.push_back(key);
                 }
                 text.resize(room + 1, u'\0');

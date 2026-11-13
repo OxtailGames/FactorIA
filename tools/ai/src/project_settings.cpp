@@ -55,7 +55,8 @@ std::string escape_control_chars(std::string_view text) {
 }
 
 std::string SettingChange::text() const {
-    return escape_control_chars(pointer) + ": " + (from.is_null() ? std::string("(not set)") : dump(from)) + " -> " + dump(to);
+    return escape_control_chars(pointer) + ": " + (from.is_null() ? std::string("(not set)") : dump(from)) + " -> " +
+           dump(to);
 }
 
 SettingSource ResolvedAiConfig::source_of(std::string_view pointer) const {
@@ -68,13 +69,14 @@ SettingSource ResolvedAiConfig::source_of(std::string_view pointer) const {
 
 namespace {
 
-const char* const kLimitKeys[] = {"maxTurns", "maxCostUsd", "maxTotalTokens", "stuckAfterSeconds", "maxConcurrentRuns", "maxAssetCostUsd",
-                                  "askAboveUsd"};
+const char* const kLimitKeys[] = {"maxTurns",          "maxCostUsd",      "maxTotalTokens", "stuckAfterSeconds",
+                                  "maxConcurrentRuns", "maxAssetCostUsd", "askAboveUsd"};
 const char* const kAssetCostKeys[] = {"perRun", "perDay"};
-const char* const kRoleKeys[] = {"enabled", "provider", "model", "effort", "maxTokens", "maxContextTokens", "toolGroups"};
+const char* const kRoleKeys[] = {"enabled",   "provider",         "model",     "effort",
+                                 "maxTokens", "maxContextTokens", "toolGroups"};
 const char* const kAssetKeys[] = {"provider", "model", "voice"};
-const char* const kSaverKeys[] = {"loopGuard", "loopGuardJudge", "learnedToolGroups", "projectFacts",
-                                      "retrospective", "retrospectiveSteps", "retrospectiveCostUsd"};
+const char* const kSaverKeys[] = {"loopGuard",     "loopGuardJudge",     "learnedToolGroups",   "projectFacts",
+                                  "retrospective", "retrospectiveSteps", "retrospectiveCostUsd"};
 const char* const kExtensionGroups[] = {"plugins", "skills", "hooks"};
 
 const char* extension_group(ExtensionKind k) {
@@ -86,21 +88,30 @@ const char* extension_group(ExtensionKind k) {
     return "plugins";
 }
 
-std::vector<std::string> names_of(const char* const* first, std::size_t n) { return std::vector<std::string>(first, first + n); }
+std::vector<std::string> names_of(const char* const* first, std::size_t n) {
+    return std::vector<std::string>(first, first + n);
+}
 template <std::size_t N>
-std::vector<std::string> names_of(const char* const (&list)[N]) { return names_of(list, N); }
+std::vector<std::string> names_of(const char* const (&list)[N]) {
+    return names_of(list, N);
+}
 
 std::string pointer_escape(std::string_view key) {
     std::string out;
     for (char c : key) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
+        if (c == '~')
+            out += "~0";
+        else if (c == '/')
+            out += "~1";
+        else
+            out += c;
     }
     return out;
 }
 
-Json site_to_json(const AssetSite& s) { return s.note.empty() ? Json(s.url) : Json::object({{"url", s.url}, {"note", s.note}}); }
+Json site_to_json(const AssetSite& s) {
+    return s.note.empty() ? Json(s.url) : Json::object({{"url", s.url}, {"note", s.note}});
+}
 
 // Entries of "assetSources" in one spelling: a string when there is no note.
 Json normalize_site(const Json& entry) {
@@ -112,7 +123,8 @@ Json normalize_site(const Json& entry) {
 // Every leaf of `j` (a value that is not an object) by JSON pointer.
 void collect_leaves(const Json& j, const std::string& pointer, std::map<std::string, Json>& out) {
     if (j.is_object()) {
-        for (auto it = j.begin(); it != j.end(); ++it) collect_leaves(it.value(), pointer + "/" + pointer_escape(it.key()), out);
+        for (auto it = j.begin(); it != j.end(); ++it)
+            collect_leaves(it.value(), pointer + "/" + pointer_escape(it.key()), out);
     } else {
         out[pointer] = j;
     }
@@ -228,7 +240,8 @@ std::vector<std::string> setting_pointers(const AiConfig& cfg) {
     for (const auto& [pointer, value] : leaves_of(settings_view(cfg))) out.push_back(pointer);
     for (const char* role : kAllRoles) out.push_back(std::string("/roles/") + role + "/toolGroups");
     for (MediaKind k : kMediaKinds) {
-        for (const char* f : {"provider", "model", "voice"}) out.push_back(std::string("/assets/") + media_kind_name(k) + "/" + f);
+        for (const char* f : {"provider", "model", "voice"})
+            out.push_back(std::string("/assets/") + media_kind_name(k) + "/" + f);
     }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -280,7 +293,8 @@ ProjectSettingsFile read_project_settings_file(std::string_view projectDir) {
         return out;
     }
     if (!parsed->is_object()) {
-        out.error = out.path + ": the AI settings of a project must be a JSON object, like {\"roles\": {\"artist\": {\"enabled\": false}}}";
+        out.error = out.path + ": the AI settings of a project must be a JSON object, like {\"roles\": {\"artist\": "
+                               "{\"enabled\": false}}}";
         return out;
     }
     out.overrides = std::move(*parsed);
@@ -299,10 +313,34 @@ struct Problem {
 // Keys that define WHAT a provider, tool server or extension is or does. They belong in the user's ai.json: in a project file
 // they could run a program or send data to an address the user never chose.
 bool is_user_only_key(std::string_view key) {
-    static const char* const keys[] = {"providers", "defaultProvider", "type", "preset", "command", "argv", "args", "env", "unsetEnv",
-                                       "url", "baseUrl", "headers", "apiKey", "apiKeyEnv", "factoriaCommand", "pricing", "license",
-                                       "useAntCli", "sendReasoningEffort", "maxRetries", "timeoutSeconds", "path", "plugin", "hooks",
-                                       "note", "inheritUserPlugins", "inheritEnv", "permissionMode"};
+    static const char* const keys[] = {"providers",
+                                       "defaultProvider",
+                                       "type",
+                                       "preset",
+                                       "command",
+                                       "argv",
+                                       "args",
+                                       "env",
+                                       "unsetEnv",
+                                       "url",
+                                       "baseUrl",
+                                       "headers",
+                                       "apiKey",
+                                       "apiKeyEnv",
+                                       "factoriaCommand",
+                                       "pricing",
+                                       "license",
+                                       "useAntCli",
+                                       "sendReasoningEffort",
+                                       "maxRetries",
+                                       "timeoutSeconds",
+                                       "path",
+                                       "plugin",
+                                       "hooks",
+                                       "note",
+                                       "inheritUserPlugins",
+                                       "inheritEnv",
+                                       "permissionMode"};
     return std::any_of(std::begin(keys), std::end(keys), [&](const char* k) { return key == k; });
 }
 
@@ -316,14 +354,21 @@ constexpr Area kExtensions{"AI settings > Extensions", R"({"extensions": {"plugi
 
 Problem not_allowed(const std::string& pointer, std::string_view key, const Area& area) {
     if (key == "permissionMode") {
-        return {pointer, "'permissionMode' is not allowed in a project's AI settings file: what a command-line agent may do without asking is "
-                         "your decision, and a project copied to another computer must not loosen it. Set it in the editor's AI settings "
-                         "> Agents tab (it is saved in ~/.factoria/ai.json), or with ai.settings.set scope \"user\"; remove the key here."};
+        return {pointer, "'permissionMode' is not allowed in a project's AI settings file: what a command-line agent "
+                         "may do without asking is "
+                         "your decision, and a project copied to another computer must not loosen it. Set it in the "
+                         "editor's AI settings "
+                         "> Agents tab (it is saved in ~/.factoria/ai.json), or with ai.settings.set scope \"user\"; "
+                         "remove the key here."};
     }
-    return {pointer, "'" + std::string(key) + "' is not allowed in a project's AI settings file: a project may only NAME the providers, tool "
-                     "servers and extensions you defined, never define one (a command, an address, a header, an environment or a key "
-                     "could run a program or spend a key when the project is copied to another computer). Put it in "
-                     "~/.factoria/ai.json (" + area.where + "); here, name it instead, for example " + area.example};
+    return {pointer,
+            "'" + std::string(key) +
+                "' is not allowed in a project's AI settings file: a project may only NAME the providers, tool "
+                "servers and extensions you defined, never define one (a command, an address, a header, an environment "
+                "or a key "
+                "could run a program or spend a key when the project is copied to another computer). Put it in "
+                "~/.factoria/ai.json (" +
+                area.where + "); here, name it instead, for example " + area.example};
 }
 
 // Keys of `obj` that are not in `allowed`: not allowed (user-only), or unknown with "did you mean".
@@ -334,8 +379,10 @@ void check_keys(const Json& obj, const std::string& pointer, const std::vector<s
         const std::string& key = it.key();
         if (std::find(allowed.begin(), allowed.end(), key) != allowed.end()) continue;
         const std::string at = pointer + "/" + pointer_escape(key);
-        if (is_user_only_key(key)) out.push_back(not_allowed(at, key, area));
-        else out.push_back({at, "unknown key '" + key + "'. " + fa::did_you_mean(key, allowed)});
+        if (is_user_only_key(key))
+            out.push_back(not_allowed(at, key, area));
+        else
+            out.push_back({at, "unknown key '" + key + "'. " + fa::did_you_mean(key, allowed)});
     }
 }
 
@@ -343,14 +390,16 @@ std::string join_problems(const std::vector<Problem>& problems, std::string_view
     std::string out;
     for (const Problem& p : problems) {
         if (!out.empty()) out += "\n";
-        out += escape_control_chars(std::string(source) + ": " + (p.pointer.empty() ? std::string("/") : p.pointer) + ": " + p.message);
+        out += escape_control_chars(std::string(source) + ": " + (p.pointer.empty() ? std::string("/") : p.pointer) +
+                                    ": " + p.message);
     }
     return out;
 }
 
 Error problems_error(const std::vector<Problem>& problems, std::string_view source) {
     return make_error(join_problems(problems, source),
-                      "Fix the file or delete it. The format is in docs/AI_PROVIDERS.md, \"Per project\" (schemas/ai-project-settings.schema.json).");
+                      "Fix the file or delete it. The format is in docs/AI_PROVIDERS.md, \"Per project\" "
+                      "(schemas/ai-project-settings.schema.json).");
 }
 
 }  // namespace
@@ -362,7 +411,8 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
                           "Write something like {\"roles\": {\"artist\": {\"enabled\": false}}}.");
     }
     // 1. Keys: what a project file may not hold, and typos.
-    const std::vector<std::string> top = {"$schema", "roles", "limits", "assets", "assetSources", "savers", "mcpServers", "extensions"};
+    const std::vector<std::string> top = {"$schema",      "roles",  "limits",     "assets",
+                                          "assetSources", "savers", "mcpServers", "extensions"};
     check_keys(file, "", top, kProviders, problems);
     const std::vector<std::string> allRoles(std::begin(kAllRoles), std::end(kAllRoles));
     if (const Json* roles = child(file, "roles"); roles && roles->is_object()) {
@@ -402,7 +452,8 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
         for (auto it = entry.begin(); it != entry.end(); ++it) {
             const std::string key_at = at + "/" + pointer_escape(it.key());
             if (it.key() == "enabled") {
-                problems.push_back({key_at, "a project only switches '" + std::string(name) + "' on or off: write the boolean itself, for example " +
+                problems.push_back({key_at, "a project only switches '" + std::string(name) +
+                                                "' on or off: write the boolean itself, for example " +
                                                 std::string(area.example) + ", not an object with \"enabled\""});
             } else {
                 problems.push_back(not_allowed(key_at, it.key(), area));
@@ -419,7 +470,8 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
             const Json* list = child(*ext, g);
             if (!list || !list->is_object()) continue;
             for (auto it = list->begin(); it != list->end(); ++it)
-                no_definitions(it.value(), std::string("/extensions/") + g + "/" + pointer_escape(it.key()), kExtensions, it.key().c_str());
+                no_definitions(it.value(), std::string("/extensions/") + g + "/" + pointer_escape(it.key()),
+                               kExtensions, it.key().c_str());
         }
     }
     if (!problems.empty()) return problems_error(problems, source);
@@ -436,11 +488,14 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
     auto check_provider = [&](const Json& obj, const std::string& at) {
         const std::string name = str(obj, "provider");
         if (name.empty() || user.provider(name)) return;
-        problems.push_back({at + "/provider", "no provider named '" + name + "' in your AI settings. " + fa::did_you_mean(name, providerNames) +
-                                                  " A project can only name a provider ~/.factoria/ai.json defines (AI settings > Providers)."});
+        problems.push_back(
+            {at + "/provider",
+             "no provider named '" + name + "' in your AI settings. " + fa::did_you_mean(name, providerNames) +
+                 " A project can only name a provider ~/.factoria/ai.json defines (AI settings > Providers)."});
     };
     if (const Json* roles = child(file, "roles"); roles && roles->is_object()) {
-        for (auto it = roles->begin(); it != roles->end(); ++it) check_provider(it.value(), "/roles/" + pointer_escape(it.key()));
+        for (auto it = roles->begin(); it != roles->end(); ++it)
+            check_provider(it.value(), "/roles/" + pointer_escape(it.key()));
     }
     if (const Json* assets = child(file, "assets"); assets && assets->is_object()) {
         for (auto it = assets->begin(); it != assets->end(); ++it) {
@@ -450,8 +505,10 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
                 MediaKind kind = MediaKind::Image;
                 for (MediaKind k : kMediaKinds)
                     if (it.key() == media_kind_name(k)) kind = k;
-                problems.push_back({at + "/provider", "your ai.json has no route for '" + it.key() + "' assets, so the project must name the provider. Providers that can: " +
-                                                          providers_that_make(user, kind) + "."});
+                problems.push_back(
+                    {at + "/provider", "your ai.json has no route for '" + it.key() +
+                                           "' assets, so the project must name the provider. Providers that can: " +
+                                           providers_that_make(user, kind) + "."});
             }
         }
     }
@@ -460,9 +517,12 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
         for (const ToolServer& s : user.toolServers) names.push_back(s.name);
         for (auto it = servers->begin(); it != servers->end(); ++it) {
             if (std::find(names.begin(), names.end(), it.key()) != names.end()) continue;
-            problems.push_back({"/mcpServers/" + pointer_escape(it.key()),
-                                "no tool server named '" + it.key() + "' in your AI settings. " + (names.empty() ? std::string("You have none yet. ") : fa::did_you_mean(it.key(), names) + " ") +
-                                    "Define the server in ~/.factoria/ai.json (AI settings > Tool servers); a project can only switch it on or off."});
+            problems.push_back(
+                {"/mcpServers/" + pointer_escape(it.key()),
+                 "no tool server named '" + it.key() + "' in your AI settings. " +
+                     (names.empty() ? std::string("You have none yet. ") : fa::did_you_mean(it.key(), names) + " ") +
+                     "Define the server in ~/.factoria/ai.json (AI settings > Tool servers); a project can only switch "
+                     "it on or off."});
         }
     }
     if (const Json* ext = child(file, "extensions"); ext && ext->is_object()) {
@@ -474,11 +534,13 @@ Result<void> validate_project_settings(const Json& file, const AiConfig& user, s
                 if (!e.from_project() && std::string(extension_group(e.kind)) == g) names.push_back(e.name);
             for (auto it = list->begin(); it != list->end(); ++it) {
                 if (std::find(names.begin(), names.end(), it.key()) != names.end()) continue;
-                problems.push_back({std::string("/extensions/") + g + "/" + pointer_escape(it.key()),
-                                    "no " + std::string(g, std::strlen(g) - 1) + " named '" + it.key() + "' in your AI settings. " +
-                                        (names.empty() ? std::string("You have none. ") : fa::did_you_mean(it.key(), names) + " ") +
-                                        "Add it in ~/.factoria/ai.json (AI settings > Extensions); a project can only switch it on or off. Extensions "
-                                        "the project brings itself are in .factoria/extensions.json."});
+                problems.push_back(
+                    {std::string("/extensions/") + g + "/" + pointer_escape(it.key()),
+                     "no " + std::string(g, std::strlen(g) - 1) + " named '" + it.key() + "' in your AI settings. " +
+                         (names.empty() ? std::string("You have none. ") : fa::did_you_mean(it.key(), names) + " ") +
+                         "Add it in ~/.factoria/ai.json (AI settings > Extensions); a project can only switch it on or "
+                         "off. Extensions "
+                         "the project brings itself are in .factoria/extensions.json."});
             }
         }
     }
@@ -530,7 +592,8 @@ Json merged_json(const Json& raw, const Json& ov, const AiConfig& user) {
             }
             for (auto f = o.begin(); f != o.end(); ++f) {
                 if (f.key() == "provider") continue;
-                if ((f.key() == "maxTokens" || f.key() == "maxContextTokens") && f.value().is_number() && f.value() == 0) {
+                if ((f.key() == "maxTokens" || f.key() == "maxContextTokens") && f.value().is_number() &&
+                    f.value() == 0) {
                     base.erase(f.key());  // 0 = no cap of its own: what the key's absence means
                     continue;
                 }
@@ -543,7 +606,8 @@ Json merged_json(const Json& raw, const Json& ov, const AiConfig& user) {
         if (!s || !s->is_object()) continue;
         Json& base = object_at(m, section);
         for (auto f = s->begin(); f != s->end(); ++f) {
-            if (f.value().is_object()) {  // limits.maxAssetCostUsd: the project may set perRun and leave perDay to the user's file
+            if (f.value()
+                    .is_object()) {  // limits.maxAssetCostUsd: the project may set perRun and leave perDay to the user's file
                 Json& inner = object_at(base, f.key());
                 for (auto g = f.value().begin(); g != f.value().end(); ++g) inner[g.key()] = g.value();
             } else {
@@ -597,7 +661,8 @@ Json merged_json(const Json& raw, const Json& ov, const AiConfig& user) {
 Result<AiConfig> apply_overrides(const Json& raw, const Json& ov, const AiConfig& inherited, const std::string& file) {
     auto merged = parse_config(merged_json(raw, ov, inherited), file);
     if (!merged) {
-        return make_error(merged.error().message + "\n(" + file + " is this project's AI settings; its keys are checked like ai.json's)",
+        return make_error(merged.error().message + "\n(" + file +
+                              " is this project's AI settings; its keys are checked like ai.json's)",
                           merged.error().hint);
     }
     AiConfig cfg = std::move(*merged);
@@ -641,8 +706,9 @@ Json raw_from_config(const AiConfig& cfg) {
         auto have = cfg.roles.find(r);
         auto would = derived->roles.find(r);
         const bool same = have != cfg.roles.end() && would != derived->roles.end() &&
-                          have->second.provider == would->second.provider && have->second.model == would->second.model &&
-                          have->second.effort == would->second.effort && have->second.enabled == would->second.enabled &&
+                          have->second.provider == would->second.provider &&
+                          have->second.model == would->second.model && have->second.effort == would->second.effort &&
+                          have->second.enabled == would->second.enabled &&
                           have->second.maxTokens == would->second.maxTokens &&
                           have->second.maxContextTokens == would->second.maxContextTokens &&
                           have->second.toolGroups == would->second.toolGroups;
@@ -675,20 +741,25 @@ Result<ResolvedAiConfig> resolve_core(std::string_view projectDir, const AiConfi
             std::optional<Error> problem;
             Result<AiConfig> applied = make_error("not resolved");
             if (!file.error.empty()) {
-                problem = make_error(file.error, "Fix the file or delete it (" + file.path + "): it is this project's AI settings, see docs/AI_PROVIDERS.md, \"Per project\".");
+                problem = make_error(
+                    file.error, "Fix the file or delete it (" + file.path +
+                                    "): it is this project's AI settings, see docs/AI_PROVIDERS.md, \"Per project\".");
             } else if (auto ok = validate_project_settings(file.overrides, user, file.path); !ok) {
                 problem = ok.error();
             } else {
                 applied = apply_overrides(raw, file.overrides, user, file.path);
                 if (!applied) problem = applied.error();
             }
-            if (problem && trusted) return *problem;  // accepted before, invalid now (ai.json changed): the user must see it
+            if (problem && trusted)
+                return *problem;  // accepted before, invalid now (ai.json changed): the user must see it
             if (problem) {
                 out.pendingTrust = true;
                 out.invalidError = sanitized(*problem);
                 std::string first = out.invalidError->message.substr(0, out.invalidError->message.find('\n'));
-                out.config.warnings.push_back("The AI settings of this project (" + escape_control_chars(file.path) + ") are invalid and have no effect: " + first +
-                                              (out.invalidError->hint.empty() ? std::string() : " " + out.invalidError->hint));
+                out.config.warnings.push_back(
+                    "The AI settings of this project (" + escape_control_chars(file.path) +
+                    ") are invalid and have no effect: " + first +
+                    (out.invalidError->hint.empty() ? std::string() : " " + out.invalidError->hint));
             } else {
                 out.overrides = file.overrides;
                 overrides = file.overrides;
@@ -718,15 +789,17 @@ Result<ResolvedAiConfig> resolve_core(std::string_view projectDir, const AiConfi
             }
         }
         auto def = defaultLeaves.find(pointer);
-        out.sources[pointer] = rawLeaves.count(pointer) != 0 || def == defaultLeaves.end() || def->second != value ? SettingSource::You
-                                                                                                                   : SettingSource::Default;
+        out.sources[pointer] = rawLeaves.count(pointer) != 0 || def == defaultLeaves.end() || def->second != value
+                                   ? SettingSource::You
+                                   : SettingSource::Default;
     }
     return out;
 }
 
 }  // namespace
 
-Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::string_view aiConfigPath,
+                                           const EnvLookup& env) {
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
     auto user = load_config(userPath, env);
     if (!user) return user.error();
@@ -734,8 +807,8 @@ Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::str
     return resolve_core(projectDir, *user, raw, raw_leaf_pointers(raw), trust_path_for(userPath));
 }
 
-Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, const AiConfig& inherited, std::string_view aiConfigPath,
-                                                const EnvLookup& env) {
+Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, const AiConfig& inherited,
+                                                std::string_view aiConfigPath, const EnvLookup& env) {
     std::string userPath = std::string(aiConfigPath);
     if (userPath.empty()) userPath = inherited.sourcePath.empty() ? default_config_path(env) : inherited.sourcePath;
     // Without a project file nothing is built from the config: `inherited` comes back as it is.
@@ -743,7 +816,8 @@ Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, con
     return resolve_core(projectDir, inherited, raw_from_config(inherited), {}, trust_path_for(userPath));
 }
 
-Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_view aiConfigPath,
+                                      const EnvLookup& env) {
     // Without a project file there is nothing to resolve: exactly what load_config returns.
     std::error_code ec;
     if (projectDir.empty() || !fsys::is_regular_file(fsys::path(settings_path(projectDir)), ec)) {
@@ -769,7 +843,8 @@ Json ordered(const Json& ov) {
             if (!out.contains(it.key())) out[it.key()] = it.value();
         return out;
     };
-    Json out = reorder(ov, {"$schema", "roles", "limits", "assets", "assetSources", "savers", "mcpServers", "extensions"});
+    Json out =
+        reorder(ov, {"$schema", "roles", "limits", "assets", "assetSources", "savers", "mcpServers", "extensions"});
     auto each = [&](const char* section, const std::vector<std::string>& names, const std::vector<std::string>& inner) {
         if (!out.contains(section) || !out[section].is_object()) return;
         Json sec = reorder(out[section], names);
@@ -794,8 +869,10 @@ void set_at(Json& root, const std::string& pointer, const Json& value) { root[Js
 bool prune_empty(Json& j) {
     if (!j.is_object()) return false;
     for (auto it = j.begin(); it != j.end();) {
-        if (prune_empty(it.value())) it = j.erase(it);
-        else ++it;
+        if (prune_empty(it.value()))
+            it = j.erase(it);
+        else
+            ++it;
     }
     return j.empty();
 }
@@ -833,7 +910,8 @@ Json normalize_overrides(const Json& ovIn, const AiConfig& inherited) {
     return ordered(out);
 }
 
-Result<void> write_overrides(const std::string& projectDir, const std::string& userPath, const Json& overrides, bool recordTrust) {
+Result<void> write_overrides(const std::string& projectDir, const std::string& userPath, const Json& overrides,
+                             bool recordTrust) {
     const std::string path = settings_path(projectDir);
     const std::string trustPath = trust_path_for(userPath);
     if (overrides.empty()) {
@@ -841,7 +919,8 @@ Result<void> write_overrides(const std::string& projectDir, const std::string& u
         fs::remove_file(fsys::path(path), ec);
         std::error_code existsEc;
         if (ec && fsys::exists(fsys::path(path), existsEc)) {
-            return make_error("Cannot remove '" + path + "': " + ec.message(), "Close any program that has the file open, then try again.");
+            return make_error("Cannot remove '" + path + "': " + ec.message(),
+                              "Close any program that has the file open, then try again.");
         }
         (void)forget_project_ai_settings_trust(trustPath, projectDir);
         return {};
@@ -850,7 +929,8 @@ Result<void> write_overrides(const std::string& projectDir, const std::string& u
     if (auto ok = fs::write_text(path, text); !ok) return ok;
     if (!recordTrust) return {};
     if (auto ok = trust_project_ai_settings(trustPath, projectDir, sha256_hex(normalized_text(text))); !ok) {
-        return make_error("The AI settings of the project were saved to " + path + " but FactorIA could not record that you accept them: " + ok.error().message,
+        return make_error("The AI settings of the project were saved to " + path +
+                              " but FactorIA could not record that you accept them: " + ok.error().message,
                           ok.error().hint);
     }
     return {};
@@ -869,7 +949,9 @@ Json project_overrides_from(const AiConfig& wanted, const AiConfig& inherited) {
         const auto slash = pointer.rfind('/');
         const std::string key = pointer.substr(slash + 1);
         // An empty provider, model or effort is "not set": the file cannot say it.
-        if ((key == "provider" || key == "model" || key == "effort") && value.is_string() && value.get<std::string>().empty()) continue;
+        if ((key == "provider" || key == "model" || key == "effort") && value.is_string() &&
+            value.get<std::string>().empty())
+            continue;
         set_at(out, pointer, value);
     }
     // A provider that changes resets model, effort and voice: carry the wanted ones along.
@@ -888,10 +970,11 @@ Json project_overrides_from(const AiConfig& wanted, const AiConfig& inherited) {
     return ordered(out);
 }
 
-Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath, const EnvLookup& env,
-                                   bool recordTrust) {
+Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath,
+                                   const EnvLookup& env, bool recordTrust) {
     if (projectDir.empty()) {
-        return make_error("Cannot save the AI settings of a project: no project is open", "Open a project first; without one the settings are your defaults (ai.json).");
+        return make_error("Cannot save the AI settings of a project: no project is open",
+                          "Open a project first; without one the settings are your defaults (ai.json).");
     }
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
     auto user = load_config(userPath, env);
@@ -902,22 +985,26 @@ Result<void> save_project_settings(std::string_view projectDir, const Json& over
     // The result must resolve: a file that fails ai.json's own checks (an asset-only provider on a role, the orchestrator off)
     // is refused here, not found at the next run.
     if (!normalized.empty()) {
-        if (auto trial = apply_overrides(read_raw_user(userPath), normalized, *user, path); !trial) return trial.error();
+        if (auto trial = apply_overrides(read_raw_user(userPath), normalized, *user, path); !trial)
+            return trial.error();
     }
     return write_overrides(std::string(projectDir), userPath, normalized, recordTrust);
 }
 
-Result<void> reset_project_setting(std::string_view projectDir, std::string_view pointer, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<void> reset_project_setting(std::string_view projectDir, std::string_view pointer, std::string_view aiConfigPath,
+                                   const EnvLookup& env) {
     if (projectDir.empty()) return make_error("Cannot reset a project setting: no project is open");
     if (pointer.empty() || pointer.front() != '/') {
-        return make_error("'" + std::string(pointer) + "' is not a JSON pointer", "Write it like /roles/artist/enabled (a leaf) or /roles/artist (a whole branch).");
+        return make_error("'" + std::string(pointer) + "' is not a JSON pointer",
+                          "Write it like /roles/artist/enabled (a leaf) or /roles/artist (a whole branch).");
     }
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
     (void)env;
     ProjectSettingsFile file = read_project_settings_file(projectDir);
     if (!file.exists) return {};
     if (!file.error.empty()) return make_error(file.error, "Fix the file or delete it, then reset again.");
-    const bool wasAccepted = project_ai_settings_trusted(trust_path_for(userPath), projectDir, file.hash, nullptr, false);
+    const bool wasAccepted =
+        project_ai_settings_trusted(trust_path_for(userPath), projectDir, file.hash, nullptr, false);
 
     Json ov = file.overrides;
     // A JSON pointer from a caller (a command, a window) can be malformed ("/a~2"): nlohmann throws on it, and nothing may throw
@@ -940,13 +1027,15 @@ Result<void> reset_project_setting(std::string_view projectDir, std::string_view
         }
     } catch (const std::exception& e) {
         return make_error("'" + escape_control_chars(pointer) + "' is not a valid JSON pointer: " + e.what(),
-                          "Write it like /roles/artist/enabled (a leaf) or /roles/artist (a whole branch); inside a key write ~0 for ~ and ~1 for /.");
+                          "Write it like /roles/artist/enabled (a leaf) or /roles/artist (a whole branch); inside a "
+                          "key write ~0 for ~ and ~1 for /.");
     }
     prune_empty(ov);
     return write_overrides(std::string(projectDir), userPath, ordered(ov), wasAccepted);
 }
 
-Result<void> accept_project_settings(std::string_view projectDir, std::string_view expectedHash, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<void> accept_project_settings(std::string_view projectDir, std::string_view expectedHash,
+                                     std::string_view aiConfigPath, const EnvLookup& env) {
     if (projectDir.empty()) return make_error("Cannot accept AI settings: no project is open");
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
     ProjectSettingsFile file = read_project_settings_file(projectDir);
@@ -961,8 +1050,8 @@ Result<void> accept_project_settings(std::string_view projectDir, std::string_vi
     return trust_project_ai_settings(trust_path_for(userPath), projectDir, file.hash);
 }
 
-
-Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath, const EnvLookup& env) {
+Result<void> set_user_setting(std::string_view pointer, const Json& value, std::string_view aiConfigPath,
+                              const EnvLookup& env) {
     const std::string userPath = aiConfigPath.empty() ? default_config_path(env) : std::string(aiConfigPath);
     AiFileLock lock(userPath);  // read, change one value, write back: another process's save must not fall between
     if (!lock.held()) return lock.error();
@@ -1000,19 +1089,25 @@ Result<void> set_user_setting(std::string_view pointer, const Json& value, std::
             std::string suggestion = fa::did_you_mean(pointer, known);
             if (auto ok = validate_project_settings(probe, *user, userPath); !ok) {
                 Error e = ok.error();
-                if (e.hint.find("Did you mean") == std::string::npos) e.hint += (e.hint.empty() ? "" : " ") + suggestion;
+                if (e.hint.find("Did you mean") == std::string::npos)
+                    e.hint += (e.hint.empty() ? "" : " ") + suggestion;
                 return e;
             }
-            return make_error("'" + escape_control_chars(pointer) + "' is not an AI setting, so there is nothing to remove",
-                              "Pointers look like /roles/artist/enabled (ai.settings.get lists them all). " + suggestion);
+            return make_error(
+                "'" + escape_control_chars(pointer) + "' is not an AI setting, so there is nothing to remove",
+                "Pointers look like /roles/artist/enabled (ai.settings.get lists them all). " + suggestion);
         }
         // The key in ai.json: servers and extensions are switched with their "enabled".
         std::vector<std::string> path = parts;
-        if ((path.size() == 2 && path[0] == "mcpServers") || (path.size() == 3 && path[0] == "extensions")) path.push_back("enabled");
+        if ((path.size() == 2 && path[0] == "mcpServers") || (path.size() == 3 && path[0] == "extensions"))
+            path.push_back("enabled");
         std::vector<Json*> chain{&raw};
         for (const std::string& seg : path) {
             Json* cur = chain.back();
-            if (!cur->is_object() || !cur->contains(seg)) { chain.clear(); break; }
+            if (!cur->is_object() || !cur->contains(seg)) {
+                chain.clear();
+                break;
+            }
             chain.push_back(&(*cur)[seg]);
         }
         if (chain.empty()) return {};  // not in the file: already the default
@@ -1027,7 +1122,8 @@ Result<void> set_user_setting(std::string_view pointer, const Json& value, std::
         try {
             ov[Json::json_pointer(std::string(pointer))] = value;
         } catch (const std::exception& e) {
-            return make_error("'" + escape_control_chars(pointer) + "' cannot be set: " + e.what(), "Use the pointer of one value, like /roles/artist/enabled.");
+            return make_error("'" + escape_control_chars(pointer) + "' cannot be set: " + e.what(),
+                              "Use the pointer of one value, like /roles/artist/enabled.");
         }
         if (auto ok = validate_project_settings(ov, *user, userPath); !ok) return ok;
         raw = merged_json(raw, ov, *user);
@@ -1036,7 +1132,8 @@ Result<void> set_user_setting(std::string_view pointer, const Json& value, std::
     return write_private_file(userPath, dump_json(raw));
 }
 
-Error role_off_error(std::string_view role, std::string_view projectDir, std::string_view aiConfigPath, const EnvLookup& env) {
+Error role_off_error(std::string_view role, std::string_view projectDir, std::string_view aiConfigPath,
+                     const EnvLookup& env) {
     Error e{role_off_message(role), role_off_hint(role)};
     if (projectDir.empty() || is_review_role(role)) return e;
     auto resolved = resolve_ai_config(projectDir, aiConfigPath, env);
@@ -1044,11 +1141,17 @@ Error role_off_error(std::string_view role, std::string_view projectDir, std::st
     const std::string pointer = "/roles/" + std::string(role) + "/enabled";
     if (resolved->source_of(pointer) != SettingSource::Project) return e;
     const std::string name = role_display_name(role);
-    e.message = "The " + name + " role is off in this project's AI settings (" + resolved->projectFile + "): the orchestrator does that work itself";
-    e.hint = "Do the work yourself (as the orchestrator), or ask the user to turn the role on for this project: in the editor (AI > Roles..., tick \"Enabled\" "
-             "with this project open) or by removing the override with ai.settings.set {\"scope\":\"project\",\"pointer\":\"" + pointer +
-             "\",\"value\":null}; the user then accepts the changed file in the editor's AI settings if it asks. Your own default for the role "
-             "(roles." + std::string(role) + ".enabled in ~/.factoria/ai.json) is not what turned it off.";
+    e.message = "The " + name + " role is off in this project's AI settings (" + resolved->projectFile +
+                "): the orchestrator does that work itself";
+    e.hint = "Do the work yourself (as the orchestrator), or ask the user to turn the role on for this project: in the "
+             "editor (AI > Roles..., tick \"Enabled\" "
+             "with this project open) or by removing the override with ai.settings.set "
+             "{\"scope\":\"project\",\"pointer\":\"" +
+             pointer +
+             "\",\"value\":null}; the user then accepts the changed file in the editor's AI settings if it asks. Your "
+             "own default for the role "
+             "(roles." +
+             std::string(role) + ".enabled in ~/.factoria/ai.json) is not what turned it off.";
     return e;
 }
 

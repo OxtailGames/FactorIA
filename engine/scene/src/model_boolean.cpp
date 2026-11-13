@@ -57,7 +57,8 @@ struct Prepared {
 
 // The operand as a MeshGL64, or an error that says why it is not a closed solid. `firstFace` is the faceID of its first triangle; the
 // parts of its triangles are appended to `facePart`.
-Result<Prepared> prepare(const ModelMesh& m, const std::string& name, std::uint32_t firstFace, std::vector<std::uint32_t>& facePart, bool& hasColors, double& volumeOut) {
+Result<Prepared> prepare(const ModelMesh& m, const std::string& name, std::uint32_t firstFace,
+                         std::vector<std::uint32_t>& facePart, bool& hasColors, double& volumeOut) {
     std::vector<std::uint32_t> welded;
     const Soup s = to_soup(m, kWeldTolerance, &welded);
     Prepared out;
@@ -65,16 +66,23 @@ Result<Prepared> prepare(const ModelMesh& m, const std::string& name, std::uint3
     const Edges edges = build_edges(s);
     std::size_t open = 0, bad = 0;
     for (std::size_t e = 0; e < edges.edges.size(); ++e) {
-        if (edges.edges[e].count == 1) ++open;
-        else if (!edges.regular(e)) ++bad;
+        if (edges.edges[e].count == 1)
+            ++open;
+        else if (!edges.regular(e))
+            ++bad;
     }
     if (open > 0)
         return make_error(std::format("{} is not a closed solid: its surface has {} open edge(s), a hole", name, open),
-                          "A boolean needs solids with no holes (box, sphere, cylinder, torus, capsule... or the result of another boolean). A grid, a cone without `cap`, "
-                          "a cylinder without a cap or a lathe with `cap: false` are open: close them, or use `solidify` to give a surface thickness first.");
+                          "A boolean needs solids with no holes (box, sphere, cylinder, torus, capsule... or the "
+                          "result of another boolean). A grid, a cone without `cap`, "
+                          "a cylinder without a cap or a lathe with `cap: false` are open: close them, or use "
+                          "`solidify` to give a surface thickness first.");
     if (bad > 0)
-        return make_error(std::format("{} is not a manifold solid: {} edge(s) are shared by more than two faces, or by two faces that turn the same way", name, bad),
-                          "Two solids that only touch along an edge make such an edge: move them apart or overlap them, or put each in its own boolean.");
+        return make_error(std::format("{} is not a manifold solid: {} edge(s) are shared by more than two faces, or by "
+                                      "two faces that turn the same way",
+                                      name, bad),
+                          "Two solids that only touch along an edge make such an edge: move them apart or overlap "
+                          "them, or put each in its own boolean.");
     double volume = 0;
     for (std::size_t t = 0; t < s.tris.size(); ++t) {
         const Vec3 a = s.pos[s.tris[t][0]], b = s.pos[s.tris[t][1]], c = s.pos[s.tris[t][2]];
@@ -82,8 +90,10 @@ Result<Prepared> prepare(const ModelMesh& m, const std::string& name, std::uint3
     }
     volumeOut = volume;
     if (!(volume > 0))
-        return make_error(std::format("{} has its faces turned inwards (its volume is negative) or has no volume", name),
-                          "A boolean needs the faces to point out of the solid. A node with a negative `scale` on one axis is mirrored; flip it back, or use `mirror`.");
+        return make_error(
+            std::format("{} has its faces turned inwards (its volume is negative) or has no volume", name),
+            "A boolean needs the faces to point out of the solid. A node with a negative `scale` on one axis is "
+            "mirrored; flip it back, or use `mirror`.");
 
     // property rows: one per distinct (position, normal, uv, colour)
     std::unordered_map<RowKey, std::uint32_t, RowKeyHash> rows;
@@ -109,7 +119,8 @@ Result<Prepared> prepare(const ModelMesh& m, const std::string& name, std::uint3
             auto [it, fresh] = rows.emplace(key, std::uint32_t(g.vertProperties.size() / kProps));
             if (fresh) {
                 for (int q = 0; q < kProps; ++q) g.vertProperties.push_back(double(vals[q]));
-                if (repRow[w] == UINT32_MAX) repRow[w] = it->second;
+                if (repRow[w] == UINT32_MAX)
+                    repRow[w] = it->second;
                 else {
                     g.mergeFromVert.push_back(it->second);
                     g.mergeToVert.push_back(repRow[w]);
@@ -139,13 +150,16 @@ const char* status_text(manifold::Manifold::Error e) {
 
 }  // namespace
 
-Result<ModelMesh> model_boolean(const std::vector<ModelMesh>& operands, ModelBooleanMode mode, const std::vector<std::string>& names) {
+Result<ModelMesh> model_boolean(const std::vector<ModelMesh>& operands, ModelBooleanMode mode,
+                                const std::vector<std::string>& names) {
     if (operands.empty()) return ModelMesh{};
     std::size_t total = 0;
     for (const ModelMesh& m : operands) total += m.triangle_count();
     if (total > kModelMaxBooleanTriangles)
-        return make_error(std::format("the boolean's solids have {} triangles together, more than the {} a boolean accepts", total, kModelMaxBooleanTriangles),
-                          "Lower `segments` on the round primitives of its operands, or boolean smaller parts and combine them.");
+        return make_error(
+            std::format("the boolean's solids have {} triangles together, more than the {} a boolean accepts", total,
+                        kModelMaxBooleanTriangles),
+            "Lower `segments` on the round primitives of its operands, or boolean smaller parts and combine them.");
     try {
         std::vector<manifold::Manifold> solids;
         std::vector<std::uint32_t> facePart;
@@ -177,17 +191,19 @@ Result<ModelMesh> model_boolean(const std::vector<ModelMesh>& operands, ModelBoo
         }
         (void)emptyOperand;
         if (solids.empty()) return ModelMesh{};
-        const manifold::OpType op = mode == ModelBooleanMode::Union ? manifold::OpType::Add
+        const manifold::OpType op = mode == ModelBooleanMode::Union        ? manifold::OpType::Add
                                     : mode == ModelBooleanMode::Difference ? manifold::OpType::Subtract
                                                                            : manifold::OpType::Intersect;
         manifold::Manifold result = solids.size() == 1 ? solids[0] : manifold::Manifold::BatchBoolean(solids, op);
         if (result.Status() != manifold::Manifold::Error::NoError)
-            return make_error(std::format("the boolean failed: {}", status_text(result.Status())), "Check that every operand is a closed solid.");
+            return make_error(std::format("the boolean failed: {}", status_text(result.Status())),
+                              "Check that every operand is a closed solid.");
         manifold::MeshGL64 out = result.GetMeshGL64();
         ModelMesh mesh;
         const std::size_t tris = out.triVerts.size() / 3;
         if (tris > kModelMaxTriangles)
-            return make_error(std::format("the boolean result has {} triangles, more than the {} a node may make", tris, kModelMaxTriangles),
+            return make_error(std::format("the boolean result has {} triangles, more than the {} a node may make", tris,
+                                          kModelMaxTriangles),
                               "Lower `segments` on the operands.");
         const int np = int(out.numProp);
         const bool haveFace = out.faceID.size() == tris;
@@ -220,16 +236,20 @@ Result<ModelMesh> model_boolean(const std::vector<ModelMesh>& operands, ModelBoo
         if (!cleaned.empty()) {
             double vol = 0;
             for (std::size_t t = 0; t < cleaned.triangle_count(); ++t) {
-                const Vec3 a = cleaned.positions[cleaned.indices[t * 3]], b = cleaned.positions[cleaned.indices[t * 3 + 1]], c = cleaned.positions[cleaned.indices[t * 3 + 2]];
+                const Vec3 a = cleaned.positions[cleaned.indices[t * 3]],
+                           b = cleaned.positions[cleaned.indices[t * 3 + 1]],
+                           c = cleaned.positions[cleaned.indices[t * 3 + 2]];
                 vol += double(dot(a, cross(b, c))) / 6.0;
             }
             if (vol <= 1e-7 * smallest) return ModelMesh{};
         }
         return cleaned;
     } catch (const std::exception& e) {
-        return make_error(std::format("the boolean library stopped: {}", e.what()), "Check that every operand is a closed solid with no self-intersections.");
+        return make_error(std::format("the boolean library stopped: {}", e.what()),
+                          "Check that every operand is a closed solid with no self-intersections.");
     } catch (...) {
-        return make_error("the boolean library stopped on an unknown error", "Check that every operand is a closed solid with no self-intersections.");
+        return make_error("the boolean library stopped on an unknown error",
+                          "Check that every operand is a closed solid with no self-intersections.");
     }
 }
 

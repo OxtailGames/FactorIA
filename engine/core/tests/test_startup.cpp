@@ -29,7 +29,7 @@ TEST_CASE("StartupTimeline: the report says null for what did not happen and nam
     t.mark(Mark::InitEnd);
     t.mark(Mark::FirstGameFrame);
     const Json j = t.to_json();
-    CHECK(j["firstPresentMs"].is_null());   // a headless run has no window to present to
+    CHECK(j["firstPresentMs"].is_null());  // a headless run has no window to present to
     CHECK(j["windowReadyMs"].is_null());
     CHECK(j["firstGameFrameMs"].is_number());
     CHECK(j["initMs"].is_number());

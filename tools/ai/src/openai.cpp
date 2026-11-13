@@ -9,9 +9,7 @@ namespace fa::ai::openai {
 
 using namespace util;
 
-std::string chat_completions_url(const ProviderConfig& cfg) {
-    return trim_slashes(cfg.baseUrl) + "/chat/completions";
-}
+std::string chat_completions_url(const ProviderConfig& cfg) { return trim_slashes(cfg.baseUrl) + "/chat/completions"; }
 
 namespace {
 
@@ -22,19 +20,17 @@ Json assistant_to_json(const Message& m) {
     if (!m.toolCalls.empty()) {
         Json calls = Json::array();
         for (const auto& c : m.toolCalls) {
-            calls.push_back(Json::object(
-                {{"id", c.id},
-                 {"type", "function"},
-                 {"function", Json::object({{"name", c.name}, {"arguments", dump(c.input)}})}}));
+            calls.push_back(
+                Json::object({{"id", c.id},
+                              {"type", "function"},
+                              {"function", Json::object({{"name", c.name}, {"arguments", dump(c.input)}})}}));
         }
         out["tool_calls"] = calls;
     }
     return out;
 }
 
-bool trim_empty(const std::string& s) {
-    return s.find_first_not_of(" \t\r\n") == std::string::npos;
-}
+bool trim_empty(const std::string& s) { return s.find_first_not_of(" \t\r\n") == std::string::npos; }
 
 const char* map_effort(const std::string& e) {
     if (e == "low") return "low";
@@ -73,8 +69,7 @@ Json build_request(const ChatRequest& req, const ProviderConfig& cfg) {
         // images (not allowed in tool messages) follow in a single user message.
         Json imageParts = Json::array();
         for (const auto& r : m.toolResults) {
-            messages.push_back(
-                Json::object({{"role", "tool"}, {"tool_call_id", r.toolUseId}, {"content", r.content}}));
+            messages.push_back(Json::object({{"role", "tool"}, {"tool_call_id", r.toolUseId}, {"content", r.content}}));
             for (const auto& img : r.images) {
                 imageParts.push_back(Json::object(
                     {{"type", "image_url"},
@@ -83,8 +78,8 @@ Json build_request(const ChatRequest& req, const ProviderConfig& cfg) {
         }
         if (!imageParts.empty() || !m.text.empty()) {
             Json parts = Json::array();
-            parts.push_back(Json::object({{"type", "text"},
-                                          {"text", m.text.empty() ? "Images returned by the tools above." : m.text}}));
+            parts.push_back(Json::object(
+                {{"type", "text"}, {"text", m.text.empty() ? "Images returned by the tools above." : m.text}}));
             for (auto& p : imageParts) parts.push_back(std::move(p));
             messages.push_back(Json::object({{"role", "user"}, {"content", parts}}));
         }
@@ -98,10 +93,11 @@ Json build_request(const ChatRequest& req, const ProviderConfig& cfg) {
         for (const auto* t : sorted) {
             tools.push_back(Json::object(
                 {{"type", "function"},
-                 {"function", Json::object({{"name", t->name},
-                                            {"description", t->description},
-                                            {"parameters", t->inputSchema.is_object() ? t->inputSchema
-                                                                                      : Json::object({{"type", "object"}})}})}}));
+                 {"function",
+                  Json::object({{"name", t->name},
+                                {"description", t->description},
+                                {"parameters", t->inputSchema.is_object() ? t->inputSchema
+                                                                          : Json::object({{"type", "object"}})}})}}));
         }
         body["tools"] = std::move(tools);
     }
@@ -170,11 +166,14 @@ Result<ChatResponse> parse_response(const Json& body) {
                 const Json* a = child(*f, "arguments");
                 if (a && a->is_string()) {
                     std::string s = a->get<std::string>();
-                    if (trim_empty(s)) tc.input = Json::object();
+                    if (trim_empty(s))
+                        tc.input = Json::object();
                     else {
                         Json parsed = parse(s);
-                        if (parsed.is_object()) tc.input = parsed;
-                        else tc.inputError = "arguments are not a valid JSON object: " + s.substr(0, 200);
+                        if (parsed.is_object())
+                            tc.input = parsed;
+                        else
+                            tc.inputError = "arguments are not a valid JSON object: " + s.substr(0, 200);
                     }
                 } else if (a && a->is_object()) {
                     tc.input = *a;
@@ -204,11 +203,15 @@ Result<ChatResponse> parse_response(const Json& body) {
 // ---------------------------------------------------------------------------
 
 void StreamAssembler::handle_data(const std::string& data) {
-    if (data == "[DONE]") { done_ = true; return; }
+    if (data == "[DONE]") {
+        done_ = true;
+        return;
+    }
     Json j = parse(data);
     if (j.is_discarded()) return;
     if (const Json* e = child(j, "error"); e && !e->is_null()) {
-        error_ = e->is_object() ? str(*e, "message", "stream error") : (e->is_string() ? e->get<std::string>() : "stream error");
+        error_ = e->is_object() ? str(*e, "message", "stream error")
+                                : (e->is_string() ? e->get<std::string>() : "stream error");
         done_ = true;
         return;
     }
@@ -281,9 +284,10 @@ public:
         const bool local = cfg_.preset == "ollama" || cfg_.preset == "lmstudio";
         if (!key.found() && !local && cfg_.preset != "") {
             std::string env = default_key_env(cfg_);
-            return make_error("No API key for provider '" + cfg_.name + "'",
-                              "Set the " + (env.empty() ? std::string("API key environment variable") : env) +
-                                  " environment variable, or \"apiKeyEnv\"/\"apiKey\" for this provider in ~/.factoria/ai.json.");
+            return make_error(
+                "No API key for provider '" + cfg_.name + "'",
+                "Set the " + (env.empty() ? std::string("API key environment variable") : env) +
+                    " environment variable, or \"apiKeyEnv\"/\"apiKey\" for this provider in ~/.factoria/ai.json.");
         }
         HttpRequest hr;
         hr.url = chat_completions_url(cfg_);
@@ -294,10 +298,11 @@ public:
         hr.body = dump(build_request(req, cfg_));
         hr.timeoutSeconds = cfg_.timeoutSeconds;
         StreamAssembler assembler(hooks);
-        if (req.stream) hr.onData = [&](std::string_view c) {
-            assembler.feed(c);
-            return !assembler.done();
-        };
+        if (req.stream)
+            hr.onData = [&](std::string_view c) {
+                assembler.feed(c);
+                return !assembler.done();
+            };
         HttpResponse resp = send_with_retry(rt_, hr, cfg_.maxRetries, cancel, hooks.onRetry);
         if (resp.cancelled) return make_error("cancelled");
         if (resp.ok() && !resp.error.empty() && !(req.stream && assembler.done())) {
@@ -310,7 +315,8 @@ public:
             assembler.finish();
             if (assembler.has_error()) return make_error(cfg_.name + " stream error: " + assembler.error());
             auto r = parse_response(assembler.body());
-            if (r && r->usage.total() == 0) { /* some servers omit usage when streaming */ }
+            if (r && r->usage.total() == 0) { /* some servers omit usage when streaming */
+            }
             return r;
         }
         Json body = parse(resp.body);

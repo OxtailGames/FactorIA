@@ -51,7 +51,8 @@ TEST_CASE("fill_sapp_icon: the usable images, at most SAPP_MAX_ICONIMAGES, point
     CHECK(none.images[0].width == 0);
 }
 
-TEST_CASE("to_sapp_desc: the window icon reaches sapp_desc on Windows and Linux and stays valid after the AppDesc is gone") {
+TEST_CASE(
+    "to_sapp_desc: the window icon reaches sapp_desc on Windows and Linux and stays valid after the AppDesc is gone") {
     AppDesc d;
     d.icon = mixed_icons();
     sapp_desc s = to_sapp_desc(d);

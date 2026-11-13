@@ -97,9 +97,11 @@ TEST_CASE("plugin manifest: xcframeworks and infoPlist") {
     auto m = parse_plugin_manifest(R"({
       "xcframeworks": ["frameworks/GoogleMobileAds.xcframework", "frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"],
       "infoPlist": {"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"}], "GADIsAdManagerApp": true, "Level": 3, "Name": "a & b"}
-    })", "admob/ios/plugin.json");
+    })",
+                                   "admob/ios/plugin.json");
     REQUIRE_MESSAGE(m.ok(), (m.ok() ? "" : m.error().to_string()));
-    CHECK(m->xcframeworks == std::vector<std::string>{"frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"});
+    CHECK(m->xcframeworks == std::vector<std::string>{"frameworks/GoogleMobileAds.xcframework",
+                                                      "frameworks/UserMessagingPlatform.xcframework"});
     CHECK(m->infoPlist.size() == 4);
     CHECK_FALSE(m->empty());
     CHECK_FALSE(parse_plugin_manifest(R"({"xcframeworks": ["a.xcframework"]})", "p.json")->empty());
@@ -113,7 +115,9 @@ TEST_CASE("plugin manifest: xcframeworks and infoPlist") {
     Error e = bad(R"({"xcframeworks": "frameworks/A.xcframework"})");
     CHECK(e.message.find("admob/ios/plugin.json#/xcframeworks") != std::string::npos);
     CHECK_FALSE(e.hint.empty());
-    for (const char* path : {"frameworks/A.framework", "../A.xcframework", "/abs/A.xcframework", "frameworks\\\\A.xcframework", "C:/A.xcframework", "frameworks//A.xcframework", ".xcframework"}) {
+    for (const char* path :
+         {"frameworks/A.framework", "../A.xcframework", "/abs/A.xcframework", "frameworks\\\\A.xcframework",
+          "C:/A.xcframework", "frameworks//A.xcframework", ".xcframework"}) {
         e = bad((std::string(R"({"xcframeworks": ["ok/A.xcframework", ")") + path + R"("]})").c_str());
         CHECK_MESSAGE(e.message.find("#/xcframeworks/1") != std::string::npos, path);
         CHECK_MESSAGE(e.hint.find("relative to the folder of this plugin.json") != std::string::npos, path);
@@ -135,14 +139,17 @@ TEST_CASE("plugin manifest: xcframeworks and infoPlist") {
 TEST_CASE("plugin manifest: xcframeworks and infoPlist are merged over several plugins, and a clash names both") {
     PluginManifest a;
     a.xcframeworks = {"frameworks/A.xcframework"};
-    a.infoPlist = Json::parse(R"({"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "x.skadnetwork"}], "Shared": "same"})");
+    a.infoPlist =
+        Json::parse(R"({"SKAdNetworkItems": [{"SKAdNetworkIdentifier": "x.skadnetwork"}], "Shared": "same"})");
     PluginManifest b;
-    b.xcframeworks = {"frameworks/A.xcframework", "libs/B.xcframework"};  // the same path in another plugin is another file
+    b.xcframeworks = {"frameworks/A.xcframework",
+                      "libs/B.xcframework"};  // the same path in another plugin is another file
     b.infoPlist = Json::parse(R"({"Shared": "same", "Other": true})");
     auto merged = merge_plugin_manifests({{"admob", a}, {"mediation", b}});
     REQUIRE_MESSAGE(merged.ok(), (merged.ok() ? "" : merged.error().to_string()));
-    CHECK(merged->xcframeworks ==
-          std::vector<std::string>{"admob/frameworks/A.xcframework", "mediation/frameworks/A.xcframework", "mediation/libs/B.xcframework"});
+    CHECK(merged->xcframeworks == std::vector<std::string>{"admob/frameworks/A.xcframework",
+                                                           "mediation/frameworks/A.xcframework",
+                                                           "mediation/libs/B.xcframework"});
     CHECK(merged->infoPlist.size() == 3);
 
     PluginManifest c;
@@ -167,7 +174,8 @@ TEST_CASE("info_plist_entries writes key/value pairs of any JSON value for the I
     CHECK(xml.find("<integer>3</integer>") != std::string::npos);
     CHECK(xml.find("<real>1.5</real>") != std::string::npos);
     CHECK(xml.find("<string>a &amp; &lt;b&gt;</string>") != std::string::npos);
-    CHECK(xml.find("\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>\n\t\t</dict>\n\t</array>\n") !=
+    CHECK(xml.find("\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</"
+                   "key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>\n\t\t</dict>\n\t</array>\n") !=
           std::string::npos);
     CHECK(xml.find("<?xml") == std::string::npos);  // pairs only, for the dictionary that Info.plist.in already opens
     CHECK(info_plist_entries(Json::object()).empty());
@@ -191,7 +199,8 @@ TEST_CASE("plugin manifest: read from a folder, and merged over several plugins"
     PluginManifest b;
     b.frameworks = {"GameKit", "AuthenticationServices"};
     b.swift = true;
-    b.entitlements = Json::parse(R"({"com.apple.developer.game-center": true, "com.apple.developer.applesignin": ["Default"]})");
+    b.entitlements =
+        Json::parse(R"({"com.apple.developer.game-center": true, "com.apple.developer.applesignin": ["Default"]})");
     auto merged = merge_plugin_manifests({{"apple", a}, {"login", b}});
     REQUIRE_MESSAGE(merged.ok(), (merged.ok() ? "" : merged.error().to_string()));
     CHECK(merged->frameworks == std::vector<std::string>{"StoreKit", "GameKit", "AuthenticationServices"});
@@ -266,20 +275,24 @@ TEST_CASE("storekit configuration: the catalog's products, as Xcode sells them")
 
     // Stable: exporting twice writes the same file (a diff-friendly project), another game another identifiers.
     CHECK(storekit_configuration(catalog, "apple", "Space Dodge", "com.example.spacedodge") == config);
-    CHECK(storekit_configuration(catalog, "apple", "Space Dodge", "com.example.other")["identifier"] != config["identifier"]);
+    CHECK(storekit_configuration(catalog, "apple", "Space Dodge", "com.example.other")["identifier"] !=
+          config["identifier"]);
 
     // No products: an empty but valid file. No subscription: no group.
     const Json empty = storekit_configuration(PlatformCatalog(), "apple", "Game", "id");
     CHECK(empty["products"].empty());
     CHECK(empty["subscriptionGroups"].empty());
-    const PlatformCatalog one = catalog_of(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": 1}]})");
+    const PlatformCatalog one =
+        catalog_of(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": 1}]})");
     CHECK(storekit_configuration(one, "apple", "Game", "id")["subscriptionGroups"].empty());
 }
 
 TEST_CASE("storekit configuration: the storefront follows the currency of the catalog") {
     auto locale = [](const char* currency) {
-        const PlatformCatalog c = catalog_of((std::string(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": 1, "currency": ")") +
-                                              currency + "\"}]}").c_str());
+        const PlatformCatalog c = catalog_of(
+            (std::string(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": 1, "currency": ")") +
+             currency + "\"}]}")
+                .c_str());
         return storekit_configuration(c, "apple", "G", "id")["settings"];
     };
     CHECK(locale("USD")["_storefront"] == "USA");
@@ -295,12 +308,14 @@ TEST_CASE("the apple plugin template carries its sources, manifests and build, a
     REQUIRE(create_project(dir, "2d-empty").ok());
     CommandRegistry reg;
     register_plugin_commands(reg, dir);
-    auto r = reg.call("project.new_plugin", Json::parse(R"({"name": "apple", "template": "apple", "platforms": ["ios", "macos"]})"));
+    auto r = reg.call("project.new_plugin",
+                      Json::parse(R"({"name": "apple", "template": "apple", "platforms": ["ios", "macos"]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const stdfs::path plugin = stdfs::path(dir) / "plugins/apple";
-    for (const char* f : {"CMakeLists.txt", "README.md", "src/Plugin.swift", "src/Purchases.swift", "src/GameCenter.swift", "src/CloudSave.swift",
-                          "src/Common.swift", "src/Errors.swift", "src/entry.c", "include/module.modulemap", "include/fa_plugin.h",
-                          "ios/plugin.json", "macos/plugin.json"})
+    for (const char* f :
+         {"CMakeLists.txt", "README.md", "src/Plugin.swift", "src/Purchases.swift", "src/GameCenter.swift",
+          "src/CloudSave.swift", "src/Common.swift", "src/Errors.swift", "src/entry.c", "include/module.modulemap",
+          "include/fa_plugin.h", "ios/plugin.json", "macos/plugin.json"})
         CHECK_MESSAGE(stdfs::exists(plugin / f), f);
 
     // The manifests the exports read are valid, and say what the Swift sources need.
@@ -362,7 +377,8 @@ TEST_CASE("platform.add_backend apple: writes the plugin for iOS and macOS and l
     CHECK(info->full_description().find("apple: the StoreKit 2, Game Center and iCloud plugin") != std::string::npos);
 
     SUBCASE("a library that does not exist is refused before anything is written") {
-        auto bad = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleSlices": ["macos", "iphonesim"]})"));
+        auto bad = reg.call("platform.add_backend",
+                            Json::parse(R"({"backend": "apple", "appleSlices": ["macos", "iphonesim"]})"));
         REQUIRE_FALSE(bad.ok);
         CHECK(bad.error["message"].get<std::string>().find("iphonesim") != std::string::npos);
         CHECK(bad.error["hint"].get<std::string>().find("iphonesimulator") != std::string::npos);
@@ -419,7 +435,8 @@ TEST_CASE("platform.add_backend apple: writes the plugin for iOS and macOS and l
     }
 }
 
-TEST_CASE("storekit configuration: one localization per language of the game, from the products' title and description keys") {
+TEST_CASE("storekit configuration: one localization per language of the game, from the products' title and description "
+          "keys") {
     const PlatformCatalog catalog = catalog_of(R"({"products": [
       {"id": "gems", "type": "consumable", "title": "100 gems", "titleKey": "shop.gems", "descriptionKey": "shop.gems.desc",
        "price": 0.99},
@@ -427,7 +444,8 @@ TEST_CASE("storekit configuration: one localization per language of the game, fr
       {"id": "vip", "type": "subscription", "title": "VIP", "titleKey": "shop.vip", "price": 2.99}]})");
     const std::vector<StoreKitLanguage> languages = {
         {"en", {{"shop.gems", "100 gems"}, {"shop.gems.desc", "A pile of gems"}, {"shop.vip", "VIP club"}}},
-        {"es-ES", {{"shop.gems", "100 gemas"}, {"shop.gems.desc", "Un monton de gemas"}}}};  // no shop.vip: the plain title
+        {"es-ES",
+         {{"shop.gems", "100 gemas"}, {"shop.gems.desc", "Un monton de gemas"}}}};  // no shop.vip: the plain title
     const Json config = storekit_configuration(catalog, "apple", "G", "id", languages);
 
     const Json& gems = config["products"][0]["localizations"];

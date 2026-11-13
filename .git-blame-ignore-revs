@@ -1,0 +1,4 @@
+# Commits that only reformat code: git blame skips them (git config blame.ignoreRevsFile .git-blame-ignore-revs;
+# GitHub reads this file by itself).
+# The repository-wide clang-format pass of 0.26.0 (M93).
+c5bdfc30ebc08d77a5bc3d626ce6b6cfca0f4ebf

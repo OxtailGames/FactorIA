@@ -29,8 +29,10 @@ void set_env(const char* name, const char* value) {
 #if defined(_WIN32)
     _putenv_s(name, value ? value : "");
 #else
-    if (value) setenv(name, value, 1);
-    else unsetenv(name);
+    if (value)
+        setenv(name, value, 1);
+    else
+        unsetenv(name);
 #endif
 }
 
@@ -56,7 +58,8 @@ TEST_CASE("auto_play_args: the seconds are clamped to the window's range and the
 
 TEST_CASE("auto_play_outcome: a result, a command error, garbage, a cancel and a timeout") {
     const AutoPlayOutcome ok = auto_play_outcome(
-        exited(), R"({"session":"20260101-000000-auto","ended":"timeout","endedWhy":"time","problems":[{"n":1},{"n":2}],"phases":[{"name":"a"}]})");
+        exited(),
+        R"({"session":"20260101-000000-auto","ended":"timeout","endedWhy":"time","problems":[{"n":1},{"n":2}],"phases":[{"name":"a"}]})");
     CHECK(ok.ok);
     CHECK(ok.session == "20260101-000000-auto");
     CHECK(ok.ended == "timeout");
@@ -64,7 +67,8 @@ TEST_CASE("auto_play_outcome: a result, a command error, garbage, a cancel and a
     CHECK(ok.phases == 1);
     CHECK(auto_play_summary(ok).find("2 problems") != std::string::npos);
 
-    const AutoPlayOutcome err = auto_play_outcome(exited(1), R"({"ok":false,"error":{"code":"x","message":"No scene.","hint":"Add one."}})");
+    const AutoPlayOutcome err =
+        auto_play_outcome(exited(1), R"({"ok":false,"error":{"code":"x","message":"No scene.","hint":"Add one."}})");
     CHECK_FALSE(err.ok);
     CHECK(err.error == "No scene.");
     CHECK(err.hint == "Add one.");
@@ -95,8 +99,11 @@ TEST_CASE("auto_play_outcome: a result, a command error, garbage, a cancel and a
 
 TEST_CASE("auto_play_executable: FA_FACTORIA_EXE wins and must name a file") {
     const stdfs::path dir = fs::make_temp_dir("fa_auto_play_exe").value();
-    const stdfs::path file = dir / stdfs::path(u8"factoría-herramienta");  // an accent: UTF-8 all the way, never the ANSI code page
-    { std::ofstream(file, std::ios::binary) << "x"; }
+    const stdfs::path file =
+        dir / stdfs::path(u8"factoría-herramienta");  // an accent: UTF-8 all the way, never the ANSI code page
+    {
+        std::ofstream(file, std::ios::binary) << "x";
+    }
     set_exe(file);
     CHECK(fs::path_from_utf8(auto_play_executable()) == file);
     set_exe(dir / "missing");
@@ -243,8 +250,14 @@ TEST_CASE("AutoPlayJob: a project folder with accents reaches the child as UTF-8
 }
 
 TEST_CASE("play sessions model: rows, labels and which session Attach picks") {
-    const Json person = parse_json(R"({"scene":"scenes/a.scene.json","durationSec":12.4,"marks":[{"n":1},{"n":2}],"logs":[{}]})", "t").value();
-    const Json bot = parse_json(R"({"source":"auto","scene":"scenes/a.scene.json","durationSec":60,"ended":"stuck","marks":[{"n":1}],"logs":[]})", "t").value();
+    const Json person =
+        parse_json(R"({"scene":"scenes/a.scene.json","durationSec":12.4,"marks":[{"n":1},{"n":2}],"logs":[{}]})", "t")
+            .value();
+    const Json bot =
+        parse_json(
+            R"({"source":"auto","scene":"scenes/a.scene.json","durationSec":60,"ended":"stuck","marks":[{"n":1}],"logs":[]})",
+            "t")
+            .value();
     const PlaySessionRow p = play_session_row("20260102-000000", person);
     const PlaySessionRow b = play_session_row("20260103-000000-auto", bot);
     CHECK_FALSE(p.isAuto);

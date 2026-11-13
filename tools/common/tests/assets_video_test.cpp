@@ -35,7 +35,8 @@ Json details_of(const Json& result) { return result["details"]; }
 TEST_CASE("assets.import: an .mpg is checked and copied to assets/video with its provenance") {
     AssetsProject p;
     write_all(p.tmp.path / "art/intro.mpg", fixture());
-    Json r = p.ok("assets.import", {{"source", (p.tmp.path / "art/intro.mpg").string()}, {"license", "CC0"}, {"author", "Ana"}});
+    Json r = p.ok("assets.import",
+                  {{"source", (p.tmp.path / "art/intro.mpg").string()}, {"license", "CC0"}, {"author", "Ana"}});
     CHECK(r["importer"] == "video");
     CHECK(r["path"] == "assets/video/intro.mpg");
     CHECK(p.exists("assets/video/intro.mpg"));
@@ -92,7 +93,8 @@ TEST_CASE("assets.import: an ffmpeg that does not work is an error, not a half-w
 TEST_CASE("assets.import: a destination for a video must end in .mpg") {
     AssetsProject p;
     write_all(p.tmp.path / "art/intro.mp4", "x");
-    CommandResult r = p.call("assets.import", {{"source", (p.tmp.path / "art/intro.mp4").string()}, {"path", "assets/video/intro.mp4"}});
+    CommandResult r = p.call("assets.import",
+                             {{"source", (p.tmp.path / "art/intro.mp4").string()}, {"path", "assets/video/intro.mp4"}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find(".mpg") != std::string::npos);
 }
@@ -108,12 +110,30 @@ TEST_CASE("assets.import: an .mp4 is converted to an .mpg the engine decodes (od
     const stdfs::path source = p.tmp.path / "art/clip.mp4";
     stdfs::create_directories(source.parent_path());
     ProcessOptions make;
-    make.argv = {ffmpeg->path, "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=101x75:rate=15:duration=1",
-                 "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=1", "-c:v", "mpeg4", "-c:a", "aac", "-shortest", source.string()};
+    make.argv = {ffmpeg->path,
+                 "-nostdin",
+                 "-y",
+                 "-loglevel",
+                 "error",
+                 "-f",
+                 "lavfi",
+                 "-i",
+                 "testsrc=size=101x75:rate=15:duration=1",
+                 "-f",
+                 "lavfi",
+                 "-i",
+                 "sine=frequency=330:sample_rate=48000:duration=1",
+                 "-c:v",
+                 "mpeg4",
+                 "-c:a",
+                 "aac",
+                 "-shortest",
+                 source.string()};
     make.timeoutSeconds = 120;
     auto made = run_process(make);
     if (!made.ok() || made->exitCode != 0 || !stdfs::exists(source)) {
-        MESSAGE("this ffmpeg cannot make the test video (mpeg4 + aac in mp4): " << (made.ok() ? made->stderrText : made.error().message));
+        MESSAGE("this ffmpeg cannot make the test video (mpeg4 + aac in mp4): " << (made.ok() ? made->stderrText
+                                                                                              : made.error().message));
         return;
     }
     Json r = p.ok("assets.import", {{"source", source.string()}});
@@ -146,14 +166,18 @@ ValidationReport validate_with_video(TempDir& tmp, const std::string& videoPath,
     auto scene = load_json_file(tmp.sub("game/scenes/main.scene.json"));
     REQUIRE(scene.ok());
     (*scene)["entities"].push_back(Json::object(
-        {{"id", "intro"}, {"components", Json::object({{"Video", Json::object({{"path", videoPath}, {"size", Json::array({320, 180})}})}})}}));
+        {{"id", "intro"},
+         {"components",
+          Json::object({{"Video", Json::object({{"path", videoPath}, {"size", Json::array({320, 180})}})}})}}));
     REQUIRE(save_scene_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
     return validate_project(tmp.sub("game"));
 }
 
 const ValidationIssue* find_video_issue(const std::vector<ValidationIssue>& list) {
     for (const ValidationIssue& i : list)
-        if (i.file == "scenes/main.scene.json" && i.pointer.find("/path") != std::string::npos && i.pointer.find("Video") != std::string::npos) return &i;
+        if (i.file == "scenes/main.scene.json" && i.pointer.find("/path") != std::string::npos &&
+            i.pointer.find("Video") != std::string::npos)
+            return &i;
     return nullptr;
 }
 

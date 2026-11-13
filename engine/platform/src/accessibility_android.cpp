@@ -65,8 +65,8 @@ AccessibilitySettings read_system_accessibility() {
     // Settings.Global / Settings.Secure through the content resolver
     if (jobject resolver = call_object(env, context, "getContentResolver", "()Landroid/content/ContentResolver;")) {
         if (jclass global = env->FindClass("android/provider/Settings$Global")) {
-            if (jmethodID getFloat = env->GetStaticMethodID(global, "getFloat",
-                                                            "(Landroid/content/ContentResolver;Ljava/lang/String;F)F")) {
+            if (jmethodID getFloat = env->GetStaticMethodID(
+                    global, "getFloat", "(Landroid/content/ContentResolver;Ljava/lang/String;F)F")) {
                 jstring key = env->NewStringUTF("animator_duration_scale");
                 const jfloat scale = env->CallStaticFloatMethod(global, getFloat, resolver, key, 1.0f);
                 if (!env->ExceptionCheck()) s.reduceMotion = scale == 0.0f;
@@ -92,7 +92,8 @@ AccessibilitySettings read_system_accessibility() {
 
     // TalkBack
     jstring service = env->NewStringUTF("accessibility");
-    if (jobject manager = call_object(env, context, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", service)) {
+    if (jobject manager =
+            call_object(env, context, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", service)) {
         if (jclass cls = env->GetObjectClass(manager)) {
             if (jmethodID m = env->GetMethodID(cls, "isTouchExplorationEnabled", "()Z")) {
                 const jboolean on = env->CallBooleanMethod(manager, m);

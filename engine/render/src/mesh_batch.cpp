@@ -37,7 +37,8 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
     outMax = {-1e30f, -1e30f, -1e30f};
     for (const Mat4& m : palette)
         for (int i = 0; i < 8; ++i) {
-            const Vec3 p = m.transform_point({(i & 1) ? bmax.x : bmin.x, (i & 2) ? bmax.y : bmin.y, (i & 4) ? bmax.z : bmin.z});
+            const Vec3 p =
+                m.transform_point({(i & 1) ? bmax.x : bmin.x, (i & 2) ? bmax.y : bmin.y, (i & 4) ? bmax.z : bmin.z});
             outMin = min(outMin, p);
             outMax = max(outMax, p);
         }
@@ -46,9 +47,10 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 namespace {
 auto material_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
-    return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic, r.roughness,
-                           r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
-                           r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
+    return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
+                           r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.unlit,
+                           r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash,
+                           a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -64,14 +66,13 @@ std::string_view name_of(const MaterialAsset* m) { return m ? std::string_view(m
 auto order_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
     using rjobs::order_float;
-    return std::make_tuple(name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r),
-                           order_float(r.color.g), order_float(r.color.b), order_float(r.color.a),
-                           order_float(r.metallic), order_float(r.roughness), order_float(r.emissive.r),
-                           order_float(r.emissive.g), order_float(r.emissive.b), order_float(r.emissiveStrength), r.unlit, r.receiveShadows,
-                           order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale),
-                           a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
-                           a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b),
-                           order_float(a.flash.a));
+    return std::make_tuple(
+        name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r), order_float(r.color.g),
+        order_float(r.color.b), order_float(r.color.a), order_float(r.metallic), order_float(r.roughness),
+        order_float(r.emissive.r), order_float(r.emissive.g), order_float(r.emissive.b),
+        order_float(r.emissiveStrength), r.unlit, r.receiveShadows, order_float(r.uvScale.x), order_float(r.uvScale.y),
+        order_float(r.normalScale), a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
+        a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a));
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -96,8 +97,14 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
             batches.push_back(b);
         }
         MeshBatch& b = batches.back();
-        if (items[i].visible) { mainMats.push_back(items[i].model); ++b.mainCount; }
-        if (items[i].casts) { shadowMats.push_back(items[i].model); ++b.shadowCount; }
+        if (items[i].visible) {
+            mainMats.push_back(items[i].model);
+            ++b.mainCount;
+        }
+        if (items[i].casts) {
+            shadowMats.push_back(items[i].model);
+            ++b.shadowCount;
+        }
     }
 }
 

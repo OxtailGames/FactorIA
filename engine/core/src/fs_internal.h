@@ -15,7 +15,8 @@ namespace fa::fs::detail {
 bool android_read(const std::string& path, std::vector<std::uint8_t>& out);
 // An APK asset's bytes without a copy (AAsset_getBuffer): `owner` keeps the asset open while the bytes are used. False
 // when the asset does not exist or its buffer cannot be had (then android_read copies it).
-bool android_view(const std::string& path, std::shared_ptr<const void>& owner, const std::uint8_t*& data, std::size_t& size);
+bool android_view(const std::string& path, std::shared_ptr<const void>& owner, const std::uint8_t*& data,
+                  std::size_t& size);
 bool android_exists(const std::string& path);
 bool android_is_directory(const std::string& path);
 // Lists file paths (relative to the APK assets root) under `dir`.
