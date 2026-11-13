@@ -10,8 +10,17 @@
 #include <memory>
 #include <set>
 
+// MSVC: no warnings from the vendored nanosvg headers; C4702 (unreachable code) comes from the optimizer, which reports
+// it after a pop when nanosvg's inline code is inlined here, so it stays off for the whole file (external/ is not edited).
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
 #include "nanosvg.h"
 #include "nanosvgrast.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#pragma warning(disable : 4702)
+#endif
 
 #include "fa/core/strings.h"
 
