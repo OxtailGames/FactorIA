@@ -452,8 +452,13 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
 - **Logging from jobs**: `FA_LOG` and friends work on any thread. A log sink (`add_log_sink`) runs on the thread that
   logs, a worker too, and may still run once just after `remove_log_sink`: it locks what it writes and owns it (a
   `shared_ptr` captured by value), never a reference to a local.
-- **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). A job costs one allocation and
-  one lock; give a parallel_for a grain of at least a few hundred cheap items. Each worker thread is named (`fa-job-1`..)
+- **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). Each worker has its own queue
+  of ready jobs: it runs the jobs it queues itself (and the first dependent a finished job releases) in order, and an
+  idle worker steals the oldest job of another worker's queue; the main thread deals its jobs out to the workers in
+  turn. A job costs one allocation and a short lock of one queue; the dependency graph's lock is taken only by jobs
+  with dependencies or dependents, by waits that sleep and by `parallel_for`'s join. A wait for a job still queued
+  runs it at once. Give a parallel_for a grain of at least a few hundred cheap items. The design is described at the
+  top of `engine/core/src/jobs.cpp`. Each worker thread is named (`fa-job-1`..)
   in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
   Linux): keep big buffers on the heap.
 - **What it reports**: `jobs.info` (workers, mode, the setting and where it came from, jobs run and queued last frame,

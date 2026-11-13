@@ -1323,3 +1323,25 @@ TEST_CASE("jobs: parallel_for inside jobs with seeded chunks gives the same bits
         for (int round = 0; round < 3; ++round) CHECK(run() == reference);
     }
 }
+
+TEST_CASE("jobs: every worker keeps running jobs after bursts of jobs that a wait takes from under them") {
+    // A burst of tiny jobs wakes the workers, and the main thread's waits take many of those jobs before a worker gets
+    // to them: a woken worker often finds nothing. It must go back to sleep, not end. Then a parallel_for whose chunks
+    // only end once every thread is in one needs every worker alive (one chunk per worker and one for this thread).
+    PoolScope pool(jobs::Settings::threads(4));
+    REQUIRE(jobs::worker_count() == 4);
+    Watchdog guard("bursts then every worker");
+    for (int round = 0; round < 4000; ++round) {  // short bursts: the workers sleep between them, so each one wakes them
+        std::vector<jobs::Handle> hs;
+        for (int i = 0; i < 4; ++i) hs.push_back(jobs::submit("test.burst", [] {}));
+        REQUIRE(jobs::wait_all(hs).ok());
+    }
+    const int threads = 1 + jobs::worker_count();
+    std::atomic<int> arrived{0}, met{0};
+    auto r = jobs::parallel_for("test.all.workers", std::size_t(threads), 1, [&](const jobs::Chunk&) {
+        arrived.fetch_add(1);
+        if (spin_until([&] { return arrived.load() == threads; })) met.fetch_add(1);
+    });
+    REQUIRE(r.ok());
+    CHECK(met.load() == threads);
+}

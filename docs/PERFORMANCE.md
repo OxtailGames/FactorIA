@@ -503,8 +503,9 @@ one differs). `factoria call jobs.info` says what runs now: workers, mode, the s
 of the last frame, how busy each thread was, the threads waiting now (`waiting`) and this engine's unfinished jobs
 (`enginePending`).
 
-Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
-big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
+Cost: idle workers sleep and use no CPU. A job costs about one allocation and the short lock of one worker's queue
+(each worker has its own and steals from the others when it runs out), so the engine only splits work big enough to
+gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
 little memory and battery.
 
 What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
