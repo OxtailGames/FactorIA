@@ -1,7 +1,8 @@
 // Simple 3D physics: spheres + oriented boxes, semi-implicit Euler, impulse resolution, automatic continuous collision.
 // Boxes follow the entity's world rotation. A dynamic box (or a sphere with rollWithMotion off) without lockRotation is
 // a rigid body: its contacts are manifolds (clipped faces), the solver applies normal and friction impulses at the
-// contact points and so turns it (inertia tensor from its size and mass, orientation kept as a quaternion). Everything
+// contact points (soft contacts, a manifold's points solved together: see solve_manifold) and so turns it (inertia tensor
+// from its size and mass, orientation kept as a quaternion). Everything
 // else (arcade rolling spheres, locked bodies, kinematic and static bodies) keeps the original torque-free single-point
 // solver. An unrotated box keeps the exact axis-aligned code paths. Calm dynamic bodies fall asleep in islands, a box
 // turning in the air precesses (gyroscopic_step), and the sub-step motion is swept for impacts, rotation included.
@@ -23,8 +24,14 @@ namespace fa::detail {
 
 namespace {
 constexpr float kSlop = 0.001f;           // allowed penetration (m)
-constexpr float kPercent = 0.9f;          // positional correction strength
 constexpr float kMaxCorrection = 0.2f;    // the most a manifold point is pushed out per correction pass (m)
+constexpr float kPercent = 0.9f;          // positional correction strength
+constexpr float kPushOut = 3.0f;          // the most speed a soft contact pushes a penetration out with (m/s)
+constexpr float kContactHertz = 60.0f;    // stiffness of a soft contact: its spring's frequency (Hz) ...
+constexpr float kContactDamping = 10.0f;  // ... and its damping ratio (a dynamic pair; against a static body the spring is 2x stiffer)
+constexpr int kBiasIterations = 2;        // velocity passes with the soft push-out, before the sub-step's motion
+constexpr float kRestSpeed = 0.5f;        // a loaded body whose centre is slower than this (m/s) is settling: ...
+constexpr float kRestDamping = 1.0f;      // ... it loses speed at this rate (1/s), so what rolls or rocks on a pile comes to rest
 constexpr float kBounceThreshold = 0.5f;  // m/s below which restitution is ignored
 constexpr float kBeginMargin = 0.01f;     // solid contact begins within this gap
 constexpr float kEndMargin = 0.05f;       // ...and ends once the gap exceeds this
@@ -57,6 +64,8 @@ constexpr float kFatStretchSteps = 2.0f;
 constexpr float kBpEps = 1e-3f;       // the boxes a query asks about are this much bigger than the narrow phase's reach
 constexpr float kSleepSpeed = 0.05f;  // a body is calm below this speed (m/s; its fastest point counts, spin included)
 constexpr float kTimeToSleep = 0.5f;  // ...and falls asleep, with the bodies it touches, after this long (s)
+constexpr int kStragglers = 64;          // a pile of N bodies sleeps with up to N / kStragglers of them still creeping ...
+constexpr float kStragglerSpeed = 0.3f;  // ... each slower than this (m/s): a big pile never stops completely
 
 // Islands: indices that belong together. The root of a set is its smallest index, so the result never depends on the
 // order the links were made in.
@@ -1076,49 +1085,117 @@ bool Physics3D::build_rigid_contact(const Body& a, const Body& b, std::size_t ia
         p.jn = 0.0f;
         p.jt = {};
     }
+    // The points of a manifold are solved together (all from the same velocities, then applied at once), so that the
+    // result does not depend on the order they are listed in: a box lying flat on another presses on its four corners
+    // alike, and a stack of them does not lean to the side the first corner is on. Applying every point's full update
+    // would overshoot (the points share the two bodies), so each update is scaled by 1 / (the largest sum of a row of the
+    // points' coupling matrix K, in units of its diagonal): Gershgorin's bound, which makes the iteration converge.
+    rc.omega = 1.0f;
+    if (rc.count > 1) {
+        Vec3 rna[kMaxPts], rnb[kMaxPts];
+        for (int i = 0; i < rc.count; ++i) {
+            rna[i] = inv_inertia_mul(a, cross(rc.pt[i].ra, c.normal));
+            rnb[i] = inv_inertia_mul(b, cross(rc.pt[i].rb, c.normal));
+        }
+        float worst = 1.0f;
+        for (int i = 0; i < rc.count; ++i) {
+            float row = 0.0f;
+            for (int j = 0; j < rc.count; ++j) {
+                const float k = (i == j) ? rc.pt[i].kn
+                                         : a.invMass + b.invMass + dot(cross(rc.pt[i].ra, c.normal), rna[j]) +
+                                               dot(cross(rc.pt[i].rb, c.normal), rnb[j]);
+                row += std::fabs(k);
+            }
+            worst = std::max(worst, row / rc.pt[i].kn);
+        }
+        rc.omega = 1.0f / worst;
+    }
     return true;
 }
 
-// One velocity pass over a manifold: per point a friction impulse (cone of mu * accumulated normal impulse) and then a
-// normal impulse (accumulated and clamped at zero, so a later point can take back what an earlier one over-corrected).
-// Impulses act at the contact point, so they change the angular velocity of boxes that contacts can turn.
-void Physics3D::solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse) {
+// One velocity pass over a manifold, all its points together (see build_rigid_contact). Friction first (a cone of mu times
+// the point's accumulated normal impulse), then the normal impulses, accumulated and clamped at zero.
+// mode 0: every constraint rigid (a time-of-impact stop). mode 1: the normal constraints are soft and push a penetration
+// out at up to kPushOut m/s (before the sub-step's motion, which turns that speed into a position change). mode 2: the
+// relax pass after the motion: the same constraints without the push-out, so that speed is taken out again.
+void Physics3D::solve_manifold(std::vector<Body>& bodies, RigidContact& rc, int mode, float h, const Soft& soft,
+                               const Soft& softStatic) {
     Body& a = bodies[rc.ia];
     Body& b = bodies[rc.ib];
     const float ia = a.invMass, ib = b.invMass;
     const Vec3 n = rc.n;
-    auto push = [](Body& x, Vec3 r, Vec3 impulse) {  // impulse at lever arm r
-        x.vel += impulse * x.invMass;
-        x.angVel += inv_inertia_mul(x, cross(r, impulse)) * kRadToDeg;
+    const float omega = rc.omega;
+    const Soft& sf = (ia == 0.0f || ib == 0.0f) ? softStatic : soft;
+    Vec3 forceB{}, torqueA{}, torqueB{};  // what a pass applies to b (a gets the opposite force)
+    auto gather = [&](Vec3 ra, Vec3 rb, Vec3 impulse) {
+        forceB += impulse;
+        torqueA += cross(ra, impulse);
+        torqueB += cross(rb, impulse);
     };
-    for (int step = 0; step < rc.count; ++step) {
-        RigidContact::Pt& p = rc.pt[reverse ? rc.count - 1 - step : step];  // alternate the sweep order: no bias
-        {
-            const Vec3 va = point_velocity(a, p.ra), vb = point_velocity(b, p.rb);
-            // A carried rider already moved with its platform: friction acts on the rider's own velocity.
-            const Vec3 rv = rc.carrier == 1 ? vb : (rc.carrier == 2 ? -va : vb - va);
-            const Vec3 vt = rv - n * dot(rv, n);
-            const float lt = length(vt);
-            if (lt > 1e-6f) {
-                const Vec3 t = vt / lt;
-                const Vec3 rta = cross(p.ra, t), rtb = cross(p.rb, t);
-                const float kt = ia + ib + dot(rta, inv_inertia_mul(a, rta)) + dot(rtb, inv_inertia_mul(b, rtb));
-                Vec3 total = p.jt - t * (lt / kt);
-                const float limit = rc.mu * p.jn, len = length(total);
-                if (len > limit) total = total * (limit / len);
-                const Vec3 delta = total - p.jt;
-                p.jt = total;
-                push(b, p.rb, delta);
-                push(a, p.ra, -delta);
-            }
-        }
-        const float vn = dot(point_velocity(b, p.rb) - point_velocity(a, p.ra), n);
-        const float before = p.jn;
-        p.jn = std::max(before + (p.target - vn) / p.kn, 0.0f);
-        const Vec3 impulse = n * (p.jn - before);
-        push(b, p.rb, impulse);
-        push(a, p.ra, -impulse);
+    auto apply = [&]() {
+        b.vel += forceB * ib;
+        b.angVel += inv_inertia_mul(b, torqueB) * kRadToDeg;
+        a.vel -= forceB * ia;
+        a.angVel -= inv_inertia_mul(a, torqueA) * kRadToDeg;
+        forceB = {};
+        torqueA = {};
+        torqueB = {};
+    };
+    for (int i = 0; i < rc.count; ++i) {
+        RigidContact::Pt& p = rc.pt[i];
+        const Vec3 va = point_velocity(a, p.ra), vb = point_velocity(b, p.rb);
+        // A carried rider already moved with its platform: friction acts on the rider's own velocity.
+        const Vec3 rv = rc.carrier == 1 ? vb : (rc.carrier == 2 ? -va : vb - va);
+        const Vec3 vt = rv - n * dot(rv, n);
+        const float lt = length(vt);
+        if (lt <= 1e-6f) continue;
+        const Vec3 t = vt / lt;
+        const Vec3 rta = cross(p.ra, t), rtb = cross(p.rb, t);
+        const float kt = ia + ib + dot(rta, inv_inertia_mul(a, rta)) + dot(rtb, inv_inertia_mul(b, rtb));
+        Vec3 total = p.jt - t * (omega * lt / kt);
+        const float limit = rc.mu * p.jn, len = length(total);
+        if (len > limit) total = total * (limit / len);
+        gather(p.ra, p.rb, total - p.jt);
+        p.jt = total;
     }
+    apply();
+    for (int i = 0; i < rc.count; ++i) {
+        RigidContact::Pt& p = rc.pt[i];
+        const float vn = dot(point_velocity(b, p.rb) - point_velocity(a, p.ra), n);
+        float next;
+        if (mode == 0 || p.target > 0.0f) {  // rigid: aim for the speed the restitution gives (zero when there is none)
+            next = p.jn + omega * (p.target - vn) / p.kn;
+        } else {
+            // The penetration now: what the build measured, less what the bodies have moved apart along n since.
+            const Vec3 rA = frame_to_world(a.rot, p.la), rB = frame_to_world(b.rot, p.lb);
+            const float sep = dot((b.center + rB) - (a.center + rA), n) - p.depth;  // < 0: penetrating
+            float bias = 0.0f, massScale = 1.0f, impulseScale = 0.0f;
+            if (sep > 0.0f) {  // still apart: it may close exactly the gap
+                bias = sep / h;
+            } else if (mode == 1) {
+                bias = std::max(sf.biasRate * std::min(sep + kSlop, 0.0f), -kPushOut);
+                massScale = sf.massScale;
+                impulseScale = sf.impulseScale;
+            }
+            next = p.jn - omega * (massScale * (vn + bias) / p.kn + impulseScale * p.jn);
+        }
+        next = std::max(next, 0.0f);
+        gather(p.ra, p.rb, n * (next - p.jn));
+        p.jn = next;
+    }
+    apply();
+}
+
+Physics3D::Soft Physics3D::make_soft(float hertz, float dampingRatio, float h) {
+    Soft s;
+    const float omega = 2.0f * 3.14159265f * hertz;
+    const float a1 = 2.0f * dampingRatio + h * omega;
+    const float a2 = h * omega * a1;
+    const float a3 = 1.0f / (1.0f + a2);
+    s.biasRate = omega / a1;
+    s.massScale = a2 * a3;
+    s.impulseScale = a3;
+    return s;
 }
 
 // Pushes the pair apart at every manifold point whose penetration exceeds kSlop, along the normal and by the impulse the
@@ -1474,10 +1551,15 @@ void Physics3D::step(World& world, float dt) {
     // Resolves the contacts at the current positions. Pairs of rotating boxes (rotDyn) go through the rigid-body solver
     // (manifolds, impulses at the contact points, accumulated and clamped); every other pair keeps the original solver.
     // positional: also push overlapping bodies apart (not at a time-of-impact stop: the overlap there is ~0.1 mm).
-    auto resolve = [&](bool positional) {
+    const float contactHertz = kContactHertz;
+    const Soft soft = make_soft(contactHertz, kContactDamping, h);
+    const Soft softStatic = make_soft(2.0f * contactHertz, kContactDamping, h);
+    std::vector<RigidContact> held;  // the contacts of this sub-step, built before its motion and relaxed after it
+    // Builds (collision, manifolds, warm start) the contacts of the pairs in scope into `list`.
+    auto build_contacts = [&](std::vector<RigidContact>& list, bool positional) {
         cover_tight();  // the bodies moved since the last phase
         wake_touched();
-        rigid.clear();
+        list.clear();
         struct RigidHit {
             std::size_t i, k;
             Contact c;
@@ -1557,16 +1639,20 @@ void Physics3D::step(World& world, float dt) {
                         }
                     }
                 }
-                rigid.push_back(rc);
+                list.push_back(rc);
             }
+    };
+    // The solver passes over `list`. positional: after the sub-step's motion (the relax pass of the soft contacts, the
+    // simple pairs and the joints); else a time-of-impact stop, where every contact is solved hard and only the speeds change.
+    auto iterate = [&](std::vector<RigidContact>& list, bool positional) {
         const bool jointsOn = positional && prepare_joints(h);
         // Iterations: 2 when only the simple pairs are solved; else each constraint gets the budget of its bodies (8, or
         // more for a joint chain), so a group's result never depends on the other groups of the world.
         auto budget = [&](std::size_t a, std::size_t b) {
             return std::max(bodies_[a].iterations, bodies_[b].iterations);
         };
-        int iterations = (rigid.empty() && !jointsOn) ? kIterations : 0;
-        for (const RigidContact& rc : rigid) iterations = std::max(iterations, budget(rc.ia, rc.ib));
+        int iterations = (list.empty() && !jointsOn) ? kIterations : 0;
+        for (const RigidContact& rc : list) iterations = std::max(iterations, budget(rc.ia, rc.ib));
         if (jointsOn)
             for (const JointState* jp : jointOrder_)
                 if (jp->active && jp->live)
@@ -1596,18 +1682,17 @@ void Physics3D::step(World& world, float dt) {
                     }
                 });
             }
-            for (std::size_t ri = 0; ri < rigid.size(); ++ri) {
-                RigidContact& rc = rigid[(it & 1) ? rigid.size() - 1 - ri : ri];
+            for (std::size_t ri = 0; ri < list.size(); ++ri) {
+                RigidContact& rc = list[(it & 1) ? list.size() - 1 - ri : ri];
                 if (it >= budget(rc.ia, rc.ib)) continue;
-                if (positional && it < kIterations) correct_position(bodies_, rc);
-                solve_velocity(bodies_, rc, (it & 1) != 0);
+                solve_manifold(bodies_, rc, positional ? 2 : 0, h, soft, softStatic);
             }
             if (jointsOn) solve_joints(h, it);
         }
         if (positional) {  // remember the solution as the next sub-step's starting point
             warm_.clear();
             bool ordered = true;
-            for (const RigidContact& rc : rigid) {
+            for (const RigidContact& rc : list) {
                 if (!warm_.empty() && !(warm_.back().key < rc.key)) ordered = false;  // contacts come in key order
                 WarmEntry& e = warm_.emplace_back();
                 e.key = rc.key;
@@ -1620,8 +1705,18 @@ void Physics3D::step(World& world, float dt) {
         }
     };
 
-    cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
-    for (int s = 0; s < subs; ++s) {
+    auto resolve = [&](bool) {  // a time-of-impact stop: the contacts at that instant, solved hard
+        build_contacts(rigid, false);
+        iterate(rigid, false);
+    };
+
+    // A world where every body is asleep or static has nothing to simulate: no sub-steps, and the pair scan below finds no
+    // new pair (the pairs it has keep their state), so the broad phase is not asked at all. A step of it costs only the
+    // sync.
+    const bool anyAwake = std::any_of(bodies_.begin(), bodies_.end(),
+                                      [](const Body& b) { return b.enabled && b.type != BodyType::Static && !b.asleep; });
+    if (anyAwake) cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
+    for (int s = 0; s < (anyAwake ? subs : 0); ++s) {
         cover_tight();  // the previous sub-step moved the bodies after the last phase covered them
         std::fill(carrier.begin(), carrier.end(), -1);
         std::fill(charCarried.begin(), charCarried.end(), 0);
@@ -1694,6 +1789,12 @@ void Physics3D::step(World& world, float dt) {
                 b.angVel = frame_to_world(b.ax, turned) * kRadToDeg;
             }
         }
+        // The contacts at the current poses, pushed out softly (their push-out speed moves the bodies in the motion below).
+        build_contacts(held, true);
+        for (int it = 0; it < kBiasIterations; ++it)
+            for (std::size_t ri = 0; ri < held.size(); ++ri)
+                solve_manifold(bodies_, held[(it & 1) ? held.size() - 1 - ri : ri], 1, h, soft, softStatic);
+        bool hadToi = false;
         // Motion with continuous collision, one ISLAND at a time: the bodies of an island advance together up to the first
         // impact among them (a time of impact), the contacts are resolved there (the velocity of the hit bodies changes:
         // stop, bounce, slide), and the rest of the sub-step continues with the new velocities, so a fast body keeps
@@ -1797,6 +1898,7 @@ void Physics3D::step(World& world, float dt) {
                     }
                     if (tHit >= 1.0f) break;
                     resolve(false);
+                    hadToi = true;
                     remaining *= 1.0f - tHit;
                     if (remaining < 1e-3f) break;
                 }
@@ -1805,7 +1907,28 @@ void Physics3D::step(World& world, float dt) {
                 for (std::size_t i : members) inScope[i] = 0;
             }
         }
-        resolve(true);
+        if (hadToi) {  // a body that had impacts in this sub-step: what its turn swept past is pushed back out
+            build_contacts(rigid, false);
+            for (int pass = 0; pass < 2; ++pass)
+                for (const RigidContact& rc : rigid) correct_position(bodies_, rc);
+            iterate(rigid, false);
+        }
+        iterate(held, true);  // after the motion: the relax pass of the contacts, the simple pairs and the joints
+        {  // settling: a body that presses on another and is slow loses speed (a capsule rolling on a floor has no other brake)
+            std::vector<char> loaded(n, 0);
+            for (const RigidContact& rc : held) {
+                bool load = false;
+                for (int pi = 0; pi < rc.count; ++pi) load = load || rc.pt[pi].jn > 0.0f;
+                if (load) loaded[rc.ia] = loaded[rc.ib] = 1;
+            }
+            const float keep = 1.0f / (1.0f + h * kRestDamping);
+            for (std::size_t i = 0; i < n; ++i) {
+                Body& b = bodies_[i];
+                if (!loaded[i] || !live_dyn(b) || !b.rotDyn || length(b.vel) >= kRestSpeed) continue;
+                b.vel *= keep;
+                b.angVel *= keep;
+            }
+        }
     }
     for (Body& b : bodies_) {
         b.force = {};
@@ -1840,7 +1963,7 @@ void Physics3D::step(World& world, float dt) {
         Contact c;
     };
     std::vector<std::vector<PairRec>> pairParts;
-    cover_tight();
+    if (anyAwake) cover_tight();
     scan_rows(
         n,
         [&](std::size_t i, std::vector<PairRec>& outRecs) {
@@ -1849,7 +1972,10 @@ void Physics3D::step(World& world, float dt) {
             // The candidates: the bodies within the contact margin, and the pairs that keep their state because nothing of
             // them moves (they stay in `touching_` wherever they are).
             thread_local std::vector<std::uint32_t> cand;
-            collect(i, aabb_grow(tight_box(a), kEndMargin + kBpEps), 0, cand);
+            if (anyAwake)
+                collect(i, aabb_grow(tight_box(a), kEndMargin + kBpEps), 0, cand);
+            else
+                cand.clear();
             if (a.asleep || !movable(a)) {
                 const std::size_t before = cand.size();
                 auto it = std::lower_bound(
@@ -1973,14 +2099,35 @@ void Physics3D::step(World& world, float dt) {
         if (l.b != kNoBody && aLive && driving(bodies_[l.b])) hold[l.a] = 1;
         if (bLive && driving(bodies_[l.a])) hold[l.b] = 1;
     }
-    std::vector<char> ready(n, 1);
+    std::vector<int> size(n, 0), restless(n, 0);  // per island root: its bodies, and those still moving faster than kSleepSpeed
+    std::vector<float> fastest(n, 0.0f), speeds(n, 0.0f);
+    std::vector<char> ready(n, 1);  // per island root
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b)) continue;
         const float reach = !b.hasShape ? 0.0f : bound_radius(b);  // fastest point of the shape
-        const bool calm = std::max(length(b.vel), length(b.angVel) * kDegToRad * reach) < kSleepSpeed;
-        b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
-        if (b.sleepTime < kTimeToSleep || hold[i]) ready[find_root(i)] = 0;
+        // An arcade sphere (rollWithMotion) only spins to match its motion: a stale spin it kept from before it stopped being
+        // supported does not count.
+        const bool arcade = b.kind == Body::Kind::Sphere && b.rollWithMotion;
+        const float speed = std::max(length(b.vel), arcade ? 0.0f : length(b.angVel) * kDegToRad * reach);
+        speeds[i] = speed;
+        const std::size_t r = find_root(i);
+        ++size[r];
+        if (speed >= kSleepSpeed) {
+            ++restless[r];
+            fastest[r] = std::max(fastest[r], speed);
+        }
+        if (hold[i]) ready[r] = 0;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || !live_dyn(b)) continue;
+        const std::size_t r = find_root(i);
+        // A big pile never stops completely: a few of its bodies keep creeping. They do not keep it awake while there are
+        // at most one in kStragglers of them and each is slower than kStragglerSpeed.
+        const bool excused = restless[r] <= size[r] / kStragglers && fastest[r] < kStragglerSpeed;
+        b.sleepTime = (speeds[i] < kSleepSpeed || excused) ? b.sleepTime + dt : 0.0f;
+        if (b.sleepTime < kTimeToSleep) ready[r] = 0;
     }
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];

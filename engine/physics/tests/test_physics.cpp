@@ -2411,7 +2411,7 @@ TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity,
         if (how == 1) {  // the written rotation is the new orientation of the sleeping box
             CHECK(s.world.get<Transform>(boxes[2])->rotation.y == doctest::Approx(20.0f).epsilon(0.02));
         }
-        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.005f);  // and it moves
+        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.003f);  // and it moves (the pile's friction stops it within 1 cm)
     }
 }
 

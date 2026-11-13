@@ -538,10 +538,34 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     a mesh or another capsule) gets one point per end, a box on a mesh one per low corner. The id (`mix_id`, an FNV-style hash of
     the reference face, the incident face and the corner or edge crossing that made the point) is the same while the corner
     keeps touching, and the warm start gives each point the impulses its id carried in the previous sub-step (`WarmEntry`), or,
-    for an id that is new, those of the nearest unmatched point within `kWarmRadius` (5 cm). The position pass
-    (`correct_position`) works per point like Box2D's: each point keeps its anchor in the frame of both bodies, so its depth
-    follows the rotation of the pass, and the push is an impulse at the point (it also turns a tilted box back flat); it moves a
-    point by at most `kMaxCorrection` (0.2 m) per pass and only in the first `kIterations` iterations.
+    for an id that is new, those of the nearest unmatched point within `kWarmRadius` (5 cm).
+  - *3D contact solver, stacking* (`solve_manifold`, M94.4h): the contacts are SOFT, as in Box2D v3's soft step. Each
+    sub-step (h = dt / 4) builds the contacts at the current poses (`held`), runs `kBiasIterations` (2) velocity passes
+    whose normal constraint is a spring of `kContactHertz` (60 Hz; 2x against a static body) with damping ratio
+    `kContactDamping` (10), pushing a penetration out at up to `kPushOut` (3 m/s) and letting a gap close exactly, then
+    the sub-step's motion (turning the push-out speed into a position change, swept for impacts as before), then a relax
+    pass (`iterate(held, true)`) with the same constraints and no push-out, which takes that speed out again, the simple
+    pairs and the joints. A point's depth follows the bodies' motion since the build (its anchors live in each body's
+    frame), so no position projection is needed for resting contacts. A soft contact sags under load by weight / stiffness
+    (about 1.5 cm per joint at the bottom of a column of 100 boxes, 0.8% of its height), which is what lets a stack settle
+    without bouncing. The points of one manifold are solved together (Jacobi: every point from the same velocities, applied
+    at once) with each update scaled by 1 / the Gershgorin bound of the manifold's coupling matrix (`RigidContact::omega`),
+    so the result does not depend on the order of the points: a column of boxes is an inverted pendulum (a lean grows by e
+    every ~1.7 s), and the one-point-after-another order of a Gauss-Seidel pass leaned every stack to the side of its first
+    corner. A time-of-impact stop (`resolve(false)`) still solves hard (the speeds only), and a sub-step that had impacts
+    ends with the old position pass (`correct_position`, per point, at most `kMaxCorrection` = 0.2 m, two passes) because
+    a body that spins fast can overlap at the end of a sub-step by what its last sweep missed. A loaded body (a contact
+    with normal impulse) with a rotating rigid body whose centre is slower than `kRestSpeed` (0.5 m/s) loses speed at
+    `kRestDamping` (1/s), so a capsule rolling on a pile comes to rest. Sleeping: a body is calm below `kSleepSpeed` (an
+    arcade sphere, `rollWithMotion`, counts only its linear speed), an island sleeps when all its bodies were calm for
+    `kTimeToSleep`, EXCEPT that in a big pile up to N / `kStragglers` (64) bodies may still creep, each slower than
+    `kStragglerSpeed` (0.3 m/s), because a pile of a thousand spheres, capsules and boxes never stops completely. A
+    world with nothing awake skips the sub-steps and the broad phase (a step costs the sync only, about 0.4 ms for the
+    pit of 1000). (`Body::Sig`, the "was this body edited" signature that wakes a body, compares the capsule's `segHalf`
+    with a tolerance like the other sizes: its last bits wobble when a body turns a hair, and each wobble used to reset
+    the sleep timer of every slowly rotating capsule.) Measured on the scale tests: the column of 100 sleeps after 240
+    steps and the column of 50 after 140, neither leans (drift 0.000), and the walled pit of 1000 bodies is asleep after
+    about 800 steps.
   - *3D broad phase* (`broadphase3d.h`): the 3D solver keeps a dynamic AABB tree with one leaf per enabled collider with a
     shape (created, removed and renumbered after every `sync`). A leaf holds a FAT box: the collider's bounds plus a margin
     (0.1 m when it moves, 0.02 m at rest) and, for a body in motion, its velocity over two steps; the leaf stays where it is

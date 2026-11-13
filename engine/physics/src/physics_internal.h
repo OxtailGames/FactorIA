@@ -350,7 +350,8 @@ private:
                        rotDyn == o.rotDyn && mass == o.mass && gravityScale == o.gravityScale &&
                        std::fabs(radius - o.radius) <= 1e-5f * std::max(1.0f, radius) && near(half, o.half) &&
                        near(offset, o.offset) && ax[0] == o.ax[0] && ax[1] == o.ax[1] && ax[2] == o.ax[2] &&
-                       layer == o.layer && mask == o.mask && kind == o.kind && segHalf == o.segHalf &&
+                       layer == o.layer && mask == o.mask && kind == o.kind &&
+                       std::fabs(segHalf - o.segHalf) <= 1e-5f * std::max(1.0f, segHalf) &&
                        near(gscale, o.gscale) && data == o.data;
             }
         };
@@ -402,6 +403,7 @@ private:
         float mu = 0.0f;
         int carrier = 0;  // 1: a is the kinematic platform carrying b; 2: the other way round
         int count = 0;
+        float omega = 1.0f;  // relaxation of the per-point updates (see build_rigid_contact)
         struct Pt {
             Vec3 ra, rb;
             Vec3 la, lb;  // ra, rb in the frame of each body (they turn with it during the position pass)
@@ -446,8 +448,18 @@ private:
     void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried, bool positional);
     static bool build_rigid_contact(const Body& a, const Body& b, std::size_t ia, std::size_t ib, const Contact& c,
                                     float h, int carrier, float& impact, RigidContact& out);
-    static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
+    // Soft contacts (Box2D v3's "soft step"): a constraint softened to a spring-damper of the given frequency, so a stack
+    // takes its weight without the solver having to be exact. The coefficients of one softness (see make_soft).
+    struct Soft {
+        float biasRate = 0.0f, massScale = 1.0f, impulseScale = 0.0f;
+    };
+    static Soft make_soft(float hertz, float dampingRatio, float h);
+    // One velocity pass over a manifold (all its points together). mode 0: rigid constraints (a time-of-impact stop);
+    // 1: soft ones that push a penetration out through the velocity, which the sub-step's motion turns into a position
+    // change; 2: the relax pass after the motion, which takes that speed out again.
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
+    static void solve_manifold(std::vector<Body>& bodies, RigidContact& rc, int mode, float h, const Soft& soft,
+                               const Soft& softStatic);
     static Aabb3 tight_box(const Body& b) {
         Aabb3 box;
         aabb(b, box.lo, box.hi);
