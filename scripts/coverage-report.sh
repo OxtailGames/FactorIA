@@ -50,10 +50,10 @@ fi
 args=("${objs[0]}")
 for ((i = 1; i < ${#objs[@]}; i++)); do args+=(-object "${objs[$i]}"); done
 
-ignore='(/external/|/_deps/|/tests?/|/test_tools/|/tools/fuzz/|/tools/bench/|/usr/|/Applications/|/generated/)'
-"$cov" export -instr-profile="$out/all.profdata" -ignore-filename-regex="$ignore" "${args[@]}" > "$out/llvm-export.json"
+ignore="^(${root}/(external|build)/|${root}/(engine|tools)/[^/]+/(tests?|test_tools)/|${root}/tools/(fuzz|bench)/|${root}/.*/generated/)|^(/usr|/Applications|/opt)/|/_deps/"
+"$cov" export -summary-only -instr-profile="$out/all.profdata" -ignore-filename-regex="$ignore" "${args[@]}" > "$out/llvm-export.json"
 "$cov" show -format=html -output-dir="$out/html" -instr-profile="$out/all.profdata" -ignore-filename-regex="$ignore" \
-    "${args[@]}" > /dev/null 2>&1 || echo "warning: the HTML report could not be written" >&2
+    "${args[@]}" > /dev/null 2> "$out/show.log" || echo "warning: the HTML report could not be written (see $out/show.log)" >&2
 
 python3 -I - "$out" "$root" <<'PY'
 import json, os, re, sys
