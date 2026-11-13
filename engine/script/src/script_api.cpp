@@ -157,6 +157,9 @@ std::string like_type(FieldKind k) {
         case FieldKind::Vec4: return "readonly number[] | { x: number; y: number; z: number; w: number }";
         case FieldKind::Color: return "ColorLike";
         case FieldKind::Rect: return "RectLike";
+        case FieldKind::ArrayI32: return "Int32Array | readonly number[]";
+        case FieldKind::ArrayF32: return "Float32Array | readonly number[]";
+        case FieldKind::ArrayU8: return "Uint8Array | readonly number[]";
         default: return {};
     }
 }
@@ -176,6 +179,9 @@ std::string value_type(const FieldInfo& f) {
         case FieldKind::Entity: return "Entity | null";
         case FieldKind::Enum: return lit_union(f.enumNames);
         case FieldKind::Json: return "any";
+        case FieldKind::ArrayI32: return "Int32Array";
+        case FieldKind::ArrayF32: return "Float32Array";
+        case FieldKind::ArrayU8: return "Uint8Array";
     }
     return "any";
 }
@@ -302,6 +308,9 @@ std::string emit_components(const ScriptSystem::SinceFn& since) {
             if (f.kind == FieldKind::Asset) doc += " (asset path: " + f.assetType + ")";
             if (f.readOnly) doc += " Read-only.";
             if (f.kind == FieldKind::Json) doc += " Returns a plain-object COPY; assign a new value to write.";
+            if (f.kind == FieldKind::ArrayI32 || f.kind == FieldKind::ArrayF32 || f.kind == FieldKind::ArrayU8)
+                doc += " Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or "
+                       "an array of numbers to write the whole field.";
             out += jsdoc(doc + since_tag(t->name + "." + f.name), "    ");
             std::string lk = like_type(f.kind);
             if (f.kind == FieldKind::Entity) lk = "EntityLike";

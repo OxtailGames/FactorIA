@@ -285,6 +285,7 @@
     if (v === undefined) return null;
     if (v instanceof Entity) return v.id;
     if (Array.isArray(v)) return v.map(plain);
+    if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return Array.from(v); // Int32Array etc.: a flat JSON array
     if (isObj(v)) {
       if (typeof v.toJSON === "function") return plain(v.toJSON());
       const o = {};

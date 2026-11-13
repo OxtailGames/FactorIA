@@ -28,7 +28,10 @@ FieldWidget widget_for(const FieldInfo& f) {
         case FieldKind::Entity: return FieldWidget::EntityCombo;
         case FieldKind::Enum: return FieldWidget::EnumCombo;
         case FieldKind::Asset: return FieldWidget::AssetPicker;
-        case FieldKind::Json: return FieldWidget::JsonText;
+        case FieldKind::Json:
+        case FieldKind::ArrayI32:
+        case FieldKind::ArrayF32:
+        case FieldKind::ArrayU8: return FieldWidget::JsonText;
     }
     return FieldWidget::JsonText;
 }

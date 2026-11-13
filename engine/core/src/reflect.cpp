@@ -1,6 +1,9 @@
 #include "fa/core/reflect.h"
 
+#include <cfloat>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 #include "fa/core/strings.h"
 
@@ -21,6 +24,9 @@ const char* field_kind_name(FieldKind k) {
         case FieldKind::Enum: return "enum";
         case FieldKind::Asset: return "asset";
         case FieldKind::Json: return "json";
+        case FieldKind::ArrayI32: return "arrayI32";
+        case FieldKind::ArrayF32: return "arrayF32";
+        case FieldKind::ArrayU8: return "arrayU8";
     }
     return "?";
 }
@@ -126,6 +132,17 @@ std::string kind_expectation(const FieldInfo& f) {
         case FieldKind::Enum: return "one of " + enum_list(f);
         case FieldKind::Asset: return "an asset path string" + (f.assetType.empty() ? "" : " (" + f.assetType + ")");
         case FieldKind::Json: return "any JSON value";
+        case FieldKind::ArrayI32:
+        case FieldKind::ArrayU8: {
+            const bool u8 = f.kind == FieldKind::ArrayU8;
+            std::string out = u8 ? "an array of integers from 0 to 255, e.g. [0, 1, 255]"
+                                 : "an array of integers, e.g. [0, 1, 2]";
+            if (has_range(f)) out += " (each element within the field's range)";
+            return out;
+        }
+        case FieldKind::ArrayF32:
+            return has_range(f) ? "an array of numbers, e.g. [0.5, 1, 2] (each element within the field's range)"
+                                : "an array of numbers, e.g. [0.5, 1, 2]";
     }
     return "?";
 }
@@ -138,7 +155,7 @@ Error field_error(const FieldInfo& f, const std::string& why) {
 
 // A number outside the field's range(): refused, never clamped on the side (a file that says 200 while the game
 // shows 64 would be a silent lie). The hint gives the allowed interval and the nearest allowed value.
-Error range_error(const FieldInfo& f, double value) {
+Error range_error(const FieldInfo& f, double value, long long index = -1) {
     auto number = [](double v) {  // 3, 0.001, 179: no trailing ".0"
         const Json j = to_json(float(v));
         const double d = j.get<double>();
@@ -148,8 +165,99 @@ Error range_error(const FieldInfo& f, double value) {
     std::string hint = "Use a value from " + lo + " to " + hi + " (both allowed); the nearest is " +
                        (value < f.minValue ? lo : hi) + ".";
     if (!f.doc.empty()) hint += " " + f.doc;
-    return make_error("Field '" + f.name + "': value " + text + " is outside the allowed range " + lo + ".." + hi,
-                      hint);
+    const std::string what = index < 0 ? "value " + text : "element " + std::to_string(index) + " (" + text + ")";
+    return make_error("Field '" + f.name + "': " + what + " is outside the allowed range " + lo + ".." + hi, hint);
+}
+
+}  // namespace
+
+namespace {
+
+template <class T>
+Json array_to_json(const TypedArray<T>& a) {
+    Json out = Json::array();
+    out.get_ref<Json::array_t&>().reserve(a.size());
+    for (const T& v : a.span()) {
+        if constexpr (std::is_floating_point_v<T>)
+            out.push_back(to_json(v));
+        else
+            out.push_back(std::int64_t(v));
+    }
+    return out;
+}
+
+// The element type's own bounds; a field's range() narrows them further.
+template <class T>
+constexpr double element_min() {
+    return std::is_floating_point_v<T> ? -double(FLT_MAX) : double(std::numeric_limits<T>::lowest());
+}
+template <class T>
+constexpr double element_max() {
+    return std::is_floating_point_v<T> ? double(FLT_MAX) : double(std::numeric_limits<T>::max());
+}
+
+// Validates the whole array first and writes it only when every element is good (a bad element changes nothing).
+template <class T>
+Result<void> array_from_json(const FieldInfo& f, TypedArray<T>& dst, const Json& value) {
+    constexpr bool integral = std::is_integral_v<T>;
+    if (!value.is_array()) return field_error(f, "expected an array of numbers, got " + describe_json_value(value));
+    if (value.size() > kMaxTypedArrayElements)
+        return field_error(f, "the array has " + std::to_string(value.size()) + " elements, more than the " +
+                                  std::to_string(kMaxTypedArrayElements) + " an array field can hold");
+    const bool ranged = has_range(f);
+    const double lo = element_min<T>(), hi = element_max<T>();
+    std::vector<T> out;
+    out.reserve(value.size());
+    long long i = 0;
+    for (const Json& e : value) {
+        if (!e.is_number())
+            return field_error(f, "element " + std::to_string(i) + " is " + describe_json_value(e) +
+                                      ", expected a number");
+        const double d = e.get<double>();
+        if (integral && d != std::floor(d))
+            return field_error(f, "element " + std::to_string(i) + " is " + e.dump() + ", expected an integer");
+        if (d < lo || d > hi) {
+            const std::string text = e.dump();
+            const std::string bounds = integral ? "from " + std::to_string(std::int64_t(lo)) + " to " +
+                                                      std::to_string(std::int64_t(hi))
+                                                : "of a 32-bit float";
+            return field_error(f, "element " + std::to_string(i) + " is " + text + ", outside the values " + bounds +
+                                      " this array can hold");
+        }
+        if (ranged && (d < f.minValue || d > f.maxValue)) return range_error(f, d, i);
+        out.push_back(static_cast<T>(d));
+        ++i;
+    }
+    dst.assign(out.data(), out.size());
+    return {};
+}
+
+Json array_item_schema(const FieldInfo& f) {
+    const bool integral = f.kind != FieldKind::ArrayF32;
+    Json items = Json::object({{"type", integral ? "integer" : "number"}});
+    double lo = 0, hi = 0;
+    bool bounded = true;
+    switch (f.kind) {
+        case FieldKind::ArrayI32:
+            lo = element_min<std::int32_t>();
+            hi = element_max<std::int32_t>();
+            break;
+        case FieldKind::ArrayU8:
+            lo = element_min<std::uint8_t>();
+            hi = element_max<std::uint8_t>();
+            break;
+        default: bounded = false; break;
+    }
+    if (has_range(f)) {
+        lo = bounded ? std::max(lo, double(f.minValue)) : double(f.minValue);
+        hi = bounded ? std::min(hi, double(f.maxValue)) : double(f.maxValue);
+        bounded = true;
+    }
+    if (bounded) {
+        items["minimum"] = integral ? Json(std::int64_t(lo)) : to_json(float(lo));
+        items["maximum"] = integral ? Json(std::int64_t(hi)) : to_json(float(hi));
+    }
+    return items;
 }
 
 }  // namespace
@@ -182,6 +290,9 @@ Json field_to_json(const FieldInfo& f, const void* o) {
             return v;
         }
         case FieldKind::Json: return as<Json>(f, o);
+        case FieldKind::ArrayI32: return array_to_json(as<ArrayI32>(f, o));
+        case FieldKind::ArrayF32: return array_to_json(as<ArrayF32>(f, o));
+        case FieldKind::ArrayU8: return array_to_json(as<ArrayU8>(f, o));
     }
     return nullptr;
 }
@@ -283,6 +394,9 @@ Result<void> field_from_json(const FieldInfo& f, void* o, const Json& value) {
             return bad();
         }
         case FieldKind::Json: as<Json>(f, o) = value; return {};
+        case FieldKind::ArrayI32: return array_from_json(f, as<ArrayI32>(f, o), value);
+        case FieldKind::ArrayF32: return array_from_json(f, as<ArrayF32>(f, o), value);
+        case FieldKind::ArrayU8: return array_from_json(f, as<ArrayU8>(f, o), value);
     }
     return make_error("Unsupported field kind");
 }
@@ -382,9 +496,16 @@ Json field_schema(const FieldInfo& f, const Json& def) {
             break;
         }
         case FieldKind::Json: break;
+        case FieldKind::ArrayI32:
+        case FieldKind::ArrayF32:
+        case FieldKind::ArrayU8:
+            s["type"] = "array";
+            s["items"] = array_item_schema(f);  // the range() bounds the elements, not the array
+            break;
     }
     if (!f.doc.empty()) s["description"] = f.doc;
-    if (has_range(f)) {
+    if (has_range(f) && f.kind != FieldKind::ArrayI32 && f.kind != FieldKind::ArrayF32 &&
+        f.kind != FieldKind::ArrayU8) {
         s["minimum"] = to_json(f.minValue);
         s["maximum"] = to_json(f.maxValue);
     }
