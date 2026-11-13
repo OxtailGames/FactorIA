@@ -302,13 +302,13 @@
       "unit": "component gets"
     },
     "physics.tilemap_edit": {
-      "medianMs": 0.224,
-      "minMs": 0.194,
-      "maxMs": 0.272,
-      "p25Ms": 0.196,
-      "p75Ms": 0.225,
-      "spread": 0.13,
-      "cpuMedianMs": 0.224,
+      "medianMs": 0.057,
+      "minMs": 0.057,
+      "maxMs": 0.061,
+      "p25Ms": 0.057,
+      "p75Ms": 0.06,
+      "spread": 0.057,
+      "cpuMedianMs": 0.058,
       "items": 40,
       "unit": "cell edits"
     },
@@ -344,6 +344,28 @@
       "cpuMedianMs": 0.12,
       "items": 79200,
       "unit": "leaves"
+    },
+    "physics.tilemap_edit_large": {
+      "medianMs": 0.075,
+      "minMs": 0.074,
+      "maxMs": 0.078,
+      "p25Ms": 0.075,
+      "p75Ms": 0.077,
+      "spread": 0.031,
+      "cpuMedianMs": 0.076,
+      "items": 40,
+      "unit": "cell edits"
+    },
+    "nav.tilemap_edit": {
+      "medianMs": 0.157,
+      "minMs": 0.155,
+      "maxMs": 0.164,
+      "p25Ms": 0.156,
+      "p75Ms": 0.161,
+      "spread": 0.035,
+      "cpuMedianMs": 0.157,
+      "items": 40,
+      "unit": "edits and queries"
     }
   }
 }

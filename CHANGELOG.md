@@ -75,6 +75,20 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   `nav.tileVersion` no longer reads the tiles. `TypedArray::id()` tells two arrays apart where `version()` cannot (a
   copy starts again at 0). The inspector no longer builds the JSON of a big array every frame
   (`component_to_json(..., summarizeArraysOver)`).
+- Tilemap colliders and tile paths follow edits (M94.2c). 2D physics keeps a Tilemap's static colliders as one
+  decomposition of the solid cells whatever the edits that led there (every row cut into its maximal runs, identical runs
+  of consecutive rows stacked, so a long floor is one box and has no seam for a body to catch on), and an edit takes apart
+  and stacks again only the boxes it touches, found through a cell-to-box index (4 bytes per cell), keeping the boxes that
+  did not change and with them the contacts of bodies standing on them; the boxes and the collision are the ones a fresh
+  build gives (a randomized test compares overlaps, ray hits and the boxes). `Tilemap::edits` (empty in a copy, kept by a
+  move) is a
+  log that consumers read with `tilemap_edits_since(tm, stamp, edits)` and nobody empties; it is bounded, ties to the
+  array's id and proves it covers every version step, so a whole-array write, a write that bypassed `set_tilemap_tile` or
+  `tm = other` is detected and the consumer reads the map again instead of replaying edits that do not explain the change.
+  The stamp is refreshed even when an edit changed no collider, and a map without `solidTiles` no longer hashes its tiles
+  every step. `nav.findTilePath`, `findTilePaths` and `flow_field` on a Tilemap of 1024 cells or more keep the cost grid
+  between calls and patch the cells written since (`nav_tile_cache_stats()`). New `fa_bench` entries
+  `physics.tilemap_edit_large` (512 x 512: 0.43 ms before, 0.075 ms) and `nav.tilemap_edit` (55.9 ms before, 0.16 ms).
 
 ## 0.26.0
 

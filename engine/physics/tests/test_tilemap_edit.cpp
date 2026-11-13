@@ -91,7 +91,7 @@ TEST_CASE("2d: setTile opens a hole a body falls through on the next step, in bo
         CHECK(tile_box_count(s) == 2);  // the floor box was split around the hole: only that box was rebuilt
         s.run(120);
         CHECK(s.world.world_position(box).y < -60.0f);  // fell through the hole
-        CHECK(tm.edits.empty());                        // physics consumed the edits
+        CHECK(tm.edits.size() == 1);                    // the log is not consumed: physics keeps its own stamp
         // Closing it again puts a floor back (the box lies below it now, so look with a ray).
         REQUIRE(set_tilemap_tile(tm, 5, 2, 1));
         s.run(1);
@@ -116,7 +116,8 @@ TEST_CASE("2d: single writes patch the colliders; a whole-array write still rebu
     // Many writes in one step are one patch, and the result is what a whole rebuild would give.
     for (int i = 0; i < 1000; ++i) REQUIRE(set_tilemap_tile(tm, 3 + (i % 2), 2, i % 3 == 0 ? -1 : 1));
     s.run(1);
-    CHECK(tm.edits.empty());
+    CHECK(!tm.edits.empty());
+    CHECK(tm.edits.size() <= 4096);  // the log is bounded
     for (int c = 0; c < 10; ++c) CHECK(floor_at(s, c) == (tilemap_tile_at(tm, tilemap_size(tm), c, 2) == 1));
     // A write that records no edit (straight into the array) is caught by the array's version and the body is rebuilt.
     tm.tiles.set(std::size_t(2 * 10 + 7), -1);
@@ -221,5 +222,5 @@ TEST_CASE("2d: an isometric map collides as diamonds, and single writes patch on
     CHECK(tile_box_count(s) == 1);
     CHECK_FALSE(solid_at({-20, -75}));
     CHECK(solid_at({50, -100}));
-    CHECK(tm.edits.empty());
+    CHECK(tm.edits.size() == 2);
 }

@@ -169,7 +169,10 @@ character may have to cross. `Collider3D.navWalkable` wins over `navObstacle` wh
 
 `nav.findTilePath(map, from, to, opts)` is A* over the cells of a `Tilemap` (or of your own grid), for top-down and
 platformer maps where the 3D NavMesh does not apply. It needs no bake: it reads the tiles at the moment of the call, so a
-tile written with `entity.tilemap.setTile` is part of the next search.
+tile written with `entity.tilemap.setTile` is part of the next search. For a Tilemap of 1024 cells or more the engine keeps
+the cost grid it built (the last few maps, 4 Mi cells in all) and updates only the cells written since the previous query,
+so a query after a `setTile` does not read the whole map again; a write that does not go through `setTile` (a whole `tiles`
+array, a copied Tilemap) makes the next query read the map again. The answer is the same either way.
 
 ```js
 import { Behaviour, nav, world } from "factoria";
