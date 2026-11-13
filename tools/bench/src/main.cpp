@@ -311,13 +311,16 @@ int main(int argc, char** argv) {
     for (const Measurement& m : results)
         if (!m.sameWork) std::printf("note: %s did different work in different repeats, so its numbers are not comparable.\n", m.name.c_str());
 
-    if (compared && !args.json) {
-        std::printf("\n%s", report.text().c_str());
-        if (github) {
-            github_annotations(report);
-            github_summary(report, results);
+    if (compared) {
+        if (!args.json) {
+            std::printf("\n%s", report.text().c_str());
+            if (github) {
+                github_annotations(report);
+                github_summary(report, results);
+            }
         }
-        if (report.failed(args.requireBaseline)) status = 1;
+        // The exit status does not depend on how the measurements are printed. A bad baseline file (2) stays 2.
+        if (report.failed(args.requireBaseline) && status == 0) status = 1;
     }
     if (compared && !args.report.empty()) {
         if (!write_text_file(fs::path_from_utf8(args.report), dump_json(report.to_json()), error)) {

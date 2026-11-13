@@ -45,6 +45,7 @@ struct RenderEnv {
         d.designHeight = 360;
         d.headless = true;
         ok = renderer.init(d, gpu.environment(), &error);
+        if (!ok && error.empty()) error = "renderer init failed";
     }
     ~RenderEnv() {
         if (ok) renderer.shutdown();
@@ -153,9 +154,9 @@ Bench render_bench(const char* name, const char* summary, void (*build)(World&),
         p.items = items;
         p.unit = unit;
         p.run = [world] {
-            RenderEnv& env = *env_slot();
+            RenderEnv& renderEnv = *env_slot();
             double sum = 0;
-            for (int i = 0; i < 8; ++i) sum += env.frame(*world);
+            for (int i = 0; i < 8; ++i) sum += renderEnv.frame(*world);
             return sum;
         };
         return p;

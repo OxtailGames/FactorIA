@@ -1,43 +1,22 @@
 // Helpers and fixtures shared by the sections of the editor autotest (autotest_common.h).
-#include "fa/core/engine_version.h"
 #include <algorithm>
-#include <cctype>
-#include <chrono>
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <memory>
-#include <mutex>
-#include <atomic>
-#include <thread>
 
-#include "ai_project_edit.h"
-#include "auto_play_job.h"
 #include "autotest_common.h"
-#include "autotest_sections.h"
 #include "editor_internal.h"
-#include "fa/ai/command_hooks.h"
-#include "fa/ai/extension_plan.h"
-#include "fa/ai/savers.h"
-#include "fa/core/date.h"
 #include "fa/core/jobs.h"
 #include "fa/tooling/feedback_share.h"
-#include "fa/tooling/net.h"
-#include "fa/tooling/play_auto.h"
-#include "fa/tooling/qr.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
-#include "ui_backend.h"
 
 namespace fa::editor::at_support {
 
 namespace stdfs = std::filesystem;
 
-// Section U: where a panel is now. Floating panels have no dock node; a docked one names its node.
+// Sections U, E2 and E4: where a panel is now. Floating panels have no dock node; a docked one names its node.
 ImGuiWindow* panel_window(const char* name) { return ImGui::FindWindowByName(name); }
 bool panel_floating(const char* name) {
     const ImGuiWindow* w = panel_window(name);
