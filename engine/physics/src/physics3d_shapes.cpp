@@ -181,10 +181,14 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
     for (std::size_t i = 0; i < cand.size(); ++i)
         if (dot(cand[i], n) <= lowest + kLowBand) low.push_back({dot(cand[i], n), i});
     std::sort(low.begin(), low.end());
+    constexpr int kCap = 16;  // a hull with many vertices in the low band: the first (lowest) 16 are candidates
+    Vec3 pts[kCap];
+    float depths[kCap];
+    std::uint32_t ids[kCap];
     int count = 0;
     Contact m = best;
     for (const auto& [h, idx] : low) {
-        if (count >= kMaxPts) break;
+        if (count >= kCap) break;
         const Vec3 p = cand[idx];
         const Vec3 org = world_to_frame(mesh.ax, p + n * kProbeLift - mesh.center) / mesh.gscale;
         const Vec3 dir = world_to_frame(mesh.ax, -n) / mesh.gscale;
@@ -196,15 +200,13 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
         if (dot(nw, n) < 0.8f) continue;  // a wall or a steep neighbour: not part of this face contact
         const float depth = kProbeLift - t;
         if (depth < -kManifoldGap) continue;
-        m.pts[count] = p + n * (depth * 0.5f);
-        m.depths[count] = depth;
+        pts[count] = p + n * (depth * 0.5f);
+        depths[count] = depth;
+        ids[count] = mix_id(0x3E5Cu, std::uint32_t(idx));  // the corner (or hull vertex) of the shape that touches
         ++count;
     }
     if (count > 0) {
-        m.n = count;
-        m.point = {};
-        for (int i = 0; i < count; ++i) m.point += m.pts[i];
-        m.point = m.point / float(count);
+        reduce_manifold(m, pts, depths, ids, count);
         return m;
     }
     return best;
@@ -235,6 +237,7 @@ void Physics3D::add_capsule_points(const Body& a, const Body& b, Contact& c) {
     for (int s = 0; s < 2; ++s) {
         c.pts[s] = q[s].point;
         c.depths[s] = q[s].depth;
+        c.ids[s] = mix_id(0xCA95u, std::uint32_t(s));  // the end of the capsule: the same one every step
         c.point += q[s].point * 0.5f;
     }
 }

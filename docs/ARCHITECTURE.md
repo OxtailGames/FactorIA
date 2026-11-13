@@ -527,6 +527,21 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     reads positions and the tree and writes its own slots; the main thread then replays the slots in `(chunk, row, k)`
     order, which is the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
     character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
+  - *3D contact manifolds* (`physics3d.cpp`, `physics3d_shapes.cpp`): a rigid contact has up to `kMaxPts` = 4 points, each with a
+    depth and a feature id. Two boxes that are not aligned go through `box_box_sat` (15 axes; a face axis wins over an edge axis unless the edge
+    axis is clearly shallower, and a face of the first body over one of the second unless that one is clearly shallower, so a
+    pair keeps its reference face from step to step); a face contact (`face_manifold`) clips the incident face against the side planes of
+    the reference face and keeps the corners not more than `kManifoldGap` (3 mm) above the reference plane, and two crossing
+    edges give one point. `reduce_manifold` merges points closer than 0.1 mm and keeps at most 4: the deepest, the
+    one farthest from it and the two that span the largest triangles, with every comparison tolerant and falling back to the
+    lowest index, so the choice depends on the geometry and not on float noise or thread order. A capsule lying flat (on a box,
+    a mesh or another capsule) gets one point per end, a box on a mesh one per low corner. The id (`mix_id`, an FNV-style hash of
+    the reference face, the incident face and the corner or edge crossing that made the point) is the same while the corner
+    keeps touching, and the warm start gives each point the impulses its id carried in the previous sub-step (`WarmEntry`), or,
+    for an id that is new, those of the nearest unmatched point within `kWarmRadius` (5 cm). The position pass
+    (`correct_position`) works per point like Box2D's: each point keeps its anchor in the frame of both bodies, so its depth
+    follows the rotation of the pass, and the push is an impulse at the point (it also turns a tilted box back flat); it moves a
+    point by at most `kMaxCorrection` (0.2 m) per pass and only in the first `kIterations` iterations.
   - *3D broad phase* (`broadphase3d.h`): the 3D solver keeps a dynamic AABB tree with one leaf per enabled collider with a
     shape (created, removed and renumbered after every `sync`). A leaf holds a FAT box: the collider's bounds plus a margin
     (0.1 m when it moves, 0.02 m at rest) and, for a body in motion, its velocity over two steps; the leaf stays where it is

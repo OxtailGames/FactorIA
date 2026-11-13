@@ -47,6 +47,18 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   before and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7,
   100000 field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access`
   43 -> 17 and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
+- 3D physics: contact manifolds with several persistent points (M94.4d). Two boxes in face contact are clipped (the
+  incident face against the side planes of the reference face) and touch in up to 4 points, reduced in a way that depends
+  only on the geometry; two crossing edges give one point. A box on a mesh or a static box has one point per low corner, a
+  capsule lying on a surface or on another capsule two (one per end). Every point carries the id of its feature (a corner of
+  the clipped face, an end of a capsule), and the warm start gives each point the impulses its id carried in the previous
+  sub-step, so the load stays at the right corner while a box slides or turns. The position pass is per point and also turns
+  a tilted body back flat (it only translated the pair before). Result: a block of 100 boxes (5 x 5 x 4) falls asleep after
+  40 steps (it was still moving after 600), a column of 20 sleeps, one of 50 leans a few degrees; a column of 100 still
+  collapses (that scale test stays `may_fail`). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
+  `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads); the examples'
+  graphics hashes and perf budgets did not. `physics.step3d_stack100` costs about 15% more (the column has more points), the
+  other `physics.step3d*` benchmarks the same.
 - 3D physics: the solver has a broad phase. A dynamic AABB tree with fat boxes finds the candidate pairs of the
   sub-step, the first impacts, the contact events, the sleeping bodies a mover wakes, the bodies a moving platform
   carries and the movers that share a time-of-impact island, instead of testing every pair. The result of the
