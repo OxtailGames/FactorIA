@@ -247,8 +247,11 @@ Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadRep
                         bool deferMissingRefs = false);
 
 // Components
+// `summarizeArraysOver`: a typed array field (ArrayI32, ArrayF32, ArrayU8) with more elements than this is written as
+// {"$elements": <count>} instead of its numbers (a UI that rebuilds this JSON every frame must not copy a 512 x 512
+// tile map into a Json each time). The default writes every element.
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults = false,
-                       bool includeRuntime = false);
+                       bool includeRuntime = false, std::size_t summarizeArraysOver = SIZE_MAX);
 // Adds the component if missing, then applies the partial field object.
 Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const Json& fields);
 

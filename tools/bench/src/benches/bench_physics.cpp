@@ -5,6 +5,7 @@
 #include "fa/core/math.h"
 #include "fa/physics/physics.h"
 #include "fa/scene/components.h"
+#include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -187,6 +188,56 @@ Bench physics_3d_stack() {
     return b;
 }
 
+// A 256 x 256 Tilemap (65536 cells) with a solid platform of 15 tiles every 16 columns on every 8th row (512 boxes).
+void build_tilemap_2d(World& w) {
+    Entity e = w.create();
+    Tilemap& tm = w.add<Tilemap>(e);
+    tm.tileSize = {16, 16};
+    tm.solidTiles = Json::array({1});
+    std::vector<int> tiles(256 * 256, -1);
+    for (int r = 7; r < 256; r += 8)
+        for (int c = 0; c < 256; ++c)
+            if (c % 16 != 15) tiles[std::size_t(r) * 256 + std::size_t(c)] = 1;
+    set_tilemap_grid(tm, 256, 256, tiles);
+}
+
+// One cell of a large map changes, then the 2D physics steps and brings its colliders up to date: the cost follows the
+// number of edits, not the 65536 cells of the map (the array's version and the edits say what was written).
+Bench physics_tilemap_edit() {
+    Bench b;
+    b.name = "physics.tilemap_edit";
+    b.summary = "set_tilemap_tile + Physics::step x40: one cell of a 256 x 256 Tilemap changes per step (2D collision)";
+    b.warnRatio = 2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
+    b.failRatio = 6.0;
+    b.make = [] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 40;
+        p.unit = "cell edits";
+        p.prepare = [sim] {
+            sim->reset();
+            build_tilemap_2d(*sim->world);
+            sim->physics.sync(*sim->world);  // the colliders exist before the clock starts
+            sim->run_steps(2);
+        };
+        p.run = [sim] {
+            Entity map = sim->world->entities_with(&World::type_of<Tilemap>()).front();
+            Tilemap& tm = *sim->world->get<Tilemap>(map);
+            double sum = 0;
+            for (int i = 0; i < 40; ++i) {
+                // a platform tile appears or goes away: row 15 + 8k, column 3 + 16 * (i % 16)
+                const int col = 3 + 16 * (i % 16), row = 15 + 8 * (i / 16);
+                const int now = tilemap_tile_at(tm, tilemap_size(tm), col, row);
+                set_tilemap_tile(tm, col, row, now == 1 ? -1 : 1);
+                sum += sim->run_steps(1);
+            }
+            return sum + double(tm.tiles.version());
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench physics_2d() {
     Bench b;
     b.name = "physics.step2d";
@@ -234,6 +285,7 @@ void add_physics_benches(std::vector<Bench>& out) {
     out.push_back(physics_3d());
     out.push_back(physics_3d_pit());
     out.push_back(physics_3d_stack());
+    out.push_back(physics_tilemap_edit());
 }
 
 }  // namespace fa::bench

@@ -40,6 +40,15 @@ inline constexpr std::size_t kInspectorArrayEditMax = 512;
 inline bool is_array_kind(FieldKind k) {
     return k == FieldKind::ArrayI32 || k == FieldKind::ArrayF32 || k == FieldKind::ArrayU8;
 }
+// The element count of an array the Inspector does not show: the panel builds its component JSON with
+// component_to_json(..., kInspectorArrayEditMax), which writes a longer array as {"$elements": n}; a plain JSON array
+// longer than kInspectorArrayEditMax (a field value from elsewhere) counts too. nullopt for a value that is shown.
+inline std::optional<std::size_t> inspector_array_length(const Json& v) {
+    if (v.is_object() && v.size() == 1 && v.contains("$elements") && v["$elements"].is_number_unsigned())
+        return v["$elements"].get<std::size_t>();
+    if (v.is_array() && v.size() > kInspectorArrayEditMax) return v.size();
+    return std::nullopt;
+}
 FieldWidget widget_for(const FieldInfo& f);
 const char* widget_name(FieldWidget w);
 // How many numbers a vector-like widget edits (Vec2 2, Vec3 3, Vec4/Color/Rect 4, a scalar 1, the rest 0).

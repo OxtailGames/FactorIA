@@ -430,11 +430,29 @@ void Physics2D::sync_tilemaps(World& world) {
         // The size and the tiles are read in place; nothing is copied out of the Json while the map is unchanged.
         const TilemapSize size = tilemap_size(*tm);
         const std::uint64_t layoutHash = hash_tilemap_layout(*tm, size, pose);
-        const std::uint64_t tilesHash = hash_tilemap_tiles(*tm, size);
         // Tiles written through set_tilemap_tile since the last step; consumed here whatever happens below.
         const std::vector<TileEdit> edits = std::move(tm->edits);
         tm->edits.clear();
         auto it = tiles_.find(key);
+        // The hash of the tiles reads every cell, so it is taken only when the map is not what the body was built from:
+        //   * same array, version and size: nothing was written, the hash is the old one (O(1) per step);
+        //   * same array and size, and the version moved by exactly the number of edits recorded (set_tilemap_tile bumps
+        //     it once per edit): the edits explain every write, so the hash is the old one plus their per-cell changes
+        //     (O(edits), not O(map));
+        //   * anything else (a whole-array write, a script assigning tiles, a new array): hash every cell.
+        const TilemapStamp stamp = tilemap_stamp(*tm);
+        std::uint64_t tilesHash = 0;
+        if (it != tiles_.end() && it->second.stamp == stamp) {
+            tilesHash = it->second.tilesHash;
+        } else if (it != tiles_.end() && it->second.stamp.arrayId == stamp.arrayId &&
+                   it->second.stamp.width == stamp.width && it->second.stamp.height == stamp.height &&
+                   it->second.stamp.count == stamp.count && stamp.version >= it->second.stamp.version &&
+                   stamp.version - it->second.stamp.version == edits.size()) {
+            tilesHash = it->second.tilesHash;
+            for (const TileEdit& ed : edits) tilesHash += cell_mix(ed.cell, ed.newIndex) - cell_mix(ed.cell, ed.oldIndex);
+        } else {
+            tilesHash = hash_tilemap_tiles(*tm, size);
+        }
         bool patch = false;
         if (it != tiles_.end()) {
             TileBody& old = it->second;
@@ -603,6 +621,7 @@ void Physics2D::sync_tilemaps(World& world) {
                 wake_after_teleport(tb.body);
             }
             tb.tilesHash = tilesHash;
+            tb.stamp = stamp;
         }
 
         if (it == tiles_.end()) {
@@ -622,6 +641,7 @@ void Physics2D::sync_tilemaps(World& world) {
             tb.id = world.id_of(e);
             tb.hash = layoutHash;
             tb.tilesHash = tilesHash;
+            tb.stamp = stamp;
             tb.cols = w;
             tb.rows = hgt;
             tb.solid = solid;

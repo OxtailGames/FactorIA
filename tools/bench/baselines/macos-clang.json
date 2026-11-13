@@ -256,6 +256,17 @@
       "cpuMedianMs": 1.558,
       "items": 96000,
       "unit": "tasks"
+    },
+    "physics.tilemap_edit": {
+      "medianMs": 0.224,
+      "minMs": 0.194,
+      "maxMs": 0.272,
+      "p25Ms": 0.196,
+      "p75Ms": 0.225,
+      "spread": 0.13,
+      "cpuMedianMs": 0.224,
+      "items": 40,
+      "unit": "cell edits"
     }
   }
 }

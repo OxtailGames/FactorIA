@@ -18,7 +18,15 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   etc. in `core/typed_array.h`): the JSON on disk is a flat array of numbers, in memory it is contiguous and counts its
   writes (`version()` and a dirty index range, so a system rebuilds only what changed), and in scripts it reads as an
   `Int32Array`, `Float32Array` or `Uint8Array` (a copy) and takes a typed array or a plain array, checking every
-  element. No component uses them yet.
+  element. `Tilemap.tiles` is the first (M94.2b).
+- `Tilemap.tiles` is a flat `ArrayI32` (M94.2b). Scene and prefab files may still write an array of rows: the loader
+  flattens it (the rows set `width` and `height`; a ragged row, a different `height` or a tile that is not an integer is
+  an error with a JSON pointer) and the file is always saved flat. Consumers compare `tilemap_stamp()` (array id, version
+  and size) or the array's dirty range instead of hashing every tile, so a script's `Tilemap.tiles` reads as an
+  `Int32Array` copy (`const t = comp.tiles; t[3] = 5; comp.tiles = t`; `comp.tiles[i] = x` writes only into the copy) and
+  `nav.tileVersion` no longer reads the tiles. `TypedArray::id()` tells two arrays apart where `version()` cannot (a
+  copy starts again at 0). The inspector no longer builds the JSON of a big array every frame
+  (`component_to_json(..., summarizeArraysOver)`).
 
 ## 0.26.0
 

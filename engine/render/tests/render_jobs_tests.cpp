@@ -101,7 +101,7 @@ void build_2d(World& w) {
         tm.layer = -20;
         Json flat = Json::array();
         for (int i = 0; i < 400 * 200; ++i) flat.push_back(i % 11 == 0 ? -1 : (i / 3 + i / 400) % 16);
-        tm.tiles = flat;
+        set_tilemap_tiles(tm, flat);
     }
     for (int i = 0; i < 3000; ++i) {
         Entity e = make(w, "s", {frac(i, 1) * 340 - 170, frac(i, 2) * 200 - 100, 0});
