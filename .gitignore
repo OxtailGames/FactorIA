@@ -36,3 +36,4 @@ ai.local.json
 
 # golden images a failed comparison writes next to the committed one (docs/BUILDING.md, "Golden images")
 *.actual.png
+*.profraw

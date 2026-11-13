@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 
 ## Unreleased
 
+- Coverage (M93.4): `-DFA_COVERAGE=ON` (Clang) instruments the build for llvm-cov and `scripts/coverage-report.sh <build-dir>` turns the profiles of a ctest run, the editor autotest included, into a table per module (Markdown and JSON) and an HTML report. The new informative CI job `coverage` uploads both and writes the table to its summary. docs/BUILDING.md, "Coverage".
 - Microbenchmarks (M93.5): `fa_bench` measures the engine's hot paths (ECS queries, the transform hierarchy, 2D and 3D physics steps, a headless render frame, command dispatch, the JS bridge, the audio mixer) from fixed seeds, with warm-up, repeats, median and spread. `--compare` checks a run against `tools/bench/baselines/<runner>.json` with a warning band and a fail limit (x2 on the median) and a teaching message; a new `bench` CI job runs it on Linux, and a `benchBaselines` run of the workflow refreshes the baselines. docs/PERFORMANCE.md, "Microbenchmarks".
 - Editor autotest: the 9900-line `autotest_tools.cpp` is split by section into `autotest_<group>.cpp` files (one
   `Editor::at_section_<id>` per section, the shared helpers in `autotest_common.{h,cpp}`); no change in what it checks.

@@ -1234,6 +1234,89 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Source coverage per module (llvm-cov, docs/BUILDING.md "Coverage"): the Debug suite with the editor autotest under Xvfb.
+  # Informative: NOT in the `needs` of `result`, so a failing test or a lower number here never blocks a merge (the `linux`
+  # job already gates the tests; this one runs them again instrumented, and instrumented Debug runs are slow).
+  coverage:
+    name: Coverage (Clang, llvm-cov)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Install Clang and LLVM tools
+        run: |
+          sudo apt-get install -y clang
+          ver=$(clang --version | sed -n 's/.*version \([0-9]*\)\..*/\1/p' | head -n 1)
+          sudo apt-get install -y "llvm-${ver}"
+          echo "LLVM_COV=llvm-cov-${ver}" >> "$GITHUB_ENV"
+          echo "LLVM_PROFDATA=llvm-profdata-${ver}" >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-coverage-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-coverage-
+
+      - name: Configure and build (Clang, Debug, FA_COVERAGE)
+        run: |
+          ccache --zero-stats
+          cmake -S . -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON
+          cmake --build build/coverage
+          ccache --show-stats --verbose
+
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() }}
+        run: ccache --evict-older-than 7200s
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-coverage-${{ github.run_id }}
+
+      - name: Install the shader compiler (factoria setup shaders)
+        run: |
+          cli=$(find build/coverage/tools/cli -maxdepth 2 -type f -name factoria | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/coverage/tools/cli"; exit 1; }
+          "$cli" setup shaders
+
+      # Instrumented Debug on llvmpipe is slow: two tests at a time, the `perf` ones (Release budgets) left out, and every
+      # TIMEOUT multiplied by 3 (FA_COVERAGE_TIMEOUT_SCALE, cmake/FactoriaCoverage.cmake; ctest has no multiplier of its own).
+      # A test killed by a timeout writes no profile and turns this job red, but the report below is still made from the rest.
+      - name: Test under Xvfb (Mesa llvmpipe)
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --test-dir build/coverage --parallel 2 -LE perf --output-on-failure
+
+      - name: Size of the raw profiles
+        if: ${{ !cancelled() }}
+        run: |
+          df -h .
+          du -sh build/coverage/coverage/raw
+
+      - name: Coverage report
+        if: ${{ !cancelled() }}
+        run: scripts/coverage-report.sh build/coverage build/coverage-report
+
+      - name: Upload the coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            build/coverage-report/html
+            build/coverage-report/coverage.md
+            build/coverage-report/coverage.json
+          if-no-files-found: warn
+          retention-days: 14
+
   # The one check main's branch protection requires: every job that ran passed (a skipped job had nothing to check).
   result:
     name: CI result
