@@ -30,3 +30,10 @@ src:*external/imgui/*
 [function]
 src:*external/tinysoundfont/*
 src:*external/xatlas/*
+
+# tinysoundfont (external/tinysoundfont/tsf.h, tsf_note_on): `regionEnd = region + f->presets[preset_index].regionNum` with a
+# preset that has no regions (regions is NULL, regionNum 0). NULL + 0 is undefined in C (fine in C++), and -fsanitize=pointer-overflow
+# reports it. The loop then runs zero times, so nothing is read through the pointer. Found by the Linux ASan run (the song mixer
+# test, which renders a soundfont with an empty preset, and fuzz_soundfont).
+[pointer-overflow]
+src:*external/tinysoundfont/*
