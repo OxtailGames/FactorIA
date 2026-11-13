@@ -557,7 +557,7 @@ TEST_CASE("Sprite mesh: too many cells draws a plain quad, offsets of the wrong 
     CHECK(img.pixel(190, 90).r < 0.05f);  // the offsets did nothing
     s.meshColumns = 2;
     s.meshRows = 2;
-    s.vertexOffsets = ArrayF32{std::numeric_limits<float>::quiet_NaN(), 1.0f / 0.0f};  // not finite: 0
+    s.vertexOffsets = ArrayF32{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};  // not finite: 0
     Image zero = g.render(w);
     CHECK(zero.pixel(150, 90).r > 0.95f);
     s.meshColumns = 128;  // the biggest grid that fits the budget on one side
