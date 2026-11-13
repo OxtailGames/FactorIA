@@ -75,9 +75,15 @@ bool set_tilemap_tile(Tilemap& tm, int col, int row, int value) {
     if (tm.tiles.size() <= i) tm.tiles.resize(i + 1, -1);  // a flat list shorter than the map grows to reach the cell
     if (std::as_const(tm.tiles)[i] == value) return true;  // already there: no change, no edit, no version bump
     tm.tiles.set(i, value);  // exactly one version bump, so a consumer can match the bumps against the edits
-    constexpr std::size_t kMaxEdits = 4096;  // nobody reads them (no physics): drop them, physics then compares hashes
-    if (tm.edits.size() >= kMaxEdits) tm.edits.clear();
-    tm.edits.push_back({row * size.width + col, tile_index(old), tile_index(value)});
+    constexpr std::size_t kMaxEdits = 4096;
+    if (tm.editsArray != tm.tiles.id()) {  // the list came with another array (a copy, an assignment): it explains nothing here
+        tm.edits.clear();
+        tm.editsArray = tm.tiles.id();
+    }
+    // The oldest half goes when the list is full: a consumer that has not looked for that long reads every tile instead.
+    if (tm.edits.size() >= kMaxEdits)
+        tm.edits.erase(tm.edits.begin(), tm.edits.begin() + std::ptrdiff_t(kMaxEdits / 2));
+    tm.edits.push_back({row * size.width + col, tile_index(old), tile_index(value), tm.tiles.version()});
     return true;
 }
 
@@ -94,6 +100,23 @@ std::uint32_t tilemap_version(Tilemap& tm) {
 
 TilemapStamp tilemap_stamp(const Tilemap& tm) {
     return {tm.tiles.id(), tm.tiles.version(), tm.width, tm.height, tm.tiles.size()};
+}
+
+bool tilemap_edits_since(const Tilemap& tm, const TilemapStamp& stamp, std::span<const TileEdit>& edits) {
+    edits = {};
+    const TilemapStamp now = tilemap_stamp(tm);
+    if (stamp.arrayId != now.arrayId || stamp.width != now.width || stamp.height != now.height ||
+        stamp.count != now.count || stamp.version > now.version)
+        return false;
+    const std::uint64_t steps = now.version - stamp.version;
+    if (steps == 0) return true;
+    if (tm.editsArray != now.arrayId || tm.edits.size() < steps) return false;
+    // The versions in the list grow strictly: `steps` edits whose first is the step after the stamp and whose last is the
+    // current version cover every step exactly once.
+    const std::span<const TileEdit> tail(tm.edits.data() + (tm.edits.size() - std::size_t(steps)), std::size_t(steps));
+    if (tail.front().version != stamp.version + 1 || tail.back().version != now.version) return false;
+    edits = tail;
+    return true;
 }
 
 TilemapGrid tilemap_grid(const Tilemap& tm) {

@@ -6,6 +6,10 @@
 #include "../../../../engine/physics/src/nav_grid.h"
 #include "benches.h"
 #include "fa/core/math.h"
+#include "fa/physics/nav.h"
+#include "fa/scene/components.h"
+#include "fa/scene/tilemap.h"
+#include "fa/scene/world.h"
 
 namespace fa::bench {
 
@@ -78,11 +82,67 @@ Bench nav_unreachable(bool shortcut) {
     return b;
 }
 
+// A 512 x 512 Tilemap (262144 cells) with a solid wall every 8th row (a gap every 16 columns), and a short tile path asked
+// right after each single-tile edit: the cost is keeping the cost grid in step with the edit, since the search itself
+// only crosses a few cells.
+struct TileNavScene {
+    std::unique_ptr<World> world;
+    Entity map;
+    // A new world before every run: the edits of the last one must not be what this one starts from.
+    void reset() {
+        world = std::make_unique<World>();
+        map = world->create("ground", "ground");
+        Tilemap& tm = world->add<Tilemap>(map);
+        tm.tileSize = {16, 16};
+        tm.solidTiles = Json::array({1});
+        constexpr int n = 512;
+        std::vector<int> tiles(std::size_t(n) * std::size_t(n), -1);
+        for (int r = 7; r < n; r += 8)
+            for (int c = 0; c < n; ++c)
+                if (c % 16 != 15) tiles[std::size_t(r) * n + std::size_t(c)] = 1;
+        set_tilemap_grid(tm, n, n, tiles);
+        (void)nav_tile_query(*world, query());  // the cost grid exists before the clock starts
+    }
+    static Json query() { return Json::parse(R"({"tilemap":"ground","from":[0,0],"to":[10,3]})"); }
+    double run() {
+        Tilemap& tm = *world->get<Tilemap>(map);
+        const Json q = query();
+        double sum = 0;
+        for (int i = 0; i < kQueries; ++i) {
+            const int col = 3 + 16 * (i % 32), row = 15 + 8 * (i / 32);
+            const int now = tilemap_tile_at(tm, tilemap_size(tm), col, row);
+            set_tilemap_tile(tm, col, row, now == 1 ? -1 : 1);
+            auto path = nav_tile_query(*world, q);
+            sum += path.ok() ? path.value()["cost"].get<double>() : -1.0;
+        }
+        return sum + double(tm.tiles.version());
+    }
+};
+
+Bench nav_tilemap_edit() {
+    Bench b;
+    b.name = "nav.tilemap_edit";
+    b.summary = "set_tilemap_tile + nav.findTilePath x40 on a 512 x 512 Tilemap: the tile cost grid follows each edit";
+    b.warnRatio = 2.0;  // a run lasts about a millisecond once the grid is kept: the clock moves it more than the work
+    b.failRatio = 5.0;
+    b.make = [] {
+        auto scene = std::make_shared<TileNavScene>();
+        Prepared p;
+        p.items = kQueries;
+        p.unit = "edits and queries";
+        p.prepare = [scene] { scene->reset(); };
+        p.run = [scene] { return scene->run(); };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_nav_benches(std::vector<Bench>& out) {
     out.push_back(nav_unreachable(true));
     out.push_back(nav_unreachable(false));
+    out.push_back(nav_tilemap_edit());
 }
 
 }  // namespace fa::bench

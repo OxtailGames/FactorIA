@@ -6,7 +6,10 @@
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <span>
 
 #include "fa/core/jobs.h"
 #include "fa/core/strings.h"
@@ -251,10 +254,10 @@ NavTileGrid nav_tile_grid_from_tiles(const std::vector<int>& tiles, int width, i
     return g;
 }
 
-NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
-    NavTileGrid g;
-    const TilemapSize size = tilemap_size(tm);
-    if (size.empty()) return g;
+namespace {
+
+// The cost rule of a Tilemap: its solidTiles block, `costs` ({"<tile index>": cost | null}) override.
+NavTileRules rules_of_tilemap(const Tilemap& tm, const Json& costs) {
     NavTileRules rules;
     if (tm.solidTiles.is_array())
         for (const Json& j : tm.solidTiles)
@@ -272,15 +275,177 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
             rules.costs.push_back({key, v < 0.0f || std::isnan(v) ? -1.0f : v});
         }
     rules.sort_costs();
-    std::vector<int> tiles(std::size_t(size.width) * std::size_t(size.height));
+    return rules;
+}
+
+// Every cell of the grid of `tm`, read from the tiles (cost = rules.cost(tile_index)); `g` keeps its buffer when it fits.
+void fill_grid_from_tilemap(const Tilemap& tm, const TilemapSize& size, const NavTileRules& rules, NavTileGrid& g) {
+    g.width = size.width;
+    g.height = size.height;
+    g.cost.resize(std::size_t(size.width) * std::size_t(size.height));
+    // A map has few distinct tile indexes: the rule is looked up once per index, not per cell.
+    int lastIndex = -2;
+    float lastCost = 0.0f;
+    std::size_t i = 0;
     for (int r = 0; r < size.height; ++r)
-        for (int c = 0; c < size.width; ++c)
-            tiles[std::size_t(r) * std::size_t(size.width) + std::size_t(c)] = tilemap_tile_at(tm, size, c, r);
-    g = nav_tile_grid_from_tiles(tiles, size.width, size.height, rules);
+        for (int c = 0; c < size.width; ++c, ++i) {
+            const int t = tile_index(tilemap_tile_at(tm, size, c, r));
+            if (t != lastIndex) {
+                lastIndex = t;
+                lastCost = rules.cost(t);
+            }
+            g.cost[i] = lastCost;
+        }
     g.cellSize = {tm.tileSize.x, tilemap_ground_height(tm)};
     g.isometric = tilemap_isometric(tm);
+    g.minOpenCost = nav_tile_min_open_cost(g);
+}
+
+// The grids kept between asks (see nav_tile_cache_stats in nav.h). Few entries: a linear search under a mutex.
+struct TileGridCache {
+    struct Entry {
+        std::uint64_t arrayId = 0;  // tm.tiles.id(): which array the grid was read from (never reused in the process)
+        TilemapStamp stamp;         // the state of that array the grid shows
+        NavTileRules rules;
+        std::shared_ptr<NavTileGrid> grid;
+        std::uint64_t used = 0;
+    };
+    std::mutex mutex;
+    std::vector<Entry> entries;
+    std::uint64_t tick = 0;
+    NavTileCacheStats stats;
+};
+constexpr std::size_t kCacheMinCells = 1024;       // smaller maps are cheaper to read than to look up
+constexpr std::size_t kCacheMaxCells = 1u << 22;   // cells kept in all (16 MiB of costs)
+constexpr std::size_t kCacheMaxEntries = 16;       // grids kept (one per map and rule set)
+
+TileGridCache& tile_cache() {
+    static TileGridCache cache;
+    return cache;
+}
+
+bool same_rules(const NavTileRules& a, const NavTileRules& b) { return a.solid == b.solid && a.costs == b.costs; }
+
+}  // namespace
+
+NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
+    NavTileGrid g;
+    const TilemapSize size = tilemap_size(tm);
+    if (size.empty()) return g;
+    fill_grid_from_tilemap(tm, size, rules_of_tilemap(tm, costs), g);
     return g;
 }
+
+NavTileCacheStats nav_tile_cache_stats() {
+    TileGridCache& c = tile_cache();
+    std::lock_guard lock(c.mutex);
+    return c.stats;
+}
+
+void nav_tile_cache_clear() {
+    TileGridCache& c = tile_cache();
+    std::lock_guard lock(c.mutex);
+    c.entries.clear();
+    c.stats = {};
+}
+
+namespace {
+
+// The least recently used grids go until the rest fit the entry and cell bounds; the one used last (the one just made or
+// refilled) stays.
+void evict_to_bounds(TileGridCache& cache) {
+    auto total = [&] {
+        std::size_t n = 0;
+        for (const TileGridCache::Entry& x : cache.entries) n += x.grid->cost.size();
+        return n;
+    };
+    while (cache.entries.size() > 1 && (cache.entries.size() > kCacheMaxEntries || total() > kCacheMaxCells)) {
+        std::size_t newest = 0;
+        for (std::size_t i = 1; i < cache.entries.size(); ++i)
+            if (cache.entries[i].used > cache.entries[newest].used) newest = i;
+        std::size_t oldest = newest == 0 ? 1 : 0;
+        for (std::size_t i = 0; i < cache.entries.size(); ++i)
+            if (i != newest && cache.entries[i].used < cache.entries[oldest].used) oldest = i;
+        cache.entries.erase(cache.entries.begin() + std::ptrdiff_t(oldest));
+    }
+}
+
+// The cost grid of `tm` for `costs`: a kept one brought up to date, or a new one. Never null; empty when the map has no tiles.
+std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const Json& costs) {
+    const TilemapSize size = tilemap_size(tm);
+    if (size.empty()) return std::make_shared<NavTileGrid>();
+    NavTileRules rules = rules_of_tilemap(tm, costs);
+    const std::size_t cells = std::size_t(size.width) * std::size_t(size.height);
+    if (cells < kCacheMinCells || cells > kCacheMaxCells) {
+        auto g = std::make_shared<NavTileGrid>();
+        fill_grid_from_tilemap(tm, size, rules, *g);
+        return g;
+    }
+    TileGridCache& cache = tile_cache();
+    std::lock_guard lock(cache.mutex);
+    const TilemapStamp stamp = tilemap_stamp(tm);
+    const Vec2 cellSize{tm.tileSize.x, tilemap_ground_height(tm)};
+    const bool iso = tilemap_isometric(tm);
+    TileGridCache::Entry* hit = nullptr;
+    for (TileGridCache::Entry& e : cache.entries)
+        if (e.arrayId == stamp.arrayId && same_rules(e.rules, rules)) {
+            hit = &e;
+            break;
+        }
+    if (hit) {
+        hit->used = ++cache.tick;
+        if (hit->stamp == stamp && hit->grid->cellSize == cellSize && hit->grid->isometric == iso) {
+            ++cache.stats.hits;
+            return hit->grid;
+        }
+        // Main-thread callers only: use_count() > 1 says "someone reads it" only if no other thread can copy the pointer now.
+        if (hit->grid.use_count() > 1) hit->grid = std::make_shared<NavTileGrid>(*hit->grid);  // an ask is still reading it
+        NavTileGrid& g = *hit->grid;
+        std::span<const TileEdit> edits;
+        if (tilemap_edits_since(tm, hit->stamp, edits) && g.width == size.width && g.height == size.height) {
+            for (const TileEdit& ed : edits) {
+                if (ed.cell < 0 || std::size_t(ed.cell) >= g.cost.size()) continue;
+                const float v = rules.cost(ed.newIndex);
+                float& cell = g.cost[std::size_t(ed.cell)];
+                if (cell == v) continue;
+                // Keep the cheapest open cost current without sweeping, unless the cell that held it got dearer or blocked.
+                if (g.minOpenCost >= 0.0f) {
+                    if (v >= 0.0f && v < g.minOpenCost)
+                        g.minOpenCost = v;
+                    else if (cell >= 0.0f && cell <= g.minOpenCost)
+                        g.minOpenCost = -1.0f;
+                }
+                cell = v;
+            }
+            if (!(g.minOpenCost >= 0.0f)) g.minOpenCost = nav_tile_min_open_cost(g);
+            g.cellSize = cellSize;
+            g.isometric = iso;
+            ++cache.stats.patches;
+            cache.stats.patchedCells += edits.size();
+        } else {
+            fill_grid_from_tilemap(tm, size, rules, g);
+            ++cache.stats.fullBuilds;
+        }
+        hit->stamp = stamp;
+        std::shared_ptr<const NavTileGrid> out = hit->grid;
+        evict_to_bounds(cache);  // a grid read again from scratch may be a different size than the one it replaced
+        return out;
+    }
+    TileGridCache::Entry e;
+    e.arrayId = stamp.arrayId;
+    e.stamp = stamp;
+    e.rules = std::move(rules);
+    e.grid = std::make_shared<NavTileGrid>();
+    fill_grid_from_tilemap(tm, size, e.rules, *e.grid);
+    e.used = ++cache.tick;
+    ++cache.stats.fullBuilds;
+    std::shared_ptr<const NavTileGrid> out = e.grid;
+    cache.entries.push_back(std::move(e));
+    evict_to_bounds(cache);
+    return out;
+}
+
+}  // namespace
 
 namespace {
 
@@ -300,8 +465,11 @@ Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) {
 
 }  // namespace
 
-Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld,
-                          bool& worldPoints) {
+namespace {
+
+// nav_tile_map's work: the grid as a shared pointer, so a Tilemap's kept grid is handed out without a copy.
+Result<bool> tile_map_shared(World& world, const Json& args, const char* who, std::shared_ptr<const NavTileGrid>& out,
+                             Mat4& toWorld, bool& worldPoints) {
     const bool hasMap = args.contains("tilemap") && !args["tilemap"].is_null();
     const bool hasGrid = args.contains("grid") && !args["grid"].is_null();
     if (hasMap == hasGrid)
@@ -321,13 +489,15 @@ Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTi
         if (!tm)
             return Error{std::string(who) + ": entity '" + id + "' has no Tilemap component.",
                          "Pass a Tilemap entity, or a plain grid {width, height, cost}."};
-        grid = nav_tile_grid_from_tilemap(*tm, args.value("costs", Json()));
-        if (grid.width <= 0 || grid.height <= 0)
+        out = tilemap_grid_cached(*tm, args.value("costs", Json()));
+        if (out->width <= 0 || out->height <= 0)
             return Error{std::string(who) + ": the Tilemap on '" + id + "' has no tiles.",
                          "Fill Tilemap.tiles (and width/height for a flat list)."};
         toWorld = world.world_matrix(e);
         worldPoints = true;
     } else {
+        auto built = std::make_shared<NavTileGrid>();
+        NavTileGrid& grid = *built;
         const Json& gj = args["grid"];
         const int w = gj.is_object() && gj.value("width", Json()).is_number() ? int(gj["width"].get<double>()) : 0;
         const int h = gj.is_object() && gj.value("height", Json()).is_number() ? int(gj["height"].get<double>()) : 0;
@@ -356,22 +526,35 @@ Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTi
         };
         grid.origin = vec2("origin", {0, 0});
         grid.cellSize = vec2("cellSize", {1, 1});
+        grid.minOpenCost = nav_tile_min_open_cost(grid);  // once here, not by every search
+        out = std::move(built);
     }
     return true;
 }
 
+}  // namespace
+
+Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld,
+                          bool& worldPoints) {
+    std::shared_ptr<const NavTileGrid> shared;
+    auto r = tile_map_shared(world, args, who, shared, toWorld, worldPoints);
+    if (!r.ok()) return r.error();
+    grid = *shared;
+    return true;
+}
+
 Result<Json> nav_tile_query(World& world, const Json& args) {
-    NavTileGrid grid;
+    std::shared_ptr<const NavTileGrid> grid;
     Mat4 toWorld;
     bool worldPoints = false;
-    auto map = nav_tile_map(world, args, "nav.findTilePath", grid, toWorld, worldPoints);
+    auto map = tile_map_shared(world, args, "nav.findTilePath", grid, toWorld, worldPoints);
     if (!map.ok()) return map.error();
     auto from = cell_arg(args, "from");
     if (!from.ok()) return from.error();
     auto to = cell_arg(args, "to");
     if (!to.ok()) return to.error();
 
-    return nav_tile_run(grid, worldPoints ? &toWorld : nullptr, args, from.value(), to.value());
+    return nav_tile_run(*grid, worldPoints ? &toWorld : nullptr, args, from.value(), to.value());
 }
 
 namespace {
@@ -462,12 +645,11 @@ Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, con
 }
 
 Result<Json> nav_tile_query_many(World& world, const Json& args) {
-    NavTileGrid grid;
+    std::shared_ptr<const NavTileGrid> grid;
     Mat4 toWorld;
     bool worldPoints = false;
-    auto map = nav_tile_map(world, args, "nav.findTilePaths", grid, toWorld, worldPoints);
+    auto map = tile_map_shared(world, args, "nav.findTilePaths", grid, toWorld, worldPoints);
     if (!map.ok()) return map.error();
-    grid.minOpenCost = nav_tile_min_open_cost(grid);  // once for the whole list, not by every query
     if (!args.contains("queries") || !args["queries"].is_array())
         return Error{
             "nav.findTilePaths /queries: pass a list of {from: [col,row], to: [col,row]}.",
@@ -493,16 +675,17 @@ Result<Json> nav_tile_query_many(World& world, const Json& args) {
         if (!to.ok()) return to.error();
         pairs.push_back({from.value(), to.value()});
     }
-    return nav_tile_run_many(grid, worldPoints ? &toWorld : nullptr, args, pairs);
+    return nav_tile_run_many(*grid, worldPoints ? &toWorld : nullptr, args, pairs);
 }
 
 Result<Json> nav_flow_query(World& world, const Json& args) {
     const char* who = "nav.flow_field";
-    NavTileGrid grid;
+    std::shared_ptr<const NavTileGrid> gridPtr;
     Mat4 toWorld;
     bool worldPoints = false;
-    auto map = nav_tile_map(world, args, who, grid, toWorld, worldPoints);
+    auto map = tile_map_shared(world, args, who, gridPtr, toWorld, worldPoints);
     if (!map.ok()) return map.error();
+    const NavTileGrid& grid = *gridPtr;
     if (!args.contains("goals") || !args["goals"].is_array() || args["goals"].empty())
         return Error{std::string(who) + ": `goals` must be a non-empty list of cells [[col,row], ...].",
                      "Example: {\"tilemap\":\"ground\",\"goals\":[[3,2],[9,9]],\"from\":[0,0]}."};

@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -83,7 +84,8 @@ int tilemap_tile_at(const Tilemap& tm, const TilemapSize& size, int col, int row
 
 // Writes one tile in place: only that element of `tiles` changes (a flat list shorter than the map grows to reach the
 // cell). `value` is the tile index plus flag bits, or -1 to empty the cell. A write that changes the cell is counted ONCE
-// by the array (tiles.version() goes up by one, the dirty range covers the cell) and recorded as a TileEdit for 2D physics;
+// by the array (tiles.version() goes up by one, the dirty range covers the cell) and recorded as a TileEdit (Tilemap::edits,
+// read through tilemap_edits_since) for the consumers that patch instead of rebuilding;
 // a cell that already holds `value` changes and records nothing, so version bumps and edits match one to one. Returns false
 // (nothing written) when (col, row) is outside the map's size (tilemap_size) or `value` is below -1.
 bool set_tilemap_tile(Tilemap& tm, int col, int row, int value);
@@ -106,6 +108,15 @@ struct TilemapStamp {
     bool operator==(const TilemapStamp&) const = default;
 };
 TilemapStamp tilemap_stamp(const Tilemap& tm);
+
+// What changed in the map since `stamp`, when the recorded edits explain all of it: true and `edits` = the edits to apply,
+// oldest first (empty when the stamp is current). It is true only when the stamp is of the same array (id), the same size
+// and the same number of tiles, and the list holds exactly one edit for every version step between the stamp and now. A
+// write that bypassed set_tilemap_tile, a whole-array write, an assignment from another Tilemap (it carries the other's
+// edits, which belong to another array) and an edit dropped from a full list each leave a step with no edit: the answer
+// is false and the consumer must look at every tile. `edits` points into tm.edits: valid until the next set_tilemap_tile
+// on this map.
+bool tilemap_edits_since(const Tilemap& tm, const TilemapStamp& stamp, std::span<const TileEdit>& edits);
 
 // True when `fields` (the JSON of a Tilemap component as written in a file or a command) gives `tiles` as an array of
 // rows. Such a value is flattened with flatten_tilemap_rows() before it reaches the component.
