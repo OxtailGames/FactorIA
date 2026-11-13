@@ -158,14 +158,14 @@ TEST_CASE("bones2d: the bind pose is recorded once, and an empty bindPose binds 
     CHECK_FALSE(skin_is_bound(r.w, r.body));
     bind_pending_skins(r.w);
     REQUIRE(skin_is_bound(r.w, r.body));
-    const Json pose = r.w.get<SpriteSkin>(r.body)->bindPose;
+    const ArrayF32 pose = r.w.get<SpriteSkin>(r.body)->bindPose;
     CHECK(pose.size() == 12);
 
     r.set_rot(r.b1, 40);  // a pose change after the bind does not touch the recorded pose
     bind_pending_skins(r.w);
     CHECK(r.w.get<SpriteSkin>(r.body)->bindPose == pose);
 
-    r.w.get<SpriteSkin>(r.body)->bindPose = Json::array();  // rebinds at the current pose
+    r.w.get<SpriteSkin>(r.body)->bindPose.clear();  // rebinds at the current pose
     bind_pending_skins(r.w);
     CHECK_FALSE(r.w.get<SpriteSkin>(r.body)->bindPose == pose);
     // ... and the bones at their bind pose leave the mesh as it was.

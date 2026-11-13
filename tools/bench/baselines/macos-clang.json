@@ -300,6 +300,17 @@
       "cpuMedianMs": 13.784,
       "items": 40000,
       "unit": "component gets"
+    },
+    "sprite.mesh_data": {
+      "medianMs": 2.75,
+      "minMs": 2.505,
+      "maxMs": 3.08,
+      "p25Ms": 2.696,
+      "p75Ms": 2.921,
+      "spread": 0.082,
+      "cpuMedianMs": 2.745,
+      "items": 30000,
+      "unit": "sprites read"
     }
   }
 }

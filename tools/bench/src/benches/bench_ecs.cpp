@@ -4,6 +4,7 @@
 
 #include "benches.h"
 #include "fa/core/math.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -230,6 +231,45 @@ Bench hierarchy_wide() {
     return b;
 }
 
+// What the renderer reads from a deformable sprite every frame: its vertex offsets and colours as flat float vectors
+// (sprite_vertex_offsets / sprite_vertex_colors), for 1500 sprites of a 16 x 4 grid (85 vertices each).
+Bench sprite_mesh_data() {
+    Bench b;
+    b.name = "sprite.mesh_data";
+    b.summary = "sprite_vertex_offsets + sprite_vertex_colors for 1500 deformable sprites (16 x 4 cells), 20 passes: "
+                "the per-frame read of Sprite.vertexOffsets / vertexColors";
+    b.make = [] {
+        ensure_builtin_components();
+        auto w = std::make_shared<World>();
+        Rng rng(77);
+        constexpr int kSprites = 1500, kCols = 16, kRows = 4, kVerts = (kCols + 1) * (kRows + 1);
+        for (int i = 0; i < kSprites; ++i) {
+            Sprite& s = w->add<Sprite>(w->create());
+            s.meshColumns = kCols;
+            s.meshRows = kRows;
+            for (int v = 0; v < kVerts * 2; ++v) s.vertexOffsets.push_back(float(rng.next_u32() % 100) * 0.1f);
+            for (int v = 0; v < kVerts * 4; ++v) s.vertexColors.push_back(0.5f + float(rng.next_u32() % 50) * 0.01f);
+        }
+        Prepared p;
+        p.items = 20 * kSprites;
+        p.unit = "sprites read";
+        p.run = [w] {
+            double sum = 0;
+            for (int pass = 0; pass < 20; ++pass)
+                w->each<Sprite>([&](Entity, Sprite& s) {
+                    int cols = 0, rows = 0;
+                    if (!sprite_mesh_grid(s, cols, rows)) return;
+                    const std::vector<float> off = sprite_vertex_offsets(s, cols, rows);
+                    const std::vector<float> col = sprite_vertex_colors(s, cols, rows);
+                    sum += double(off.back()) + double(col.back());
+                });
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_ecs_benches(std::vector<Bench>& out) {
@@ -238,6 +278,7 @@ void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_entities_with());
     out.push_back(ecs_count());
     out.push_back(ecs_spawn_destroy());
+    out.push_back(sprite_mesh_data());
 }
 
 void add_hierarchy_benches(std::vector<Bench>& out) {

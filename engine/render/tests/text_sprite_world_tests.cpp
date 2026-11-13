@@ -130,7 +130,7 @@ TEST_CASE("Sprite.vertexColors: colour per grid vertex, multiplied with color; a
     s.meshColumns = 2;
     s.meshRows = 1;
     // 3 x 2 vertices: left column black, middle grey, right white (both rows).
-    Json colors = Json::array();
+    ArrayF32 colors;
     for (int row = 0; row < 2; ++row)
         for (float v : {0.0f, 0.5f, 1.0f})
             for (float c : {v, v, v, 1.0f}) colors.push_back(c);
@@ -149,7 +149,7 @@ TEST_CASE("Sprite.vertexColors: colour per grid vertex, multiplied with color; a
     CHECK(tinted.pixel(198, 90).g < 0.05f);
 
     // The wrong length: a message with both lengths and what to do.
-    s.vertexColors = Json::array({1, 1, 1, 1});
+    s.vertexColors = ArrayF32{1, 1, 1, 1};
     const std::string problem = fa::sprite_vertex_colors_problem(s);
     CHECK(problem.find("needs 24") != std::string::npos);
     CHECK(problem.find("has 4 numbers") != std::string::npos);
