@@ -150,7 +150,8 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
         return;
     }
     if (open) {
-        const Json cur = component_to_json(w, e, type, true, false);
+        // A long array (a 512 x 512 tile map) is only counted: its JSON would be rebuilt every frame.
+        const Json cur = component_to_json(w, e, type, true, false, kInspectorArrayEditMax);
         if (ImGui::BeginTable("##fields", 2, ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 0.38f);
             ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.62f);
@@ -411,10 +412,11 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         }
         case FieldWidget::JsonText: {
             const bool numbers = is_array_kind(f.kind);
-            if (numbers && cur.is_array() && cur.size() > kInspectorArrayEditMax) {
+            const std::optional<std::size_t> longArray = inspector_array_length(cur);
+            if (numbers && longArray) {
                 // Too long for a text box that is rebuilt every frame: say what it is; scripts and commands edit it.
                 ImGui::TextDisabled("%s, %zu elements: too many to edit here (scene.set_component or a script)",
-                                    field_kind_name(f.kind), std::size_t(cur.size()));
+                                    field_kind_name(f.kind), *longArray);
                 at_track(track, false);
                 tooltip(tip);
                 break;

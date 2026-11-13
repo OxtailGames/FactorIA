@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 
+#include "fa/physics/nav.h"
 #include "fa/physics/physics.h"
 #include "fa/scene/tilemap.h"
 
@@ -34,19 +35,21 @@ Entity add_floor_map(Sim& s, bool rows) {
     Tilemap& tm = s.world.add<Tilemap>(map);
     tm.tileSize = {16, 16};
     tm.solidTiles = Json::array({1});
-    Json flat = Json::array();
+    Json flat = Json::array(), rowList = Json::array();
     for (int r = 0; r < 3; ++r) {
         Json row = Json::array();
         for (int c = 0; c < 10; ++c) {
             flat.push_back(r == 2 ? 1 : -1);
             row.push_back(r == 2 ? 1 : -1);
         }
-        if (rows) tm.tiles.push_back(row);
+        rowList.push_back(row);
     }
-    if (!rows) {
+    if (rows) {
+        set_tilemap_tiles(tm, rowList);  // the rows set width and height
+    } else {
         tm.width = 10;
         tm.height = 3;
-        tm.tiles = flat;
+        set_tilemap_tiles(tm, flat);
     }
     return map;
 }
@@ -115,10 +118,8 @@ TEST_CASE("2d: single writes patch the colliders; a whole-array write still rebu
     s.run(1);
     CHECK(tm.edits.empty());
     for (int c = 0; c < 10; ++c) CHECK(floor_at(s, c) == (tilemap_tile_at(tm, tilemap_size(tm), c, 2) == 1));
-    // A whole-array write (no edits recorded) is caught by the hash and the body is rebuilt from the new tiles.
-    Json tiles = tm.tiles;
-    tiles[std::size_t(2 * 10 + 7)] = -1;
-    tm.tiles = tiles;
+    // A write that records no edit (straight into the array) is caught by the array's version and the body is rebuilt.
+    tm.tiles.set(std::size_t(2 * 10 + 7), -1);
     s.run(1);
     CHECK_FALSE(floor_at(s, 7));
     CHECK(floor_at(s, 8));
@@ -135,16 +136,36 @@ TEST_CASE("2d: a flip flag written with setTile keeps the tile solid") {
     CHECK(tile_box_count(s) == 1);  // no collider changed
 }
 
+TEST_CASE("tilemap: the physics and nav paths only read the tiles (tiles.version() does not move)") {
+    Sim s;
+    Entity map = add_floor_map(s, false);
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    s.run(3);  // physics builds its colliders (and reads the tiles every step)
+    const std::uint64_t version = tm.tiles.version();
+    const TilemapStamp stamp = tilemap_stamp(tm);
+    add_body(s, {0, -10}, {8, 8});
+    s.run(30);
+    auto path = nav_tile_query(
+        s.world, Json::parse(R"({"tilemap":"map","from":[0,0],"to":[9,0],"costs":{"1":null}})"));
+    REQUIRE(path.ok());
+    CHECK(path.value()["found"] == true);
+    CHECK(tilemap_version(tm) == version);
+    CHECK(tm.tiles.version() == version);
+    CHECK(tilemap_stamp(tm) == stamp);
+}
+
 TEST_CASE("tilemap: a write outside the map or with a bad tile value is refused and changes nothing") {
     Sim s;
     Entity map = add_floor_map(s, false);
     Tilemap& tm = *s.world.get<Tilemap>(map);
-    const Json before = tm.tiles;
+    const std::vector<std::int32_t> before(tm.tiles.cdata(), tm.tiles.cdata() + tm.tiles.size());
+    const std::uint64_t versionBefore = tm.tiles.version();
     CHECK_FALSE(set_tilemap_tile(tm, 10, 0, 1));
     CHECK_FALSE(set_tilemap_tile(tm, 0, 3, 1));
     CHECK_FALSE(set_tilemap_tile(tm, -1, 0, 1));
     CHECK_FALSE(set_tilemap_tile(tm, 0, 0, -2));
-    CHECK(tm.tiles == before);
+    CHECK(std::vector<std::int32_t>(tm.tiles.cdata(), tm.tiles.cdata() + tm.tiles.size()) == before);
+    CHECK(tm.tiles.version() == versionBefore);
     CHECK(tm.edits.empty());
 }
 
@@ -155,14 +176,15 @@ TEST_CASE("tilemap: 1000 single-tile writes cost less than rewriting the whole a
     tm.height = 256;
     Json tiles = Json::array();
     for (int i = 0; i < 256 * 256; ++i) tiles.push_back(i % 7 == 0 ? 1 : -1);
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     using Clock = std::chrono::steady_clock;
     const auto t0 = Clock::now();
     for (int i = 0; i < 1000; ++i) REQUIRE(set_tilemap_tile(tm, (i * 37) % 256, (i * 11) % 256, i % 5));
     const auto t1 = Clock::now();
-    Json copy = tm.tiles;  // what a script pays for one whole-array write: the array copied out, changed and set back
+    Json copy = Json::array();  // what a script pays for one whole-array write: the array copied out, changed, set back
+    for (std::size_t i = 0; i < tm.tiles.size(); ++i) copy.push_back(std::as_const(tm.tiles)[i]);
     copy[0] = 3;
-    tm.tiles = copy;
+    set_tilemap_tiles(tm, copy);
     const auto t2 = Clock::now();
     // 1000 in-place writes against ONE copy-and-set of the array: a wide margin even on a slow, loaded machine.
     CHECK(t1 - t0 < t2 - t1);
@@ -178,7 +200,7 @@ TEST_CASE("2d: an isometric map collides as diamonds, and single writes patch on
     tm.solidTiles = Json::array({1});
     tm.width = 3;
     tm.height = 3;
-    tm.tiles = Json::parse("[-1,-1,-1, -1,1,-1, -1,-1,-1]");
+    set_tilemap_tiles(tm, Json::parse("[-1,-1,-1, -1,1,-1, -1,-1,-1]"));
     s.run(2);
     // Cell (1, 1) is a diamond centred at (0, -75) with half-axes 50 x 25.
     CHECK(tile_box_count(s) == 1);

@@ -154,7 +154,7 @@ TEST_CASE("nav tiles: a Tilemap entity, solid tiles, costs and world points") {
     tm.solidTiles = Json::array({1});
     tm.width = 4;
     tm.height = 3;
-    tm.tiles = Json::parse("[0,0,0,0, 0,1,1,0, 0,0,0,0]");
+    set_tilemap_tiles(tm, Json::parse("[0,0,0,0, 0,1,1,0, 0,0,0,0]"));
 
     auto q = [&](const char* json) {
         auto r = nav_tile_query(world, Json::parse(json));
@@ -175,9 +175,9 @@ TEST_CASE("nav tiles: a Tilemap entity, solid tiles, costs and world points") {
     r = q(R"({"tilemap":"ground","from":[0,1],"to":[3,1],"costs":{"0":null,"1":null}})");
     CHECK(r["found"] == false);
     // set_tilemap_tile bumps the counter and changes the next search
-    const auto v0 = world.get<Tilemap>(map)->version;
+    const auto v0 = tilemap_version(*world.get<Tilemap>(map));
     REQUIRE(set_tilemap_tile(*world.get<Tilemap>(map), 1, 0, 1));
-    CHECK(world.get<Tilemap>(map)->version == v0 + 1);
+    CHECK(tilemap_version(*world.get<Tilemap>(map)) == v0 + 1);
     r = q(R"({"tilemap":"ground","from":[0,0],"to":[3,0]})");
     CHECK(r["cells"].size() == 8);  // the new wall at (1,0) forces the way round: down, across, back up
     // errors teach
@@ -201,7 +201,7 @@ TEST_CASE("nav tiles: a path on an isometric Tilemap walks the diamonds and repo
     tm.solidTiles = Json::array({1});
     tm.width = 4;
     tm.height = 3;
-    tm.tiles = Json::parse("[0,0,0,0, 0,1,1,0, 0,0,0,0]");
+    set_tilemap_tiles(tm, Json::parse("[0,0,0,0, 0,1,1,0, 0,0,0,0]"));
 
     auto r = nav_tile_query(world, Json::parse(R"({"tilemap":"iso","from":[0,1],"to":[3,1]})"));
     REQUIRE(r.ok());
@@ -481,7 +481,7 @@ TEST_CASE("nav tiles: the Tilemap grid and the shared rules give the same cost i
     // tile 0 plain, 1 solid, 2 plain with a cost, 3 solid with a cost, 4 plain made blocked, -1 empty, 1 flipped in X (solid still)
     const int flipX = kTileFlipX;
     const std::vector<int> tiles = {0, 1, 2, 3, 4, -1, 1 | flipX, 2 | flipX, 3, 0};
-    tm.tiles = Json(tiles);
+    set_tilemap_tiles(tm, Json(tiles));
     const Json costs = Json::parse(R"({"2":2.5,"3":1.5,"4":null,"-1":0.5})");
     const NavTileGrid fromMap = nav_tile_grid_from_tilemap(tm, costs);
 

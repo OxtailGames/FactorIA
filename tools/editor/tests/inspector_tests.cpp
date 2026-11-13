@@ -7,6 +7,7 @@
 #include "fa/core/fs.h"
 #include "fa/scene/components.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
 #include "inspector_model.h"
 
@@ -239,4 +240,22 @@ TEST_CASE("hierarchy: Duplicate spawns the entity and its children under new ids
     CHECK(copy["children"][0]["name"] == "Gunner");
     CHECK(copy["components"]["Transform"]["position"][0] == 1);
     CHECK(duplicate_spec(Json::parse(R"({"id":"x"})"))["name"] == "Entity copy");
+}
+
+TEST_CASE("inspector: a big typed array (a 512 x 512 Tilemap) is summarised, not copied into the JSON every frame") {
+    World w;
+    Entity e = w.create("map", "map");
+    Tilemap& tm = w.add<Tilemap>(e);
+    tm.tileSize = {16, 16};
+    set_tilemap_grid(tm, 512, 512, std::vector<int>(512 * 512, 4));
+    const std::uint64_t version = tm.tiles.version();
+    const Json shown = component_to_json(w, e, World::type_of<Tilemap>(), true, false, kInspectorArrayEditMax);
+    CHECK(shown.dump().size() < 4000);  // not the 262144 numbers
+    CHECK(inspector_array_length(shown["tiles"]) == std::size_t(512 * 512));
+    CHECK_FALSE(inspector_array_length(shown["width"]).has_value());
+    CHECK_FALSE(inspector_array_length(Json::parse("[1,2,3]")).has_value());
+    Json longArray = Json::array();
+    for (int i = 0; i < 600; ++i) longArray.push_back(i);
+    CHECK(inspector_array_length(longArray) == std::size_t(600));
+    CHECK(tm.tiles.version() == version);  // building the JSON only reads
 }

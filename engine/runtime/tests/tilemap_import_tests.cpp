@@ -17,6 +17,15 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
+std::vector<std::int32_t> tiles_of(const Tilemap& tm) {
+    return std::vector<std::int32_t>(tm.tiles.cdata(), tm.tiles.cdata() + tm.tiles.size());
+}
+Json tiles_json(const Tilemap& tm) {
+    Json a = Json::array();
+    for (std::int32_t t : tiles_of(tm)) a.push_back(t);
+    return a;
+}
+
 const char* kProject = R"({
   "format": "factoria.project/1",
   "name": "Import Test",
@@ -192,7 +201,6 @@ TEST_CASE("import_ascii: a 10x6 level yields tiles, 3 coins, the player, at cell
     CHECK(tm->height == 6);
     CHECK(tm->columns == 0);  // not set: derived from the 128 px wide tileset
     CHECK(tileset_columns(*tm, 128) == 4);
-    REQUIRE(tm->tiles.is_array());
     REQUIRE(tm->tiles.size() == 60);
     for (int i = 0; i < 40; ++i) CHECK(tm->tiles[i] == -1);
     for (int i = 40; i < 50; ++i) CHECK(tm->tiles[i] == 0);
@@ -285,7 +293,7 @@ TEST_CASE("import_ascii: legend offset, overrides, tile + prefab on one glyph, o
     Entity map = s.engine.world().find_by_id("level");
     REQUIRE(bool(map));
     const Tilemap* tm = s.engine.world().get<Tilemap>(map);
-    CHECK(tm->tiles == Json::parse("[-1,-1,-1,-1,2,-1,-1,3]"));
+    CHECK(tiles_of(*tm) == std::vector<std::int32_t>{-1, -1, -1, -1, 2, -1, -1, 3});
     Json enemy = s.entity("enemy_1");
     REQUIRE(enemy.is_object());
     CHECK(position_of(enemy).x == doctest::Approx(2.5f * 32));
@@ -339,7 +347,7 @@ TEST_CASE("import_ascii: scene.save round trip keeps tiles and objects") {
     auto r = s.import(level());
     REQUIRE_MESSAGE(r.ok, error_text(r));
     Json before = s.call("scene.list_entities", Json{{"limit", 100}}).result;
-    const Json tilesBefore = s.engine.world().get<Tilemap>(s.engine.world().find_by_id("tilemap"))->tiles;
+    const auto tilesBefore = tiles_of(*s.engine.world().get<Tilemap>(s.engine.world().find_by_id("tilemap")));
 
     REQUIRE(s.call("scene.save").ok);
     // The scene file has the tilemap and the objects as ordinary top-level entities.
@@ -367,7 +375,7 @@ TEST_CASE("import_ascii: scene.save round trip keeps tiles and objects") {
     }
     const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find_by_id("tilemap"));
     REQUIRE(tm != nullptr);
-    CHECK(tm->tiles == tilesBefore);
+    CHECK(tiles_of(*tm) == tilesBefore);
     CHECK(tm->width == 10);
     CHECK(tm->height == 6);
 
@@ -1539,16 +1547,13 @@ TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move t
     REQUIRE(tm != nullptr);
     const std::uint32_t v0 = tilemap_version(*tm);
     CHECK(tilemap_version(*tm) == v0);
-    Json same =
-        Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tm->tiles}})}});
+    Json same = Json::object(
+        {{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles_json(*tm)}})}});
     REQUIRE(s.call("scene.set_component", same).ok);
     tm = s.engine.world().get<Tilemap>(map);
     CHECK(tilemap_version(*tm) == v0);
-    Json tiles = tm->tiles;
-    if (tiles[0].is_array())
-        tiles[0][0] = tiles[0][0].get<int>() == 0 ? 1 : 0;
-    else
-        tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
+    Json tiles = tiles_json(*tm);
+    tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
     Json changed =
         Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles}})}});
     REQUIRE(s.call("scene.set_component", changed).ok);

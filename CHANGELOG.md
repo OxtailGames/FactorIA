@@ -48,6 +48,15 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   (macOS, Release, quiet machine: `physics.step3d_1000` 471 ms to about 100 ms), and the cost of a step now grows with
   the bodies that are close to each other: a pit of 1000 falling bodies costs about 6 times a pit of 250 (testing every
   pair costs about 16 times). The pair scan of 64 or more rows runs in chunks of 16 rows on the job threads.
+  element. `Tilemap.tiles` is the first (M94.2b).
+- `Tilemap.tiles` is a flat `ArrayI32` (M94.2b). Scene and prefab files may still write an array of rows: the loader
+  flattens it (the rows set `width` and `height`; a ragged row, a different `height` or a tile that is not an integer is
+  an error with a JSON pointer) and the file is always saved flat. Consumers compare `tilemap_stamp()` (array id, version
+  and size) or the array's dirty range instead of hashing every tile, so a script's `Tilemap.tiles` reads as an
+  `Int32Array` copy (`const t = comp.tiles; t[3] = 5; comp.tiles = t`; `comp.tiles[i] = x` writes only into the copy) and
+  `nav.tileVersion` no longer reads the tiles. `TypedArray::id()` tells two arrays apart where `version()` cannot (a
+  copy starts again at 0). The inspector no longer builds the JSON of a big array every frame
+  (`component_to_json(..., summarizeArraysOver)`).
 
 ## 0.26.0
 

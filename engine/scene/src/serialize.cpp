@@ -191,7 +191,7 @@ void Loader::apply_info_key(Entity e, const std::string& key, const Json& v, con
     }
 }
 
-bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fields, const std::string& ptr,
+bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsIn, const std::string& ptr,
                              bool deferEntities) {
     if (type.name == "EntityInfo") {
         error(
@@ -204,15 +204,28 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fields,
               "Scene-wide values go under the top-level \"settings\" key of the scene file.");
         return false;
     }
-    if (!fields.is_object() && !fields.is_null()) {
+    if (!fieldsIn.is_object() && !fieldsIn.is_null()) {
         error(ptr,
-              "component '" + type.name + "' must be a JSON object of field values, got " + describe_json_value(fields),
+              "component '" + type.name + "' must be a JSON object of field values, got " + describe_json_value(fieldsIn),
               "Example: \"" + type.name + "\": {\"" + (type.fields.empty() ? "field" : type.fields[0].name) +
                   "\": ...}. Use {} for all defaults.");
         return false;
     }
     void* obj = world_.add(e, type);
-    if (fields.is_null()) return true;
+    if (fieldsIn.is_null()) return true;
+    // A Tilemap's `tiles` may be written as an array of rows: it is stored flat, and the rows set width and height.
+    Json flattened;
+    if (type.name == "Tilemap") {
+        const bool rows = tilemap_rows_form(fieldsIn);
+        if (rows) flattened = fieldsIn;
+        const std::vector<TilemapIssue> issues = rows ? flatten_tilemap_rows(flattened) : check_tilemap_tiles_json(fieldsIn);
+        for (const TilemapIssue& issue : issues) error(ptr + issue.pointer, issue.message, issue.hint);
+        if (!issues.empty()) {
+            if (!rows) flattened = fieldsIn;
+            flattened.erase("tiles");  // reported once: not again as a wrong field value
+        }
+    }
+    const Json& fields = flattened.is_null() ? fieldsIn : flattened;
     std::vector<std::string> fieldNames;
     for (const FieldInfo& f : type.fields) fieldNames.push_back(f.name);
 
@@ -666,13 +679,30 @@ Json* find_override_target(Json& prefabEntity, const std::string& key) {
 }  // namespace detail
 
 // ------------------------------------------------------------- components --
-Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults, bool includeRuntime) {
+namespace {
+// The element count of a typed array field; SIZE_MAX for any other kind.
+std::size_t typed_array_size(const FieldInfo& f, const void* obj) {
+    switch (f.kind) {
+        case FieldKind::ArrayI32: return static_cast<const ArrayI32*>(f.ptr(obj))->size();
+        case FieldKind::ArrayF32: return static_cast<const ArrayF32*>(f.ptr(obj))->size();
+        case FieldKind::ArrayU8: return static_cast<const ArrayU8*>(f.ptr(obj))->size();
+        default: return SIZE_MAX;
+    }
+}
+}  // namespace
+
+Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults, bool includeRuntime,
+                       std::size_t summarizeArraysOver) {
     Json out = Json::object();
     const void* obj = world.get(e, type);
     if (!obj) return out;
     DefaultObject def(type);
     for (const FieldInfo& f : type.fields) {
         if (!f.serialized && !includeRuntime) continue;
+        if (const std::size_t n = typed_array_size(f, obj); n != SIZE_MAX && n > summarizeArraysOver) {
+            out[f.name] = Json::object({{"$elements", n}});
+            continue;
+        }
         Json v = json_for_field(world, f, obj);
         if (!includeDefaults && v == json_for_field(world, f, def.get())) continue;
         out[f.name] = std::move(v);

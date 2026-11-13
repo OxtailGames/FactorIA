@@ -164,6 +164,34 @@ TEST_CASE("typed array: a change of size dirties everything, copies keep the con
     CHECK(target == src);
 }
 
+TEST_CASE("typed array: id() tells objects apart where version() cannot (copies start again at version 0)") {
+    ArrayI32 a{1, 2, 3};
+    ArrayI32 b{1, 2, 3};
+    CHECK(a.id() != 0);
+    CHECK(a.id() != b.id());  // equal contents and equal version 0, different objects
+    CHECK(a.version() == b.version());
+
+    const std::uint64_t id = a.id();
+    a[0] = 5;
+    a.set(1, 9);
+    CHECK(a.id() == id);  // writes keep the identity
+
+    ArrayI32 copy = a;
+    CHECK(copy.id() != id);  // a copy is a new object, at version 0
+    CHECK(copy.version() == 0);
+
+    ArrayI32 dst{0};
+    const std::uint64_t dstId = dst.id();
+    dst = a;  // assignment keeps the destination's identity
+    CHECK(dst.id() == dstId);
+    dst = std::move(copy);
+    CHECK(dst.id() == dstId);
+
+    ArrayI32 moved = std::move(a);  // a move construction keeps it (a pool relocating a component)
+    CHECK(moved.id() == id);
+    CHECK(a.id() != id);  // NOLINT: the moved-from array is another object now
+}
+
 TEST_CASE("reflect arrays: JSON round trip, kinds and defaults") {
     const TypeInfo& t = array_probe_type();
     CHECK(std::string(field_kind_name(FieldKind::ArrayI32)) == "arrayI32");
