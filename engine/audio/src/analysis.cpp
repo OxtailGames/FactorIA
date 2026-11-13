@@ -145,8 +145,9 @@ Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::st
     out.channels = channels > 1 ? 2 : 1;
     out.rate = dec->rate();
     const std::uint64_t limit = maxSeconds > 0.0 ? std::uint64_t(maxSeconds * out.rate) : ~std::uint64_t(0);
-    if (const std::uint64_t known = dec->frames(); known > 0 && known < (std::uint64_t(1) << 31))
-        out.samples.reserve(std::size_t(std::min(known, limit)) * std::size_t(out.channels));
+    // The length comes from the file's header, which may lie: reserve at most 8 million frames (the vector grows past that).
+    if (const std::uint64_t known = dec->frames(); known > 0)
+        out.samples.reserve(std::size_t(std::min({known, limit, std::uint64_t(1) << 23})) * std::size_t(out.channels));
     std::vector<float> buffer(4096 * channels);
     std::uint64_t frames = 0;
     for (std::size_t n; frames < limit && (n = dec->read(buffer.data(), 4096)) > 0;) {

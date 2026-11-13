@@ -1189,7 +1189,7 @@ jobs:
       # libFuzzer's runtime is in the compiler-rt package of the compiler's version.
       - name: Install Clang and libFuzzer
         run: |
-          sudo apt-get install -y clang lld
+          sudo apt-get install -y clang
           ver=$(clang --version | sed -n 's/.*version \([0-9]*\)\..*/\1/p' | head -n 1)
           sudo apt-get install -y "libclang-rt-${ver}-dev"
 
@@ -1220,13 +1220,31 @@ jobs:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
 
+      # A random run of a minute per target finds a different input each time, so a finding there is usually not caused by this
+      # change: it must not block unrelated pull requests. The step is allowed to fail and the next one makes the result
+      # visible (a warning annotation and the job summary). What does block: the build of the targets above, and the corpus
+      # replay (ctest label `fuzz`, run by the normal jobs), which holds every input that ever failed.
       - name: Fuzz every target
+        id: fuzz
+        continue-on-error: true
         run: tools/fuzz/run.sh build/fuzz "$FA_FUZZ_SECONDS"
+
+      - name: Say that the fuzz run found something
+        if: steps.fuzz.outcome == 'failure'
+        run: |
+          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/BUILDING.md, Fuzzing)."
+          {
+            echo "### Fuzzing found something"
+            echo
+            echo "The random run of \`linux-fuzz\` failed. This job stays green so that unrelated pull requests are not blocked, but each file in the artifact \`fuzz-crashes\` is an input that crashes the engine."
+            echo
+            echo "Reproduce with \`fa_fuzz_<target> <file>\` from a build with \`-DFA_FUZZ=ON\`, fix the bug, and copy the input into \`tools/fuzz/corpus/<target>/\` so the corpus replay keeps it fixed."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
       # copy it into tools/fuzz/corpus/<target>/ (docs/BUILDING.md, "Fuzzing").
       - name: Upload the inputs that failed
-        if: failure()
+        if: failure() || steps.fuzz.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crashes

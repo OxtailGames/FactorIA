@@ -80,7 +80,7 @@ std::vector<DapFrameReader::Item> DapFrameReader::feed(std::string_view bytes) {
         if (buffer_.size() < bodyStart + static_cast<std::size_t>(length)) break;  // the body is still arriving
         const std::string body = buffer_.substr(bodyStart, static_cast<std::size_t>(length));
         buffer_.erase(0, bodyStart + static_cast<std::size_t>(length));
-        Json parsed = Json::parse(body, nullptr, false);
+        Json parsed = parse_json_lenient(body);
         if (parsed.is_discarded())
             out.push_back({Json(), "the message body is not valid JSON: '" + body.substr(0, 80) + (body.size() > 80 ? "..." : "") + "'"});
         else

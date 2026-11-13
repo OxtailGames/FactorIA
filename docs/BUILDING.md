@@ -391,8 +391,12 @@ cmake --build build/my-build -j 2
 is that every input is a result or an error, never a crash, a hang, runaway memory or undefined behaviour. The targets are
 `json` (`parse_json`), `json_schema` (`validate_json` and the schema helpers), `scene` (`load_scene`), `prefab`
 (`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
-with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project) and `translations`
-(`read_csv`, `read_xliff`). Each is one `tools/fuzz/targets/<name>.cpp` that defines
+with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project), `translations`
+(`read_csv`, `read_xliff`) and the decoders of the files a project brings: `image` (`decode_image` and `image_size`:
+PNG, JPG, TGA, BMP, GIF...), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),
+`gltf` (`parse_skeleton` and `read_gltf_mesh_bytes` on a `.glb` or `.gltf`), `font` (`rasterize_text` with a TrueType font
+in memory), `audio` (`decode_audio`; the first input byte picks `.wav`, `.ogg`, `.mp3` or `.qoa`), `midi` (`parse_midi`
+and `write_midi`) and `soundfont` (`Soundfont::from_memory` and one rendered note). Each is one `tools/fuzz/targets/<name>.cpp` that defines
 `extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t*, std::size_t)`, and a corpus folder of small seed files in
 `tools/fuzz/corpus/<name>/`.
 
@@ -422,6 +426,26 @@ timeout per input, a 4 GB memory limit and inputs up to 64 KiB; a crash, timeout
 `build/fuzz/fuzz-crashes/` and the script exits 1 after running the other targets. CMake refuses `FA_FUZZ` with any
 compiler but Clang.
 
+**The decoders wrap code in `external/`** (stb_image, stb_truetype, cgltf, the Basis Universal transcoder, dr_libs,
+stb_vorbis, TinySoundFont): it is not ours to edit, so the engine validates before it calls it. The wrappers cap what a
+header can ask for (`kMaxImagePixels` for images, plus a side of at most `kMaxImageSide` for KTX2, 32 audio channels, 8 million
+reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check` runs `cgltf_validate` before
+any glTF accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length
+parameter): it refuses table offsets, glyph offsets and `cmap` segments outside the file, a glyph that includes itself,
+composite glyphs placed by matching points, contours that do not end at rising points, a `cmap` subtable format the
+engine does not read and a font with no glyphs. Smaller checks of the same kind: a picture with no rows is an error, a KTX2
+level whose stored size differs from its unpacked size is refused before the Basis transcoder asserts on it, the comment
+header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed), and
+`sf2_problem` follows the index chains of a SoundFont (preset, instrument and sample numbers, zone and generator ranges)
+before TinySoundFont, which trusts them, reads it. What stays inside `external/` and is only fuzzed: the CFF outline reader
+of stb_truetype (an `.otf` with PostScript outlines; the file check covers its place in the file, not its contents), the
+Basis transcoder's own parsing after the header and level checks, dr_wav, dr_mp3, qoa, stb_vorbis beyond the comment header
+(codebooks and setup), TinySoundFont once its tables check out (sample ranges are not checked) and the cgltf parser itself
+(`gltf_check` validates accessors, not the JSON parse). The sanitizer build silences UBSan (not ASan) inside `external/`
+through `tools/fuzz/ubsan_ignorelist.txt`, which `cmake/FactoriaFuzz.cmake` gives the compiler (`-fsanitize-ignorelist`;
+a runtime `UBSAN_OPTIONS=suppressions` does not work with `-fno-sanitize-recover`), so a benign wrap-around or shift in
+their code does not stop a run; an out-of-bounds access there still does, and is then fixed in the wrapper.
+
 **Add a target:** write `tools/fuzz/targets/<name>.cpp` (include `fuzz_support.h` for quiet logging, `fa::fuzz::fail()` and
 `fa::fuzz::empty_project()`; a target must not write outside a temporary folder, open sockets or start programs), put a few
 small seed files (a few KB in all, taken from fixtures, schemas or examples) in `tools/fuzz/corpus/<name>/`, and add
@@ -434,9 +458,23 @@ write the doctest for the cause in the module's `tests/` (the fix is not finishe
 to `tools/fuzz/corpus/<name>/` under a name that says what it is. Then `ctest -L fuzz` keeps the bug fixed on every
 platform.
 
-**CI:** the job `linux-fuzz` of `.github/workflows/ci.yml` (Clang, `FA_FUZZ=ON`, whenever code changed) runs
-`tools/fuzz/run.sh build/fuzz 60` and uploads `build/fuzz/fuzz-crashes` as the artifact `fuzz-crashes` when a target fails.
-It is part of `CI result`.
+**CI:** the job `linux-fuzz` of `.github/workflows/ci.yml` (Clang, `FA_FUZZ=ON`, whenever code changed) builds every target
+and runs `tools/fuzz/run.sh build/fuzz 60`. A build error fails the job, which is part of `CI result`. The random minute does
+not: a different input is tried on every run, so a crash there is usually not caused by the pull request that happened to
+meet it, and it must not block unrelated work. That step is `continue-on-error`; when it fails the job stays green, prints a
+warning annotation and a summary, and uploads `build/fuzz/fuzz-crashes` as the artifact `fuzz-crashes`. The corpus replay
+(`ctest -L fuzz`, in every normal job) does block: it holds every input that ever crashed.
+
+**Weekly run:** `.github/workflows/fuzz-weekly.yml` (Sundays 03:17 UTC, and by hand from the Actions tab with the minutes per
+target) fuzzes each target on its own runner for 25 minutes by default, starting from the corpus of the previous weeks (kept in
+the Actions cache). It never commits and never opens an issue. It leaves two artifacts per target: `fuzz-corpus-<name>`, the
+corpus after `fa_fuzz_<name> -merge=1` (only inputs that add coverage), and `fuzz-crashes-<name>` with the inputs that
+crashed; a target that found one makes the run fail, which is the notification.
+
+**Take a weekly crash into the corpus:** download `fuzz-crashes-<name>` from the run, then follow "Add a crash to the corpus"
+above with the file (`fa_fuzz_<name> crash-<hash>` reproduces it in an `FA_FUZZ` build, on Linux or with Homebrew's LLVM on a
+Mac). To adopt interesting inputs of `fuzz-corpus-<name>` as seeds, copy a few small ones into `tools/fuzz/corpus/<name>/`
+(keep the whole folder to a few tens of KB: it is replayed by every normal build).
 
 ## Golden images
 

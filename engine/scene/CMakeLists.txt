@@ -40,7 +40,7 @@ else()
     set_source_files_properties(src/vhacd_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
 endif()
 
-fa_add_tests(scene)
+fa_add_tests(scene DEPS fa_ext_cgltf)
 
 # The particle and feel replay hashes (tests/test_det_replay.cpp) run ONLY here, so CI can print them: `ctest -R det_replay_hashes
 # -V`. The cases are marked doctest::skip() so the `scene` test above does not run them a second time; --no-skip runs them.

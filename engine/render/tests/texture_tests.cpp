@@ -11,6 +11,7 @@
 #include <transcoder/basisu_transcoder.h>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/render/ktx2.h"
 #include "fa/scene/bounds.h"
 
 using namespace fa;
@@ -578,4 +579,72 @@ TEST_CASE("textures: every format the engine transcodes to works for every mip o
         CHECK(mean < (fx.uastc ? 0.5 : 6.0));
         if (fx.uastc) CHECK(worst <= 2);
     }
+}
+
+namespace {
+std::vector<std::uint8_t> read_fixture(const char* name) {
+    std::ifstream in(stdfs::path(FA_RENDER_DATA_DIR) / name, std::ios::binary);
+    REQUIRE_MESSAGE(in.good(), "missing fixture " << name);
+    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+}  // namespace
+
+TEST_CASE("decode_ktx2: UASTC and ETC1S files decode on the CPU to the picture they were made from") {
+    const std::vector<std::uint8_t> uastc = read_fixture("uastc_12x8.ktx2");
+    auto img = decode_ktx2(uastc.data(), uastc.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 12);
+    CHECK(img->height == 8);
+    REQUIRE(img->rgba.size() == 12 * 8 * 4);
+    {  // exactly what the transcoder itself makes of the base level (the picture it encodes is lossy, the transcoding is not)
+        basist::basisu_transcoder_init();
+        basist::ktx2_transcoder ktx;
+        REQUIRE(ktx.init(uastc.data(), std::uint32_t(uastc.size())));
+        REQUIRE(ktx.start_transcoding());
+        std::vector<std::uint8_t> ref(12 * 8 * 4);
+        REQUIRE(ktx.transcode_image_level(0, 0, 0, ref.data(), 12 * 8, basist::transcoder_texture_format::cTFRGBA32));
+        CHECK(img->rgba == ref);
+    }
+
+    const std::vector<std::uint8_t> odd = read_fixture("uastc_10x6.ktx2");  // not a whole number of 4x4 blocks
+    img = decode_ktx2(odd.data(), odd.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 10);
+    CHECK(img->height == 6);
+
+    const std::vector<std::uint8_t> etc1s = read_fixture("etc1s_16x16.ktx2");
+    img = decode_ktx2(etc1s.data(), etc1s.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 16);
+    CHECK(img->rgba.size() == 16 * 16 * 4);
+}
+
+TEST_CASE("decode_ktx2: a damaged, truncated or lying file is an error, never a crash or a huge allocation") {
+    CHECK_FALSE(decode_ktx2(nullptr, 0).ok());
+    const std::uint8_t junk[] = {1, 2, 3};
+    CHECK_FALSE(decode_ktx2(junk, sizeof(junk)).ok());
+
+    const std::vector<std::uint8_t> good = read_fixture("uastc_12x8.ktx2");
+    // Every cut of the file: the header, the level index, the supercompression data, the pixel blocks.
+    for (std::size_t cut = 0; cut < good.size(); cut += 7) (void)decode_ktx2(good.data(), cut);
+    CHECK_FALSE(decode_ktx2(good.data(), 60).ok());
+
+    // The header says 16000 x 16000 pixels (1 GB of RGBA): refused before the transcoder asks for the memory.
+    std::vector<std::uint8_t> lie = good;
+    for (int i = 0; i < 4; ++i) {
+        lie[20 + i] = std::uint8_t(16000u >> (8 * i));  // pixelWidth
+        lie[24 + i] = std::uint8_t(16000u >> (8 * i));  // pixelHeight
+    }
+    const auto refused = decode_ktx2(lie.data(), lie.size());
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().message.find("16000 x 16000") != std::string::npos);
+    CHECK_FALSE(refused.error().hint.empty());
+
+    // Without supercompression a level's stored length and unpacked length are one number; the transcoder only asserts it.
+    std::vector<std::uint8_t> uneven = good;
+    REQUIRE(uneven[44] == 0);          // supercompressionScheme: none
+    uneven[80 + 16] ^= 0x10;           // level 0's uncompressedByteLength no longer equals its byteLength
+    const auto unequal = decode_ktx2(uneven.data(), uneven.size());
+    REQUIRE_FALSE(unequal.ok());
+    CHECK(unequal.error().message.find("mip level 0") != std::string::npos);
 }

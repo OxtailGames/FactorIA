@@ -222,7 +222,7 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
         if (tooLong) { ++s.skippedLines; continue; }
         if (raw.empty()) continue;
         if (raw.size() > kEfficiencyMaxLine) { ++s.skippedLines; continue; }
-        const Json j = Json::parse(raw.begin(), raw.end(), nullptr, false);
+        const Json j = parse_json_lenient(raw);
         if (!j.is_object()) { ++s.skippedLines; continue; }
         std::int64_t t = 0;
         if (parse_iso_utc_ms(jstr(j, "t"), t) && t > 0) {
@@ -261,7 +261,7 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
                         if (!fn) continue;
                         Json input = Json::object();
                         if (const Json* a = jchild(*fn, "arguments"); a && a->is_string()) {
-                            Json parsed = Json::parse(a->get<std::string>(), nullptr, false);
+                            Json parsed = parse_json_lenient(a->get<std::string>());
                             if (parsed.is_object()) input = std::move(parsed);
                         } else if (a && a->is_object()) {
                             input = *a;
@@ -967,7 +967,7 @@ EfficiencySession read_claude_stream_session(const std::string& text, const std:
         std::size_t eol = text.find('\n', pos);
         if (eol == std::string::npos) eol = text.size();
         const std::size_t len = eol - pos;
-        const Json j = len > kEfficiencyMaxLine ? Json() : Json::parse(text.begin() + static_cast<std::ptrdiff_t>(pos), text.begin() + static_cast<std::ptrdiff_t>(eol), nullptr, false);
+        const Json j = len > kEfficiencyMaxLine ? Json() : parse_json_lenient(std::string_view(text).substr(pos, len));
         pos = eol + 1;
         if (!j.is_object()) { if (len > 0) ++s.skippedLines; continue; }
         std::int64_t t = 0;

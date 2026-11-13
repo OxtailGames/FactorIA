@@ -629,7 +629,7 @@ Json ScriptSystem::Impl::to_json(JSValueConst v) {
     if (JS_IsUndefined(s)) return Json(nullptr);
     size_t len = 0;
     const char* text = JS_ToCStringLen(ctx, &len, s);
-    Json j = Json::parse(std::string_view(text ? text : "null", text ? len : 4), nullptr, false);
+    Json j = parse_json_lenient(std::string_view(text ? text : "null", text ? len : 4));
     if (text) JS_FreeCString(ctx, text);
     JS_FreeValue(ctx, s);
     if (j.is_discarded()) return Json(nullptr);

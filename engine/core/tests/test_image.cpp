@@ -192,6 +192,55 @@ TEST_CASE("image_size: reads the size from the header of a PNG or a JPG without 
     CHECK_FALSE(image_size(nullptr, 0).ok());
 }
 
+TEST_CASE("decode_image: a header that claims more than kMaxImagePixels is refused before any pixel is allocated") {
+    auto png = encode_png(solid(2, 2, 1, 2, 3, 255));
+    REQUIRE(png.size() > 24);
+    auto set_size = [&](std::uint32_t w, std::uint32_t h) {  // IHDR: width at byte 16, height at byte 20, big endian
+        for (int i = 0; i < 4; ++i) {
+            png[16 + i] = std::uint8_t(w >> (24 - 8 * i));
+            png[20 + i] = std::uint8_t(h >> (24 - 8 * i));
+        }
+    };
+    set_size(16000, 16000);  // 256 million pixels, 1 GB of RGBA: within each side, over the pixel count
+    auto huge = decode_image(png.data(), png.size());
+    REQUIRE_FALSE(huge.ok());
+    CHECK_MESSAGE(huge.error().message.find("16000 x 16000") != std::string::npos, huge.error().message);
+    CHECK_FALSE(huge.error().hint.empty());
+    set_size(16384, 16384);  // 268 million pixels
+    CHECK_FALSE(decode_image(png.data(), png.size()).ok());
+    // image_size still answers from the header, so a caller can say what the file is.
+    const auto size = image_size(png.data(), png.size());
+    REQUIRE(size.ok());
+    CHECK(size->width == 16384);
+
+    CHECK_FALSE(decode_image(nullptr, 0).ok());
+    const std::uint8_t one = 0;
+    CHECK_FALSE(decode_image(&one, 0).ok());
+    const auto fine = encode_png(solid(3, 2, 9, 8, 7, 255));
+    CHECK(decode_image(fine.data(), fine.size()).ok());
+}
+
+TEST_CASE("decode_image: a picture with no rows is an error, and mip_chain survives an empty image") {
+    // A 24-bit BMP whose header says 8 x 0: stb_image returns an empty picture for it.
+    std::vector<std::uint8_t> bmp(54 + 24, 0);
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    bmp[2] = std::uint8_t(bmp.size());
+    bmp[10] = 54;   // pixel data offset
+    bmp[14] = 40;   // DIB header size
+    bmp[18] = 8;    // width; the height at 22 stays 0
+    bmp[26] = 1;    // planes
+    bmp[28] = 24;   // bits per pixel
+    const auto flat = decode_image(bmp.data(), bmp.size());
+    CHECK_FALSE(flat.ok());
+    if (!flat.ok()) CHECK_FALSE(flat.error().hint.empty());
+
+    Image empty;
+    empty.width = 8;  // a caller-built image that lies about its size: one level, no reads
+    CHECK(mip_chain(empty).size() == 1);
+    CHECK(mip_chain(Image{}).size() == 1);
+}
+
 TEST_CASE("mip_chain: halves down to 1x1, averaging 2x2 pixels and repeating the edge of an odd size") {
     const std::vector<Image> one = mip_chain(solid(1, 1, 9, 8, 7, 6));
     REQUIRE(one.size() == 1);

@@ -40,7 +40,7 @@ Command make_hooks_command() {
         if (!problem.empty()) return report_failure(ctx, problem, "Hook modules live in the project's hooks/ folder.");
         const std::string dir = resolve_project_dir(ctx, 99);
         std::string text((std::istreambuf_iterator<char>(ctx.in)), std::istreambuf_iterator<char>());
-        Json input = text.empty() ? Json::object() : Json::parse(text, nullptr, false);
+        Json input = text.empty() ? Json::object() : parse_json_lenient(text);
         if (!input.is_object())
             return report_failure(ctx, "stdin is not a JSON object.", "A hook program receives the event as a JSON object on stdin.");
         std::string eventName = a.has("event") ? a.str("event") : std::string();
