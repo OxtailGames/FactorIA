@@ -137,7 +137,7 @@ TEST_CASE("nav grid: random grids give the same answers with and without the lab
     for (int round = 0; round < 6; ++round) {
         const int nx = 20 + int(rng.next_u32() % 8), nz = 18 + int(rng.next_u32() % 8);
         std::vector<char> wall(std::size_t(nx * nz), 0);
-        for (auto& w : wall) w = (rng.next_u32() % 100) < 38 ? 1 : 0;
+        for (auto& w : wall) w = (rng.next_u32() % 100) < 38 ? char(1) : char(0);
         NavGrid g;
         build_flat_grid(g, nx, nz, wall);
         std::vector<int> floor;  // baked spans
