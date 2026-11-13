@@ -782,7 +782,8 @@ Windows (Git Bash). To change a version, edit that file.
 constructor mistakes, redundant expressions, `std::move` of a const...), no style or modernizing checks, and every hit is
 an error. `scripts/tidy-changed.sh <base> [build-dir]` runs them over the first-party `.cpp` files changed against the
 base, with the `compile_commands.json` of a CMake configure (`build/tidy`, configured on first use: configure only,
-nothing is compiled). A false positive: rewrite the line or end it with `// NOLINT(<check>)` and a reason.
+nothing is compiled). Files that only a commit of `.git-blame-ignore-revs` changed (a repository-wide reformat) are
+left out. A false positive: rewrite the line or end it with `// NOLINT(<check>)` and a reason.
 
 Both scripts exit 0 when clean, 1 when they found something (files to format, a tidy diagnostic) and 2 when the tool
 or its setup failed (no Python, pip, git diff against an unknown base, a CMake configure, a clang crash): a 2 is never a
