@@ -1442,8 +1442,11 @@ jobs:
       - name: Configure and build (Clang, Debug, FA_COVERAGE)
         run: |
           ccache --zero-stats
+          # Instrumented test executables take gigabytes each to link: four links at once ran the runner out of memory and
+          # GitHub lost it twice (M93), so links go through a pool of two; compiles keep every core.
           cmake -S . -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON \
+              -DCMAKE_JOB_POOLS=link=2 -DCMAKE_JOB_POOL_LINK=link
           cmake --build build/coverage
           ccache --show-stats --verbose
 
