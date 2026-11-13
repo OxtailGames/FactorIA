@@ -370,12 +370,26 @@ inline TextDirection text_paragraph_direction(const Text& t, bool languageRtl) {
 
 // One tile written through set_tilemap_tile(): `cell` is row * width + col, the indices are tile_index() of the old and the
 // new value (-1 = empty), `version` is tiles.version() right after the write. 2D physics and the tile cost grid read these
-// (tilemap_edits_since) to rebuild only the chunks that changed.
+// (tilemap_edits_since) to touch only the cells that changed.
 struct TileEdit {
     std::int32_t cell = 0;
     std::int32_t oldIndex = -1;
     std::int32_t newIndex = -1;
     std::uint64_t version = 0;
+};
+
+// The list of TileEdits of a Tilemap. A copy (construction or assignment) starts EMPTY: the list explains the writes made to
+// the array it was recorded for, and a copy is a new array. A move keeps it, because the moved array keeps its identity (the
+// scene pool relocates components by moving them).
+struct TileEditLog : std::vector<TileEdit> {
+    TileEditLog() = default;
+    TileEditLog(const TileEditLog&) {}
+    TileEditLog& operator=(const TileEditLog&) {
+        clear();
+        return *this;
+    }
+    TileEditLog(TileEditLog&&) noexcept = default;
+    TileEditLog& operator=(TileEditLog&&) noexcept = default;
 };
 
 // How the cells of a Tilemap lie in the world: squares (Orthogonal) or diamonds seen from above at an angle (Isometric).
@@ -409,9 +423,9 @@ struct Tilemap {
     // Runtime only (not a field, not saved): the last tiles written by set_tilemap_tile(), oldest first, a few thousand at
     // most (the oldest are dropped). Nobody empties it: every consumer (2D physics, the tile cost grid) keeps the
     // TilemapStamp it built from and asks tilemap_edits_since() for what happened after it. `editsArray` is the tiles.id()
-    // the list belongs to: a Tilemap copied or assigned from another one carries the other's list, which explains nothing
-    // about this array.
-    std::vector<TileEdit> edits;
+    // the list belongs to: a Tilemap copied or assigned from another one starts with an empty list (TileEditLog), a moved one
+    // keeps its list.
+    TileEditLog edits;
     std::uint64_t editsArray = 0;
     // Runtime only: how often `width` / `height` changed as tilemap_version() saw it (the part of the map's change counter
     // that `tiles.version()` does not count). `sizeSeen` is false until tilemap_version() looked once.

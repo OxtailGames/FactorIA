@@ -351,6 +351,25 @@ void nav_tile_cache_clear() {
 
 namespace {
 
+// The least recently used grids go until the rest fit the entry and cell bounds; the one used last (the one just made or
+// refilled) stays.
+void evict_to_bounds(TileGridCache& cache) {
+    auto total = [&] {
+        std::size_t n = 0;
+        for (const TileGridCache::Entry& x : cache.entries) n += x.grid->cost.size();
+        return n;
+    };
+    while (cache.entries.size() > 1 && (cache.entries.size() > kCacheMaxEntries || total() > kCacheMaxCells)) {
+        std::size_t newest = 0;
+        for (std::size_t i = 1; i < cache.entries.size(); ++i)
+            if (cache.entries[i].used > cache.entries[newest].used) newest = i;
+        std::size_t oldest = newest == 0 ? 1 : 0;
+        for (std::size_t i = 0; i < cache.entries.size(); ++i)
+            if (i != newest && cache.entries[i].used < cache.entries[oldest].used) oldest = i;
+        cache.entries.erase(cache.entries.begin() + std::ptrdiff_t(oldest));
+    }
+}
+
 // The cost grid of `tm` for `costs`: a kept one brought up to date, or a new one. Never null; empty when the map has no tiles.
 std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const Json& costs) {
     const TilemapSize size = tilemap_size(tm);
@@ -379,6 +398,7 @@ std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const 
             ++cache.stats.hits;
             return hit->grid;
         }
+        // Main-thread callers only: use_count() > 1 says "someone reads it" only if no other thread can copy the pointer now.
         if (hit->grid.use_count() > 1) hit->grid = std::make_shared<NavTileGrid>(*hit->grid);  // an ask is still reading it
         NavTileGrid& g = *hit->grid;
         std::span<const TileEdit> edits;
@@ -407,7 +427,9 @@ std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const 
             ++cache.stats.fullBuilds;
         }
         hit->stamp = stamp;
-        return hit->grid;
+        std::shared_ptr<const NavTileGrid> out = hit->grid;
+        evict_to_bounds(cache);  // a grid read again from scratch may be a different size than the one it replaced
+        return out;
     }
     TileGridCache::Entry e;
     e.arrayId = stamp.arrayId;
@@ -419,18 +441,7 @@ std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const 
     ++cache.stats.fullBuilds;
     std::shared_ptr<const NavTileGrid> out = e.grid;
     cache.entries.push_back(std::move(e));
-    // The least recently used grids go until the rest fit (the one just made stays).
-    auto total = [&] {
-        std::size_t n = 0;
-        for (const TileGridCache::Entry& x : cache.entries) n += x.grid->cost.size();
-        return n;
-    };
-    while (cache.entries.size() > 1 && (cache.entries.size() > kCacheMaxEntries || total() > kCacheMaxCells)) {
-        std::size_t oldest = 0;
-        for (std::size_t i = 1; i + 1 < cache.entries.size(); ++i)
-            if (cache.entries[i].used < cache.entries[oldest].used) oldest = i;
-        cache.entries.erase(cache.entries.begin() + std::ptrdiff_t(oldest));
-    }
+    evict_to_bounds(cache);
     return out;
 }
 

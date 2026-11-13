@@ -1,5 +1,5 @@
-// Tilemap colliders and the tile cost grid are kept in 32 x 32 cell chunks: an edit rebuilds only the chunks it changed,
-// and the result is what a fresh build of the same tiles gives.
+// Tilemap colliders are one decomposition of the solid cells (a long floor is one box) that an edit patches box by box, and
+// the nav cost grid is kept and patched cell by cell: either way the result is what a fresh build of the same tiles gives.
 #include <doctest.h>
 
 #include <algorithm>
@@ -87,6 +87,13 @@ std::string collision_signature(Sim& s, int w, int h) {
         ray({x, 4}, {x, -H - 4});
         ray({x, -H - 4}, {x, 4});
     }
+    // And the boxes themselves (sorted): an edited map has the very decomposition of a fresh build.
+    std::vector<std::string> boxes;
+    for (const Physics::DebugShape& d : s.physics.debug_shapes(s.world))
+        boxes.push_back(std::to_string(std::lround(d.center.x * 10)) + "," + std::to_string(std::lround(d.center.y * 10)) + "," +
+                        std::to_string(std::lround(d.size.x * 10)) + "," + std::to_string(std::lround(d.size.y * 10)));
+    std::sort(boxes.begin(), boxes.end());
+    for (const std::string& b : boxes) sig += "|" + b;
     return sig;
 }
 
@@ -104,16 +111,16 @@ std::string fresh_signature(const Tilemap& tm, int w, int h) {
 
 }  // namespace
 
-TEST_CASE("2d chunks: random single edits give the colliders of a fresh build, in the chunks they touch only") {
-    constexpr int W = 70, H = 45;  // 3 x 2 chunks of 32 cells
+TEST_CASE("2d tilemap boxes: random edits give the colliders of a fresh build, and rebuild the boxes they touch only") {
+    constexpr int W = 70, H = 45;
     Rng rng(1234);
     Sim s;
     Entity map = add_map(s, W, H, random_tiles(rng, W, H));
     s.run(2);
     Tilemap& tm = *s.world.get<Tilemap>(map);
     REQUIRE(collision_signature(s, W, H) == fresh_signature(tm, W, H));
-    const std::int64_t built = s.tilemap_state()["chunkRebuilds"].get<std::int64_t>();
-    CHECK(built == 6);  // every chunk of the first build
+    const std::int64_t built = s.tilemap_state()["boxesBuilt"].get<std::int64_t>();
+    CHECK(built == s.shapes());  // the first build made every box once
     std::int64_t rebuilds = built;
     for (int round = 0; round < 12; ++round) {
         INFO("round " << round);
@@ -126,42 +133,52 @@ TEST_CASE("2d chunks: random single edits give the colliders of a fresh build, i
         }
         s.run(1);
         CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
-        const std::int64_t now = s.tilemap_state()["chunkRebuilds"].get<std::int64_t>();
-        CHECK(now - rebuilds <= std::min<std::int64_t>(edits, 6));  // never more chunks than edits (or than there are)
+        const std::int64_t now = s.tilemap_state()["boxesBuilt"].get<std::int64_t>();
+        // An edit takes apart the boxes it touches (its own, and the ones above and below that join its row): a handful per
+        // edit, never the map.
+        CHECK(now - rebuilds <= edits * 12);
         rebuilds = now;
     }
     CHECK(s.tilemap_state()["fullScans"].get<int>() == 0);  // every step was explained by the edits
 }
 
-TEST_CASE("2d chunks: one edit rebuilds one chunk; boxes never cross a chunk edge") {
+TEST_CASE("2d tilemap boxes: a long floor is one box, an edit splits it and a second edit joins it again") {
     Sim s;
-    // A solid floor 100 cells wide, 3 rows: runs are cut at the chunk edges (columns 32, 64, 96): 4 boxes.
     std::vector<int> tiles(100 * 4, -1);
     for (int c = 0; c < 100; ++c) tiles[std::size_t(3 * 100 + c)] = 1;
     Entity map = add_map(s, 100, 4, tiles);
     s.run(2);
-    CHECK(s.shapes() == 4);
+    CHECK(s.shapes() == 1);  // no seam at columns 32, 64, 96
     Tilemap& tm = *s.world.get<Tilemap>(map);
-    REQUIRE(set_tilemap_tile(tm, 40, 3, -1));  // splits the second chunk's box in two
+    REQUIRE(set_tilemap_tile(tm, 40, 3, -1));
     s.run(1);
-    CHECK(s.shapes() == 5);
-    CHECK(s.tilemap_state()["chunkRebuilds"].get<int>() == 5);  // the four chunks of the first build, and the one edited
+    CHECK(s.shapes() == 2);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<int>() == 3);  // the floor, and the two halves
+    REQUIRE(set_tilemap_tile(tm, 40, 3, 1));
+    s.run(1);
+    CHECK(s.shapes() == 1);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<int>() == 4);
+    // A tile on top of the floor makes a box of its own (a different run); two more of the same columns stack into one.
+    REQUIRE(set_tilemap_tile(tm, 10, 2, 1));
+    REQUIRE(set_tilemap_tile(tm, 10, 1, 1));
+    s.run(1);
+    CHECK(s.shapes() == 2);
 }
 
-TEST_CASE("2d chunks: a write and its revert, or a flag-only write, rebuild nothing and keep the stamp fresh") {
+TEST_CASE("2d tilemap boxes: a write and its revert, or a flag-only write, rebuild nothing and keep the stamp fresh") {
     constexpr int W = 40, H = 40;
     Rng rng(7);
     Sim s;
     Entity map = add_map(s, W, H, random_tiles(rng, W, H));
     s.run(2);
     Tilemap& tm = *s.world.get<Tilemap>(map);
-    const std::int64_t rebuilds = s.tilemap_state()["chunkRebuilds"].get<std::int64_t>();
+    const std::int64_t rebuilds = s.tilemap_state()["boxesBuilt"].get<std::int64_t>();
     const int old = tilemap_tile_at(tm, tilemap_size(tm), 5, 5);
     // Write, then put it back before physics looks: the same collision as before.
     REQUIRE(set_tilemap_tile(tm, 5, 5, old == 1 ? -1 : 1));
     REQUIRE(set_tilemap_tile(tm, 5, 5, old));
     s.run(1);
-    CHECK(s.tilemap_state()["chunkRebuilds"].get<std::int64_t>() == rebuilds);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<std::int64_t>() == rebuilds);
     // A flag on a solid tile or a different solid tile: no collider changes.
     int solidCol = -1;
     for (int c = 0; c < W && solidCol < 0; ++c)
@@ -169,35 +186,35 @@ TEST_CASE("2d chunks: a write and its revert, or a flag-only write, rebuild noth
     REQUIRE(solidCol >= 0);
     REQUIRE(set_tilemap_tile(tm, solidCol, 10, make_tile(1, 2)));
     s.run(1);
-    CHECK(s.tilemap_state()["chunkRebuilds"].get<std::int64_t>() == rebuilds);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<std::int64_t>() == rebuilds);
     // Later steps with no write at all, and then a real edit, never fall back to scanning the map.
     s.run(5);
     REQUIRE(set_tilemap_tile(tm, 6, 6, tile_index(tilemap_tile_at(tm, tilemap_size(tm), 6, 6)) == 1 ? -1 : 1));
     s.run(1);
     CHECK(s.tilemap_state()["fullScans"].get<int>() == 0);
-    CHECK(s.tilemap_state()["chunkRebuilds"].get<std::int64_t>() == rebuilds + 1);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<std::int64_t>() > rebuilds);
 }
 
-TEST_CASE("2d chunks: a write that bypasses the edit list scans the map once and rebuilds only the chunks that differ") {
+TEST_CASE("2d tilemap boxes: a write that bypasses the edit list scans the map once and rebuilds only the boxes that differ") {
     constexpr int W = 70, H = 70;
     Rng rng(99);
     Sim s;
     Entity map = add_map(s, W, H, random_tiles(rng, W, H));
     s.run(2);
     Tilemap& tm = *s.world.get<Tilemap>(map);
-    const std::int64_t rebuilds = s.tilemap_state()["chunkRebuilds"].get<std::int64_t>();
+    const std::int64_t rebuilds = s.tilemap_state()["boxesBuilt"].get<std::int64_t>();
     // Straight into the array: no edit is recorded, the version moves.
     const std::size_t i = std::size_t(40) * W + 40;
     tm.tiles.set(i, std::as_const(tm.tiles)[i] == 1 ? -1 : 1);
     s.run(1);
     CHECK(s.tilemap_state()["fullScans"].get<int>() == 1);
-    CHECK(s.tilemap_state()["chunkRebuilds"].get<std::int64_t>() == rebuilds + 1);
+    CHECK(s.tilemap_state()["boxesBuilt"].get<std::int64_t>() > rebuilds);
     CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
     s.run(3);  // and the next steps are cheap again
     CHECK(s.tilemap_state()["fullScans"].get<int>() == 1);
 }
 
-TEST_CASE("2d chunks: assigning a whole Tilemap does not replay the edits the source carried") {
+TEST_CASE("2d tilemap boxes: assigning a whole Tilemap does not replay the edits the source carried") {
     constexpr int W = 50, H = 40;
     Rng rng(5);
     Sim s;
@@ -230,7 +247,7 @@ TEST_CASE("2d chunks: assigning a whole Tilemap does not replay the edits the so
     CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
 }
 
-TEST_CASE("2d chunks: a map with no solid tiles builds no body, and gets one when a solid tile is declared") {
+TEST_CASE("2d tilemap boxes: a map with no solid tiles builds no body, and gets one when a solid tile is declared") {
     Sim s;
     std::vector<int> tiles(40 * 40, 3);
     Entity map = add_map(s, 40, 40, tiles);
@@ -246,20 +263,21 @@ TEST_CASE("2d chunks: a map with no solid tiles builds no body, and gets one whe
     CHECK(s.shapes() == 10);
 }
 
-TEST_CASE("2d chunks: a body standing on an untouched chunk keeps its contact while another chunk changes") {
+TEST_CASE("2d tilemap boxes: a body standing on an untouched box keeps its contact while another part of the floor changes") {
     Sim s;
-    std::vector<int> tiles(100 * 4, -1);
-    for (int c = 0; c < 100; ++c) tiles[std::size_t(3 * 100 + c)] = 1;
-    Entity map = add_map(s, 100, 4, tiles);
+    std::vector<int> tiles(100 * 6, -1);
+    for (int c = 0; c < 100; ++c) tiles[std::size_t(5 * 100 + c)] = 1;  // a floor...
+    for (int c = 8; c < 14; ++c) tiles[std::size_t(3 * 100 + c)] = 1;   // ...and a platform above it
+    Entity map = add_map(s, 100, 6, tiles);
     Entity box = s.world.create("box", "box");
-    s.world.get<Transform>(box)->position = {kTile * 10.0f, -kTile * 3.0f + 4.0f, 0};  // standing on column 10
+    s.world.get<Transform>(box)->position = {kTile * 10.0f, -kTile * 3.0f + 4.0f, 0};  // standing on the platform
     s.world.add<Collider2D>(box).size = {6, 6};
     s.world.add<RigidBody2D>(box).type = BodyType::Dynamic;
     s.run(60);
     Tilemap& tm = *s.world.get<Tilemap>(map);
     int ends = 0;
     for (int i = 0; i < 4; ++i) {
-        REQUIRE(set_tilemap_tile(tm, 80 + i, 3, -1));  // the last chunk, far from the box
+        REQUIRE(set_tilemap_tile(tm, 80 + i, 5, -1));  // the far end of the floor: the platform box is not touched
         s.world.events().clear();
         s.physics.step(s.world, kDt);
         for (const auto& c : s.world.events().collisions)
@@ -268,7 +286,7 @@ TEST_CASE("2d chunks: a body standing on an untouched chunk keeps its contact wh
         s.world.flush();
     }
     CHECK(ends == 0);
-    CHECK(s.world.world_position(box).y > -kTile * 3.0f);  // still on the floor
+    CHECK(s.world.world_position(box).y > -kTile * 4.0f);  // still on the platform
 }
 
 namespace {
@@ -388,4 +406,66 @@ TEST_CASE("nav tiles: queries on an edited Tilemap answer like a fresh build, a 
     auto shut = nav_tile_query(world, sq);
     REQUIRE(shut.ok());
     CHECK(shut.value()["found"] == false);
+}
+
+namespace {
+
+// A body pushed along a flat floor at constant speed (no friction, no damping) must not lose speed anywhere: a seam between
+// two boxes of the floor (a ghost collision) would stop it.
+float slowest_on_floor(Sim& s, Entity box, float from, float to, float v0) {
+    float slowest = v0;
+    for (int i = 0; i < 600; ++i) {
+        s.run(1);
+        const float x = s.world.world_position(box).x;
+        if (x > from && x < to) slowest = std::min(slowest, s.world.get<RigidBody2D>(box)->velocity.x);
+        if (x >= to) break;
+    }
+    return slowest;
+}
+
+Entity add_runner(Sim& s, ColliderShape shape, float x, float v0) {
+    Entity box = s.world.create("runner", "runner");
+    s.world.get<Transform>(box)->position = {x, -3.0f * kTile + 3.5f, 0};  // on the floor of row 3
+    Collider2D& col = s.world.add<Collider2D>(box);
+    col.shape = shape;
+    col.size = shape == ColliderShape::Capsule ? Vec2{5, 8} : Vec2{6, 6};
+    col.radius = 3.0f;
+    col.friction = 0.0f;
+    RigidBody2D& rb = s.world.add<RigidBody2D>(box);
+    rb.type = BodyType::Dynamic;
+    rb.fixedRotation = true;
+    rb.velocity = {v0, 0};
+    return box;
+}
+
+}  // namespace
+
+TEST_CASE("2d floor: a body pushed along a 100 cell floor keeps its speed across the 32 and 64 cell marks") {
+    for (ColliderShape shape : {ColliderShape::Box, ColliderShape::Circle, ColliderShape::Capsule}) {
+        INFO("shape " << int(shape));
+        Sim s;
+        std::vector<int> tiles(100 * 4, -1);
+        for (int c = 0; c < 100; ++c) tiles[std::size_t(3 * 100 + c)] = 1;
+        add_map(s, 100, 4, tiles);
+        const Entity box = add_runner(s, shape, 3.0f * kTile, 120.0f);
+        s.run(30);  // settles on the floor
+        CHECK(slowest_on_floor(s, box, 4.0f * kTile, 96.0f * kTile, 120.0f) > 119.0f);
+    }
+}
+
+TEST_CASE("2d floor: the same after edits that split the floor and close it again") {
+    Sim s;
+    std::vector<int> tiles(100 * 5, -1);
+    for (int c = 0; c < 100; ++c) tiles[std::size_t(3 * 100 + c)] = 1;
+    Entity map = add_map(s, 100, 5, tiles);
+    s.run(2);
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    REQUIRE(set_tilemap_tile(tm, 40, 3, -1));  // a pit ...
+    s.run(1);
+    REQUIRE(set_tilemap_tile(tm, 40, 3, 1));  // ...filled again
+    REQUIRE(set_tilemap_tile(tm, 70, 4, 1));  // and a block under the floor in the third
+    s.run(1);
+    const Entity box = add_runner(s, ColliderShape::Box, 3.0f * kTile, 120.0f);
+    s.run(30);
+    CHECK(slowest_on_floor(s, box, 4.0f * kTile, 96.0f * kTile, 120.0f) > 119.0f);
 }

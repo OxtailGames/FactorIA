@@ -190,6 +190,10 @@ TEST_CASE("tilemap edits: assigning a Tilemap never lets its edit log explain th
     const TilemapStamp before = tilemap_stamp(a);
     REQUIRE(set_tilemap_tile(b, 3, 3, 9));  // b: one edit, and one version step on top of the tiles it was set to
     a = b;
+    CHECK(a.edits.empty());  // a copy does not carry the log
+    CHECK(Tilemap(b).edits.empty());
+    Tilemap moved(std::move(b));  // b is not used again
+    CHECK(moved.edits.size() == 1);  // a move does (the scene pool relocates components by moving them)
     std::span<const TileEdit> edits;
     CHECK_FALSE(tilemap_edits_since(a, before, edits));  // same id, one version step, the edit does not describe a's change
     // The log works again for the writes that follow.
