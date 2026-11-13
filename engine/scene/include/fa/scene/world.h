@@ -140,7 +140,7 @@ public:
         for (Entity e : entities_with(types[0])) {
             if (!alive(e)) continue;
             auto ptrs = std::tuple<Ts*...>{get<Ts>(e)...};
-            if (((std::get<Ts*>(ptrs) == nullptr) || ...)) continue;
+            if ((!std::get<Ts*>(ptrs) || ...)) continue;
             fn(e, *std::get<Ts*>(ptrs)...);
         }
     }
