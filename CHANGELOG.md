@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- Navigation: a path query whose goal is in another connected area (a walled-in room, an island, a passage closed by a
+  moving obstacle) fails at once from reachability labels instead of running A* over the whole map (M94.5a). The labels
+  follow moving obstacles, walkable bodies and links, and are recomputed only after a search has failed since the last
+  change; the answers, `closest` included, are the same bits as before (a randomized test compares both paths). New
+  `fa_bench` entries `nav.unreachable` and `nav.unreachable_astar`.
 - `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
 - Command arguments are checked against a schema compiled at registration (M94.3a): `fa::CompiledSchema`
   (core/json_schema.h) resolves the `$ref`s, reads the keywords, collects the defaults and compiles each `pattern` once, and
