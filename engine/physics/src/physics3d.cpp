@@ -417,9 +417,14 @@ void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, cons
             const float dc = dot(cur.p - ref.center, m) - h, dn = dot(nxt.p - ref.center, m) - h;
             const bool inC = dc <= kClipEps, inN = dn <= kClipEps;
             if (inC) tmp[out++] = cur;
-            if (inC != inN)
-                tmp[out++] = {cur.p + (nxt.p - cur.p) * (dc / (dc - dn)),
+            if (inC != inN) {
+                // With the tolerance the corners can be on different sides while dc and dn are almost equal (an edge nearly
+                // parallel to the plane) or on the same side of zero: t is kept on the edge, never beyond its ends.
+                const float span = dc - dn;
+                const float t = span != 0.0f ? std::clamp(dc / span, 0.0f, 1.0f) : 0.0f;
+                tmp[out++] = {cur.p + (nxt.p - cur.p) * t,
                               mix_id(std::min(cur.id, nxt.id), std::max(cur.id, nxt.id), 100u + std::uint32_t(s))};
+            }
         }
         for (int i = 0; i < out; ++i) poly[i] = tmp[i];
         cnt = out;
@@ -445,8 +450,8 @@ void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, cons
 }
 
 // The points of a manifold: merged when closer than kMergeDist and reduced to at most kMaxPts. Four points are chosen:
-// the deepest one, the one farthest from it, and the two that span the largest triangles with them on either side of that
-// line (a thin sliver keeps three points). Every comparison has a tolerance and falls back to the lowest index, so float
+// the deepest one, the one farthest from it, and the two that span the largest triangles with them (one on each side of that
+// line when there are points on both, else the two largest on the one side; a thin sliver keeps three points). Every comparison has a tolerance and falls back to the lowest index, so float
 // noise in the inputs does not change the choice, and the output is in the winding order of the polygon.
 void Physics3D::reduce_manifold(Contact& c, const Vec3* pts, const float* depths, const std::uint32_t* ids, int n) {
     constexpr float kMergeDist = 1e-4f;  // points closer than this are one point (m)
@@ -485,6 +490,7 @@ void Physics3D::reduce_manifold(Contact& c, const Vec3* pts, const float* depths
         int i1 = -1;
         for (int i = 0; i < m && i1 < 0; ++i)
             if (i != i0 && length_sq(p[i] - p[i0]) >= far2 - kTie) i1 = i;
+        if (i1 < 0) i1 = i0 == 0 ? 1 : 0;  // never: far2 is the largest distance, one point reaches it
         const Vec3 edge = p[i1] - p[i0];
         float area[kCap];
         float hi = -1e30f, lo = 1e30f;
@@ -496,17 +502,22 @@ void Physics3D::reduce_manifold(Contact& c, const Vec3* pts, const float* depths
             }
         }
         int i2 = -1, i3 = -1;
-        for (int i = 0; i < m && i2 < 0; ++i)
-            if (i != i0 && i != i1 && area[i] >= hi - kTie) i2 = i;
-        if (lo < -kTie) {  // the other side of the line
+        if (hi > kTie && lo < -kTie) {  // points on both sides of the line: the largest triangle on each side
+            for (int i = 0; i < m && i2 < 0; ++i)
+                if (i != i0 && i != i1 && area[i] >= hi - kTie) i2 = i;
             for (int i = 0; i < m && i3 < 0; ++i)
                 if (i != i0 && i != i1 && area[i] <= lo + kTie) i3 = i;
-        } else {  // everything on one side: the next largest triangle
-            float second = -1e30f;
+        } else {  // everything on one side (whichever it is): the two largest triangles
+            float first = -1.0f;
             for (int i = 0; i < m; ++i)
-                if (i != i0 && i != i1 && i != i2) second = std::max(second, area[i]);
+                if (i != i0 && i != i1) first = std::max(first, std::fabs(area[i]));
+            for (int i = 0; i < m && i2 < 0; ++i)
+                if (i != i0 && i != i1 && std::fabs(area[i]) >= first - kTie) i2 = i;
+            float second = -1.0f;
+            for (int i = 0; i < m; ++i)
+                if (i != i0 && i != i1 && i != i2) second = std::max(second, std::fabs(area[i]));
             for (int i = 0; i < m && i3 < 0; ++i)
-                if (i != i0 && i != i1 && i != i2 && area[i] >= second - kTie) i3 = i;
+                if (i != i0 && i != i1 && i != i2 && std::fabs(area[i]) >= second - kTie) i3 = i;
         }
         sel[count++] = i0;
         sel[count++] = i2;
