@@ -20,9 +20,6 @@
 #include "nanosvgrast.h"
 #if defined(_MSC_VER)
 #pragma warning(pop)
-// C4702 (unreachable code) comes from the optimizer, which reports it for nanosvg's functions after the pop, when
-// they are generated or inlined into this file's code: it stays off for the whole file.
-#pragma warning(disable : 4702)
 #endif
 
 #include "assets_internal.h"
