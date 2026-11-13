@@ -111,11 +111,11 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0) and
-M92 (0.25.0) are done. Next M93, M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only then M71-M89 in their own
-order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and accounts. The reasons are
-in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open entries of
-`examples/*`. Update this paragraph when a milestone lands.
+**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0)
+and M92 (0.25.0) and M93 (0.26.0) are done. Next M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only then M71-M89
+in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and accounts.
+The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
+entries of `examples/*`. Update this paragraph when a milestone lands.
 
 Finished milestones are not kept here: each has a file in [done/](done/README.md) (one line per milestone). This file
 holds the open entries, the decisions of finished milestones and the milestones that are open or partly open.
@@ -408,6 +408,16 @@ M92 (0.25.0):
   project is out of scope.
 - The Codex CLI contract fixtures are written from its documented format, not recorded (Codex was not installed); Claude
   Code's are recorded from version 2.1.318.
+
+M93 (0.26.0):
+- The MCP HTTP test's intermittent "read 0 bytes" instead of the 204 of a cancelled request (Windows) stays open. The
+  lingering close covers unread input only, and the test now prints the system error code, so the next failure names
+  its cause.
+- The first CI run of the sanitizer jobs may need entries in tools/ci/sanitizers/lsan.supp and the UBSan ignorelist;
+  the TSan job covers the threaded test programs only.
+- stb_truetype asserts (`z->ey >= scan_y_top`) on some mutated fonts in sanitized Debug fuzzing; it is upstream code in
+  external/, not patched.
+- Platform-specific code (_win32, _android, the D3D11 path) is not covered by the sanitizers, which run on Linux only.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -1063,10 +1073,10 @@ Rules: those of every milestone (tests, docs, teaching errors), plus: each fix c
 caught it, and each performance package shows its gain on M93.5's benchmarks.
 
 Order: M90 first (small). Then M91, M92 and M93, before any new feature. M94 and M95 before M71: M71 builds on M95's
-frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the small
-player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99 when
-the user has the hardware and the accounts. M100, M101, M97.1, M97.2 and M92 are done (0.22.0, 0.23.0, 0.24.0, 0.25.0)
-and M93 comes next ("M100-M101").
+frame graph and render targets, M75 on M94's broadphase and heightfield. M96 before M89.3 (a playable ad needs the
+small player). M97 at any time, alongside the others. M98's packages after M91, earlier where a game asks for one. M99
+when the user has the hardware and the accounts. M100, M101, M97.1, M97.2, M92 and M93 are done (0.22.0, 0.23.0,
+0.24.0, 0.25.0, 0.26.0) and M94 comes next ("M100-M101").
 
 ## M100-M101: the examples' feedback and a third outside review (planned 2026-11-10, both done)
 
@@ -1124,11 +1134,11 @@ Rules: those of every milestone, plus: each fix comes with the test that would h
 still pass under M100.2's stricter rule, and each feedback entry a package closes gets its `Fixed in` note and the game
 drops its workaround in the same package.
 
-Order (M100, M101, M97.1, M97.2 and M92 are done): M100 then M101, before M92 (M100 is what the game AI meets on its
-first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the cost
-of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (its ASan+UBSan job first), M94, M95, M96 and M98.
-M71-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open entry of `examples/*` opens
-each milestone.
+Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
+its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
+cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
+M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):
 - Elsewhere: KW/FB-0018's bite and chop go into M82.2 with `anim3d.pose`; TM/FB-0003, TM/FB-0051 and TM/FB-0055
@@ -1154,20 +1164,21 @@ each milestone.
 - M92.4 (M) — DONE in 0.25.0 Contract tests for the AI CLIs: recorded outputs of each CLI (`stream-json` and the others)
   replayed by tests, so a CLI update that changes its format fails here, not in a user's run.
 
-## M93. Oracles: sanitizers, fuzzing, strict builds, benchmarks (L; 5 packages) — outside review, 2026-11-09
+## M93. Oracles: sanitizers, fuzzing, strict builds, benchmarks (L; 5 packages) — outside review, 2026-11-09 — DONE in 0.26.0
 
-- M93.1 (M) ASan with UBSan, and TSan, as Linux Clang CI jobs over the Debug suite (TSan over the job system, loading,
-  audio and MCP server tests); what they find is fixed in the same milestone.
-- M93.2 (M) Fuzzing: targets for the JSON, scene and prefab loaders, schema validation, the PNG, KTX2, glTF, font and
-  audio decoders, the pak reader and MCP's JSON-RPC; a short run on every PR, a long weekly one, a corpus in the
-  repository.
-- M93.3 (M) Strict builds: warnings as errors in CI for GCC, Clang and MSVC (engine and tools, not `external/`);
-  `.clang-format` and `.editorconfig` with one formatting commit and a check; clang-tidy with a few bug-finding checks
-  over the changed files.
-- M93.4 (S) Coverage per module (llvm-cov) as a CI artifact, the editor autotest included; `autotest_tools.cpp` (9755
-  lines) split by section.
-- M93.5 (M) Benchmarks: `fa_bench` (ECS queries, hierarchy, 2D and 3D physics, render gather, command dispatch, the
-  script bridge, the audio mix) in a Release job, compared with a stored baseline; a big regression fails.
+- M93.1 (M) — DONE in 0.26.0 ASan with UBSan, and TSan, as Linux Clang CI jobs over the Debug suite (TSan over the job
+  system, loading, audio and MCP server tests); what they find is fixed in the same milestone.
+- M93.2 (M) — DONE in 0.26.0 Fuzzing: targets for the JSON, scene and prefab loaders, schema validation, the PNG, KTX2,
+  glTF, font and audio decoders, the pak reader and MCP's JSON-RPC; a short run on every PR, a long weekly one, a
+  corpus in the repository.
+- M93.3 (M) — DONE in 0.26.0 Strict builds: warnings as errors in CI for GCC, Clang and MSVC (engine and tools, not
+  `external/`); `.clang-format` and `.editorconfig` with one formatting commit and a check; clang-tidy with a few
+  bug-finding checks over the changed files.
+- M93.4 (S) — DONE in 0.26.0 Coverage per module (llvm-cov) as a CI artifact, the editor autotest included;
+  `autotest_tools.cpp` (9755 lines) split by section.
+- M93.5 (M) — DONE in 0.26.0 Benchmarks: `fa_bench` (ECS queries, hierarchy, 2D and 3D physics, render gather, command
+  dispatch, the script bridge, the audio mix) in a Release job, compared with a stored baseline; a big regression
+  fails.
 
 ## M94. Fast core data and 3D physics at scale (L; 5 packages) — outside review, 2026-11-09
 
