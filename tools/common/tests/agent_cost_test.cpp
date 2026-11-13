@@ -71,7 +71,8 @@ TEST_CASE("agent cost: the CLI version and a real HOME are recorded") {
     for (const Json& n : r["notes"]) named = named || n.get<std::string>().find("real HOME") != std::string::npos;
     CHECK(named);
     in.homeIsolated = 1;
-    for (const Json& n : agent_cost_report(in)["notes"]) CHECK(n.get<std::string>().find("real HOME") == std::string::npos);
+    const Json isolated = agent_cost_report(in);  // a named value: a range-for over `report(in)["notes"]` reads a destroyed temporary
+    for (const Json& n : isolated["notes"]) CHECK(n.get<std::string>().find("real HOME") == std::string::npos);
 }
 
 TEST_CASE("agent cost: level names that only contain a menu word are levels") {

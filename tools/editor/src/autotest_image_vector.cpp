@@ -157,6 +157,21 @@ void Editor::at_section_I2(AtScript& at) {
             at_check(undo_depth() == is->undo + 4, "...as one undo step");
         });
 
+        // ---- an edit from the inspector (Visible) reloads the document in the middle of the frame that draws the inspector: the
+        // rest of that frame (the other fields, the adjustment and effect lists) must not read the layer that was freed. Under ASan
+        // this is the use-after-free check; the Visible toggle is taken back with Undo so the counts below stay the same.
+        click_widget("img:insp:visible");
+        step(4, [this, is] {
+            const ImageLayer* L = image_.model->layer(image_.model->selected_layer());
+            at_check(L && !L->visible, "the Visible box hid the layer");
+            at_check(undo_depth() == is->undo + 5, "...as one undo step");
+        });
+        step(2, [this] { undo(); });
+        step(3, [this, is] {
+            const ImageLayer* L = image_.model->layer(image_.model->selected_layer());
+            at_check(L && L->visible && undo_depth() == is->undo + 4, "Undo showed the layer again and left the stack where it was");
+        });
+
         // ---- an adjustment: add it, then change it the way a slider does (a live preview, then one kept step)
         click_widget("img:op:add");
         wait_until([this] { return at_visible("img:op:add:brightness"); });

@@ -23,7 +23,7 @@ struct AtScript {
     std::function<void(std::function<std::string()>, float, std::function<Vec2()>, float, float)> scroll_until_at;
     std::function<void(const std::string&, float, Vec2, float)> scroll_until;
     std::function<Vec2(const char*)> window_middle;                          // the visible middle of a window
-    std::function<void(const std::string&, const char*, float)> scroll_to;  // scroll a window until a widget is shown
+    std::function<void(const std::string&, const std::string&, float)> scroll_to;  // scroll a window until a widget is shown
 };
 
 // The names a section uses, as the locals they were when the whole script was one function (default arguments included).
@@ -38,7 +38,7 @@ struct AtScript {
                                                   float maxY, float minY = 120) {                                                  \
         (at).scroll_until_at(std::move(nameOf), dy, std::move(where), maxY, minY);                                                 \
     };                                                                                                                             \
-    [[maybe_unused]] auto scroll_to = [&at](const std::string& name, const char* window, float dy = -6) {                          \
+    [[maybe_unused]] auto scroll_to = [&at](const std::string& name, const std::string& window, float dy = -6) {                       \
         (at).scroll_to(name, window, dy);                                                                                          \
     };
 

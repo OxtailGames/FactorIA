@@ -269,8 +269,12 @@ void Editor::autotest_pre_frame() {
         if (f == 16) {
             at_check(showProjectDialog_ && !engine_, "welcome dialog is shown without a project");
             stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_welcome_project_" + std::to_string(std::rand()));
+            {   // std::rand() is not seeded, so the name is the same on every run: a folder a run that was killed left behind would fail this one
+                std::error_code staleEc;
+                stdfs::remove_all(proj, staleEc);
+            }
             auto r = create_project(proj.string(), "2d-empty", ScaffoldOptions{"Welcome Test"});
-            at_check(bool(r), "create_project from the dialog's template list");
+            at_check(bool(r), "create_project from the dialog's template list" + (r ? "" : " (" + r.error().to_string() + ")"));
             if (r) {
                 atTempProject_ = r->dir;
                 open_project(r->dir);

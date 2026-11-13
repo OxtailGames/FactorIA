@@ -203,8 +203,10 @@ void Editor::at_build_tools_script() {
         return Vec2{std::clamp(w->Pos.x + w->Size.x * 0.5f, 0.0f, d.x), (top + bottom) * 0.5f};
     };
     // Scroll the window `window` until `name` is shown: the way to try first is down (a form's buttons are at its end).
-    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const char* window, float dy = -6) {
-        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window); }, 100000, -1e9f);
+    // `window` is copied: the steps run later, after the code that built the script returned (a `const char*` into a local
+    // std::string of the caller dangled; found by the ASan run as a heap-use-after-free).
+    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const std::string& window, float dy = -6) {
+        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window.c_str()); }, 100000, -1e9f);
     };
     // The lambdas above live as long as this function, which calls every section: the sections get them through `at`.
     at.step = step;
