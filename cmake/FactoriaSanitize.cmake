@@ -57,7 +57,13 @@ if(FA_SANITIZE)
     if(FA_SANITIZE_UNDEFINED)
         list(APPEND _fa_san_flags -fno-sanitize-recover=undefined)
         if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-            set(_fa_san_compile_only -fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/tools/ci/sanitizers/ubsan_ignorelist.txt)
+            set(_fa_ignorelist ${CMAKE_CURRENT_SOURCE_DIR}/tools/ci/sanitizers/ubsan_ignorelist.txt)
+            # Neither ninja nor ccache (4.9) looks at the contents of the ignorelist, so an edit to it would leave every object
+            # compiled with the old one (the first CI run after an entry was added still reported it). Its hash goes on the
+            # command line, and an edit reconfigures: every file is rebuilt with the new list.
+            file(MD5 ${_fa_ignorelist} _fa_ignorelist_md5)
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_fa_ignorelist})
+            set(_fa_san_compile_only -fsanitize-ignorelist=${_fa_ignorelist} -DFA_UBSAN_IGNORELIST_MD5=${_fa_ignorelist_md5})
         else()
             message(STATUS "FactorIA: ${CMAKE_CXX_COMPILER_ID} has no sanitizer ignorelist: the UBSan findings listed in "
                 "tools/ci/sanitizers/ubsan_ignorelist.txt (vendored code) will be reported. Use Clang for the clean run.")

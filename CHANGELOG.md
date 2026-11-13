@@ -57,8 +57,11 @@ The whole C++ code base is formatted with `.clang-format` (the commit is listed 
   exit with code 1 (`cli_plugin`, `cli_integration`, `agent_cost_script`, the editor autotests' "printed no result" steps). The
   editor autotest's fake GitHub sign-in code now lasts far longer than the autotest takes to approve it on a slow build. The
   `-fsanitize=function` findings in tinysoundfont and xatlas (a function stored under another function type, vendored) are in
-  `tools/ci/sanitizers/ubsan_ignorelist.txt` with the reason. The `_perf` budget tests are registered `DISABLED` in sanitizer
-  builds (no baseline can exist for them).
+  `tools/ci/sanitizers/ubsan_ignorelist.txt` with the reason, and so is tinysoundfont's `NULL + 0` (`-fsanitize=pointer-overflow`,
+  a preset with no regions). Neither ninja nor ccache read the ignorelist's contents, so its MD5 is now on the sanitizer
+  builds' command line and an edit to it reconfigures and rebuilds. The `_perf` budget tests are registered `DISABLED` in
+  sanitizer builds (no baseline can exist for them). MSVC's C4702 in nanosvg comes from the optimizer, which ignores
+  `#pragma warning`, so it is off with `/wd4702` on the two files that compile nanosvg.
 - Formatting and lint (M93.3): `.clang-format`, `.clang-format-ignore` and `.editorconfig` describe the code style; `scripts/format.sh [--check] [--changed <base>]` formats or checks first-party C and C++ with a pinned clang-format (a pip wheel in `build/lint-venv`), and `.clang-tidy` with `scripts/tidy-changed.sh <base>` runs a few bug-finding checks over the changed sources. A new `lint` CI job runs both on what a change touches. docs/BUILDING.md, "Formatting and lint".
 - **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
   AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,
