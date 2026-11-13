@@ -38,7 +38,13 @@ inline void remove_stale_projects(const std::filesystem::path& parent) {
     const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
     for (std::filesystem::directory_iterator it(parent, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code entryEc;
-        if (it->path().filename().native().rfind(prefix.native(), 0) != 0) continue;
+        const auto& name = it->path().filename().native();
+        if (name.rfind(prefix.native(), 0) != 0) continue;
+        // Only fa_fuzz_<pid>_<n> (and make_temp_dir's _<n> suffix): never a user's fa_fuzz_findings or fa_fuzz_corpus.
+        const auto rest = name.substr(prefix.native().size());
+        bool ours = !rest.empty() && rest.find('_') != rest.npos;
+        for (const auto ch : rest) ours = ours && ((ch >= '0' && ch <= '9') || ch == '_');
+        if (!ours) continue;
         if (!it->is_directory(entryEc) || entryEc) continue;
         const auto written = std::filesystem::last_write_time(it->path(), entryEc);
         if (!entryEc && written < cutoff) std::filesystem::remove_all(it->path(), entryEc);
