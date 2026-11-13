@@ -21,6 +21,8 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -132,18 +134,53 @@ public:
     }
 
     // Calls fn(Entity, Ts&...) for every alive entity having all Ts (active or
-    // not — systems check active_in_hierarchy themselves). Safe to add/remove
-    // OTHER components and to destroy() (deferred) inside fn.
+    // not — systems check active_in_hierarchy themselves).
+    //
+    //  * The walk is in place (no copy of the owner list) and starts from the pool with the FEWEST owners among the
+    //    Ts (the first one on a tie), so each<Sprite, Collider2D> costs what the colliders cost, not what the sprites
+    //    cost. The order is therefore that pool's insertion order: with several Ts it is NOT always the first type's.
+    //    Use entities_with(type) and get<T>() when the order of one given type matters.
+    //  * Safe inside fn: add or remove components of any type (the driving one too), destroy() (deferred), and start
+    //    another each over the same types. An entity that loses a component of the Ts before its turn is skipped. An
+    //    entity that gains the driving component during the walk is not visited (the walk stops at the owners it had
+    //    when it began); one that gains a component of the other Ts is visited if it reaches its turn with all of them.
+    //  * Not safe: clear() (the walk ends, and the references given to fn dangle).
     template <class... Ts, class Fn>
     void each(Fn&& fn) {
+        static_assert(sizeof...(Ts) > 0, "World::each needs at least one component type");
         const TypeInfo* types[] = {&type_of<Ts>()...};
-        for (Entity e : entities_with(types[0])) {
-            if (!alive(e)) continue;
-            auto ptrs = std::tuple<Ts*...>{get<Ts>(e)...};
-            if ((!std::get<Ts*>(ptrs) || ...)) continue;
-            fn(e, *std::get<Ts*>(ptrs)...);
+        std::size_t driver = 0;
+        std::size_t fewest = count(types[0]);
+        for (std::size_t i = 1; i < sizeof...(Ts); ++i) {
+            const std::size_t n = count(types[i]);
+            if (n < fewest) {
+                fewest = n;
+                driver = i;
+            }
         }
+        if (fewest == 0) return;
+        struct Ctx {
+            World* world;
+            std::remove_reference_t<Fn>* fn;
+            std::size_t driver;
+        } ctx{this, &fn, driver};
+        walk_owners(*types[driver], &ctx, [](void* p, Entity e, void* driving) {
+            Ctx& c = *static_cast<Ctx*>(p);
+            if (!c.world->alive(e)) return;
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                // The driving pool already gave its component; the others are looked up.
+                const std::tuple<Ts*...> ptrs{
+                    (I == c.driver ? static_cast<Ts*>(driving) : c.world->template get<Ts>(e))...};
+                if ((!std::get<I>(ptrs) || ...)) return;
+                (*c.fn)(e, *std::get<I>(ptrs)...);
+            }(std::index_sequence_for<Ts...>{});
+        });
     }
+
+    // The walk behind each(): calls visit(ctx, entity, component) for every owner of `type`, in insertion order, in
+    // place. Same rules as each (an owner added during the walk is not visited; removing is safe); it does not check
+    // alive(). Nothing happens for a type nobody owns.
+    void walk_owners(const TypeInfo& type, void* ctx, void (*visit)(void* ctx, Entity e, void* component));
 
     // -------------------------------------------------- reflected components
     void* add(Entity e, const TypeInfo& type);  // default-constructs, or returns the existing one
