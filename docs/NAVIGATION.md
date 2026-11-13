@@ -59,6 +59,12 @@ Result: `{found:true, points:[[x,y,z],...], links?, length, complete, from, to, 
 (A* with deterministic tie-breaking, then string pulling); walking straight from one to the next stays on walkable cells.
 `from`/`to` are the feet of the agent.
 
+A goal that cannot be reached (a walled-in room, an island, a passage a moving obstacle closes) is answered without
+searching the whole map: the grid keeps the connected component of every walkable span (over steps, links, walkable bodies
+and the current obstacles), and a query between two components fails at once. The labels are computed the first time a
+search fails after a change, and again only when something changed since (an obstacle or walkable body moved, a link was
+set); while they are out of date every query runs A* as usual. The result is the same either way, `closest` included.
+
 When there is no route the result is `found:false` and teaches (it is a result, not an exception):
 
 - `start_off_mesh` / `goal_off_mesh`: the point is not on walkable ground. A point within `snap` meters (default

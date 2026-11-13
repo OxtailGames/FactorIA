@@ -580,6 +580,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep |
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
 | `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case a broadphase must make cheap: every pair is tested today), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
+| `nav.unreachable`, `nav.unreachable_astar` | 40 failed `NavGrid::search`es into a walled-in room of a 320 x 320 grid (with `closest`, as `nav.find_path` asks): answered from the reachability labels, and with the labels off so A* runs over the whole floor first |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
 | `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
 | `schema.interpreted`, `schema.compiled` | The schema part of a command call on its own (defaults, then validation, 20000 argument sets, every 50th refused), against the schema as Json and as a `CompiledSchema` |
