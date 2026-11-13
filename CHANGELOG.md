@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- Component fields can now be typed number arrays (`FieldKind::ArrayI32`, `ArrayF32`, `ArrayU8`, C++ `fa::ArrayI32`
+  etc. in `core/typed_array.h`): the JSON on disk is a flat array of numbers, in memory it is contiguous and counts its
+  writes (`version()` and a dirty index range, so a system rebuilds only what changed), and in scripts it reads as an
+  `Int32Array`, `Float32Array` or `Uint8Array` (a copy) and takes a typed array or a plain array, checking every
+  element. No component uses them yet.
+
 ## 0.26.0
 
 FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite

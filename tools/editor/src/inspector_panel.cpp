@@ -410,8 +410,17 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             break;
         }
         case FieldWidget::JsonText: {
+            const bool numbers = is_array_kind(f.kind);
+            if (numbers && cur.is_array() && cur.size() > kInspectorArrayEditMax) {
+                // Too long for a text box that is rebuilt every frame: say what it is; scripts and commands edit it.
+                ImGui::TextDisabled("%s, %zu elements: too many to edit here (scene.set_component or a script)",
+                                    field_kind_name(f.kind), std::size_t(cur.size()));
+                at_track(track, false);
+                tooltip(tip);
+                break;
+            }
             JsonBox& b = inspJson_[key];
-            if (!b.dirty) b.text = cur.dump(2);
+            if (!b.dirty) b.text = numbers ? cur.dump() : cur.dump(2);  // a number array on one line, like a vector
             int lines = 1;
             for (char c : b.text) lines += c == '\n';
             lines = std::clamp(lines, 3, 12);

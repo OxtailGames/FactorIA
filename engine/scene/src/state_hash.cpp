@@ -101,6 +101,25 @@ void hash_field(Fnv& h, const FieldInfo& f, const void* o) {
         }
         case FieldKind::Entity: h.u64(field_as<Entity>(f, o).bits()); break;
         case FieldKind::Json: h.str(field_as<Json>(f, o).dump()); break;
+        // Length, then every element as its value (not its memory image: no byte-order or padding dependence).
+        case FieldKind::ArrayI32: {
+            const ArrayI32& a = field_as<ArrayI32>(f, o);
+            h.u64(std::uint64_t(a.size()));
+            for (std::int32_t v : a.span()) h.u32(std::uint32_t(v));
+            break;
+        }
+        case FieldKind::ArrayF32: {
+            const ArrayF32& a = field_as<ArrayF32>(f, o);
+            h.u64(std::uint64_t(a.size()));
+            for (float v : a.span()) h.f32(v);
+            break;
+        }
+        case FieldKind::ArrayU8: {
+            const ArrayU8& a = field_as<ArrayU8>(f, o);
+            h.u64(std::uint64_t(a.size()));
+            h.bytes(a.cdata(), a.size());
+            break;
+        }
     }
 }
 
