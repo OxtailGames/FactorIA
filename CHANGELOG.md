@@ -7,6 +7,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 ## Unreleased
 
 - `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
+- Command arguments are checked against a schema compiled at registration (M94.3a): `fa::CompiledSchema`
+  (core/json_schema.h) resolves the `$ref`s, reads the keywords, collects the defaults and compiles each `pattern` once, and
+  `CommandRegistry::call` uses it instead of walking the JSON schema on every call; it also copies the arguments only when
+  it has to remove `_meta` or fill defaults. The errors are the same, byte for byte (the tests and the `json_schema` fuzz
+  target compare both paths). The validator's depth limit of 64 levels is exact now: a schema position that
+  holds a value that is not a schema (for example `"properties": {"a": "string"}`) used to lower the depth counter by one
+  for the rest of the validation.
 
 ## 0.26.0
 
