@@ -37,11 +37,24 @@ struct FontFace {
 
     // True when the font maps `cp` to a glyph of its own.
     bool has_glyph(std::uint32_t cp) const;
+
+    // `glyph` as an index stb_truetype may read: a glyph the font does not have (a 'cmap' may point past 'maxp's glyph count,
+    // and HarfBuzz hands on what it finds there) is drawn as glyph 0, the .notdef box. check_font_bytes made sure that glyph exists.
+    int stb_glyph(std::uint32_t glyph) const { return glyph < std::uint32_t(info.numGlyphs) ? int(glyph) : 0; }
 };
 
 // Loads one font: "" / "builtin" (DejaVu Sans), "builtin:pixel" (Press Start 2P) or a project-relative .ttf / .otf read
 // through fa::fs. Always returns a face; `ok` is false (with `error` and `hint`) when the file is missing or unusable.
 std::unique_ptr<FontFace> load_font_face(const std::string& key);
+
+// The same on font bytes already in memory (`key` names them in the errors); the file loaders above end in the same code, so
+// what loads from a file loads from memory and the reverse. What the fuzz target `font` and rasterize_text(bytes) use.
+std::unique_ptr<FontFace> load_font_face_from_memory(std::vector<unsigned char> bytes, const std::string& key);
+
+// Walks the tables stb_truetype will follow (directory, head, hhea, hmtx, maxp, loca, glyf, cmap) with the file's length in hand.
+// "" when every offset lies inside the file and no glyph includes itself; else what is wrong, as a sentence
+// (font_check.cpp). `offset` is the start of the font in the file (stbtt_GetFontOffsetForIndex).
+std::string check_font_bytes(const unsigned char* data, std::size_t size, int offset);
 
 // Text as it is laid out: UTF-8 to code points (malformed bytes become U+FFFD); '\n', U+0085, U+2028 and U+2029 are line
 // breaks (all become '\n'), a tab is four spaces, and '\r' and the other control characters are dropped.

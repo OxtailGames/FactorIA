@@ -21,8 +21,16 @@ struct Image {
     void flip_vertical();
 };
 
+// The largest image the engine decodes: kMaxImagePixels in all (a 16384 x 8192 panorama passes; the RGBA8 copy of the
+// limit is 512 MB). A file whose header claims more is refused with an error before any pixel memory is allocated, so a
+// corrupt or hostile header cannot ask for gigabytes. kMaxImageSide is the longest side of a GPU texture (KTX2 files).
+inline constexpr int kMaxImageSide = 16384;
+inline constexpr std::uint64_t kMaxImagePixels = std::uint64_t(1) << 27;
+
 Result<Image> load_image(std::string_view path);                       // png/jpg/tga/bmp via fs
-Result<Image> decode_image(const std::uint8_t* data, std::size_t size);  // from memory
+// Decodes a PNG, JPG, TGA or BMP held in memory to RGBA8. An empty or over-limit file (kMaxImagePixels),
+// and a damaged one, are errors that say so; never a crash.
+Result<Image> decode_image(const std::uint8_t* data, std::size_t size);
 
 // The mip chain of a texture: level 0 is `base`, each next level averages 2x2 pixels (edge pixels repeated) and halves
 // the size (never below 1), down to 1x1 or 16 levels. The renderer uploads these and the export compresses them, so a

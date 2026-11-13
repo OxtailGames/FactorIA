@@ -1,0 +1,130 @@
+# The long fuzz run (M93.2, docs/BUILDING.md "Fuzzing"). Every Sunday, and by hand (Actions > Fuzz (weekly) > Run workflow), each
+# fuzz target of tools/fuzz runs for about half an hour under libFuzzer + ASan + UBSan, on its own runner, starting from the
+# corpus the previous weeks found. The 60-second run of CI (job `linux-fuzz`) only guards against the obvious.
+#
+# This workflow never commits and never opens an issue. What it leaves:
+#   - the artifact `fuzz-crashes-<target>`: every input that crashed, hung or ran out of memory (crash-*, timeout-*, oom-*,
+#     leak-*). The job then fails, which is the notification. Take one into the corpus as docs/BUILDING.md says.
+#   - the artifact `fuzz-corpus-<target>`: the corpus after the run, minimized with `-merge=1` (only inputs that add coverage).
+#     It is also kept in the Actions cache so next week starts from it. To adopt new seeds, download it and copy a few small
+#     files into tools/fuzz/corpus/<target>/ in a pull request.
+name: Fuzz (weekly)
+
+on:
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Minutes of fuzzing per target'
+        required: false
+        default: '25'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-weekly
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120  # a cold-ccache build of what the target links, the run, the corpus merge
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [json, json_schema, pak, scene, prefab, mcp_jsonrpc, translations, image, ktx2, gltf, font, audio, midi, soundfont]
+    env:
+      FA_FUZZ_MINUTES: ${{ github.event.inputs.minutes || '25' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      # libFuzzer's runtime is in the compiler-rt package of the compiler's version.
+      - name: Install Clang and libFuzzer
+        run: |
+          sudo apt-get install -y clang
+          ver=$(clang --version | sed -n 's/.*version \([0-9]*\)\..*/\1/p' | head -n 1)
+          sudo apt-get install -y "libclang-rt-${ver}-dev"
+
+      # The compiler cache that the `linux-fuzz` job of ci.yml saves on main (same flags, same sources): a build here is mostly hits.
+      # This workflow only reads it.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-fuzz-weekly-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-fuzz-
+
+      # The corpus of the previous weeks, as minimized by the merge step below.
+      - name: Restore the corpus of the previous weeks
+        uses: actions/cache/restore@v4
+        with:
+          path: build/fuzz/fuzz-work/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Configure and build the target
+        run: |
+          cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake --build build/fuzz --target fa_fuzz_${{ matrix.target }}
+
+      - name: Fuzz
+        id: fuzz
+        continue-on-error: true
+        run: tools/fuzz/run.sh build/fuzz "$((FA_FUZZ_MINUTES * 60))" ${{ matrix.target }}
+
+      # Merge the repository's corpus and everything this run and the cache hold into the smallest set with the same coverage.
+      - name: Minimize the corpus
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p build/fuzz/fuzz-work/${{ matrix.target }} build/fuzz/fuzz-min/${{ matrix.target }}
+          export ASAN_OPTIONS=detect_stack_use_after_return=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          build/fuzz/tools/fuzz/fa_fuzz_${{ matrix.target }} -merge=1 -timeout=20 -rss_limit_mb=4096 -max_len=65536 \
+              build/fuzz/fuzz-min/${{ matrix.target }} tools/fuzz/corpus/${{ matrix.target }} build/fuzz/fuzz-work/${{ matrix.target }}
+          echo "corpus: $(ls build/fuzz/fuzz-min/${{ matrix.target }} | wc -l) file(s) after the merge"
+
+      - name: Keep the minimized corpus for next week
+        if: ${{ !cancelled() }}
+        run: |
+          rm -rf build/fuzz/fuzz-work/${{ matrix.target }}
+          mv build/fuzz/fuzz-min/${{ matrix.target }} build/fuzz/fuzz-work/${{ matrix.target }}
+
+      - name: Save the corpus to the cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: build/fuzz/fuzz-work/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Upload the corpus
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: build/fuzz/fuzz-work/${{ matrix.target }}
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # crash-*, timeout-*, oom-* and leak-*: `fa_fuzz_<target> <file>` from a build with -DFA_FUZZ=ON reproduces one.
+      - name: Upload the inputs that failed
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: build/fuzz/fuzz-crashes
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # The notification: a red run in the Actions tab (and the e-mail GitHub sends for it).
+      - name: Fail when the run found something
+        if: steps.fuzz.outcome == 'failure'
+        run: |
+          echo "::error title=Fuzzing found a crash in ${{ matrix.target }}::Download the artifact fuzz-crashes-${{ matrix.target }}, fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/BUILDING.md, Fuzzing)."
+          exit 1

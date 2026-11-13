@@ -313,7 +313,7 @@ Result<McpCallResult> McpClient::call_tool(const std::string& tool, const Json& 
     if (sc && !sc->is_null()) add(dump(*sc));
     const auto repeats_structured = [&](const std::string& t) {
         if (!sc || sc->is_null() || t.empty() || (t.front() != '{' && t.front() != '[')) return false;
-        Json parsed = Json::parse(t, nullptr, false);
+        Json parsed = parse_json_lenient(t);
         return !parsed.is_discarded() && parsed == *sc;
     };
     if (const Json* content = child(*r, "content"); content && content->is_array()) {

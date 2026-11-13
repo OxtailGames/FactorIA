@@ -1,0 +1,9 @@
+# UndefinedBehaviorSanitizer ignore list of the FA_FUZZ build (cmake/FactoriaFuzz.cmake).
+#
+# The code in external/ is other people's (stb, dr_libs, cgltf, the Basis Universal transcoder, TinySoundFont...): we do not edit it,
+# and some of it shifts negative numbers, adds to signed integers until they wrap or reads unaligned on purpose. Those findings are
+# not ours to fix and would stop every run at the first input that reaches them. AddressSanitizer is NOT silenced for this code: a
+# read or write outside a buffer in external/ still fails the run, and the engine wrappers around it (size and range checks) are
+# compiled and checked as usual. The list matches the file that declares a function, so header-only libraries are covered too.
+[undefined]
+src:*/external/*

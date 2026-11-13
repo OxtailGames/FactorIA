@@ -1117,7 +1117,7 @@ void check_style_section(Ctx& c) {
     if (parsed.guide.audio && !parsed.guide.audio->loudnessLufs.empty()) {
         std::vector<std::string> buses = {"master", "sfx", "music", "ui"};
         if (auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName)) {
-            Json pj = Json::parse(*text, nullptr, false);
+            Json pj = parse_json_lenient(*text);
             if (pj.is_object() && pj.contains("audio"))
                 for (const AudioBusDef& b : parse_audio_settings(pj["audio"]).buses) buses.push_back(b.name);
         }

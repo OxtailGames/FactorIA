@@ -1,11 +1,14 @@
 // KTX2 textures (Basis Universal): the compressed twin an export writes for a texture, transcoded to the format the GPU
 // samples. See docs/ASSETS.md, "Textures".
+#include <algorithm>
 #include <cstdlib>
 #include <mutex>
 
 #include <transcoder/basisu_transcoder.h>
 
+#include "fa/core/image.h"
 #include "fa/core/strings.h"
+#include "fa/render/ktx2.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -24,6 +27,10 @@ constexpr Target kTargets[] = {
     {SG_PIXELFORMAT_BC7_RGBA, basist::transcoder_texture_format::cTFBC7_RGBA, "bc7"},
     {SG_PIXELFORMAT_ETC2_RGBA8, basist::transcoder_texture_format::cTFETC2_RGBA, "etc2"},
 };
+
+std::uint32_t readle32(const std::uint8_t* p) {
+    return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 | std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
+}
 
 const Target* pick_target() {
     const char* forced = std::getenv("FA_TEXTURE_FORMAT");
@@ -61,13 +68,32 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     std::call_once(once, [] { basist::basisu_transcoder_init(); });
 
     basist::ktx2_transcoder ktx;
-    if (!ktx.init(data, std::uint32_t(size)))
+    if (!data || size > std::size_t(0xFFFFFFFFu) || !ktx.init(data, std::uint32_t(size)))
         return make_error("not a valid KTX2 file", "Export the project again: `factoria export` writes these files.");
     if (!ktx.is_uastc() && !ktx.is_etc1s())
         return make_error("the KTX2 file does not hold UASTC or ETC1S data",
                           "Set the texture's `compression` in assets.json to uastc or etc1s and export again.");
     if (ktx.get_faces() != 1 || ktx.get_layers() > 1)
         return make_error("the KTX2 file is not a single 2D texture", "Export the project again.");
+    // The header's sizes decide how much memory the transcode asks for: refuse what no texture of this engine is before it.
+    const std::uint64_t width = ktx.get_width(), height = ktx.get_height();
+    if (width == 0 || height == 0 || width > std::uint64_t(kMaxImageSide) || height > std::uint64_t(kMaxImageSide) ||
+        width * height > kMaxImagePixels || ktx.get_levels() > 16)
+        return make_error("the KTX2 file claims " + std::to_string(width) + " x " + std::to_string(height) + " pixels and " +
+                              std::to_string(ktx.get_levels()) + " mip levels, beyond the " + std::to_string(kMaxImageSide) + " x " +
+                              std::to_string(kMaxImageSide) + " and 16 levels the engine reads",
+                          "Export the project again: `factoria export` writes these files.");
+    // Without a supercompression scheme a level's stored and uncompressed lengths are the same number (KTX2 spec, "Level Index");
+    // the transcoder only asserts it, so a file that disagrees is refused here (the fuzz target `ktx2` found one).
+    if (size >= 80 && readle32(data + 44) == 0) {
+        const std::uint32_t levels = std::max<std::uint32_t>(1, readle32(data + 40));
+        for (std::uint32_t level = 0; level < levels && 80 + 24 * std::uint64_t(level + 1) <= size; ++level) {
+            const std::uint8_t* entry = data + 80 + 24 * std::size_t(level);
+            if (readle32(entry + 8) != readle32(entry + 16) || readle32(entry + 12) != readle32(entry + 20))
+                return make_error("mip level " + std::to_string(level) + " of the KTX2 file stores a different number of bytes than it unpacks to",
+                                  "Export the project again: `factoria export` writes these files.");
+        }
+    }
     if (!ktx.start_transcoding()) return make_error("the KTX2 file is damaged", "Export the project again.");
 
     // D3D11 and WebGPU create block-compressed textures only when the size is a multiple of the block, so any other size
@@ -95,3 +121,19 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
 }
 
 }  // namespace fa::render
+
+namespace fa {
+
+Result<Image> decode_ktx2(const std::uint8_t* data, std::size_t size) {
+    auto tex = render::transcode_ktx2_as(data, size, SG_PIXELFORMAT_RGBA8);
+    if (!tex) return tex.error();
+    if (tex->levels.empty() || tex->levels.front().size() != std::size_t(tex->width) * std::size_t(tex->height) * 4)
+        return make_error("the KTX2 file has no base level", "Export the project again: `factoria export` writes these files.");
+    Image img;
+    img.width = tex->width;
+    img.height = tex->height;
+    img.rgba = std::move(tex->levels.front());
+    return img;
+}
+
+}  // namespace fa

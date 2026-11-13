@@ -405,6 +405,10 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
         error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit next to the .gltf and be inside the project.", path, int(r));
         return false;
     }
+    if (auto sound = gltf_check(data, path); !sound) {
+        error = sound.error().message + " " + sound.error().hint;
+        return false;
+    }
     const std::string dir = fs::parent(path);
     std::shared_ptr<const SkeletonAsset> skeleton;
     out.bmin = {1e30f, 1e30f, 1e30f};

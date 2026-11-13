@@ -1301,7 +1301,7 @@ FlushResult share_flush(const ShareEnv& env, const FlushOptions& options) {
         };
         std::string outcome = "sent";
         std::string message;
-        Json body = resp.ok ? Json::parse(resp.body, nullptr, false) : Json();
+        Json body = resp.ok ? parse_json_lenient(resp.body) : Json();
         if (!resp.ok) {
             const std::string why = resp.error.empty() ? "the request failed" : resp.error;
             retry_all(why, 0);
@@ -1765,7 +1765,7 @@ VerdictResult share_sync_verdicts(const ShareEnv& env, const std::string& feedba
     if (!resp.ok) return finish("failed", "Could not reach the feedback server (" + (resp.error.empty() ? std::string("the request failed") : resp.error) + ").");
     // A server from before the verdicts answers 404 (or 405): nothing to learn from it, and nothing is wrong.
     if (resp.status == 404 || resp.status == 405) return finish("unsupported", "This feedback server does not give verdicts yet.");
-    Json body = Json::parse(resp.body, nullptr, false);
+    Json body = parse_json_lenient(resp.body);
     if (resp.status != 200 || !body.is_object() || !body.value("ok", false) || !body.contains("verdicts") || !body["verdicts"].is_array())
         return finish("failed", server_message(body, "the server answered " + std::to_string(resp.status)));
     res.checked = int(ids.size());
