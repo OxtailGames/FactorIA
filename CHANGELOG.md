@@ -41,6 +41,12 @@ The whole C++ code base is formatted with `.clang-format` (the commit is listed 
   (silenced around its `#include` only), a missing `<algorithm>` in a core test, `if constexpr` for the build-time
   constants the MSVC compiler reports as constant conditions, and Apple's linker warning about the repeated libraries of
   `fa_bench` and `fa_test_tooling`.
+- Second strict CI run (M93): MSVC's false `C4701` in the vendored dr_wav and qoa (silenced around their `#include`
+  only) and a truncating cast in a font test; the fuzz targets' stale-folder cleanup kept a reference into a temporary
+  file name (GCC `-Wdangling-reference`, a real bug); the audio tests' allocation counter, which replaces the global
+  `operator new`, is off in sanitizer builds, whose runtimes define it too (the TSan link failed); and
+  `scripts/tidy-changed.sh` leaves out the files only a commit of `.git-blame-ignore-revs` changed, so the reformat
+  does not make clang-tidy check every file.
 - Formatting and lint (M93.3): `.clang-format`, `.clang-format-ignore` and `.editorconfig` describe the code style; `scripts/format.sh [--check] [--changed <base>]` formats or checks first-party C and C++ with a pinned clang-format (a pip wheel in `build/lint-venv`), and `.clang-tidy` with `scripts/tidy-changed.sh <base>` runs a few bug-finding checks over the changed sources. A new `lint` CI job runs both on what a change touches. docs/BUILDING.md, "Formatting and lint".
 - **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
   AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,

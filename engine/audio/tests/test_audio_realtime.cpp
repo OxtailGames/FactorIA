@@ -36,6 +36,10 @@ std::size_t allocations_while_mixing(Fixture& fx, double seconds) {
 }  // namespace
 
 TEST_CASE("audio callback: the counter sees this thread's allocations and only while a scope is alive") {
+    if constexpr (!AllocCounter::available) {
+        MESSAGE("skipped: a sanitizer build owns the global operator new, so nothing is counted");
+        return;
+    }
     {
         AllocCounter::Scope scope;
         void* p = AllocCounter::allocate_for_test(16);

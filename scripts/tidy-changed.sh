@@ -19,6 +19,20 @@ build="${2:-build/tidy}"
 
 tool="$(fa_lint_tool tidy)" || exit 2
 files="$(fa_lint_files "$([ "$base" = --all ] || echo "$base")")" || { echo "error: could not diff against '$base'. Hint: fetch it first (git fetch origin) and pass origin/main" >&2; exit 2; }
+# A file that only a commit of .git-blame-ignore-revs touched (a repo-wide reformat) has no new code to check: leave it
+# out, or a branch that carries the reformat would check every file and run past the CI job's time limit.
+if [ "$base" != --all ] && [ -n "$files" ] && [ -f .git-blame-ignore-revs ]; then
+    ignored="$(grep -Eo '^[0-9a-f]{40}' .git-blame-ignore-revs | sort -u)"
+    touched="$(git diff --name-only HEAD -- $fa_lint_roots)"
+    for rev in $(git rev-list --no-merges "$base"..HEAD); do
+        grep -qx "$rev" <<< "$ignored" && continue
+        touched="$touched"$'\n'"$(git diff-tree --no-commit-id --name-only -r --diff-filter=d "$rev" -- $fa_lint_roots)"
+    done
+    kept="$(grep -Fxf <(printf '%s\n' "$touched" | grep -v '^$' | sort -u) <<< "$files" || true)"
+    skipped=$(( $(printf '%s\n' "$files" | grep -c .) - $(printf '%s\n' "$kept" | grep -c .) ))
+    [ "$skipped" -gt 0 ] && echo "tidy: $skipped files left out: only a commit of .git-blame-ignore-revs changed them"
+    files="$kept"
+fi
 # Windows-only and Apple-only sources do not compile on this host.
 case "$(uname -s)" in
     Darwin*) files="$(grep -Ev '_(win32|android|linux|egl|web)\.' <<< "$files")" ;;

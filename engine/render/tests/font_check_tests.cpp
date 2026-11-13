@@ -208,7 +208,7 @@ TEST_CASE("font bytes: a glyph that is one point off the curve loads, and is dra
         REQUIRE(std::int16_t(be16(font, glyph)) == 1);
         set16(font, glyph + 10, 0);                                         // the contour ends at point 0
         const std::size_t flags = glyph + 12 + 2 + be16(font, glyph + 12);  // after the instructions
-        font[flags] &= std::uint8_t(~1u);                                   // and point 0 is off the curve
+        font[flags] = std::uint8_t(font[flags] & 0xFEu);                    // and point 0 is off the curve
     };
     Bytes oneDot = read_font("tiny_composite.ttf");
     one_dot(oneDot, 1);

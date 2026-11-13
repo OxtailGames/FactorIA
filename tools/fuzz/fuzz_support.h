@@ -39,7 +39,7 @@ inline void remove_stale_projects(const std::filesystem::path& parent) {
     const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
     for (std::filesystem::directory_iterator it(parent, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code entryEc;
-        const auto& name = it->path().filename().native();
+        const auto name = it->path().filename().native();  // a copy: filename() is a temporary
         if (name.rfind(prefix.native(), 0) != 0) continue;
         // Only fa_fuzz_<pid>_<n> (and make_temp_dir's _<n> suffix): never a user's fa_fuzz_findings or fa_fuzz_corpus.
         const auto rest = name.substr(prefix.native().size());
