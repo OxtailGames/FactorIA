@@ -5,8 +5,16 @@
 #define STBI_NO_STDIO
 #define STBI_WRITE_NO_STDIO
 #define STBI_NO_HDR
+// MSVC: no warnings from the vendored implementation compiled here (its flow-analysis warnings, such as C4701
+// and C4702, are reported in this file under /WX; external/ is not edited).
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
 #include <stb_image.h>
 #include <stb_image_write.h>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include "fa/core/image.h"
 
