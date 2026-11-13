@@ -1,6 +1,7 @@
 // Tilemap::tiles as a flat fa::ArrayI32 (M94.2b): the rows form of a file, the errors, the stamps caches compare.
 #include <doctest.h>
 
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -143,4 +144,78 @@ TEST_CASE("tilemap array: component_to_json can summarise a big tiles array (the
     const Json full = component_to_json(w, e, World::type_of<Tilemap>(), false, false);
     CHECK(full["tiles"].size() == 512u * 512u);
     CHECK(tm.tiles.version() == version);  // building the JSON only reads
+}
+
+TEST_CASE("tilemap edits: tilemap_edits_since explains a stamp by the writes since, and refuses what the log does not cover") {
+    Tilemap tm;
+    tm.tileSize = {16, 16};
+    set_tilemap_grid(tm, 8, 8, std::vector<int>(64, -1));
+    const TilemapStamp s0 = tilemap_stamp(tm);
+    std::span<const TileEdit> edits;
+    REQUIRE(tilemap_edits_since(tm, s0, edits));  // nothing happened
+    CHECK(edits.empty());
+    REQUIRE(set_tilemap_tile(tm, 1, 1, 4));
+    REQUIRE(set_tilemap_tile(tm, 2, 3, 5));
+    REQUIRE(set_tilemap_tile(tm, 1, 1, 6));
+    REQUIRE(tilemap_edits_since(tm, s0, edits));
+    REQUIRE(edits.size() == 3);
+    CHECK(edits[0].cell == 1 * 8 + 1);
+    CHECK(edits[0].oldIndex == -1);
+    CHECK(edits[0].newIndex == 4);
+    CHECK(edits[1].cell == 3 * 8 + 2);
+    CHECK(edits[2].oldIndex == 4);
+    CHECK(edits[2].newIndex == 6);
+    const TilemapStamp s1 = tilemap_stamp(tm);
+    REQUIRE(set_tilemap_tile(tm, 0, 0, 7));
+    REQUIRE(tilemap_edits_since(tm, s1, edits));  // the log is not consumed: an older stamp still works
+    CHECK(edits.size() == 1);
+    REQUIRE(tilemap_edits_since(tm, s0, edits));
+    CHECK(edits.size() == 4);
+    // A write that bypasses the log (the version moves, no edit) is not explained.
+    tm.tiles.set(5, 9);
+    CHECK_FALSE(tilemap_edits_since(tm, s1, edits));
+    CHECK(edits.empty());
+    CHECK_FALSE(tilemap_edits_since(tm, s0, edits));
+    // Another size is another map.
+    TilemapStamp wrong = tilemap_stamp(tm);
+    wrong.width += 1;
+    CHECK_FALSE(tilemap_edits_since(tm, wrong, edits));
+}
+
+TEST_CASE("tilemap edits: assigning a Tilemap never lets its edit log explain the destination's change") {
+    Tilemap a, b;
+    a.tileSize = b.tileSize = {16, 16};
+    set_tilemap_grid(a, 8, 8, std::vector<int>(64, -1));
+    set_tilemap_grid(b, 8, 8, std::vector<int>(64, 2));
+    const TilemapStamp before = tilemap_stamp(a);
+    REQUIRE(set_tilemap_tile(b, 3, 3, 9));  // b: one edit, and one version step on top of the tiles it was set to
+    a = b;
+    std::span<const TileEdit> edits;
+    CHECK_FALSE(tilemap_edits_since(a, before, edits));  // same id, one version step, the edit does not describe a's change
+    // The log works again for the writes that follow.
+    const TilemapStamp after = tilemap_stamp(a);
+    REQUIRE(set_tilemap_tile(a, 0, 0, 1));
+    REQUIRE(tilemap_edits_since(a, after, edits));
+    CHECK(edits.size() == 1);
+    // A moved-in Tilemap too.
+    Tilemap c = a;
+    REQUIRE(set_tilemap_tile(c, 1, 0, 3));
+    const TilemapStamp beforeMove = tilemap_stamp(a);
+    a = std::move(c);
+    CHECK_FALSE(tilemap_edits_since(a, beforeMove, edits));
+}
+
+TEST_CASE("tilemap edits: the log stays bounded and a stamp older than it is refused") {
+    Tilemap tm;
+    tm.tileSize = {16, 16};
+    set_tilemap_grid(tm, 100, 100, std::vector<int>(10000, -1));
+    const TilemapStamp old = tilemap_stamp(tm);
+    for (int i = 0; i < 6000; ++i) REQUIRE(set_tilemap_tile(tm, i % 100, i / 100, i % 5));
+    CHECK(tm.edits.size() <= 4096);
+    std::span<const TileEdit> edits;
+    CHECK_FALSE(tilemap_edits_since(tm, old, edits));
+    const TilemapStamp recent = tilemap_stamp(tm);
+    REQUIRE(set_tilemap_tile(tm, 50, 50, 1));
+    REQUIRE(tilemap_edits_since(tm, recent, edits));
+    CHECK(edits.size() == 1);
 }

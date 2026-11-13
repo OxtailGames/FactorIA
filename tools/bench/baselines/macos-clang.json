@@ -302,15 +302,37 @@
       "unit": "component gets"
     },
     "physics.tilemap_edit": {
-      "medianMs": 0.224,
-      "minMs": 0.194,
-      "maxMs": 0.272,
-      "p25Ms": 0.196,
-      "p75Ms": 0.225,
-      "spread": 0.13,
-      "cpuMedianMs": 0.224,
+      "medianMs": 0.126,
+      "minMs": 0.126,
+      "maxMs": 0.146,
+      "p25Ms": 0.126,
+      "p75Ms": 0.127,
+      "spread": 0.012,
+      "cpuMedianMs": 0.127,
       "items": 40,
       "unit": "cell edits"
+    },
+    "physics.tilemap_edit_large": {
+      "medianMs": 0.13,
+      "minMs": 0.124,
+      "maxMs": 0.148,
+      "p25Ms": 0.129,
+      "p75Ms": 0.139,
+      "spread": 0.076,
+      "cpuMedianMs": 0.131,
+      "items": 40,
+      "unit": "cell edits"
+    },
+    "nav.tilemap_edit": {
+      "medianMs": 0.163,
+      "minMs": 0.162,
+      "maxMs": 0.17,
+      "p25Ms": 0.162,
+      "p75Ms": 0.163,
+      "spread": 0.005,
+      "cpuMedianMs": 0.163,
+      "items": 40,
+      "unit": "edits and queries"
     }
   }
 }

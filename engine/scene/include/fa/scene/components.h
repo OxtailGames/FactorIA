@@ -369,11 +369,13 @@ inline TextDirection text_paragraph_direction(const Text& t, bool languageRtl) {
 }
 
 // One tile written through set_tilemap_tile(): `cell` is row * width + col, the indices are tile_index() of the old and the
-// new value (-1 = empty). 2D physics reads these to patch only the colliders that changed.
+// new value (-1 = empty), `version` is tiles.version() right after the write. 2D physics and the tile cost grid read these
+// (tilemap_edits_since) to rebuild only the chunks that changed.
 struct TileEdit {
     std::int32_t cell = 0;
     std::int32_t oldIndex = -1;
     std::int32_t newIndex = -1;
+    std::uint64_t version = 0;
 };
 
 // How the cells of a Tilemap lie in the world: squares (Orthogonal) or diamonds seen from above at an angle (Isometric).
@@ -404,8 +406,13 @@ struct Tilemap {
     bool lit = false;            // shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;       // normal map image with the same layout as the tileset ("" = flat); needs lit
     bool occludesLight = false;  // the tiles in solidTiles block the light of Light2D with castShadows
-    // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
+    // Runtime only (not a field, not saved): the last tiles written by set_tilemap_tile(), oldest first, a few thousand at
+    // most (the oldest are dropped). Nobody empties it: every consumer (2D physics, the tile cost grid) keeps the
+    // TilemapStamp it built from and asks tilemap_edits_since() for what happened after it. `editsArray` is the tiles.id()
+    // the list belongs to: a Tilemap copied or assigned from another one carries the other's list, which explains nothing
+    // about this array.
     std::vector<TileEdit> edits;
+    std::uint64_t editsArray = 0;
     // Runtime only: how often `width` / `height` changed as tilemap_version() saw it (the part of the map's change counter
     // that `tiles.version()` does not count). `sizeSeen` is false until tilemap_version() looked once.
     std::int32_t seenWidth = 0;
