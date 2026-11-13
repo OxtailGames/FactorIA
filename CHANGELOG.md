@@ -41,6 +41,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   before and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7,
   100000 field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access`
   43 -> 17 and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
+- 3D physics: the solver has a broad phase. A dynamic AABB tree with fat boxes finds the candidate pairs of the
+  sub-step, the first impacts, the contact events, the sleeping bodies a mover wakes, the bodies a moving platform
+  carries and the movers that share a time-of-impact island, instead of testing every pair. The result of the
+  simulation is the same (the replay hash does not change). A scene of 1000 bodies steps about 4.5 times faster
+  (macOS, Release, quiet machine: `physics.step3d_1000` 471 ms to about 100 ms), and the cost of a step now grows with
+  the bodies that are close to each other: a pit of 1000 falling bodies costs about 6 times a pit of 250 (testing every
+  pair costs about 16 times). The pair scan of 64 or more rows runs in chunks of 16 rows on the job threads.
 
 ## 0.26.0
 
