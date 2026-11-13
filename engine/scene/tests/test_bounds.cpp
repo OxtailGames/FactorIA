@@ -2,6 +2,7 @@
 #include <doctest.h>
 
 #include <cmath>
+#include <limits>
 
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
@@ -295,11 +296,11 @@ TEST_CASE("bounds: a deformable Sprite is bounded by its moved vertices") {
     s.meshRows = 1;
     check_rect(entity_world_rect(f.w, e), -10, -10, 20, 20);  // no offsets: the plain box
     // 3 x 2 vertices, row by row from the TOP row: the top-middle vertex (index 1) moves 5 up and 3 right.
-    s.vertexOffsets = Json::array({0, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0});
+    s.vertexOffsets = ArrayF32{0, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0};
     check_rect(entity_world_rect(f.w, e), -10, -10, 20, 25);
-    s.vertexOffsets = Json::array({0, 0, 0, 0, 0, 0, -4, 0, 0, 0, 0, 0});  // the bottom-left vertex moves 4 left
+    s.vertexOffsets = ArrayF32{0, 0, 0, 0, 0, 0, -4, 0, 0, 0, 0, 0};  // the bottom-left vertex moves 4 left
     check_rect(entity_world_rect(f.w, e), -14, -10, 24, 20);
-    s.vertexOffsets = Json::array({0, 0, 0, 0});  // shorter than the grid: the rest stays in place, no crash
+    s.vertexOffsets = ArrayF32{0, 0, 0, 0};  // shorter than the grid: the rest stays in place, no crash
     check_rect(entity_world_rect(f.w, e), -10, -10, 20, 20);
 
     int cols = 0, rows = 0;
@@ -315,10 +316,10 @@ TEST_CASE("bounds: a deformable Sprite is bounded by its moved vertices") {
     CHECK_FALSE(sprite_mesh_grid(s, cols, rows));
     s.meshColumns = 0;
     CHECK_FALSE(sprite_mesh_grid(s, cols, rows));
-    // Offsets that are not numbers count as 0; extra numbers are ignored.
+    // Offsets that are not finite count as 0; extra numbers are ignored.
     s.meshColumns = 1;
     s.meshRows = 1;
-    s.vertexOffsets = Json::array({"x", 2, 1, 1, 1, 1, 1, 1, 9, 9, 9});
+    s.vertexOffsets = ArrayF32{std::numeric_limits<float>::infinity(), 2, 1, 1, 1, 1, 1, 1, 9, 9, 9};
     const std::vector<float> o = sprite_vertex_offsets(s, 1, 1);
     REQUIRE(o.size() == 8);
     CHECK(o[0] == 0.0f);
@@ -333,7 +334,7 @@ TEST_CASE("Tint, gradient fields and the new Sprite fields are reflected and rou
     sp.skew = {10, -5};
     sp.meshColumns = 3;
     sp.meshRows = 2;
-    sp.vertexOffsets = Json::array({1, 2, 3});
+    sp.vertexOffsets = ArrayF32{1, 2, 3};
     Shape2D& sh = f.w.add<Shape2D>(e);
     sh.gradientEase = GradientEase::CubicInOut;
     sh.gradientStops = Json::array({Json::array({0, "#ff0000"}), Json::array({1, Json::array({0, 0, 1, 1})})});
@@ -386,4 +387,55 @@ TEST_CASE("gradient_ease_apply: endpoints are exact, the curves bend the way the
         CHECK(v >= prev);
         prev = v;
     }
+}
+
+TEST_CASE("Sprite.vertexOffsets / vertexColors and SpriteSkin.bindPose are float arrays: same JSON on disk, a bad element teaches") {
+    ensure_builtin_components();
+    // The JSON an older file holds still loads, and saves back as the same flat numbers.
+    World w;
+    Json colors = Json::array();
+    for (int i = 0; i < 16; ++i) colors.push_back(1);
+    const Json scene = Json::object(
+        {{"format", "factoria.scene/1"},
+         {"entities",
+          Json::array({Json::object(
+              {{"id", "p"},
+               {"components",
+                Json::object({{"Sprite", Json::object({{"meshColumns", 1},
+                                                       {"meshRows", 1},
+                                                       {"vertexOffsets", Json::array({0, 0, 3.5, 5, 0, 0, 0, 0})},
+                                                       {"vertexColors", colors}})},
+                              {"SpriteSkin", Json::object({{"bindPose", Json::array({1, 0, 0, 1, 2, 3})}})}})}})})}});
+    const LoadReport ok = load_scene(w, scene, "<test>");
+    INFO(ok.summary());
+    REQUIRE(ok.ok());
+    Entity e = w.find_by_id("p");
+    REQUIRE(w.alive(e));
+    const Sprite* sp = w.get<Sprite>(e);
+    REQUIRE(sp != nullptr);
+    CHECK(sp->vertexOffsets.size() == 8);
+    CHECK(sp->vertexOffsets.cdata()[2] == doctest::Approx(3.5f));
+    CHECK(w.get<SpriteSkin>(e)->bindPose.size() == 6);
+    const Json back = component_to_json(w, e, World::type_of<Sprite>());
+    CHECK(back["vertexOffsets"] == Json::array({0, 0, 3.5, 5, 0, 0, 0, 0}));
+
+    // An element that is not a number is refused with the field and its index.
+    World bad;
+    Json broken = scene;
+    broken["entities"][0]["components"]["Sprite"]["vertexOffsets"] = Json::array({0, "x", 1});
+    const LoadReport report = load_scene(bad, broken, "<test>");
+    REQUIRE_FALSE(report.ok());
+    bool taught = false;
+    for (const LoadMessage& m : report.messages)
+        if (m.pointer.find("/Sprite/vertexOffsets") != std::string::npos && m.message.find("element 1") != std::string::npos)
+            taught = true;
+    CHECK(taught);
+
+    // A write through the component counts for the array's version; the renderer's read does not.
+    Sprite* mut = w.get<Sprite>(e);
+    const auto v0 = mut->vertexOffsets.version();
+    (void)sprite_vertex_offsets(*mut, 1, 1);
+    CHECK(mut->vertexOffsets.version() == v0);
+    mut->vertexOffsets[0] = 1.0f;
+    CHECK(mut->vertexOffsets.version() != v0);
 }

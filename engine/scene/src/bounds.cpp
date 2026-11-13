@@ -59,26 +59,16 @@ bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows) {
 
 std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows) {
     std::vector<float> out;
-    if (!s.vertexOffsets.is_array() || s.vertexOffsets.empty()) return out;
+    if (s.vertexOffsets.empty()) return out;
     out.assign(std::size_t(columns + 1) * std::size_t(rows + 1) * 2, 0.0f);
-    std::size_t i = 0;
-    for (const Json& v : s.vertexOffsets) {
-        if (i >= out.size()) break;
-        if (v.is_number()) {
-            const float f = float(v.get<double>());
-            out[i] = std::isfinite(f) ? f : 0.0f;
-        }
-        ++i;
-    }
+    const std::size_t n = std::min(out.size(), s.vertexOffsets.size());
+    const float* src = s.vertexOffsets.cdata();
+    for (std::size_t i = 0; i < n; ++i) out[i] = std::isfinite(src[i]) ? src[i] : 0.0f;
     return out;
 }
 
 std::string sprite_vertex_colors_problem(const Sprite& s) {
-    if (s.vertexColors.is_null() || (s.vertexColors.is_array() && s.vertexColors.empty())) return {};
-    if (!s.vertexColors.is_array())
-        return "Sprite.vertexColors must be an array of numbers [r, g, b, a, ...], one RGBA per grid vertex, got " +
-               std::string(s.vertexColors.type_name()) +
-               ". Example for a 2 x 1 grid: [1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1, 1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1]";
+    if (s.vertexColors.empty()) return {};
     int columns = 0, rows = 0;
     if (!sprite_mesh_grid(s, columns, rows))
         return "Sprite.vertexColors is set but the sprite is not deformable (meshColumns " +
@@ -95,14 +85,12 @@ std::string sprite_vertex_colors_problem(const Sprite& s) {
 
 std::vector<float> sprite_vertex_colors(const Sprite& s, int columns, int rows) {
     std::vector<float> out;
-    if (!s.vertexColors.is_array() || s.vertexColors.empty()) return out;
+    if (s.vertexColors.empty()) return out;
     const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
     if (s.vertexColors.size() != need) return out;
-    out.reserve(need);
-    for (const Json& v : s.vertexColors) {
-        float f = v.is_number() ? float(v.get<double>()) : 1.0f;
-        out.push_back(std::isfinite(f) ? f : 1.0f);
-    }
+    out.resize(need);
+    const float* src = s.vertexColors.cdata();
+    for (std::size_t i = 0; i < need; ++i) out[i] = std::isfinite(src[i]) ? src[i] : 1.0f;
     return out;
 }
 

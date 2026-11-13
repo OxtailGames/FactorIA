@@ -16,6 +16,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 #include "fa/scene/skeleton.h"
 
@@ -171,10 +172,10 @@ struct Sprite {
     std::int32_t meshColumns =
         0;  // > 0 with meshRows > 0: the sprite is a grid of this many cells across (a deformable sprite)
     std::int32_t meshRows = 0;  // > 0 with meshColumns > 0: grid cells down
-    Json vertexOffsets =
-        Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
-    Json vertexColors =
-        Json::array();  // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
+    // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
+    ArrayF32 vertexOffsets;
+    // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
+    ArrayF32 vertexColors;
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -222,8 +223,8 @@ struct SpriteSkin {
     Json bones =
         Json::array();  // the bones, in weight order: ids of entities or names (paths) of bones near the sprite
     Json weights = Json("auto");  // "auto", or per grid vertex [boneIndex, weight, ...] (up to 4 pairs)
-    Json bindPose =
-        Json::array();  // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    ArrayF32 bindPose;
     bool outline =
         false;  // trace the mesh from the texture's opaque pixels instead of using Sprite.meshColumns / meshRows
     std::int32_t outlineDetail = 16;  // outline: grid cells along the longer side of the sprite

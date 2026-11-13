@@ -120,11 +120,11 @@ void build_2d(World& w) {
         if (kind == 6) {
             s.meshColumns = 3;
             s.meshRows = 2;
-            Json offsets = Json::array(), colors = Json::array();
+            ArrayF32 offsets, colors;
             for (int v = 0; v < 12; ++v) {
-                offsets.push_back(frac(i + v, 10) * 2 - 1);
-                offsets.push_back(frac(i + v, 11) * 2 - 1);
-                for (int k = 0; k < 4; ++k) colors.push_back(0.5 + frac(i + v + k, 12) * 0.5);
+                offsets.push_back(float(frac(i + v, 10) * 2 - 1));
+                offsets.push_back(float(frac(i + v, 11) * 2 - 1));
+                for (int k = 0; k < 4; ++k) colors.push_back(float(0.5 + frac(i + v + k, 12) * 0.5));
             }
             s.vertexOffsets = offsets;
             s.vertexColors = colors;

@@ -1809,7 +1809,7 @@ Nothing is sent before the player says yes, so ask first, and say in the privacy
   - `Sprite.skew = [20, 0]` leans the top edge right (degrees, about the pivot, clamped to +-80). `meshColumns` / `meshRows` make a
     sprite a grid of cells (at most 128 per side, 4096 cells) and `vertexOffsets` moves its vertices: a flat `[dx0, dy0, dx1, dy1, ...]`,
     top row first, +y up, `(meshColumns + 1) * (meshRows + 1)` pairs. The texture stretches with the vertices; still one entity and one
-    draw call; `slice` is ignored. A script writes the whole array each frame (a changed element of the array it read does not write back).
+    draw call; `slice` is ignored. A script writes the whole array each frame (a changed element of the array it read does not write back). `vertexOffsets`, `vertexColors` and `SpriteSkin.bindPose` are float arrays: on disk a flat JSON array of numbers, an element that is not a number is a load error naming its index.
     `vertexColors` is a flat `[r, g, b, a, ...]` with one RGBA per grid vertex in the same order (exactly `(meshColumns + 1) * (meshRows + 1) * 4`
     numbers, else a scene load error / one warning), multiplied with `color`: light and dark along a bent page without an overlay sprite.
   ```js
