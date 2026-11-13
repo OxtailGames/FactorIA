@@ -485,6 +485,11 @@ TEST_CASE("MCP over loopback HTTP: malformed messages get JSON-RPC errors and a 
 TEST_CASE("MCP over loopback HTTP: an answer that ends the connection survives input the server never read") {
     std::atomic<bool> inHandler{false}, release{false};
     McpHttpServer server;
+    // Declared after the server, so it runs first: a failed REQUIRE releases the handler instead of waiting its 30 s.
+    struct Release {
+        std::atomic<bool>& flag;
+        ~Release() { flag = true; }
+    } releaseOnExit{release};
     auto started = server.start(
         McpHttpServer::StreamHandler([&](std::string_view, const McpHttpServer::Notify&) -> std::optional<std::string> {
             inHandler = true;
