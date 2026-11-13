@@ -383,7 +383,7 @@ struct TileEdit {
 // scene pool relocates components by moving them).
 struct TileEditLog : std::vector<TileEdit> {
     TileEditLog() = default;
-    TileEditLog(const TileEditLog&) {}
+    TileEditLog(const TileEditLog&) : std::vector<TileEdit>() {}
     TileEditLog& operator=(const TileEditLog&) {
         clear();
         return *this;
