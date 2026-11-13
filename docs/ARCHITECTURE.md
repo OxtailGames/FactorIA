@@ -484,7 +484,7 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     rows): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
     reads positions and the tree and writes its own slots; the main thread then replays the slots in `(chunk, row, k)`
     order, which is the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
-    character controllers stay sequential.
+    character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
   - *3D broad phase* (`broadphase3d.h`): the 3D solver keeps a dynamic AABB tree with one leaf per enabled collider with a
     shape (created, removed and renumbered after every `sync`). A leaf holds a FAT box: the collider's bounds plus a margin
     (0.1 m when it moves, 0.02 m at rest) and, for a body in motion, its velocity over two steps; the leaf stays where it is
@@ -498,7 +498,10 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     have said no: the partners and the order are those of the old all-pairs loop, whatever the shape of the tree, the
     order bodies were added in or the number of threads, and the simulation result did not change. Pairs that keep their
     state because both bodies are asleep or static are not geometry: they come from `touching_`. Raycasts, overlaps, shape
-    casts and the character controller do not use the tree yet.
+    casts and the character controller do not use the tree yet. Besides the pair loops, the tree answers which bodies are near
+    a platform (the riders it carries) and which movers are close enough to share a time-of-impact island; a mover whose
+    reach is over 2 m, or whose centre is outside its box, is tried against every mover instead, and a platform finds the
+    characters it carries among the few that can be carried.
   - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
     more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
     `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the
