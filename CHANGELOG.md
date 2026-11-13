@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
+
 ## 0.26.0
 
 FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite
