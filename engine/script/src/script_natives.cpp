@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 #include "fa/audio/audio.h"
@@ -219,6 +221,116 @@ bool resolve_obj(Impl* I, JSContext* ctx, JSValueConst h, JSValueConst ti, void*
         return false;
     }
     return true;
+}
+
+// ---- ArrayI32 / ArrayF32 / ArrayU8 fields ------------------------------------------------------------------------------
+// A read gives a typed array holding a COPY of the field (Int32Array, Float32Array, Uint8Array); a write takes a typed
+// array or a plain array of numbers, validates every element and replaces the field only when all are good.
+template <class T>
+JSTypedArrayEnum js_array_type() {
+    if constexpr (std::is_same_v<T, std::int32_t>)
+        return JS_TYPED_ARRAY_INT32;
+    else if constexpr (std::is_same_v<T, float>)
+        return JS_TYPED_ARRAY_FLOAT32;
+    else
+        return JS_TYPED_ARRAY_UINT8;
+}
+
+template <class T>
+JSValue array_to_js(JSContext* ctx, const TypedArray<T>& a) {
+    static const std::uint8_t kNone = 0;  // JS_NewArrayBufferCopy of an empty array still needs a pointer
+    JSValue buf = JS_NewArrayBufferCopy(
+        ctx, a.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(a.cdata()), a.size() * sizeof(T));
+    if (JS_IsException(buf)) return buf;
+    JSValue arr = JS_NewTypedArray(ctx, 1, &buf, js_array_type<T>());
+    JS_FreeValue(ctx, buf);
+    return arr;
+}
+
+template <class T>
+JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& what, TypedArray<T>& dst,
+                      JSValueConst v) {
+    constexpr bool integral = std::is_integral_v<T>;
+    const int jsType = JS_GetTypedArrayType(v);
+    const bool typed = jsType >= 0;
+    const std::string expected = integral ? (std::is_same_v<T, std::uint8_t>
+                                                 ? "a Uint8Array or an array of integers from 0 to 255"
+                                                 : "an Int32Array or an array of integers")
+                                          : "a Float32Array or an array of numbers";
+    if (!typed && !JS_IsArray(v)) {
+        CStr s(ctx, v);
+        return throw_err(ctx, std::format("{} expects {}, got {}", what, expected,
+                                          JS_IsUndefined(v) ? "undefined" : "'" + s.str() + "'"));
+    }
+    int64_t length = 0;
+    {
+        JSValue l = JS_GetPropertyStr(ctx, v, "length");
+        JS_ToInt64(ctx, &length, l);
+        JS_FreeValue(ctx, l);
+    }
+    if (length < 0) length = 0;
+    if (static_cast<std::uint64_t>(length) > kMaxTypedArrayElements)  // before anything is allocated
+        return throw_err(ctx, std::format("{} holds at most {} elements, the array has {}", what,
+                                          kMaxTypedArrayElements, length));
+    const std::size_t n = static_cast<std::size_t>(length);
+    double lo = integral ? double(std::numeric_limits<T>::lowest()) : -double(FLT_MAX);
+    double hi = integral ? double(std::numeric_limits<T>::max()) : double(FLT_MAX);
+    const bool ranged = f.minValue != f.maxValue;
+    if (ranged) {
+        lo = std::max(lo, double(f.minValue));
+        hi = std::min(hi, double(f.maxValue));
+    }
+    // What an element must be, for the error text.
+    auto must_be = [&] {
+        if constexpr (integral)
+            return std::format("an integer from {} to {}", lo, hi);
+        else
+            return ranged ? std::format("a number from {} to {}", lo, hi) : std::string("a finite number");
+    };
+    auto bad = [&](double d) { return !std::isfinite(d) || d < lo || d > hi || (integral && d != std::floor(d)); };
+    std::vector<T> out(n);
+    // Fast path: a typed array of the field's own element type is copied as bytes, then checked in place.
+    const bool sameType = typed && (jsType == int(js_array_type<T>()) ||
+                                    (std::is_same_v<T, std::uint8_t> && jsType == JS_TYPED_ARRAY_UINT8C));
+    bool copied = false;
+    if (sameType && n > 0) {
+        std::size_t off = 0, len = 0, per = 0;
+        JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+        if (JS_IsException(buf)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        } else {
+            std::size_t size = 0;
+            const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+            if (data && per == sizeof(T) && len == n * sizeof(T) && off + len <= size) {
+                std::memcpy(out.data(), data + off, len);
+                copied = true;
+            }
+            JS_FreeValue(ctx, buf);
+        }
+        if (copied) {
+            for (std::size_t i = 0; i < n; ++i)
+                if (bad(double(out[i])))
+                    return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), out[i]));
+        }
+    }
+    if (!copied) {
+        for (std::size_t i = 0; i < n; ++i) {
+            JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
+            double d = 0;
+            const bool number = JS_IsNumber(x);
+            if (number) JS_ToFloat64(ctx, &d, x);
+            if (!number || bad(d)) {
+                CStr s(ctx, x);
+                std::string got = JS_IsUndefined(x) ? "undefined" : number ? s.str() : "'" + s.str() + "'";
+                JS_FreeValue(ctx, x);
+                return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), got));
+            }
+            JS_FreeValue(ctx, x);
+            out[i] = static_cast<T>(d);
+        }
+    }
+    dst.assign(out.data(), out.size());
+    return JS_UNDEFINED;
 }
 
 int float_count(FieldKind k) {
@@ -2161,6 +2273,9 @@ NATIVE(fget) {
             return ent_val(ctx, target);
         }
         case FieldKind::Json: return I->from_json(*static_cast<const Json*>(p));
+        case FieldKind::ArrayI32: return array_to_js(ctx, *static_cast<const ArrayI32*>(p));
+        case FieldKind::ArrayF32: return array_to_js(ctx, *static_cast<const ArrayF32*>(p));
+        case FieldKind::ArrayU8: return array_to_js(ctx, *static_cast<const ArrayU8*>(p));
         default: {
             int n = float_count(f.kind);
             const float* fp = static_cast<const float*>(p);
@@ -2313,6 +2428,9 @@ NATIVE(fset) {
             *static_cast<Json*>(p) = I->to_json(v);
             break;
         }
+        case FieldKind::ArrayI32: return array_from_js(ctx, f, what, *static_cast<ArrayI32*>(p), v);
+        case FieldKind::ArrayF32: return array_from_js(ctx, f, what, *static_cast<ArrayF32*>(p), v);
+        case FieldKind::ArrayU8: return array_from_js(ctx, f, what, *static_cast<ArrayU8*>(p), v);
         default: {
             int n = float_count(f.kind);
             if (!JS_IsObject(v))

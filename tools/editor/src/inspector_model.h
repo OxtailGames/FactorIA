@@ -34,6 +34,12 @@ enum class FieldWidget {
 // Runtime-only fields (serialized == false) are not shown: they are the engine's state, not the scene's.
 inline bool inspector_shows(const FieldInfo& f) { return f.serialized; }
 inline bool field_has_range(const FieldInfo& f) { return f.minValue != f.maxValue; }
+// The array kinds (ArrayI32, ArrayF32, ArrayU8) show as a JSON box holding the array on one line, up to this many
+// elements; a longer array shows its length only (the box is rebuilt from the JSON every frame).
+inline constexpr std::size_t kInspectorArrayEditMax = 512;
+inline bool is_array_kind(FieldKind k) {
+    return k == FieldKind::ArrayI32 || k == FieldKind::ArrayF32 || k == FieldKind::ArrayU8;
+}
 FieldWidget widget_for(const FieldInfo& f);
 const char* widget_name(FieldWidget w);
 // How many numbers a vector-like widget edits (Vec2 2, Vec3 3, Vec4/Color/Rect 4, a scalar 1, the rest 0).

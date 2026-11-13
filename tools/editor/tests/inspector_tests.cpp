@@ -26,7 +26,8 @@ TEST_CASE("inspector: every field kind gets a widget, and its arity matches the 
         {FieldKind::Vec4, FieldWidget::Vec4, 4},       {FieldKind::Color, FieldWidget::Color, 4},
         {FieldKind::Rect, FieldWidget::Rect, 4},       {FieldKind::Entity, FieldWidget::EntityCombo, 0},
         {FieldKind::Enum, FieldWidget::EnumCombo, 0},  {FieldKind::Asset, FieldWidget::AssetPicker, 0},
-        {FieldKind::Json, FieldWidget::JsonText, 0},
+        {FieldKind::Json, FieldWidget::JsonText, 0},     {FieldKind::ArrayI32, FieldWidget::JsonText, 0},
+        {FieldKind::ArrayF32, FieldWidget::JsonText, 0}, {FieldKind::ArrayU8, FieldWidget::JsonText, 0},
     };
     for (const Row& r : rows) {
         FieldInfo f;
