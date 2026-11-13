@@ -5,8 +5,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -922,4 +926,400 @@ TEST_CASE("jobs: an owner's wait runs only what that owner needs, not another ow
     CHECK(b.pending() == 1);
     REQUIRE(b.wait().ok());
     CHECK(ranB.load() == 1);
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// Characterization of the scheduler (M94.5b1): what any queue design behind submit/wait/parallel_for must keep. No test
+// here asserts a time; the waits that could hang if the scheduler were wrong run under a Watchdog, which ends the
+// program with a message long after any loaded machine would be done, instead of leaving it to the test timeout.
+
+namespace {
+
+// Aborts the process with a message if it is still alive after `limit` (a deadlock guard, never a measurement).
+class Watchdog {
+public:
+    explicit Watchdog(const char* what, std::chrono::seconds limit = std::chrono::seconds(240)) : what_(what) {
+        thread_ = std::thread([this, limit] {
+            std::unique_lock<std::mutex> lk(mu_);
+            if (!cv_.wait_for(lk, limit, [this] { return done_; })) {
+                std::fprintf(stderr, "test_jobs: deadlock guard: %s did not finish in %lld s\n", what_,
+                             static_cast<long long>(limit.count()));
+                std::fflush(stderr);
+                std::abort();
+            }
+        });
+    }
+    ~Watchdog() {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            done_ = true;
+        }
+        cv_.notify_all();
+        thread_.join();
+    }
+    Watchdog(const Watchdog&) = delete;
+    Watchdog& operator=(const Watchdog&) = delete;
+
+private:
+    const char* what_;
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool done_ = false;
+    std::thread thread_;
+};
+
+// A graph of jobs: job i depends on up to three earlier jobs chosen from i alone. Each job's value is a function of its
+// dependencies' values, so the answer is the same in every mode and a job that ran too early reads a 0.
+std::vector<std::size_t> dag_deps(std::size_t i) {
+    std::vector<std::size_t> d;
+    if (i >= 1) d.push_back(i - 1);
+    if (i >= 3) d.push_back(i / 3);
+    if (i >= 7 && i % 5 == 0) d.push_back(i % 7);
+    std::sort(d.begin(), d.end());
+    d.erase(std::unique(d.begin(), d.end()), d.end());
+    return d;
+}
+
+std::uint64_t dag_value(std::size_t i, const std::vector<std::uint64_t>& v) {
+    std::uint64_t x = 0x9E3779B97F4A7C15ull * (i + 1);
+    for (std::size_t d : dag_deps(i)) x = x * 31 + v[d] + 1;
+    return x;
+}
+
+}  // namespace
+
+TEST_CASE("jobs: a dependency graph gives the same values, and every job starts after its dependencies ended") {
+    constexpr std::size_t n = 300;
+    std::vector<std::uint64_t> reference(n, 0);
+    for (std::size_t i = 0; i < n; ++i) reference[i] = dag_value(i, reference);
+    for (const jobs::Settings& s : all_modes()) {
+        CAPTURE(s.describe());
+        PoolScope pool(s);
+        Watchdog guard("the dependency graph");
+        for (int round = 0; round < 3; ++round) {
+            std::vector<std::uint64_t> values(n, 0);
+            std::vector<int> started(n, -1), ended(n, -1);
+            std::atomic<int> clock{0};
+            std::vector<jobs::Handle> hs;
+            hs.reserve(n);
+            for (std::size_t i = 0; i < n; ++i) {
+                std::vector<jobs::Handle> deps;
+                for (std::size_t d : dag_deps(i)) deps.push_back(hs[d]);
+                hs.push_back(jobs::submit(
+                    "test.dag",
+                    [&, i] {
+                        started[i] = clock.fetch_add(1);
+                        values[i] = dag_value(i, values);
+                        ended[i] = clock.fetch_add(1);
+                    },
+                    deps));
+            }
+            REQUIRE(jobs::wait_all(hs).ok());
+            CHECK(values == reference);
+            bool ordered = true;
+            for (std::size_t i = 0; i < n; ++i)
+                for (std::size_t d : dag_deps(i)) ordered = ordered && ended[d] >= 0 && ended[d] < started[i];
+            CHECK(ordered);
+        }
+    }
+}
+
+TEST_CASE("jobs: a waiter runs the jobs it needs out of queue order and leaves the others queued (0 workers)") {
+    PoolScope pool(jobs::Settings::threads(0));
+    Order order;
+    std::atomic<int> unrelated{0};
+    std::vector<jobs::Handle> others;
+    for (int i = 0; i < 5; ++i)
+        others.push_back(jobs::submit("test.other", [&] { unrelated.fetch_add(1); }));  // queued first
+    jobs::Handle dep = jobs::submit("test.dep", [&] { order.add("dep"); });
+    (void)jobs::submit("test.between", [&] { unrelated.fetch_add(1); });
+    jobs::Handle need = jobs::submit("test.need", [&] { order.add("need"); }, {dep});
+    (void)jobs::submit("test.after", [&] { unrelated.fetch_add(1); });
+    REQUIRE(jobs::wait(need).ok());
+    CHECK(order.names == std::vector<std::string>{"dep", "need"});  // the dependency first, then the job
+    CHECK(unrelated.load() == 0);                                   // nothing else was taken on the way
+    CHECK(!others[0].done());
+    // A wait for a job in the middle of the queue runs that one only.
+    REQUIRE(jobs::wait(others[3]).ok());
+    CHECK(unrelated.load() == 1);
+    CHECK(others[3].done());
+    CHECK(!others[0].done());
+    jobs::end_frame();  // with no worker, the frame end runs the rest
+    CHECK(unrelated.load() == 7);
+    CHECK(others[0].done());
+}
+
+TEST_CASE("jobs: a waiter helps with the job it needs while a worker is busy, also when it is not first in line") {
+    PoolScope pool(jobs::Settings::threads(1));
+    Watchdog guard("the helping waiter");
+    std::atomic<bool> gateStarted{false}, gateOpen{false};
+    std::atomic<int> unrelatedRan{0}, unrelatedBeforeNeeded{-1}, neededLane{-1};
+    jobs::Handle gate = jobs::submit("test.gate", [&] {
+        gateStarted = true;
+        spin_until([&] { return gateOpen.load(); });
+    });
+    REQUIRE(spin_until([&] { return gateStarted.load(); }));  // the only worker is busy now
+    std::vector<jobs::Handle> others;
+    for (int i = 0; i < 6; ++i) others.push_back(jobs::submit("test.queued", [&] { unrelatedRan.fetch_add(1); }));
+    jobs::Handle needed = jobs::submit("test.needed", [&] {
+        neededLane = jobs::current_lane();
+        unrelatedBeforeNeeded = unrelatedRan.load();
+        gateOpen = true;  // the waiter ran the job: only now may the worker go on
+    });
+    REQUIRE(jobs::wait(needed).ok());  // behind six queued jobs; only this thread can run it
+    CHECK(neededLane.load() == 0);
+    CHECK(unrelatedBeforeNeeded.load() == 0);  // the waiter skipped the six queued jobs
+    REQUIRE(jobs::wait(gate).ok());
+    REQUIRE(jobs::wait_all(others).ok());
+    CHECK(unrelatedRan.load() == 6);
+}
+
+TEST_CASE("jobs: nested waits do not deadlock when every worker is inside a job that waits") {
+    for (int workers : {1, 2, 4}) {
+        CAPTURE(workers);
+        PoolScope pool(jobs::Settings::threads(workers));
+        Watchdog guard("the nested waits");
+        constexpr int outerJobs = 8, middle = 3, leaves = 4;
+        std::atomic<int> entered{0};
+        std::atomic<std::uint64_t> sum{0};
+        std::vector<jobs::Handle> outers;
+        for (int o = 0; o < outerJobs; ++o) {
+            outers.push_back(jobs::submit("test.outer", [&, o] {
+                // Hold this thread until every worker is inside an outer job: from here on, no thread is free.
+                entered.fetch_add(1);
+                spin_until([&] { return entered.load() >= workers; });
+                std::vector<jobs::Handle> mids;
+                for (int m = 0; m < middle; ++m) {
+                    mids.push_back(jobs::submit("test.middle", [&, o, m] {
+                        std::vector<jobs::Handle> ls;
+                        for (int l = 0; l < leaves; ++l)
+                            ls.push_back(jobs::submit(
+                                "test.leaf", [&, o, m, l] { sum.fetch_add(std::uint64_t(o * 100 + m * 10 + l + 1)); }));
+                        auto r = jobs::wait_all(ls);
+                        if (!r) throw std::runtime_error(r.error().message);
+                        auto pf = jobs::parallel_for("test.middle.for", 10, 3,
+                                                     [&](const jobs::Chunk& c) { sum.fetch_add(c.size()); });
+                        if (!pf) throw std::runtime_error(pf.error().message);
+                    }));
+                }
+                auto r = jobs::wait_all(mids);
+                if (!r) throw std::runtime_error(r.error().message);
+            }));
+        }
+        REQUIRE(jobs::wait_all(outers).ok());
+        std::uint64_t expected = 0;
+        for (int o = 0; o < outerJobs; ++o)
+            for (int m = 0; m < middle; ++m) {
+                expected += 10;  // the parallel_for covers 10 items
+                for (int l = 0; l < leaves; ++l) expected += std::uint64_t(o * 100 + m * 10 + l + 1);
+            }
+        CHECK(sum.load() == expected);
+    }
+}
+
+TEST_CASE("jobs: a job that waits for itself, or for a job that needs it, gets 'can never end' in every mode") {
+    for (int workers : {0, 1, 2}) {
+        CAPTURE(workers);
+        PoolScope pool(jobs::Settings::threads(workers));
+        Watchdog guard("the never-ending waits");
+        std::atomic<bool> published{false};
+        jobs::Handle self, head;
+        std::string selfError, chainError;
+        self = jobs::submit("test.self", [&] {
+            spin_until([&] { return published.load(); });
+            auto r = jobs::wait(self);
+            selfError = r.ok() ? "" : r.error().message;
+        });
+        head = jobs::submit("test.chain.head", [&] {
+            spin_until([&] { return published.load(); });
+            // b needs the head, c needs b: waiting for c waits for the job that runs on this thread under this wait.
+            jobs::Handle b = jobs::submit("test.chain.b", [] {}, {head});
+            jobs::Handle c = jobs::submit("test.chain.c", [] {}, {b});
+            auto r = jobs::wait(c);
+            chainError = r.ok() ? "" : r.error().message;
+        });
+        published = true;
+        REQUIRE(jobs::wait(self).ok());
+        REQUIRE(jobs::wait(head).ok());
+        CHECK(selfError.find("can never end") != std::string::npos);
+        CHECK(chainError.find("can never end") != std::string::npos);
+        // The pool is still usable afterwards.
+        std::atomic<int> ran{0};
+        REQUIRE(jobs::wait(jobs::submit("test.after", [&] { ran.fetch_add(1); })).ok());
+        CHECK(ran.load() == 1);
+    }
+}
+
+TEST_CASE("jobs: jobs submitted from a worker, with dependencies on jobs that are still running, run in order") {
+    PoolScope pool(jobs::Settings::threads(2));
+    Watchdog guard("the jobs submitted from a worker");
+    std::atomic<bool> gateStarted{false}, gateOpen{false}, outerSubmitted{false}, outerOnWorker{false};
+    std::atomic<int> clock{0}, gateEnded{-1}, dependentStarted{-1};
+    std::atomic<bool> dependentRan{false};
+    jobs::Handle gate = jobs::submit("test.gate", [&] {
+        gateStarted = true;
+        spin_until([&] { return gateOpen.load(); });
+        gateEnded = clock.fetch_add(1);
+    });
+    REQUIRE(spin_until([&] { return gateStarted.load(); }));
+    jobs::Handle dependent;
+    jobs::Handle outer = jobs::submit("test.outer", [&] {
+        outerOnWorker = jobs::is_worker_thread();
+        dependent = jobs::submit("test.dependent",
+                                 [&] {
+                                     dependentStarted = clock.fetch_add(1);
+                                     dependentRan = true;
+                                 },
+                                 {gate});
+        outerSubmitted = true;
+    });
+    // Not wait(): this thread would run `outer` itself; the free worker takes it.
+    REQUIRE(spin_until([&] { return outerSubmitted.load(); }));
+    CHECK(outerOnWorker.load());
+    CHECK(!dependent.done());
+    CHECK(!dependentRan.load());  // its dependency is still running
+    gateOpen = true;
+    REQUIRE(jobs::wait(outer).ok());
+    REQUIRE(jobs::wait(dependent).ok());
+    CHECK(dependentRan.load());
+    CHECK(gateEnded.load() >= 0);
+    CHECK(gateEnded.load() < dependentStarted.load());
+}
+
+TEST_CASE("jobs: a tree of jobs that submit jobs is counted and finished by its owner with 0, 1 and 4 workers") {
+    for (const jobs::Settings& s : all_modes()) {
+        CAPTURE(s.describe());
+        PoolScope pool(s);
+        Watchdog guard("the job tree");
+        jobs::Owner owner("tree");
+        std::atomic<std::uint64_t> sum{0};
+        std::atomic<int> count{0};
+        std::function<void(int, int)> node = [&](int depth, int id) {
+            sum.fetch_add(std::uint64_t(id));
+            count.fetch_add(1);
+            if (depth == 0) return;
+            for (int k = 0; k < 2; ++k)
+                (void)jobs::submit("test.tree", [&node, depth, id, k] { node(depth - 1, id * 2 + k); });
+        };
+        {
+            jobs::OwnerScope scope(&owner);
+            (void)jobs::submit("test.tree.root", [&node] { node(7, 1); });
+        }
+        REQUIRE(owner.wait().ok());
+        CHECK(count.load() == 255);
+        CHECK(sum.load() == 255ull * 256ull / 2);  // the ids 1..255 of a complete binary tree
+        CHECK(owner.pending() == 0);
+    }
+}
+
+TEST_CASE("jobs: stop with jobs, dependents and main-thread tasks still pending runs the jobs and drops the tasks") {
+    for (int workers : {0, 1, 3}) {
+        CAPTURE(workers);
+        REQUIRE(jobs::start(jobs::Settings::threads(workers)).ok());
+        Watchdog guard("stop with pending jobs");
+        std::atomic<bool> released{false};
+        std::atomic<int> ran{0}, taskRan{0}, outOfOrder{0};
+        std::vector<std::atomic<int>> done(120);
+        for (auto& d : done) d = 0;
+        jobs::Handle gate = jobs::submit("test.gate", [&] { spin_until([&] { return released.load(); }); });
+        std::vector<jobs::Handle> hs;
+        for (std::size_t i = 0; i < done.size(); ++i) {
+            // Every job needs the gate; a third of them also need the one before.
+            std::vector<jobs::Handle> deps{gate};
+            if (i % 3 == 2) deps.push_back(hs[i - 1]);
+            hs.push_back(jobs::submit(
+                "test.pending",
+                [&, i] {
+                    if (i % 3 == 2 && done[i - 1].load() == 0) outOfOrder.fetch_add(1);
+                    done[i] = 1;
+                    ran.fetch_add(1);
+                },
+                deps));
+        }
+        for (int i = 0; i < 10; ++i) jobs::post_main("test.task", [&] { taskRan.fetch_add(1); });
+        CHECK(jobs::main_tasks_queued() == 10);
+        released = true;  // before stop(): with 0 workers the gate runs inside stop() itself
+        jobs::stop();
+        CHECK(!jobs::running());
+        CHECK(ran.load() == 120);
+        CHECK(outOfOrder.load() == 0);
+        CHECK(taskRan.load() == 0);  // dropped, never run
+        CHECK(jobs::main_tasks_queued() == 0);
+        CHECK(gate.done());
+        CHECK(std::all_of(hs.begin(), hs.end(), [](const jobs::Handle& h) { return h.done(); }));
+    }
+}
+
+TEST_CASE("jobs: main-thread tasks run only on the main thread, at the call, each poster's tasks in order") {
+    for (int workers : {0, 1, 4}) {
+        CAPTURE(workers);
+        PoolScope pool(jobs::Settings::threads(workers));
+        Watchdog guard("the main-thread tasks");
+        REQUIRE(jobs::is_main_thread());
+        constexpr int posters = 8, perPoster = 50;
+        std::mutex mu;
+        std::vector<std::pair<int, int>> seen;  // (poster, index) in the order the tasks ran
+        std::atomic<int> wrongThread{0};
+        const std::thread::id mainId = std::this_thread::get_id();
+        std::vector<jobs::Handle> hs;
+        for (int p = 0; p < posters; ++p)
+            hs.push_back(jobs::submit("test.poster", [&, p] {
+                for (int i = 0; i < perPoster; ++i)
+                    jobs::post_main("test.task", [&, p, i] {
+                        if (std::this_thread::get_id() != mainId || !jobs::is_main_thread()) wrongThread.fetch_add(1);
+                        std::lock_guard<std::mutex> lk(mu);
+                        seen.emplace_back(p, i);
+                    });
+            }));
+        REQUIRE(jobs::wait_all(hs).ok());  // the waiter and the workers run jobs, never a main-thread task
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            CHECK(seen.empty());
+        }
+        CHECK(jobs::main_tasks_queued() == posters * perPoster);
+        int fromOther = -1;
+        std::thread t([&] { fromOther = jobs::run_main_thread_tasks(); });
+        t.join();
+        CHECK(fromOther == 0);
+        CHECK(jobs::run_main_thread_tasks() == posters * perPoster);
+        CHECK(wrongThread.load() == 0);
+        REQUIRE(seen.size() == std::size_t(posters * perPoster));
+        std::vector<int> next(posters, 0);
+        bool inOrder = true;
+        for (const auto& entry : seen) inOrder = inOrder && entry.second == next[std::size_t(entry.first)]++;
+        CHECK(inOrder);
+        CHECK(jobs::main_tasks_queued() == 0);
+    }
+}
+
+TEST_CASE("jobs: parallel_for inside jobs with seeded chunks gives the same bits with 0, 1 and 4 workers") {
+    auto run = [] {
+        std::vector<std::uint64_t> out(6, 0);
+        std::vector<jobs::Handle> hs;
+        for (std::size_t j = 0; j < out.size(); ++j)
+            hs.push_back(jobs::submit("test.seeded", [&out, j] {
+                auto r = jobs::parallel_reduce<std::uint64_t>(
+                    "test.seeded.for", 500, 7 + j, 0,
+                    [](const jobs::Chunk& c) {
+                        Rng rng = c.rng();
+                        std::uint64_t s = 0;
+                        for (std::size_t i = c.begin; i < c.end; ++i)
+                            s += std::uint64_t(rng.range(0.0f, 1000.0f)) * (i + 1);
+                        return s;
+                    },
+                    [](std::uint64_t a, std::uint64_t b) { return a * 3 + b; }, 100 + j);
+                if (!r) throw std::runtime_error(r.error().message);
+                out[j] = r.value();
+            }));
+        REQUIRE(jobs::wait_all(hs).ok());
+        return out;
+    };
+    const std::vector<std::uint64_t> reference = run();  // pool stopped
+    CHECK(std::any_of(reference.begin(), reference.end(), [](std::uint64_t v) { return v != 0; }));
+    for (const jobs::Settings& s : all_modes()) {
+        CAPTURE(s.describe());
+        PoolScope pool(s);
+        Watchdog guard("the seeded parallel_for");
+        for (int round = 0; round < 3; ++round) CHECK(run() == reference);
+    }
 }
