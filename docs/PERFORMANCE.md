@@ -581,6 +581,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
 | `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
+| `schema.interpreted`, `schema.compiled` | The schema part of a command call on its own (defaults, then validation, 20000 argument sets, every 50th refused), against the schema as Json and as a `CompiledSchema` |
 | `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |
 | `audio.mix_voices`, `audio.mix_bus_fx` | Two seconds of the software mixer with 48 looping voices (pitch and pan), without and with a low-pass and a reverb on the buses (the null device, offline) |
 

@@ -390,6 +390,56 @@ TEST_CASE("command: a transport key in the arguments (MCP _meta) is not an unkno
     CHECK_FALSE(reg.call("game.state", Json::parse(R"({"_meta":{},"verbose":1})")).ok);
 }
 
+TEST_CASE("command: the compiled schema gives call() defaults, _meta handling and a bad pattern as before") {
+    CommandRegistry reg;
+    CommandInfo info;
+    info.name = "test.compiled";
+    info.summary = "Takes defaults, a pattern and a $ref.";
+    info.category = "test";
+    info.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "count":{"type":"integer","default":3},
+        "opts":{"$ref":"#/$defs/opts"},
+        "id":{"type":"string","pattern":"^[a-z]+$"},
+        "bad":{"type":"string","pattern":"([a-z"}},
+        "$defs":{"opts":{"type":"object","properties":{"level":{"type":"integer","default":1}}}}})");
+    reg.add(info, [](const Json& args) { return args; });  // echoes what the handler received
+
+    auto r = reg.call("test.compiled", Json::parse(R"({"opts":{}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["count"] == 3);
+    CHECK(r.result["opts"]["level"] == 1);
+    // The caller's value is not changed by the defaults (the handler got a copy).
+    const Json given = Json::parse(R"({"opts":{}})");
+    CHECK(reg.call("test.compiled", given).ok);
+    CHECK(given == Json::parse(R"({"opts":{}})"));
+    // null arguments are an empty object.
+    CHECK(reg.call("test.compiled", Json()).result["count"] == 3);
+    // _meta is dropped when the schema does not declare it.
+    auto meta = reg.call("test.compiled", Json::parse(R"({"_meta":{"progressToken":1},"count":9})"));
+    REQUIRE(meta.ok);
+    CHECK_FALSE(meta.result.contains("_meta"));
+    CHECK(meta.result["count"] == 9);
+    // A pattern mismatch and an invalid pattern name their pointer.
+    auto mismatch = reg.call("test.compiled", Json::parse(R"({"id":"A1"})"));
+    REQUIRE_FALSE(mismatch.ok);
+    CHECK(mismatch.error["message"].get<std::string>().find("/id: string ") != std::string::npos);
+    CHECK(mismatch.error["message"].get<std::string>().find("A1") != std::string::npos);
+    CHECK(mismatch.error["message"].get<std::string>().find("does not match the pattern") != std::string::npos);
+    auto invalid = reg.call("test.compiled", Json::parse(R"({"bad":"x"})"));
+    REQUIRE_FALSE(invalid.ok);
+    CHECK(invalid.error["message"].get<std::string>().find("/bad: schema error: invalid pattern") != std::string::npos);
+    CHECK(reg.call("test.compiled", Json::parse(R"({"count":1})")).ok);  // not touched: no string to check
+
+    // A schema that declares _meta keeps the key.
+    CommandInfo withMeta;
+    withMeta.name = "test.meta";
+    withMeta.summary = "Declares _meta.";
+    withMeta.category = "test";
+    withMeta.inputSchema = Json::parse(R"({"type":"object","properties":{"_meta":{"type":"object"}}})");
+    reg.add(withMeta, [](const Json& args) { return args; });
+    CHECK(reg.call("test.meta", Json::parse(R"({"_meta":{"a":1}})")).result["_meta"]["a"] == 1);
+}
+
 TEST_CASE("close_object_schemas: properties get closed, $defs too, objects without properties are left alone") {
     Json s = close_object_schemas(Json::parse(R"({"type":"object","properties":{
         "a":{"oneOf":[{"type":"object","properties":{"x":{"type":"number"}}},{"type":"string"}]},
