@@ -1,0 +1,173 @@
+{
+  "format": "factoria.bench/1",
+  "runner": "macos-clang",
+  "jobs": "inline",
+  "repeats": 15,
+  "benchmarks": {
+    "ecs.each": {
+      "medianMs": 14.901,
+      "minMs": 11.983,
+      "maxMs": 18.969,
+      "p25Ms": 14.586,
+      "p75Ms": 16.449,
+      "spread": 0.125,
+      "cpuMedianMs": 14.6,
+      "items": 440000,
+      "unit": "entities walked"
+    },
+    "ecs.entities_with": {
+      "medianMs": 7.003,
+      "minMs": 5.472,
+      "maxMs": 7.989,
+      "p25Ms": 5.707,
+      "p75Ms": 7.335,
+      "spread": 0.232,
+      "cpuMedianMs": 6.883,
+      "items": 400,
+      "unit": "queries"
+    },
+    "ecs.spawn_destroy": {
+      "medianMs": 15.507,
+      "minMs": 12.207,
+      "maxMs": 18.97,
+      "p25Ms": 14.087,
+      "p75Ms": 16.286,
+      "spread": 0.142,
+      "cpuMedianMs": 15.328,
+      "items": 30000,
+      "unit": "entities"
+    },
+    "hierarchy.deep": {
+      "medianMs": 35.931,
+      "minMs": 34.052,
+      "maxMs": 39.311,
+      "p25Ms": 35.418,
+      "p75Ms": 37.186,
+      "spread": 0.049,
+      "cpuMedianMs": 35.335,
+      "items": 80200,
+      "unit": "parent steps"
+    },
+    "hierarchy.wide": {
+      "medianMs": 23.944,
+      "minMs": 19.873,
+      "maxMs": 26.841,
+      "p25Ms": 22.319,
+      "p75Ms": 24.724,
+      "spread": 0.1,
+      "cpuMedianMs": 23.658,
+      "items": 39600,
+      "unit": "leaves"
+    },
+    "physics.step2d": {
+      "medianMs": 68.057,
+      "minMs": 64.674,
+      "maxMs": 72.672,
+      "p25Ms": 66.754,
+      "p75Ms": 69.671,
+      "spread": 0.043,
+      "cpuMedianMs": 66.398,
+      "items": 34560,
+      "unit": "body steps"
+    },
+    "physics.step3d": {
+      "medianMs": 85.644,
+      "minMs": 82.91,
+      "maxMs": 88.766,
+      "p25Ms": 84.201,
+      "p75Ms": 87.058,
+      "spread": 0.033,
+      "cpuMedianMs": 83.881,
+      "items": 3920,
+      "unit": "body steps"
+    },
+    "render.frame2d": {
+      "medianMs": 19.28,
+      "minMs": 17.652,
+      "maxMs": 21.97,
+      "p25Ms": 18.556,
+      "p75Ms": 21.04,
+      "spread": 0.129,
+      "cpuMedianMs": 20.094,
+      "items": 40960,
+      "unit": "visuals"
+    },
+    "render.frame3d": {
+      "medianMs": 10.189,
+      "minMs": 8.364,
+      "maxMs": 12.506,
+      "p25Ms": 8.976,
+      "p75Ms": 11.393,
+      "spread": 0.237,
+      "cpuMedianMs": 10.504,
+      "items": 12800,
+      "unit": "meshes"
+    },
+    "command.call": {
+      "medianMs": 109.731,
+      "minMs": 104.223,
+      "maxMs": 123.524,
+      "p25Ms": 105.893,
+      "p75Ms": 110.999,
+      "spread": 0.047,
+      "cpuMedianMs": 107.624,
+      "items": 20000,
+      "unit": "calls"
+    },
+    "script.native_calls": {
+      "medianMs": 15.656,
+      "minMs": 14.044,
+      "maxMs": 16.919,
+      "p25Ms": 15.071,
+      "p75Ms": 16.445,
+      "spread": 0.088,
+      "cpuMedianMs": 15.38,
+      "items": 60000,
+      "unit": "calls"
+    },
+    "script.component_access": {
+      "medianMs": 61.828,
+      "minMs": 58.932,
+      "maxMs": 66.724,
+      "p25Ms": 60.647,
+      "p75Ms": 63.379,
+      "spread": 0.044,
+      "cpuMedianMs": 61.14,
+      "items": 10000,
+      "unit": "entity passes"
+    },
+    "script.behaviours": {
+      "medianMs": 62.432,
+      "minMs": 60.488,
+      "maxMs": 67.113,
+      "p25Ms": 61.814,
+      "p75Ms": 63.878,
+      "spread": 0.033,
+      "cpuMedianMs": 61.26,
+      "items": 9000,
+      "unit": "behaviour frames"
+    },
+    "audio.mix_voices": {
+      "medianMs": 9.975,
+      "minMs": 9.741,
+      "maxMs": 13.101,
+      "p25Ms": 9.758,
+      "p75Ms": 11.711,
+      "spread": 0.196,
+      "cpuMedianMs": 9.798,
+      "items": 4233600,
+      "unit": "voice frames"
+    },
+    "audio.mix_bus_fx": {
+      "medianMs": 17.755,
+      "minMs": 16.661,
+      "maxMs": 19.909,
+      "p25Ms": 17.258,
+      "p75Ms": 19.417,
+      "spread": 0.122,
+      "cpuMedianMs": 17.641,
+      "items": 4233600,
+      "unit": "voice frames"
+    }
+  }
+}

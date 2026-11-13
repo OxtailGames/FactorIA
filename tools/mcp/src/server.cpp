@@ -287,7 +287,7 @@ void McpServer::set_result_cap(std::size_t bytes) { resultCap_ = std::max(bytes,
 
 bool McpServer::is_cancel_notification(std::string_view message) {
     if (message.find("notifications/cancelled") == std::string_view::npos) return false;  // cheap test first
-    Json parsed = Json::parse(message.begin(), message.end(), nullptr, false);
+    Json parsed = parse_json_lenient(message);
     // A valid message only: an invalid one gets its Invalid Request answer in order, from the transport's loop.
     return invalid_message_reason(parsed).empty() && !parsed.contains("id") && parsed.contains("method") &&
            parsed["method"].get<std::string>() == "notifications/cancelled";
@@ -991,6 +991,8 @@ std::optional<Json> McpServer::handle_valid_one(const Json& msg) {
 
 std::optional<std::string> McpServer::handle_message(std::string_view message) {
     Json parsed;
+    if (json_nesting_overflow(message) >= 0)
+        return dump_line(error_response(nullptr, kParseError, "Parse error: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels."));
     try {
         parsed = Json::parse(message.begin(), message.end());
     } catch (const std::exception& e) {

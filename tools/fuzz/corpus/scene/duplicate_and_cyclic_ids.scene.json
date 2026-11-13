@@ -1,0 +1,1 @@
+{"format":"factoria.scene/1","entities":[{"id":"a","parent":"b","components":{"Transform":{"position":[1e30,"x",null]}}},{"id":"b","parent":"a","children":[{"id":"a"},{"id":"b","children":[{"id":"b"}]}]},{"id":"c","components":{"Nope":{},"Sprite":{"texture":5,"color":"#12345","pivot":[1]},"Script":{"props":[1]}}},{"prefab":"missing.prefab.json"},7,null]}

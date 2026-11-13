@@ -1085,11 +1085,14 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
         ImGui::TextDisabled("Select a layer to edit it.");
         return;
     }
-    const ImageLayer& L = *lp;
+    // A COPY: every set_layer / commit_preview below goes through run() -> load_from_disk(), which replaces the document and frees
+    // the layers a reference points into, while this function keeps reading the layer in the same frame (found by the ASan run).
+    const ImageLayer L = *lp;
     ImGui::BeginDisabled(!editable);
     ImGui::Text("%s  (%s)", L.name.empty() ? "(unnamed)" : L.name.c_str(), image_layer_kind_name(L.kind));
     bool visible = L.visible;
     if (ImGui::Checkbox("Visible", &visible)) image_edited(m.set_layer(path, Json::object({{"visible", visible}}), visible ? "Show layer" : "Hide layer"));
+    at_track("img:insp:visible");
     ImGui::SameLine();
     bool clip = L.clip;
     if (ImGui::Checkbox("Clip to below", &clip)) image_edited(m.set_layer(path, Json::object({{"clip", clip}}), "Change clipping"));

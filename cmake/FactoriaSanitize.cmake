@@ -103,3 +103,25 @@ function(fa_label_tsan)
         endforeach()
     endif()
 endfunction()
+
+# Timeouts under a sanitizer. Instrumented code is 2-3x slower (ASan + UBSan) or 5-15x slower (TSan), and the CI job runs four tests
+# at once on four vCPUs with a software GPU, so the TIMEOUT every test sets (editor_autotest_*, cli_integration, cli_dap...) is
+# multiplied by FA_SANITIZE_TIMEOUT_FACTOR; a test that sets none gets ctest's own 1500 s default times the factor. The
+# TIMEOUT of a test is set after its add_test(), so add_test() in cmake/FactoriaHelpers.cmake defers this to the end of the
+# directory that created the test (cmake_language(DEFER)), when the property is final.
+if(FA_SANITIZE)
+    if(FA_SANITIZE_THREAD)
+        set(_fa_san_factor 5)
+    else()
+        set(_fa_san_factor 3)
+    endif()
+    set(FA_SANITIZE_TIMEOUT_FACTOR ${_fa_san_factor} CACHE STRING "Multiplier of every test's TIMEOUT in a build with FA_SANITIZE.")
+endif()
+function(fa_sanitizer_scale_test_timeout name)
+    get_test_property(${name} TIMEOUT timeout)
+    if(NOT timeout OR NOT timeout MATCHES "^[0-9]+$")
+        set(timeout 1500)
+    endif()
+    math(EXPR timeout "${timeout} * ${FA_SANITIZE_TIMEOUT_FACTOR}")
+    set_tests_properties(${name} PROPERTIES TIMEOUT ${timeout})
+endfunction()

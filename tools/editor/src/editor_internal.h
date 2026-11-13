@@ -90,6 +90,8 @@ struct sapp_event;
 
 namespace fa::editor {
 
+struct AtScript;  // the autotest's script under construction (autotest_common.h)
+
 enum class PlayState { Edit, Playing, Paused };
 
 // ------------------------------------------------------------------------------------------
@@ -1427,7 +1429,7 @@ public:
     bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
     bool at_enabled(const std::string& name) const;        // ... and not disabled (a button that cannot be pressed yet)?
     bool at_shown(const std::string& name) const;          // ... and not scrolled out of its window (a click would land elsewhere)?
-    // Second half of the autotest (autotest_tools.cpp): a script of steps, one per frame, each followed by a wait.
+    // Second half of the autotest (autotest_tools.cpp builds it, autotest_<group>.cpp hold the sections): a script of steps, one per frame, each followed by a wait.
     struct AtStep {
         int wait = 1;
         std::function<void()> run;
@@ -1444,6 +1446,28 @@ public:
     std::uint64_t atAudioAfter_ = 0;
     std::size_t atAudioBase_ = 0;
     void at_build_tools_script();
+    // One function per section of the second half of the autotest (ids of autotest_sections.h), called by at_build_tools_script in
+    // the order of a full run. Each adds its steps to the script; a section of a group is in the file named on its line.
+    void at_section_T(AtScript& at); void at_section_A(AtScript& at); void at_section_A2(AtScript& at);          // autotest_basics.cpp
+    void at_section_B(AtScript& at); void at_section_C(AtScript& at); void at_section_D(AtScript& at);
+    void at_section_E(AtScript& at); void at_section_F(AtScript& at); void at_section_G(AtScript& at);
+    void at_section_H(AtScript& at); void at_section_I(AtScript& at); void at_section_J(AtScript& at);
+    void at_section_K(AtScript& at); void at_section_L(AtScript& at); void at_section_M(AtScript& at);          // autotest_editing.cpp
+    void at_section_N(AtScript& at);
+    void at_section_O(AtScript& at); void at_section_P(AtScript& at); void at_section_Q(AtScript& at);          // autotest_ai_runs.cpp
+    void at_section_R(AtScript& at); void at_section_U(AtScript& at); void at_section_V(AtScript& at);
+    void at_section_W(AtScript& at);
+    void at_section_X(AtScript& at); void at_section_Q2(AtScript& at); void at_section_D2(AtScript& at);        // autotest_ai_settings.cpp
+    void at_section_E3(AtScript& at); void at_section_H2(AtScript& at); void at_section_S2(AtScript& at);       // autotest_ai_extensions.cpp
+    void at_section_K2(AtScript& at); void at_section_F2(AtScript& at);
+    void at_section_Y(AtScript& at); void at_section_Z(AtScript& at); void at_section_B2(AtScript& at);         // autotest_animation.cpp
+    void at_section_C2(AtScript& at);
+    void at_section_E2(AtScript& at); void at_section_E4(AtScript& at); void at_section_R2(AtScript& at);       // autotest_feedback.cpp
+    void at_section_I2(AtScript& at); void at_section_L3(AtScript& at); void at_section_J2(AtScript& at);       // autotest_image_vector.cpp
+    void at_section_K3(AtScript& at); void at_section_M3(AtScript& at);                                         // autotest_sound_music.cpp
+    void at_section_N3(AtScript& at); void at_section_P3(AtScript& at); void at_section_O3(AtScript& at);       // autotest_model_particles.cpp
+    void at_section_R3(AtScript& at); void at_section_A3(AtScript& at); void at_section_T2(AtScript& at);       // autotest_play_review.cpp
+    void at_section_S3(AtScript& at); void at_section_R4(AtScript& at);
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
