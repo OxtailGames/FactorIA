@@ -57,7 +57,7 @@ void collect(Json& list, Json* parent, std::vector<int>& path, int px, int py, s
 
 std::string pointer_of(const std::vector<int>& path) {
     std::string p;
-    for (std::size_t i = 0; i < path.size(); ++i) p += (i ? "/layers/" : "/layers/") + std::to_string(path[i]);
+    for (std::size_t i = 0; i < path.size(); ++i) p += "/layers/" + std::to_string(path[i]);
     return p;
 }
 

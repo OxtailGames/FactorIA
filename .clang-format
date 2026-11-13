@@ -1,0 +1,24 @@
+# clang-format 23.1.5 (pinned in scripts/format.sh). Style of CLAUDE.md: C++20, 4 spaces, 120 columns, attached braces,
+# no indent inside namespaces, `case` labels indented. Includes keep the order the author wrote.
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+IndentCaseLabels: true
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: Never
+IncludeBlocks: Preserve
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+BreakTemplateDeclarations: Yes
+ReflowComments: Never
+SpacesBeforeTrailingComments: 2
+AlignTrailingComments: true
+PenaltyBreakComment: 1000
+FixNamespaceComments: true

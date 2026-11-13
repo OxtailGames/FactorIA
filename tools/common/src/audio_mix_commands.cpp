@@ -399,13 +399,14 @@ void check_seam(const Sound& s, std::vector<Finding>& out) {
     if (j.verdict != "ok")
         j.hint = "Make the loop seamless: assets.generate_loop writes noise and drone loops with an inaudible seam; for another sound, cut it at points where "
                  "the wave and its slope match (a zero crossing going the same way), or crossfade the end into the start in the source.";
+    const std::string jumpHint = j.hint;  // j is moved into the findings below; k reuses its hint
     add(out, std::move(j));
     const bool flat = m.seamSlope < 0.002;
     Finding k{s.path, "loop_seam_slope", flat ? "ok" : verdict_of(m.seamSlopeRatio, 8.0, 16.0), "x typical curvature", {}, {}, bus_label(s), m.seamSlopeRatio, 8.0};
     k.detail = Json::object({{"slopeChange", num(m.seamSlope, 4)}});
     k.message = k.verdict == "ok" ? std::format("The loop's slope continues across the seam ({:.1f}x the usual curvature).", m.seamSlopeRatio)
                                   : std::format("The wave bends {:.1f}x more at the loop point than anywhere else: the slope does not continue, which is heard as a tick.", m.seamSlopeRatio);
-    if (k.verdict != "ok") k.hint = j.hint.empty() ? "Cut the loop where the wave goes the same way at both ends, or use assets.generate_loop." : j.hint;
+    if (k.verdict != "ok") k.hint = jumpHint.empty() ? "Cut the loop where the wave goes the same way at both ends, or use assets.generate_loop." : jumpHint;
     add(out, std::move(k));
 }
 
