@@ -2130,9 +2130,12 @@ void register_builtin_components(TypeRegistry& r) {
          "turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins "
          "it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic "
          "body "
-         "that stays nearly still for half a second falls asleep together with the bodies it touches (no "
-         "cost, no events) and wakes when touched by something moving, when gameplay writes its position, "
-         "rotation or velocity, applies a force, or when what it rests on goes away.",
+         "whose fastest point stays under 5 cm/s for half a second falls asleep together with the bodies it touches "
+         "(no cost, no events); in a pile of 64 or more bodies up to one in 64 may still creep, slower than 0.3 m/s, "
+         "and the pile sleeps anyway. It wakes when touched by something moving, when gameplay writes its position, "
+         "rotation or velocity, applies a force, places a static or kinematic body on it, or when what it rests on "
+         "goes away. A slow rotating body pressed against another dynamic body loses speed (1/s below 0.5 m/s), so "
+         "a capsule rolling on a pile comes to rest; a body alone on the ground keeps its motion.",
          "Physics")
         .enum_field("type", &RigidBody3D::type, {"static", "dynamic", "kinematic"},
                     "static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by "

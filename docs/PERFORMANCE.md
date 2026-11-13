@@ -598,7 +598,7 @@ package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; doc
 stacking") are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
 only the time: a column of 100 boxes (spacing 1.02) stands and falls asleep after 240 steps with a drift of 0 mm, a column
 of 50 after 140 steps, a block of 5 x 5 x 4 boxes after 40, and the walled pit of 1000 spheres, capsules and boxes is asleep
-after about 800 steps (a Release test; before, none of them did, and the column of 100 collapsed). A step of that sleeping
+after about 1600 steps (800 to 1600 in other runs; a Release test; before, none of them did, and the column of 100 collapsed). A step of that sleeping
 pit costs 0.4 ms (a world with nothing awake skips the sub-steps and the broad phase). Medians in ms (Release, macOS,
 15 runs, quiet machine), before and after M94.4h: `physics.step3d` 12.8 / 12.5, `physics.step3d_1000` 100.6 / 100.2 (a
 falling pit has the same work), `physics.step3d_stack100` 52.7 / 16.8 (the column of 100 now falls asleep after 4 s instead

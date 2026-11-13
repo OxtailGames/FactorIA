@@ -30,7 +30,7 @@ constexpr float kPushOut = 3.0f;          // the most speed a soft contact pushe
 constexpr float kContactHertz = 60.0f;    // stiffness of a soft contact: its spring's frequency (Hz) ...
 constexpr float kContactDamping = 10.0f;  // ... and its damping ratio (a dynamic pair; against a static body the spring is 2x stiffer)
 constexpr int kBiasIterations = 2;        // velocity passes with the soft push-out, before the sub-step's motion
-constexpr float kRestSpeed = 0.5f;        // a loaded body whose centre is slower than this (m/s) is settling: ...
+constexpr float kRestSpeed = 0.5f;        // a body pressed against another dynamic body and slower than this (m/s) is settling: ...
 constexpr float kRestDamping = 1.0f;      // ... it loses speed at this rate (1/s), so what rolls or rocks on a pile comes to rest
 constexpr float kBounceThreshold = 0.5f;  // m/s below which restitution is ignored
 constexpr float kBeginMargin = 0.01f;     // solid contact begins within this gap
@@ -900,6 +900,7 @@ void Physics3D::sync(World& world) {
             b.lastCenter += b.offset - oldOffset;
         }
         b.enabled = world.active_in_hierarchy(e);
+        if (!existed) b.moved = true;  // a new body wakes what it appears in, like a teleported one
         // Sleeping bodies must follow everything gameplay does to them or to what they rest on: a changed body or collider
         // (including enabling and disabling) and a teleport wake the body and the bodies touching it; a written velocity
         // wakes the body's group.
@@ -1713,8 +1714,12 @@ void Physics3D::step(World& world, float dt) {
     // A world where every body is asleep or static has nothing to simulate: no sub-steps, and the pair scan below finds no
     // new pair (the pairs it has keep their state), so the broad phase is not asked at all. A step of it costs only the
     // sync.
-    const bool anyAwake = std::any_of(bodies_.begin(), bodies_.end(),
-                                      [](const Body& b) { return b.enabled && b.type != BodyType::Static && !b.asleep; });
+    // A static or kinematic body that gameplay placed this step is not asleep: its new place may overlap a sleeping pile,
+    // which only the contact build (wake_touched) wakes.
+    const bool anyAwake = std::any_of(bodies_.begin(), bodies_.end(), [](const Body& b) {
+        return b.enabled && ((b.type != BodyType::Static && !b.asleep) || (b.type != BodyType::Dynamic && b.moved));
+    });
+    std::vector<char> loaded(n, 0);  // per sub-step: bodies pressed against another dynamic body (settling below)
     if (anyAwake) cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
     for (int s = 0; s < (anyAwake ? subs : 0); ++s) {
         cover_tight();  // the previous sub-step moved the bodies after the last phase covered them
@@ -1914,9 +1919,12 @@ void Physics3D::step(World& world, float dt) {
             iterate(rigid, false);
         }
         iterate(held, true);  // after the motion: the relax pass of the contacts, the simple pairs and the joints
-        {  // settling: a body that presses on another and is slow loses speed (a capsule rolling on a floor has no other brake)
-            std::vector<char> loaded(n, 0);
+        {  // settling: a slow rotating body pressed against another dynamic body loses speed (a capsule rolling on a pile
+           // has no other brake). A body alone on the ground keeps its motion: a puck, a ball rolling down a gentle slope,
+           // a spin. (Damping those too made the pit of 1000 never sleep: what settles a pile is its own contacts.)
+            std::fill(loaded.begin(), loaded.end(), 0);
             for (const RigidContact& rc : held) {
+                if (!live_dyn(bodies_[rc.ia]) || !live_dyn(bodies_[rc.ib])) continue;
                 bool load = false;
                 for (int pi = 0; pi < rc.count; ++pi) load = load || rc.pt[pi].jn > 0.0f;
                 if (load) loaded[rc.ia] = loaded[rc.ib] = 1;

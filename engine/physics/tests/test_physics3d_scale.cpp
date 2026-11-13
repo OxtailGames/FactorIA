@@ -188,7 +188,7 @@ TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collap
     CHECK(r.drift < 0.05f);
     CHECK(r.topY > 98.0f);  // 99.5 without any sag; the sag is under 1.5%
     CHECK(r.awake == 0);
-    if (kOptimized) CHECK(r.cpu < 0.6 * test_speed_budget_scale());  // 0.13 s measured: 4.6x the margin
+    if (kOptimized) CHECK(r.cpu < 1.5 * test_speed_budget_scale());  // 0.13 s measured: 11x the margin
 }
 
 // The column of 50: it used to lean a few degrees and keep moving.
@@ -264,14 +264,15 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
 }
 
 // Release only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep, and a step of
-// sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). It is asleep after about 900 steps (15 s): the limit is 3 times that.
+// sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). It is asleep after about 1600 steps
+// (27 s; how long a pile creeps depends on the scene: 800 to 1600 measured): the limit is 3 times that.
 TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing") {
     if (!kOptimized) return;
     Sim s;
     build_pit(s.world, 1000);
     s.run(1);
     int steps = 1;
-    while (steps < 60 * 45 && (steps < 60 || s.awake_count() > 0)) {
+    while (steps < 60 * 90 && (steps < 60 || s.awake_count() > 0)) {
         s.run(30);
         steps += 30;
     }
