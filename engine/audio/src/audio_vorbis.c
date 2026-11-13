@@ -7,7 +7,16 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
+/* MSVC C4701 at stb_vorbis.c:4758 is the same kind of false positive: mid is read on the second probe, after the first
+ * probe set it. */
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4701)
+#endif
 #include "stb_vorbis.c"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
