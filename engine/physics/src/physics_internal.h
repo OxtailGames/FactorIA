@@ -1,6 +1,7 @@
 // Private: the 2D (Box2D) and 3D (custom) back-ends behind fa::Physics.
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -428,15 +429,91 @@ private:
     const World* lastWorld_ = nullptr;
     std::uint64_t syncCounter_ = 0;  // stamps the bodies seen by one sync()
     std::uint64_t stepCounter_ = 0;
-    std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
+    // Pairs overlapping after the previous step: a flat vector sorted by key (body seq numbers, so scan order = key
+    // order). Lookups are binary searches, iteration is key order (events come out in that order), and the vector
+    // `touchingNext_` that the next step fills is swapped in, so no step allocates once the capacity has grown.
+    std::vector<std::pair<PairKey, PairState>> touching_;
+    std::vector<std::pair<PairKey, PairState>> touchingNext_;
+    const PairState* touching_find(PairKey key) const {
+        auto it = std::lower_bound(touching_.begin(), touching_.end(), key,
+                                   [](const std::pair<PairKey, PairState>& e, const PairKey& k) { return e.first < k; });
+        return it != touching_.end() && it->first == key ? &it->second : nullptr;
+    }
     // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
-    // previous sub-step (world position of the point + normal impulse + friction impulse).
+    // previous sub-step (world position of the point + normal impulse + friction impulse). Sorted by key (the order
+    // the contacts are built in), at most kMaxPts points per pair, cleared without freeing its storage.
     struct WarmPt {
         Vec3 pos;
         float jn = 0.0f;
         Vec3 jt;
     };
-    std::map<PairKey, std::vector<WarmPt>> warm_;
+    struct WarmEntry {
+        PairKey key;
+        int count = 0;
+        WarmPt pt[kMaxPts];
+    };
+    std::vector<WarmEntry> warm_;
+    const WarmEntry* warm_find(PairKey key) const {
+        auto it = std::lower_bound(warm_.begin(), warm_.end(), key,
+                                   [](const WarmEntry& e, const PairKey& k) { return e.key < k; });
+        return it != warm_.end() && it->key == key ? &*it : nullptr;
+    }
+    // Strongest impact per pair during one step (lookup only, never iterated, so its order does not matter):
+    // open addressing with linear probing; clear() keeps the slots.
+    class ImpactMap {
+    public:
+        float& operator[](PairKey key) {
+            if ((used_ + 1) * 2 > slots_.size()) grow();
+            return slot_for(key).v;
+        }
+        const float* find(PairKey key) const {
+            if (slots_.empty()) return nullptr;
+            const std::size_t mask = slots_.size() - 1;
+            for (std::size_t i = hash(key) & mask;; i = (i + 1) & mask) {
+                if (!slots_[i].full) return nullptr;
+                if (slots_[i].key == key) return &slots_[i].v;
+            }
+        }
+        void clear() {
+            if (used_ == 0) return;
+            for (Slot& s : slots_) s.full = false;
+            used_ = 0;
+        }
+
+    private:
+        struct Slot {
+            PairKey key{};
+            float v = 0.0f;
+            bool full = false;
+        };
+        static std::size_t hash(PairKey k) {
+            std::uint64_t h = k.first * 0x9E3779B97F4A7C15ull;
+            h ^= (k.second + 0x7F4A7C15ull) * 0xC2B2AE3D27D4EB4Full;
+            return std::size_t(h ^ (h >> 29));
+        }
+        Slot& slot_for(PairKey key) {
+            const std::size_t mask = slots_.size() - 1;
+            std::size_t i = hash(key) & mask;
+            while (slots_[i].full && slots_[i].key != key) i = (i + 1) & mask;
+            if (!slots_[i].full) {
+                slots_[i].full = true;
+                slots_[i].key = key;
+                slots_[i].v = 0.0f;
+                ++used_;
+            }
+            return slots_[i];
+        }
+        void grow() {
+            std::vector<Slot> old = std::move(slots_);
+            slots_.assign(old.empty() ? 64 : old.size() * 2, Slot{});
+            used_ = 0;
+            for (const Slot& s : old)
+                if (s.full) slot_for(s.key).v = s.v;
+        }
+        std::vector<Slot> slots_;
+        std::size_t used_ = 0;
+    };
+    ImpactMap impacts_;
 
     // ---- joints (physics3d_joints.cpp)
     struct JointState {

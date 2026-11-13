@@ -1055,7 +1055,7 @@ void Physics3D::step(World& world, float dt) {
     }
     const int subs = std::max(settings_.subSteps, 1);
     const float h = dt / float(subs);
-    std::map<PairKey, float> impacts;
+    impacts_.clear();
     std::vector<char> charCarried(n, 0);  // per character: already carried by a platform this sub-step
     std::vector<int> carrier(n, -1);      // per body: index of the kinematic body carrying it this sub-step
 
@@ -1231,7 +1231,7 @@ void Physics3D::step(World& world, float dt) {
                 Body& a = bodies_[i];
                 Body& b = bodies_[k];
                 const Contact& c = hit.c;
-                float& impact = impacts[{a.seq, b.seq}];
+                float& impact = impacts_[{a.seq, b.seq}];
                 const int car = (carrier[k] == int(i) && a.type == BodyType::Kinematic)
                                     ? 1
                                     : ((carrier[i] == int(k) && b.type == BodyType::Kinematic) ? 2 : 0);
@@ -1239,17 +1239,16 @@ void Physics3D::step(World& world, float dt) {
                 if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) continue;
                 rc.key = {a.seq, b.seq};
                 if (positional) {  // warm start: re-apply what the same contact points carried in the previous sub-step
-                    auto cached = warm_.find(rc.key);
-                    if (cached != warm_.end()) {
-                        std::vector<WarmPt>& old = cached->second;
-                        std::vector<char> used(old.size(), 0);
+                    if (const WarmEntry* cached = warm_find(rc.key)) {
+                        const WarmEntry& old = *cached;
+                        char used[kMaxPts] = {};
                         for (int pi = 0; pi < rc.count; ++pi) {
                             RigidContact::Pt& p = rc.pt[pi];
                             const Vec3 pos = a.center + p.ra;
                             int best = -1;
                             float bestD = kWarmRadius * kWarmRadius;
-                            for (std::size_t oi = 0; oi < old.size(); ++oi) {
-                                const float d = length_sq(old[oi].pos - pos);
+                            for (std::size_t oi = 0; oi < std::size_t(old.count); ++oi) {
+                                const float d = length_sq(old.pt[oi].pos - pos);
                                 if (!used[oi] && d < bestD) {
                                     bestD = d;
                                     best = int(oi);
@@ -1257,8 +1256,8 @@ void Physics3D::step(World& world, float dt) {
                             }
                             if (best < 0) continue;
                             used[best] = 1;
-                            p.jn = old[best].jn;
-                            p.jt = old[best].jt;
+                            p.jn = old.pt[best].jn;
+                            p.jt = old.pt[best].jt;
                             const Vec3 impulse = rc.n * p.jn + p.jt;
                             b.vel += impulse * b.invMass;
                             b.angVel += inv_inertia_mul(b, cross(p.rb, impulse)) * kRadToDeg;
@@ -1292,7 +1291,7 @@ void Physics3D::step(World& world, float dt) {
                     if (!filters_pass(a, b)) return;
                     Contact c = collide(a, b, 0.0f);
                     if (!c.hit || c.depth < 0.0f) return;
-                    float& impact = impacts[{a.seq, b.seq}];
+                    float& impact = impacts_[{a.seq, b.seq}];
                     const bool carried = (carrier[k] == int(i) && a.type == BodyType::Kinematic) ||
                                          (carrier[i] == int(k) && b.type == BodyType::Kinematic);
                     if (carrier[i] == int(k) && b.type == BodyType::Kinematic) {
@@ -1314,11 +1313,18 @@ void Physics3D::step(World& world, float dt) {
         }
         if (positional) {  // remember the solution as the next sub-step's starting point
             warm_.clear();
+            bool ordered = true;
             for (const RigidContact& rc : rigid) {
-                std::vector<WarmPt>& cache = warm_[rc.key];
-                for (int pi = 0; pi < rc.count; ++pi)
-                    cache.push_back({rc.ca + rc.pt[pi].ra, rc.pt[pi].jn, rc.pt[pi].jt});
+                if (!warm_.empty() && !(warm_.back().key < rc.key)) ordered = false;  // contacts come in key order
+                WarmEntry& e = warm_.emplace_back();
+                e.key = rc.key;
+                e.count = std::min(rc.count, int(kMaxPts));
+                for (int pi = 0; pi < e.count; ++pi)
+                    e.pt[pi] = {rc.ca + rc.pt[pi].ra, rc.pt[pi].jn, rc.pt[pi].jt};
             }
+            if (!ordered)  // never in practice (the pair scan walks the bodies in seq order); keeps the lookup right
+                std::stable_sort(warm_.begin(), warm_.end(),
+                                 [](const WarmEntry& x, const WarmEntry& y) { return x.key < y.key; });
         }
     };
 
@@ -1482,7 +1488,9 @@ void Physics3D::step(World& world, float dt) {
     }
 
     // ---- events: track overlapping pairs across frames
-    std::map<PairKey, PairState> cur;
+    std::vector<std::pair<PairKey, PairState>>& cur = touchingNext_;  // filled in key order (scan order)
+    cur.clear();
+    bool curOrdered = true;
     auto& out = world.events().collisions;
     struct Begin {
         PairKey key;
@@ -1518,15 +1526,14 @@ void Physics3D::step(World& world, float dt) {
                 PairKey key{a.seq, b.seq};
                 if ((a.asleep || !movable(a)) &&
                     (b.asleep || !movable(b))) {  // nothing moves: the pair keeps its state
-                    auto old = touching_.find(key);
-                    if (old != touching_.end())
-                        outRecs.push_back({i, k, key, true, true, old->second.trigger, old->second, Contact{}});
+                    if (const PairState* old = touching_find(key))
+                        outRecs.push_back({i, k, key, true, true, old->trigger, *old, Contact{}});
                     continue;
                 }
                 if (!filters_pass(a, b)) continue;
                 const bool trig = a.trigger || b.trigger;
                 if (trig && a.trigger && b.trigger) continue;
-                bool was = touching_.count(key) != 0;
+                bool was = touching_find(key) != nullptr;
                 float margin = trig ? 0.0f : (was ? kEndMargin : kBeginMargin);
                 Contact c = collide(a, b, margin);
                 bool now = trig ? (c.hit && c.depth > 0.0f) : c.hit;
@@ -1538,7 +1545,8 @@ void Physics3D::step(World& world, float dt) {
     for (std::vector<PairRec>& part : pairParts)
         for (PairRec& r : part) {
             if (r.keep) {
-                cur.insert({r.key, r.st});
+                if (!cur.empty() && !(cur.back().first < r.key)) curOrdered = false;
+                cur.emplace_back(r.key, r.st);
                 continue;
             }
             const std::size_t i = r.i, k = r.k;
@@ -1551,11 +1559,19 @@ void Physics3D::step(World& world, float dt) {
                 if (live_dyn(a) && driving(b)) hold[i] = 1;
                 if (live_dyn(b) && driving(a)) hold[k] = 1;
             }
-            cur[r.key] = r.st;
+            if (!cur.empty() && !(cur.back().first < r.key)) curOrdered = false;
+            cur.emplace_back(r.key, r.st);
             if (!r.was) begins.push_back({r.key, r.st, r.c});
         }
+    if (!curOrdered)  // never in practice (rows and columns of the scan ascend); keeps the lookups right
+        std::stable_sort(cur.begin(), cur.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+    auto in_cur = [&](const PairKey& key) {
+        auto it = std::lower_bound(cur.begin(), cur.end(), key,
+                                   [](const std::pair<PairKey, PairState>& e, const PairKey& k) { return e.first < k; });
+        return it != cur.end() && it->first == key;
+    };
     for (auto& [key, st] : touching_) {
-        if (cur.count(key)) continue;
+        if (in_cur(key)) continue;
         if (!live(world, st.a) || !live(world, st.b)) continue;
         CollisionEvent ev;
         ev.phase = CollisionEvent::Phase::End;
@@ -1572,11 +1588,11 @@ void Physics3D::step(World& world, float dt) {
         ev.trigger = bg.st.trigger;
         ev.point = bg.c.point;
         ev.normal = bg.c.normal;
-        auto im = impacts.find(bg.key);
-        ev.impulse = im != impacts.end() ? im->second : 0.0f;
+        const float* im = impacts_.find(bg.key);
+        ev.impulse = im ? *im : 0.0f;
         out.push_back(ev);
     }
-    touching_ = std::move(cur);
+    touching_.swap(touchingNext_);
 
     // ---- rolling: spheres on the ground spin to match their horizontal motion
     for (std::size_t i = 0; i < n; ++i) {
