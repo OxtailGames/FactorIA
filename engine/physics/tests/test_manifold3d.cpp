@@ -216,3 +216,32 @@ TEST_CASE("manifold3d: boxes resting on a slab keep lying flat over many steps")
     }
     CHECK(world.world_position(over).x == doctest::Approx(1.9f).epsilon(0.02));
 }
+
+// An edge of the incident face almost parallel to a side plane of the reference face and within the clipping tolerance of it
+// (about a micrometre): the clip point must stay on that edge. Before, its parameter could fall outside [0, 1] and a point
+// landed metres away from the face.
+TEST_CASE("manifold3d: an incident edge a micrometre from a side plane never puts a point outside the faces") {
+    const Acc::Body floor = make_box({0, 0, 0}, {2, 0.5f, 2});
+    int checked = 0;
+    for (const float yawRad : {-1e-5f, -3e-6f, -1e-6f, 1e-6f, 3e-6f, 1e-5f, 2e-4f}) {
+        for (int step = -8; step <= 8; ++step) {
+            const float edge = 2.0f - 0.5f + float(step) * 4e-7f;  // the outer edge of the top box sits at 2 + step * 4e-7
+            for (const bool alongZ : {false, true}) {
+                const Vec3 centre = alongZ ? Vec3{0.2f, 0.99f, edge} : Vec3{edge, 0.99f, 0.2f};
+                const float yaw = yawRad * 180.0f / kPiF;
+                const Acc::Body top = make_box(centre, {0.5f, 0.5f, 0.5f}, alongZ ? 90.0f + yaw : yaw);
+                const Acc::Contact c = Acc::collide(floor, top);
+                if (!c.hit || c.n == 0) continue;
+                ++checked;
+                CHECK(c.n <= 4);
+                for (int i = 0; i < c.n; ++i) {  // inside the floor's face and inside the top box's footprint, with a tolerance
+                    CHECK(std::fabs(c.pts[i].x) <= 2.0f + 1e-3f);
+                    CHECK(std::fabs(c.pts[i].z) <= 2.0f + 1e-3f);
+                    CHECK(std::fabs(c.pts[i].x - centre.x) <= 0.5f + 1e-3f);
+                    CHECK(std::fabs(c.pts[i].z - centre.z) <= 0.5f + 1e-3f);
+                }
+            }
+        }
+    }
+    CHECK(checked > 100);
+}

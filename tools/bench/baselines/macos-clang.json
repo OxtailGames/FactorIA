@@ -2,7 +2,7 @@
   "format": "factoria.bench/1",
   "runner": "macos-clang",
   "jobs": "inline",
-  "repeats": 9,
+  "repeats": 15,
   "benchmarks": {
     "ecs.each": {
       "medianMs": 3.361,
