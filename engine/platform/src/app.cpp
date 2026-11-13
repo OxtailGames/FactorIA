@@ -127,13 +127,16 @@ void refresh_insets() {
 // by pagehide cannot be cancelled: app_cancel_quit() does nothing for it. Each handler's work is followed by a copy of the
 // save folder to IndexedDB (fs::flush_user_dir), so a storage.set made inside a handler is kept.
 }  // namespace
+// clang-format off
 EM_JS(void, fa_web_install_lifecycle, (), {
     if (Module.faLifecycle) return;
     Module.faLifecycle = true;
-    document.addEventListener(
-        'visibilitychange', () = > { Module._fa_web_lifecycle(document.visibilityState == = 'hidden' ? 0 : 1); });
-    window.addEventListener('pagehide', () = > { Module._fa_web_lifecycle(2); });
+    document.addEventListener('visibilitychange', () => {
+        Module._fa_web_lifecycle(document.visibilityState === 'hidden' ? 0 : 1);
+    });
+    window.addEventListener('pagehide', () => { Module._fa_web_lifecycle(2); });
 });
+// clang-format on
 
 namespace {
 // kind: 0 the page became hidden, 1 it became visible, 2 the page is being closed.
@@ -463,7 +466,7 @@ bool app_has_window_modes() {
 
 WindowMode app_window_mode() {
     if (app_is_mobile()) return WindowMode::Fullscreen;
-    if (kNativeFullscreenSpace) {
+    if constexpr (kNativeFullscreenSpace) {
         if (fa_sapp_is_borderless()) return WindowMode::Borderless;
     }
     if (!sapp_is_fullscreen()) {
@@ -478,7 +481,7 @@ std::string app_set_window_mode(WindowMode mode) {
         return mode == WindowMode::Fullscreen ? std::string() : "phones and tablets always run full screen";
     const WindowMode now = app_window_mode();
     if (now == mode) return {};
-    if (kNativeFullscreenSpace) {
+    if constexpr (kNativeFullscreenSpace) {
         if (mode == WindowMode::Borderless && now == WindowMode::Fullscreen)
             return "macOS full screen is a Space of its own that takes a moment to leave: call "
                    "window.setMode(\"windowed\"), "

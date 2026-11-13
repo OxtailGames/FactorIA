@@ -8,11 +8,12 @@
 #include "fa/platform/system_language.h"
 
 // The tags joined with commas, in a malloc'd UTF-8 string.
+// clang-format off
 EM_JS(char*, fa_web_languages, (), {
-    const list = (navigator.languages && navigator.languages.length) ? navigator.languages
-                                                                     : (navigator.language ? [navigator.language] : []);
+    const list = (navigator.languages && navigator.languages.length) ? navigator.languages : (navigator.language ? [navigator.language] : []);
     return stringToNewUTF8(list.join(','));
 });
+// clang-format on
 
 namespace fa {
 

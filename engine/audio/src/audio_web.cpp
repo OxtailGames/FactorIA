@@ -38,24 +38,16 @@ extern "C" EMSCRIPTEN_KEEPALIVE float* fa_web_audio_pull(int frames) {
 }
 
 // Opens the context and the node. Returns the context's sample rate, or 0 without WebAudio.
+// clang-format off
 EM_JS(int, fa_web_audio_open_impl, (int rate, int channels, int chunk, int target), {
-    if (typeof AudioContext == = 'undefined') {
+    if (typeof AudioContext === 'undefined') {
         console.log('factoria audio: no WebAudio support');
         return 0;
     }
-    const ctx = new AudioContext({sampleRate : rate, latencyHint : 'interactive'});
+    const ctx = new AudioContext({sampleRate: rate, latencyHint: 'interactive'});
     Module._saudio_context = ctx;  // the unlock below (and the tooling that looks for it) uses this name
-    const info = {
-        backend : 'pending',
-        rate : ctx.sampleRate,
-        channels : channels,
-        chunk : chunk,
-        target : target,
-        baseLatency : ctx.baseLatency || 0,
-        underruns : 0,
-        pulls : 0,
-        framesPulled : 0
-    };
+    const info = {backend: 'pending', rate: ctx.sampleRate, channels: channels, chunk: chunk, target: target,
+                  baseLatency: ctx.baseLatency || 0, underruns: 0, pulls: 0, framesPulled: 0};
     Module.faAudio = info;
     globalThis.FactoriaAudio = info;  // for the browser console and test tooling: backend, latency, underruns
     let node = null;
@@ -69,7 +61,7 @@ EM_JS(int, fa_web_audio_open_impl, (int rate, int channels, int chunk, int targe
     };
 
     const useScriptProcessor = (why) => {
-        if (Module._saudio_context != = ctx) return;
+        if (Module._saudio_context !== ctx) return;
         info.backend = 'ScriptProcessorNode';
         const size = 2048;
         node = ctx.createScriptProcessor(size, 0, channels);
@@ -88,159 +80,142 @@ EM_JS(int, fa_web_audio_open_impl, (int rate, int channels, int chunk, int targe
         console.log('factoria audio: ScriptProcessorNode (' + why + '), ' + ctx.sampleRate + ' Hz');
     };
 
-    const workletSource = ` class FactoriaOut extends AudioWorkletProcessor {
-        constructor(options) {
-            super();
-            const o = options.processorOptions;
-            this.channels = o.channels;
-            this.target = o.target;
-            this.queue = [];
-            this.offset = 0;
-            this.queued = 0;
-            this.pending = false;
-            this.underruns = 0;
-            this.port.onmessage = (e) => {
-                this.queue.push(e.data);
-                this.queued += e.data.length / this.channels;
+    const workletSource = `
+        class FactoriaOut extends AudioWorkletProcessor {
+            constructor(options) {
+                super();
+                const o = options.processorOptions;
+                this.channels = o.channels;
+                this.target = o.target;
+                this.queue = [];
+                this.offset = 0;
+                this.queued = 0;
                 this.pending = false;
-            };
-            this.request();
-        }
-        request() {
-            if (this.pending) return;
-            this.pending = true;
-            this.port.postMessage({need : Math.max(this.target - this.queued, 1), underruns : this.underruns});
-        }
-        process(inputs, outputs) {
-            const out = outputs[0];
-            const n = out[0].length;
-            const ch = this.channels;
-            let w = 0;
-            while (w < n && this.queue.length) {
-                const chunk = this.queue[0];
-                const have = chunk.length / ch - this.offset;
-                const take = Math.min(have, n - w);
-                for (let c = 0; c < out.length; c++) {
-                    const dst = out[c], cc = Math.min(c, ch - 1);
-                    for (let i = 0; i < take; i++) dst[w + i] = chunk[(this.offset + i) * ch + cc];
-                }
-                w += take;
-                this.offset += take;
-                this.queued -= take;
-                if (this.offset >= chunk.length / ch) {
-                    this.queue.shift();
-                    this.offset = 0;
-                }
+                this.underruns = 0;
+                this.port.onmessage = (e) => {
+                    this.queue.push(e.data);
+                    this.queued += e.data.length / this.channels;
+                    this.pending = false;
+                };
+                this.request();
             }
-            if (w < n) {
-                for (let c = 0; c < out.length; c++) out[c].fill(0, w);
-                this.underruns++;
+            request() {
+                if (this.pending) return;
+                this.pending = true;
+                this.port.postMessage({need: Math.max(this.target - this.queued, 1), underruns: this.underruns});
             }
-            if (this.queued < this.target) this.request();
-            return true;
+            process(inputs, outputs) {
+                const out = outputs[0];
+                const n = out[0].length;
+                const ch = this.channels;
+                let w = 0;
+                while (w < n && this.queue.length) {
+                    const chunk = this.queue[0];
+                    const have = chunk.length / ch - this.offset;
+                    const take = Math.min(have, n - w);
+                    for (let c = 0; c < out.length; c++) {
+                        const dst = out[c], cc = Math.min(c, ch - 1);
+                        for (let i = 0; i < take; i++) dst[w + i] = chunk[(this.offset + i) * ch + cc];
+                    }
+                    w += take;
+                    this.offset += take;
+                    this.queued -= take;
+                    if (this.offset >= chunk.length / ch) { this.queue.shift(); this.offset = 0; }
+                }
+                if (w < n) {
+                    for (let c = 0; c < out.length; c++) out[c].fill(0, w);
+                    this.underruns++;
+                }
+                if (this.queued < this.target) this.request();
+                return true;
+            }
         }
-    } registerProcessor('factoria-out', FactoriaOut);
-    `;
+        registerProcessor('factoria-out', FactoriaOut);`;
 
-    if (typeof AudioWorkletNode == = 'undefined' || !ctx.audioWorklet) {
+    if (typeof AudioWorkletNode === 'undefined' || !ctx.audioWorklet) {
         useScriptProcessor('no AudioWorklet');
     } else {
-        const url = URL.createObjectURL(new Blob([workletSource], {
-            type:
-                'text/javascript'
-        }));
-        ctx.audioWorklet.addModule(url)
-            .then(() = >
-                       {
-                           URL.revokeObjectURL(url);
-                           if (Module._saudio_context != = ctx) return;  // closed while loading
-                           node = new AudioWorkletNode(ctx, 'factoria-out', {
-                               numberOfInputs : 0,
-                               numberOfOutputs : 1,
-                               outputChannelCount : [channels],
-                               processorOptions : {channels : channels, target : target}
-                           });
-                           node.port.onmessage = (e) => {
-                               const need = e.data.need | 0;
-                               const under = e.data.underruns | 0;
-                               if (under > info.underruns && performance.now() - (info.lastWarn || -1e9) > 1000) {
-                                   info.lastWarn = performance.now();
-                                   console.warn('factoria audio: underrun (' + under +
-                                                ' so far): the main thread was too busy to feed the worklet in time');
-                               }
-                               info.underruns = under;
-                               info.outputLatency = ctx.outputLatency || 0;
-                               const frames = Math.min(Math.max(Math.ceil(need / chunk), 1), 16) * chunk;
-                               const data = pull(frames);
-                               if (data) node.port.postMessage(data, [data.buffer]);
-                           };
-                           node.onprocessorerror = () = > console.warn('factoria audio: the worklet processor failed');
-                           node.connect(ctx.destination);
-                           info.backend = 'AudioWorkletNode';
-                           console.log('factoria audio: AudioWorkletNode, ' + ctx.sampleRate + ' Hz, chunks of ' +
-                                       chunk + ' frames, queue target ' + target + ' frames, base latency ' +
-                                       (info.baseLatency * 1000).toFixed(1) + ' ms');
-                       })
-            .catch((err) = > {
-                URL.revokeObjectURL(url);
-                console.warn('factoria audio: the AudioWorklet module did not load (' + err + ')');
-                useScriptProcessor('worklet failed');
-            });
+        const url = URL.createObjectURL(new Blob([workletSource], {type: 'text/javascript'}));
+        ctx.audioWorklet.addModule(url).then(() => {
+            URL.revokeObjectURL(url);
+            if (Module._saudio_context !== ctx) return;  // closed while loading
+            node = new AudioWorkletNode(ctx, 'factoria-out', {
+                numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [channels],
+                processorOptions: {channels: channels, target: target}});
+            node.port.onmessage = (e) => {
+                const need = e.data.need | 0;
+                const under = e.data.underruns | 0;
+                if (under > info.underruns && performance.now() - (info.lastWarn || -1e9) > 1000) {
+                    info.lastWarn = performance.now();
+                    console.warn('factoria audio: underrun (' + under + ' so far): the main thread was too busy to feed the worklet in time');
+                }
+                info.underruns = under;
+                info.outputLatency = ctx.outputLatency || 0;
+                const frames = Math.min(Math.max(Math.ceil(need / chunk), 1), 16) * chunk;
+                const data = pull(frames);
+                if (data) node.port.postMessage(data, [data.buffer]);
+            };
+            node.onprocessorerror = () => console.warn('factoria audio: the worklet processor failed');
+            node.connect(ctx.destination);
+            info.backend = 'AudioWorkletNode';
+            console.log('factoria audio: AudioWorkletNode, ' + ctx.sampleRate + ' Hz, chunks of ' + chunk + ' frames, queue target '
+                        + target + ' frames, base latency ' + (info.baseLatency * 1000).toFixed(1) + ' ms');
+        }).catch((err) => {
+            URL.revokeObjectURL(url);
+            console.warn('factoria audio: the AudioWorklet module did not load (' + err + ')');
+            useScriptProcessor('worklet failed');
+        });
     }
 
     const resume = () => {
-        if (Module._saudio_context == = ctx && (ctx.state == = 'suspended' || ctx.state == = 'interrupted'))
-            ctx.resume().catch(() = > {});
+        if (Module._saudio_context === ctx && (ctx.state === 'suspended' || ctx.state === 'interrupted')) ctx.resume().catch(() => {});
     };
     ctx.onstatechange = resume;
-    Module.faAudioVisibility = () => {
-        if (document.visibilityState == = 'visible') resume();
-    };
+    Module.faAudioVisibility = () => { if (document.visibilityState === 'visible') resume(); };
     document.addEventListener('visibilitychange', Module.faAudioVisibility);
     Module.faAudioClose = () => {
         document.removeEventListener('visibilitychange', Module.faAudioVisibility);
         ctx.onstatechange = null;
         if (node) {
             node.onaudioprocess = null;
-            if (node.port) {
-                node.port.onmessage = null;
-                node.port.close();
-            }
+            if (node.port) { node.port.onmessage = null; node.port.close(); }
             node.disconnect();
         }
-        ctx.close().catch(() = > {});
+        ctx.close().catch(() => {});
         Module._saudio_context = null;
         Module.faAudio = null;
         globalThis.FactoriaAudio = null;
     };
     return ctx.sampleRate | 0;
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_audio_close_impl, (), {
-    if (Module.faAudioClose) {
-        Module.faAudioClose();
-        Module.faAudioClose = null;
-    }
+    if (Module.faAudioClose) { Module.faAudioClose(); Module.faAudioClose = null; }
 });
+// clang-format on
 
 namespace fa {
 
+// clang-format off
 EM_JS(void, fa_web_audio_unlock_impl, (), {
     if (Module.faAudioUnlock) return;
-    const events = [ 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown', 'keyup' ];
+    const events = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown', 'keyup'];
     const unlock = () => {
         const ctx = Module._saudio_context;
         if (!ctx) return;
-        if (ctx.state == = 'running') {
+        if (ctx.state === 'running') {
             for (const e of events) document.removeEventListener(e, unlock, true);
             Module.faAudioUnlock = null;
             return;
         }
-        ctx.resume().catch(() = > {});
+        ctx.resume().catch(() => {});
     };
     Module.faAudioUnlock = unlock;
     for (const e of events) document.addEventListener(e, unlock, true);
 });
+// clang-format on
 
 void audio_web_unlock() { fa_web_audio_unlock_impl(); }
 

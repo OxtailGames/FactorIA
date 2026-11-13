@@ -188,3 +188,17 @@ function(add_test)
         cmake_language(EVAL CODE "cmake_language(DEFER CALL fa_scale_test_timeout ${ARGV1})")
     endif()
 endfunction()
+
+# Apple's linker (Xcode 15 and later) warns "ignoring duplicate libraries" when a static library appears twice in a link
+# line. CMake repeats a library on purpose when static libraries depend on each other in a cycle (render <-> script, the
+# tooling libraries), and the repeat is harmless: it is how a static link resolves such a cycle. A target whose link
+# line has such a repeat calls this to say so; elsewhere the linker's warning stays on.
+if(APPLE)
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "LINKER:-no_warn_duplicate_libraries" FA_LINKER_HAS_NO_WARN_DUPLICATE_LIBRARIES)
+endif()
+function(fa_allow_duplicate_libraries target)
+    if(APPLE AND FA_LINKER_HAS_NO_WARN_DUPLICATE_LIBRARIES)
+        target_link_options(${target} PRIVATE "LINKER:-no_warn_duplicate_libraries")
+    endif()
+endfunction()

@@ -1295,7 +1295,7 @@ struct Audio::Impl {
         std::optional<Loudness> loudness = cached_loudness(analysis != entry.end() ? *analysis : Json(), bytes);
         const double target = setting_number(settings, "targetLufs", -16.0);
         if (!loudness) {
-            if (!kMeasuresAtLoad) {
+            if constexpr (!kMeasuresAtLoad) {
                 FA_WARN("audio",
                         "'{}' has normalize on but no loudness measured for this file in assets.json, so it plays "
                         "unchanged "

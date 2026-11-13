@@ -1,7 +1,16 @@
 /* stb_vorbis implementation lives in its own C translation unit (it defines
  * single-letter macros that must not leak into C++ code). */
 #define STB_VORBIS_NO_STDIO
+/* GCC 13 cannot see that getn() fills the page header it reads next (stb_vorbis.c:1366, a false positive). This
+ * silences that one warning for the vendored code only: external/ is not edited, and the rest of this file is checked. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 #include "stb_vorbis.c"
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 /* The pull API the C++ decoders use (audio_decoder.cpp), so no stb_vorbis type crosses the language boundary. */
 void* fa_vorbis_open(const unsigned char* data, int size, int* channels, int* rate, unsigned int* frames) {
