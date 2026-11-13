@@ -595,15 +595,17 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `audio.mix_voices`, `audio.mix_bus_fx` | Two seconds of the software mixer with 48 looping voices (pitch and pan), without and with a low-pass and a reverb on the buses (the null device, offline) |
 | `jobs.tiny`, `jobs.for_small_grain`, `jobs.for_large_grain`, `jobs.graph`, `jobs.nested_wait`, `jobs.main_queue` | The job system's scheduling: 20000 tiny jobs submitted from one thread; `parallel_for` with 1250 small chunks per call and with 32 large ones; fan-out/fan-in rounds and a chain of dependent jobs; jobs that submit jobs and wait for them; 96000 main-thread tasks posted and run. Each job does almost no work, so the numbers are the queues' and waits' own cost. The baselines are `--jobs inline`; run `--jobs 4` to measure the pool (wider warn and fail ratios, x1.8 and x3) |
 
-The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids, a per-point position pass that also
-turns a tilted box back flat) cost a little where stacks are deep and nothing elsewhere. Measured on the same loaded MacBook
-with the old and the new `fa_bench` interleaved (Release, medians in ms, two A/B pairs): `physics.step3d` 12.5 / 12.8 before,
-12.9 / 12.6 after; `physics.step3d_1000` 99.5 / 101.0 before, 101.4 / 104.6 after (within the noise of the machine);
-`physics.step3d_stack100` 46.4 / 46.9 before, 53.3 / 55.1 after (a column of 100 boxes has about twice as many points to
-solve and correct per box pair than before). The gain is in what the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`)
-check: a block of 5 x 5 x 4 boxes (100 boxes) now falls asleep after 40 steps with a drift of 1 mm (before, it was still awake
-after 600 steps), and a column of 20 boxes sleeps too; a column of 50 leans a few degrees and one of 100 still collapses (its
-test stays `may_fail`). The baselines of the three `physics.step3d*` entries of `macos-clang.json` were refreshed.
+The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids) and the soft contacts of the stacking
+package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/ARCHITECTURE.md, "3D contact solver,
+stacking") are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
+only the time: a column of 100 boxes (spacing 1.02) stands and falls asleep after 240 steps with a drift of 0 mm, a column
+of 50 after 140 steps, a block of 5 x 5 x 4 boxes after 40, and the walled pit of 1000 spheres, capsules and boxes is asleep
+after about 1600 steps (800 to 1600 in other runs; a Release test; before, none of them did, and the column of 100 collapsed). A step of that sleeping
+pit costs 0.4 ms (a world with nothing awake skips the sub-steps and the broad phase). Medians in ms (Release, macOS,
+15 runs, quiet machine), before and after M94.4h: `physics.step3d` 12.8 / 12.5, `physics.step3d_1000` 100.6 / 100.2 (a
+falling pit has the same work), `physics.step3d_stack100` 52.7 / 16.8 (the column of 100 now falls asleep after 4 s instead
+of keeping every body awake, and sleeping steps are nearly free). The baselines of the three `physics.step3d*` entries of
+`macos-clang.json` were refreshed.
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
 A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
