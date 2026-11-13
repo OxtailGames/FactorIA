@@ -40,8 +40,10 @@ namespace {
 std::unique_ptr<FontFace> finish_font_face(std::unique_ptr<FontFace> f) {
     const int offset = f->data && f->size >= 16 ? stbtt_GetFontOffsetForIndex(f->data, 0) : -1;  // -1: not a font file at all (and stb would read before it)
     if (offset >= 0) {
-        if (const std::string damaged = check_font_bytes(f->data, f->size, offset); !damaged.empty()) {
-            f->error = std::format("'{}' is damaged: {}", f->key, damaged);
+        FontCheck check = check_font_bytes(f->data, f->size, offset);
+        f->unsafeGlyphs = std::move(check.unsafeGlyphs);
+        if (!check.problem.empty()) {
+            f->error = std::format("'{}' is damaged: {}", f->key, check.problem);
             f->hint = "Get the font file again from where you downloaded it, or re-save it with a font editor (FontForge, fontTools).";
             return f;
         }

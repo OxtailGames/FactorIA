@@ -45,17 +45,21 @@ void Image::flip_vertical() {
 
 Result<Image> decode_image(const std::uint8_t* data, std::size_t size) {
     if (!data || size == 0 || size > std::size_t(std::numeric_limits<int>::max()))
-        return make_error(size == 0 ? "Cannot decode image: the file is empty" : "Cannot decode image: the file is larger than 2 GB",
-                          "Supported formats: PNG, JPG, TGA, BMP (also GIF/PSD first frame). Re-export the file from your image editor.");
-    // The header says the size before anything is allocated: a file that claims more pixels than any GPU holds (a few bytes
-    // of PNG header can claim 16384 x 16384 and more) is refused here, not after stb_image has asked for the memory. A BMP
-    // header may carry a negative height (rows top-down), hence the absolute values.
+        return make_error(size == 0 ? "Cannot decode image: the file is empty"
+                                    : "Cannot decode image: the file is larger than 2 GB",
+                          "Supported formats: PNG, JPG, TGA, BMP (also GIF/PSD first frame). "
+                          "Re-export the file from your image editor.");
+    // The header says the size before anything is allocated: a file that claims more pixels than any GPU holds (a few
+    // bytes of PNG header can claim 16384 x 16384 and more) is refused here, not after stb_image has asked for the memory.
+    // A BMP header may carry a negative height (rows top-down), hence the absolute values.
     int hw = 0, hh = 0, hcomp = 0;
     if (stbi_info_from_memory(data, int(size), &hw, &hh, &hcomp) &&
         std::uint64_t(std::abs(std::int64_t(hw))) * std::uint64_t(std::abs(std::int64_t(hh))) > kMaxImagePixels)
-        return make_error(std::format("Cannot decode image: it is {} x {} pixels, more than the {} million pixels the engine reads",
+        return make_error(std::format("Cannot decode image: it is {} x {} pixels, more than the {} million pixels "
+                                      "the engine reads",
                                       std::abs(std::int64_t(hw)), std::abs(std::int64_t(hh)), kMaxImagePixels / 1000000),
-                          "Scale the image down in your image editor (no GPU samples a texture this large) or cut it into several images.");
+                          "Scale the image down in your image editor (no GPU samples a texture this large) or cut it "
+                          "into several images.");
     int w = 0, h = 0, comp = 0;
     unsigned char* px = stbi_load_from_memory(data, int(size), &w, &h, &comp, 4);
     if (!px) {
@@ -65,7 +69,8 @@ Result<Image> decode_image(const std::uint8_t* data, std::size_t size) {
     }
     if (w <= 0 || h <= 0) {  // a BMP header may say "8 x 0", and stb_image answers with an empty picture
         stbi_image_free(px);
-        return make_error(std::format("Cannot decode image: it is {} x {} pixels, a picture needs at least one in each direction", w, h),
+        return make_error(std::format("Cannot decode image: it is {} x {} pixels, a picture needs at least one in each "
+                                      "direction", w, h),
                           "The file is damaged. Re-export it from your image editor.");
     }
     Image img;
@@ -87,9 +92,10 @@ Result<Image> load_image(std::string_view path) {
 std::vector<Image> mip_chain(Image base) {
     constexpr int kMaxMipLevels = 16;
     std::vector<Image> chain;
-    const bool whole = base.width > 0 && base.height > 0 && base.rgba.size() >= std::size_t(base.width) * std::size_t(base.height) * 4;
+    const bool whole = base.width > 0 && base.height > 0 &&
+                       base.rgba.size() >= std::size_t(base.width) * std::size_t(base.height) * 4;
     chain.push_back(std::move(base));
-    while (whole &&(chain.back().width > 1 || chain.back().height > 1) && int(chain.size()) < kMaxMipLevels) {
+    while (whole && (chain.back().width > 1 || chain.back().height > 1) && int(chain.size()) < kMaxMipLevels) {
         const Image& prev = chain.back();
         const int w = prev.width, h = prev.height;
         Image next;

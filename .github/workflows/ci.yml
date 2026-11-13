@@ -1221,22 +1221,34 @@ jobs:
           key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
 
       # A random run of a minute per target finds a different input each time, so a finding there is usually not caused by this
-      # change: it must not block unrelated pull requests. The step is allowed to fail and the next one makes the result
+      # change: it must not block unrelated pull requests. A finding does not fail the step and the next one makes the result
       # visible (a warning annotation and the job summary). What does block: the build of the targets above, and the corpus
       # replay (ctest label `fuzz`, run by the normal jobs), which holds every input that ever failed.
+      # tools/fuzz/run.sh exits 0 (nothing found), 1 (a crash, timeout, out-of-memory or sanitizer report: findings) or 2 (the
+      # run itself failed: no fuzz program, an unknown target, a program that failed without leaving an input). Only exit 1 is
+      # soft; an exit 2 fails the job, because a run that did not run would otherwise look like a run that found nothing.
       - name: Fuzz every target
         id: fuzz
-        continue-on-error: true
-        run: tools/fuzz/run.sh build/fuzz "$FA_FUZZ_SECONDS"
+        run: |
+          set +e
+          tools/fuzz/run.sh build/fuzz "$FA_FUZZ_SECONDS"
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -eq 1 ]; then exit 0; fi
+          exit "$status"
 
       - name: Say that the fuzz run found something
-        if: steps.fuzz.outcome == 'failure'
+        if: steps.fuzz.outputs.status == '1'
         run: |
           echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/BUILDING.md, Fuzzing)."
           {
             echo "### Fuzzing found something"
             echo
-            echo "The random run of \`linux-fuzz\` failed. This job stays green so that unrelated pull requests are not blocked, but each file in the artifact \`fuzz-crashes\` is an input that crashes the engine."
+            echo "The random run of \`linux-fuzz\` found a crash. This job stays green so that unrelated pull requests are not blocked, but each file in the artifact \`fuzz-crashes\` is an input that crashes the engine:"
+            echo
+            echo '```'
+            ls build/fuzz/fuzz-crashes
+            echo '```'
             echo
             echo "Reproduce with \`fa_fuzz_<target> <file>\` from a build with \`-DFA_FUZZ=ON\`, fix the bug, and copy the input into \`tools/fuzz/corpus/<target>/\` so the corpus replay keeps it fixed."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -1244,7 +1256,7 @@ jobs:
       # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
       # copy it into tools/fuzz/corpus/<target>/ (docs/BUILDING.md, "Fuzzing").
       - name: Upload the inputs that failed
-        if: failure() || steps.fuzz.outcome == 'failure'
+        if: failure() || steps.fuzz.outputs.status == '1'
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-crashes

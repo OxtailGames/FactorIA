@@ -38,9 +38,22 @@ struct FontFace {
     // True when the font maps `cp` to a glyph of its own.
     bool has_glyph(std::uint32_t cp) const;
 
+    // Glyphs check_font_bytes found stb_truetype cannot be asked for (empty when there are none); index = glyph, 1 = unsafe.
+    std::vector<std::uint8_t> unsafeGlyphs;
+
     // `glyph` as an index stb_truetype may read: a glyph the font does not have (a 'cmap' may point past 'maxp's glyph count,
-    // and HarfBuzz hands on what it finds there) is drawn as glyph 0, the .notdef box. check_font_bytes made sure that glyph exists.
-    int stb_glyph(std::uint32_t glyph) const { return glyph < std::uint32_t(info.numGlyphs) ? int(glyph) : 0; }
+    // and HarfBuzz hands on what it finds there) or one that cannot be drawn safely (a last contour of one point off the curve,
+    // parts placed by matching points...) is drawn as glyph 0, the .notdef box. check_font_bytes made sure that glyph is fine.
+    int stb_glyph(std::uint32_t glyph) const {
+        if (glyph >= std::uint32_t(info.numGlyphs)) return 0;
+        return glyph < unsafeGlyphs.size() && unsafeGlyphs[glyph] ? 0 : int(glyph);
+    }
+};
+
+// What check_font_bytes found: `problem` is set when the whole file is unusable.
+struct FontCheck {
+    std::string problem;
+    std::vector<std::uint8_t> unsafeGlyphs;  // see FontFace::unsafeGlyphs
 };
 
 // Loads one font: "" / "builtin" (DejaVu Sans), "builtin:pixel" (Press Start 2P) or a project-relative .ttf / .otf read
@@ -52,9 +65,10 @@ std::unique_ptr<FontFace> load_font_face(const std::string& key);
 std::unique_ptr<FontFace> load_font_face_from_memory(std::vector<unsigned char> bytes, const std::string& key);
 
 // Walks the tables stb_truetype will follow (directory, head, hhea, hmtx, maxp, loca, glyf, cmap) with the file's length in hand.
-// "" when every offset lies inside the file and no glyph includes itself; else what is wrong, as a sentence
-// (font_check.cpp). `offset` is the start of the font in the file (stbtt_GetFontOffsetForIndex).
-std::string check_font_bytes(const unsigned char* data, std::size_t size, int offset);
+// `problem` is "" when every table and offset lies inside the file; else what is wrong, as a sentence (font_check.cpp). A glyph
+// that is wrong by itself does not make `problem`: it is listed in `unsafeGlyphs`. `offset` is the start of the font in the file
+// (stbtt_GetFontOffsetForIndex).
+FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offset);
 
 // Text as it is laid out: UTF-8 to code points (malformed bytes become U+FFFD); '\n', U+0085, U+2028 and U+2029 are line
 // breaks (all become '\n'), a tab is four spaces, and '\r' and the other control characters are dropped.

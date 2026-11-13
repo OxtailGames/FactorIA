@@ -40,3 +40,8 @@ tools/ai/tests/fixtures/cli/** text eol=lf
 # Fuzz corpus files are inputs, byte for byte (some are damaged on purpose, some are JSON or text with CR or no final newline): no
 # eol conversion on any checkout. This line comes after the `*.json` rule, which it overrides for the corpus.
 tools/fuzz/corpus/** -text
+
+# Font files: byte for byte (the font tests damage copies of them and the checker reads offsets), no eol conversion, no diff.
+*.ttf binary
+*.otf binary
+*.ttc binary

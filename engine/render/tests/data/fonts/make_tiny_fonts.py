@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Writes tiny_glyf.ttf and tiny_composite.ttf next to this script (pip install fonttools).
+"""Writes tiny_glyf.ttf, tiny_composite.ttf and tiny_chain.ttf next to this script (pip install fonttools).
 
 Two 700-byte TrueType fonts with outlines made here (no licence to carry): 'A' is a quadratic curve, 'B' a box, and the
-composite font adds a glyph 'AB' (the codepoint 0x43) made of both. font_check_tests.cpp damages copies of them (a glyph
-that includes itself, tables cut short) to test the check that runs before stb_truetype reads a font; tools/fuzz/corpus/font/
-holds the same two files as seeds.
+composite font adds a glyph 'AB' (the codepoint 0x43) made of both. tiny_chain.ttf has 41 glyphs, each a composite of the
+one before. font_check_tests.cpp damages copies of them (a glyph that includes itself, tables cut short) to test the check
+that runs before stb_truetype reads a font; tools/fuzz/corpus/font/ holds the same files as seeds.
 """
 import os
 from fontTools.fontBuilder import FontBuilder
@@ -41,6 +41,33 @@ def make_font(path, composite):
     fb.save(path)
 
 
+def make_chain(path, links=40):
+    """tiny_chain.ttf: glyph 'c0' is a box and 'c<k>' is a composite of 'c<k-1>' (k nesting levels), so each glyph includes
+    the one just before it in the file. 'A' is c0, 'B' is c20 (fine), 'C' is c<links> (deeper than the engine follows)."""
+    names = ['.notdef'] + [f'c{k}' for k in range(links + 1)]
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder(names)
+    fb.setupCharacterMap({65: 'c0', 66: 'c20', 67: f'c{links}'})
+    def box():
+        p = TTGlyphPen(None)
+        p.moveTo((50, 0)); p.lineTo((50, 700)); p.lineTo((450, 700)); p.lineTo((450, 0)); p.closePath()
+        return p.glyph()
+
+    glyphs = {'.notdef': box(), 'c0': box()}
+    for k in range(1, links + 1):
+        pen = TTGlyphPen(glyphs)
+        pen.addComponent(f'c{k - 1}', (1, 0, 0, 1, 1, 0))
+        glyphs[f'c{k}'] = pen.glyph()
+    fb.setupGlyf(glyphs)
+    fb.setupHorizontalMetrics({n: (600, 50) for n in names})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({'familyName': 'Seed', 'styleName': 'Regular'})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.save(path)
+
+
 here = os.path.dirname(os.path.abspath(__file__))
 make_font(os.path.join(here, 'tiny_glyf.ttf'), False)
 make_font(os.path.join(here, 'tiny_composite.ttf'), True)
+make_chain(os.path.join(here, 'tiny_chain.ttf'))

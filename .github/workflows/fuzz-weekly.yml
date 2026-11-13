@@ -39,6 +39,14 @@ jobs:
     env:
       FA_FUZZ_MINUTES: ${{ github.event.inputs.minutes || '25' }}
     steps:
+      # The by-hand input is free text: a number of minutes, 1 to 60 (the job is cut at 120 minutes, build and merge included).
+      - name: Check the minutes input
+        run: |
+          if ! [[ "$FA_FUZZ_MINUTES" =~ ^[0-9]{1,2}$ ]] || [ "$((10#$FA_FUZZ_MINUTES))" -lt 1 ] || [ "$((10#$FA_FUZZ_MINUTES))" -gt 60 ]; then
+            echo "::error title=Bad minutes input::'minutes' must be a whole number from 1 to 60, not '$FA_FUZZ_MINUTES'."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
@@ -78,7 +86,7 @@ jobs:
       - name: Fuzz
         id: fuzz
         continue-on-error: true
-        run: tools/fuzz/run.sh build/fuzz "$((FA_FUZZ_MINUTES * 60))" ${{ matrix.target }}
+        run: tools/fuzz/run.sh build/fuzz "$((10#$FA_FUZZ_MINUTES * 60))" ${{ matrix.target }}
 
       # Merge the repository's corpus and everything this run and the cache hold into the smallest set with the same coverage.
       - name: Minimize the corpus
@@ -126,5 +134,5 @@ jobs:
       - name: Fail when the run found something
         if: steps.fuzz.outcome == 'failure'
         run: |
-          echo "::error title=Fuzzing found a crash in ${{ matrix.target }}::Download the artifact fuzz-crashes-${{ matrix.target }}, fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/BUILDING.md, Fuzzing)."
+          echo "::error title=The fuzz run of ${{ matrix.target }} failed::If the artifact fuzz-crashes-${{ matrix.target }} holds files, each is a crash: fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/BUILDING.md, Fuzzing). If it holds none, the run itself failed: read the log of the Fuzz step."
           exit 1

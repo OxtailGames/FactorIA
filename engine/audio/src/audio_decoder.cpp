@@ -75,7 +75,7 @@ private:
 // signed ints and sizes a buffer from each: a length of -1 allocates nothing and is then written to at index -1, a huge one
 // loops for billions of steps. So the comment packet is assembled from its Ogg pages and every length is checked against what
 // the packet holds before stb_vorbis sees the file. Anything else stb_vorbis finds wrong with the file it reports itself.
-bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n) {
+bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
     constexpr std::size_t kMaxPacket = std::size_t(16) << 20;
     std::vector<std::uint8_t> packet;
     std::size_t pos = 0;
@@ -91,7 +91,10 @@ bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n) {
             if (at + lace > n) return false;  // the file ends inside the packet
             if (index == 1) {
                 packet.insert(packet.end(), d + at, d + at + lace);
-                if (packet.size() > kMaxPacket) return false;
+                if (packet.size() > kMaxPacket) {
+                    *tooBig = true;  // not damaged: more than the engine reads
+                    return false;
+                }
             }
             at += lace;
             if (lace < 255) {
@@ -130,7 +133,7 @@ public:
         if (v_) fa_vorbis_close(v_);
     }
     bool open(const std::uint8_t* data, std::size_t size) {
-        if (size > 0x7fffffff || !vorbis_comments_fit(data, size)) return false;
+        if (size > 0x7fffffff || !vorbis_comments_fit(data, size, &commentsTooBig_)) return false;
         unsigned int frames = 0;
         v_ = fa_vorbis_open(data, int(size), &channels_, &rate_, &frames);
         frames_ = frames;
@@ -145,8 +148,12 @@ public:
         return frame <= 0x7fffffffu && fa_vorbis_seek(v_, unsigned(frame)) != 0;
     }
 
+    // open() failed because the comment header is over 16 MB (big embedded cover art), not because the file is damaged
+    bool comments_too_big() const { return commentsTooBig_; }
+
 private:
     void* v_ = nullptr;
+    bool commentsTooBig_ = false;
 };
 
 class QoaDecoder final : public Decoder {
@@ -213,7 +220,14 @@ bool is_audio_extension(std::string_view ext) { return ext == ".wav" || ext == "
 std::unique_ptr<Decoder> open_decoder(const std::uint8_t* data, std::size_t size, std::string_view ext, std::string* error) {
     std::unique_ptr<Decoder> d;
     if (ext == ".wav") d = opened<WavDecoder>(data, size, "is not a valid WAV file (hint: use 8/16/24/32-bit PCM or float WAV)", error);
-    else if (ext == ".ogg") d = opened<OggDecoder>(data, size, "is not a valid OGG Vorbis file", error);
+    else if (ext == ".ogg") {
+        auto ogg = std::make_unique<OggDecoder>();
+        if (ogg->open(data, size)) d = std::move(ogg);
+        else if (ogg->comments_too_big())
+            *error = "has a comment header over 16 MB, more than the engine reads (a very large embedded cover picture); "
+                     "remove the metadata, e.g. `ffmpeg -i in.ogg -map_metadata -1 -c:a copy out.ogg`";
+        else *error = "is not a valid OGG Vorbis file";
+    }
     else if (ext == ".mp3") d = opened<Mp3Decoder>(data, size, "is not a valid MP3 file", error);
     else if (ext == ".qoa") d = opened<QoaDecoder>(data, size, "is not a valid QOA file", error);
     else {

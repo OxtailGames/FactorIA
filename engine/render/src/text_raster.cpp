@@ -41,10 +41,17 @@ Result<TextBitmap> rasterize_with(std::string_view utf8, std::unique_ptr<render:
         const float fx = pen - std::floor(pen);
         Placed p{face, glyph, 0, 0, 0, 0, scale, fx};
         stbtt_GetGlyphBitmapBoxSubpixel(&face->info, glyph, scale, scale, fx, 0, &p.x0, &p.y0, &p.x1, &p.y1);
-        p.x0 += int(std::floor(pen));
-        p.x1 += int(std::floor(pen));
-        // A font whose units-per-em is tiny draws a glyph hundreds of thousands of pixels wide: that glyph draws nothing.
-        if (p.x1 > p.x0 && p.y1 > p.y0 && std::int64_t(p.x1 - p.x0) * (p.y1 - p.y0) <= kMaxGlyphPixels && std::abs(p.x0) < (1 << 24) && std::abs(p.y0) < (1 << 24)) {
+        // A font whose units-per-em is tiny draws a glyph hundreds of thousands of pixels wide (stb_truetype's box can be
+        // INT_MAX): that glyph draws nothing, and its box is not moved by the pen (that sum would overflow).
+        constexpr std::int64_t kFar = 1 << 24;
+        const bool inRange = std::abs(std::int64_t(p.x0)) < kFar && std::abs(std::int64_t(p.x1)) < kFar &&
+                          std::abs(std::int64_t(p.y0)) < kFar && std::abs(std::int64_t(p.y1)) < kFar;
+        if (inRange) {
+            p.x0 += int(std::floor(pen));
+            p.x1 += int(std::floor(pen));
+        }
+        if (inRange && p.x1 > p.x0 && p.y1 > p.y0 && std::int64_t(p.x1 - p.x0) * (p.y1 - p.y0) <= kMaxGlyphPixels &&
+            std::abs(p.x0) < (1 << 24)) {
             minX = std::min(minX, p.x0);
             minY = std::min(minY, p.y0);
             maxX = std::max(maxX, p.x1);
