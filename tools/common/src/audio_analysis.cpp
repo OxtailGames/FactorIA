@@ -46,7 +46,9 @@ Result<AudioAnalysis> analyze_audio_file(const std::string& projectDir, const st
     tooling_detail::ProjectRootScope root(projectDir);
     AudioAnalysis a;
     a.path = fs::normalize(path);
-    if (a.path.empty()) return make_error("'" + path + "' is outside the project", "Use a project-relative path such as assets/music.ogg.");
+    if (a.path.empty())
+        return make_error("'" + path + "' is outside the project",
+                          "Use a project-relative path such as assets/music.ogg.");
     auto file = read_audio_file(a.path);
     if (!file) return file.error();
     a.file = file->path;
@@ -70,8 +72,9 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
     // with hours of audio validates slowly until `assets.analyze_audio` has stored the measurements. Upgrade path: a
     // cache under .factoria/ keyed by the file's sha256 (as the export does for conversions), which validate may write.
     constexpr double kClippedDb = -0.1, kLoudLufs = -9.0, kQuietLufs = -35.0, kEffectSpreadLu = 12.0;
-    const char* normalizeHint = "Set import \"normalize\": true for it (or under defaults.audio) in assets.json to play it at "
-                                "a target loudness, or level the source file. See docs/ASSETS.md, \"Import settings > Audio\".";
+    const char* normalizeHint =
+        "Set import \"normalize\": true for it (or under defaults.audio) in assets.json to play it at "
+        "a target loudness, or level the source file. See docs/ASSETS.md, \"Import settings > Audio\".";
     std::vector<ValidationIssue> out;
     struct Effect {
         std::string path;
@@ -82,35 +85,52 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
     for (const std::string& path : project_audio_files(projectDir)) {
         auto a = analyze_audio_file(projectDir, path);
         if (!a) {
-            out.push_back({path, "", "Cannot measure the loudness of this sound: " + a.error().message, a.error().hint});
+            out.push_back(
+                {path, "", "Cannot measure the loudness of this sound: " + a.error().message, a.error().hint});
             continue;
         }
         const Loudness& l = a->loudness;
         const bool normalize = tooling_detail::bool_setting(a->settings, "normalize");
-        const double gain = normalize ? normalization_gain_db(l, tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) : 0.0;
+        const double gain =
+            normalize ? normalization_gain_db(l, tooling_detail::number_setting(a->settings, "targetLufs", -16.0))
+                      : 0.0;
         // What the player hears: the file's levels plus the gain that import "normalize" applies.
         const double peak = l.peakDb + gain, lufs = l.integratedLufs + gain;
-        const std::string played = normalize ? " (after the normalize gain of " + std::format("{:+.1f}", gain) + " dB)" : "";
+        const std::string played =
+            normalize ? " (after the normalize gain of " + std::format("{:+.1f}", gain) + " dB)" : "";
         if (peak > kClippedDb)
-            out.push_back({path, "", "Peaks at " + num(peak) + " dBFS" + played + ": the waveform reaches full scale and is probably clipped.",
-                           normalize ? "Normalization keeps the peak under -1 dBFS unless the gain is capped; level the source file."
-                                     : "Export the sound again at a lower level (the engine has no limiter), or set import \"normalize\": true "
-                                       "so it plays with its peak under -1 dBFS."});
+            out.push_back(
+                {path, "",
+                 "Peaks at " + num(peak) + " dBFS" + played +
+                     ": the waveform reaches full scale and is probably clipped.",
+                 normalize
+                     ? "Normalization keeps the peak under -1 dBFS unless the gain is capped; level the source file."
+                     : "Export the sound again at a lower level (the engine has no limiter), or set import "
+                       "\"normalize\": true "
+                       "so it plays with its peak under -1 dBFS."});
         if (l.integratedLufs <= kSilentLufs)
             out.push_back({path, "", "Has no audible content (nothing above " + num(kSilentLufs) + " LUFS).",
                            "Replace the placeholder with the real sound."});
         else if (lufs > kLoudLufs)
-            out.push_back({path, "", "Very loud: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).", normalize ? "Lower its targetLufs, or level the source file." : normalizeHint});
+            out.push_back({path, "",
+                           "Very loud: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).",
+                           normalize ? "Lower its targetLufs, or level the source file." : normalizeHint});
         else if (lufs < kQuietLufs)
-            out.push_back({path, "", "Very quiet: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).", normalize ? "Raise its targetLufs, or level the source file (the gain is capped at 24 dB)." : normalizeHint});
-        if (l.integratedLufs > kSilentLufs && !clip_streams("auto", l.seconds)) effects.push_back({path, l.integratedLufs + gain});
+            out.push_back({path, "",
+                           "Very quiet: " + num(lufs) + " LUFS" + played + " (music is mastered around -14 to -16).",
+                           normalize ? "Raise its targetLufs, or level the source file (the gain is capped at 24 dB)."
+                                     : normalizeHint});
+        if (l.integratedLufs > kSilentLufs && !clip_streams("auto", l.seconds))
+            effects.push_back({path, l.integratedLufs + gain});
     }
     if (effects.size() >= 2) {
         auto [quiet, loud] = std::minmax_element(effects.begin(), effects.end(),
                                                  [](const Effect& x, const Effect& y) { return x.lufs < y.lufs; });
         if (loud->lufs - quiet->lufs > kEffectSpreadLu)
-            out.push_back({loud->path, "", "Sound effects differ by " + num(loud->lufs - quiet->lufs) + " LU in loudness: this one plays at " +
-                                               num(loud->lufs) + " LUFS and '" + quiet->path + "' at " + num(quiet->lufs) + " LUFS.",
+            out.push_back({loud->path, "",
+                           "Sound effects differ by " + num(loud->lufs - quiet->lufs) +
+                               " LU in loudness: this one plays at " + num(loud->lufs) + " LUFS and '" + quiet->path +
+                               "' at " + num(quiet->lufs) + " LUFS.",
                            normalizeHint});
     }
     return out;
@@ -124,21 +144,30 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
     info.readOnly = false;
     info.summary = "Measure the loudness of a sound (or of every sound) and keep the result in assets.json.";
     info.description =
-        "Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak (dBFS) of .wav, .ogg, .mp3 and .qoa "
-        "files, and stores them under the sound's `analysis` in assets.json together with the size and SHA-256 of the file, "
-        "so editing the sound later makes the record stale instead of wrong. Sounds with import \"normalize\": true play at "
-        "`targetLufs` using that record; without one the desktop engine measures the sound when it loads it, and mobile "
-        "builds cannot, so run this (or export, which stores it) before shipping. A sound whose record is still fresh is not "
+        "Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak (dBFS) of .wav, .ogg, .mp3 "
+        "and .qoa "
+        "files, and stores them under the sound's `analysis` in assets.json together with the size and SHA-256 of the "
+        "file, "
+        "so editing the sound later makes the record stale instead of wrong. Sounds with import \"normalize\": true "
+        "play at "
+        "`targetLufs` using that record; without one the desktop engine measures the sound when it loads it, and "
+        "mobile "
+        "builds cannot, so run this (or export, which stores it) before shipping. A sound whose record is still fresh "
+        "is not "
         "measured again. Without `path` every sound under assets/ and every sound a scene or prefab names is analyzed. "
-        "Returns {files: [{path, loudnessLufs, peakDb, seconds, streams, normalize, gainDb, cached, stored}], measured, "
-        "cached, failed}: `streams` says whether the sound is decoded while it plays (import stream), `gainDb` is the gain "
-        "normalize would apply (only when normalize is on). A sound that cannot be decoded is listed with `error` and `hint` "
+        "Returns {files: [{path, loudnessLufs, peakDb, seconds, streams, normalize, gainDb, cached, stored}], "
+        "measured, "
+        "cached, failed}: `streams` says whether the sound is decoded while it plays (import stream), `gainDb` is the "
+        "gain "
+        "normalize would apply (only when normalize is on). A sound that cannot be decoded is listed with `error` and "
+        "`hint` "
         "when no path is given. Example: {\"path\": \"assets/music/theme.ogg\"}";
     info.inputSchema = Json::object(
         {{"type", "object"},
-         {"properties", Json::object({{"path", Json::object({{"type", "string"},
-                                                              {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav. "
-                                                                              "Omit to analyze every sound of the project."}})}})}});
+         {"properties",
+          Json::object({{"path", Json::object({{"type", "string"},
+                                               {"description", "Project-relative sound file, e.g. assets/sfx/jump.wav. "
+                                                               "Omit to analyze every sound of the project."}})}})}});
     info.inputSchema["properties"]["path"]["x-fa-path"] = "read";
     registry.add(info, [projectDir](const Json& args) {
         const std::string asked = tooling_detail::arg_string(args, "path", false);
@@ -147,7 +176,8 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
             paths = project_audio_files(projectDir);
         } else {
             if (!tooling_detail::is_audio_file(asked))
-                throw CommandError("invalid_argument", "'" + asked + "' is not a sound file.", "Sounds are .wav, .ogg, .mp3 or .qoa files.");
+                throw CommandError("invalid_argument", "'" + asked + "' is not a sound file.",
+                                   "Sounds are .wav, .ogg, .mp3 or .qoa files.");
             paths.push_back(asked);
         }
         Json files = Json::array();
@@ -174,16 +204,22 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
                 stored = true;
             }
             const bool normalize = tooling_detail::bool_setting(a->settings, "normalize");
-            Json item = Json::object({{"path", a->path},
-                                      {"loudnessLufs", a->record["loudnessLufs"]},
-                                      {"peakDb", a->record["peakDb"]},
-                                      {"seconds", a->record["seconds"]},
-                                      {"streams", clip_streams(tooling_detail::string_setting(a->settings, "stream", "auto"), a->loudness.seconds)},
-                                      {"normalize", normalize},
-                                      {"cached", a->cached},
-                                      {"stored", stored}});
+            Json item =
+                Json::object({{"path", a->path},
+                              {"loudnessLufs", a->record["loudnessLufs"]},
+                              {"peakDb", a->record["peakDb"]},
+                              {"seconds", a->record["seconds"]},
+                              {"streams", clip_streams(tooling_detail::string_setting(a->settings, "stream", "auto"),
+                                                       a->loudness.seconds)},
+                              {"normalize", normalize},
+                              {"cached", a->cached},
+                              {"stored", stored}});
             if (normalize)
-                item["gainDb"] = std::round(normalization_gain_db(a->loudness, tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) * 100.0) / 100.0;
+                item["gainDb"] =
+                    std::round(normalization_gain_db(a->loudness,
+                                                     tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) *
+                               100.0) /
+                    100.0;
             files.push_back(std::move(item));
         }
         Json result = Json::object({{"files", files}, {"measured", measured}, {"cached", cached}, {"failed", failed}});

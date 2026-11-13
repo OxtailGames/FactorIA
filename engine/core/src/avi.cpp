@@ -75,9 +75,10 @@ Result<void> AviWriter::add_frame(const std::vector<std::uint8_t>& jpeg) {
     const std::uint64_t frames = sizes_.size() + 1;
     const std::uint64_t audioReserve = std::uint64_t(double(frames) / fps_ * 192000.0);
     if (spooled_ + 8 + jpeg.size() + 1 + 32 * frames + audioReserve + 4096 > kMaxFileBytes)
-        return make_error("The video reached the 2 GB limit of an AVI file after " + std::to_string(sizes_.size()) + " frames (" +
-                              std::to_string(std::uint64_t(double(sizes_.size()) / fps_)) + " s).",
-                          "Record fewer frames or use a smaller --render-scale; about 3 minutes of 1080p at 60 fps fit.");
+        return make_error(
+            "The video reached the 2 GB limit of an AVI file after " + std::to_string(sizes_.size()) + " frames (" +
+                std::to_string(std::uint64_t(double(sizes_.size()) / fps_)) + " s).",
+            "Record fewer frames or use a smaller --render-scale; about 3 minutes of 1080p at 60 fps fit.");
     spooled_ += 8 + jpeg.size() + (jpeg.size() & 1);
     spool_.write(reinterpret_cast<const char*>(jpeg.data()), std::streamsize(jpeg.size()));
     if (!spool_) return make_error("Cannot write " + spoolPath_ + ": the disk may be full.");
@@ -118,7 +119,8 @@ Result<void> AviWriter::finish(const std::int16_t* pcm, std::size_t sampleFrames
             total += 8 + (to - from) * 4;  // 4 bytes a sample frame: always even
         }
     if (total + 32ull * n + 4096 > kMaxFileBytes)
-        return make_error("The video would be larger than 2 GB, the limit of an AVI file.", "Record fewer frames or use a smaller --render-scale.");
+        return make_error("The video would be larger than 2 GB, the limit of an AVI file.",
+                          "Record fewer frames or use a smaller --render-scale.");
 
     std::vector<std::uint8_t> hdrl;
     {
@@ -128,9 +130,9 @@ Result<void> AviWriter::finish(const std::int16_t* pcm, std::size_t sampleFrames
         put32(avih, 0);                                       // padding granularity
         put32(avih, 0x10);                                    // AVIF_HASINDEX
         put32(avih, n);
-        put32(avih, 0);                                       // initial frames
-        put32(avih, audio ? 2 : 1);                           // streams
-        put32(avih, maxFrame + (audio ? 65536 : 0));          // suggested buffer
+        put32(avih, 0);                               // initial frames
+        put32(avih, audio ? 2 : 1);                   // streams
+        put32(avih, maxFrame + (audio ? 65536 : 0));  // suggested buffer
         put32(avih, std::uint32_t(width_));
         put32(avih, std::uint32_t(height_));
         for (int i = 0; i < 4; ++i) put32(avih, 0);
@@ -139,15 +141,33 @@ Result<void> AviWriter::finish(const std::int16_t* pcm, std::size_t sampleFrames
         std::vector<std::uint8_t> strl, strh, strf;
         tag(strh, "vids");
         tag(strh, "MJPG");
-        put32(strh, 0); put16(strh, 0); put16(strh, 0); put32(strh, 0);                   // flags, priority, language, initial
-        put32(strh, scale); put32(strh, rate); put32(strh, 0); put32(strh, n);            // scale, rate, start, length
-        put32(strh, maxFrame); put32(strh, 0xffffffffu); put32(strh, 0);                  // buffer, quality, sample size
-        put16(strh, 0); put16(strh, 0); put16(strh, std::uint32_t(width_)); put16(strh, std::uint32_t(height_));
+        put32(strh, 0);
+        put16(strh, 0);
+        put16(strh, 0);
+        put32(strh, 0);  // flags, priority, language, initial
+        put32(strh, scale);
+        put32(strh, rate);
+        put32(strh, 0);
+        put32(strh, n);  // scale, rate, start, length
+        put32(strh, maxFrame);
+        put32(strh, 0xffffffffu);
+        put32(strh, 0);  // buffer, quality, sample size
+        put16(strh, 0);
+        put16(strh, 0);
+        put16(strh, std::uint32_t(width_));
+        put16(strh, std::uint32_t(height_));
         chunk(strl, "strh", strh);
-        put32(strf, 40); put32(strf, std::uint32_t(width_)); put32(strf, std::uint32_t(height_));
-        put16(strf, 1); put16(strf, 24); tag(strf, "MJPG");
+        put32(strf, 40);
+        put32(strf, std::uint32_t(width_));
+        put32(strf, std::uint32_t(height_));
+        put16(strf, 1);
+        put16(strf, 24);
+        tag(strf, "MJPG");
         put32(strf, std::uint32_t(width_) * std::uint32_t(height_) * 3);
-        put32(strf, 0); put32(strf, 0); put32(strf, 0); put32(strf, 0);
+        put32(strf, 0);
+        put32(strf, 0);
+        put32(strf, 0);
+        put32(strf, 0);
         chunk(strl, "strf", strf);
         list(hdrl, "strl", strl);
     }
@@ -155,20 +175,37 @@ Result<void> AviWriter::finish(const std::int16_t* pcm, std::size_t sampleFrames
         std::vector<std::uint8_t> strl, strh, strf;
         tag(strh, "auds");
         put32(strh, 0);  // handler: none for PCM
-        put32(strh, 0); put16(strh, 0); put16(strh, 0); put32(strh, 0);
-        put32(strh, 4); put32(strh, std::uint32_t(sampleRate) * 4); put32(strh, 0); put32(strh, std::uint32_t(sampleFrames));
-        put32(strh, 0); put32(strh, 0xffffffffu); put32(strh, 4);
-        put16(strh, 0); put16(strh, 0); put16(strh, 0); put16(strh, 0);
+        put32(strh, 0);
+        put16(strh, 0);
+        put16(strh, 0);
+        put32(strh, 0);
+        put32(strh, 4);
+        put32(strh, std::uint32_t(sampleRate) * 4);
+        put32(strh, 0);
+        put32(strh, std::uint32_t(sampleFrames));
+        put32(strh, 0);
+        put32(strh, 0xffffffffu);
+        put32(strh, 4);
+        put16(strh, 0);
+        put16(strh, 0);
+        put16(strh, 0);
+        put16(strh, 0);
         chunk(strl, "strh", strh);
-        put16(strf, 1); put16(strf, 2); put32(strf, std::uint32_t(sampleRate));  // WAVEFORMATEX: PCM, stereo
-        put32(strf, std::uint32_t(sampleRate) * 4); put16(strf, 4); put16(strf, 16);
+        put16(strf, 1);
+        put16(strf, 2);
+        put32(strf, std::uint32_t(sampleRate));  // WAVEFORMATEX: PCM, stereo
+        put32(strf, std::uint32_t(sampleRate) * 4);
+        put16(strf, 4);
+        put16(strf, 16);
         chunk(strl, "strf", strf);
         list(hdrl, "strl", strl);
     }
 
     std::ifstream in(fs::os_path(spoolPath_), std::ios::binary);
     std::ofstream out(fs::os_path(path_), std::ios::binary | std::ios::trunc);
-    if (!out) return make_error("Cannot write " + path_ + ".", "Check that the folder is writable and the file is not open in a player.");
+    if (!out)
+        return make_error("Cannot write " + path_ + ".",
+                          "Check that the folder is writable and the file is not open in a player.");
     const std::uint64_t moviBody = 4 + total;
     const std::uint64_t idxBytes = std::uint64_t(n) * 16 * (audio ? 2 : 1);
     const std::uint64_t riffSize = 4 + (8 + 4 + hdrl.size()) + (8 + moviBody) + (8 + idxBytes);

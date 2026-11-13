@@ -41,15 +41,16 @@ struct AudioBakeResult {
     std::string output;    // the sound, project-relative
     bool written = false;  // false: it was Fresh and onlyIfNeeded was set
     std::size_t bytes = 0;
-    AudioClip clip;        // what was rendered (empty when not written)
-    std::string sha256;    // of the file's bytes
+    AudioClip clip;      // what was rendered (empty when not written)
+    std::string sha256;  // of the file's bytes
     std::vector<std::string> inputs;
-    Json provenance;       // the record written to assets.json
+    Json provenance;  // the record written to assets.json
 };
 // Renders the document and writes the sound (deterministic bytes), then records provenance + recipe {command "audio.bake",
 // args {path}, inputs: the document and every file it read} in assets.json, and the loop points of a `loop` step as the import
 // settings loopStart / loopEnd (erased when the document has no loop). Keeps the license and author a person recorded.
-Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const std::string& rel, const AudioBakeOptions& options = {});
+Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const std::string& rel,
+                                            const AudioBakeOptions& options = {});
 
 // Every *.audio.json of the project (project-relative, sorted; hidden folders, node_modules and a top-level build/ skipped).
 std::vector<std::string> list_audio_documents(const std::string& projectDir);

@@ -6,11 +6,12 @@
 namespace fa::editor {
 
 namespace {
-constexpr double kAhead = 0.35;      // seconds kept queued
-constexpr double kFade = 0.002;      // seconds of fade at a start and at the end of a one-shot: no click from a cut
+constexpr double kAhead = 0.35;  // seconds kept queued
+constexpr double kFade = 0.002;  // seconds of fade at a start and at the end of a one-shot: no click from a cut
 }  // namespace
 
-SoundPlayer::SoundPlayer(Audio* audio, std::function<bool()> engineMixes) : audio_(audio), engineMixes_(std::move(engineMixes)) {}
+SoundPlayer::SoundPlayer(Audio* audio, std::function<bool()> engineMixes)
+    : audio_(audio), engineMixes_(std::move(engineMixes)) {}
 
 SoundPlayer::~SoundPlayer() { stop(); }
 
@@ -32,7 +33,8 @@ bool SoundPlayer::play(const SoundPlayRequest& request) {
     regionStart_ = std::min(n - 1, std::size_t(std::max(0.0, std::llround(request.from * rate) * 1.0)));
     regionEnd_ = request.to < 0 ? n : std::min(n, std::size_t(std::max(0.0, double(std::llround(request.to * rate)))));
     if (regionEnd_ <= regionStart_ + 1) regionEnd_ = std::min(n, regionStart_ + 2);
-    loopFrom_ = request.loopFrom < 0 ? regionStart_ : std::min(regionEnd_ - 1, std::size_t(std::llround(request.loopFrom * rate)));
+    loopFrom_ = request.loopFrom < 0 ? regionStart_
+                                     : std::min(regionEnd_ - 1, std::size_t(std::llround(request.loopFrom * rate)));
     cursor_ = regionStart_;
     gain_ = std::pow(10.0, request.gainDb / 20.0);
     pushed_ = 0.0;
@@ -136,8 +138,10 @@ bool SoundPlayer::switch_to(SoundRenderPtr clip, double gainDb, const std::strin
     r.gainDb = gainDb;
     // The region is in seconds, so a clip of another length keeps the same times; a position past its end restarts the region.
     (void)oldRate;
-    if (pos >= r.clip->seconds) r.from = req_.from;
-    else r.from = pos;
+    if (pos >= r.clip->seconds)
+        r.from = req_.from;
+    else
+        r.from = pos;
     const int wraps = wraps_;
     const bool ok = play(r);
     wraps_ = wraps;

@@ -83,8 +83,8 @@ TEST_CASE("background io: the same results with the pool stopped, inline, 0, 1 a
         CHECK_FALSE(q.threaded());
         CHECK(squares(q, 40) == expected);
     }
-    for (const jobs::Settings& s : {jobs::Settings::inline_jobs(), jobs::Settings::threads(0), jobs::Settings::threads(1),
-                                    jobs::Settings::threads(8)}) {
+    for (const jobs::Settings& s : {jobs::Settings::inline_jobs(), jobs::Settings::threads(0),
+                                    jobs::Settings::threads(1), jobs::Settings::threads(8)}) {
         CAPTURE(s.describe());
         PoolScope pool(s);
         jobs::Owner owner("io test");
@@ -115,8 +115,9 @@ TEST_CASE("background io: a queue that is not threaded is never ready and does t
 
 TEST_CASE("background io: errors of the read and the decode come back with their hint") {
     IoQueue q(nullptr, LoadTrace::kNoOwner);
-    const IoQueue::Ticket a = q.submit([]() -> Result<IoFile> { return make_error("no such file 'x.png'", "Check the path."); },
-                                       [](IoFile&) { return IoResult{true}; });
+    const IoQueue::Ticket a =
+        q.submit([]() -> Result<IoFile> { return make_error("no such file 'x.png'", "Check the path."); },
+                 [](IoFile&) { return IoResult{true}; });
     const IoQueue::Ticket b = q.submit([]() -> Result<IoFile> { return IoFile{"y.png", {}}; },
                                        [](IoFile&) -> IoResult {
                                            IoResult r;

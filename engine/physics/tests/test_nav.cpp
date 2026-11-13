@@ -137,7 +137,8 @@ TEST_CASE("nav: off-mesh start and goal teach where the nearest walkable point i
     CHECK(r.value().reason == "start_off_mesh");
     CHECK(r.value().nearestDistance > 0.0f);
     CHECK(r.value().message.find("nearest walkable point") != std::string::npos);
-    auto snapped = l.physics.nav_find_path(l.world, {0.1f, 0, 0}, {5, 0, 0});  // inside the wall: moved to the floor beside it
+    auto snapped =
+        l.physics.nav_find_path(l.world, {0.1f, 0, 0}, {5, 0, 0});  // inside the wall: moved to the floor beside it
     REQUIRE(snapped.ok());
     CHECK(snapped.value().found);
     auto o = l.physics.nav_find_path(l.world, {5, 0, 0}, {100, 0, 0});  // outside the bounds
@@ -182,7 +183,8 @@ TEST_CASE("nav: two bakes of the same level are identical") {
         CHECK(ca[i].center.z == cb[i].center.z);
         CHECK(ca[i].region == cb[i].region);
     }
-    auto pa = a.physics.nav_find_path(a.world, {-5, 0, 0}, {8, 1, 6}), pb = b.physics.nav_find_path(b.world, {-5, 0, 0}, {8, 1, 6});
+    auto pa = a.physics.nav_find_path(a.world, {-5, 0, 0}, {8, 1, 6}),
+         pb = b.physics.nav_find_path(b.world, {-5, 0, 0}, {8, 1, 6});
     REQUIRE(pa.ok());
     REQUIRE(pb.ok());
     CHECK(pa.value().to_json().dump() == pb.value().to_json().dump());
@@ -264,7 +266,7 @@ TEST_CASE("nav: a link joins two islands and a one-way link refuses the way back
     const int at = path.links[0].point;
     REQUIRE(at >= 0);
     REQUIRE(std::size_t(at) + 1 < path.points.size());
-    CHECK(path.points[std::size_t(at)].x == doctest::Approx(-5.0f).epsilon(0.2));      // starts at the entity
+    CHECK(path.points[std::size_t(at)].x == doctest::Approx(-5.0f).epsilon(0.2));     // starts at the entity
     CHECK(path.points[std::size_t(at) + 1].x == doctest::Approx(5.0f).epsilon(0.2));  // ends at `end`
     auto back = p.nav_find_path(w, {8, 0, 0}, {-8, 0, 0});
     REQUIRE(back.ok());
@@ -424,7 +426,8 @@ TEST_CASE("nav: the same path twice gives the same bits, with walkable bodies an
         }
         auto cells = p.nav_cells(w);
         out += std::to_string(cells.size());
-        for (const NavCell& c : cells) out += std::to_string(c.center.x + c.center.y + c.center.z) + (c.moving ? "m" : "s");
+        for (const NavCell& c : cells)
+            out += std::to_string(c.center.x + c.center.y + c.center.z) + (c.moving ? "m" : "s");
         return out;
     };
     const std::string a = run(), b = run();
@@ -545,14 +548,16 @@ TEST_CASE("nav: find_paths reports a query that cannot be answered with its inde
 
 TEST_CASE("nav: nav_parse_path_queries names the JSON pointer of a bad argument") {
     auto ok = nav_parse_path_queries(Json::parse(R"({"closest":true,"queries":[{"from":[0,0,0],"to":[1,0,1]},
-        {"from":[0,0,0],"to":[2,0,2],"closest":false,"radius":0.2}]})"), "nav.find_paths");
+        {"from":[0,0,0],"to":[2,0,2],"closest":false,"radius":0.2}]})"),
+                                     "nav.find_paths");
     REQUIRE(ok.ok());
     REQUIRE(ok.value().size() == 2);
     CHECK(ok.value()[0].options.closest);
     CHECK_FALSE(ok.value()[1].options.closest);
     CHECK(ok.value()[1].options.radius == doctest::Approx(0.2f));
 
-    auto bad = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1]},{"from":[0,0],"to":[1,0,1]}]})"), "nav.find_paths");
+    auto bad = nav_parse_path_queries(
+        Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1]},{"from":[0,0],"to":[1,0,1]}]})"), "nav.find_paths");
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("/queries/1/from") != std::string::npos);
     auto missing = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0]}]})"), "nav.find_paths");
@@ -561,7 +566,8 @@ TEST_CASE("nav: nav_parse_path_queries names the JSON pointer of a bad argument"
     auto none = nav_parse_path_queries(Json::parse(R"({"from":[0,0,0]})"), "nav.find_paths");
     REQUIRE_FALSE(none.ok());
     CHECK(none.error().message.find("/queries") != std::string::npos);
-    auto badOpt = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1],"closest":"yes"}]})"), "nav.find_paths");
+    auto badOpt = nav_parse_path_queries(Json::parse(R"({"queries":[{"from":[0,0,0],"to":[1,0,1],"closest":"yes"}]})"),
+                                         "nav.find_paths");
     REQUIRE_FALSE(badOpt.ok());
     CHECK(badOpt.error().message.find("/queries/0/closest") != std::string::npos);
 }

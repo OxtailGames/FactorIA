@@ -17,7 +17,8 @@ namespace fa::assets_detail {
 
 namespace {
 
-constexpr int kBlock = 4;  // pages are a whole number of 4x4 blocks, like the export's atlas pages (compressed textures need it)
+constexpr int kBlock =
+    4;  // pages are a whole number of 4x4 blocks, like the export's atlas pages (compressed textures need it)
 constexpr int kMinSide = 64;
 constexpr int kMaxSideLimit = 16384;
 
@@ -93,24 +94,32 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     const int pad = int(tooling_detail::arg_int(a, "padding", export_detail::kAtlasPadding));
     if (maxSize < kMinSide || maxSize > kMaxSideLimit)
         fail("invalid_argument", "maxSize is " + std::to_string(maxSize) + ".",
-             "Use " + std::to_string(kMinSide) + ".." + std::to_string(kMaxSideLimit) + "; 2048 is what every phone samples, 4096 what desktops do.");
-    if (pad < 0 || pad > 32) fail("invalid_argument", "padding is " + std::to_string(pad) + ".", "Use 0..32 pixels (default 2: the edge pixels are repeated that far around each frame).");
+             "Use " + std::to_string(kMinSide) + ".." + std::to_string(kMaxSideLimit) +
+                 "; 2048 is what every phone samples, 4096 what desktops do.");
+    if (pad < 0 || pad > 32)
+        fail("invalid_argument", "padding is " + std::to_string(pad) + ".",
+             "Use 0..32 pixels (default 2: the edge pixels are repeated that far around each frame).");
 
     auto folder = fs::normalize_checked(folderArg);
-    if (!folder.ok() || folder->empty()) fail("invalid_argument", "Invalid folder '" + folderArg + "'.", "Use a project-relative folder such as \"assets/src/frames\".");
+    if (!folder.ok() || folder->empty())
+        fail("invalid_argument", "Invalid folder '" + folderArg + "'.",
+             "Use a project-relative folder such as \"assets/src/frames\".");
     auto out = fs::normalize_checked(outArg);
     if (!out.ok() || out->empty() || to_lower(fs::extension(*out)) != ".png")
         fail("invalid_argument", "`out` must be a project-relative .png path.", "For example \"assets/atlas.png\".");
-    const std::string tableArg = tooling_detail::arg_string(a, "table", false, out->substr(0, out->size() - 4) + ".json");
+    const std::string tableArg =
+        tooling_detail::arg_string(a, "table", false, out->substr(0, out->size() - 4) + ".json");
     auto table = fs::normalize_checked(tableArg);
     if (!table.ok() || table->empty() || to_lower(fs::extension(*table)) != ".json")
         fail("invalid_argument", "`table` must be a project-relative .json path.", "For example \"data/atlas.json\".");
-    for (const std::string* w : {&*out, &*table}) (void)project_write_file(projectDir, *w);  // refused before any work: managed folders, links out
+    for (const std::string* w : {&*out, &*table})
+        (void)project_write_file(projectDir, *w);  // refused before any work: managed folders, links out
 
     const stdfs::path dir = project_file(projectDir, *folder);
     std::error_code ec;
     if (!stdfs::is_directory(dir, ec))
-        fail("not_found", "The folder '" + *folder + "' does not exist.", "Put the frames (png, jpg, tga, bmp) in a folder of the project and give its path.");
+        fail("not_found", "The folder '" + *folder + "' does not exist.",
+             "Put the frames (png, jpg, tga, bmp) in a folder of the project and give its path.");
 
     require_usable_manifest(projectDir);
     // ---- the frames: every image under the folder, named by its path without the extension ----
@@ -123,21 +132,25 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     }
     std::sort(files.begin(), files.end());
     if (files.empty())
-        fail("not_found", "The folder '" + *folder + "' has no images.", "Put the frames (png, jpg, tga, bmp) in it; subfolders are read too.");
+        fail("not_found", "The folder '" + *folder + "' has no images.",
+             "Put the frames (png, jpg, tga, bmp) in it; subfolders are read too.");
     std::vector<Frame> frames;
     std::map<std::string, std::string> source;  // frame name -> file, to catch two files with the same name
     for (const std::string& rel : files) {
         Frame f;
         f.name = rel.substr(0, rel.size() - fs::extension(rel).size());
         if (auto dup = source.find(f.name); dup != source.end())
-            fail("invalid_argument", "'" + dup->second + "' and '" + rel + "' would both be the frame '" + f.name + "'.", "Rename or remove one of them.");
+            fail("invalid_argument",
+                 "'" + dup->second + "' and '" + rel + "' would both be the frame '" + f.name + "'.",
+                 "Rename or remove one of them.");
         source[f.name] = rel;
         auto img = load_image(dir / rel);
         if (!img.ok()) fail("invalid_argument", *folder + "/" + rel + ": " + img.error().message, img.error().hint);
         f.image = std::move(*img);
         if (f.image.width + 2 * pad > maxSize || f.image.height + 2 * pad > maxSize)
             fail("invalid_argument",
-                 std::format("{}/{} is {}x{} and, with {} px of padding, does not fit a page of {}x{}.", *folder, rel, f.image.width, f.image.height, pad, maxSize, maxSize),
+                 std::format("{}/{} is {}x{} and, with {} px of padding, does not fit a page of {}x{}.", *folder, rel,
+                             f.image.width, f.image.height, pad, maxSize, maxSize),
                  "Raise maxSize (a 4096 atlas is fine on desktop), lower padding, or scale the picture down.");
         frames.push_back(std::move(f));
     }
@@ -149,16 +162,21 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     if (stdfs::is_regular_file(pivotFile, ec)) {
         auto parsed = parse_json(tooling_detail::read_file(pivotFile).value_or(""), *folder + "/pivots.json");
         if (!parsed.ok() || !parsed->is_object())
-            fail("invalid_argument", *folder + "/pivots.json is not a JSON object: " + (parsed.ok() ? "it is " + std::string(parsed->type_name()) + "." : parsed.error().message),
+            fail("invalid_argument",
+                 *folder + "/pivots.json is not a JSON object: " +
+                     (parsed.ok() ? "it is " + std::string(parsed->type_name()) + "." : parsed.error().message),
                  "It maps a frame name to its pivot, for example {\"hero.0\": [0.5, 0]}.");
         for (const auto& [name, v] : parsed->items()) {
             if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number())
-                fail("invalid_argument", *folder + "/pivots.json: the pivot of '" + name + "' must be [x, y] numbers, like Sprite.pivot.", "For example \"" + name + "\": [0.5, 0].");
+                fail("invalid_argument",
+                     *folder + "/pivots.json: the pivot of '" + name + "' must be [x, y] numbers, like Sprite.pivot.",
+                     "For example \"" + name + "\": [0.5, 0].");
             if (!source.contains(name)) {
                 std::vector<std::string> names;
                 for (const auto& [k, _] : source) names.push_back(k);
                 const std::string guess = closest_match(name, names);
-                warnings.push_back(*folder + "/pivots.json names '" + name + "', which is not a frame" + (guess.empty() ? "." : " (did you mean '" + guess + "'?)."));
+                warnings.push_back(*folder + "/pivots.json names '" + name + "', which is not a frame" +
+                                   (guess.empty() ? "." : " (did you mean '" + guess + "'?)."));
                 continue;
             }
             pivots[name] = v;
@@ -169,7 +187,8 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     const stdfs::path tableFile = project_write_file(projectDir, *table);
     const Json old = read_table(tableFile);
     std::map<std::string, R> oldRects;
-    if (old.is_object() && old.value("texture", std::string()) == *out && old.contains("frames") && old["frames"].is_object())
+    if (old.is_object() && old.value("texture", std::string()) == *out && old.contains("frames") &&
+        old["frames"].is_object())
         for (const auto& [name, fr] : old["frames"].items()) {
             if (!fr.is_object() || !fr.contains("rect") || !fr["rect"].is_array() || fr["rect"].size() != 4) continue;
             const Json& r = fr["rect"];
@@ -224,8 +243,10 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
         long area = 0;
         for (const Frame& f : frames) area += long(f.image.width + 2 * pad) * (f.image.height + 2 * pad);
         fail("failed",
-             std::format("The {} frames of '{}' do not fit one {}x{} page (they need about {} pixels of {}).", frames.size(), *folder, maxSize, maxSize, area, long(maxSize) * maxSize),
-             "Raise maxSize (up to 4096 on desktop), lower padding, scale pictures down, or pack the folder in two atlases (a subfolder each).");
+             std::format("The {} frames of '{}' do not fit one {}x{} page (they need about {} pixels of {}).",
+                         frames.size(), *folder, maxSize, maxSize, area, long(maxSize) * maxSize),
+             "Raise maxSize (up to 4096 on desktop), lower padding, scale pictures down, or pack the folder in two "
+             "atlases (a subfolder each).");
     }
     for (std::size_t i = 0; i < todo.size(); ++i) todo[i]->rect = placed[i];
 
@@ -243,7 +264,8 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     for (const Frame& f : frames) {
         export_detail::blit_extruded(page, f.image, f.rect.x, f.rect.y, pad);
         const Json pivot = pivots.contains(f.name) ? pivots[f.name] : Json::array({0.5, 0.5});
-        frameTable[f.name] = Json::object({{"rect", Json::array({f.rect.x, f.rect.y, f.rect.w, f.rect.h})}, {"pivot", pivot}});
+        frameTable[f.name] =
+            Json::object({{"rect", Json::array({f.rect.x, f.rect.y, f.rect.w, f.rect.h})}, {"pivot", pivot}});
     }
     Json doc = old.is_object() ? old : Json::object();  // keys of your own (a road map, a comment) stay
     doc["texture"] = *out;
@@ -270,15 +292,24 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
             if (assets::entry(inputs.back()).value("provenance", Json::object()).value("ai", false)) ai = true;
         }
         if (stdfs::is_regular_file(pivotFile, ec)) inputs.push_back(*folder + "/pivots.json");
-        const Json recipe = make_recipe(projectDir, "assets.pack_atlas",
-                                        recipe_args(a, {{"folder", *folder}, {"out", *out}, {"table", *table}, {"maxSize", maxSize}, {"padding", pad}}), inputs);
+        const Json recipe = make_recipe(
+            projectDir, "assets.pack_atlas",
+            recipe_args(
+                a, {{"folder", *folder}, {"out", *out}, {"table", *table}, {"maxSize", maxSize}, {"padding", pad}}),
+            inputs);
         auto r = assets::update_entry(*out, [&](Json& e) {
             e.erase("analysis");
-            e["provenance"] = Json::object({{"origin", "original"}, {"ai", ai}, {"kind", "image"}, {"date", assets::today()},
-                                            {"notes", "Packed from the images of " + *folder + " by assets.pack_atlas; the frame table is " + *table + "."},
+            e["provenance"] = Json::object({{"origin", "original"},
+                                            {"ai", ai},
+                                            {"kind", "image"},
+                                            {"date", assets::today()},
+                                            {"notes", "Packed from the images of " + *folder +
+                                                          " by assets.pack_atlas; the frame table is " + *table + "."},
                                             {"recipe", recipe}});
         });
-        if (!r.ok()) fail("failed", "The atlas was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+        if (!r.ok())
+            fail("failed", "The atlas was written, but assets.json was not updated: " + r.error().message,
+                 r.error().hint);
     }
 
     Json added = Json::array(), moved = Json::array(), removed = Json::array();
@@ -295,13 +326,23 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     for (const auto& [name, _] : oldRects)
         if (!source.contains(name)) removed.push_back(name);
     const Frame& first = frames.front();
-    Json result = Json::object({{"out", *out}, {"table", *table}, {"size", Json::array({page.width, page.height})}, {"frames", int(frames.size())},
-                                {"kept", kept}, {"added", added}, {"moved", moved}, {"removed", removed},
+    Json result = Json::object({{"out", *out},
+                                {"table", *table},
+                                {"size", Json::array({page.width, page.height})},
+                                {"frames", int(frames.size())},
+                                {"kept", kept},
+                                {"added", added},
+                                {"moved", moved},
+                                {"removed", removed},
                                 {"written", pngChanged || tableChanged}});
     if (!warnings.empty()) result["warnings"] = warnings;
-    result["nextSteps"] = Json::array({std::format("Draw a frame with a Sprite: {{\"texture\":\"{}\",\"region\":[{},{},{},{}],\"pivot\":{}}} (the rect and pivot of '{}' in {}).",
-                                                   *out, first.rect.x, first.rect.y, first.rect.w, first.rect.h, frameTable[first.name]["pivot"].dump(), first.name, *table),
-                                       "Scripts read the table with an import: import atlas from \"../data/atlas.json\"; then atlas.frames[name].rect."});
+    result["nextSteps"] = Json::array(
+        {std::format("Draw a frame with a Sprite: {{\"texture\":\"{}\",\"region\":[{},{},{},{}],\"pivot\":{}}} (the "
+                     "rect and pivot of '{}' in {}).",
+                     *out, first.rect.x, first.rect.y, first.rect.w, first.rect.h,
+                     frameTable[first.name]["pivot"].dump(), first.name, *table),
+         "Scripts read the table with an import: import atlas from \"../data/atlas.json\"; then "
+         "atlas.frames[name].rect."});
     return result;
 }
 
@@ -312,22 +353,24 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
     info.name = "assets.pack_atlas";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads.";
+    info.summary = "Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) "
+                   "that a Sprite's `region` reads.";
     info.description =
         "Every image under `folder` (png, jpg, tga, bmp; subfolders too) is a frame named by its path "
         "without the extension (\"ship/0.png\" is \"ship/0\"). They are packed into the smallest square page "
         "up to maxSize (tallest first), each with `padding` pixels of its own edge repeated around it so "
         "bilinear filtering and mipmaps never bleed a neighbour (the same padding as the export's atlas "
         "groups). The page is written to `out`, and the table to `table` (default `out` with .json): "
-        "{\"texture\":\"assets/atlas.png\",\"size\":[w,h],\"frames\":{\"ship/0\":{\"rect\":[x,y,w,h],\"pivot\":[px,py]}}}. "
+        "{\"texture\":\"assets/atlas.png\",\"size\":[w,h],\"frames\":{\"ship/"
+        "0\":{\"rect\":[x,y,w,h],\"pivot\":[px,py]}}}. "
         "rect is in texture pixels from the top-left, exactly Sprite.region; pivot is Sprite.pivot (+Y up). "
         "Pivots come from `<folder>/pivots.json` ({\"ship/0\":[0.5,0.2]}); a frame without one is [0.5, "
         "0.5]. Keys of an existing table other than texture, size and frames are kept, so your own data can "
         "live in the same file.\n"
         "\n"
         "Example: "
-        "{\"folder\":\"assets/src/frames\",\"out\":\"assets/atlas.png\",\"table\":\"data/atlas.json\"}."
-        FA_COMMAND_DETAILS
+        "{\"folder\":\"assets/src/frames\",\"out\":\"assets/atlas.png\",\"table\":\"data/"
+        "atlas.json\"}." FA_COMMAND_DETAILS
         "Packing again is stable: a frame whose size did not change keeps its rectangle (the page grows, "
         "never reshuffles), so a new picture changes the table by one line and a scene that copied a rect "
         "keeps drawing the same picture. Frames removed from the folder leave holes that new frames fill. "

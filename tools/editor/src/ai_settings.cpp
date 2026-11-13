@@ -15,7 +15,8 @@ namespace fa::editor {
 namespace {
 
 const char* const kNoneLabel = "None (made procedurally)";
-const char* const kAssetCommand = "asset-command";  // the name given to a program of the user's when ai.json has none yet
+const char* const kAssetCommand =
+    "asset-command";  // the name given to a program of the user's when ai.json has none yet
 
 const char* kind_title(ai::MediaKind k) {
     switch (k) {
@@ -148,7 +149,8 @@ bool Editor::ai_settings_reload_keeping_edits(bool userChanged) {
         d.newUrl = newUrl;
         d.newNote = newNote;
         d.siteError = siteError;
-        for (const auto& [name, program] : command) {  // a program the person changed stays; one they did not touch follows the file
+        for (const auto& [name, program] :
+             command) {  // a program the person changed stays; one they did not touch follows the file
             const ai::ProviderConfig* was = shown.provider(name);
             const auto line = args.find(name);
             const bool programEdited = !was || trim(program) != was->command;
@@ -176,10 +178,11 @@ Result<ai::AssetSettings> Editor::ai_settings_build(const ai::AiConfig& cfg) con
         std::size_t index = 0;
         for (const ai::AssetSite& site : out.sources.list(c)) {
             if (ai::asset_site_host(site.url).empty()) {
-                return make_error(std::string(ai::site_category_title(c)) + ", site " + std::to_string(index + 1) + ": '" + site.url +
-                                      "' is not a web address",
-                                  "Write a domain such as opengameart.org or an address such as https://kenney.nl/assets, "
-                                  "or remove the row.");
+                return make_error(
+                    std::string(ai::site_category_title(c)) + ", site " + std::to_string(index + 1) + ": '" + site.url +
+                        "' is not a web address",
+                    "Write a domain such as opengameart.org or an address such as https://kenney.nl/assets, "
+                    "or remove the row.");
             }
             ++index;
         }
@@ -190,8 +193,9 @@ Result<ai::AssetSettings> Editor::ai_settings_build(const ai::AiConfig& cfg) con
         const auto cmd = d.command.find(name);
         const std::string program = cmd == d.command.end() ? std::string() : std::string(trim(cmd->second));
         if (program.empty()) {
-            return make_error("The asset-command provider '" + name + "' needs a program",
-                              "Fill in Program under \"Your own program\" (for example python), or choose another provider.");
+            return make_error(
+                "The asset-command provider '" + name + "' needs a program",
+                "Fill in Program under \"Your own program\" (for example python), or choose another provider.");
         }
         ai::AssetProviderEdit& edit = out.providers[name];
         edit.command = program;
@@ -319,7 +323,8 @@ void Editor::draw_ai_settings_window() {
         user = aiConfig_;
     }
     const bool detected = aiDetected_.load();
-    if (detected && d.loaded && d.project != projectDir_) {  // another project (or none): the window shows that project's values
+    if (detected && d.loaded &&
+        d.project != projectDir_) {  // another project (or none): the window shows that project's values
         aiRolesOpen_ = true;
         ai_settings_discard();
     }
@@ -328,8 +333,8 @@ void Editor::draw_ai_settings_window() {
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(940, 720)), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (aiSettingsFocus_) {
         ImGui::SetNextWindowFocus();
         aiSettingsFocus_ = false;
@@ -348,7 +353,9 @@ void Editor::draw_ai_settings_window() {
     }
     ImGui::PushTextWrapPos(0);
     if (!d.loaded) {
-        ImGui::TextDisabled(aiDetecting_.load() ? "Reading ai.json..." : "Reading ai.json (press Re-detect in the AI Assistant if this stays).");
+        ImGui::TextDisabled(aiDetecting_.load()
+                                ? "Reading ai.json..."
+                                : "Reading ai.json (press Re-detect in the AI Assistant if this stays).");
         ImGui::PopTextWrapPos();
         ImGui::End();
         return;
@@ -381,9 +388,11 @@ void Editor::draw_ai_settings_window() {
     const int wantTab = aiSettingsTab_;
     aiSettingsTab_ = 0;
     // ------------------------------------------------------------------------------------------------ Roles
-    const bool rolesShown = ImGui::BeginTabItem("Roles", nullptr, wantTab == 1 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    const bool rolesShown =
+        ImGui::BeginTabItem("Roles", nullptr, wantTab == 1 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:roles");
-    ImGui::SetItemTooltip("Which provider and model plays each role (orchestrator, worker, artist, critics...). Takes effect with the next message.");
+    ImGui::SetItemTooltip("Which provider and model plays each role (orchestrator, worker, artist, critics...). Takes "
+                          "effect with the next message.");
     if (rolesShown) {
         std::vector<ai::ProviderStatus> liveStatus;  // the panel's, refreshed by Re-detect (d.status is a snapshot)
         {
@@ -393,33 +402,48 @@ void Editor::draw_ai_settings_window() {
         draw_ai_roles_tab(cfg, liveStatus);
         ImGui::EndTabItem();
     }
-    const bool toolsShown = ImGui::BeginTabItem("External tools", nullptr, wantTab == 3 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    const bool toolsShown = ImGui::BeginTabItem("External tools", nullptr,
+                                                wantTab == 3 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:tools");
-    ImGui::SetItemTooltip("Services and programs the AI may use when they help: image generators such as Scenario, or tools of your own (MCP servers).");
+    ImGui::SetItemTooltip("Services and programs the AI may use when they help: image generators such as Scenario, or "
+                          "tools of your own (MCP servers).");
     if (toolsShown) {
-        if (projectMode) ImGui::TextDisabled("These are your own tool servers (ai.json), the same in every project: a project's file can only switch one on or off by name.");
+        if (projectMode)
+            ImGui::TextDisabled("These are your own tool servers (ai.json), the same in every project: a project's "
+                                "file can only switch one on or off by name.");
         draw_ai_tools_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
-    const bool extShown = ImGui::BeginTabItem("Extensions", nullptr, wantTab == 4 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    const bool extShown = ImGui::BeginTabItem("Extensions", nullptr,
+                                              wantTab == 4 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:extensions");
-    ImGui::SetItemTooltip("Plugins, skills and hooks the AI agents load (Claude Code takes all three, the API providers the hooks): your own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
+    ImGui::SetItemTooltip(
+        "Plugins, skills and hooks the AI agents load (Claude Code takes all three, the API providers the hooks): your "
+        "own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
     if (extShown) {
-        if (projectMode) ImGui::TextDisabled("Your own extensions and savers (ai.json) are the same in every project; the project's extensions are the ones marked project below.");
+        if (projectMode)
+            ImGui::TextDisabled("Your own extensions and savers (ai.json) are the same in every project; the project's "
+                                "extensions are the ones marked project below.");
         draw_ai_extensions_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
-    const bool agentsShown = ImGui::BeginTabItem("Agents", nullptr, wantTab == 5 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    const bool agentsShown =
+        ImGui::BeginTabItem("Agents", nullptr, wantTab == 5 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:agents");
-    ImGui::SetItemTooltip("How much each command-line agent (Claude Code, Codex) may do without asking you: its permission mode.");
+    ImGui::SetItemTooltip(
+        "How much each command-line agent (Claude Code, Codex) may do without asking you: its permission mode.");
     if (agentsShown) {
-        if (projectMode) ImGui::TextDisabled("The permission mode is yours (ai.json), the same in every project: a project's file cannot change it.");
+        if (projectMode)
+            ImGui::TextDisabled("The permission mode is yours (ai.json), the same in every project: a project's file "
+                                "cannot change it.");
         draw_ai_agents_tab(user, cfgErr.empty());
         ImGui::EndTabItem();
     }
-    const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    const bool assetsShown =
+        ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:assets");
-    ImGui::SetItemTooltip("Where the AI's images, sounds and 3D models are made (provider, model, API key) and the websites it looks at for assets.");
+    ImGui::SetItemTooltip("Where the AI's images, sounds and 3D models are made (provider, model, API key) and the "
+                          "websites it looks at for assets.");
     if (!assetsShown) {
         ImGui::EndTabBar();
         ImGui::PopTextWrapPos();
@@ -428,11 +452,14 @@ void Editor::draw_ai_settings_window() {
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     if (projectMode) {
-        ImGui::TextWrapped("Save writes the routes and sites of this project into %s (not part of the game): only what differs from your defaults. "
-                           "An API key or the program of your own asset provider always goes to your ai.json (%s), as does Save as my defaults.",
+        ImGui::TextWrapped("Save writes the routes and sites of this project into %s (not part of the game): only what "
+                           "differs from your defaults. "
+                           "An API key or the program of your own asset provider always goes to your ai.json (%s), as "
+                           "does Save as my defaults.",
                            ai_project_settings_path().c_str(), d.path.c_str());
     } else {
-        ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your providers, roles and limits stay.",
+        ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your "
+                           "providers, roles and limits stay.",
                            d.path.c_str());
     }
     ImGui::PopStyleColor();
@@ -443,16 +470,19 @@ void Editor::draw_ai_settings_window() {
         if (const AiProjectUi& proj = ai_project_refresh(); proj.have) res = proj.resolved;
     }
     const float footerRows = projectMode ? 2.0f : 1.0f;  // the buttons wrap in a narrow window: room for a second row
-    const float footerH = (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y) * footerRows + ImGui::GetStyle().ItemSpacing.y * 2.0f +
-                          ImGui::GetTextLineHeightWithSpacing() * 2.0f;
-    ImGui::BeginChild("##aisettingsbody", ImVec2(0, -footerH), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    const float footerH = (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y) * footerRows +
+                          ImGui::GetStyle().ItemSpacing.y * 2.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
+    ImGui::BeginChild("##aisettingsbody", ImVec2(0, -footerH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar);
 
     // ------------------------------------------------------------------------------------------------ Asset generation
     ImGui::SeparatorText("Asset generation");
-    ImGui::TextDisabled("Which service makes each kind of asset the AI asks for. With None, the AI makes it procedurally\n"
-                        "(generated textures, SVG, synthesised sound) and tells you so.");
+    ImGui::TextDisabled(
+        "Which service makes each kind of asset the AI asks for. With None, the AI makes it procedurally\n"
+        "(generated textures, SVG, synthesised sound) and tells you so.");
     std::set<std::string> usedProviders;  // the providers some route names: their key / program rows follow the table
-    if (ImGui::BeginTable("##assetroutes", res ? 6 : 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+    if (ImGui::BeginTable("##assetroutes", res ? 6 : 5,
+                          ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
         const float em = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, em * 5.5f);
         ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, em * 14.0f);
@@ -477,7 +507,8 @@ void Editor::draw_ai_settings_window() {
                 for (const auto& [name, p] : cfg.providers) {
                     if (ai::provider_makes(p.kind, kind)) names.push_back(name);
                 }
-                const bool hasCommand = std::ranges::any_of(cfg.providers, [](const auto& kv) { return kv.second.kind == ai::ProviderKind::AssetCommand; });
+                const bool hasCommand = std::ranges::any_of(
+                    cfg.providers, [](const auto& kv) { return kv.second.kind == ai::ProviderKind::AssetCommand; });
                 if (!hasCommand) names.push_back(kAssetCommand);
                 for (const std::string& name : names) {
                     const ai::ProviderStatus* st = status_of(name);
@@ -486,14 +517,19 @@ void Editor::draw_ai_settings_window() {
                         route = {name, "", ""};  // another provider: its default model, no voice of the old one
                     }
                     if (ImGui::IsItemHovered()) {
-                        if (st) ImGui::SetTooltip("%s%s%s", st->detail.c_str(), st->available ? "" : "\n", st->available ? "" : st->hint.c_str());
-                        else ImGui::SetTooltip("A program of yours makes the file (ComfyUI, Stable Diffusion, a Blender script...). Set it below.");
+                        if (st)
+                            ImGui::SetTooltip("%s%s%s", st->detail.c_str(), st->available ? "" : "\n",
+                                              st->available ? "" : st->hint.c_str());
+                        else
+                            ImGui::SetTooltip("A program of yours makes the file (ComfyUI, Stable Diffusion, a Blender "
+                                              "script...). Set it below.");
                     }
                 }
                 ImGui::EndCombo();
             }
             at_track("aiset:provider:" + kname);
-            ImGui::SetItemTooltip("Who makes %s assets. Only providers that can make this kind are listed.", kind_title(kind));
+            ImGui::SetItemTooltip("Who makes %s assets. Only providers that can make this kind are listed.",
+                                  kind_title(kind));
             ImGui::TableNextColumn();
             const bool none = route.provider.empty();
             if (!none) usedProviders.insert(route.provider);
@@ -501,19 +537,26 @@ void Editor::draw_ai_settings_window() {
             ImGui::BeginDisabled(none);
             ImGui::SetNextItemWidth(-FLT_MIN);
             const std::string defModel = none ? std::string() : ai::asset_default_model(prov, kind);
-            ImGui::InputTextWithHint("##model", none ? "" : defModel.empty() ? "provider default" : defModel.c_str(), &route.model);
+            ImGui::InputTextWithHint("##model",
+                                     none               ? ""
+                                     : defModel.empty() ? "provider default"
+                                                        : defModel.c_str(),
+                                     &route.model);
             ImGui::EndDisabled();
             at_track("aiset:model:" + kname);
-            ImGui::SetItemTooltip("The model to use. Empty = the provider's default%s.", defModel.empty() ? "" : (" (" + defModel + ")").c_str());
+            ImGui::SetItemTooltip("The model to use. Empty = the provider's default%s.",
+                                  defModel.empty() ? "" : (" (" + defModel + ")").c_str());
             ImGui::TableNextColumn();
             if (kind == ai::MediaKind::Voice) {
                 ImGui::BeginDisabled(none);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::InputTextWithHint("##voice", prov.kind == ai::ProviderKind::ElevenLabs ? "voice id" : "alloy", &route.voice);
+                ImGui::InputTextWithHint("##voice", prov.kind == ai::ProviderKind::ElevenLabs ? "voice id" : "alloy",
+                                         &route.voice);
                 ImGui::EndDisabled();
                 at_track("aiset:voice");
-                ImGui::SetItemTooltip("The voice. ElevenLabs needs a voice id from your voice library on elevenlabs.io.\n"
-                                      "OpenAI uses a voice name (alloy, nova, ...), alloy when empty.");
+                ImGui::SetItemTooltip(
+                    "The voice. ElevenLabs needs a voice id from your voice library on elevenlabs.io.\n"
+                    "OpenAI uses a voice name (alloy, nova, ...), alloy when empty.");
             }
             if (res) {
                 ImGui::TableNextColumn();
@@ -527,18 +570,21 @@ void Editor::draw_ai_settings_window() {
                         if (auto done = ai_project_reset("/assets/" + kname); !done) {
                             d.saveError = done.error().to_string();
                         } else {
-                            const ai::AiConfig now = ai_window_config();  // this row only: the others keep their unsaved edits
+                            const ai::AiConfig now =
+                                ai_window_config();  // this row only: the others keep their unsaved edits
                             const auto back = now.assets.find(kname);
                             route = back == now.assets.end() ? ai::AssetRoute{} : back->second;
                         }
                     }
                     at_track("aiset:reset:" + kname, !locked);
-                    ImGui::SetItemTooltip("Reset to my defaults: %s goes back to what your ai.json gives it.", kind_title(kind));
+                    ImGui::SetItemTooltip("Reset to my defaults: %s goes back to what your ai.json gives it.",
+                                          kind_title(kind));
                     ImGui::EndDisabled();
                 } else {
                     ImGui::TextDisabled("%s", ai_source_label(source));
-                    ImGui::SetItemTooltip("%s", source == ai::SettingSource::You ? "From your ai.json."
-                                                                                : "Nothing is set: made procedurally.");
+                    ImGui::SetItemTooltip("%s", source == ai::SettingSource::You
+                                                    ? "From your ai.json."
+                                                    : "Nothing is set: made procedurally.");
                 }
             }
             ImGui::TableNextColumn();
@@ -549,12 +595,15 @@ void Editor::draw_ai_settings_window() {
                 const ai::ProviderStatus* st = status_of(route.provider);
                 const bool typed = d.keys.contains(route.provider) && !d.keys.at(route.provider).empty();
                 if (prov.kind == ai::ProviderKind::AssetCommand) {
-                    const std::string program = std::string(trim(d.command.count(route.provider) ? d.command.at(route.provider) : std::string()));
-                    ImGui::TextColored(text_color(!program.empty()), "%s", program.empty() ? "Set the program below" : ("Runs " + program).c_str());
+                    const std::string program = std::string(
+                        trim(d.command.count(route.provider) ? d.command.at(route.provider) : std::string()));
+                    ImGui::TextColored(text_color(!program.empty()), "%s",
+                                       program.empty() ? "Set the program below" : ("Runs " + program).c_str());
                 } else if (typed) {
                     ImGui::TextColored(kStatusWarn, "Key typed: Save stores it");
                 } else if (st && st->available) {
-                    ImGui::TextColored(kStatusReady, "Ready%s", st->keySource.empty() ? "" : (" (" + st->keySource + ")").c_str());
+                    ImGui::TextColored(kStatusReady, "Ready%s",
+                                       st->keySource.empty() ? "" : (" (" + st->keySource + ")").c_str());
                     ImGui::SetItemTooltip("%s", st->detail.c_str());
                 } else if (st) {
                     ImGui::TextColored(kStatusWarn, "%s", st->detail.c_str());
@@ -574,7 +623,8 @@ void Editor::draw_ai_settings_window() {
         if (!anyKeyRow) {
             ImGui::Spacing();
             ImGui::SeparatorText("API keys");
-            ImGui::TextDisabled("An environment variable is the safest place for a key. If you cannot set one, paste it here.");
+            ImGui::TextDisabled(
+                "An environment variable is the safest place for a key. If you cannot set one, paste it here.");
             anyKeyRow = true;
         }
         ImGui::PushID(name.c_str());
@@ -586,13 +636,15 @@ void Editor::draw_ai_settings_window() {
         ImGui::SameLine(ImGui::GetFontSize() * 8.0f);
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 22.0f);
         std::string& typed = d.keys[name];
-        ImGui::InputTextWithHint("##key", stored ? "a key is stored (paste a new one to replace it)" : "paste an API key", &typed,
-                                 ImGuiInputTextFlags_Password);
+        ImGui::InputTextWithHint("##key",
+                                 stored ? "a key is stored (paste a new one to replace it)" : "paste an API key",
+                                 &typed, ImGuiInputTextFlags_Password);
         at_track("aiset:key:" + name);
-        ImGui::SetItemTooltip("Stored as providers.%s.apiKey in %s: your own file outside any project, not shared with the games\n"
-                              "you make. FactorIA never writes it into a project, a log or a command result and the file is made\n"
-                              "readable only by you. It is used before the environment variable%s.",
-                              name.c_str(), d.path.c_str(), env.empty() ? "" : (" " + env).c_str());
+        ImGui::SetItemTooltip(
+            "Stored as providers.%s.apiKey in %s: your own file outside any project, not shared with the games\n"
+            "you make. FactorIA never writes it into a project, a log or a command result and the file is made\n"
+            "readable only by you. It is used before the environment variable%s.",
+            name.c_str(), d.path.c_str(), env.empty() ? "" : (" " + env).c_str());
         ImGui::SameLine();
         if (stored) {
             if (ImGui::SmallButton("Remove stored key")) {
@@ -600,18 +652,24 @@ void Editor::draw_ai_settings_window() {
                 typed.clear();
             }
             at_track("aiset:key-remove:" + name);
-            ImGui::SetItemTooltip("Delete the key from ai.json on Save. The environment variable, if set, is used again.");
+            ImGui::SetItemTooltip(
+                "Delete the key from ai.json on Save. The environment variable, if set, is used again.");
             ImGui::SameLine();
         } else if (d.removeKey.contains(name)) {
             if (ImGui::SmallButton("Keep stored key")) d.removeKey.erase(name);
             ImGui::SameLine();
         }
         const std::string source = st ? st->keySource : std::string();
-        if (!typed.empty()) ImGui::TextColored(kStatusWarn, "Save stores this key");
-        else if (d.removeKey.contains(name)) ImGui::TextColored(kStatusWarn, "Save removes the stored key");
-        else if (source == "config") ImGui::TextColored(kStatusReady, "Key stored in ai.json");
-        else if (source.rfind("env:", 0) == 0) ImGui::TextColored(kStatusReady, "Key found in %s", source.c_str() + 4);
-        else ImGui::TextColored(kStatusWarn, "No key%s", env.empty() ? "" : (": set " + env + " or paste one").c_str());
+        if (!typed.empty())
+            ImGui::TextColored(kStatusWarn, "Save stores this key");
+        else if (d.removeKey.contains(name))
+            ImGui::TextColored(kStatusWarn, "Save removes the stored key");
+        else if (source == "config")
+            ImGui::TextColored(kStatusReady, "Key stored in ai.json");
+        else if (source.rfind("env:", 0) == 0)
+            ImGui::TextColored(kStatusReady, "Key found in %s", source.c_str() + 4);
+        else
+            ImGui::TextColored(kStatusWarn, "No key%s", env.empty() ? "" : (": set " + env + " or paste one").c_str());
         ImGui::PopID();
     }
 
@@ -621,8 +679,9 @@ void Editor::draw_ai_settings_window() {
         ImGui::Spacing();
         ImGui::SeparatorText(("Your own program (" + name + ")").c_str());
         ImGui::PushID(name.c_str());
-        ImGui::TextDisabled("A command that writes the file. In the arguments, {prompt} is the prompt and {output} the file to write\n"
-                            "(also {width} {height} {seconds} {kind} {model} {seed}). docs/AI_PROVIDERS.md, \"asset-command\".");
+        ImGui::TextDisabled(
+            "A command that writes the file. In the arguments, {prompt} is the prompt and {output} the file to write\n"
+            "(also {width} {height} {seconds} {kind} {model} {seed}). docs/AI_PROVIDERS.md, \"asset-command\".");
         std::string& program = d.command[name];
         std::string& args = d.args[name];
         ImGui::AlignTextToFramePadding();
@@ -638,7 +697,8 @@ void Editor::draw_ai_settings_window() {
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##args", "/path/txt2img.py --prompt {prompt} --out {output}", &args);
         at_track("aiset:args");
-        ImGui::SetItemTooltip("Separated by spaces; put \"double quotes\" around one that has spaces.\nThe program must write the result to {output}.");
+        ImGui::SetItemTooltip("Separated by spaces; put \"double quotes\" around one that has spaces.\nThe program "
+                              "must write the result to {output}.");
         ImGui::PopID();
     }
 
@@ -662,7 +722,8 @@ void Editor::draw_ai_settings_window() {
                         d.sources.onlyListed = now.assetSources.onlyListed;
                     } else {
                         for (ai::SiteCategory c : ai::kSiteCategories) {
-                            if (pointer == std::string("/assetSources/") + ai::site_category_key(c)) d.sources.list(c) = now.assetSources.list(c);
+                            if (pointer == std::string("/assetSources/") + ai::site_category_key(c))
+                                d.sources.list(c) = now.assetSources.list(c);
                         }
                     }
                 }
@@ -677,13 +738,15 @@ void Editor::draw_ai_settings_window() {
     };
     ImGui::Spacing();
     ImGui::SeparatorText("Asset sources");
-    ImGui::TextWrapped("Websites the AI should look at when it searches for images, models, sounds or fonts. It takes them from these pages "
+    ImGui::TextWrapped("Websites the AI should look at when it searches for images, models, sounds or fonts. It takes "
+                       "them from these pages "
                        "and writes down each asset's source and license.");
     ImGui::Checkbox("Use only these sites", &d.sources.onlyListed);
     at_track("aiset:only-listed");
-    ImGui::SetItemTooltip("On: the AI searches and fetches ONLY the listed sites, never the open internet. Claude Code is held to it\n"
-                          "(WebFetch of other sites is denied and WebSearch is off); for the other providers it is an instruction.\n"
-                          "Off: it looks at the listed sites first and may search the internet too, as it does without a list.");
+    ImGui::SetItemTooltip(
+        "On: the AI searches and fetches ONLY the listed sites, never the open internet. Claude Code is held to it\n"
+        "(WebFetch of other sites is denied and WebSearch is off); for the other providers it is an instruction.\n"
+        "Off: it looks at the listed sites first and may search the internet too, as it does without a list.");
     source_tag("/assetSources/onlyListed", "aiset:reset:only-listed");
     if (d.sources.empty()) {
         ImGui::TextDisabled("No site yet: the AI searches the internet as it wishes.");
@@ -694,12 +757,14 @@ void Editor::draw_ai_settings_window() {
     }
     for (ai::SiteCategory c : ai::kSiteCategories) {
         std::vector<ai::AssetSite>& sites = d.sources.list(c);
-        const std::string title = std::string(ai::site_category_title(c)) + (sites.empty() ? "" : "  (" + std::to_string(sites.size()) + ")");
+        const std::string title =
+            std::string(ai::site_category_title(c)) + (sites.empty() ? "" : "  (" + std::to_string(sites.size()) + ")");
         ImGui::PushID(ai::site_category_key(c));
         const std::string catPointer = std::string("/assetSources/") + ai::site_category_key(c);
         const bool fromProject = res && ai_group_source(*res, catPointer) == ai::SettingSource::Project;
-        const bool catOpen = ImGui::CollapsingHeader((title + (fromProject ? "  - this project" : "") + "###cat").c_str(),
-                                                     sites.empty() && !fromProject ? 0 : ImGuiTreeNodeFlags_DefaultOpen);
+        const bool catOpen =
+            ImGui::CollapsingHeader((title + (fromProject ? "  - this project" : "") + "###cat").c_str(),
+                                    sites.empty() && !fromProject ? 0 : ImGuiTreeNodeFlags_DefaultOpen);
         if (catOpen) {
             if (fromProject) {  // the header is as wide as the window: the tag and Reset go on the first line inside
                 source_tag(catPointer, "aiset:reset:" + std::string(ai::site_category_key(c)), false);
@@ -713,7 +778,9 @@ void Editor::draw_ai_settings_window() {
                 ImGui::InputTextWithHint("##url", "opengameart.org", &sites[i].url);
                 if (!valid) ImGui::PopStyleColor();
                 at_track("aiset:url:" + std::string(ai::site_category_key(c)) + ":" + std::to_string(i));
-                if (!valid) ImGui::SetItemTooltip("Not a web address. Write a domain (opengameart.org) or an address (https://kenney.nl/assets).");
+                if (!valid)
+                    ImGui::SetItemTooltip("Not a web address. Write a domain (opengameart.org) or an address "
+                                          "(https://kenney.nl/assets).");
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
                 ImGui::InputTextWithHint("##note", "note (optional)", &sites[i].note);
@@ -727,7 +794,8 @@ void Editor::draw_ai_settings_window() {
             std::string& newUrl = d.newUrl[static_cast<int>(c)];
             std::string& newNote = d.newNote[static_cast<int>(c)];
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-            const bool enter = ImGui::InputTextWithHint("##newurl", "add a site: opengameart.org", &newUrl, ImGuiInputTextFlags_EnterReturnsTrue);
+            const bool enter = ImGui::InputTextWithHint("##newurl", "add a site: opengameart.org", &newUrl,
+                                                        ImGuiInputTextFlags_EnterReturnsTrue);
             at_track("aiset:newurl:" + std::string(ai::site_category_key(c)));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
@@ -737,7 +805,8 @@ void Editor::draw_ai_settings_window() {
             at_track("aiset:add:" + std::string(ai::site_category_key(c)));
             if (add && !trim(newUrl).empty()) {
                 if (ai::asset_site_host(newUrl).empty()) {
-                    d.siteError = "'" + std::string(trim(newUrl)) + "' is not a web address. Write a domain such as opengameart.org, or an address "
+                    d.siteError = "'" + std::string(trim(newUrl)) +
+                                  "' is not a web address. Write a domain such as opengameart.org, or an address "
                                   "such as https://kenney.nl/assets.";
                 } else {
                     sites.push_back({std::string(trim(newUrl)), std::string(trim(newNote))});
@@ -757,8 +826,10 @@ void Editor::draw_ai_settings_window() {
 
     // ------------------------------------------------------------------------------------------------ Spending limits
     ImGui::SeparatorText("Spending limits");
-    ImGui::TextDisabled("What the AI's paid assets (images, voices, sounds, 3D models) may cost. The money is an ESTIMATE from each provider's\n"
-                        "price list (docs/AI_COSTS.md), not an invoice. Free providers (fake, your own programs) never count and never ask.");
+    ImGui::TextDisabled("What the AI's paid assets (images, voices, sounds, 3D models) may cost. The money is an "
+                        "ESTIMATE from each provider's\n"
+                        "price list (docs/AI_COSTS.md), not an invoice. Free providers (fake, your own programs) never "
+                        "count and never ask.");
     const auto money = [this](const char* label, const char* id, const char* track, double* v, const char* tip) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
@@ -770,13 +841,16 @@ void Editor::draw_ai_settings_window() {
         *v = std::clamp(*v, 0.0, 1000000.0);
     };
     money("Ask above (USD)", "##limask", "aiset:limask", &d.limAsk,
-          "A paid call whose estimate is above this waits for your yes: a card in the AI chat (Approve, Approve all for this run, Cancel).\n"
+          "A paid call whose estimate is above this waits for your yes: a card in the AI chat (Approve, Approve all "
+          "for this run, Cancel).\n"
           "0 asks before every paid call. Default 0.50. limits.askAboveUsd.");
     money("Most per run (USD)", "##limrun", "aiset:limrun", &d.limRun,
-          "A paid call that would take one AI run (a chat's run) past this is refused before the provider is called. 0 = no limit.\n"
+          "A paid call that would take one AI run (a chat's run) past this is refused before the provider is called. 0 "
+          "= no limit.\n"
           "limits.maxAssetCostUsd.perRun.");
     money("Most per day (USD)", "##limday", "aiset:limday", &d.limDay,
-          "The same for all of today's paid calls of this project, in every editor and terminal (kept in a file of your user folder). 0 = no limit.\n"
+          "The same for all of today's paid calls of this project, in every editor and terminal (kept in a file of "
+          "your user folder). 0 = no limit.\n"
           "limits.maxAssetCostUsd.perDay.");
     {
         ImGui::BeginDisabled(!cfgErr.empty());
@@ -797,13 +871,19 @@ void Editor::draw_ai_settings_window() {
         }
         ImGui::EndDisabled();
         at_track("aiset:savelimits", cfgErr.empty());
-        ImGui::SetItemTooltip("Write only these three limits into your ai.json (%s); everything else in the file stays. 0 for a limit removes it.", d.path.c_str());
+        ImGui::SetItemTooltip("Write only these three limits into your ai.json (%s); everything else in the file "
+                              "stays. 0 for a limit removes it.",
+                              d.path.c_str());
     }
     if (projectMode) {
-        ImGui::TextDisabled("A project can set its own in .factoria/ai/settings.json (limits.maxAssetCostUsd); in this project now: ask above %s, per run %s, per day %s.",
-                            ai::format_usd(cfg.limits.askAboveUsd).c_str(),
-                            cfg.limits.maxAssetCostPerRunUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerRunUsd).c_str() : "no limit",
-                            cfg.limits.maxAssetCostPerDayUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerDayUsd).c_str() : "no limit");
+        ImGui::TextDisabled(
+            "A project can set its own in .factoria/ai/settings.json (limits.maxAssetCostUsd); in this project now: "
+            "ask above %s, per run %s, per day %s.",
+            ai::format_usd(cfg.limits.askAboveUsd).c_str(),
+            cfg.limits.maxAssetCostPerRunUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerRunUsd).c_str()
+                                                 : "no limit",
+            cfg.limits.maxAssetCostPerDayUsd > 0 ? ai::format_usd(cfg.limits.maxAssetCostPerDayUsd).c_str()
+                                                 : "no limit");
     }
     if (!d.limError.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
@@ -827,19 +907,22 @@ void Editor::draw_ai_settings_window() {
     }
     const bool canSave = cfgErr.empty() && !locked;
     ImGui::BeginDisabled(!canSave);
-    const bool saveRetried = projectMode && ai_project_save_retry("assets");  // the user confirmed replacing the ignored file
+    const bool saveRetried =
+        projectMode && ai_project_save_retry("assets");  // the user confirmed replacing the ignored file
     if (ImGui::Button("Save") || saveRetried) ai_settings_save_assets(false);
     ImGui::EndDisabled();
     at_track("aiset:save", canSave);
-    ImGui::SetItemTooltip("%s", projectMode ? "Save these routes and sites for this project only. The next asset the AI makes uses them."
-                                            : "Save these routes and sites in your ai.json. The next asset the AI makes uses them.");
+    ImGui::SetItemTooltip(
+        "%s", projectMode ? "Save these routes and sites for this project only. The next asset the AI makes uses them."
+                          : "Save these routes and sites in your ai.json. The next asset the AI makes uses them.");
     if (locked && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Accept or ignore the project's settings file at the top of this window first.");
     }
     if (projectMode) {
         fit_same_line("Reset tab to my defaults");
-        const bool canReset = canSave && res && (ai_group_source(*res, "/assets") == ai::SettingSource::Project ||
-                                                 ai_group_source(*res, "/assetSources") == ai::SettingSource::Project);
+        const bool canReset = canSave && res &&
+                              (ai_group_source(*res, "/assets") == ai::SettingSource::Project ||
+                               ai_group_source(*res, "/assetSources") == ai::SettingSource::Project);
         ImGui::BeginDisabled(!canReset);
         if (ImGui::Button("Reset tab to my defaults")) {
             // Two resets, the routes first: when the second fails the first is done, and the draft shows what really is in the file.
@@ -854,9 +937,11 @@ void Editor::draw_ai_settings_window() {
                     const auto it = now.assets.find(ai::media_kind_name(k));
                     d.routes[ai::media_kind_name(k)] = it == now.assets.end() ? ai::AssetRoute{} : it->second;
                 }
-                d.saveError = "The routes of this project are back to your defaults, but its sites are not: " + sitesDone.error().to_string();
+                d.saveError = "The routes of this project are back to your defaults, but its sites are not: " +
+                              sitesDone.error().to_string();
             } else {
-                const ai::AiConfig now = ai_window_config();  // typed keys and programs stay: only routes and sites go back
+                const ai::AiConfig now =
+                    ai_window_config();  // typed keys and programs stay: only routes and sites go back
                 for (ai::MediaKind k : ai::kMediaKinds) {
                     const auto it = now.assets.find(ai::media_kind_name(k));
                     d.routes[ai::media_kind_name(k)] = it == now.assets.end() ? ai::AssetRoute{} : it->second;
@@ -868,15 +953,19 @@ void Editor::draw_ai_settings_window() {
         }
         ImGui::EndDisabled();
         at_track("aiset:reset-tab", canReset);
-        ImGui::SetItemTooltip("Remove every asset route and site of this project: they come from your ai.json again (the roles stay as they are).");
+        ImGui::SetItemTooltip("Remove every asset route and site of this project: they come from your ai.json again "
+                              "(the roles stay as they are).");
         fit_same_line("Save as my defaults");
         ImGui::BeginDisabled(!cfgErr.empty());
         if (ImGui::Button("Save as my defaults")) ai_settings_save_assets(true);
         ImGui::EndDisabled();
         at_track("aiset:save-defaults", cfgErr.empty());
-        ImGui::SetItemTooltip("Write every route and site you see here, the ones this project sets and the ones that come from your defaults,\n"
-                              "into your ai.json (%s), so every project that does not change them, and every new project, starts from\n"
-                              "them. This project keeps only what still differs. The keys and programs you typed are saved too.", d.path.c_str());
+        ImGui::SetItemTooltip(
+            "Write every route and site you see here, the ones this project sets and the ones that come from your "
+            "defaults,\n"
+            "into your ai.json (%s), so every project that does not change them, and every new project, starts from\n"
+            "them. This project keeps only what still differs. The keys and programs you typed are saved too.",
+            d.path.c_str());
     }
     fit_same_line("Close");
     if (ImGui::Button("Close")) {

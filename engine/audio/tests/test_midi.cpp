@@ -91,7 +91,8 @@ std::vector<Sounded> sounded(const SongDoc& song, const SongTimeline& tl) {
     std::vector<Sounded> out;
     for (const SongNote& n : tl.notes) {
         const bool drum = !n.drum.empty();
-        out.emplace_back(song.tracks[std::size_t(n.track)].name, n.tick, drum ? 0 : n.gateTicks(), n.pitch, n.drum, n.velocity);
+        out.emplace_back(song.tracks[std::size_t(n.track)].name, n.tick, drum ? 0 : n.gateTicks(), n.pitch, n.drum,
+                         n.velocity);
     }
     std::sort(out.begin(), out.end());
     return out;
@@ -105,10 +106,10 @@ TEST_CASE("midi: a format 1 file with running status, three tracks, a tempo chan
     append(lead, meta(0, 0x03, {'l', 'e', 'a', 'd'}));
     lead.vlq(0).b({0xC0, 5});
     lead.vlq(0).b({0x90, 60, 100});
-    lead.vlq(240).b({62, 80});            // running status: a second note on
-    lead.vlq(240).b({60, 0});             // running status, velocity 0 = note off
+    lead.vlq(240).b({62, 80});  // running status: a second note on
+    lead.vlq(240).b({60, 0});   // running status, velocity 0 = note off
     lead.vlq(0).b({62, 0});
-    lead.vlq(0).b({0xB0, 64, 127});       // sustain pedal down
+    lead.vlq(0).b({0xB0, 64, 127});  // sustain pedal down
     append(lead, end_of_track(480));
     // track 3: drums on channel 10
     Bytes drums;
@@ -136,7 +137,7 @@ TEST_CASE("midi: a format 1 file with running status, three tracks, a tempo chan
     CHECK(ev[2].kind == kMidiNoteOn);
     CHECK(ev[2].data1 == 60);
     CHECK(ev[2].data2 == 100);
-    CHECK(ev[3].kind == kMidiNoteOn);   // running status
+    CHECK(ev[3].kind == kMidiNoteOn);  // running status
     CHECK(ev[3].tick == 240);
     CHECK(ev[3].data1 == 62);
     CHECK(ev[3].data2 == 80);
@@ -148,7 +149,8 @@ TEST_CASE("midi: a format 1 file with running status, three tracks, a tempo chan
     auto imported = midi_to_song(*file);
     REQUIRE(imported);
     bool tempoWarning = false;
-    for (const auto& w : imported->warnings) tempoWarning = tempoWarning || w.find("changes tempo") != std::string::npos;
+    for (const auto& w : imported->warnings)
+        tempoWarning = tempoWarning || w.find("changes tempo") != std::string::npos;
     CHECK(tempoWarning);
     CHECK(imported->tempo == 120.0);
 }
@@ -214,21 +216,21 @@ TEST_CASE("midi: the reader's errors name the byte offset, what was expected and
 TEST_CASE("midi: import maps tempo, meter, key, markers, programs, drums, velocities and the sustain pedal") {
     Bytes lead;
     append(lead, meta(0, 0x03, {'l', 'e', 'a', 'd'}));
-    lead.vlq(0).b({0xC0, 4});             // electric piano
-    lead.vlq(0).b({0xB0, 7, 100});        // volume
-    lead.vlq(0).b({0x90, 62, 97});        // D4 at velocity 97
-    lead.vlq(240).b({0x80, 62, 0});       // released after an eighth...
-    lead.vlq(0).b({0x90, 64, 55});        // E4, played while the pedal is down
+    lead.vlq(0).b({0xC0, 4});        // electric piano
+    lead.vlq(0).b({0xB0, 7, 100});   // volume
+    lead.vlq(0).b({0x90, 62, 97});   // D4 at velocity 97
+    lead.vlq(240).b({0x80, 62, 0});  // released after an eighth...
+    lead.vlq(0).b({0x90, 64, 55});   // E4, played while the pedal is down
     lead.vlq(0).b({0xB0, 64, 127});
-    lead.vlq(240).b({0x80, 64, 0});       // ...key up at 480 but the pedal holds it
-    lead.vlq(480).b({0xB0, 64, 0});       // pedal up at 960: the note lasts to 960 + 0
+    lead.vlq(240).b({0x80, 64, 0});  // ...key up at 480 but the pedal holds it
+    lead.vlq(480).b({0xB0, 64, 0});  // pedal up at 960: the note lasts to 960 + 0
     append(lead, end_of_track(0));
     Bytes drums;
     drums.vlq(0).b({0x99, 36, 127});
     drums.vlq(0).b({0x99, 42, 40});
     drums.vlq(240).b({0x99, 38, 100});
     drums.vlq(0).b({0x99, 42, 100});
-    drums.vlq(0).b({0x99, 60, 100});      // bongo: no lane
+    drums.vlq(0).b({0x99, 60, 100});  // bongo: no lane
     append(drums, end_of_track(240));
     auto file = parse_midi(smf(1, 480, {conductor(1440, 2880), lead, drums}), "demo.mid");
     REQUIRE(file);
@@ -267,7 +269,8 @@ TEST_CASE("midi: import maps tempo, meter, key, markers, programs, drums, veloci
     REQUIRE(tl);
     std::vector<std::tuple<std::int64_t, std::int64_t, int, int>> lead_notes;
     for (const SongNote& n : tl->notes)
-        if (song->tracks[std::size_t(n.track)].name == "lead") lead_notes.emplace_back(n.tick, n.gateTicks(), n.pitch, n.velocity);
+        if (song->tracks[std::size_t(n.track)].name == "lead")
+            lead_notes.emplace_back(n.tick, n.gateTicks(), n.pitch, n.velocity);
     REQUIRE(lead_notes.size() == 2);
     CHECK(lead_notes[0] == std::make_tuple(std::int64_t(0), std::int64_t(480), 62, 97));
     // E4 starts at 480 song ticks (240 file ticks x 960/480... 240 file ticks = 480), the pedal goes up at file tick 960 = 1920
@@ -294,7 +297,8 @@ TEST_CASE("midi: programs map to the nearest built-in instrument by family, and 
     CHECK(*gm_drum_lane(46) == "openhat");
     CHECK(*gm_drum_lane(49) == "crash");
     CHECK_FALSE(gm_drum_lane(60).has_value());
-    for (const char* lane : {"kick", "snare", "clap", "rim", "hat", "openhat", "hat_pedal", "shaker", "tambourine", "tom_low", "tom_mid", "tom_high", "ride", "crash", "cowbell"})
+    for (const char* lane : {"kick", "snare", "clap", "rim", "hat", "openhat", "hat_pedal", "shaker", "tambourine",
+                             "tom_low", "tom_mid", "tom_high", "ride", "crash", "cowbell"})
         CHECK(*gm_drum_lane(gm_drum_key(lane)) == lane);
     CHECK(gm_drum_key("conga") < 0);
     CHECK(gm_instrument_program("strings") == 48);
@@ -305,7 +309,7 @@ TEST_CASE("midi: quantize moves notes to a grid, and 'off' keeps the timing the 
     Bytes t;
     append(t, meta(0, 0x58, {4, 2, 24, 8}));
     t.vlq(0).b({0x90, 60, 90});
-    t.vlq(250).b({0x80, 60, 0});       // 250 ticks at 480 ppq: a bit over a sixteenth (120)... = 500 song ticks
+    t.vlq(250).b({0x80, 60, 0});  // 250 ticks at 480 ppq: a bit over a sixteenth (120)... = 500 song ticks
     t.vlq(230).b({0x90, 62, 90});
     t.vlq(250).b({0x80, 62, 0});
     append(t, end_of_track(1000));
@@ -326,7 +330,7 @@ TEST_CASE("midi: quantize moves notes to a grid, and 'off' keeps the timing the 
     std::set<std::int64_t> off, sixteenth;
     count_starts("off", off);
     count_starts("16", sixteenth);
-    CHECK(off == std::set<std::int64_t>{0, 960});       // 230 + 250 file ticks = 480 = 960 song ticks
+    CHECK(off == std::set<std::int64_t>{0, 960});  // 230 + 250 file ticks = 480 = 960 song ticks
     CHECK(sixteenth == std::set<std::int64_t>{0, 960});
     MidiImportOptions bad;
     bad.quantize = "7";
@@ -385,8 +389,10 @@ TEST_CASE("midi: the export writes a format 1 file with tempo, meter, key, marke
     std::vector<std::string> markers;
     for (const MidiEvent& e : file->tracks[0].events) {
         if (e.kind != kMidiMeta) continue;
-        if (e.metaType == kMetaMarker) markers.push_back(e.text());
-        else metas[e.metaType] = e;
+        if (e.metaType == kMetaMarker)
+            markers.push_back(e.text());
+        else
+            metas[e.metaType] = e;
     }
     CHECK(metas[kMetaTempo].data == std::vector<std::uint8_t>{0x09, 0x89, 0x68});  // 625000 us
     CHECK(metas[kMetaTimeSignature].data[0] == 3);
@@ -474,7 +480,7 @@ TEST_CASE("midi: a mixed straight and triplet bar is reported when a drum hit ha
     Bytes t;
     t.vlq(0).b({0x99, 36, 100});
     t.vlq(0).b({0x89, 36, 0});
-    t.vlq(100).b({0x99, 38, 100});       // 100 file ticks = 200 song ticks: not on any drum grid except by moving
+    t.vlq(100).b({0x99, 38, 100});  // 100 file ticks = 200 song ticks: not on any drum grid except by moving
     t.vlq(0).b({0x89, 38, 0});
     append(t, end_of_track(1700));
     auto file = parse_midi(smf(0, 480, {t}), "d.mid");
@@ -500,10 +506,10 @@ TEST_CASE("midi: a file without notes is an error that says what to check") {
 TEST_CASE("midi: slivers the note text cannot write (a 1/48 note or gap) are closed, and the song still parses") {
     Bytes t;
     t.vlq(0).b({0x90, 60, 90});
-    t.vlq(10).b({0x80, 60, 0});         // 10 file ticks = 20 song ticks long
-    t.vlq(250).b({0x90, 62, 90});       // 250 file ticks later = a gap of 480 + 20 ... then odd lengths
+    t.vlq(10).b({0x80, 60, 0});    // 10 file ticks = 20 song ticks long
+    t.vlq(250).b({0x90, 62, 90});  // 250 file ticks later = a gap of 480 + 20 ... then odd lengths
     t.vlq(235).b({0x80, 62, 0});
-    t.vlq(10).b({0x90, 64, 90});        // starts 10 file ticks (20 song ticks) after the last one ended
+    t.vlq(10).b({0x90, 64, 90});  // starts 10 file ticks (20 song ticks) after the last one ended
     t.vlq(7).b({0x80, 64, 0});
     append(t, end_of_track(1000));
     auto file = parse_midi(smf(0, 480, {t}), "sliver.mid");

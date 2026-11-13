@@ -17,20 +17,24 @@ namespace fa {
 
 // What a camera is drawn into.
 struct CameraTarget {
-    int width = 1280, height = 720;              // the logical (design) size of the target in pixels: what layouts and pointers count in
+    int width = 1280,
+        height = 720;  // the logical (design) size of the target in pixels: what layouts and pointers count in
     int designWidth = 1280, designHeight = 720;  // the project's design resolution
-    bool expand = false;                         // ScaleMode::Expand: the design height (or width) stays, the other axis grows with the aspect
-    bool zeroToOne = false;                      // the depth range of proj / viewProj / invViewProj, for DRAWING: the backend's (D3D, Metal)
+    bool expand = false;  // ScaleMode::Expand: the design height (or width) stays, the other axis grows with the aspect
+    bool zeroToOne =
+        false;  // the depth range of proj / viewProj / invViewProj, for DRAWING: the backend's (D3D, Metal)
 };
 
 // One camera as the renderer draws it. Entity-less when the world has no camera (the default camera, centred on the origin).
 struct CameraGeometry {
-    Entity entity = kNullEntity;            // the Camera entity (null for the default camera of a world without one)
-    int depth = 0;                          // Camera.depth
+    Entity entity = kNullEntity;  // the Camera entity (null for the default camera of a world without one)
+    int depth = 0;                // Camera.depth
     // Camera.viewport after sanitizing: [x, y, w, h] as fractions of the target, top-left origin, +Y down. proj maps the
     // view onto THIS rectangle (its aspect is the rectangle's), so ndc -1..1 is the viewport, not the whole target.
     Rect viewport{0, 0, 1, 1};
-    bool fullViewport() const { return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f; }
+    bool fullViewport() const {
+        return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f;
+    }
     Mat4 view, proj, viewProj, invViewProj;  // for drawing: the depth range of CameraTarget::zeroToOne
     // The same matrices with the OpenGL depth range (-1..1) whatever the backend, which the queries below use: an answer does not
     // depend on the graphics API (nor on whether there is one).
@@ -39,9 +43,9 @@ struct CameraGeometry {
     bool perspective = false;
     bool fromEntity = false;
     float fov = 60.0f;
-    float halfH = 360.0f, halfW = 640.0f;   // orthographic half extents (world units)
-    float pixelsPerUnit = 1.0f;             // ortho: target pixels per world unit
-    Rect visible{};                         // orthographic view rectangle in world units
+    float halfH = 360.0f, halfW = 640.0f;  // orthographic half extents (world units)
+    float pixelsPerUnit = 1.0f;            // ortho: target pixels per world unit
+    Rect visible{};                        // orthographic view rectangle in world units
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
 
     // `target` is the size of the target in pixels (CameraTarget::width/height).
@@ -93,7 +97,8 @@ public:
     void screen_ray(Vec2 s, Vec3& origin, Vec3& dir, Entity camera = kNullEntity) const;
     Vec3 screen_to_world(Vec2 s, float depth, Entity camera = kNullEntity) const;
     std::vector<Entity> cameras() const;  // the Camera entities, in draw order
-    Entity camera_at(Vec2 screen) const;  // the topmost camera drawing at the point, else the first (null without cameras)
+    Entity
+    camera_at(Vec2 screen) const;  // the topmost camera drawing at the point, else the first (null without cameras)
 
 private:
     std::vector<CameraGeometry> cameras_;

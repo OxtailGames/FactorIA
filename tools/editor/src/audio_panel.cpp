@@ -63,7 +63,8 @@ void Editor::draw_audio_panel() {
     if (!a.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "audio.log: %s", a.error.c_str());
 
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
-                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
+                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
+                                      ImGuiTableFlags_NoSavedSettings;
     if (ImGui::BeginTable("##audiolog", 7, flags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("seq", ImGuiTableColumnFlags_WidthFixed, 44);
@@ -106,7 +107,8 @@ void Editor::draw_audio_panel() {
         if (a.plays.empty()) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(2);
-            ImGui::TextDisabled("No sounds played yet. Press Play: every audio.play, AudioSource and music start shows up here.");
+            ImGui::TextDisabled(
+                "No sounds played yet. Press Play: every audio.play, AudioSource and music start shows up here.");
         } else if (shown == 0) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(2);

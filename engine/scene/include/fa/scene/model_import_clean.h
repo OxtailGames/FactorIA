@@ -28,64 +28,70 @@ namespace fa {
 using ModelTextureSampler = std::function<std::optional<Vec4>(const std::string& materialName, Vec2 uv)>;
 
 struct ModelCleanOptions {
-    std::string upAxis = "y";             // "y" (glTF, the engine) or "z" (Blender and CAD exports): z is turned to y, the front to -z... (x, y, z) -> (x, z, -y)
-    double weldDistance = 0;              // metres; vertices closer than this (and with the same uv, colour and a similar normal) become one; 0 = a millionth of the model's diagonal
-    bool removeFloating = true;           // drop separate pieces smaller than `minPieceSize`
-    double minPieceSize = 0.02;           // a piece whose bounding diagonal is under this fraction of the biggest piece's is "floating" and removed
-    std::string origin = "bottom_center"; // keep, center, bottom, bottom_center (the ground centre)
-    std::optional<double> height;         // scale so the model is this many metres tall (Y extent)
-    std::optional<double> scale;          // scale by this factor (exclusive with height)
-    std::size_t targetTriangles = 0;      // decimate to at most this many (0 = leave the count alone)
-    bool remesh = false;                  // rebuild the surface through a signed distance field (closed, manifold, no self-intersection), losing the uvs
-    int remeshCells = 128;                // cells along the longest side of the model when remeshing (16..400)
-    double remeshVoxel = 0;               // or the cell size in metres (0 = use remeshCells)
-    ModelTextureSampler textureSampler;   // remesh: carries the base colour textures over as vertex colours (none: the textures are dropped, the factors kept)
+    std::string upAxis =
+        "y";  // "y" (glTF, the engine) or "z" (Blender and CAD exports): z is turned to y, the front to -z... (x, y, z) -> (x, z, -y)
+    double weldDistance =
+        0;  // metres; vertices closer than this (and with the same uv, colour and a similar normal) become one; 0 = a millionth of the model's diagonal
+    bool removeFloating = true;  // drop separate pieces smaller than `minPieceSize`
+    double minPieceSize =
+        0.02;  // a piece whose bounding diagonal is under this fraction of the biggest piece's is "floating" and removed
+    std::string origin = "bottom_center";  // keep, center, bottom, bottom_center (the ground centre)
+    std::optional<double> height;          // scale so the model is this many metres tall (Y extent)
+    std::optional<double> scale;           // scale by this factor (exclusive with height)
+    std::size_t targetTriangles = 0;       // decimate to at most this many (0 = leave the count alone)
+    bool remesh =
+        false;  // rebuild the surface through a signed distance field (closed, manifold, no self-intersection), losing the uvs
+    int remeshCells = 128;   // cells along the longest side of the model when remeshing (16..400)
+    double remeshVoxel = 0;  // or the cell size in metres (0 = use remeshCells)
+    ModelTextureSampler
+        textureSampler;  // remesh: carries the base colour textures over as vertex colours (none: the textures are dropped, the factors kept)
 };
 
 struct ModelCleanPiece {
     std::size_t triangles = 0;
-    double diagonal = 0;   // bounding box diagonal, metres, in the source's scale
-    Vec3 center{};         // bounding box centre in the source's (oriented) space
+    double diagonal = 0;  // bounding box diagonal, metres, in the source's scale
+    Vec3 center{};        // bounding box centre in the source's (oriented) space
 };
 
 struct ModelCleanReport {
     // the source
     std::size_t verticesBefore = 0, trianglesBefore = 0;
-    ModelMeshStats statsBefore;   // welded surface checks of the source, as it came
+    ModelMeshStats statsBefore;  // welded surface checks of the source, as it came
     Vec3 sizeBefore{};
     // weld and clean
-    std::size_t verticesWelded = 0;      // vertices merged into another
-    std::size_t degenerateRemoved = 0;   // triangles with no area (or two corners welded together)
-    std::size_t duplicatesRemoved = 0;   // triangles that repeat another
-    std::size_t pieces = 0;              // connected pieces the surface had
+    std::size_t verticesWelded = 0;              // vertices merged into another
+    std::size_t degenerateRemoved = 0;           // triangles with no area (or two corners welded together)
+    std::size_t duplicatesRemoved = 0;           // triangles that repeat another
+    std::size_t pieces = 0;                      // connected pieces the surface had
     std::vector<ModelCleanPiece> removedPieces;  // floating pieces dropped (at most 20 listed)
     std::size_t removedPieceCount = 0, removedPieceTriangles = 0;
-    std::size_t trianglesReoriented = 0; // triangles flipped to agree with their neighbours or to face outward
+    std::size_t trianglesReoriented = 0;  // triangles flipped to agree with their neighbours or to face outward
     // scale and origin
     double scaleFactor = 1;
-    std::string scaleReason;             // "height 1.8 m", "factor 0.01", "none"
-    Vec3 offset{};                       // added to every position by the origin step (after scaling)
+    std::string scaleReason;  // "height 1.8 m", "factor 0.01", "none"
+    Vec3 offset{};            // added to every position by the origin step (after scaling)
     // remesh
     bool remeshed = false;
     double remeshVoxel = 0;
     std::size_t remeshRawTriangles = 0;
-    bool texturesDropped = false;        // the remesh cannot keep uvs: base colour textures were dropped (or carried as vertex colours)
+    bool texturesDropped =
+        false;  // the remesh cannot keep uvs: base colour textures were dropped (or carried as vertex colours)
     bool texturesToColors = false;
     // decimate
     bool decimated = false;
     std::size_t trianglesBeforeDecimate = 0;
-    double decimateError = 0;            // metres, the largest deviation from the cleaned surface
+    double decimateError = 0;  // metres, the largest deviation from the cleaned surface
     bool reachedTarget = true;
     // the result
     std::size_t verticesAfter = 0, trianglesAfter = 0;
     ModelMeshStats statsAfter;
     Vec3 sizeAfter{};
-    bool hadUvs = false;                 // the source had texture coordinates (and they were kept)
+    bool hadUvs = false;  // the source had texture coordinates (and they were kept)
     std::vector<std::string> warnings;
 };
 
 struct ModelCleanResult {
-    MeshData mesh;   // submeshes (material, part) of the source, those that still have triangles, in the source's order
+    MeshData mesh;  // submeshes (material, part) of the source, those that still have triangles, in the source's order
     ModelCleanReport report;
 };
 
@@ -101,7 +107,8 @@ struct ModelRemeshInfo {
     std::size_t gx = 0, gy = 0, gz = 0;
     bool texturesToColors = false;
 };
-Result<ModelMesh> model_remesh_mesh(const ModelMesh& mesh, double voxel, int cells, const std::vector<std::string>& groupMaterial, const ModelTextureSampler& sampler,
+Result<ModelMesh> model_remesh_mesh(const ModelMesh& mesh, double voxel, int cells,
+                                    const std::vector<std::string>& groupMaterial, const ModelTextureSampler& sampler,
                                     ModelRemeshInfo* info);
 
 Json model_clean_report_json(const ModelCleanReport& report);

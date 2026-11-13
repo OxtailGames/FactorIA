@@ -53,7 +53,8 @@ struct Reader {
         }
         const float v = it->get<float>();
         if (v < lo || v > hi) {
-            err(key, std::format("'{}' is {} but must be from {} to {}", key, v, lo, hi), "Use a value inside that range.");
+            err(key, std::format("'{}' is {} but must be from {} to {}", key, v, lo, hi),
+                "Use a value inside that range.");
             return false;
         }
         out = v;
@@ -63,7 +64,8 @@ struct Reader {
         auto it = o.find(key);
         if (it == o.end()) return true;
         if (!it->is_boolean()) {
-            err(key, std::format("'{}' must be true or false, got {}", key, describe_json_value(*it)), "Write true or false.");
+            err(key, std::format("'{}' must be true or false, got {}", key, describe_json_value(*it)),
+                "Write true or false.");
             return false;
         }
         out = it->get<bool>();
@@ -89,7 +91,9 @@ bool parse_target(const Json& j, TargetSpec& out, Reader& rd, const char* key) {
     if (j.is_string()) {
         out.entity = j.get<std::string>();
         out.set = !out.entity.empty();
-        if (!out.set) rd.err(key, std::format("'{}' is an empty string", key), "Name the entity to aim at, or give a position [x, y, z].");
+        if (!out.set)
+            rd.err(key, std::format("'{}' is an empty string", key),
+                   "Name the entity to aim at, or give a position [x, y, z].");
         return out.set;
     }
     Vec3 p;
@@ -108,17 +112,20 @@ bool parse_target(const Json& j, TargetSpec& out, Reader& rd, const char* key) {
         out.entity = e->get<std::string>();
         auto o = j.find("offset");
         if (o != j.end() && !read_vec3(*o, out.offset)) {
-            rd.err(std::string(key) + "/offset", "'offset' must be an array of 3 numbers", "Write [x, y, z] in world units.");
+            rd.err(std::string(key) + "/offset", "'offset' must be an array of 3 numbers",
+                   "Write [x, y, z] in world units.");
             return false;
         }
         for (auto it = j.begin(); it != j.end(); ++it)
             if (it.key() != "entity" && it.key() != "offset")
-                rd.err(std::string(key) + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), std::vector<std::string>{"entity", "offset"}));
+                rd.err(std::string(key) + "/" + it.key(), "unknown key '" + it.key() + "'",
+                       did_you_mean(it.key(), std::vector<std::string>{"entity", "offset"}));
         out.set = true;
         return true;
     }
-    rd.err(key, std::format("'{}' must be an entity id or name, a position [x, y, z] or {{\"entity\", \"offset\"}}, got {}", key,
-                            describe_json_value(j)),
+    rd.err(key,
+           std::format("'{}' must be an entity id or name, a position [x, y, z] or {{\"entity\", \"offset\"}}, got {}",
+                       key, describe_json_value(j)),
            "Write \"player\", [0, 1, 3] or {\"entity\": \"player\", \"offset\": [0, 1.6, 0]}.");
     return false;
 }
@@ -132,11 +139,14 @@ int chain_first(const Rig3D& rig, const char* role, const std::string& side) {
 bool bone_by_name(const Rig3D* rig, const Json& o, const char* key, int& out, Reader& rd, bool required) {
     auto it = o.find(key);
     if (it == o.end()) {
-        if (required) rd.err("", std::format("missing '{}' (a bone name)", key), "Name the bone, e.g. \"" + std::string(key) + "\": \"arm_upper_l\".");
+        if (required)
+            rd.err("", std::format("missing '{}' (a bone name)", key),
+                   "Name the bone, e.g. \"" + std::string(key) + "\": \"arm_upper_l\".");
         return !required;
     }
     if (!it->is_string()) {
-        rd.err(key, std::format("'{}' must be a bone name, got {}", key, describe_json_value(*it)), "Write a string such as \"hand_l\".");
+        rd.err(key, std::format("'{}' must be a bone name, got {}", key, describe_json_value(*it)),
+               "Write a string such as \"hand_l\".");
         return false;
     }
     if (!rig) return true;
@@ -173,23 +183,33 @@ bool parse_solver(const Json& o, const Rig3D* rig, Solver& s, Reader& rd) {
     if (t == o.end() || !t->is_string() ||
         std::find(kTypes.begin(), kTypes.end(), t->get<std::string>()) == kTypes.end()) {
         rd.err("type", t == o.end() ? "missing 'type'" : std::format("unknown solver type {}", describe_json_value(*t)),
-               t != o.end() && t->is_string() ? did_you_mean(t->get<std::string>(), kTypes) : "Use \"twoBone\", \"lookAt\" or \"foot\".");
+               t != o.end() && t->is_string() ? did_you_mean(t->get<std::string>(), kTypes)
+                                              : "Use \"twoBone\", \"lookAt\" or \"foot\".");
         return false;
     }
     s.type = t->get<std::string>();
     std::vector<std::string> allowed = {"type", "name", "weight", "enabled"};
-    if (s.type == "twoBone") for (auto k : {"root", "mid", "end", "limb", "side", "target", "pole"}) allowed.push_back(k);
-    if (s.type == "lookAt") for (auto k : {"bone", "target", "forward", "yawLimit", "pitchLimit", "turnSpeed"}) allowed.push_back(k);
-    if (s.type == "foot") for (auto k : {"thigh", "shin", "foot", "side", "footHeight", "alignToGround", "maxFootAngle"}) allowed.push_back(k);
+    if (s.type == "twoBone")
+        for (auto k : {"root", "mid", "end", "limb", "side", "target", "pole"}) allowed.push_back(k);
+    if (s.type == "lookAt")
+        for (auto k : {"bone", "target", "forward", "yawLimit", "pitchLimit", "turnSpeed"}) allowed.push_back(k);
+    if (s.type == "foot")
+        for (auto k : {"thigh", "shin", "foot", "side", "footHeight", "alignToGround", "maxFootAngle"})
+            allowed.push_back(k);
     bool ok = true;
     for (auto it = o.begin(); it != o.end(); ++it)
         if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end()) {
-            rd.err(it.key(), "unknown key '" + it.key() + "' for a " + s.type + " solver", did_you_mean(it.key(), allowed));
+            rd.err(it.key(), "unknown key '" + it.key() + "' for a " + s.type + " solver",
+                   did_you_mean(it.key(), allowed));
             ok = false;
         }
     if (auto n = o.find("name"); n != o.end()) {
-        if (n->is_string()) s.name = n->get<std::string>();
-        else { rd.err("name", "'name' must be a string", "Write a label such as \"left arm\"."); ok = false; }
+        if (n->is_string())
+            s.name = n->get<std::string>();
+        else {
+            rd.err("name", "'name' must be a string", "Write a label such as \"left arm\".");
+            ok = false;
+        }
     }
     ok &= rd.number(o, "weight", s.weight, 0.0f, 1.0f);
     ok &= rd.boolean(o, "enabled", s.enabled);
@@ -221,19 +241,33 @@ bool parse_solver(const Json& o, const Rig3D* rig, Solver& s, Reader& rd) {
             ok &= bone_by_name(rig, o, "mid", s.b, rd, true);
             ok &= bone_by_name(rig, o, "end", s.c, rd, true);
         }
-        if (auto tg = o.find("target"); tg != o.end()) ok &= parse_target(*tg, s.target, rd, "target");
-        else { rd.err("", "missing 'target' (what the end of the limb reaches)", "Write \"target\": \"ball\" or [x, y, z]."); ok = false; }
+        if (auto tg = o.find("target"); tg != o.end())
+            ok &= parse_target(*tg, s.target, rd, "target");
+        else {
+            rd.err("", "missing 'target' (what the end of the limb reaches)",
+                   "Write \"target\": \"ball\" or [x, y, z].");
+            ok = false;
+        }
         if (auto pl = o.find("pole"); pl != o.end()) ok &= parse_target(*pl, s.pole, rd, "pole");
     } else if (s.type == "lookAt") {
         ok &= bone_by_name(rig, o, "bone", s.a, rd, true);
-        if (auto tg = o.find("target"); tg != o.end()) ok &= parse_target(*tg, s.target, rd, "target");
-        else { rd.err("", "missing 'target' (what the bone looks at)", "Write \"target\": \"player\" or [x, y, z]."); ok = false; }
+        if (auto tg = o.find("target"); tg != o.end())
+            ok &= parse_target(*tg, s.target, rd, "target");
+        else {
+            rd.err("", "missing 'target' (what the bone looks at)", "Write \"target\": \"player\" or [x, y, z].");
+            ok = false;
+        }
         if (auto f = o.find("forward"); f != o.end()) {
             Vec3 v;
-            if (f->is_string() && parse_axis_name(f->get<std::string>(), v)) s.forward = v;
-            else if (read_vec3(*f, v) && length_sq(v) > 1e-8f) s.forward = normalize(v);
-            else { rd.err("forward", "'forward' must be an axis name (\"+z\", \"-x\", \"y\") or a direction [x, y, z]",
-                          "It is the bone's own axis that looks at the target; heads built by rig.bake look along +z."); ok = false; }
+            if (f->is_string() && parse_axis_name(f->get<std::string>(), v))
+                s.forward = v;
+            else if (read_vec3(*f, v) && length_sq(v) > 1e-8f)
+                s.forward = normalize(v);
+            else {
+                rd.err("forward", "'forward' must be an axis name (\"+z\", \"-x\", \"y\") or a direction [x, y, z]",
+                       "It is the bone's own axis that looks at the target; heads built by rig.bake look along +z.");
+                ok = false;
+            }
         }
         ok &= rd.number(o, "yawLimit", s.yawLimit, 0.0f, 180.0f);
         ok &= rd.number(o, "pitchLimit", s.pitchLimit, 0.0f, 90.0f);
@@ -246,14 +280,16 @@ bool parse_solver(const Json& o, const Rig3D* rig, Solver& s, Reader& rd) {
             ok &= bone_by_name(rig, o, "shin", s.b, rd, true);
             ok &= bone_by_name(rig, o, "foot", s.c, rd, true);
         } else if (side.empty()) {
-            rd.err("", "a foot solver needs 'side' (\"l\" or \"r\") or the bones 'thigh', 'shin' and 'foot'", "Write {\"type\": \"foot\", \"side\": \"l\"}.");
+            rd.err("", "a foot solver needs 'side' (\"l\" or \"r\") or the bones 'thigh', 'shin' and 'foot'",
+                   "Write {\"type\": \"foot\", \"side\": \"l\"}.");
             ok = false;
         } else if (rig) {
             s.a = chain_first(*rig, "thigh", side);
             s.b = chain_first(*rig, "shin", side);
             s.c = chain_first(*rig, "foot", side);
             if (s.a < 0 || s.b < 0 || s.c < 0) {
-                rd.err("side", std::format("this skeleton has no leg (thigh, shin, foot) on side '{}'", side), "Name the bones with thigh, shin and foot.");
+                rd.err("side", std::format("this skeleton has no leg (thigh, shin, foot) on side '{}'", side),
+                       "Name the bones with thigh, shin and foot.");
                 ok = false;
             }
         }
@@ -264,8 +300,10 @@ bool parse_solver(const Json& o, const Rig3D* rig, Solver& s, Reader& rd) {
     if (ok && rig && s.type != "lookAt") {
         const SkeletonAsset& sk = *rig->skeleton;
         if (sk.nodes[std::size_t(s.b)].parent != s.a || sk.nodes[std::size_t(s.c)].parent != s.b) {
-            rd.err("", std::format("the bones '{}', '{}', '{}' are not a chain (each must be the child of the one before)",
-                                   sk.nodes[std::size_t(s.a)].name, sk.nodes[std::size_t(s.b)].name, sk.nodes[std::size_t(s.c)].name),
+            rd.err("",
+                   std::format("the bones '{}', '{}', '{}' are not a chain (each must be the child of the one before)",
+                               sk.nodes[std::size_t(s.a)].name, sk.nodes[std::size_t(s.b)].name,
+                               sk.nodes[std::size_t(s.c)].name),
                    "Name three bones where each is the child of the previous one.");
             ok = false;
         }
@@ -273,9 +311,7 @@ bool parse_solver(const Json& o, const Rig3D* rig, Solver& s, Reader& rd) {
     return ok;
 }
 
-std::string entity_label(World& w, Entity e) {
-    return w.id_of(e);
-}
+std::string entity_label(World& w, Entity e) { return w.id_of(e); }
 
 float smoothstep01(float x) {
     x = clamp(x, 0.0f, 1.0f);
@@ -363,8 +399,10 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
         if (!issues.empty() && !ik->rt.warned) {
             ik->rt.warned = true;
             const IKIssue& is = issues.front();
-            FA_WARN("animation", "IK3D on '{}': solvers{}: {}. {}{}", entity_label(world, e), is.pointer, is.message, is.hint,
-                    issues.size() > 1 ? std::format(" ({} more problems; ik3d.check lists them all)", issues.size() - 1) : "");
+            FA_WARN("animation", "IK3D on '{}': solvers{}: {}. {}{}", entity_label(world, e), is.pointer, is.message,
+                    is.hint,
+                    issues.size() > 1 ? std::format(" ({} more problems; ik3d.check lists them all)", issues.size() - 1)
+                                      : "");
         }
         Context c{world, e, *ik, *an, rig, world.world_matrix(e), {}, dt, ground};
         c.toModel = c.toWorld.inverse();
@@ -379,8 +417,15 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
 
         for (std::size_t i = 0; i < solvers.size(); ++i) {
             const Solver& s = solvers[i];
-            if (!valid[i]) { status[i] = status_entry(s, i, false); status[i]["problem"] = true; continue; }
-            if (!s.enabled) { status[i] = status_entry(s, i, false); continue; }
+            if (!valid[i]) {
+                status[i] = status_entry(s, i, false);
+                status[i]["problem"] = true;
+                continue;
+            }
+            if (!s.enabled) {
+                status[i] = status_entry(s, i, false);
+                continue;
+            }
             const float weight = s.weight * masterWeight;
             if (s.type == "twoBone") {
                 auto target = resolve_model(c, s.target);
@@ -388,7 +433,10 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
                 if (target && weight > 0.0f) {
                     auto pole = resolve_model(c, s.pole);
                     auto r = solve_two_bone(sk, pose, s.a, s.b, s.c, *target, pole, weight);
-                    if (r) { st["reached"] = r->reached; st["error"] = r->error; }
+                    if (r) {
+                        st["reached"] = r->reached;
+                        st["error"] = r->error;
+                    }
                     refresh_frame(sk, pose, frame);
                 }
                 status[i] = st;
@@ -411,7 +459,15 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
             } else if (!feetDone) {
                 feetDone = true;
                 // All foot solvers act together: the pelvis follows the lowest ground under them.
-                struct Foot { std::size_t index; Vec3 anim; Quat animRot; float contact = 0.0f; bool hit = false; Vec3 normal{0, 1, 0}; float off = 0.0f; };
+                struct Foot {
+                    std::size_t index;
+                    Vec3 anim;
+                    Quat animRot;
+                    float contact = 0.0f;
+                    bool hit = false;
+                    Vec3 normal{0, 1, 0};
+                    float off = 0.0f;
+                };
                 std::vector<Foot> feet;
                 const float scale = std::max(length(c.toWorld.transform_dir(Vec3{0, 1, 0})), 1e-4f);
                 for (std::size_t k = 0; k < solvers.size(); ++k) {
@@ -437,27 +493,34 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
                         }
                     }
                     float& lift = ik->rt.lift[k];
-                    if (!ik->rt.started || ik->pelvisSmooth <= 1e-5f) lift = ft.off;
-                    else lift += (ft.off - lift) * (dt / (ik->pelvisSmooth + dt));
+                    if (!ik->rt.started || ik->pelvisSmooth <= 1e-5f)
+                        lift = ft.off;
+                    else
+                        lift += (ft.off - lift) * (dt / (ik->pelvisSmooth + dt));
                     feet.push_back(ft);
                 }
                 (void)scale;
                 float shift = 0.0f;
                 bool any = false;
                 for (const Foot& ft : feet)
-                    if (ft.hit) { shift = any ? std::min(shift, ik->rt.lift[ft.index]) : ik->rt.lift[ft.index]; any = true; }
+                    if (ft.hit) {
+                        shift = any ? std::min(shift, ik->rt.lift[ft.index]) : ik->rt.lift[ft.index];
+                        any = true;
+                    }
                 shift = clamp(shift, -ik->maxPelvisDrop, ik->maxPelvisRise) * masterWeight;
                 ik->rt.pelvisShift = shift;
                 const int pelvis = rig.find(ik->pelvis);
                 if (pelvis < 0 && !ik->rt.warned) {
                     ik->rt.warned = true;
-                    FA_WARN("animation", "IK3D on '{}': pelvis '{}' is not a bone of the model, so the pelvis is not moved. {}",
+                    FA_WARN("animation",
+                            "IK3D on '{}': pelvis '{}' is not a bone of the model, so the pelvis is not moved. {}",
                             entity_label(world, e), ik->pelvis, did_you_mean(ik->pelvis, rig.bone_names()));
                 }
                 if (pelvis >= 0 && std::fabs(shift) > 0.0f) {
                     const int pp = sk.nodes[std::size_t(pelvis)].parent;
                     const Vec3 delta{0, shift, 0};
-                    pose.translation[std::size_t(pelvis)] += pp < 0 ? delta : frame.rot[std::size_t(pp)].conjugate().rotate(delta);
+                    pose.translation[std::size_t(pelvis)] +=
+                        pp < 0 ? delta : frame.rot[std::size_t(pp)].conjugate().rotate(delta);
                     refresh_frame(sk, pose, frame);
                 }
                 for (const Foot& ft : feet) {
@@ -476,7 +539,10 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
                         const Vec3 target = ft.anim + Vec3{0, ik->rt.lift[ft.index], 0};
                         const Vec3 pole = frame.pos[std::size_t(f.b)];
                         auto r = solve_two_bone(sk, pose, f.a, f.b, f.c, target, pole, f.weight * masterWeight, endRot);
-                        if (r) { st["reached"] = r->reached; st["error"] = r->error; }
+                        if (r) {
+                            st["reached"] = r->reached;
+                            st["error"] = r->error;
+                        }
                         refresh_frame(sk, pose, frame);
                     }
                     status[ft.index] = st;
@@ -492,19 +558,26 @@ void update_ik3d(World& world, float dt, const GroundRaycast& ground) {
 }
 
 Result<Json> ik3d_solve_once(const Rig3D& rig, Pose& pose, const Json& solver, float groundHeight) {
-    if (!rig.skeleton || rig.bones.empty()) return make_error("the skeleton has no skin", "Give a skinned .rig.glb made by rig.bake.");
+    if (!rig.skeleton || rig.bones.empty())
+        return make_error("the skeleton has no skin", "Give a skinned .rig.glb made by rig.bake.");
     const SkeletonAsset& sk = *rig.skeleton;
     std::vector<IKIssue> issues;
     Solver s;
     Reader rd{issues, ""};
     if (!parse_solver(solver, &rig, s, rd) || !issues.empty()) {
         const IKIssue& first = issues.empty() ? IKIssue{"", "the solver is not valid", ""} : issues.front();
-        return make_error("solver" + first.pointer + ": " + first.message + (issues.size() > 1 ? std::format(" ({} more problems)", issues.size() - 1) : ""), first.hint);
+        return make_error("solver" + first.pointer + ": " + first.message +
+                              (issues.size() > 1 ? std::format(" ({} more problems)", issues.size() - 1) : ""),
+                          first.hint);
     }
     auto fixed = [&](const TargetSpec& t, const char* what) -> Result<std::optional<Vec3>> {
         if (!t.set) return std::optional<Vec3>{};
         if (!t.entity.empty())
-            return make_error(std::format("the {} names the entity '{}', and there is no scene here", what, t.entity), std::format("Give the {} as a position [x, y, z] in the model's space (the rig's own units: +Y up, facing +Z).", what));
+            return make_error(
+                std::format("the {} names the entity '{}', and there is no scene here", what, t.entity),
+                std::format(
+                    "Give the {} as a position [x, y, z] in the model's space (the rig's own units: +Y up, facing +Z).",
+                    what));
         return std::optional<Vec3>{t.offset};
     };
     PoseFrame frame = pose_frame(sk, pose);
@@ -512,7 +585,10 @@ Result<Json> ik3d_solve_once(const Rig3D& rig, Pose& pose, const Json& solver, f
     Json bones = Json::array();
     auto list = [&](std::initializer_list<int> nodes) {
         const PoseFrame f = pose_frame(sk, pose);
-        for (int n : nodes) bones.push_back(Json::object({{"bone", sk.nodes[std::size_t(n)].name}, {"head", Json::array({f.pos[std::size_t(n)].x, f.pos[std::size_t(n)].y, f.pos[std::size_t(n)].z})}}));
+        for (int n : nodes)
+            bones.push_back(Json::object(
+                {{"bone", sk.nodes[std::size_t(n)].name},
+                 {"head", Json::array({f.pos[std::size_t(n)].x, f.pos[std::size_t(n)].y, f.pos[std::size_t(n)].z})}}));
     };
     if (s.type == "lookAt") {
         auto target = fixed(s.target, "target");

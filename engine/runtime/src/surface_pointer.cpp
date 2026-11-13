@@ -63,8 +63,9 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& I) {
             auto surface = load_mesh_surface(world.meshes(), mr.mesh);
             if (!surface) {
                 if (warned.insert(mr.mesh).second)
-                    FA_WARN("ui", "MeshRenderer '{}' shows render target '{}' but the pointer cannot reach it: {}. Hint: {}", world.id_of(e),
-                            target, surface.error().message, surface.error().hint);
+                    FA_WARN("ui",
+                            "MeshRenderer '{}' shows render target '{}' but the pointer cannot reach it: {}. Hint: {}",
+                            world.id_of(e), target, surface.error().message, surface.error().hint);
                 return;
             }
             candidates.push_back({e, std::move(target), surface.value(), world.world_matrix(e), mr.uvScale});
@@ -86,7 +87,8 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& I) {
             }
         }
         if (!best && pin && !candidates.empty()) {  // a drag that left the mesh: the plane of its last triangle goes on
-            if (const auto on = surface_uv_on_plane(*candidates[0].surface, candidates[0].model, pin->triangle, origin, dir)) {
+            if (const auto on =
+                    surface_uv_on_plane(*candidates[0].surface, candidates[0].model, pin->triangle, origin, dir)) {
                 best = &candidates[0];
                 bestHit.triangle = pin->triangle;
                 uv = *on;
@@ -134,7 +136,8 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
         world.each<Camera>([&](Entity, Camera& c) {
             if (c.renderTarget.empty() || !seen.insert(c.renderTarget).second) return;
             auto view = r->render_target_view(world, c.renderTarget);
-            if (view && view->to_pixels && CameraMask::of(world, view->camera).draws(world, widget)) pages.push_back({c.renderTarget, std::move(*view)});
+            if (view && view->to_pixels && CameraMask::of(world, view->camera).draws(world, widget))
+                pages.push_back({c.renderTarget, std::move(*view)});
         });
         if (pages.empty()) return out;
         out.relevant = true;
@@ -145,22 +148,26 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
         const std::string who = "'" + world.id_of(widget) + "'";
         std::vector<std::string> notes;  // why no point worked, one line per page
         for (const Page& page : pages) {
-            const std::string where = "render target '" + page.name + "' (camera '" + world.id_of(page.view.camera) + "', picture " +
-                                      std::to_string(page.view.width) + "x" + std::to_string(page.view.height) + " px)";
+            const std::string where = "render target '" + page.name + "' (camera '" + world.id_of(page.view.camera) +
+                                      "', picture " + std::to_string(page.view.width) + "x" +
+                                      std::to_string(page.view.height) + " px)";
             std::vector<Entity> meshes;
             world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
                 if (!mr.mesh.empty() && shown_target(world, mr) == page.name) meshes.push_back(e);
             });
             if (meshes.empty()) {
-                notes.push_back("no MeshRenderer shows " + where + ", so the widget is drawn nowhere a player can see (set MeshRenderer.texture to \"target:" +
-                                page.name + "\")");
+                notes.push_back(
+                    "no MeshRenderer shows " + where +
+                    ", so the widget is drawn nowhere a player can see (set MeshRenderer.texture to \"target:" +
+                    page.name + "\")");
                 continue;
             }
             const std::size_t shown = meshes.size();
             std::erase_if(meshes, [&](Entity m) { return !world.active_in_hierarchy(m); });
             if (meshes.empty()) {
-                notes.push_back(std::string(shown == 1 ? "the MeshRenderer that shows " : "every MeshRenderer that shows ") + where +
-                                " is inactive (active = false on it or a parent), so nothing draws the page (activate it)");
+                notes.push_back(
+                    std::string(shown == 1 ? "the MeshRenderer that shows " : "every MeshRenderer that shows ") +
+                    where + " is inactive (active = false on it or a parent), so nothing draws the page (activate it)");
                 continue;
             }
             // The pointer only reaches meshes the main camera draws: a page shown on a mesh that only another render target draws is out of reach.
@@ -172,8 +179,10 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
                 return true;
             });
             if (meshes.empty()) {
-                notes.push_back("the mesh that shows " + where + " (" + unreachable + ") is not drawn by the main camera (Camera.showTags / hideTags) and the pointer only "
-                                "reaches meshes the main camera draws, so a render target shown inside another render target cannot be clicked (let the main camera draw the mesh)");
+                notes.push_back("the mesh that shows " + where + " (" + unreachable +
+                                ") is not drawn by the main camera (Camera.showTags / hideTags) and the pointer only "
+                                "reaches meshes the main camera draws, so a render target shown inside another render "
+                                "target cannot be clicked (let the main camera draw the mesh)");
                 continue;
             }
             const std::optional<std::array<Vec2, 4>> quad = I.ui.interactable_quad(
@@ -195,7 +204,8 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
                 char box[96];
                 std::snprintf(box, sizeof box, "[%.0f, %.0f] to [%.0f, %.0f]", x0, y0, x1, y1);
                 notes.push_back("it is outside the view of " + where + ": its hit area is at page pixels " + box +
-                                ", so the picture does not show it (move the widget into the camera's view, or the camera onto it)");
+                                ", so the picture does not show it (move the widget into the camera's view, or the "
+                                "camera onto it)");
                 continue;
             }
             // Points of the hit area, the centre first, then a grid, kept inside the picture.
@@ -226,22 +236,27 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
                     for (const SurfacePoint& sp : surface_points_at_uv(*surface.value(), world.world_matrix(m), uv)) {
                         onMesh = true;
                         const Vec2 screen = r->world_to_screen(sp.world);
-                        if (!(screen.x >= 0 && screen.y >= 0 && screen.x <= design.x && screen.y <= design.y) || !std::isfinite(screen.x) ||
-                            !std::isfinite(screen.y)) {
+                        if (!(screen.x >= 0 && screen.y >= 0 && screen.x <= design.x && screen.y <= design.y) ||
+                            !std::isfinite(screen.x) || !std::isfinite(screen.y)) {
                             ++offScreen;
                             continue;
                         }
                         const std::optional<UiSurface> reached = forward(screen, nullptr);
-                        if (reached && reached->pin.mesh == m && I.ui.widget_at(world, design, screen, measure) == widget) {
+                        if (reached && reached->pin.mesh == m &&
+                            I.ui.widget_at(world, design, screen, measure) == widget) {
                             out.point = screen;
                             out.mesh = m;
                             out.camera = page.view.camera;
                             return out;
                         }
                         ++covered;
-                        if (!reached) lastCover = "nothing the pointer reaches is there (the main camera does not draw the mesh, a ray misses it, or it is behind the camera)";
-                        else if (reached->pin.mesh != m) lastCover = "mesh '" + world.id_of(reached->pin.mesh) + "' is in front of it";
-                        else lastCover = "another widget is on top there";
+                        if (!reached)
+                            lastCover = "nothing the pointer reaches is there (the main camera does not draw the mesh, "
+                                        "a ray misses it, or it is behind the camera)";
+                        else if (reached->pin.mesh != m)
+                            lastCover = "mesh '" + world.id_of(reached->pin.mesh) + "' is in front of it";
+                        else
+                            lastCover = "another widget is on top there";
                     }
                 }
                 if (!onMesh) ++notOnMesh;
@@ -249,19 +264,24 @@ UiPageAimFn make_ui_page_aim(Engine::Impl& I) {
             if (tried == 0)
                 notes.push_back("no point of its hit area is inside the picture of " + where);
             else if (covered > 0)
-                notes.push_back("its place on the mesh is covered: " + lastCover + " (move the camera or the mesh, or hide what covers it)");
+                notes.push_back("its place on the mesh is covered: " + lastCover +
+                                " (move the camera or the mesh, or hide what covers it)");
             else if (offScreen > 0)
-                notes.push_back("the mesh that shows " + where + " is off the screen where the widget is (point the main camera at it)");
+                notes.push_back("the mesh that shows " + where +
+                                " is off the screen where the widget is (point the main camera at it)");
             else if (notOnMesh == tried)
-                notes.push_back("no mesh that shows " + where + " covers the widget's place of the picture (the mesh's UVs do not map there, or the mesh is inactive)");
+                notes.push_back("no mesh that shows " + where +
+                                " covers the widget's place of the picture (the mesh's UVs do not map there, or the "
+                                "mesh is inactive)");
             else
                 notes.push_back("no point of it can be reached through a mesh that shows " + where);
         }
-        out.problem = "it is drawn only on a page, never by the main view, and no click can reach it through a mesh: " + [&] {
-            std::string all;
-            for (const std::string& n : notes) all += (all.empty() ? "" : "; ") + n;
-            return all;
-        }();
+        out.problem =
+            "it is drawn only on a page, never by the main view, and no click can reach it through a mesh: " + [&] {
+                std::string all;
+                for (const std::string& n : notes) all += (all.empty() ? "" : "; ") + n;
+                return all;
+            }();
         return out;
     };
 }

@@ -59,12 +59,12 @@ std::string hook_matcher_problem(std::string_view matcher);
 std::string hook_module_problem(std::string_view module);
 
 struct HookHandler {
-    std::string type;        // "command", "js"; "http", "prompt" and "agent" are Claude Code's and not run here
-    std::string command;     // command: run by the shell, in the project folder
-    std::string module;      // js: a .js file inside the project's hooks/ folder
+    std::string type;           // "command", "js"; "http", "prompt" and "agent" are Claude Code's and not run here
+    std::string command;        // command: run by the shell, in the project folder
+    std::string module;         // js: a .js file inside the project's hooks/ folder
     double timeoutSeconds = 0;  // 0 = kDefaultHookTimeoutSeconds
-    std::string extension;   // the entry of `extensions` it came from
-    std::string source;      // "user" or "project"
+    std::string extension;      // the entry of `extensions` it came from
+    std::string source;         // "user" or "project"
     std::string label() const;  // "<extension>: <command or module>", at most ~100 characters
     bool runs_here() const { return type == "command" || type == "js"; }
 };
@@ -105,17 +105,18 @@ Json hooks_for_claude_code(const Json& hooks, const std::string& factoriaCommand
 // One run of one handler, as the session log and the editor show it.
 struct HookRunRecord {
     HookEvent event = HookEvent::PreToolUse;
-    std::string matched;     // what the matcher saw: the tool or command name, the source...
+    std::string matched;  // what the matcher saw: the tool or command name, the source...
     std::string extension;
     std::string source;
-    std::string type;        // command | js
-    std::string target;      // the command line or the module
+    std::string type;            // command | js
+    std::string target;          // the command line or the module
     std::int64_t startedMs = 0;  // Unix ms
-    double ms = 0;           // how long it took
-    int exitCode = -1;       // command: its exit code (-1 = it did not exit: timed out, could not start)
+    double ms = 0;               // how long it took
+    int exitCode = -1;           // command: its exit code (-1 = it did not exit: timed out, could not start)
     bool timedOut = false;
-    bool failed = false;     // could not start, timed out, crashed, exit code other than 0 and 2, output it should not give
-    std::string error;       // why it failed, one sentence that also says what to do
+    bool failed =
+        false;          // could not start, timed out, crashed, exit code other than 0 and 2, output it should not give
+    std::string error;  // why it failed, one sentence that also says what to do
     std::string decision;    // what it decided: "block", "allow", "ask", "stop", "context", "" (nothing)
     std::string reason;      // block / stop reason
     std::string output;      // stdout, clipped
@@ -124,13 +125,14 @@ struct HookRunRecord {
 };
 
 struct HookOutcome {
-    bool blocked = false;       // the action must not happen (exit 2, decision "block", permissionDecision "deny")
-    std::string reason;         // why, as the hook said (several are joined)
-    std::string blockedBy;      // label of the first handler that blocked
-    bool stop = false;          // `continue: false`
+    bool blocked = false;   // the action must not happen (exit 2, decision "block", permissionDecision "deny")
+    std::string reason;     // why, as the hook said (several are joined)
+    std::string blockedBy;  // label of the first handler that blocked
+    bool stop = false;      // `continue: false`
     std::string stopReason;
-    std::vector<std::string> context;   // additionalContext, and the plain stdout of SessionStart / UserPromptSubmit
-    std::vector<std::string> feedback;  // PostToolUse / PostToolUseFailure `decision: "block"` reasons: shown next to the result
+    std::vector<std::string> context;  // additionalContext, and the plain stdout of SessionStart / UserPromptSubmit
+    std::vector<std::string>
+        feedback;  // PostToolUse / PostToolUseFailure `decision: "block"` reasons: shown next to the result
     std::vector<std::string> systemMessages;
     std::optional<Json> updatedInput;       // PreToolUse: replaces the tool's arguments
     std::optional<Json> updatedToolOutput;  // PostToolUse: replaces the result the model sees
@@ -141,11 +143,11 @@ struct HookOutcome {
 };
 
 struct HookRunContext {
-    std::string projectDir;      // the hooks run here; CLAUDE_PROJECT_DIR; where hooks/ is
+    std::string projectDir;  // the hooks run here; CLAUDE_PROJECT_DIR; where hooks/ is
     std::string sessionId;
     std::string transcriptPath;
     std::string permissionMode = "default";
-    std::string agentType;       // a delegated run: its role
+    std::string agentType;  // a delegated run: its role
     // Names (or "PREFIX*") of the variables a command hook inherits besides fa::base_child_env() and the proxy and certificate
     // variables every AI-started program gets (HTTP_PROXY, SSL_CERT_FILE...): "inheritEnv" of ai.json. The hook
     // gets CLAUDE_PROJECT_DIR, FACTORIA_PROJECT_DIR, FACTORIA_HOOK_EVENT, FACTORIA_IN_HOOK and these; the editor's other variables (API
@@ -161,11 +163,13 @@ struct HookRunContext {
 // Runs, in order, the handlers of the groups of `set` that match `event` and `matchValue`, with `input` (the event-specific fields)
 // plus the common ones (session_id, transcript_path, cwd, hook_event_name, permission_mode) on stdin, and gathers what they decided.
 // Never throws: a handler that cannot run is a failed HookRunRecord.
-HookOutcome run_hooks(const HookSet& set, HookEvent event, std::string_view matchValue, const Json& input, const HookRunContext& ctx);
+HookOutcome run_hooks(const HookSet& set, HookEvent event, std::string_view matchValue, const Json& input,
+                      const HookRunContext& ctx);
 
 // How a handler's answer is read (exposed for tests and for the JS hooks, whose return value is the stdout JSON): adds what
 // `answer` decides for `event` to `out` and fills `rec` (decision, reason). `answer` is the parsed JSON stdout.
-void apply_hook_answer(HookEvent event, const Json& answer, const std::string& label, HookOutcome& out, HookRunRecord& rec);
+void apply_hook_answer(HookEvent event, const Json& answer, const std::string& label, HookOutcome& out,
+                       HookRunRecord& rec);
 
 // What a run of hooks decided, as JSON ({blocked, reason, blockedBy, stop, stopReason, context, feedback, systemMessages, allowed,
 // updatedInput?, updatedToolOutput?, failed, runs:[...]}): ai.hooks_test and the editor.

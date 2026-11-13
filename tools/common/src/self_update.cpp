@@ -89,7 +89,8 @@ BuildId read_build_id(const stdfs::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) return {};
     constexpr std::size_t kBlock = 4u << 20;
-    constexpr std::size_t kOverlap = 256;  // longer than any marker: one cut by a block boundary is whole in the next window
+    constexpr std::size_t kOverlap =
+        256;  // longer than any marker: one cut by a block boundary is whole in the next window
     BuildId id;
     std::string carry, block(kBlock, '\0');
     while (in) {
@@ -193,8 +194,10 @@ namespace {
 
 void set_update_status_extra(std::string key, std::function<Json()> provider) {
     std::lock_guard<std::mutex> lock(extras_mutex());
-    if (provider) extras()[std::move(key)] = std::move(provider);
-    else extras().erase(key);
+    if (provider)
+        extras()[std::move(key)] = std::move(provider);
+    else
+        extras().erase(key);
 }
 
 Json update_status_json(UpdateWatch& watch) {
@@ -204,17 +207,24 @@ Json update_status_json(UpdateWatch& watch) {
     j["onDisk"] = watch.on_disk().to_json();
     const bool due = watch.updated();
     j["restartDue"] = due;
-    j["state"] = due ? "updated_on_disk" : c == UpdateCheck::Unidentified ? "unidentified" : c == UpdateCheck::Settling ? "settling" : "current";
+    j["state"] = due                              ? "updated_on_disk"
+                 : c == UpdateCheck::Unidentified ? "unidentified"
+                 : c == UpdateCheck::Settling     ? "settling"
+                                                  : "current";
     j["executable"] = watch.executable().generic_string();
     std::string summary;
     if (due)
         summary = "FactorIA was updated on disk (" + watch.running().label() + " -> " + watch.on_disk().label() +
                   "); this process still runs the old code.";
     else if (c == UpdateCheck::Unidentified)
-        summary = "The executable on disk changed but carries no build identity that can be compared with the running one "
-                  "(a build outside git has none): nothing is assumed.";
-    else if (c == UpdateCheck::Settling) summary = "The executable on disk is being written right now: ask again in a moment.";
-    else summary = "The executable on disk is the build that runs (" + watch.running().label() + "); nothing to restart.";
+        summary =
+            "The executable on disk changed but carries no build identity that can be compared with the running one "
+            "(a build outside git has none): nothing is assumed.";
+    else if (c == UpdateCheck::Settling)
+        summary = "The executable on disk is being written right now: ask again in a moment.";
+    else
+        summary =
+            "The executable on disk is the build that runs (" + watch.running().label() + "); nothing to restart.";
     j["summary"] = summary;
     std::map<std::string, std::function<Json()>> copy;
     {
@@ -230,21 +240,25 @@ void register_update_commands(CommandRegistry& registry) {
     info.name = "engine.update_status";
     info.category = "engine";
     info.readOnly = true;
-    info.summary = "Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due.";
+    info.summary =
+        "Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due.";
     info.description =
         "Returns {running, onDisk, restartDue, state, executable, summary, ...}: `running` and `onDisk` are {version, "
-        "fingerprint, label}: the build this process was started from and the one now in the `factoria` file it was started "
+        "fingerprint, label}: the build this process was started from and the one now in the `factoria` file it was "
+        "started "
         "from (the build fingerprint written inside the file, not just its date). state: current | updated_on_disk | "
         "unidentified (the file changed but has no comparable identity) | settling (it is being written). When "
-        "`restartDue`, what to do depends on the host: in the editor (`editor` is present) the user presses Restart in the "
-        "notice; under `factoria mcp` (`mcp` is present) the server restarts itself between two calls on Linux and macOS and "
-        "says so in the next tool result, on Windows the client must reconnect the factoria server (Claude Code: /mcp). "
+        "`restartDue`, what to do depends on the host: in the editor (`editor` is present) the user presses Restart in "
+        "the "
+        "notice; under `factoria mcp` (`mcp` is present) the server restarts itself between two calls on Linux and "
+        "macOS and "
+        "says so in the next tool result, on Windows the client must reconnect the factoria server (Claude Code: "
+        "/mcp). "
         "`mcp.projectConfig` says whether the client was started with the .mcp.json now on disk. Details: "
         "docs_read {\"name\":\"mcp\"}. Example: {}.";
     info.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
     registry.add(info, [](const Json&) { return update_status_json(process_update_watch()); });
-    declare_command_capabilities(registry, {
-        {"engine.update_status", capability_sets::reads()}});
+    declare_command_capabilities(registry, {{"engine.update_status", capability_sets::reads()}});
 }
 
 }  // namespace fa

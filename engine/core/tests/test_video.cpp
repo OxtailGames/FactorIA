@@ -22,7 +22,8 @@ namespace {
 std::shared_ptr<const std::vector<std::uint8_t>> fixture_bytes() {
     std::ifstream in(FA_VIDEO_FIXTURE, std::ios::binary);
     REQUIRE_MESSAGE(in.good(), "missing fixture " FA_VIDEO_FIXTURE);
-    return std::make_shared<const std::vector<std::uint8_t>>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return std::make_shared<const std::vector<std::uint8_t>>((std::istreambuf_iterator<char>(in)),
+                                                             std::istreambuf_iterator<char>());
 }
 
 std::unique_ptr<VideoDecoder> open_fixture() {
@@ -114,7 +115,7 @@ TEST_CASE("video: the audio follows the video position, one second of it is one 
     auto v = open_fixture();
     std::vector<float> out;
     v->take_audio(0.0, out);
-    CHECK(out.empty());  // nothing is released before the position
+    CHECK(out.empty());                                    // nothing is released before the position
     for (int i = 0; i < 60; ++i) v->advance(1.0 / 120.0);  // 0.5 s
     const std::size_t frames = v->take_audio(0.0, out);
     CHECK(out.size() == 2 * frames);  // interleaved stereo

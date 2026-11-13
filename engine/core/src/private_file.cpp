@@ -47,8 +47,9 @@ Result<void> write_private(std::string_view path, std::string_view bytes) {
     if (ec) {
         std::error_code ignored;
         stdfs::remove(osTmp, ignored);
-        return make_error("Cannot replace '" + std::string(path) + "': " + ec.message(),
-                          "Check the file is writable and not open in another program. The old file was left untouched.");
+        return make_error(
+            "Cannot replace '" + std::string(path) + "': " + ec.message(),
+            "Check the file is writable and not open in another program. The old file was left untouched.");
     }
     return {};
 }

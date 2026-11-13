@@ -38,7 +38,9 @@ std::vector<std::string> project_clip_files() {
         const std::vector<std::string> parts = split(f, '/');
         bool skip = false;
         for (std::size_t i = 0; i + 1 < parts.size(); ++i)
-            if ((!parts[i].empty() && parts[i][0] == '.') || parts[i] == "node_modules" || (i == 0 && parts[i] == "build")) skip = true;
+            if ((!parts[i].empty() && parts[i][0] == '.') || parts[i] == "node_modules" ||
+                (i == 0 && parts[i] == "build"))
+                skip = true;
         if (!skip) out.push_back(f);
     }
     return out;
@@ -73,7 +75,9 @@ bool prefab_ends_itself(const Json& node, std::vector<std::string>& stack) {
         }
     }
     for (auto it = node.begin(); it != node.end(); ++it)
-        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") && prefab_ends_itself(*it, stack)) return true;
+        if ((it.key() == "children" || it.key() == "entity" || it.key() == "entities") &&
+            prefab_ends_itself(*it, stack))
+            return true;
     return false;
 }
 
@@ -84,7 +88,8 @@ bool prefab_ends_itself(const Json& node, const std::string& path) {
 
 // The files a clip event's game feel actions name (a spawn's prefab, a sound's path) must exist, and a spawn that never ends is a
 // warning. `event` is the event object, `pointer` its place in `file`.
-void check_feel_files(const std::string& file, const std::string& pointer, const Json& event, ValidationReport& report) {
+void check_feel_files(const std::string& file, const std::string& pointer, const Json& event,
+                      ValidationReport& report) {
     if (!event.is_object() || !event.contains("feel")) return;
     const Json& feel = event["feel"];
     std::size_t index = 0;
@@ -104,9 +109,14 @@ void check_feel_files(const std::string& file, const std::string& pointer, const
             if (life != action.end() && life->is_number() && life->get<double>() > 0.0) return;
             auto prefab = load_json_file(path);
             if (prefab.ok() && prefab_ends_itself(*prefab, path)) return;
-            report.warnings.push_back({file, ap + "/prefab",
-                                       std::format("the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles or effect to end it: every time the event fires an effect stays for the rest of the scene", path),
-                                       "Add \"lifetime\": 0.5 (seconds) to the action, or end the effect from a script or with ParticleEmitter.autoDestroy."});
+            report.warnings.push_back(
+                {file, ap + "/prefab",
+                 std::format(
+                     "the spawn of '{}' has no `lifetime` and the prefab has no Script or autoDestroy particles or "
+                     "effect to end it: every time the event fires an effect stays for the rest of the scene",
+                     path),
+                 "Add \"lifetime\": 0.5 (seconds) to the action, or end the effect from a script or with "
+                 "ParticleEmitter.autoDestroy."});
             return;
         }
         std::vector<std::string> existing;
@@ -117,8 +127,12 @@ void check_feel_files(const std::string& file, const std::string& pointer, const
             for (const char* ext : {".wav", ".ogg", ".mp3", ".qoa"})
                 for (const std::string& f : fs::list(".", true, ext)) existing.push_back(f);
         }
-        report.errors.push_back({file, ap + "/" + key, std::format("the {} '{}' does not exist. {}", kind == "spawn" ? "prefab" : "sound", path, did_you_mean(path, existing)),
-                                 kind == "spawn" ? "Name an existing prefab (prefabs/*.prefab.json)." : "Name an existing sound file of the project (audio/*.wav, .ogg, .mp3)."});
+        report.errors.push_back({file, ap + "/" + key,
+                                 std::format("the {} '{}' does not exist. {}", kind == "spawn" ? "prefab" : "sound",
+                                             path, did_you_mean(path, existing)),
+                                 kind == "spawn"
+                                     ? "Name an existing prefab (prefabs/*.prefab.json)."
+                                     : "Name an existing sound file of the project (audio/*.wav, .ogg, .mp3)."});
     };
     if (feel.is_array()) {
         for (const Json& a : feel) one(a);
@@ -147,9 +161,11 @@ void check_inline_events(const std::string& file, const World& world, const Json
         if (!an || an->events.is_null() || (an->events.is_array() && an->events.empty())) continue;
         const std::string base = base_of(e) + "/components/Animator/events";
         const std::vector<ClipIssue> issues = check_animator_events(an->events, base);
-        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
+        for (const ClipIssue& p : issues)
+            report.errors.push_back({file, p.pointer, "Animator '" + world.id_of(e) + "': " + p.message, p.hint});
         if (issues.empty())
-            for (std::size_t i = 0; i < an->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), an->events[i], report);
+            for (std::size_t i = 0; i < an->events.size(); ++i)
+                check_feel_files(file, base + "/" + std::to_string(i), an->events[i], report);
     }
     for (Entity e : world.entities_with(TypeRegistry::global().of<SpriteAnimator>())) {
         const SpriteAnimator* sa = world.get<SpriteAnimator>(e);
@@ -158,9 +174,11 @@ void check_inline_events(const std::string& file, const World& world, const Json
         const Sprite* sprite = world.get<Sprite>(e);
         const auto sheet = sprite && !sprite->texture.empty() ? assets::sheet(sprite->texture) : nullptr;
         const std::vector<ClipIssue> issues = check_sprite_events(sa->events, base, sheet);
-        for (const ClipIssue& p : issues) report.errors.push_back({file, p.pointer, "SpriteAnimator '" + world.id_of(e) + "': " + p.message, p.hint});
+        for (const ClipIssue& p : issues)
+            report.errors.push_back({file, p.pointer, "SpriteAnimator '" + world.id_of(e) + "': " + p.message, p.hint});
         if (issues.empty())
-            for (std::size_t i = 0; i < sa->events.size(); ++i) check_feel_files(file, base + "/" + std::to_string(i), sa->events[i], report);
+            for (std::size_t i = 0; i < sa->events.size(); ++i)
+                check_feel_files(file, base + "/" + std::to_string(i), sa->events[i], report);
     }
 }
 
@@ -176,8 +194,9 @@ std::string animator_model(const World& world, Entity e, const Animator& an) {
 
 // An Animator on a glTF: its `clips` are 3D bone clips (docs/ANIMATION.md, "3D bone clips"). Each file must exist, be a 3D clip and
 // name bones the model has.
-void check_bone_clips(const std::string& file, const World& world, Entity e, const Animator& an, const std::string& model, const Json&,
-                      const std::map<std::string, std::string>& pointers, std::set<std::string>& named, const std::vector<std::string>& existing,
+void check_bone_clips(const std::string& file, const World& world, Entity e, const Animator& an,
+                      const std::string& model, const Json&, const std::map<std::string, std::string>& pointers,
+                      std::set<std::string>& named, const std::vector<std::string>& existing,
                       ValidationReport& report) {
     auto at = pointers.find(world.id_of(e));
     const std::string entityPointer = at == pointers.end() ? std::string() : at->second;
@@ -188,17 +207,25 @@ void check_bone_clips(const std::string& file, const World& world, Entity e, con
         if (sk.ok()) skeleton = *sk;
     }
     for (auto it = an.clips.begin(); it != an.clips.end(); ++it) {
-        const std::string pointer = entityPointer.empty() ? std::string() : entityPointer + "/components/Animator/clips/" + it.key();
+        const std::string pointer =
+            entityPointer.empty() ? std::string() : entityPointer + "/components/Animator/clips/" + it.key();
         if (!it.value().is_string() || it.value().get<std::string>().empty()) {
-            report.errors.push_back({file, pointer, "Animator clip '" + it.key() + "' of " + who + " must be the path of a clip file, got " + describe_json_value(it.value()) + ".",
-                                     "Example: \"" + it.key() + "\": \"anim/" + it.key() + ".anim.json\". anim3d.generate or anim3d.create makes one for a rig."});
+            report.errors.push_back({file, pointer,
+                                     "Animator clip '" + it.key() + "' of " + who +
+                                         " must be the path of a clip file, got " + describe_json_value(it.value()) +
+                                         ".",
+                                     "Example: \"" + it.key() + "\": \"anim/" + it.key() +
+                                         ".anim.json\". anim3d.generate or anim3d.create makes one for a rig."});
             continue;
         }
         const std::string path = it.value().get<std::string>();
         named.insert(path);
         if (!fs::exists(path)) {
-            report.errors.push_back({file, pointer, "Animator clip '" + it.key() + "' of " + who + " names '" + path + "', which does not exist. " + did_you_mean(path, existing),
-                                     "Create it with anim3d.generate {rig, kind, out} or anim3d.create, or fix the path."});
+            report.errors.push_back(
+                {file, pointer,
+                 "Animator clip '" + it.key() + "' of " + who + " names '" + path + "', which does not exist. " +
+                     did_you_mean(path, existing),
+                 "Create it with anim3d.generate {rig, kind, out} or anim3d.create, or fix the path."});
             continue;
         }
         auto text = fs::read_text(path);
@@ -209,13 +236,15 @@ void check_bone_clips(const std::string& file, const World& world, Entity e, con
         if (!clip.ok() || !skeleton) continue;
         const Rig3D rig = make_rig3d(*skeleton, 0);
         for (const ClipIssue& p : check_anim3d_rig(**clip, rig))
-            report.errors.push_back({file, pointer, "Clip '" + it.key() + "' (" + path + ") on " + who + ": " + p.message, p.hint});
+            report.errors.push_back(
+                {file, pointer, "Clip '" + it.key() + "' (" + path + ") on " + who + ": " + p.message, p.hint});
     }
 }
 
 }  // namespace
 
-void check_animator_clips(const std::string& file, const World& world, const Json& source, std::set<std::string>& named, ValidationReport& report) {
+void check_animator_clips(const std::string& file, const World& world, const Json& source, std::set<std::string>& named,
+                          ValidationReport& report) {
     std::map<std::string, std::string> pointers;
     if (source.is_object()) {
         if (source.contains("entities") && source["entities"].is_array()) {
@@ -234,21 +263,29 @@ void check_animator_clips(const std::string& file, const World& world, const Jso
             check_bone_clips(file, world, e, *an, model, source, pointers, named, existing, report);
             continue;
         }
-        if (const MeshRenderer* mr = world.get<MeshRenderer>(e); mr && !mr->mesh.empty()) continue;  // a model animates it
+        if (const MeshRenderer* mr = world.get<MeshRenderer>(e); mr && !mr->mesh.empty())
+            continue;  // a model animates it
         auto at = pointers.find(world.id_of(e));
         const std::string entityPointer = at == pointers.end() ? std::string() : at->second;
         const std::string who = "'" + world.id_of(e) + "'";
         for (auto it = an->clips.begin(); it != an->clips.end(); ++it) {
-            const std::string pointer = entityPointer.empty() ? std::string() : entityPointer + "/components/Animator/clips/" + it.key();
+            const std::string pointer =
+                entityPointer.empty() ? std::string() : entityPointer + "/components/Animator/clips/" + it.key();
             if (!it.value().is_string() || it.value().get<std::string>().empty()) {
-                report.errors.push_back({file, pointer, "Animator clip '" + it.key() + "' of " + who + " must be the path of a clip file, got " + describe_json_value(it.value()) + ".",
-                                         "Example: \"" + it.key() + "\": \"anim/" + it.key() + ".anim.json\". anim.create_clip makes one."});
+                report.errors.push_back({file, pointer,
+                                         "Animator clip '" + it.key() + "' of " + who +
+                                             " must be the path of a clip file, got " +
+                                             describe_json_value(it.value()) + ".",
+                                         "Example: \"" + it.key() + "\": \"anim/" + it.key() +
+                                             ".anim.json\". anim.create_clip makes one."});
                 continue;
             }
             const std::string path = it.value().get<std::string>();
             named.insert(path);
             if (!fs::exists(path)) {
-                report.errors.push_back({file, pointer, "Animator clip '" + it.key() + "' of " + who + " names '" + path + "', which does not exist. " + did_you_mean(path, existing),
+                report.errors.push_back({file, pointer,
+                                         "Animator clip '" + it.key() + "' of " + who + " names '" + path +
+                                             "', which does not exist. " + did_you_mean(path, existing),
                                          "Create it with anim.create_clip {path, duration}, or fix the path."});
                 continue;
             }
@@ -256,13 +293,16 @@ void check_animator_clips(const std::string& file, const World& world, const Jso
             if (!clip.ok()) continue;  // reported on the clip file itself, with the pointer inside it
             std::vector<ClipIssue> problems = check_clip_paths(world, e, **clip);
             for (const ClipIssue& p : problems)
-                report.errors.push_back({file, pointer, "Clip '" + it.key() + "' (" + path + ") on " + who + ": " + p.message, p.hint});
+                report.errors.push_back(
+                    {file, pointer, "Clip '" + it.key() + "' (" + path + ") on " + who + ": " + p.message, p.hint});
             for (const ClipTrack& tr : (*clip)->tracks) {
                 auto part = resolve_clip_path(world, e, tr.path);
                 if (part.ok() && tr.type && !world.get(*part, *tr.type))
                     report.errors.push_back({file, pointer,
-                                             "Clip '" + it.key() + "' (" + path + ") on " + who + ": the part '" + (tr.path.empty() ? world.id_of(e) : tr.path) + "' has no " + tr.component +
-                                                 " component, so the track " + tr.component + "." + tr.spelled + " drives nothing.",
+                                             "Clip '" + it.key() + "' (" + path + ") on " + who + ": the part '" +
+                                                 (tr.path.empty() ? world.id_of(e) : tr.path) + "' has no " +
+                                                 tr.component + " component, so the track " + tr.component + "." +
+                                                 tr.spelled + " drives nothing.",
                                              "Add the component to that part, or change the track's component."});
             }
         }
@@ -287,8 +327,10 @@ void check_ik3d(const std::string& file, const World& world, const Json& source,
         const Animator* an = world.get<Animator>(e);
         const std::string model = an ? animator_model(world, e, *an) : std::string();
         if (!an || model.empty()) {
-            report.errors.push_back({file, base, "IK3D on " + who + " needs an Animator on the same entity that plays a skinned model (a .rig.glb).",
-                                     "Add an Animator and a MeshRenderer whose mesh is the rig.bake output, or remove the IK3D."});
+            report.errors.push_back(
+                {file, base,
+                 "IK3D on " + who + " needs an Animator on the same entity that plays a skinned model (a .rig.glb).",
+                 "Add an Animator and a MeshRenderer whose mesh is the rig.bake output, or remove the IK3D."});
             continue;
         }
         std::shared_ptr<const SkeletonAsset> skeleton;
@@ -300,7 +342,10 @@ void check_ik3d(const std::string& file, const World& world, const Json& source,
         for (const IKIssue& i : ik3d_check_solvers(ik->solvers, skeleton ? &rig : nullptr))
             report.errors.push_back({file, base + "/solvers" + i.pointer, "IK3D on " + who + ": " + i.message, i.hint});
         if (ik->weight < 0.0f || ik->weight > 1.0f)
-            report.errors.push_back({file, base + "/weight", "IK3D on " + who + ": weight is " + std::to_string(ik->weight) + ", expected 0..1.", "Use 0 for the animated pose and 1 for the solved one."});
+            report.errors.push_back(
+                {file, base + "/weight",
+                 "IK3D on " + who + ": weight is " + std::to_string(ik->weight) + ", expected 0..1.",
+                 "Use 0 for the animated pose and 1 for the solved one."});
     }
 }
 
@@ -310,20 +355,32 @@ void check_clip_files(const std::set<std::string>& named, ValidationReport& repo
     for (const std::string& f : files) {
         if (!fs::exists(f)) continue;  // an Animator names it: reported there
         auto text = fs::read_text(f);
-        if (!text.ok()) { report.errors.push_back({f, "", text.error().message, text.error().hint}); continue; }
+        if (!text.ok()) {
+            report.errors.push_back({f, "", text.error().message, text.error().hint});
+            continue;
+        }
         auto json = parse_json(*text, f);
-        if (!json.ok()) { report.errors.push_back({f, "", json.error().message, "Fix the JSON syntax of the clip."}); continue; }
+        if (!json.ok()) {
+            report.errors.push_back({f, "", json.error().message, "Fix the JSON syntax of the clip."});
+            continue;
+        }
         std::vector<ClipIssue> issues;
         std::string message, hint;
         bool ok = false;
         if (is_anim3d_json(*json)) {
             auto clip = parse_anim3d(*json, f, &issues);
             ok = clip.ok();
-            if (!ok) { message = clip.error().message; hint = clip.error().hint; }
+            if (!ok) {
+                message = clip.error().message;
+                hint = clip.error().hint;
+            }
         } else {
             auto clip = parse_anim_clip(*json, f, &issues);
             ok = clip.ok();
-            if (!ok) { message = clip.error().message; hint = clip.error().hint; }
+            if (!ok) {
+                message = clip.error().message;
+                hint = clip.error().hint;
+            }
         }
         if (ok) {
             if (json->is_object() && json->contains("events") && (*json)["events"].is_array())

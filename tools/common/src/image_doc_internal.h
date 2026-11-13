@@ -29,7 +29,8 @@ struct Raster {
     std::vector<float> px;
 
     Raster() = default;
-    Raster(int width, int height, int originX = 0, int originY = 0) : w(width), h(height), ox(originX), oy(originY), px(std::size_t(width) * height * 4, 0.0f) {}
+    Raster(int width, int height, int originX = 0, int originY = 0)
+        : w(width), h(height), ox(originX), oy(originY), px(std::size_t(width) * height * 4, 0.0f) {}
     bool empty() const { return w <= 0 || h <= 0; }
     float* at(int x, int y) { return &px[(std::size_t(y) * w + x) * 4]; }
     const float* at(int x, int y) const { return &px[(std::size_t(y) * w + x) * 4]; }
@@ -41,7 +42,8 @@ struct Plane {
     int ox = 0, oy = 0;
     std::vector<float> v;
     Plane() = default;
-    Plane(int width, int height, int originX, int originY, float fill = 0.0f) : w(width), h(height), ox(originX), oy(originY), v(std::size_t(width) * height, fill) {}
+    Plane(int width, int height, int originX, int originY, float fill = 0.0f)
+        : w(width), h(height), ox(originX), oy(originY), v(std::size_t(width) * height, fill) {}
     float& at(int x, int y) { return v[std::size_t(y) * w + x]; }
     float at(int x, int y) const { return v[std::size_t(y) * w + x]; }
 };
@@ -59,7 +61,8 @@ void composite_pixel(ImageBlend mode, const float* b, const float* s, float* out
 
 // Checks one entry of an `adjustments` or `effects` list; every problem goes to `issues` (pointer = the entry's).
 // `projectDir` ("" = do not check files) is where a normal map named by an operation must exist.
-void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues, const std::string& projectDir = "");
+void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues,
+              const std::string& projectDir = "");
 
 // What an operation may need from the renderer: a project picture (a normal map), the project's style, and a way to fail with
 // the pointer of the layer being drawn. `fail` must throw.

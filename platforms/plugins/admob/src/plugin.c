@@ -28,7 +28,7 @@
 
 static const FaPluginApi* g_api;
 static JavaVM* g_vm;
-static jclass g_backend;  /* global reference to factoria.plugin.<name>.Backend */
+static jclass g_backend;    /* global reference to factoria.plugin.<name>.Backend */
 static jmethodID g_request; /* static void request(long token, String method, String argsJson): never throws */
 static jmethodID g_status;  /* static String status() */
 
@@ -55,7 +55,8 @@ static char* utf8_from_jstring(JNIEnv* env, jstring s) {
     n = (*env)->GetStringLength(env, s);
     u = (*env)->GetStringChars(env, s, NULL);
     if (!u) return NULL;
-    out = (char*)malloc((size_t)n * 3 + 1); /* a UTF-16 unit is at most 3 bytes; a surrogate pair is 4 bytes for 2 units */
+    out = (char*)malloc((size_t)n * 3 +
+                        1); /* a UTF-16 unit is at most 3 bytes; a surrogate pair is 4 bytes for 2 units */
     if (out) {
         for (i = 0; i < n; ++i) {
             unsigned c = u[i];
@@ -90,7 +91,8 @@ static char* utf8_from_jstring(JNIEnv* env, jstring s) {
 /* A Java string from UTF-8 text (an invalid byte becomes U+FFFD). NULL when out of memory. */
 static jstring jstring_from_utf8(JNIEnv* env, const char* s) {
     size_t len = strlen(s), i = 0, k = 0;
-    jchar* units = (jchar*)malloc((len + 1) * sizeof(jchar)); /* a UTF-8 sequence never gives more units than it has bytes */
+    jchar* units =
+        (jchar*)malloc((len + 1) * sizeof(jchar)); /* a UTF-8 sequence never gives more units than it has bytes */
     jstring result;
     if (!units) return NULL;
     while (i < len) {
@@ -105,8 +107,10 @@ static jstring jstring_from_utf8(JNIEnv* env, const char* s) {
             int ok = 1;
             for (j = 1; j <= need && ok; ++j) {
                 unsigned char cb = (unsigned char)s[i + j];
-                if ((cb & 0xC0) != 0x80) ok = 0;
-                else v = (v << 6) | (cb & 0x3Fu);
+                if ((cb & 0xC0) != 0x80)
+                    ok = 0;
+                else
+                    v = (v << 6) | (cb & 0x3Fu);
             }
             if (ok && v <= 0x10FFFF) {
                 c = v;
@@ -216,7 +220,8 @@ static jclass load_class(JNIEnv* env, jobject activity, const char* name) {
     jstring java_name;
     jclass cls = NULL;
     if (java_exception(env) || !loader) return NULL;
-    load = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, loader), "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    load = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, loader), "loadClass",
+                               "(Ljava/lang/String;)Ljava/lang/Class;");
     java_name = load ? (*env)->NewStringUTF(env, name) : NULL; /* a class name is ASCII */
     if (java_name) cls = (jclass)(*env)->CallObjectMethod(env, loader, load, java_name);
     if (java_exception(env)) return NULL;
@@ -247,7 +252,8 @@ static void on_request(FaRequest* req, const char* method, const char* args_json
         char message[320];
         snprintf(message, sizeof message, "%s could not be sent to the AdMob code: failed to %s", method, problem);
         g_api->reject(req, "failed", message,
-                      "Export the game again (factoria export --platform android) so that the app has the plugin's android/ Gradle module, "
+                      "Export the game again (factoria export --platform android) so that the app has the plugin's "
+                      "android/ Gradle module, "
                       "and read the log for the Java exception (docs/PLATFORM.md, section Ads).");
     }
 }
@@ -268,7 +274,8 @@ static void on_status(FaCall* call, const char* args_json, void* user) {
         g_api->reply(call, json);
     } else {
         g_api->fail(call, "the AdMob code did not answer status()",
-                    "The plugin's Java module is not in the app, or it threw (see the log). Export the game again: factoria export --platform android.");
+                    "The plugin's Java module is not in the app, or it threw (see the log). Export the game again: "
+                    "factoria export --platform android.");
     }
     free(json);
 }
@@ -288,8 +295,11 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
 
     g_api = api;
     if (api->version < 2 || !api->add_backend || !api->resolve || !api->reject || !api->emit) {
-        say(3, "the AdMob plugin needs plugin API version 2 (the engine runs version %u): build the game with a FactorIA that has "
-               "the platform API (docs/PLATFORM.md)", (unsigned)api->version);
+        say(3,
+            "the AdMob plugin needs plugin API version 2 (the engine runs version %u): build the game with a FactorIA "
+            "that has "
+            "the platform API (docs/PLATFORM.md)",
+            (unsigned)api->version);
         return 1;
     }
     activity = (const ANativeActivity*)api->native_handle("android.activity");
@@ -311,21 +321,26 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
         jmethodID init;
         if (!cls) {
             problem = "find the Java class in the app";
-            fix = "The plugin's android/ folder is a Gradle module that `factoria export --platform android` adds to the app: export the "
-                  "game again, with the plugin declared for \"android\" in factoria.json (platform.add_backend does that).";
+            fix = "The plugin's android/ folder is a Gradle module that `factoria export --platform android` adds to "
+                  "the app: export the "
+                  "game again, with the plugin declared for \"android\" in factoria.json (platform.add_backend does "
+                  "that).";
         } else if ((*env)->RegisterNatives(env, cls, natives, (jint)(sizeof natives / sizeof natives[0])) != 0) {
             java_exception(env);
             problem = "register the native callbacks of the Java class";
-            fix = "The Java class and this library are from different versions of the plugin: build both from the same plugin folder "
+            fix = "The Java class and this library are from different versions of the plugin: build both from the same "
+                  "plugin folder "
                   "(platform.add_backend writes and builds them together), then export again.";
         } else {
-            g_backend =(jclass)(*env)->NewGlobalRef(env, cls);
+            g_backend = (jclass)(*env)->NewGlobalRef(env, cls);
             g_request = (*env)->GetStaticMethodID(env, cls, "request", "(JLjava/lang/String;Ljava/lang/String;)V");
             g_status = (*env)->GetStaticMethodID(env, cls, "status", "()Ljava/lang/String;");
-            init = (*env)->GetStaticMethodID(env, cls, "init", "(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;");
+            init = (*env)->GetStaticMethodID(env, cls, "init",
+                                             "(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;");
             if (java_exception(env) || !g_backend || !g_request || !g_status || !init) {
                 problem = "find request(), status() and init() in the Java class";
-                fix = "The Java class and this library are from different versions of the plugin: build both from the same plugin folder, "
+                fix = "The Java class and this library are from different versions of the plugin: build both from the "
+                      "same plugin folder, "
                       "then export again.";
             } else {
                 jstring plugin = (*env)->NewStringUTF(env, api->plugin);
@@ -333,8 +348,10 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
                 char* text = java_exception(env) ? NULL : utf8_from_jstring(env, list);
                 if (!text) {
                     problem = "run Backend.init, which threw an exception (it is in the log)";
-                    fix = "Read the exception above. The usual causes are a missing dependency (an AndroidX or Play library the Gradle module "
-                          "declares) or a class the app's minification removed (consumer-rules.pro keeps factoria.plugin.**).";
+                    fix = "Read the exception above. The usual causes are a missing dependency (an AndroidX or Play "
+                          "library the Gradle module "
+                          "declares) or a class the app's minification removed (consumer-rules.pro keeps "
+                          "factoria.plugin.**).";
                 } else {
                     snprintf(services, sizeof services, "%s", text);
                     free(text);
@@ -345,21 +362,29 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     java_leave(&scope);
 
     if (problem) {
-        say(3, "the AdMob plugin cannot start: failed to %s (%s). %s The game runs without it.", problem, class_name, fix);
+        say(3, "the AdMob plugin cannot start: failed to %s (%s). %s The game runs without it.", problem, class_name,
+            fix);
         return 1;
     }
     {
         FaBackendDesc backend = {BACKEND_NAME, services, on_request, NULL, NULL};
         char name[96];
-        FaCommandDesc status = {name,
-                                "Show the state of the consent form and of the Mobile Ads SDK on this device, and what to fix.",
-                                "Reports the app id of the manifest, whether the build uses Google's test ads, the game's audience and whether the player "
-                                "is under age, the consent answer (gdpr, canShowAds, privacyOptions), whether the Mobile Ads SDK started, the state of "
-                                "each placement's ad, and a `problems` list of sentences that say what to fix. Example: {}.",
-                                NULL, 1, on_status, NULL};
+        FaCommandDesc status = {
+            name,
+            "Show the state of the consent form and of the Mobile Ads SDK on this device, and what to fix.",
+            "Reports the app id of the manifest, whether the build uses Google's test ads, the game's audience and "
+            "whether the player "
+            "is under age, the consent answer (gdpr, canShowAds, privacyOptions), whether the Mobile Ads SDK started, "
+            "the state of "
+            "each placement's ad, and a `problems` list of sentences that say what to fix. Example: {}.",
+            NULL,
+            1,
+            on_status,
+            NULL};
         snprintf(name, sizeof name, "%s.status", api->plugin);
         if (api->add_backend(api, &backend) != 0) return 1; /* the engine logged why */
-        if (api->add_command(api, &status) != 0) say(2, "the command %s could not be registered (the engine logged why)", name);
+        if (api->add_command(api, &status) != 0)
+            say(2, "the command %s could not be registered (the engine logged why)", name);
     }
     say(1, "AdMob backend ready: services %s", services);
     return 0;

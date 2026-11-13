@@ -39,7 +39,8 @@ Json image_member(const stdfs::path& file, bool temporary);
 // A process has one graphics device. When this one already has it (the editor, a session with graphics) the command runs again
 // in a child `factoria call` process, which has its own; its result (or its error, rethrown) comes back. Throws CommandError.
 // `cancel` set to true kills the child and the command fails with the code "cancelled". Stops at 900 seconds ("timeout").
-Json call_in_child(const std::string& projectDir, const char* command, const Json& args, const CancelFlag* cancel = nullptr);
+Json call_in_child(const std::string& projectDir, const char* command, const Json& args,
+                   const CancelFlag* cancel = nullptr);
 
 // A precise "no graphics device" error when `message` (from Engine::init or capture) says there is no renderer.
 [[noreturn]] void no_gpu_error(const char* command, const std::string& message, const char* alternative);

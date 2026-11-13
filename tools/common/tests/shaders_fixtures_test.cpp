@@ -47,8 +47,11 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
             Json committed = Json::parse(testing::read_all(file));
             committed.erase("engine");
             fresh.erase("engine");
-            CHECK_MESSAGE(committed == fresh, "the committed twin differs from a fresh compile: " << file.string()
-                          << " (run fa_test_tooling with FA_UPDATE_FIXTURES=1 and SOKOL_SHDC set to rewrite the twins)");
+            CHECK_MESSAGE(
+                committed == fresh,
+                "the committed twin differs from a fresh compile: "
+                    << file.string()
+                    << " (run fa_test_tooling with FA_UPDATE_FIXTURES=1 and SOKOL_SHDC set to rewrite the twins)");
         }
     }
 }

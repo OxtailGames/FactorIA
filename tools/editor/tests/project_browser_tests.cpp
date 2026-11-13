@@ -160,10 +160,14 @@ TEST_CASE("project browser: made assets carry their recipe check; a saved source
     write("assets/plain.png", "png");
     auto hash = sha256_file_hex(dir / "assets/src.svg");
     REQUIRE(hash.ok());
-    write("assets.json", R"({"assets":{"assets/made.png":{"provenance":{"origin":"original","recipe":{"command":"assets.rasterize_svg",)"
-                         R"("args":{"path":"assets/made.png","source":"assets/src.svg"},)"
-                         R"("inputs":[{"path":"assets/src.svg","sha256":")" + hash.value() + R"("}]}}},)"
-                         R"("assets/plain.png":{"provenance":{"origin":"original"}}}})");
+    write(
+        "assets.json",
+        R"({"assets":{"assets/made.png":{"provenance":{"origin":"original","recipe":{"command":"assets.rasterize_svg",)"
+        R"("args":{"path":"assets/made.png","source":"assets/src.svg"},)"
+        R"("inputs":[{"path":"assets/src.svg","sha256":")" +
+            hash.value() +
+            R"("}]}}},)"
+            R"("assets/plain.png":{"provenance":{"origin":"original"}}}})");
     ProjectListing l = scan_project(dir.string());
     REQUIRE(l.recipes.size() == 1);
     const AssetRecipeStatus* made = recipe_of_file(l, "assets/made.png");
@@ -191,7 +195,8 @@ TEST_CASE("project browser: made assets carry their recipe check; a saved source
 }
 
 TEST_CASE("sheet preview: plays a clip like a SpriteAnimator (fps, loop, padding, pivot) and lists the choices") {
-    auto sheet = assets::parse_sheet(Json::parse(R"({"columns": 3, "rows": 1, "frameWidth": 8, "frameHeight": 8, "frames": 3, "padding": 1,
+    auto sheet = assets::parse_sheet(
+        Json::parse(R"({"columns": 3, "rows": 1, "frameWidth": 8, "frameHeight": 8, "frames": 3, "padding": 1,
         "pivot": [0.5, 0.5], "clips": [{"name": "run", "firstFrame": 1, "lastFrame": 2, "fps": 2, "loop": false, "pivot": [0.5, 1.0]}]})"));
     REQUIRE(sheet);
     const auto choices = editor::sheet_preview_choices(*sheet);
@@ -204,7 +209,7 @@ TEST_CASE("sheet preview: plays a clip like a SpriteAnimator (fps, loop, padding
     CHECK(f.frame == 1);
     CHECK(f.rect.x == doctest::Approx(11.0f));
     CHECK(f.rect.w == doctest::Approx(8.0f));
-    CHECK(f.pivot.y == doctest::Approx(1.0f));  // from the top-left: the clip's own pivot
+    CHECK(f.pivot.y == doctest::Approx(1.0f));                    // from the top-left: the clip's own pivot
     f = editor::sheet_preview_frame(*sheet, "run", 0.6, 30, 10);  // 2 fps: the second frame after 0.5 s
     CHECK(f.frame == 2);
     CHECK(f.ended);

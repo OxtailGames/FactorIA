@@ -35,11 +35,11 @@ inline constexpr const char* kPluginManifestFile = "plugin.json";
 struct PluginManifest {
     std::vector<std::string> frameworks;  // "StoreKit" (no ".framework"); no duplicates
     bool swift = false;
-    Json entitlements = Json::object();   // key -> bool | integer | string | array of strings
+    Json entitlements = Json::object();  // key -> bool | integer | string | array of strings
     // "frameworks/Vendor.xcframework": relative to the plugin.json's folder, forward slashes, no "..". Merged over several plugins
     // (merge_plugin_manifests) each one becomes "<plugin>/<path>": relative to the export's plugins/ folder.
     std::vector<std::string> xcframeworks;
-    Json infoPlist = Json::object();      // Info.plist key -> any JSON value but null
+    Json infoPlist = Json::object();  // Info.plist key -> any JSON value but null
     bool empty() const {
         return frameworks.empty() && !swift && entitlements.empty() && xcframeworks.empty() && infoPlist.empty();
     }

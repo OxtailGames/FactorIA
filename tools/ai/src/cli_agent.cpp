@@ -95,7 +95,8 @@ bool legacy_run_file(const std::string& name) {
         rest = rest.substr(0, k - 1);
         return true;
     };
-    return take_number() && take_number() && !rest.empty();  // NOLINT(misc-redundant-expression): two calls, each takes one number
+    return take_number() && take_number() &&
+           !rest.empty();  // NOLINT(misc-redundant-expression): two calls, each takes one number
 }
 
 // True when something inside the folder `dir` was written within the stale age: a run still using its folder (it writes its
@@ -131,7 +132,8 @@ void sweep_stale_in(const fsys::path& dir, Wanted wanted) {
         const auto when = it->last_write_time(tec);
         if (tec || now - when <= kStaleRunFileAge) continue;
         std::error_code sec;
-        if (fsys::symlink_status(it->path(), sec).type() == fsys::file_type::directory && has_recent_content(it->path(), now))
+        if (fsys::symlink_status(it->path(), sec).type() == fsys::file_type::directory &&
+            has_recent_content(it->path(), now))
             continue;
         stale.push_back(it->path());
     }
@@ -175,7 +177,8 @@ std::string find_cli(const std::string& command, const EnvLookup& env) {
     std::vector<fsys::path> dirs;
     if (!home.empty()) {
         const fsys::path h = home;
-        for (const char* d : {".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".yarn/bin"}) {
+        for (const char* d :
+             {".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".yarn/bin"}) {
             dirs.push_back(h / d);
         }
         std::error_code ec;  // nvm: every installed node version, newest name last
@@ -209,7 +212,8 @@ std::string cli_install_hint(const ProviderConfig& cfg) {
         case ProviderKind::ClaudeCode:
             return "Install Claude Code: npm i -g @anthropic-ai/claude-code, then run `claude` once to log in.";
         case ProviderKind::Codex:
-            return "Install Codex: npm i -g @openai/codex, then run `codex` once (or `codex login`) to sign in with ChatGPT.";
+            return "Install Codex: npm i -g @openai/codex, then run `codex` once (or `codex login`) to sign in with "
+                   "ChatGPT.";
         default:
             return "Install the CLI '" + cfg.command + "' and make sure it is on PATH (see \"command\" for provider '" +
                    cfg.name + "' in ~/.factoria/ai.json).";
@@ -218,10 +222,10 @@ std::string cli_install_hint(const ProviderConfig& cfg) {
 
 bool looks_like_auth_failure(std::string_view text) {
     std::string t = lower(std::string(text));
-    for (const char* p : {"not logged in", "please run /login", "run `claude` to log in", "invalid api key",
-                          "authentication_error", "authentication failed", "not authenticated", "please log in",
-                          "please login", "codex login", "401 unauthorized", "unauthorized", "log in to continue",
-                          "sign in", "token expired", "credentials"}) {
+    for (const char* p :
+         {"not logged in", "please run /login", "run `claude` to log in", "invalid api key", "authentication_error",
+          "authentication failed", "not authenticated", "please log in", "please login", "codex login",
+          "401 unauthorized", "unauthorized", "log in to continue", "sign in", "token expired", "credentials"}) {
         if (t.find(p) != std::string::npos) return true;
     }
     return false;
@@ -235,12 +239,14 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     }
     std::string exe = find_cli(command);
     if (exe.empty()) {
-        return make_error("'" + command + "' was not found in PATH (provider '" + cfg.name + "')", cli_install_hint(cfg));
+        return make_error("'" + command + "' was not found in PATH (provider '" + cfg.name + "')",
+                          cli_install_hint(cfg));
     }
     ProcessOptions po;
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
-    po.inheritEnv = provider_inherit_env(cfg);  // not the whole environment: no other provider's key, no signing password
+    po.inheritEnv =
+        provider_inherit_env(cfg);  // not the whole environment: no other provider's key, no signing password
     // A `factoria` this agent runs from its shell (`factoria call ai.settings.set ...`) is the agent's call, not the user's:
     // it reads this variable (CommandCallerFloor). A value the user already put in the environment stays (it can only be a
     // stricter or equal one: the CLI maps any value to Agent or Mcp), and so does one in the provider's own "env".
@@ -255,7 +261,8 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     return po;
 }
 
-std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, const std::map<std::string, std::string>& providerEnv,
+std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req,
+                                                      const std::map<std::string, std::string>& providerEnv,
                                                       CapabilitySet calling) {
     CapabilitySet set = req.capabilities.intersect(calling);
     // A set the user's environment or the provider's "env" already holds is kept when it is narrower: the child never gets more.
@@ -279,14 +286,18 @@ std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, 
 std::vector<std::string> codex_factoria_env_args(const std::map<std::string, std::string>& factoriaEnv) {
     if (factoriaEnv.empty()) return {};
     std::string table = "{";
-    for (const auto& [k, v] : factoriaEnv) table += (table.size() > 1 ? "," : "") + k + "=" + dump(Json(v));  // a JSON string is a TOML basic string
+    for (const auto& [k, v] : factoriaEnv)
+        table += (table.size() > 1 ? "," : "") + k + "=" + dump(Json(v));  // a JSON string is a TOML basic string
     return {"-c", "mcp_servers.factoria.env=" + table + "}"};
 }
 
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl,
-                     const std::vector<ResolvedToolServer>& servers, const std::map<std::string, std::string>& factoriaEnv) {
-    Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
-                                 : Json::object({{"type", "http"}, {"url", mcpUrl}});
+                     const std::vector<ResolvedToolServer>& servers,
+                     const std::map<std::string, std::string>& factoriaEnv) {
+    Json server =
+        mcpUrl.empty()
+            ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
+            : Json::object({{"type", "http"}, {"url", mcpUrl}});
     if (mcpUrl.empty() && !factoriaEnv.empty()) {
         Json env = Json::object();
         for (const auto& [k, v] : factoriaEnv) env[k] = v;
@@ -334,7 +345,10 @@ std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolSe
     };
     const auto env_var_part = [](const std::string& text) {
         std::string v;
-        for (char c : text) v += std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : '_';
+        for (char c : text)
+            v += std::isalnum(static_cast<unsigned char>(c))
+                     ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
+                     : '_';
         return v;
     };
     for (const ResolvedToolServer& s : servers) {
@@ -346,7 +360,8 @@ std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolSe
             std::string literal;
             for (const auto& [k, v] : s.env) {
                 const bool special = k == "PATH" || k == "HOME" || k == "USERPROFILE" || k == "SHELL" || k == "TMPDIR";
-                if (special) literal += (literal.empty() ? "" : ",") + toml(k) + "=" + toml(v);
+                if (special)
+                    literal += (literal.empty() ? "" : ",") + toml(k) + "=" + toml(v);
                 else {
                     env[k] = v;  // the value never appears in Codex's argument list
                     pass.push_back(k);
@@ -430,7 +445,8 @@ void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::strin
     argv.insert(stdinMarker, {"--sandbox", mode});
 }
 
-void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req,
+                             std::vector<std::string>& argv) {
     if (kind == ProviderKind::ClaudeCode) {
         std::vector<std::string> disallowed = req.disallowedTools;
         const bool webOnly = req.webOnlyListed && !req.webDomains.empty();
@@ -462,7 +478,8 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
         for (auto& a : argv) {
             // `factoria mcp --read-only`: the server offers and runs only commands that do not change the project.
             const std::string from = "[\"mcp\",\"--project\",";
-            if (a.rfind("mcp_servers.factoria.args=", 0) == 0) a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
+            if (a.rfind("mcp_servers.factoria.args=", 0) == 0)
+                a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
         }
         // apply_permission_mode normally put the read-only sandbox there already.
         if (!argv_has(argv, {"--sandbox", "-s"}) && !argv_has_codex_sandbox_override(argv)) {
@@ -478,16 +495,11 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
     const std::string projectJson = dump(Json(req.projectDir)), factoriaJson = dump(Json(factoriaCommand));
     // The last slot is {plugin_dirs}, set per folder below. Expanded in one pass (util::expand_placeholders): a prompt that
     // contains "{model}" or a path that contains "{prompt}" is passed as written.
-    util::Placeholder subs[] = {{"{prompt}", req.prompt},
-                                {"{model}", req.model},
-                                {"{project}", req.projectDir},
-                                {"{mcp_config}", mcpConfigPath},
-                                {"{session}", req.sessionId},
-                                {"{settings}", settingsPath},
-                                {"{project_json}", projectJson},
-                                {"{factoria_json}", factoriaJson},
-                                {"{factoria}", factoriaCommand},
-                                {"{plugin_dirs}", {}}};
+    util::Placeholder subs[] = {{"{prompt}", req.prompt},        {"{model}", req.model},
+                                {"{project}", req.projectDir},   {"{mcp_config}", mcpConfigPath},
+                                {"{session}", req.sessionId},    {"{settings}", settingsPath},
+                                {"{project_json}", projectJson}, {"{factoria_json}", factoriaJson},
+                                {"{factoria}", factoriaCommand}, {"{plugin_dirs}", {}}};
     constexpr std::size_t kSubs = std::size(subs);
     const auto optional_slot = [](std::string_view key) {
         return key == "{model}" || key == "{mcp_config}" || key == "{session}" || key == "{settings}";
@@ -559,9 +571,9 @@ std::vector<std::string> with_end_of_options(ProviderKind kind, std::vector<std:
     return tmpl;
 }
 
-void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings, const CliRunRequest& req,
-                          const std::vector<std::string>& pluginDirs, const std::string& settingsPath,
-                          std::vector<std::string>& argv) {
+void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings,
+                          const CliRunRequest& req, const std::vector<std::string>& pluginDirs,
+                          const std::string& settingsPath, std::vector<std::string>& argv) {
     if (kind != ProviderKind::ClaudeCode) return;
     if (!templateHasPluginDirs) {
         for (const std::string& d : pluginDirs) {
@@ -569,11 +581,13 @@ void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool te
             argv.push_back(d);
         }
     }
-    if (!templateHasSettings && !settingsPath.empty() && std::find(argv.begin(), argv.end(), "--settings") == argv.end()) {
+    if (!templateHasSettings && !settingsPath.empty() &&
+        std::find(argv.begin(), argv.end(), "--settings") == argv.end()) {
         argv.push_back("--settings");
         argv.push_back(settingsPath);
     }
-    if ((req.userPluginsOff || req.projectSettingsOff) && std::find(argv.begin(), argv.end(), "--setting-sources") == argv.end()) {
+    if ((req.userPluginsOff || req.projectSettingsOff) &&
+        std::find(argv.begin(), argv.end(), "--setting-sources") == argv.end()) {
         // The sources Claude Code keeps: user (your ~/.claude) unless inheritUserPlugins is off; project and local (the
         // project's .claude) unless the project is not trusted. FactorIA's own --settings file is not a source.
         std::string sources;
@@ -586,7 +600,8 @@ void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool te
 
 bool cli_supports_resume(const ProviderConfig& cfg) {
     const std::vector<std::string> tmpl = cfg.argv.empty() ? default_cli_argv(cfg.kind) : cfg.argv;
-    return std::any_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{session}") != std::string::npos; });
+    return std::any_of(tmpl.begin(), tmpl.end(),
+                       [](const std::string& a) { return a.find("{session}") != std::string::npos; });
 }
 
 bool argv_wants_stream_json_input(const std::vector<std::string>& argv) {
@@ -631,7 +646,8 @@ std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now
         if (w.contains("used_percent") && w["used_percent"].is_number()) {
             lw.usedFraction = std::clamp(num(w, "used_percent") / 100.0, 0.0, 1.0);
         }
-        if (w.contains("resets_at") && w["resets_at"].is_number()) lw.resetsAt = static_cast<i64>(num(w, "resets_at"));
+        if (w.contains("resets_at") && w["resets_at"].is_number())
+            lw.resetsAt = static_cast<i64>(num(w, "resets_at"));
         else if (w.contains("resets_in_seconds") && w["resets_in_seconds"].is_number())
             lw.resetsAt = now + static_cast<i64>(num(w, "resets_in_seconds"));
         out.push_back(std::move(lw));
@@ -647,8 +663,10 @@ static std::string summarize_content(const Json& c) {
     if (c.is_array()) {
         std::string out;
         for (const auto& b : c) {
-            if (b.is_object() && str(b, "type") == "text") out += str(b, "text");
-            else if (b.is_object() && str(b, "type") == "image") out += "[image]";
+            if (b.is_object() && str(b, "type") == "text")
+                out += str(b, "text");
+            else if (b.is_object() && str(b, "type") == "image")
+                out += "[image]";
         }
         return out;
     }
@@ -656,15 +674,20 @@ static std::string summarize_content(const Json& c) {
 }
 
 static std::string clip(std::string s, std::size_t n = 2000) {
-    if (s.size() > n) { s.resize(n); s += "..."; }
+    if (s.size() > n) {
+        s.resize(n);
+        s += "...";
+    }
     return s;
 }
 
 void CliStreamParser::feed_line(std::string_view line, std::vector<AgentEvent>& out) {
     if (fa::trim(line).empty()) return;
     Json j;
-    if (kind_ != ProviderKind::GenericCli || line.front() == '{') j = parse(line);
-    else j = Json::value_t::discarded;
+    if (kind_ != ProviderKind::GenericCli || line.front() == '{')
+        j = parse(line);
+    else
+        j = Json::value_t::discarded;
     if (j.is_discarded() || !j.is_object()) {
         // Unknown lines pass through as text.
         AgentEvent e;
@@ -674,8 +697,10 @@ void CliStreamParser::feed_line(std::string_view line, std::vector<AgentEvent>& 
         if (kind_ == ProviderKind::GenericCli) finalText_ += e.text;
         return;
     }
-    if (kind_ == ProviderKind::ClaudeCode) feed_claude(j, out);
-    else if (kind_ == ProviderKind::Codex) feed_codex(j, out);
+    if (kind_ == ProviderKind::ClaudeCode)
+        feed_claude(j, out);
+    else if (kind_ == ProviderKind::Codex)
+        feed_codex(j, out);
     else {
         // generic: best effort on common field names
         std::string text;
@@ -708,8 +733,10 @@ void CliStreamParser::usage_event(std::vector<AgentEvent>& out, std::vector<Limi
 void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<LimitWindow>& from) {
     for (const auto& w : from) {
         auto it = std::find_if(into.begin(), into.end(), [&](const LimitWindow& l) { return l.name == w.name; });
-        if (it == into.end()) into.push_back(w);
-        else *it = w;
+        if (it == into.end())
+            into.push_back(w);
+        else
+            *it = w;
     }
 }
 
@@ -720,7 +747,8 @@ static std::vector<LimitWindow> parse_claude_rate_limits(const Json& info) {
     auto window = [](const std::string& name, const Json& w) {
         LimitWindow lw;
         lw.name = name;
-        if (w.contains("utilization") && w["utilization"].is_number()) lw.usedFraction = std::clamp(num(w, "utilization"), 0.0, 1.0);
+        if (w.contains("utilization") && w["utilization"].is_number())
+            lw.usedFraction = std::clamp(num(w, "utilization"), 0.0, 1.0);
         lw.resetsAt = static_cast<i64>(num(w, "resetsAt"));
         return lw;
     };
@@ -754,7 +782,8 @@ bool CliStreamParser::count_message(const Json& msg) {
     // Claude Code writes its prompt cache with a 1-hour lifetime, billed at twice the input price instead of the
     // 5-minute write price in Pricing::cacheWrite: {"cache_creation": {"ephemeral_1h_input_tokens": n, ...}}.
     u64 write1h = 0;
-    if (const Json* cc = child(*u, "cache_creation"); cc && cc->is_object()) write1h = static_cast<u64>(num(*cc, "ephemeral_1h_input_tokens"));
+    if (const Json* cc = child(*u, "cache_creation"); cc && cc->is_object())
+        write1h = static_cast<u64>(num(*cc, "ephemeral_1h_input_tokens"));
     write1h = std::min(std::max(write1h, m.cacheWrite1h), now.cacheCreationTokens);
     if (now.inputTokens == m.usage.inputTokens && now.outputTokens == m.usage.outputTokens &&
         now.cacheCreationTokens == m.usage.cacheCreationTokens && now.cacheReadTokens == m.usage.cacheReadTokens &&
@@ -791,7 +820,8 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
             sessionId_ = str(j, "session_id");
             AgentEvent e;
             e.type = AgentEvent::Type::Info;
-            e.text = "Claude Code started" + (str(j, "model").empty() ? std::string() : " (model " + str(j, "model") + ")");
+            e.text =
+                "Claude Code started" + (str(j, "model").empty() ? std::string() : " (model " + str(j, "model") + ")");
             if (const Json* mcp = child(j, "mcp_servers"); mcp && mcp->is_array()) {
                 for (const auto& s : *mcp) {
                     std::string status = str(s, "status");
@@ -811,7 +841,8 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         const bool fromSubAgent = parent && parent->is_string() && !parent->get<std::string>().empty();
         bool changed = msg && count_message(*msg);
         if (const Json* u = msg ? child(*msg, "usage") : nullptr; u && u->is_object() && !fromSubAgent) {
-            const u64 ctx = static_cast<u64>(num(*u, "input_tokens")) + static_cast<u64>(num(*u, "cache_creation_input_tokens")) +
+            const u64 ctx = static_cast<u64>(num(*u, "input_tokens")) +
+                            static_cast<u64>(num(*u, "cache_creation_input_tokens")) +
                             static_cast<u64>(num(*u, "cache_read_input_tokens"));
             if (ctx > 0 && ctx != contextTokens_) {
                 contextTokens_ = ctx;
@@ -864,11 +895,14 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         if (resultIsError_ && result.empty()) {
             // error_during_execution has no `result`; its reasons are in `errors` ("No conversation found with session ID: ...").
             if (const Json* errs = child(j, "errors"); errs && errs->is_array()) {
-                for (const auto& er : *errs) result += (result.empty() ? "" : "; ") + (er.is_string() ? er.get<std::string>() : dump(er));
+                for (const auto& er : *errs)
+                    result += (result.empty() ? "" : "; ") + (er.is_string() ? er.get<std::string>() : dump(er));
             }
         }
-        if (resultIsError_) errorText_ = result.empty() ? str(j, "subtype") : result;
-        else finalText_ = result;
+        if (resultIsError_)
+            errorText_ = result.empty() ? str(j, "subtype") : result;
+        else
+            finalText_ = result;
         costUsd_ = num(j, "total_cost_usd", num(j, "cost_usd"));
         costFinal_ = true;
         // The context window comes with the totals per model; the main model is the one that used the most tokens.
@@ -916,22 +950,31 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
         std::string mt = str(m, "type");
         if (mt == "agent_message") {
             finalText_ = str(m, "message");
-            AgentEvent e; e.type = AgentEvent::Type::TextDelta; e.text = finalText_; out.push_back(e);
+            AgentEvent e;
+            e.type = AgentEvent::Type::TextDelta;
+            e.text = finalText_;
+            out.push_back(e);
         } else if (mt == "task_complete") {
             sawResult_ = true;
             if (std::string t = str(m, "last_agent_message"); !t.empty()) finalText_ = t;
         } else if (mt == "error") {
             errorText_ = str(m, "message");
-            AgentEvent e; e.type = AgentEvent::Type::Error; e.text = errorText_; e.isError = true; out.push_back(e);
+            AgentEvent e;
+            e.type = AgentEvent::Type::Error;
+            e.text = errorText_;
+            e.isError = true;
+            out.push_back(e);
         } else if (mt == "mcp_tool_call_begin") {
-            AgentEvent e; e.type = AgentEvent::Type::ToolStart;
+            AgentEvent e;
+            e.type = AgentEvent::Type::ToolStart;
             if (const Json* inv = child(m, "invocation")) {
                 e.toolName = str(*inv, "tool");
                 if (const Json* a = child(*inv, "arguments")) e.toolInput = *a;
             }
             out.push_back(e);
         } else if (mt == "mcp_tool_call_end") {
-            AgentEvent e; e.type = AgentEvent::Type::ToolEnd;
+            AgentEvent e;
+            e.type = AgentEvent::Type::ToolEnd;
             if (const Json* inv = child(m, "invocation")) e.toolName = str(*inv, "tool");
             out.push_back(e);
         } else if (mt == "token_count") {
@@ -942,7 +985,10 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
     }
     if (type == "thread.started") {
         sessionId_ = str(j, "thread_id");
-        AgentEvent e; e.type = AgentEvent::Type::Info; e.text = "Codex started"; out.push_back(e);
+        AgentEvent e;
+        e.type = AgentEvent::Type::Info;
+        e.text = "Codex started";
+        out.push_back(e);
     } else if (type == "item.started" || type == "item.completed") {
         const Json* item = child(j, "item");
         if (!item) return;
@@ -950,9 +996,15 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
         std::string it = str(*item, "type");
         if (it == "agent_message" && completed) {
             finalText_ = str(*item, "text");
-            AgentEvent e; e.type = AgentEvent::Type::TextDelta; e.text = finalText_; out.push_back(e);
+            AgentEvent e;
+            e.type = AgentEvent::Type::TextDelta;
+            e.text = finalText_;
+            out.push_back(e);
         } else if (it == "reasoning" && completed) {
-            AgentEvent e; e.type = AgentEvent::Type::ThinkingDelta; e.text = str(*item, "text"); out.push_back(e);
+            AgentEvent e;
+            e.type = AgentEvent::Type::ThinkingDelta;
+            e.text = str(*item, "text");
+            out.push_back(e);
         } else if (it == "mcp_tool_call") {
             AgentEvent e;
             e.type = completed ? AgentEvent::Type::ToolEnd : AgentEvent::Type::ToolStart;
@@ -984,7 +1036,10 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             }
             out.push_back(e);
         } else if (it == "file_change" && completed) {
-            AgentEvent e; e.type = AgentEvent::Type::Info; e.text = "Codex changed files"; out.push_back(e);
+            AgentEvent e;
+            e.type = AgentEvent::Type::Info;
+            e.text = "Codex changed files";
+            out.push_back(e);
         }
     } else if (type == "turn.completed") {
         sawResult_ = true;
@@ -997,14 +1052,22 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             usage_.outputTokens += static_cast<u64>(num(*u, "output_tokens"));
         }
         costUsd_ = estimate_cost(usage_, pricing_);  // 0 when the price is unknown; Codex never reports a cost
-        AgentEvent e; e.type = AgentEvent::Type::Usage; e.usage = usage_; e.costUsd = costUsd_; e.costIsEstimate = true;
+        AgentEvent e;
+        e.type = AgentEvent::Type::Usage;
+        e.usage = usage_;
+        e.costUsd = costUsd_;
+        e.costIsEstimate = true;
         out.push_back(e);
     } else if (type == "turn.failed" || type == "error") {
         std::string msg = str(j, "message");
         if (const Json* er = child(j, "error")) msg = str(*er, "message", msg);
         errorText_ = msg;
         resultIsError_ = true;
-        AgentEvent e; e.type = AgentEvent::Type::Error; e.text = msg; e.isError = true; out.push_back(e);
+        AgentEvent e;
+        e.type = AgentEvent::Type::Error;
+        e.text = msg;
+        e.isError = true;
+        out.push_back(e);
     }
 }
 
@@ -1014,7 +1077,8 @@ static std::string tail(const std::string& s, std::size_t n = 800) {
     return s.size() <= n ? s : "..." + s.substr(s.size() - n);
 }
 
-Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler& onEvent, const CancelFlag* cancel) const {
+Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler& onEvent,
+                                   const CancelFlag* cancel) const {
     auto base = cli_process_options(cfg_);
     if (!base) return base.error();
     // What the role may do reaches every `factoria` the agent starts (MCP server or shell): a read-only role's CLI cannot do more
@@ -1024,12 +1088,14 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     const std::string command = cfg_.command.empty() ? default_cli_command(cfg_.kind) : cfg_.command;
     std::vector<std::string> tmpl = cfg_.argv.empty() ? default_cli_argv(cfg_.kind) : cfg_.argv;
     if (tmpl.empty()) {
-        return make_error("Provider '" + cfg_.name + "' has no \"argv\" template",
-                          "Add e.g. \"argv\": [\"--ask\", \"{prompt}\"] (placeholders {prompt} {model} {project} {mcp_config}).");
+        return make_error(
+            "Provider '" + cfg_.name + "' has no \"argv\" template",
+            "Add e.g. \"argv\": [\"--ask\", \"{prompt}\"] (placeholders {prompt} {model} {project} {mcp_config}).");
     }
     // A user template that passes the prompt as an argument gets "--" before it where the CLI takes one.
     if (!cfg_.argv.empty()) tmpl = with_end_of_options(cfg_.kind, std::move(tmpl));
-    const fsys::path root = req.projectDir.empty() ? fsys::current_path() : fsys::absolute(fs::path_from_utf8(req.projectDir));
+    const fsys::path root =
+        req.projectDir.empty() ? fsys::current_path() : fsys::absolute(fs::path_from_utf8(req.projectDir));
     const std::string projectDir = host_utf8(root);
     const fsys::path aiDir = root / ".factoria" / "ai";
 
@@ -1043,7 +1109,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             for (const auto& p : paths) {
                 std::error_code ec;
                 fs::remove_tree(p, ec);
-                if (ec) FA_WARN("ai", "Could not delete the run file {}: {}. It is deleted by a later run.", fs::path_to_utf8(p), ec.message());
+                if (ec)
+                    FA_WARN("ai", "Could not delete the run file {}: {}. It is deleted by a later run.",
+                            fs::path_to_utf8(p), ec.message());
             }
         }
     } removeRunFiles{runFiles};
@@ -1061,16 +1129,18 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             // (owner-only on Linux and macOS and never a folder that existed before: fs::make_temp_dir)
             auto made = fs::make_temp_dir("factoria-run");
             if (!made.ok())
-                return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
-                                      "; no private folder could be made in the temporary folder either: " + made.error().message,
-                                  made.error().hint);
+                return make_error(
+                    "Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
+                        "; no private folder could be made in the temporary folder either: " + made.error().message,
+                    made.error().hint);
             fallbackDir = *made;
             runFiles.push_back(fallbackDir);  // pushed first: a half-written file goes too
         }
         const fsys::path moved = fallbackDir / file.filename();
         if (auto second = write_private_file(fs::path_to_utf8(moved), text); !second) {
-            return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " + first.error().message +
-                                  "; the fallback " + fs::path_to_utf8(moved) + " failed too: " + second.error().message,
+            return make_error("Cannot write the private run file " + fs::path_to_utf8(file) + ": " +
+                                  first.error().message + "; the fallback " + fs::path_to_utf8(moved) +
+                                  " failed too: " + second.error().message,
                               "Check that the project folder and the temporary folder are writable by your account.");
         }
         // the file in the project was never made: do not try to delete it (and warn) at the end of the run
@@ -1089,8 +1159,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         std::error_code ec;
         fsys::create_directories(aiDir, ec);
         sweep_stale_run_files(aiDir);
-        const fsys::path file =
-            aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" + run_file_tag() + ".json");
+        const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "mcp-" + cfg_.name + "-" +
+                                                           run_file_tag() + ".json");
         runFiles.push_back(file);  // pushed first: a half-written file goes too
         const Json config = make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers, factoriaEnv);
         auto written = write_run_file(file, dump_pretty(config) + "\n");
@@ -1111,7 +1181,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         const bool canSettings = cfg_.kind == ProviderKind::ClaudeCode || templateHasSettings;
         const bool canPlugins = cfg_.kind == ProviderKind::ClaudeCode || templateHasPluginDirs;
         // beforeCommand / afterCommand are the engine's and Claude Code never sees them; a "js" handler becomes `factoria hooks run`.
-        const Json cliHooks = req.hooks.is_object() ? hooks_for_claude_code(req.hooks, cfg_.factoriaCommand, projectDir) : Json::object();
+        const Json cliHooks =
+            req.hooks.is_object() ? hooks_for_claude_code(req.hooks, cfg_.factoriaCommand, projectDir) : Json::object();
         const bool wantsHooks = !cliHooks.empty() && canSettings;
         const bool wantsSkills = cfg_.kind == ProviderKind::ClaudeCode && !req.skillDirs.empty();
         if (wantsHooks || wantsSkills) {
@@ -1120,7 +1191,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             const std::string tag = cfg_.name + "-" + run_file_tag();
             if (wantsHooks) {
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
-                const fsys::path file = aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
+                const fsys::path file =
+                    aiDir / fs::path_from_utf8(std::string(kRunFilePrefix) + "settings-" + tag + ".json");
                 runFiles.push_back(file);
                 auto written = write_run_file(file, dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n");
                 if (!written) return written.error();
@@ -1138,8 +1210,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     // Codex reads skills from <project>/.agents/skills: the folders of this run sit there until it ends.
     if (cfg_.kind == ProviderKind::Codex && !req.skillDirs.empty()) {
         static std::atomic<unsigned> skillCounter{0};
-        const std::string tag = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 100000000) + "-" +
-                                std::to_string(skillCounter++);
+        const std::string tag =
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 100000000) + "-" +
+            std::to_string(skillCounter++);
         auto made = write_agents_skills(fs::path_to_utf8(root / ".agents" / "skills"),
                                         std::string(kAgentsSkillsPrefix) + "r" + tag + "-", req.skillDirs);
         if (!made) return made.error();
@@ -1149,24 +1222,28 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     effective.projectDir = projectDir;
 
     ProcessOptions po = std::move(*base);
-    std::vector<std::string> expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);
+    std::vector<std::string> expanded =
+        expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);
     // Pictures: inline in the stdin JSON when the CLI reads stream-json, else the prompt names their files.
     const bool jsonInput = argv_wants_stream_json_input(expanded);
     if (!jsonInput && !req.imagePaths.empty()) {
         effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
-        expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);  // {prompt} carries the paths too
+        expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath,
+                                   pluginDirs);  // {prompt} carries the paths too
     }
     const std::size_t templateArgs = expanded.size();
     apply_permission_mode(cfg_.kind, cfg_.argv.empty(), cfg_.permissionMode, req.readOnly, expanded);
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
-    apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath, expanded);
+    apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath,
+                         expanded);
     // The flags added above go before the "--" that ends the template's options (with_end_of_options puts one right before
     // the prompt): after it they would be read as more of the prompt. Only that "--" counts: not a prompt that is "--", nor
     // a "--" elsewhere in the template, which may be a flag's value ("--sep", "--").
     if (std::adjacent_find(tmpl.begin(), tmpl.end(), [](const std::string& a, const std::string& b) {
             return a == "--" && b == "{prompt}";
         }) != tmpl.end()) {
-        for (std::size_t i = templateArgs; i >= 2; --i) {  // the last such pair: the template's, after anything it expands
+        for (std::size_t i = templateArgs; i >= 2;
+             --i) {  // the last such pair: the template's, after anything it expands
             if (expanded[i - 2] == "--" && expanded[i - 1] == effective.prompt) {
                 std::rotate(expanded.begin() + static_cast<std::ptrdiff_t>(i - 2),
                             expanded.begin() + static_cast<std::ptrdiff_t>(templateArgs), expanded.end());
@@ -1174,7 +1251,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             }
         }
     }
-    if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty()) {  // the built-in argv starts `factoria mcp` itself (never the editor's endpoint)
+    if (cfg_.kind == ProviderKind::Codex &&
+        cfg_.argv.empty()) {  // the built-in argv starts `factoria mcp` itself (never the editor's endpoint)
         auto env = codex_factoria_env_args(factoriaEnv);
         auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
         expanded.insert(stdinMarker, env.begin(), env.end());
@@ -1187,8 +1265,10 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
     // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).
-    if (jsonInput) po.stdinText = make_stream_json_input(req.prompt, req.images);
-    else if (std::none_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
+    if (jsonInput)
+        po.stdinText = make_stream_json_input(req.prompt, req.images);
+    else if (std::none_of(tmpl.begin(), tmpl.end(),
+                          [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
         po.stdinText = effective.prompt;
     po.cancel = cancel;
     po.captureStdout = false;
@@ -1213,7 +1293,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     po.onStdoutLine = [&](std::string_view line) {
         events.clear();
         parser.feed_line(line, events);
-        if (onEvent) for (auto& e : events) onEvent(e);
+        if (onEvent)
+            for (auto& e : events) onEvent(e);
         if (req.stopWhen && !stopFlag.load() && !events.empty() &&
             req.stopWhen(parser.usage(), parser.cost_usd(), parser.cost_is_estimate())) {
             stopFlag = true;
@@ -1249,14 +1330,17 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     if (looks_like_auth_failure(detail) || looks_like_auth_failure(stderrText)) {
         res.error = "'" + command + "' is not logged in or its credentials were rejected: " + clip(detail, 400);
         res.hint = cfg_.kind == ProviderKind::ClaudeCode
-                       ? "Run `claude` once in a terminal and log in (or `claude setup-token`), then retry. " + cli_install_hint(cfg_)
+                       ? "Run `claude` once in a terminal and log in (or `claude setup-token`), then retry. " +
+                             cli_install_hint(cfg_)
                    : cfg_.kind == ProviderKind::Codex ? "Run `codex login` in a terminal, then retry."
                                                       : "Log in with the CLI in a terminal, then retry.";
     } else {
         res.error = "'" + command + "' failed (exit code " + std::to_string(pr->exitCode) + ")" +
                     (detail.empty() ? std::string() : ": " + tail(detail));
         res.hint = stderrText.empty() ? "Run the same command in a terminal to see what it prints." : "";
-        if (parser.saw_result() == false && pr->exitCode == 0) res.hint = "The CLI exited without a result. Check the argv template for provider '" + cfg_.name + "' (CLI flags change between versions).";
+        if (parser.saw_result() == false && pr->exitCode == 0)
+            res.hint = "The CLI exited without a result. Check the argv template for provider '" + cfg_.name +
+                       "' (CLI flags change between versions).";
     }
     return res;
 }

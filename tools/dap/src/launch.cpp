@@ -23,11 +23,24 @@ const std::vector<std::string>& launch_keys() {
 // Keys VS Code (and other clients) add to every launch configuration. They mean nothing to the server, but a launch
 // that fails on them would never start from VS Code.
 bool is_ignored_key(const std::string& key) {
-    static const std::vector<std::string> ignored = {
-        "type",           "request",       "name",           "presentation",   "preLaunchTask",
-        "postDebugTask",  "internalConsoleOptions", "debugServer", "suppressMultipleSessionWarning",
-        "console",        "serverReadyAction", "restart",    "windows",        "osx",
-        "linux",          "trace",         "env",            "cwd"};
+    static const std::vector<std::string> ignored = {"type",
+                                                     "request",
+                                                     "name",
+                                                     "presentation",
+                                                     "preLaunchTask",
+                                                     "postDebugTask",
+                                                     "internalConsoleOptions",
+                                                     "debugServer",
+                                                     "suppressMultipleSessionWarning",
+                                                     "console",
+                                                     "serverReadyAction",
+                                                     "restart",
+                                                     "windows",
+                                                     "osx",
+                                                     "linux",
+                                                     "trace",
+                                                     "env",
+                                                     "cwd"};
     if (key.rfind("__", 0) == 0) return true;  // __sessionId, __configurationTarget, __restart...
     for (const std::string& k : ignored)
         if (k == key) return true;
@@ -44,7 +57,8 @@ Error bad_value(const std::string& key, const std::string& expected, const Json&
 Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::string& cwd) {
     Json arguments = argumentsIn.is_null() ? Json::object() : argumentsIn;
     if (!arguments.is_object())
-        return Error{"the launch request needs an 'arguments' object like {\"mode\": \"headless\", \"project\": \"/path/to/game\"}.",
+        return Error{"the launch request needs an 'arguments' object like {\"mode\": \"headless\", \"project\": "
+                     "\"/path/to/game\"}.",
                      "In VS Code these come from the configuration in .vscode/launch.json."};
     DapLaunchArgs out;
     for (auto it = arguments.begin(); it != arguments.end(); ++it) {
@@ -52,13 +66,16 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
         const auto& known = launch_keys();
         if (std::find(known.begin(), known.end(), key) != known.end() || is_ignored_key(key)) continue;
         return Error{"unknown launch attribute '" + key + "'.",
-                     did_you_mean(key, known) + " Attributes VS Code adds itself (type, request, name, presentation, preLaunchTask, "
-                     "postDebugTask, internalConsoleOptions, debugServer, __*...) are accepted and ignored."};
+                     did_you_mean(key, known) +
+                         " Attributes VS Code adds itself (type, request, name, presentation, preLaunchTask, "
+                         "postDebugTask, internalConsoleOptions, debugServer, __*...) are accepted and ignored."};
     }
     auto has = [&](const char* k) { return arguments.contains(k) && !arguments[k].is_null(); };
     auto string_of = [&](const char* k, std::string& dst) -> std::optional<Error> {
         if (!has(k)) return std::nullopt;
-        if (!arguments[k].is_string()) return bad_value(k, "text", arguments[k], std::string(k) == "project" ? "\"${workspaceFolder}\"" : "\"value\"");
+        if (!arguments[k].is_string())
+            return bad_value(k, "text", arguments[k],
+                             std::string(k) == "project" ? "\"${workspaceFolder}\"" : "\"value\"");
         dst = arguments[k].get<std::string>();
         return std::nullopt;
     };
@@ -71,18 +88,21 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
 
     std::string project, input;
     for (auto err : {string_of("mode", out.mode), string_of("project", project), string_of("scene", out.scene),
-                     string_of("input", input), string_of("filter", out.filter), bool_of("stopOnEntry", out.stopOnEntry),
-                     bool_of("noDebug", out.noDebug)})
+                     string_of("input", input), string_of("filter", out.filter),
+                     bool_of("stopOnEntry", out.stopOnEntry), bool_of("noDebug", out.noDebug)})
         if (err) return *err;
 
     static const std::vector<std::string> modes = {"play", "headless", "test"};
     if (has("mode") && std::find(modes.begin(), modes.end(), out.mode) == modes.end())
-        return Error{"launch attribute 'mode' is '" + out.mode + "', which is not a way to run the game.",
-                     did_you_mean(out.mode, modes) + " play opens the game window, headless runs frames without a window, test runs tests/*.test.js."};
+        return Error{
+            "launch attribute 'mode' is '" + out.mode + "', which is not a way to run the game.",
+            did_you_mean(out.mode, modes) +
+                " play opens the game window, headless runs frames without a window, test runs tests/*.test.js."};
 
     if (has("frames")) {
         const Json& f = arguments["frames"];
-        if (!f.is_number() || f.get<double>() != std::floor(f.get<double>()) || f.get<double>() < 0 || f.get<double>() > 100000000.0)
+        if (!f.is_number() || f.get<double>() != std::floor(f.get<double>()) || f.get<double>() < 0 ||
+            f.get<double>() > 100000000.0)
             return bad_value("frames", "a whole number of frames, 0 or more", f, "600");
         out.frames = static_cast<int>(f.get<double>());
     }
@@ -101,10 +121,12 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
         const char* mode;
         const char* other;
     };
-    for (const ModeKey& mk : {ModeKey{"frames", "headless", "play or test"}, ModeKey{"input", "headless", "play or test"},
-                              ModeKey{"tests", "test", "play or headless"}, ModeKey{"filter", "test", "play or headless"}}) {
+    for (const ModeKey& mk :
+         {ModeKey{"frames", "headless", "play or test"}, ModeKey{"input", "headless", "play or test"},
+          ModeKey{"tests", "test", "play or headless"}, ModeKey{"filter", "test", "play or headless"}}) {
         if (has(mk.key) && out.mode != mk.mode)
-            return Error{std::string("launch attribute '") + mk.key + "' only applies to mode \"" + mk.mode + "\", and this launch is \"" + out.mode + "\".",
+            return Error{std::string("launch attribute '") + mk.key + "' only applies to mode \"" + mk.mode +
+                             "\", and this launch is \"" + out.mode + "\".",
                          std::string("Remove '") + mk.key + "' or set \"mode\": \"" + mk.mode + "\"."};
     }
     if (has("scene") && out.mode == "test")
@@ -116,10 +138,11 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
     if (project.empty()) {
         project = find_project_root(cwd);
         if (project.empty())
-            return Error{"no project to debug: 'project' is not set and there is no " + std::string(kProjectFileName) + " in '" + cwd +
-                             "' or any folder above it.",
-                         "Set \"project\": \"${workspaceFolder}\" in the launch configuration (the folder that contains " +
-                             std::string(kProjectFileName) + ")."};
+            return Error{
+                "no project to debug: 'project' is not set and there is no " + std::string(kProjectFileName) + " in '" +
+                    cwd + "' or any folder above it.",
+                "Set \"project\": \"${workspaceFolder}\" in the launch configuration (the folder that contains " +
+                    std::string(kProjectFileName) + ")."};
     }
     fsys::path p = fsys::absolute(fsys::path(project), ec);
     p = p.lexically_normal();
@@ -127,9 +150,10 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
     while (dir.size() > 1 && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
     if (!fsys::exists(fsys::path(dir) / kProjectFileName, ec))
         return Error{"'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found there.",
-                     fsys::is_directory(dir, ec) ? "Set \"project\" to the folder that contains " + std::string(kProjectFileName) +
-                                                       ", or create a project with 'factoria new'."
-                                                 : "The folder does not exist. Check \"project\" in the launch configuration."};
+                     fsys::is_directory(dir, ec)
+                         ? "Set \"project\" to the folder that contains " + std::string(kProjectFileName) +
+                               ", or create a project with 'factoria new'."
+                         : "The folder does not exist. Check \"project\" in the launch configuration."};
     out.projectDir = dir;
 
     if (!input.empty()) {
@@ -150,7 +174,8 @@ Result<DapLaunchArgs> parse_dap_launch(const Json& argumentsIn, const std::strin
         if (out.inputPath.empty()) {
             std::string msg = "cannot find the input replay '" + input + "'. Looked in:";
             for (const fsys::path& c : tried) msg += "\n  - " + c.generic_string();
-            return Error{msg, "'input' is an input replay file (the input.json that play.report points to). A relative path is looked up in the project folder, then in the working directory."};
+            return Error{msg, "'input' is an input replay file (the input.json that play.report points to). A relative "
+                              "path is looked up in the project folder, then in the working directory."};
         }
     }
     return out;

@@ -49,9 +49,9 @@ class Audio;
 
 class BackgroundLoader {
 public:
-    static constexpr int kFixedUnitsPerFrame = 4;  // the exact budget of a run that does not depend on the machine
-    static constexpr int kMaxInFlight = 16;        // units one job has queued on the IO thread at once
-    static constexpr std::size_t kHistory = 16;    // finished jobs load.status still answers for
+    static constexpr int kFixedUnitsPerFrame = 4;   // the exact budget of a run that does not depend on the machine
+    static constexpr int kMaxInFlight = 16;         // units one job has queued on the IO thread at once
+    static constexpr std::size_t kHistory = 16;     // finished jobs load.status still answers for
     static constexpr int kMaxReplayUnits = 100000;  // the most units a replay entry may ask for in one frame
 
     enum class Kind { ScenePreload, Assets, SceneLoad };
@@ -72,7 +72,8 @@ public:
         std::string error, hint;
         Json to_json() const;  // {id, done, total, bytes, uploadedBytes, finished, cancelled, error, hint}
     };
-    struct SceneReady {  // an async scene load whose files are ready: the engine switches to it at the end of this frame
+    struct
+        SceneReady {  // an async scene load whose files are ready: the engine switches to it at the end of this frame
         int id = 0;
         std::string path;
         std::optional<Json> props;
@@ -94,7 +95,8 @@ public:
     // Starts a job. Checks the paths at once: a missing file is an error with "did you mean" (nothing starts). `trace`:
     // the engine's load trace (null: none); an async scene load opens its entry there. Starting an async scene load
     // cancels the async scene loads before it (the last request wins).
-    Result<int> start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props, Origin origin, LoadTrace* trace);
+    Result<int> start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props, Origin origin,
+                      LoadTrace* trace);
     // Stops a running job (its update, cancelled, comes with the next tick) or gives a finished job's warm files back.
     // False when the id is unknown.
     bool cancel(int id, LoadTrace* trace);
@@ -157,9 +159,9 @@ private:
     bool front_ready(const Job& job) const;
     void run_unit(Job& job, Renderer* renderer, Audio* audio, std::uint64_t& uploaded);
     void take_scan(Job& job, Renderer* renderer, Audio* audio);
-    void abandon(Job& job);  // its queued items become orphans; its warm files are dropped
+    void abandon(Job& job);                        // its queued items become orphans; its warm files are dropped
     void hold(Job& job, const std::string& path);  // the job takes over an item's reference to a warm file
-    void drop(const std::string& path);             // gives one reference back (warm_release)
+    void drop(const std::string& path);            // gives one reference back (warm_release)
     void collect_orphans(bool all);
     void remember(const Job& job);
     Json job_status(const Job& job) const;
@@ -168,7 +170,7 @@ private:
     IoQueue io_;
     LoadTrace::Owner traceOwner_;
     std::vector<Job> jobs_;
-    std::vector<Update> pending_;  // updates of jobs cancelled since the last tick
+    std::vector<Update> pending_;                   // updates of jobs cancelled since the last tick
     std::vector<std::shared_ptr<Shared>> orphans_;  // items of cancelled jobs the IO thread may still be reading
     struct Kept {
         std::set<std::string> files;

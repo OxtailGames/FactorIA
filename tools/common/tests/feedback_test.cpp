@@ -170,7 +170,8 @@ TEST_CASE("feedback: collect ranks by occurrences x severity weight") {
 }
 
 TEST_CASE("feedback: commands report/list/update work on a project dir") {
-    testing::ScratchShareHome scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
+    testing::ScratchShareHome
+        scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
     testing::TempDir tmp;
     testing::write_all(tmp.path / "factoria.json", R"({"format":"factoria.project/1","name":"Cmd Game"})");
     CommandRegistry reg;
@@ -180,8 +181,11 @@ TEST_CASE("feedback: commands report/list/update work on a project dir") {
     CHECK(reg.info("feedback.report")->description.find("WHENEVER") != std::string::npos);
     CHECK(reg.info("feedback.list")->readOnly);
 
-    Json args = {{"category", "input"}, {"severity", "minor"}, {"title", "No gamepad rumble"},
-                 {"missing", "Cannot vibrate the controller."}, {"workaround", "Dropped the feature."}};
+    Json args = {{"category", "input"},
+                 {"severity", "minor"},
+                 {"title", "No gamepad rumble"},
+                 {"missing", "Cannot vibrate the controller."},
+                 {"workaround", "Dropped the feature."}};
     auto r1 = reg.call("feedback.report", args);
     REQUIRE(r1.ok);
     CHECK(r1.result["id"] == "FB-0001");
@@ -197,7 +201,9 @@ TEST_CASE("feedback: commands report/list/update work on a project dir") {
     CHECK(reg.call("feedback.update", {{"id", "FB-0001"}, {"status", "wont-fix"}}).ok);
     CHECK(reg.call("feedback.list", {{"status", "open"}}).result["count"] == 0);
 
-    auto bad = reg.call("feedback.report", {{"category", "nope"}, {"severity", "minor"}, {"title", "abc def"}, {"missing", "abc"}, {"workaround", "abc"}});
+    auto bad = reg.call(
+        "feedback.report",
+        {{"category", "nope"}, {"severity", "minor"}, {"title", "abc def"}, {"missing", "abc"}, {"workaround", "abc"}});
     CHECK_FALSE(bad.ok);
     auto loaded = load_feedback(tmp.sub("ENGINE_FEEDBACK.json"));
     REQUIRE(loaded.ok());
@@ -213,33 +219,37 @@ Json entry(const std::string& title, const std::string& cat, const std::string& 
 
 TEST_CASE("feedback: the same gap reported with different titles is recognised (real example titles)") {
     // Titles copied from examples/*/ENGINE_FEEDBACK.json.
-    const std::vector<Json> placeholder = {
-        entry("Generated types/factoria.d.ts is a placeholder (any)", "tooling"),
-        entry("Project types/factoria.d.ts is a placeholder", "tooling"),
-        entry("types/factoria.d.ts is a placeholder stub", "docs"),
-        entry("New projects ship a placeholder types/factoria.d.ts", "tooling"),
-        entry("factoria.d.ts placeholder", "tooling"),
-        entry("Bug: factoria.d.ts placeholders", "docs")};
+    const std::vector<Json> placeholder = {entry("Generated types/factoria.d.ts is a placeholder (any)", "tooling"),
+                                           entry("Project types/factoria.d.ts is a placeholder", "tooling"),
+                                           entry("types/factoria.d.ts is a placeholder stub", "docs"),
+                                           entry("New projects ship a placeholder types/factoria.d.ts", "tooling"),
+                                           entry("factoria.d.ts placeholder", "tooling"),
+                                           entry("Bug: factoria.d.ts placeholders", "docs")};
     for (size_t i = 1; i < placeholder.size(); ++i)
-        CHECK_MESSAGE(feedback_entry_similarity(placeholder[0], placeholder[i]) >= 0.7, placeholder[i]["title"].get<std::string>());
+        CHECK_MESSAGE(feedback_entry_similarity(placeholder[0], placeholder[i]) >= 0.7,
+                      placeholder[i]["title"].get<std::string>());
 
     const std::vector<Json> planned = {entry("AI_GUIDE marks working CLI commands as planned", "docs"),
                                        entry("AI guide marks working CLI commands as planned", "docs"),
                                        entry("Docs mark working CLI commands as planned", "docs")};
     for (size_t i = 1; i < planned.size(); ++i) CHECK(feedback_entry_similarity(planned[0], planned[i]) >= 0.7);
 
-    const std::vector<Json> burst = {entry("ParticleEmitter burst does nothing when emitting is false", "rendering-3d"),
-                                     entry("ParticleEmitter burst silently does nothing when emitting is false", "rendering-2d"),
-                                     entry("ParticleEmitter burst is silently suppressed when emitting=false; no one-shot auto-destroy", "rendering-2d")};
+    const std::vector<Json> burst = {
+        entry("ParticleEmitter burst does nothing when emitting is false", "rendering-3d"),
+        entry("ParticleEmitter burst silently does nothing when emitting is false", "rendering-2d"),
+        entry("ParticleEmitter burst is silently suppressed when emitting=false; no one-shot auto-destroy",
+              "rendering-2d")};
     for (size_t i = 1; i < burst.size(); ++i) CHECK(feedback_entry_similarity(burst[0], burst[i]) >= 0.7);
 
     // Different gaps stay apart, in the same or another category.
     CHECK(feedback_entry_similarity(placeholder[0], planned[0]) < 0.5);
-    CHECK(feedback_entry_similarity(entry("No one-way platforms", "physics"), entry("No additive blend mode / glow for neon looks", "rendering-2d")) < 0.4);
+    CHECK(feedback_entry_similarity(entry("No one-way platforms", "physics"),
+                                    entry("No additive blend mode / glow for neon looks", "rendering-2d")) < 0.4);
     CHECK(feedback_entry_similarity(entry("Kinematic 3D platforms do not carry bodies standing on them", "physics"),
                                     entry("No one-way platforms", "physics")) < 0.7);
     CHECK(feedback_entry_similarity(entry("Docs mark working CLI commands as planned", "docs"),
-                                    entry("EXTENDING.md marks project tools and factoria call as planned", "docs")) < 0.7);
+                                    entry("EXTENDING.md marks project tools and factoria call as planned", "docs")) <
+          0.7);
     // Deterministic and symmetric.
     CHECK(feedback_entry_similarity(burst[0], burst[2]) == feedback_entry_similarity(burst[2], burst[0]));
 }
@@ -258,9 +268,11 @@ TEST_CASE("feedback: collect groups reports of one gap across projects and categ
         }
         REQUIRE(save_feedback((tmp.path / name / "ENGINE_FEEDBACK.json").string(), doc).ok());
     };
-    make_doc("a", {{"Generated types/factoria.d.ts is a placeholder (any)", "tooling"}, {"Docs mark working CLI commands as planned", "docs"}});
+    make_doc("a", {{"Generated types/factoria.d.ts is a placeholder (any)", "tooling"},
+                   {"Docs mark working CLI commands as planned", "docs"}});
     make_doc("b", {{"Project types/factoria.d.ts is a placeholder", "tooling"}});
-    make_doc("c", {{"types/factoria.d.ts is a placeholder stub", "docs"}, {"AI guide marks working CLI commands as planned", "docs"}});
+    make_doc("c", {{"types/factoria.d.ts is a placeholder stub", "docs"},
+                   {"AI guide marks working CLI commands as planned", "docs"}});
     make_doc("d", {{"New projects ship a placeholder types/factoria.d.ts", "tooling"}});
     auto report = collect_feedback({tmp.str()});
     REQUIRE(report.ok());
@@ -270,11 +282,16 @@ TEST_CASE("feedback: collect groups reports of one gap across projects and categ
     CHECK(cl[0]["category"] == "tooling");  // majority category of the cluster
     CHECK(cl[1]["projects"].size() == 2);
     // The real example games: the placeholder-typings gap is one cluster, reported by several projects.
-    auto real = collect_feedback({std::string(FA_REPO_ROOT) + "/examples"}, [] { CollectOptions o; o.includeClosed = true; return o; }());
+    auto real = collect_feedback({std::string(FA_REPO_ROOT) + "/examples"}, [] {
+        CollectOptions o;
+        o.includeClosed = true;
+        return o;
+    }());
     if (real.ok() && real->json["totalEntries"].get<int>() > 0) {
         bool found = false;
         for (const Json& c : real->json["clusters"])
-            if (c["title"].get<std::string>().find("d.ts") != std::string::npos && c["projects"].size() >= 3) found = true;
+            if (c["title"].get<std::string>().find("d.ts") != std::string::npos && c["projects"].size() >= 3)
+                found = true;
         CHECK_MESSAGE(found, "placeholder d.ts reports from the examples form one cluster");
     }
 }
@@ -282,20 +299,31 @@ TEST_CASE("feedback: collect groups reports of one gap across projects and categ
 TEST_CASE("feedback: similar titles of different gaps stay apart, and distinctFrom keeps two apart") {
     // TM/FB-0010 and TM/FB-0011.
     auto make_entry = [](const char* id, const char* title, const char* missing, const char* suggestion) {
-        return Json{{"id", id}, {"title", title}, {"category", "ui"}, {"severity", "minor"}, {"missing", missing},
-                    {"workaround", "rows of labels"}, {"suggestion", suggestion}, {"occurrences", 1}, {"status", "open"}};
+        return Json{{"id", id},
+                    {"title", title},
+                    {"category", "ui"},
+                    {"severity", "minor"},
+                    {"missing", missing},
+                    {"workaround", "rows of labels"},
+                    {"suggestion", suggestion},
+                    {"occurrences", 1},
+                    {"status", "open"}};
     };
-    Json rich = make_entry("FB-0010", "No rich text or inline icons in a Text or Button label",
-                           "A goods line needs several colours and a sprite inside one line. A Text has one colour and no inline sprites.",
-                           "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine.");
-    Json icon = make_entry("FB-0011", "Buttons are text only: no icon or icon plus text button",
-                           "The build menu wants an icon above a name and cost on every item. A Button draws a label only.",
-                           "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.");
+    Json rich = make_entry(
+        "FB-0010", "No rich text or inline icons in a Text or Button label",
+        "A goods line needs several colours and a sprite inside one line. A Text has one colour and no inline sprites.",
+        "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine.");
+    Json icon =
+        make_entry("FB-0011", "Buttons are text only: no icon or icon plus text button",
+                   "The build menu wants an icon above a name and cost on every item. A Button draws a label only.",
+                   "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.");
     CHECK(feedback_entry_similarity(rich, icon) < 0.7);
 
     // Two alike entries merge until one says it is distinct from the other.
-    Json a = make_entry("FB-0001", "Tilemap has no isometric picking helper", "cell under the mouse maths", "Tilemap.pick(x, y)");
-    Json b = make_entry("FB-0002", "Tilemap has no isometric picking helper", "cell under the mouse maths", "Tilemap.pick(x, y)");
+    Json a = make_entry("FB-0001", "Tilemap has no isometric picking helper", "cell under the mouse maths",
+                        "Tilemap.pick(x, y)");
+    Json b = make_entry("FB-0002", "Tilemap has no isometric picking helper", "cell under the mouse maths",
+                        "Tilemap.pick(x, y)");
     auto write = [](const testing::TempDir& tmp, const Json& x, const Json& y) {
         Json doc = create_empty_feedback("p", "0.1.0");
         doc["entries"].push_back(x);
@@ -393,8 +421,11 @@ TEST_CASE("feedback archive: files, commands, list and collect") {
     CHECK_FALSE(reg.info("feedback.archive")->readOnly);
 
     auto report = [&](const std::string& title, const std::string& cat) {
-        return reg.call("feedback.report", {{"category", cat}, {"severity", "major"}, {"title", title},
-                                            {"missing", "Engine lacks " + title}, {"workaround", "Script for " + title}});
+        return reg.call("feedback.report", {{"category", cat},
+                                            {"severity", "major"},
+                                            {"title", title},
+                                            {"missing", "Engine lacks " + title},
+                                            {"workaround", "Script for " + title}});
     };
     REQUIRE(report("No cloth simulation", "physics").ok);
     REQUIRE(report("No gamepad rumble", "input").ok);
@@ -445,7 +476,8 @@ TEST_CASE("feedback archive: files, commands, list and collect") {
 }
 
 TEST_CASE("feedback share edit: set_feedback_share_file validates, drops a stale shared, marks the text unreviewed") {
-    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
+    testing::ScratchShareHome
+        scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string path = (dir.path / "ENGINE_FEEDBACK.json").string();
     Json doc = create_empty_feedback("g");
@@ -458,8 +490,9 @@ TEST_CASE("feedback share edit: set_feedback_share_file validates, drops a stale
     REQUIRE(save_feedback(path, doc).ok());
 
     FeedbackShareEdit edit;
-    edit.share = Json::object({{"title", "No one-way platforms"},
-                               {"missing", "Collider2D has no oneWay flag: bodies cannot pass up through a platform."}});
+    edit.share =
+        Json::object({{"title", "No one-way platforms"},
+                      {"missing", "Collider2D has no oneWay flag: bodies cannot pass up through a platform."}});
     auto r = set_feedback_share_file(path, "FB-0001", edit);
     REQUIRE(r.ok());
     CHECK((*r)["share"]["missing"].get<std::string>().find("oneWay") != std::string::npos);
@@ -489,15 +522,17 @@ TEST_CASE("feedback share edit: set_feedback_share_file validates, drops a stale
     CHECK_FALSE(r->contains("share"));
 }
 
-TEST_CASE("feedback file: two programs writing at once never lose an entry (an add racing updates, an archive and a share edit)") {
+TEST_CASE("feedback file: two programs writing at once never lose an entry (an add racing updates, an archive and a "
+          "share edit)") {
     testing::ScratchShareHome home;
     testing::TempDir dir;
     const std::string path = (dir.path / "ENGINE_FEEDBACK.json").string();
     REQUIRE(create_feedback_file(path, "Race").ok());
     // Words that share nothing, so no title is merged into another.
-    const std::vector<std::string> titles = {"Zorblax wibble gauge",  "Quuxel pipeline drift",  "Mandible harmonic seam", "Velvet tundra ratchet",
-                                              "Gossamer plinth locus", "Fennel orbit tangle",   "Crimson lattice hinge",  "Nimbus cobalt sprocket",
-                                              "Thistle vortex ledger", "Opaline rudder cipher", "Saffron beacon strut",   "Umber quartz spindle"};
+    const std::vector<std::string> titles = {
+        "Zorblax wibble gauge",  "Quuxel pipeline drift", "Mandible harmonic seam", "Velvet tundra ratchet",
+        "Gossamer plinth locus", "Fennel orbit tangle",   "Crimson lattice hinge",  "Nimbus cobalt sprocket",
+        "Thistle vortex ledger", "Opaline rudder cipher", "Saffron beacon strut",   "Umber quartz spindle"};
     {
         auto first = add_feedback_entry_to_file(path, make("Aardvark glyph pivot"), "Race");
         REQUIRE_MESSAGE(first.ok(), (first.ok() ? std::string() : first.error().message));
@@ -530,6 +565,7 @@ TEST_CASE("feedback file: two programs writing at once never lose an entry (an a
     CHECK(failures.load() == 0);
     auto doc = load_feedback(path);
     REQUIRE(doc.ok());
-    CHECK((*doc)["entries"].size() == titles.size() + 1);  // every entry the adder wrote is there, and the first one kept its notes
+    CHECK((*doc)["entries"].size() ==
+          titles.size() + 1);  // every entry the adder wrote is there, and the first one kept its notes
     CHECK((*doc)["entries"][0]["notes"].size() > 0);
 }

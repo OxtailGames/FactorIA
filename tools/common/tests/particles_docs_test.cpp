@@ -103,7 +103,10 @@ TEST_CASE("docs/PARTICLES.md: the worked effect documents parse without a proble
         World world;
         int sounds = 0;
         VfxHost host;
-        host.play_sound = [&](const std::string&, float, float, const std::string&) { ++sounds; return true; };
+        host.play_sound = [&](const std::string&, float, float, const std::string&) {
+            ++sounds;
+            return true;
+        };
         auto played = vfx_play(world, file);
         REQUIRE(played);
         std::size_t children = 0;

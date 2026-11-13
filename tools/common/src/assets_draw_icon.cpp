@@ -19,25 +19,29 @@ void arg_error(const char* command, const std::string& pointer, const std::strin
     fail("invalid_argument", std::format("{} {}: {}", command, pointer.empty() ? "arguments" : pointer, what), hint);
 }
 
-void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer,
+                    const std::vector<std::string>& allowed) {
     for (auto it = obj.begin(); it != obj.end(); ++it)
         if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-            arg_error(command, pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
+            arg_error(command, pointer + "/" + it.key(), "unknown key '" + it.key() + "'.",
+                      did_you_mean(it.key(), allowed));
 }
 
 Color colour_arg(const char* command, const Json& v, const std::string& pointer) {
     Color c;
     std::string err;
-    if (!json_to(v, c, &err)) arg_error(command, pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
+    if (!json_to(v, c, &err))
+        arg_error(command, pointer, err,
+                  "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
     return c;
 }
 
 namespace {
 
 constexpr int kIconSize = 1024;
-constexpr int kForegroundSize = 432;                 // 108dp at xxxhdpi
-constexpr double kSafeZone = 66.0 / 108.0;           // the part of the layer an adaptive icon always shows
-constexpr double kSpace = 100.0;                     // the drawing space is 0..100 on both axes
+constexpr int kForegroundSize = 432;        // 108dp at xxxhdpi
+constexpr double kSafeZone = 66.0 / 108.0;  // the part of the layer an adaptive icon always shows
+constexpr double kSpace = 100.0;            // the drawing space is 0..100 on both axes
 
 struct Pt {
     double x, y;
@@ -60,14 +64,20 @@ struct Spec {
     std::vector<Layer> layers;
 };
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error("assets.draw_icon", pointer, what, hint); }
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
+    arg_error("assets.draw_icon", pointer, what, hint);
+}
 
-void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) { check_arg_keys("assets.draw_icon", obj, pointer, allowed); }
+void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
+    check_arg_keys("assets.draw_icon", obj, pointer, allowed);
+}
 
 double number(const Json& obj, const std::string& pointer, const char* key, bool required, double def = 0) {
     auto it = obj.find(key);
     if (it == obj.end()) {
-        if (required) bad(pointer, std::string("missing '") + key + "'.", "Add a number: " + std::string(key) + " is in drawing units (0..100 across the icon).");
+        if (required)
+            bad(pointer, std::string("missing '") + key + "'.",
+                "Add a number: " + std::string(key) + " is in drawing units (0..100 across the icon).");
         return def;
     }
     if (!it->is_number()) bad(pointer + "/" + key, "expected a number.", "Write it as a plain number such as 12.5.");
@@ -84,7 +94,9 @@ bool optional_colour(const Json& obj, const std::string& pointer, const char* ke
 }
 
 Layer parse_layer(const Json& j, const std::string& pointer) {
-    if (!j.is_object()) bad(pointer, "a layer is an object.", "Example: {\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":30,\"fill\":\"#ffcc44\"}.");
+    if (!j.is_object())
+        bad(pointer, "a layer is an object.",
+            "Example: {\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":30,\"fill\":\"#ffcc44\"}.");
     static const std::vector<std::string> types = {"rect", "roundRect", "circle", "ellipse", "polygon", "text"};
     const auto t = j.find("type");
     if (t == j.end() || !t->is_string()) bad(pointer, "missing 'type'.", "Use one of: " + join(types, ", ") + ".");
@@ -120,37 +132,51 @@ Layer parse_layer(const Json& j, const std::string& pointer) {
     } else if (l.type == "polygon") {
         const auto p = j.find("points");
         if (p == j.end() || !p->is_array() || p->size() < 3)
-            bad(pointer + "/points", "a polygon needs a 'points' list of at least 3 [x, y] pairs.", "Example: \"points\":[[10,10],[90,10],[50,80]].");
+            bad(pointer + "/points", "a polygon needs a 'points' list of at least 3 [x, y] pairs.",
+                "Example: \"points\":[[10,10],[90,10],[50,80]].");
         for (std::size_t i = 0; i < p->size(); ++i) {
             const Json& q = (*p)[i];
             if (!q.is_array() || q.size() != 2 || !q[0].is_number() || !q[1].is_number())
-                bad(pointer + "/points/" + std::to_string(i), "a point is [x, y] with two numbers.", "Example: [50, 20].");
+                bad(pointer + "/points/" + std::to_string(i), "a point is [x, y] with two numbers.",
+                    "Example: [50, 20].");
             l.points.push_back({q[0].get<double>(), q[1].get<double>()});
         }
     } else {
         l.x = number(j, pointer, "x", true);
         l.y = number(j, pointer, "y", true);
         l.size = number(j, pointer, "size", true);
-        if (l.size <= 0) bad(pointer + "/size", "must be above 0.", "The size is the height of the text's em in drawing units, e.g. 30.");
+        if (l.size <= 0)
+            bad(pointer + "/size", "must be above 0.",
+                "The size is the height of the text's em in drawing units, e.g. 30.");
         const auto s = j.find("text");
-        if (s == j.end() || !s->is_string() || s->get<std::string>().empty()) bad(pointer, "a text layer needs a non-empty 'text'.", "Example: \"text\":\"LK\".");
+        if (s == j.end() || !s->is_string() || s->get<std::string>().empty())
+            bad(pointer, "a text layer needs a non-empty 'text'.", "Example: \"text\":\"LK\".");
         l.text = s->get<std::string>();
         if (const auto f = j.find("font"); f != j.end()) {
-            if (!f->is_string()) bad(pointer + "/font", "expected a string.", "A project .ttf path such as \"assets/fonts/My.ttf\", or leave it out for DejaVu Sans.");
+            if (!f->is_string())
+                bad(pointer + "/font", "expected a string.",
+                    "A project .ttf path such as \"assets/fonts/My.ttf\", or leave it out for DejaVu Sans.");
             l.font = f->get<std::string>();
         }
     }
     l.hasFill = optional_colour(j, pointer, "fill", l.fill);
     l.hasGradient = optional_colour(j, pointer, "fillBottom", l.fillBottom);
     l.hasOutline = optional_colour(j, pointer, "outline", l.outline);
-    if (l.hasGradient && !l.hasFill) bad(pointer + "/fillBottom", "a gradient needs 'fill' (its top colour) too.", "Add \"fill\".");
-    if (l.type == "text" && !l.hasFill) bad(pointer, "a text layer needs a 'fill' colour.", "Example: \"fill\":\"#ffffff\".");
-    if (l.type != "text" && !l.hasFill && !l.hasOutline) bad(pointer, "this layer draws nothing: it has neither 'fill' nor 'outline'.", "Add \"fill\" and/or \"outline\".");
+    if (l.hasGradient && !l.hasFill)
+        bad(pointer + "/fillBottom", "a gradient needs 'fill' (its top colour) too.", "Add \"fill\".");
+    if (l.type == "text" && !l.hasFill)
+        bad(pointer, "a text layer needs a 'fill' colour.", "Example: \"fill\":\"#ffffff\".");
+    if (l.type != "text" && !l.hasFill && !l.hasOutline)
+        bad(pointer, "this layer draws nothing: it has neither 'fill' nor 'outline'.",
+            "Add \"fill\" and/or \"outline\".");
     l.outlineWidth = number(j, pointer, "outlineWidth", false, 2);
     l.softness = number(j, pointer, "softness", false, 0);
-    if (l.outlineWidth <= 0 || l.softness < 0) bad(pointer, "outlineWidth must be above 0 and softness 0 or more.", "Both are in drawing units.");
+    if (l.outlineWidth <= 0 || l.softness < 0)
+        bad(pointer, "outlineWidth must be above 0 and softness 0 or more.", "Both are in drawing units.");
     if (const auto f = j.find("foreground"); f != j.end()) {
-        if (!f->is_boolean()) bad(pointer + "/foreground", "expected true or false.", "false keeps this layer out of the Android foreground (backdrops).");
+        if (!f->is_boolean())
+            bad(pointer + "/foreground", "expected true or false.",
+                "false keeps this layer out of the Android foreground (backdrops).");
         l.inForeground = f->get<bool>();
     }
     return l;
@@ -160,7 +186,8 @@ Spec parse_spec(const Json& a) {
     check_keys(a, "", {"background", "layers", "path", "foreground"});
     Spec s;
     if (const auto b = a.find("background"); b != a.end()) {
-        if (!b->is_object()) bad("/background", "expected an object.", "Example: {\"color\":\"#141428\",\"shape\":\"rounded\"}.");
+        if (!b->is_object())
+            bad("/background", "expected an object.", "Example: {\"color\":\"#141428\",\"shape\":\"rounded\"}.");
         check_keys(*b, "/background", {"color", "colorBottom", "shape"});
         if (const auto sh = b->find("shape"); sh != b->end()) {
             static const std::vector<std::string> shapes = {"square", "rounded", "circle", "transparent"};
@@ -168,15 +195,20 @@ Spec parse_spec(const Json& a) {
             if (std::find(shapes.begin(), shapes.end(), s.shape) == shapes.end())
                 bad("/background/shape", "unknown shape " + sh->dump() + ".", did_you_mean(s.shape, shapes));
         }
-        if (const auto c = b->find("color"); c != b->end()) s.color = colour(*c, "/background/color");
-        else if (s.shape != "transparent") bad("/background", "missing 'color'.", "Add \"color\":\"#rrggbb\", or \"shape\":\"transparent\".");
+        if (const auto c = b->find("color"); c != b->end())
+            s.color = colour(*c, "/background/color");
+        else if (s.shape != "transparent")
+            bad("/background", "missing 'color'.", "Add \"color\":\"#rrggbb\", or \"shape\":\"transparent\".");
         s.gradient = optional_colour(*b, "/background", "colorBottom", s.colorBottom);
     } else {
         bad("/background", "missing 'background'.", "Example: \"background\":{\"color\":\"#141428\"}.");
     }
     const auto ls = a.find("layers");
-    if (ls == a.end() || !ls->is_array()) bad("/layers", "missing 'layers' (a list, may be empty).", "Example: \"layers\":[{\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":30,\"fill\":\"#ffcc44\"}].");
-    for (std::size_t i = 0; i < ls->size(); ++i) s.layers.push_back(parse_layer((*ls)[i], "/layers/" + std::to_string(i)));
+    if (ls == a.end() || !ls->is_array())
+        bad("/layers", "missing 'layers' (a list, may be empty).",
+            "Example: \"layers\":[{\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":30,\"fill\":\"#ffcc44\"}].");
+    for (std::size_t i = 0; i < ls->size(); ++i)
+        s.layers.push_back(parse_layer((*ls)[i], "/layers/" + std::to_string(i)));
     return s;
 }
 
@@ -201,7 +233,8 @@ struct Canvas {
         img.width = width;
         img.height = height;
         img.rgba.resize(px.size());
-        for (std::size_t i = 0; i < px.size(); ++i) img.rgba[i] = std::uint8_t(std::lround(std::clamp(px[i], 0.0f, 1.0f) * 255));
+        for (std::size_t i = 0; i < px.size(); ++i)
+            img.rgba[i] = std::uint8_t(std::lround(std::clamp(px[i], 0.0f, 1.0f) * 255));
         return img;
     }
 };
@@ -231,7 +264,8 @@ struct Sdf {
             bool inside = false;
             for (std::size_t i = 0, j = pts.size() - 1; i < pts.size(); j = i++) {
                 best = std::min(best, seg_distance({px, py}, pts[j], pts[i]));
-                if ((pts[i].y > py) != (pts[j].y > py) && px < (pts[j].x - pts[i].x) * (py - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)
+                if ((pts[i].y > py) != (pts[j].y > py) &&
+                    px < (pts[j].x - pts[i].x) * (py - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)
                     inside = !inside;
             }
             return inside ? -best : best;
@@ -251,7 +285,8 @@ float coverage(double d, double soft) {
 }
 
 Color mix(const Color& a, const Color& b, double t) {
-    return {float(a.r + (b.r - a.r) * t), float(a.g + (b.g - a.g) * t), float(a.b + (b.b - a.b) * t), float(a.a + (b.a - a.a) * t)};
+    return {float(a.r + (b.r - a.r) * t), float(a.g + (b.g - a.g) * t), float(a.b + (b.b - a.b) * t),
+            float(a.a + (b.a - a.a) * t)};
 }
 
 void draw_sdf(Canvas& c, const Sdf& sdf, const Mapping& m, const Layer& l, double x0, double y0, double x1, double y1) {
@@ -259,7 +294,8 @@ void draw_sdf(Canvas& c, const Sdf& sdf, const Mapping& m, const Layer& l, doubl
     const double ow = l.outlineWidth * m.k;
     const double pad = std::max(soft * 2, l.hasOutline ? ow : 0.0) + 2;
     const int ix0 = std::max(0, int(std::floor(x0 - pad))), iy0 = std::max(0, int(std::floor(y0 - pad)));
-    const int ix1 = std::min(c.width - 1, int(std::ceil(x1 + pad))), iy1 = std::min(c.height - 1, int(std::ceil(y1 + pad)));
+    const int ix1 = std::min(c.width - 1, int(std::ceil(x1 + pad))),
+              iy1 = std::min(c.height - 1, int(std::ceil(y1 + pad)));
     for (int y = iy0; y <= iy1; ++y)
         for (int x = ix0; x <= ix1; ++x) {
             const double d = sdf(x + 0.5, y + 0.5);
@@ -277,7 +313,8 @@ void draw_layer(Canvas& c, const Layer& l, const Mapping& m, const std::string& 
     if (l.type == "text") {
         auto bmp = rasterize_text(l.text, l.font, float(l.size * m.k));
         if (!bmp.ok()) bad(pointer + "/font", bmp.error().message, bmp.error().hint);
-        const int left = int(std::lround(X(l.x) - bmp->width / 2.0)), top = int(std::lround(Y(l.y) - bmp->height / 2.0));
+        const int left = int(std::lround(X(l.x) - bmp->width / 2.0)),
+                  top = int(std::lround(Y(l.y) - bmp->height / 2.0));
         for (int y = 0; y < bmp->height; ++y)
             for (int x = 0; x < bmp->width; ++x) {
                 const int px = left + x, py = top + y;
@@ -305,14 +342,20 @@ void draw_layer(Canvas& c, const Layer& l, const Mapping& m, const std::string& 
         sdf.cy = Y(l.y);
         sdf.hx = std::max(l.rx * m.k, 1e-6);
         sdf.hy = std::max(l.ry * m.k, 1e-6);
-        x0 = sdf.cx - sdf.hx; x1 = sdf.cx + sdf.hx; y0 = sdf.cy - sdf.hy; y1 = sdf.cy + sdf.hy;
+        x0 = sdf.cx - sdf.hx;
+        x1 = sdf.cx + sdf.hx;
+        y0 = sdf.cy - sdf.hy;
+        y1 = sdf.cy + sdf.hy;
     } else {  // box: x, y is the top-left corner
         sdf.hx = std::abs(l.w) * m.k / 2;
         sdf.hy = std::abs(l.h) * m.k / 2;
         sdf.cx = X(l.x) + (l.w * m.k) / 2;
         sdf.cy = Y(l.y) + (l.h * m.k) / 2;
         sdf.r = std::clamp(l.radius * m.k, 0.0, std::min(sdf.hx, sdf.hy));
-        x0 = sdf.cx - sdf.hx; x1 = sdf.cx + sdf.hx; y0 = sdf.cy - sdf.hy; y1 = sdf.cy + sdf.hy;
+        x0 = sdf.cx - sdf.hx;
+        x1 = sdf.cx + sdf.hx;
+        y0 = sdf.cy - sdf.hy;
+        y1 = sdf.cy + sdf.hy;
     }
     draw_sdf(c, sdf, m, l, x0, y0, x1, y1);
 }
@@ -352,50 +395,70 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
     for (std::size_t i = 3; i < img.rgba.size(); i += 4) opaque = opaque && img.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
     std::string err;
-    if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel),
+                                    std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
         fail("failed", err);
     ProjectRootGuard root(projectDir);
     auto r = assets::update_entry(rel, [&](Json& e) {
         e.erase("analysis");
         e.erase("sheet");
-        Json prov = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"date", assets::today()},
-                                  {"notes", "Drawn from shapes and text by assets.draw_icon."}, {"recipe", recipe}});
-        for (const char* key : {"license", "author", "role"})  // what a person recorded for this file stays, and what it is for (style role)
+        Json prov = Json::object({{"origin", "original"},
+                                  {"ai", false},
+                                  {"kind", "image"},
+                                  {"date", assets::today()},
+                                  {"notes", "Drawn from shapes and text by assets.draw_icon."},
+                                  {"recipe", recipe}});
+        for (const char* key : {"license", "author",
+                                "role"})  // what a person recorded for this file stays, and what it is for (style role)
             if (e.contains("provenance") && e["provenance"].contains(key)) prov[key] = e["provenance"][key];
         e["provenance"] = prov;
     });
-    if (!r.ok()) fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+    if (!r.ok())
+        fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message,
+             r.error().hint);
 }
 
 std::string target_path(std::string p, const std::string& configured, const char* fallback) {
     if (p.empty()) p = configured.empty() ? fallback : configured;
     if (p.size() < 5 || !iequals(std::string_view(p).substr(p.size() - 4), ".png"))
-        fail("invalid_argument", std::format("assets.draw_icon writes PNG files, but '{}' does not end in .png.", p), "Use a path like \"assets/icon.png\".");
+        fail("invalid_argument", std::format("assets.draw_icon writes PNG files, but '{}' does not end in .png.", p),
+             "Use a path like \"assets/icon.png\".");
     return p;
 }
 
 Json draw_icon(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.draw_icon expects an object.", "See the description of the command for the fields.");
+    if (!a.is_object())
+        fail("invalid_argument", "assets.draw_icon expects an object.",
+             "See the description of the command for the fields.");
     const Spec spec = parse_spec(a);
     std::string wantFg;
     bool noForeground = false;
     if (const auto f = a.find("foreground"); f != a.end()) {
-        if (f->is_boolean() && !f->get<bool>()) noForeground = true;
-        else if (f->is_string()) wantFg = f->get<std::string>();
-        else fail("invalid_argument", "assets.draw_icon 'foreground' is a path or false.", "Example: \"foreground\":\"assets/icon_fg.png\", or false for no Android foreground.");
+        if (f->is_boolean() && !f->get<bool>())
+            noForeground = true;
+        else if (f->is_string())
+            wantFg = f->get<std::string>();
+        else
+            fail("invalid_argument", "assets.draw_icon 'foreground' is a path or false.",
+                 "Example: \"foreground\":\"assets/icon_fg.png\", or false for no Android foreground.");
     }
     std::vector<std::string> warnings;
     ProjectExportSettings settings;
     const bool hasProject = std::filesystem::exists(std::filesystem::path(projectDir) / "factoria.json");
     if (hasProject) {
         auto loaded = load_export_settings(projectDir);
-        if (loaded.ok()) settings = *loaded;
-        else warnings.push_back("factoria.json was not updated: " + loaded.error().message);
+        if (loaded.ok())
+            settings = *loaded;
+        else
+            warnings.push_back("factoria.json was not updated: " + loaded.error().message);
     }
-    const std::string iconPath = target_path(tooling_detail::arg_string(a, "path", false), settings.icon, "assets/icon.png");
+    const std::string iconPath =
+        target_path(tooling_detail::arg_string(a, "path", false), settings.icon, "assets/icon.png");
     std::string fgPath;
     if (!noForeground) fgPath = target_path(wantFg, settings.android.adaptiveIcon.foreground, "assets/icon_fg.png");
-    (void)project_write_file(projectDir, iconPath);  // both refused before anything is drawn: managed folders, links out, outside the project
+    (void)project_write_file(
+        projectDir,
+        iconPath);  // both refused before anything is drawn: managed folders, links out, outside the project
     if (!noForeground) (void)project_write_file(projectDir, fgPath);
     require_usable_manifest(projectDir);
 
@@ -412,12 +475,14 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
     // is read, so it is an input.
     std::vector<std::string> fonts;
     for (const Layer& l : spec.layers)
-        if (l.type == "text" && !l.font.empty() && !starts_with(l.font, "builtin:") && std::find(fonts.begin(), fonts.end(), recipe_path(l.font)) == fonts.end())
+        if (l.type == "text" && !l.font.empty() && !starts_with(l.font, "builtin:") &&
+            std::find(fonts.begin(), fonts.end(), recipe_path(l.font)) == fonts.end())
             fonts.push_back(recipe_path(l.font));
     Json setArgs = recipe_args(a, {{"path", iconPath}, {"foreground", noForeground ? Json(false) : Json(fgPath)}});
     if (Json* layers = setArgs.contains("layers") && setArgs["layers"].is_array() ? &setArgs["layers"] : nullptr)
         for (Json& layer : *layers)
-            if (layer.is_object() && layer.contains("font") && layer["font"].is_string() && !starts_with(layer["font"].get<std::string>(), "builtin:"))
+            if (layer.is_object() && layer.contains("font") && layer["font"].is_string() &&
+                !starts_with(layer["font"].get<std::string>(), "builtin:"))
                 layer["font"] = recipe_path(layer["font"].get<std::string>());
     const Json recipe = make_recipe(projectDir, "assets.draw_icon", std::move(setArgs), fonts);
     write_png_file(projectDir, iconPath, icon, recipe);
@@ -439,13 +504,17 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
         }
         if (changed) {
             auto saved = save_export_settings(projectDir, upd);
-            if (saved.ok()) result["factoriaJsonUpdated"] = true;
-            else warnings.push_back("factoria.json was not updated: " + saved.error().message);
+            if (saved.ok())
+                result["factoriaJsonUpdated"] = true;
+            else
+                warnings.push_back("factoria.json was not updated: " + saved.error().message);
         }
         if (!noForeground && spec.shape != "transparent" && upd.android.adaptiveIcon.background == "#FFFFFF")
-            next.push_back("Android: set export.android.adaptiveIcon.background to \"" + hex_of(spec.color) + "\" so the adaptive icon sits on the same colour.");
+            next.push_back("Android: set export.android.adaptiveIcon.background to \"" + hex_of(spec.color) +
+                           "\" so the adaptive icon sits on the same colour.");
     }
-    next.push_back("Look at the PNGs before shipping; change the description and call assets.draw_icon again (it replaces the files).");
+    next.push_back("Look at the PNGs before shipping; change the description and call assets.draw_icon again (it "
+                   "replaces the files).");
     result["nextSteps"] = next;
     if (!warnings.empty()) result["warnings"] = warnings;
     return result;
@@ -455,10 +524,13 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
 
 // Title text as a transparent logo image, drawn with the same text rasterizer and Canvas as the icon's text layers: the
 // largest size at which the text (and its outline) fits maxW x maxH, tightly cropped.
-Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline, int maxW, int maxH) {
+Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline,
+                      int maxW, int maxH) {
     auto ref = rasterize_text(text, font, 100.0f);
     if (!ref.ok()) fail("invalid_argument", "assets.draw_capsules logo text: " + ref.error().message, ref.error().hint);
-    if (ref->width <= 0 || ref->height <= 0) fail("invalid_argument", "assets.draw_capsules logo text '" + text + "' has nothing to draw.", "Use a non-empty title.");
+    if (ref->width <= 0 || ref->height <= 0)
+        fail("invalid_argument", "assets.draw_capsules logo text '" + text + "' has nothing to draw.",
+             "Use a non-empty title.");
     const double fit = std::min(double(maxW) / ref->width, double(maxH) / ref->height) * (outline ? 0.9 : 1.0);
     const float em = float(std::max(4.0, 100.0 * fit));
     auto bmp = rasterize_text(text, font, em);
@@ -469,7 +541,8 @@ Image draw_title_logo(const std::string& text, const std::string& font, const Co
     if (outline) {
         std::vector<float> ring(std::size_t(c.width) * c.height, 0.0f);  // widest coverage over the ring of offsets
         for (int k = 0; k < 24; ++k) {
-            const int dx = int(std::lround(ow * std::cos(k * 6.2831853 / 24))), dy = int(std::lround(ow * std::sin(k * 6.2831853 / 24)));
+            const int dx = int(std::lround(ow * std::cos(k * 6.2831853 / 24))),
+                      dy = int(std::lround(ow * std::sin(k * 6.2831853 / 24)));
             for (int y = 0; y < bmp->height; ++y)
                 for (int x = 0; x < bmp->width; ++x) {
                     float& r = ring[std::size_t(y + pad + dy) * c.width + x + pad + dx];
@@ -480,7 +553,8 @@ Image draw_title_logo(const std::string& text, const std::string& font, const Co
             for (int x = 0; x < c.width; ++x) c.over(x, y, *outline, ring[std::size_t(y) * c.width + x]);
     }
     for (int y = 0; y < bmp->height; ++y)
-        for (int x = 0; x < bmp->width; ++x) c.over(x + pad, y + pad, fill, bmp->coverage[std::size_t(y) * bmp->width + x] / 255.0f);
+        for (int x = 0; x < bmp->width; ++x)
+            c.over(x + pad, y + pad, fill, bmp->coverage[std::size_t(y) * bmp->width + x] / 255.0f);
     return c.image();
 }
 
@@ -489,7 +563,8 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
     info.name = "assets.draw_icon";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and text, no image provider needed.";
+    info.summary = "Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and "
+                   "text, no image provider needed.";
     info.description =
         "Draws on the CPU (anti-aliased, identical everywhere, works headless): a background plus layers "
         "drawn in order. Writes the 1024x1024 icon at `path` (default: factoria.json `icon`, else "
@@ -502,8 +577,9 @@ void register_draw_icon_command(CommandRegistry& registry, const std::string& pr
         "the same units (shapes may reach outside 0..100: the icon crops them).\n"
         "\n"
         "Example: "
-        "{\"background\":{\"color\":\"#141428\",\"shape\":\"rounded\"},\"layers\":[{\"type\":\"circle\",\"x\":50,\"y\":50,\"radius\":28,\"fill\":\"#ffcc44\",\"outline\":\"#ffffff\"},{\"type\":\"text\",\"text\":\"K\",\"x\":50,\"y\":50,\"size\":34,\"fill\":\"#141428\"}]}."
-        FA_COMMAND_DETAILS
+        "{\"background\":{\"color\":\"#141428\",\"shape\":\"rounded\"},\"layers\":[{\"type\":\"circle\",\"x\":50,\"y\":"
+        "50,\"radius\":28,\"fill\":\"#ffcc44\",\"outline\":\"#ffffff\"},{\"type\":\"text\",\"text\":\"K\",\"x\":50,"
+        "\"y\":50,\"size\":34,\"fill\":\"#141428\"}]}." FA_COMMAND_DETAILS
         "Layer types: rect {x,y,w,h} (x,y = top-left), roundRect {x,y,w,h,radius}, circle {x,y,radius} (x,y "
         "= centre), ellipse {x,y,rx,ry}, polygon {points:[[x,y],...]} and text {text,x,y,size,font}: x,y = "
         "centre of the text, size = em height, font = a project .ttf (default DejaVu Sans), one line, no "

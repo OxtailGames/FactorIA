@@ -31,12 +31,13 @@ namespace fa::ai {
 
 // The price of one generating call.
 struct AssetEstimate {
-    bool free = false;               // nothing is charged: the fake provider, a local program or server without an assetPricing table
-    std::optional<double> usd;       // the whole call, count included; empty = the provider's price for this kind is unknown
-    int count = 1;                   // how many identical results the call asks for (candidates)
-    bool verified = true;            // false: the figure is the engine's derivation, not a published price
-    std::string basis;               // "2 x 1024x1024 auto at $0.167" or why the price is unknown
-    std::string checked, source;     // the provider's price list: the day it was looked up and where it is published
+    bool free =
+        false;  // nothing is charged: the fake provider, a local program or server without an assetPricing table
+    std::optional<double> usd;  // the whole call, count included; empty = the provider's price for this kind is unknown
+    int count = 1;              // how many identical results the call asks for (candidates)
+    bool verified = true;       // false: the figure is the engine's derivation, not a published price
+    std::string basis;          // "2 x 1024x1024 auto at $0.167" or why the price is unknown
+    std::string checked, source;  // the provider's price list: the day it was looked up and where it is published
     std::string note;
     // 0 for a free call or an unknown price (use `usd` to tell them apart).
     double usd_or_zero() const { return usd.value_or(0.0); }
@@ -138,9 +139,9 @@ private:
 
 // What is about to be made.
 struct AssetCall {
-    std::string command;       // "assets.generate_image"
-    std::string what;          // one line for the person: "a 64x64 image at assets/items/potion.png"
-    std::string prompt;        // what was asked for (shown shortened)
+    std::string command;  // "assets.generate_image"
+    std::string what;     // one line for the person: "a 64x64 image at assets/items/potion.png"
+    std::string prompt;   // what was asked for (shown shortened)
     std::string projectDir;
     std::string provider, model;
     MediaKind kind = MediaKind::Image;

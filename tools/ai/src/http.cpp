@@ -87,8 +87,10 @@ size_t header_cb(char* ptr, size_t size, size_t nmemb, void* user) {
     auto* st = static_cast<CurlState*>(user);
     size_t n = size * nmemb;
     std::string_view line(ptr, n);
-    if (line.rfind("HTTP/", 0) == 0) st->resp->headers.clear();  // new response (redirect / 100-continue)
-    else add_header_line(*st->resp, line);
+    if (line.rfind("HTTP/", 0) == 0)
+        st->resp->headers.clear();  // new response (redirect / 100-continue)
+    else
+        add_header_line(*st->resp, line);
     return n;
 }
 
@@ -136,12 +138,15 @@ HttpResponse curl_request(const HttpRequest& req) {
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "factoria-ai/0.1");
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(req.connectTimeoutSeconds * 1000));
-    if (req.timeoutSeconds > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(req.timeoutSeconds * 1000));
+    if (req.timeoutSeconds > 0)
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(req.timeoutSeconds * 1000));
     // Loopback never goes through a proxy; keep the user's NO_PROXY entries too.
     {
         std::string np = "localhost,127.0.0.1,::1";
-        if (const char* e = std::getenv("NO_PROXY")) np += std::string(",") + e;
-        else if (const char* e2 = std::getenv("no_proxy")) np += std::string(",") + e2;
+        if (const char* e = std::getenv("NO_PROXY"))
+            np += std::string(",") + e;
+        else if (const char* e2 = std::getenv("no_proxy"))
+            np += std::string(",") + e2;
         curl_easy_setopt(curl, CURLOPT_NOPROXY, np.c_str());
     }
     // HTTPS_PROXY etc. are read by libcurl itself.
@@ -185,7 +190,8 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
     std::error_code ec;
     static std::atomic<unsigned> counter{0};
     std::random_device rd;
-    fsys::path dir = fsys::temp_directory_path(ec) / ("factoria-curl-" + std::to_string(rd()) + "-" + std::to_string(counter++));
+    fsys::path dir =
+        fsys::temp_directory_path(ec) / ("factoria-curl-" + std::to_string(rd()) + "-" + std::to_string(counter++));
     fsys::create_directories(dir, ec);
     fsys::path cfg = dir / "curl.cfg", bodyFile = dir / "body.json";
     auto cleanup = [&] { fsys::remove_all(dir, ec); };
@@ -193,8 +199,14 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
         std::string o = "\"";
         for (char c : s) {
             if (c == '\\' || c == '"') o.push_back('\\');
-            if (c == '\n') { o += "\\n"; continue; }
-            if (c == '\r') { o += "\\r"; continue; }
+            if (c == '\n') {
+                o += "\\n";
+                continue;
+            }
+            if (c == '\r') {
+                o += "\\r";
+                continue;
+            }
             o.push_back(c);
         }
         return o + "\"";
@@ -218,17 +230,24 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
     }
     ProcessOptions po;
     po.inheritEnv = plain_inherit_env();  // proxies and certificate files yes, the other providers' keys no
-    po.argv = {"curl", "--silent", "--show-error", "--no-buffer", "--include", "--config", cfg.string(),
-               "--connect-timeout", std::to_string(static_cast<int>(req.connectTimeoutSeconds)),
-               "--location", "--max-redirs", "5"};  // follow redirects, as the libcurl backend does
-    if (req.timeoutSeconds > 0) { po.argv.push_back("--max-time"); po.argv.push_back(std::to_string(static_cast<int>(req.timeoutSeconds))); }
+    po.argv = {"curl",        "--silent",          "--show-error",
+               "--no-buffer", "--include",         "--config",
+               cfg.string(),  "--connect-timeout", std::to_string(static_cast<int>(req.connectTimeoutSeconds)),
+               "--location",  "--max-redirs",      "5"};  // follow redirects, as the libcurl backend does
+    if (req.timeoutSeconds > 0) {
+        po.argv.push_back("--max-time");
+        po.argv.push_back(std::to_string(static_cast<int>(req.timeoutSeconds)));
+    }
     {
         std::string np = "localhost,127.0.0.1,::1";
         if (const char* e = std::getenv("NO_PROXY")) np += std::string(",") + e;
         po.argv.push_back("--noproxy");
         po.argv.push_back(np);
     }
-    if (req.method != "GET") { po.argv.push_back("--data-binary"); po.argv.push_back("@" + bodyFile.string()); }
+    if (req.method != "GET") {
+        po.argv.push_back("--data-binary");
+        po.argv.push_back("@" + bodyFile.string());
+    }
     po.cancel = req.cancel;
     po.captureStdout = false;
 
@@ -247,7 +266,10 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
                 resp.body.append(data);
             }
         };
-        if (phase == Phase::Body) { deliver(chunk); return; }
+        if (phase == Phase::Body) {
+            deliver(chunk);
+            return;
+        }
         pending.append(chunk);
         for (;;) {
             auto nl = pending.find('\n');
@@ -262,7 +284,10 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
                 resp.status = sp == std::string::npos ? 0 : std::atoi(line.c_str() + sp + 1);
             } else if (line.empty()) {
                 if (resp.status >= 100 && resp.status < 200) continue;  // 100-continue: next block follows
-                if (proxyBlock) { proxyBlock = false; continue; }       // proxy CONNECT reply: real response follows
+                if (proxyBlock) {
+                    proxyBlock = false;
+                    continue;
+                }  // proxy CONNECT reply: real response follows
                 if (resp.status >= 300 && resp.status < 400 && !resp.header("location").empty()) continue;  // followed
                 phase = Phase::Body;
                 std::string rest = std::move(pending);
@@ -278,9 +303,19 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
     po.onStderrLine = [&](std::string_view l) { errText += std::string(l) + "\n"; };
     auto run = run_process(po);
     cleanup();
-    if (!run) { resp.error = run.error().message; return resp; }
-    if (run->cancelled) { resp.cancelled = true; resp.error = "cancelled"; return resp; }
-    if (aborted) { resp.error = "aborted by caller"; return resp; }
+    if (!run) {
+        resp.error = run.error().message;
+        return resp;
+    }
+    if (run->cancelled) {
+        resp.cancelled = true;
+        resp.error = "cancelled";
+        return resp;
+    }
+    if (aborted) {
+        resp.error = "aborted by caller";
+        return resp;
+    }
     if (run->exitCode != 0 && resp.status == 0) {
         resp.error = std::string(fa::trim(errText));
         if (resp.error.empty()) resp.error = "curl exited with code " + std::to_string(run->exitCode);

@@ -21,7 +21,8 @@ double hull_volume(const ModelHull& h) {
     double v = 0;
     for (std::size_t i = 0; i + 2 < h.indices.size(); i += 3) {
         const Vec3 a = h.points[h.indices[i]], b = h.points[h.indices[i + 1]], c = h.points[h.indices[i + 2]];
-        v += double(a.x) * (double(b.y) * c.z - double(b.z) * c.y) - double(a.y) * (double(b.x) * c.z - double(b.z) * c.x) +
+        v += double(a.x) * (double(b.y) * c.z - double(b.z) * c.y) -
+             double(a.y) * (double(b.x) * c.z - double(b.z) * c.x) +
              double(a.z) * (double(b.x) * c.y - double(b.y) * c.x);
     }
     return std::fabs(v) / 6.0;
@@ -34,7 +35,8 @@ double mesh_volume(const MeshData& m) {
             const float* a = &m.positions[m.indices[i] * 3];
             const float* b = &m.positions[m.indices[i + 1] * 3];
             const float* c = &m.positions[m.indices[i + 2] * 3];
-            v += double(a[0]) * (double(b[1]) * c[2] - double(b[2]) * c[1]) - double(a[1]) * (double(b[0]) * c[2] - double(b[2]) * c[0]) +
+            v += double(a[0]) * (double(b[1]) * c[2] - double(b[2]) * c[1]) -
+                 double(a[1]) * (double(b[0]) * c[2] - double(b[2]) * c[0]) +
                  double(a[2]) * (double(b[0]) * c[1] - double(b[1]) * c[0]);
         }
     return std::fabs(v) / 6.0;
@@ -52,7 +54,8 @@ ModelHull exact_hull(const std::vector<Vec3>& pts) {
     const manifold::MeshGL64 g = m.GetMeshGL64();
     const std::size_t np = std::size_t(g.numProp);
     for (std::size_t v = 0; v < g.vertProperties.size() / np; ++v)
-        h.points.push_back({float(g.vertProperties[v * np]), float(g.vertProperties[v * np + 1]), float(g.vertProperties[v * np + 2])});
+        h.points.push_back({float(g.vertProperties[v * np]), float(g.vertProperties[v * np + 1]),
+                            float(g.vertProperties[v * np + 2])});
     for (std::uint64_t i : g.triVerts) h.indices.push_back(std::uint32_t(i));
     h.volume = hull_volume(h);
     if (h.volume <= 1e-12) return ModelHull{};  // flat points have no hull
@@ -75,8 +78,9 @@ ModelHull model_convex_hull(const std::vector<Vec3>& points, int maxVertices) {
             flat.push_back(p.z);
         }
         std::vector<std::uint32_t> idx(h.indices.size());
-        const std::size_t n = meshopt_simplify(idx.data(), h.indices.data(), h.indices.size(), flat.data(), h.points.size(), 12, target * 3, 1e30f,
-                                               meshopt_SimplifyErrorAbsolute, nullptr);
+        const std::size_t n =
+            meshopt_simplify(idx.data(), h.indices.data(), h.indices.size(), flat.data(), h.points.size(), 12,
+                             target * 3, 1e30f, meshopt_SimplifyErrorAbsolute, nullptr);
         idx.resize(n);
         std::set<std::uint32_t> used(idx.begin(), idx.end());
         std::vector<Vec3> kept;
@@ -93,7 +97,8 @@ MeshData model_hull_mesh(const ModelHull& h) {
     // flat shaded: one vertex per triangle corner
     MeshInput in;
     for (std::size_t t = 0; t < h.indices.size() / 3; ++t) {
-        const Vec3 a = h.points[h.indices[t * 3]], b = h.points[h.indices[t * 3 + 1]], c = h.points[h.indices[t * 3 + 2]];
+        const Vec3 a = h.points[h.indices[t * 3]], b = h.points[h.indices[t * 3 + 1]],
+                   c = h.points[h.indices[t * 3 + 2]];
         const Vec3 n = normalize(cross(b - a, c - a));
         for (const Vec3& p : {a, b, c}) {
             in.positions.insert(in.positions.end(), {p.x, p.y, p.z});
@@ -106,7 +111,9 @@ MeshData model_hull_mesh(const ModelHull& h) {
 }
 
 Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderSpec& spec) {
-    if (m.indices.empty() || m.submeshes.empty()) return make_error("the mesh has no triangles to fit a collider to", "Fit a collider to a mesh that has triangles.");
+    if (m.indices.empty() || m.submeshes.empty())
+        return make_error("the mesh has no triangles to fit a collider to",
+                          "Fit a collider to a mesh that has triangles.");
     if (!spec.part.empty()) {
         // the submeshes of one part (a merged submesh lists its parts joined with "+")
         MeshData sub = m;
@@ -128,8 +135,10 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         if (sub.submeshes.empty()) {
             std::string list;
             for (const std::string& n : names) list += (list.empty() ? "" : ", ") + n;
-            return make_error("the model has no part named '" + spec.part + "' to fit the collider to",
-                              (names.empty() ? std::string("The model has no named parts: give nodes a `part` (docs/MODELING.md).") : did_you_mean(spec.part, names) + " The parts are: " + list + "."));
+            return make_error(
+                "the model has no part named '" + spec.part + "' to fit the collider to",
+                (names.empty() ? std::string("The model has no named parts: give nodes a `part` (docs/MODELING.md).")
+                               : did_you_mean(spec.part, names) + " The parts are: " + list + "."));
         }
         ModelColliderSpec whole = spec;
         whole.part.clear();
@@ -144,8 +153,10 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
     {
         std::set<std::uint32_t> used;
         for (const MeshSubmesh& s : m.submeshes)
-            for (std::size_t i = s.start; i < std::size_t(s.start) + s.count && i < m.indices.size(); ++i) used.insert(m.indices[i]);
-        for (std::uint32_t v : used) pts.push_back({m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]});
+            for (std::size_t i = s.start; i < std::size_t(s.start) + s.count && i < m.indices.size(); ++i)
+                used.insert(m.indices[i]);
+        for (std::uint32_t v : used)
+            pts.push_back({m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]});
     }
     if (pts.empty()) return make_error("the mesh has no drawn triangles", "Check its submeshes.");
     Vec3 lo = pts[0], hi = pts[0];
@@ -180,17 +191,22 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         if (spec.radius > 0) c.radius = float(spec.radius);
         if (spec.height > 0) c.height = float(spec.height);
         if (spec.height > 0 && c.height < 2 * c.radius)
-            c.warnings.push_back(std::format("collider.height {:.3g} is less than twice the radius ({:.3g}), so the capsule was made {:.3g} tall: a capsule is never shorter than its two caps. "
-                                             "Give a height of at least {:.3g}, or a smaller collider.radius, or use shape \"sphere\".",
-                                             double(spec.height), double(c.radius), double(2 * c.radius), double(2 * c.radius)));
+            c.warnings.push_back(
+                std::format("collider.height {:.3g} is less than twice the radius ({:.3g}), so the capsule was made "
+                            "{:.3g} tall: a capsule is never shorter than its two caps. "
+                            "Give a height of at least {:.3g}, or a smaller collider.radius, or use shape \"sphere\".",
+                            double(spec.height), double(c.radius), double(2 * c.radius), double(2 * c.radius)));
         c.height = std::max(c.height, 2 * c.radius);
         if (wide)
-            c.warnings.push_back("the model is wider than it is tall, so a capsule standing on Y clips its sides; use a box or sphere, or lay it out along Y.");
+            c.warnings.push_back("the model is wider than it is tall, so a capsule standing on Y clips its sides; use "
+                                 "a box or sphere, or lay it out along Y.");
         const double r = c.radius;
         c.volume = pi * r * r * (double(c.height) - 2 * r) + 4.0 / 3.0 * pi * r * r * r;
     } else if (spec.shape == "convex") {
         ModelHull h = model_convex_hull(pts, spec.maxVertices);
-        if (h.points.empty()) return make_error("the mesh is flat or has fewer than four distinct points, so it has no convex hull", "Use a box collider for a flat mesh.");
+        if (h.points.empty())
+            return make_error("the mesh is flat or has fewer than four distinct points, so it has no convex hull",
+                              "Use a box collider for a flat mesh.");
         c.volume = h.volume;
         c.hulls.push_back(std::move(h));
     } else if (spec.shape == "decomposed") {
@@ -214,14 +230,16 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         p.m_maxNumVerticesPerCH = std::uint32_t(spec.maxVertices);
         p.m_shrinkWrap = true;
         p.m_fillMode = VHACD::FillMode::FLOOD_FILL;
-        const bool ok = vhacd->Compute(flat.data(), std::uint32_t(flat.size() / 3), idx.data(), std::uint32_t(idx.size() / 3), p);
+        const bool ok =
+            vhacd->Compute(flat.data(), std::uint32_t(flat.size() / 3), idx.data(), std::uint32_t(idx.size() / 3), p);
         if (ok) {
             for (std::uint32_t i = 0; i < vhacd->GetNConvexHulls(); ++i) {
                 VHACD::IVHACD::ConvexHull ch;
                 if (!vhacd->GetConvexHull(i, ch)) continue;
                 std::vector<Vec3> hp;
                 for (const VHACD::Vertex& v : ch.m_points) hp.push_back({float(v.mX), float(v.mY), float(v.mZ)});
-                ModelHull h = model_convex_hull(hp, spec.maxVertices);  // exact hull of V-HACD's points, within the vertex limit
+                ModelHull h =
+                    model_convex_hull(hp, spec.maxVertices);  // exact hull of V-HACD's points, within the vertex limit
                 if (h.points.empty() || h.volume <= 1e-12) continue;
                 c.volume += h.volume;
                 c.hulls.push_back(std::move(h));
@@ -230,22 +248,31 @@ Result<ModelCollider> model_fit_collider(const MeshData& m, const ModelColliderS
         vhacd->Release();
         if (c.hulls.empty()) {
             ModelHull h = model_convex_hull(pts, spec.maxVertices);
-            if (h.points.empty()) return make_error("the mesh could not be decomposed and is too flat for a convex hull", "Use a box collider.");
-            c.warnings.push_back("the decomposition produced no pieces (the mesh may be too thin for the resolution), so the collider is the convex hull; raise `resolution`.");
+            if (h.points.empty())
+                return make_error("the mesh could not be decomposed and is too flat for a convex hull",
+                                  "Use a box collider.");
+            c.warnings.push_back("the decomposition produced no pieces (the mesh may be too thin for the resolution), "
+                                 "so the collider is the convex hull; raise `resolution`.");
             c.volume = h.volume;
             c.hulls.push_back(std::move(h));
             c.shape = "convex";
         }
     } else {
-        return make_error("unknown collider shape '" + spec.shape + "'", "Use none, box, sphere, capsule, convex or decomposed.");
+        return make_error("unknown collider shape '" + spec.shape + "'",
+                          "Use none, box, sphere, capsule, convex or decomposed.");
     }
     if (c.meshVolume > 1e-12) {
         c.volumeRatio = c.volume / c.meshVolume;
         if (c.volumeRatio > 3.0)
-            c.warnings.push_back(std::format("the {} is {:.1f} times the volume of the mesh: things will bump into empty space. Try {}.", c.shape, c.volumeRatio,
-                                             c.shape == "box" || c.shape == "sphere" || c.shape == "capsule" ? "\"convex\" or \"decomposed\"" : "a higher `resolution` or more `maxHulls`"));
+            c.warnings.push_back(
+                std::format("the {} is {:.1f} times the volume of the mesh: things will bump into empty space. Try {}.",
+                            c.shape, c.volumeRatio,
+                            c.shape == "box" || c.shape == "sphere" || c.shape == "capsule"
+                                ? "\"convex\" or \"decomposed\""
+                                : "a higher `resolution` or more `maxHulls`"));
     } else {
-        c.warnings.push_back("the mesh is not a closed solid, so the collider's fit cannot be measured against its volume.");
+        c.warnings.push_back(
+            "the mesh is not a closed solid, so the collider's fit cannot be measured against its volume.");
     }
     return c;
 }

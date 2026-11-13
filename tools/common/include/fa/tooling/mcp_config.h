@@ -20,7 +20,7 @@ struct McpClientOptions {
 // many minutes; without a generous limit Claude Code gives up on a call after 5 minutes without a sign of life and
 // Codex after 60 s. The server also sends progress notifications while such a call runs.
 inline constexpr long long kClaudeCodeMcpToolTimeoutMs = 4LL * 60 * 60 * 1000;  // Claude Code's `timeout`, milliseconds
-inline constexpr int kCodexMcpToolTimeoutSec = 4 * 60 * 60;                      // Codex's `tool_timeout_sec`
+inline constexpr int kCodexMcpToolTimeoutSec = 4 * 60 * 60;                     // Codex's `tool_timeout_sec`
 
 // Claude Code project file `.mcp.json`:
 //   {"mcpServers":{"factoria":{"command":"factoria","args":["mcp","--project","."],"timeout":14400000}}}
@@ -40,16 +40,17 @@ Result<void> write_codex_mcp_config(const std::string& path, const McpClientOpti
 // What a project's `.mcp.json` says about the factoria server, read to tell an AI client that started with an older file
 // (docs/MCP.md, "A client with an older .mcp.json").
 struct ClaudeCodeMcpState {
-    std::string path;                // <project>/.mcp.json
+    std::string path;  // <project>/.mcp.json
     bool exists = false;
-    bool hasServer = false;          // an entry that runs `factoria mcp` (named `serverName`, or any other that runs it)
-    std::string serverName;          // the key of that entry
-    bool hasTimeout = false;         // the entry has a `timeout`
-    long long timeoutMs = 0;         // its value (0 = none)
-    std::int64_t modifiedMs = 0;     // modification time of the file, ms since 1970 UTC (0 = no file)
+    bool hasServer = false;       // an entry that runs `factoria mcp` (named `serverName`, or any other that runs it)
+    std::string serverName;       // the key of that entry
+    bool hasTimeout = false;      // the entry has a `timeout`
+    long long timeoutMs = 0;      // its value (0 = none)
+    std::int64_t modifiedMs = 0;  // modification time of the file, ms since 1970 UTC (0 = no file)
     Json to_json() const;
 };
-ClaudeCodeMcpState read_claude_code_mcp_state(const std::string& projectDir, const std::string& serverName = "factoria");
+ClaudeCodeMcpState read_claude_code_mcp_state(const std::string& projectDir,
+                                              const std::string& serverName = "factoria");
 // Adds the missing `timeout` (kClaudeCodeMcpToolTimeoutMs) to the factoria entry of <project>/.mcp.json and keeps everything
 // else in the file (command, args, other servers, key order). Returns true when it wrote the file, false when there was
 // nothing to do (no file, no factoria entry, or it already has a timeout).

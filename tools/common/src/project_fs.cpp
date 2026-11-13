@@ -18,13 +18,11 @@ using tooling_detail::arg_string;
 
 namespace {
 
-constexpr std::uintmax_t kMaxReadBytes = 1 << 20;     // 1 MiB per fs.read
-constexpr std::uintmax_t kMaxWriteBytes = 8u << 20;   // 8 MiB per fs.write
+constexpr std::uintmax_t kMaxReadBytes = 1 << 20;    // 1 MiB per fs.read
+constexpr std::uintmax_t kMaxWriteBytes = 8u << 20;  // 8 MiB per fs.write
 constexpr std::uintmax_t kMaxSearchFileBytes = 2u << 20;
 
-bool is_binary(const std::string& s) {
-    return s.find('\0') != std::string::npos;
-}
+bool is_binary(const std::string& s) { return s.find('\0') != std::string::npos; }
 
 // fs.list and fs.search skip the tools' folders (.factoria and the version-control folder), except the scratch folder
 // `.factoria/tmp` (fa::fs::kScratchDir), whose files commands may create and delete, so they can be listed there.
@@ -98,8 +96,12 @@ Json str_prop(const char* desc) { return Json::object({{"type", "string"}, {"des
 Json path_prop(const char* kind, const char* desc) {
     return Json::object({{"type", "string"}, {"description", desc}, {"x-fa-path", kind}});
 }
-Json bool_prop(const char* desc, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", desc}}); }
-Json int_prop(const char* desc, long def) { return Json::object({{"type", "integer"}, {"default", def}, {"description", desc}}); }
+Json bool_prop(const char* desc, bool def) {
+    return Json::object({{"type", "boolean"}, {"default", def}, {"description", desc}});
+}
+Json int_prop(const char* desc, long def) {
+    return Json::object({{"type", "integer"}, {"default", def}, {"description", desc}});
+}
 
 }  // namespace
 
@@ -113,13 +115,16 @@ Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::str
                                     fs::ManagedFolders::Allow);
 }
 
-Result<stdfs::path> resolve_write_path(const std::string& projectDir, std::string_view path, fs::WriteRoot root, fs::ManagedFolders managed) {
+Result<stdfs::path> resolve_write_path(const std::string& projectDir, std::string_view path, fs::WriteRoot root,
+                                       fs::ManagedFolders managed) {
     const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
     stdfs::path rootDir(projectDir);
     // The tooling commands know their own project folder (projectDir), which need not be fs::project_root(): the default export
     // folder follows it, a folder set with set_export_dir does not.
-    if (root == fs::WriteRoot::Export) rootDir = fs::export_dir_is_set() ? fs::export_dir() : rootDir / "build" / "export";
-    else if (root == fs::WriteRoot::Save) rootDir = fs::user_dir();
+    if (root == fs::WriteRoot::Export)
+        rootDir = fs::export_dir_is_set() ? fs::export_dir() : rootDir / "build" / "export";
+    else if (root == fs::WriteRoot::Save)
+        rootDir = fs::user_dir();
     return fs::resolve_for_write_in(rootDir, root, path, anywhere, managed);
 }
 
@@ -130,18 +135,21 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.list";
         info.category = "fs";
         info.summary = "List files and folders in the project.";
-        info.description = "Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {\"path\":\"scenes\",\"recursive\":true}";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", path_prop("read", "Folder to list (default: project root).")},
-                                         {"recursive", bool_prop("Descend into subfolders.", false)},
-                                         {"glob", str_prop("Only paths matching this glob, e.g. \"**/*.js\".")},
-                                         {"limit", int_prop("Maximum entries returned.", 500)}})}});
+        info.description = "Project-relative. Hides the tools' folders (.factoria, version control) except the scratch "
+                           "folder .factoria/tmp. Example: {\"path\":\"scenes\",\"recursive\":true}";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties", Json::object({{"path", path_prop("read", "Folder to list (default: project root).")},
+                                          {"recursive", bool_prop("Descend into subfolders.", false)},
+                                          {"glob", str_prop("Only paths matching this glob, e.g. \"**/*.js\".")},
+                                          {"limit", int_prop("Maximum entries returned.", 500)}})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             stdfs::path dir = resolve_or_throw(projectDir, arg_string(args, "path", false, "."));
             std::error_code ec;
             if (!stdfs::is_directory(os(dir), ec))
-                fail("not_found", "'" + rel_of(root, dir) + "' is not a directory.", "Use fs.list on the parent folder to see what exists.");
+                fail("not_found", "'" + rel_of(root, dir) + "' is not a directory.",
+                     "Use fs.list on the parent folder to see what exists.");
             bool recursive = arg_bool(args, "recursive", false);
             std::string glob = arg_string(args, "glob", false);
             size_t limit = size_t(std::max<long>(1, arg_int(args, "limit", 500)));
@@ -180,31 +188,40 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.summary = "Read a text file (optionally a line range).";
         info.description = "Example: {\"path\":\"scripts/player.js\",\"startLine\":1,\"endLine\":80}. "
                            "Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", path_prop("read", "Project-relative file path.")},
-                                         {"startLine", int_prop("First line (1-based).", 1)},
-                                         {"endLine", int_prop("Last line, inclusive (default: end of file).", 0)},
-                                         {"numbered", bool_prop("Prefix every line with its number and a tab.", false)}})},
-            {"required", Json::array({"path"})}});
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties",
+              Json::object({{"path", path_prop("read", "Project-relative file path.")},
+                            {"startLine", int_prop("First line (1-based).", 1)},
+                            {"endLine", int_prop("Last line, inclusive (default: end of file).", 0)},
+                            {"numbered", bool_prop("Prefix every line with its number and a tab.", false)}})},
+             {"required", Json::array({"path"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::error_code ec;
-            if (!stdfs::exists(os(p), ec)) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list to see available files.");
-            if (stdfs::is_directory(os(p), ec)) fail("invalid_argument", "'" + rel + "' is a directory.", "Use fs.list to list it.");
+            if (!stdfs::exists(os(p), ec))
+                fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list to see available files.");
+            if (stdfs::is_directory(os(p), ec))
+                fail("invalid_argument", "'" + rel + "' is a directory.", "Use fs.list to list it.");
             if (stdfs::file_size(os(p), ec) > kMaxReadBytes)
-                fail("too_large", "File is larger than 1 MiB.", "Read a slice with startLine/endLine or use fs.search.");
+                fail("too_large", "File is larger than 1 MiB.",
+                     "Read a slice with startLine/endLine or use fs.search.");
             auto text = tooling_detail::read_file(p);
             if (!text) fail("failed", "Cannot read '" + rel + "'.");
-            if (is_binary(*text)) fail("binary_file", "'" + rel + "' is a binary file.", "Only text files can be read.");
+            if (is_binary(*text))
+                fail("binary_file", "'" + rel + "' is a binary file.", "Only text files can be read.");
             long start = std::max<long>(1, arg_int(args, "startLine", 1));
             long end = arg_int(args, "endLine", 0);
             if (end <= 0) end = LONG_MAX;
             long total = 0;
             std::string content = lines_slice(*text, start, end, arg_bool(args, "numbered", false), &total);
-            return Json::object({{"path", rel_of(root, p)}, {"content", content}, {"startLine", start},
-                                 {"totalLines", total}, {"bytes", text->size()}});
+            return Json::object({{"path", rel_of(root, p)},
+                                 {"content", content},
+                                 {"startLine", start},
+                                 {"totalLines", total},
+                                 {"bytes", text->size()}});
         });
     }
     // --------------------------------------------------------------- write
@@ -213,47 +230,65 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.write";
         info.category = "fs";
         info.readOnly = false;
-        info.summary = "Create or overwrite a file (text, or binary via base64; parent folders are created; the write is atomic).";
-        info.description = "Example: {\"path\":\"scripts/enemy.js\",\"content\":\"export default class ...\"}. "
-                           "For binary files such as PNG sprites pass encoding=\"base64\" and the base64 of the bytes as content "
-                           "(e.g. {\"path\":\"sprites/hero.png\",\"encoding\":\"base64\",\"content\":\"iVBORw0KGgo...\"}). "
-                           "For small changes to an existing file prefer fs.edit. .json files are checked for syntax "
-                           "and a warning is returned if invalid; run project.validate afterwards. The file is replaced atomically (a temporary file is renamed over it), so hot reload never reads a half-written file. Writing into .factoria/ is refused except "
-                           ".factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
-                                         {"content", str_prop("Full new file content (base64 text when encoding=base64).")},
-                                         {"encoding", Json::object({{"type", "string"}, {"enum", Json::array({"utf8", "base64"})},
+        info.summary =
+            "Create or overwrite a file (text, or binary via base64; parent folders are created; the write is atomic).";
+        info.description =
+            "Example: {\"path\":\"scripts/enemy.js\",\"content\":\"export default class ...\"}. "
+            "For binary files such as PNG sprites pass encoding=\"base64\" and the base64 of the bytes as content "
+            "(e.g. {\"path\":\"sprites/hero.png\",\"encoding\":\"base64\",\"content\":\"iVBORw0KGgo...\"}). "
+            "For small changes to an existing file prefer fs.edit. .json files are checked for syntax "
+            "and a warning is returned if invalid; run project.validate afterwards. The file is replaced atomically (a "
+            "temporary file is renamed over it), so hot reload never reads a half-written file. Writing into "
+            ".factoria/ is refused except "
+            ".factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties",
+              Json::object(
+                  {{"path", path_prop("write", "Project-relative file path.")},
+                   {"content", str_prop("Full new file content (base64 text when encoding=base64).")},
+                   {"encoding", Json::object({{"type", "string"},
+                                              {"enum", Json::array({"utf8", "base64"})},
                                               {"default", "utf8"},
-                                              {"description", "\"utf8\" writes content as text; \"base64\" decodes it and writes the bytes (images, audio)."}})},
-                                         {"overwrite", bool_prop("Allow replacing an existing file.", true)}})},
-            {"required", Json::array({"path", "content"})}});
+                                              {"description", "\"utf8\" writes content as text; \"base64\" decodes it "
+                                                              "and writes the bytes (images, audio)."}})},
+                   {"overwrite", bool_prop("Allow replacing an existing file.", true)}})},
+             {"required", Json::array({"path", "content"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
             std::string content = arg_string(args, "content", true);
             std::string encoding = arg_string(args, "encoding", false, "utf8");
             if (encoding != "utf8" && encoding != "base64")
-                fail("invalid_argument", "Unknown encoding '" + encoding + "'.", "Use \"utf8\" (default) or \"base64\".");
+                fail("invalid_argument", "Unknown encoding '" + encoding + "'.",
+                     "Use \"utf8\" (default) or \"base64\".");
             if (encoding == "base64") {
                 // base64_decode skips unknown characters, so validate first and point at the bad one.
                 size_t pad = 0;
                 for (size_t i = 0; i < content.size(); ++i) {
                     char c = content[i];
-                    bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '+' || c == '/' || c == '-' || c == '_';
-                    if (c == '=') { ++pad; continue; }
+                    bool ok =
+                        std::isalnum(static_cast<unsigned char>(c)) || c == '+' || c == '/' || c == '-' || c == '_';
+                    if (c == '=') {
+                        ++pad;
+                        continue;
+                    }
                     if (std::isspace(static_cast<unsigned char>(c))) continue;
                     if (!ok || pad)
-                        fail("invalid_argument", std::string("Invalid base64 at character ") + std::to_string(i) + " ('" + c + "').",
+                        fail("invalid_argument",
+                             std::string("Invalid base64 at character ") + std::to_string(i) + " ('" + c + "').",
                              pad ? "'=' padding may only appear at the very end."
-                                 : "Use only A-Z a-z 0-9 + / (and optional trailing '='); no data: prefix, quotes or other text.");
+                                 : "Use only A-Z a-z 0-9 + / (and optional trailing '='); no data: prefix, quotes or "
+                                   "other text.");
                 }
                 auto bytes = base64_decode(content);
                 content.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             }
             stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
-            if (r == ".") fail("invalid_argument", "Writing to '" + rel + "' is not allowed.", "Give a file path inside the project.");
+            if (r == ".")
+                fail("invalid_argument", "Writing to '" + rel + "' is not allowed.",
+                     "Give a file path inside the project.");
             if (content.size() > kMaxWriteBytes) fail("too_large", "Content larger than 8 MiB.");
             std::error_code ec;
             bool existed = stdfs::exists(os(p), ec);
@@ -277,24 +312,28 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.category = "fs";
         info.readOnly = false;
         info.summary = "Replace exact text in a file (must match exactly once unless replaceAll).";
-        info.description = "Example: {\"path\":\"scripts/player.js\",\"find\":\"speed = 300\",\"replace\":\"speed = 360\"}. "
-                           "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. "
-                           "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
-                                         {"find", str_prop("Exact text to find (whitespace-sensitive).")},
-                                         {"replace", str_prop("Replacement text (may be empty to delete).")},
-                                         {"replaceAll", bool_prop("Replace every occurrence.", false)}})},
-            {"required", Json::array({"path", "find", "replace"})}});
+        info.description =
+            "Example: {\"path\":\"scripts/player.js\",\"find\":\"speed = 300\",\"replace\":\"speed = 360\"}. "
+            "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. "
+            "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
+                                          {"find", str_prop("Exact text to find (whitespace-sensitive).")},
+                                          {"replace", str_prop("Replacement text (may be empty to delete).")},
+                                          {"replaceAll", bool_prop("Replace every occurrence.", false)}})},
+             {"required", Json::array({"path", "find", "replace"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
             std::string find = arg_string(args, "find", true), repl = arg_string(args, "replace", true);
-            if (find.empty()) fail("invalid_argument", "'find' must not be empty.", "Use fs.write to create or replace whole files.");
+            if (find.empty())
+                fail("invalid_argument", "'find' must not be empty.", "Use fs.write to create or replace whole files.");
             stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
             auto text = tooling_detail::read_file(p);
-            if (!text) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list, or fs.write to create it.");
+            if (!text)
+                fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list, or fs.write to create it.");
             if (is_binary(*text)) fail("binary_file", "'" + rel + "' is a binary file.");
             std::vector<size_t> positions;
             for (size_t pos = text->find(find); pos != std::string::npos; pos = text->find(find, pos + find.size()))
@@ -309,7 +348,9 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                     auto ln = 1 + std::count(text->begin(), text->begin() + std::ptrdiff_t(pos), '\n');
                     lines += (lines.empty() ? "" : ", ") + std::to_string(ln);
                 }
-                fail("ambiguous", "Text matches " + std::to_string(positions.size()) + " places in '" + rel + "' (lines " + lines + ").",
+                fail("ambiguous",
+                     "Text matches " + std::to_string(positions.size()) + " places in '" + rel + "' (lines " + lines +
+                         ").",
                      "Include more surrounding context in 'find' so it matches once, or pass replaceAll=true.");
             }
             std::string out;
@@ -337,16 +378,18 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.search";
         info.category = "fs";
         info.summary = "Search text in project files (substring or regex).";
-        info.description = "Skips binary files and .factoria/.git. Example: {\"query\":\"RigidBody2D\",\"glob\":\"**/*.json\"} "
-                           "or {\"query\":\"onUpdate\\\\(\",\"regex\":true}.";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"query", str_prop("Text or regular expression (ECMAScript).")},
-                                         {"regex", bool_prop("Treat query as a regular expression.", false)},
-                                         {"caseSensitive", bool_prop("Case-sensitive match.", false)},
-                                         {"path", path_prop("read", "Folder to search (default: project root).")},
-                                         {"glob", str_prop("Only files matching this glob, e.g. \"**/*.js\".")},
-                                         {"limit", int_prop("Maximum matches returned.", 100)}})},
-            {"required", Json::array({"query"})}});
+        info.description =
+            "Skips binary files and .factoria/.git. Example: {\"query\":\"RigidBody2D\",\"glob\":\"**/*.json\"} "
+            "or {\"query\":\"onUpdate\\\\(\",\"regex\":true}.";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties", Json::object({{"query", str_prop("Text or regular expression (ECMAScript).")},
+                                          {"regex", bool_prop("Treat query as a regular expression.", false)},
+                                          {"caseSensitive", bool_prop("Case-sensitive match.", false)},
+                                          {"path", path_prop("read", "Folder to search (default: project root).")},
+                                          {"glob", str_prop("Only files matching this glob, e.g. \"**/*.js\".")},
+                                          {"limit", int_prop("Maximum matches returned.", 100)}})},
+             {"required", Json::array({"query"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string query = arg_string(args, "query", true);
@@ -376,7 +419,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             } else {
                 for (stdfs::recursive_directory_iterator it(os(dir), ec), end; !ec && it != end; it.increment(ec)) {
                     std::string rel = rel_of(root, it->path());
-                    if (in_hidden_dir(rel)) { it.disable_recursion_pending(); continue; }
+                    if (in_hidden_dir(rel)) {
+                        it.disable_recursion_pending();
+                        continue;
+                    }
                     if (!it->is_regular_file(ec)) continue;
                     if (!glob.empty() && !glob_match(glob, rel)) continue;
                     paths.push_back(rel);
@@ -394,15 +440,22 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 long n = 0;
                 while (std::getline(in, line)) {
                     ++n;
-                    bool hit = useRe ? std::regex_search(line, re) : (cs ? line : to_lower(line)).find(needle) != std::string::npos;
+                    bool hit = useRe ? std::regex_search(line, re)
+                                     : (cs ? line : to_lower(line)).find(needle) != std::string::npos;
                     if (!hit) continue;
-                    if (matches.size() >= limit) { truncated = true; break; }
+                    if (matches.size() >= limit) {
+                        truncated = true;
+                        break;
+                    }
                     if (line.size() > 300) line = line.substr(0, 300) + "...";
                     matches.push_back(Json::object({{"path", rel}, {"line", n}, {"text", line}}));
                 }
                 if (truncated) break;
             }
-            return Json::object({{"matches", matches}, {"count", matches.size()}, {"filesScanned", filesScanned}, {"truncated", truncated}});
+            return Json::object({{"matches", matches},
+                                 {"count", matches.size()},
+                                 {"filesScanned", filesScanned},
+                                 {"truncated", truncated}});
         });
     }
     // -------------------------------------------------------------- delete
@@ -412,26 +465,30 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.category = "fs";
         info.readOnly = false;
         info.summary = "Delete a file or folder from the project.";
-        info.description = "Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable "
-                           "unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) "
-                           "only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may "
-                           "write to. Example: {\"path\":\"scripts/old.js\"} or {\"path\":\".factoria/tmp\",\"recursive\":true}";
-        info.inputSchema = Json::object({{"type", "object"},
-            {"properties", Json::object({{"path", path_prop("write", "Project-relative path.")},
-                                         {"recursive", bool_prop("Delete a folder and everything in it.", false)}})},
-            {"required", Json::array({"path"})}});
+        info.description =
+            "Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable "
+            "unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) "
+            "only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may "
+            "write to. Example: {\"path\":\"scripts/old.js\"} or {\"path\":\".factoria/tmp\",\"recursive\":true}";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"properties", Json::object({{"path", path_prop("write", "Project-relative path.")},
+                                          {"recursive", bool_prop("Delete a folder and everything in it.", false)}})},
+             {"required", Json::array({"path"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
             stdfs::path p = resolve_writable_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
             if (r == "." || r == "factoria.json" || r == "ENGINE_FEEDBACK.json")
-                fail("invalid_argument", "Deleting '" + rel + "' is not allowed.", "The project root, factoria.json and ENGINE_FEEDBACK.json are protected.");
+                fail("invalid_argument", "Deleting '" + rel + "' is not allowed.",
+                     "The project root, factoria.json and ENGINE_FEEDBACK.json are protected.");
             std::error_code ec;
             if (!stdfs::exists(stdfs::symlink_status(os(p), ec))) fail("not_found", "'" + rel + "' does not exist.");
             if (stdfs::is_directory(os(p), ec) && !stdfs::is_symlink(os(p), ec)) {
                 if (!arg_bool(args, "recursive", false))
-                    fail("invalid_argument", "'" + rel + "' is a folder.", "Pass recursive=true to delete it with its contents.");
+                    fail("invalid_argument", "'" + rel + "' is a folder.",
+                         "Pass recursive=true to delete it with its contents.");
                 auto n = fs::remove_tree(p, ec);
                 if (ec) fail("failed", "Delete failed: " + ec.message());
                 return Json::object({{"path", r}, {"deleted", n}});
@@ -441,13 +498,12 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             return Json::object({{"path", r}, {"deleted", 1}});
         });
     }
-    declare_command_capabilities(registry, {
-        {"fs.list", capability_sets::reads()},
-        {"fs.read", capability_sets::reads()},
-        {"fs.search", capability_sets::reads()},
-        {"fs.write", capability_sets::writes_project()},
-        {"fs.edit", capability_sets::writes_project()},
-        {"fs.delete", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"fs.list", capability_sets::reads()},
+                                            {"fs.read", capability_sets::reads()},
+                                            {"fs.search", capability_sets::reads()},
+                                            {"fs.write", capability_sets::writes_project()},
+                                            {"fs.edit", capability_sets::writes_project()},
+                                            {"fs.delete", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

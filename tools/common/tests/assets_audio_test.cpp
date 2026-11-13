@@ -50,7 +50,8 @@ double seam_ratio(const Wav& w) {
 
 TEST_CASE("assets.generate_loop: noise beds are seamless, deterministic, the asked length and peak, with provenance") {
     AssetsProject p;
-    const Json wind = {{"kind", "noise"}, {"color", "brown"}, {"cutoff", 900}, {"gusts", 0.6}, {"seconds", 4}, {"sampleRate", 16000}, {"seed", 5}};
+    const Json wind = {{"kind", "noise"}, {"color", "brown"},    {"cutoff", 900}, {"gusts", 0.6},
+                       {"seconds", 4},    {"sampleRate", 16000}, {"seed", 5}};
     Json args = wind;
     args["path"] = "assets/audio/wind.wav";
     const Json r = p.ok("assets.generate_loop", args);
@@ -60,7 +61,8 @@ TEST_CASE("assets.generate_loop: noise beds are seamless, deterministic, the ask
     CHECK(w.rate == 16000);
     CHECK(w.s.size() == 64000);
     CHECK(peak_of(w) == doctest::Approx(0.6).epsilon(0.01));
-    CHECK(seam_ratio(w) < 4.0);  // the jump across the loop point is no bigger than the sample-to-sample movement elsewhere
+    CHECK(seam_ratio(w) <
+          4.0);  // the jump across the loop point is no bigger than the sample-to-sample movement elsewhere
 
     args["path"] = "assets/audio/wind2.wav";
     p.ok("assets.generate_loop", args);
@@ -78,14 +80,24 @@ TEST_CASE("assets.generate_loop: noise beds are seamless, deterministic, the ask
 
     // pink and white beds, a fire with crackles and a clock of ticks alone
     for (const char* color : {"white", "pink"}) {
-        p.ok("assets.generate_loop", {{"path", std::string("assets/audio/") + color + ".wav"}, {"kind", "noise"}, {"color", color}, {"cutoff", 3000}, {"seconds", 2}});
+        p.ok("assets.generate_loop", {{"path", std::string("assets/audio/") + color + ".wav"},
+                                      {"kind", "noise"},
+                                      {"color", color},
+                                      {"cutoff", 3000},
+                                      {"seconds", 2}});
         const Wav n = read_wav(read_all(p.file(std::string("assets/audio/") + color + ".wav")));
         CHECK(n.s.size() == 44100);
         CHECK(seam_ratio(n) < 6.0);
     }
-    p.ok("assets.generate_loop", {{"path", "assets/audio/fire.wav"}, {"kind", "noise"}, {"cutoff", 600}, {"crackles", 5}, {"seconds", 3}});
+    p.ok("assets.generate_loop",
+         {{"path", "assets/audio/fire.wav"}, {"kind", "noise"}, {"cutoff", 600}, {"crackles", 5}, {"seconds", 3}});
     const Wav clock = [&] {
-        p.ok("assets.generate_loop", {{"path", "assets/audio/clock.wav"}, {"kind", "noise"}, {"level", 0}, {"tick", 1}, {"seconds", 4}, {"sampleRate", 11025}});
+        p.ok("assets.generate_loop", {{"path", "assets/audio/clock.wav"},
+                                      {"kind", "noise"},
+                                      {"level", 0},
+                                      {"tick", 1},
+                                      {"seconds", 4},
+                                      {"sampleRate", 11025}});
         return read_wav(read_all(p.file("assets/audio/clock.wav")));
     }();
     CHECK(clock.s.size() == 44100);
@@ -123,13 +135,24 @@ TEST_CASE("assets.generate_loop: drones and chord progressions, as WAV and as Og
     CHECK(loud->peakDb < 0);
 
     // a single chord as a drone with a note in Hz and the seconds given
-    p.ok("assets.generate_loop", {{"path", "assets/music/drone.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"A2", 110.0, "E3"})})}, {"seconds", 3}});
+    p.ok("assets.generate_loop", {{"path", "assets/music/drone.wav"},
+                                  {"kind", "drone"},
+                                  {"chords", Json::array({Json::array({"A2", 110.0, "E3"})})},
+                                  {"seconds", 3}});
     CHECK(read_wav(read_all(p.file("assets/music/drone.wav"))).s.size() == 66150);
 
     // a note held under the whole loop changes the sound; a wrong one is an error
-    p.ok("assets.generate_loop", {{"path", "assets/music/under.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"A2", "E3"})})}, {"seconds", 3}, {"underNote", "D1"}});
+    p.ok("assets.generate_loop", {{"path", "assets/music/under.wav"},
+                                  {"kind", "drone"},
+                                  {"chords", Json::array({Json::array({"A2", "E3"})})},
+                                  {"seconds", 3},
+                                  {"underNote", "D1"}});
     CHECK(read_all(p.file("assets/music/under.wav")) != read_all(p.file("assets/music/drone.wav")));
-    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/music/u2.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"A2"})})}, {"underNote", "H9"}}).ok);
+    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/music/u2.wav"},
+                                                {"kind", "drone"},
+                                                {"chords", Json::array({Json::array({"A2"})})},
+                                                {"underNote", "H9"}})
+                    .ok);
 }
 
 TEST_CASE("assets.generate_loop: wrong arguments are errors that say what to change") {
@@ -141,16 +164,27 @@ TEST_CASE("assets.generate_loop: wrong arguments are errors that say what to cha
     CHECK_FALSE(p.call("assets.generate_loop", {{"path", "sounds/a.wav"}, {"kind", "noise"}}).ok);
     CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"color", "grey"}}).ok);
     CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"seconds", 500}}).ok);
-    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"level", 0}}).ok);  // silence
-    CommandResult mixed = p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"chords", Json::array({Json::array({"A3"})})}});
+    CHECK_FALSE(
+        p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"level", 0}}).ok);  // silence
+    CommandResult mixed =
+        p.call("assets.generate_loop",
+               {{"path", "assets/a.wav"}, {"kind", "noise"}, {"chords", Json::array({Json::array({"A3"})})}});
     REQUIRE_FALSE(mixed.ok);
     CHECK(mixed.error["message"].get<std::string>().find("/chords") != std::string::npos);
     CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "drone"}}).ok);  // no chords
-    CommandResult note = p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"H3"})})}});
+    CommandResult note =
+        p.call("assets.generate_loop",
+               {{"path", "assets/a.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"H3"})})}});
     REQUIRE_FALSE(note.ok);
     CHECK(note.error["message"].get<std::string>().find("/chords/0/0") != std::string::npos);
-    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "drone"}, {"chords", Json::array({Json::array({"A3"})})}, {"chordSeconds", 2}, {"seconds", 7}}).ok);
-    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"cutof", 100}}).ok);  // unknown key
+    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"},
+                                                {"kind", "drone"},
+                                                {"chords", Json::array({Json::array({"A3"})})},
+                                                {"chordSeconds", 2},
+                                                {"seconds", 7}})
+                    .ok);
+    CHECK_FALSE(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"cutof", 100}})
+                    .ok);  // unknown key
     CHECK_FALSE(p.exists("assets/a.wav"));
     p.ok("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}, {"seconds", 1}});
     CHECK(p.call("assets.generate_loop", {{"path", "assets/a.wav"}, {"kind", "noise"}}).error["code"] == "exists");
@@ -159,7 +193,12 @@ TEST_CASE("assets.generate_loop: wrong arguments are errors that say what to cha
 
 TEST_CASE("assets.convert_audio: a WAV becomes a smaller Ogg of the same length, with the provenance carried over") {
     AssetsProject p;
-    p.ok("assets.generate_loop", {{"path", "assets/audio/rain.wav"}, {"kind", "noise"}, {"color", "pink"}, {"cutoff", 4000}, {"seconds", 5}, {"seed", 2}});
+    p.ok("assets.generate_loop", {{"path", "assets/audio/rain.wav"},
+                                  {"kind", "noise"},
+                                  {"color", "pink"},
+                                  {"cutoff", 4000},
+                                  {"seconds", 5},
+                                  {"seed", 2}});
     const std::string wav = read_all(p.file("assets/audio/rain.wav"));
     const Json r = p.ok("assets.convert_audio", {{"path", "assets/audio/rain.wav"}});
     CHECK(r["path"] == "assets/audio/rain.ogg");
@@ -179,10 +218,12 @@ TEST_CASE("assets.convert_audio: a WAV becomes a smaller Ogg of the same length,
     CHECK(prov["notes"].get<std::string>().find("Converted from assets/audio/rain.wav") != std::string::npos);
 
     CHECK(p.call("assets.convert_audio", {{"path", "assets/audio/rain.wav"}}).error["code"] == "exists");
-    p.ok("assets.convert_audio", {{"path", "assets/audio/rain.wav"}, {"to", "assets/music/rain_hq.ogg"}, {"quality", 1.0}});
+    p.ok("assets.convert_audio",
+         {{"path", "assets/audio/rain.wav"}, {"to", "assets/music/rain_hq.ogg"}, {"quality", 1.0}});
     CHECK(read_all(p.file("assets/music/rain_hq.ogg")).size() > ogg.size());
     CHECK_FALSE(p.call("assets.convert_audio", {{"path", "assets/audio/none.wav"}}).ok);
-    CHECK_FALSE(p.call("assets.convert_audio", {{"path", "assets/audio/rain.ogg"}, {"to", "assets/x.ogg"}}).ok);  // not a WAV
+    CHECK_FALSE(
+        p.call("assets.convert_audio", {{"path", "assets/audio/rain.ogg"}, {"to", "assets/x.ogg"}}).ok);  // not a WAV
     CHECK_FALSE(p.call("assets.convert_audio", {{"path", "assets/audio/rain.wav"}, {"to", "assets/x.mp3"}}).ok);
     CHECK_FALSE(p.call("assets.convert_audio", {{"path", "assets/audio/rain.wav"}, {"quality", 2}}).ok);
     write_all(p.file("assets/audio/bad.wav"), "not a wav");

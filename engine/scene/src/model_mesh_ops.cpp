@@ -66,14 +66,16 @@ std::vector<std::uint32_t> cluster_points(const std::vector<Vec3>& points, float
     std::vector<std::uint32_t> id(points.size(), 0);
     const float cell = std::max(distance, 1e-9f);
     const float inv = 1.0f / cell;
-    std::unordered_map<CellKey, std::vector<std::uint32_t>, CellHash> grid;  // cell -> cluster ids whose first point is in it
-    std::vector<std::uint32_t> first;                                          // cluster id -> its first point
+    std::unordered_map<CellKey, std::vector<std::uint32_t>, CellHash>
+        grid;                          // cell -> cluster ids whose first point is in it
+    std::vector<std::uint32_t> first;  // cluster id -> its first point
     std::vector<Vec3> sum;
     std::vector<std::uint32_t> count;
     const float d2 = distance * distance;
     for (std::size_t i = 0; i < points.size(); ++i) {
         const Vec3& p = points[i];
-        const CellKey c{std::int64_t(std::floor(p.x * inv)), std::int64_t(std::floor(p.y * inv)), std::int64_t(std::floor(p.z * inv))};
+        const CellKey c{std::int64_t(std::floor(p.x * inv)), std::int64_t(std::floor(p.y * inv)),
+                        std::int64_t(std::floor(p.z * inv))};
         std::uint32_t found = UINT32_MAX;
         float best = 0;
         for (std::int64_t dx = -1; dx <= 1; ++dx)
@@ -172,7 +174,8 @@ std::vector<Vec3> corner_normals(const Soup& s, float creaseDeg) {
     {
         std::vector<std::uint32_t> cursor(start.begin(), start.end() - 1);
         for (std::size_t t = 0; t < tc; ++t)
-            for (int k = 0; k < 3; ++k) list[cursor[s.tris[t][std::size_t(k)]]++] = std::uint32_t(t * 3 + std::size_t(k));
+            for (int k = 0; k < 3; ++k)
+                list[cursor[s.tris[t][std::size_t(k)]]++] = std::uint32_t(t * 3 + std::size_t(k));
     }
     const bool all = creaseDeg >= 179.999f;
     const float cosCrease = det::cos(radians(creaseDeg));
@@ -204,7 +207,8 @@ ModelMesh dedup_vertices(const ModelMesh& m) {
         const Vec3 p = m.positions[v], n = v < m.normals.size() ? m.normals[v] : Vec3{};
         const Vec2 uv = hasUv ? m.uvs[v] : Vec2{};
         const Vec4 c = hasColor ? m.colors[v] : Vec4{1, 1, 1, 1};
-        VertexKey key{{bits(p.x), bits(p.y), bits(p.z), bits(n.x), bits(n.y), bits(n.z), bits(uv.x), bits(uv.y), bits(c.x), bits(c.y), bits(c.z), bits(c.w)}};
+        VertexKey key{{bits(p.x), bits(p.y), bits(p.z), bits(n.x), bits(n.y), bits(n.z), bits(uv.x), bits(uv.y),
+                       bits(c.x), bits(c.y), bits(c.z), bits(c.w)}};
         auto [it, fresh] = index.emplace(key, std::uint32_t(out.positions.size()));
         if (fresh) {
             out.positions.push_back(p);
@@ -248,8 +252,8 @@ ModelMesh from_soup_normals(const Soup& s, const std::vector<Vec3>& normals) {
             const Vec3 p = s.pos[s.tris[t][std::size_t(k)]];
             const Vec3 n = normals[t * 3 + std::size_t(k)];
             const Attr& a = s.attr[t][std::size_t(k)];
-            VertexKey key{{bits(p.x), bits(p.y), bits(p.z), bits(n.x), bits(n.y), bits(n.z), bits(a.uv.x), bits(a.uv.y), bits(a.color.x), bits(a.color.y),
-                           bits(a.color.z), bits(a.color.w)}};
+            VertexKey key{{bits(p.x), bits(p.y), bits(p.z), bits(n.x), bits(n.y), bits(n.z), bits(a.uv.x), bits(a.uv.y),
+                           bits(a.color.x), bits(a.color.y), bits(a.color.z), bits(a.color.w)}};
             auto [it, fresh] = index.emplace(key, std::uint32_t(m.positions.size()));
             if (fresh) {
                 m.positions.push_back(p);
@@ -299,7 +303,8 @@ Edges build_edges(const Soup& s) {
     e.triEdge.assign(s.tris.size() * 3, 0);
     e.uses.reserve(recs.size());
     for (std::size_t i = 0; i < recs.size(); ++i) {
-        if (i == 0 || recs[i].lo != recs[i - 1].lo || recs[i].hi != recs[i - 1].hi) e.edges.push_back({recs[i].lo, recs[i].hi, std::uint32_t(i), 0});
+        if (i == 0 || recs[i].lo != recs[i - 1].lo || recs[i].hi != recs[i - 1].hi)
+            e.edges.push_back({recs[i].lo, recs[i].hi, std::uint32_t(i), 0});
         ++e.edges.back().count;
         e.uses.push_back({recs[i].tri, recs[i].slot, recs[i].fwd});
         e.triEdge[recs[i].tri * 3 + recs[i].slot] = std::uint32_t(e.edges.size() - 1);
@@ -316,7 +321,8 @@ ModelMesh refresh_normals(const ModelMesh& moved, const ModelMesh& original) {
     std::vector<std::uint32_t> group(vc);
     for (std::size_t v = 0; v < vc; ++v) {
         const Vec3 n = original.normals[v];
-        const std::array<std::int64_t, 4> key{cluster[v], std::llround(double(n.x) * 1000.0), std::llround(double(n.y) * 1000.0), std::llround(double(n.z) * 1000.0)};
+        const std::array<std::int64_t, 4> key{cluster[v], std::llround(double(n.x) * 1000.0),
+                                              std::llround(double(n.y) * 1000.0), std::llround(double(n.z) * 1000.0)};
         auto it = groups.emplace(key, std::uint32_t(groups.size())).first;
         group[v] = it->second;
     }

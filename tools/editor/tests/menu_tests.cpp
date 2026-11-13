@@ -90,9 +90,10 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
 
     const std::vector<std::string> atNames = menu::at_names(bar.items);
     const std::set<std::string> names(atNames.begin(), atNames.end());
-    for (const char* n : {"menu:file", "menu:view", "menu:play", "menu:play-auto", "menu:play-sessions", "menu:ai", "menu:export", "menu:setup", "menu:platform-settings",
-                          "menu:revert-ai", "menu:hierarchy", "menu:inspector", "menu:project", "menu:audio", "menu:profiler",
-                          "menu:ai-settings", "menu:ai-roles", "menu:play-phone"})
+    for (const char* n :
+         {"menu:file", "menu:view", "menu:play", "menu:play-auto", "menu:play-sessions", "menu:ai", "menu:export",
+          "menu:setup", "menu:platform-settings", "menu:revert-ai", "menu:hierarchy", "menu:inspector", "menu:project",
+          "menu:audio", "menu:profiler", "menu:ai-settings", "menu:ai-roles", "menu:play-phone"})
         CHECK_MESSAGE(names.count(n) == 1, n);
 
     const menu::Item* file = top(bar, "File");
@@ -201,7 +202,8 @@ const NativeItemInfo* find(const std::vector<NativeItemInfo>& v, const std::stri
 }
 }  // namespace
 
-TEST_CASE("native menu: the NSMenu has the app menu, the tree's menus, titles, key equivalents, enabled and checked state") {
+TEST_CASE(
+    "native menu: the NSMenu has the app menu, the tree's menus, titles, key equivalents, enabled and checked state") {
     Spy s;
     auto nm = make(s);
     REQUIRE(nm);
@@ -326,7 +328,8 @@ TEST_CASE("native menu: key equivalents work with the menus closed and run throu
     CHECK(s.lazyCalls == 0);
 }
 
-TEST_CASE("native menu: a text box with the keyboard gets Save, Undo and Redo keys; a disabled item lets the key through") {
+TEST_CASE(
+    "native menu: a text box with the keyboard gets Save, Undo and Redo keys; a disabled item lets the key through") {
     Spy s;
     auto nm = make(s);
     REQUIRE(nm);
@@ -341,8 +344,9 @@ TEST_CASE("native menu: a text box with the keyboard gets Save, Undo and Redo ke
     s.saveEnabled = false;  // e.g. the game is playing
     nm->update(sample_tree(s), false);
     CHECK(nm->drain() == 0);  // turned off after the key: dropped
-    CHECK(nm->press_key("Ctrl+S") == nm->press_key("Ctrl+S"));  // whether AppKit says handled for a disabled item is its business
-    CHECK(nm->drain() == 0);                                      // ... but the action does not run
+    CHECK(nm->press_key("Ctrl+S") ==
+          nm->press_key("Ctrl+S"));  // whether AppKit says handled for a disabled item is its business
+    CHECK(nm->drain() == 0);         // ... but the action does not run
     CHECK(s.saves == 0);
 }
 

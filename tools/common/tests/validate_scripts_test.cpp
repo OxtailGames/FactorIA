@@ -44,7 +44,8 @@ std::size_t count_mentioning(const std::vector<ValidationIssue>& list, const std
 
 }  // namespace
 
-TEST_CASE("validate: a broken .json imported by two scripts is reported once, as file:line:column, without a props warning") {
+TEST_CASE(
+    "validate: a broken .json imported by two scripts is reported once, as file:line:column, without a props warning") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
@@ -58,16 +59,17 @@ TEST_CASE("validate: a broken .json imported by two scripts is reported once, as
     testing::write_all(stdfs::path(dir) / "scripts/levels.json", "{\n  \"a\": 1,\n  \"b\": [1, 2,,]\n}\n");
     // Both scripts import the broken file.
     for (const char* name : {"player", "other"})
-        testing::write_all(stdfs::path(dir) / "scripts" / (std::string(name) + ".js"),
-                           "import { Behaviour } from \"factoria\";\nimport levels from \"./levels.json\";\n"
-                           "export default class Importer extends Behaviour {\n  speed = 1;\n  onUpdate() { levels; }\n}\n");
+        testing::write_all(
+            stdfs::path(dir) / "scripts" / (std::string(name) + ".js"),
+            "import { Behaviour } from \"factoria\";\nimport levels from \"./levels.json\";\n"
+            "export default class Importer extends Behaviour {\n  speed = 1;\n  onUpdate() { levels; }\n}\n");
 
     ValidationReport r = validate_with_engine(dir);
     for (const ValidationIssue& i : r.errors) MESSAGE("error: " << i.to_string());
     for (const ValidationIssue& i : r.warnings) MESSAGE("warning: " << i.to_string());
     REQUIRE(r.errors.size() == 1);  // once, not once per importing script
     const ValidationIssue& issue = r.errors[0];
-    CHECK(issue.file == "scripts/levels.json");  // the issue is IN the data file
+    CHECK(issue.file == "scripts/levels.json");                    // the issue is IN the data file
     CHECK(issue.message.rfind("scripts/levels.json:3:", 0) == 0);  // file:line:column
     CHECK(issue.message.find("invalid JSON") != std::string::npos);
     CHECK_FALSE(issue.hint.empty());
@@ -82,16 +84,19 @@ TEST_CASE("validate: a broken .json imported by two scripts is reported once, as
     CHECK(fixed.ok);
 }
 
-TEST_CASE("validate: scenes and prefabs not in the canonical layout are valid: one note for all, with the optional fix") {
+TEST_CASE(
+    "validate: scenes and prefabs not in the canonical layout are valid: one note for all, with the optional fix") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
     CHECK(validate_project(dir).notes.empty());  // what the templates write is canonical
 
     testing::write_all(stdfs::path(dir) / "prefabs/messy.prefab.json",
-                       "{\"format\":\"factoria.prefab/1\",\"entity\":{\"name\":\"Messy\",\n\"components\":{\"Shape2D\":{\"size\":[10,10]}}}}");
+                       "{\"format\":\"factoria.prefab/"
+                       "1\",\"entity\":{\"name\":\"Messy\",\n\"components\":{\"Shape2D\":{\"size\":[10,10]}}}}");
     testing::write_all(stdfs::path(dir) / "scenes/second.scene.json",
-                       "{\"format\":\"factoria.scene/1\",\"entities\":[{\"id\":\"a\",\"components\":{\"Transform\":{\"position\":[1,2,0]}}}]}");
+                       "{\"format\":\"factoria.scene/"
+                       "1\",\"entities\":[{\"id\":\"a\",\"components\":{\"Transform\":{\"position\":[1,2,0]}}}]}");
     ValidationReport r = validate_project(dir);
     CHECK(r.ok);
     CHECK(count_mentioning(r.warnings, "canonical") == 0);
@@ -146,5 +151,6 @@ TEST_CASE("validate: a behaviour field that shadows a Behaviour method is a warn
     CHECK(r.ok);  // a warning, not an error
     CHECK(count_mentioning(r.warnings, "scripts/probe.js") == 1);
     for (const ValidationIssue& w : r.warnings)
-        if (w.file == "scripts/probe.js") CHECK(w.message.find("the field 'on' shadows Behaviour.on") != std::string::npos);
+        if (w.file == "scripts/probe.js")
+            CHECK(w.message.find("the field 'on' shadows Behaviour.on") != std::string::npos);
 }

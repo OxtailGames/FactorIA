@@ -17,26 +17,28 @@ inline constexpr const char* kAdmobSampleAppIdIos = "ca-app-pub-3940256099942544
 inline constexpr const char* kAdmobSampleRewardedUnitIos = "ca-app-pub-3940256099942544/1712485313";
 
 // The sentence of the "Allow tracking" sheet (NSUserTrackingUsageDescription) when the catalog gives none.
-inline constexpr const char* kDefaultTrackingDescription = "This identifier will be used to deliver personalized ads to you.";
+inline constexpr const char* kDefaultTrackingDescription =
+    "This identifier will be used to deliver personalized ads to you.";
 
 // How the Android export fills the AdMob plugin's manifest placeholders. A development export (no --release) always carries
 // Google's sample app id and runs in test mode; a release export carries platform.ads.appIds.android, or the sample id when the
 // catalog has none (the Mobile Ads SDK stops an app that has no app id at start).
 struct AdsExportSettings {
-    std::string appId;      // for the manifest
-    bool test = true;       // factoria.ads.test: the plugin loads Google's test ads whatever the catalog says
-    std::string audience;   // platform.ads.audience: "general", "children" or "mixed"
+    std::string appId;     // for the manifest
+    bool test = true;      // factoria.ads.test: the plugin loads Google's test ads whatever the catalog says
+    std::string audience;  // platform.ads.audience: "general", "children" or "mixed"
 };
 AdsExportSettings ads_export_settings(const std::string& projectDir, bool release);
 
 // What the iOS export writes into the app's Info.plist for the ads plugin; `present` is false when the game has no ads plugin for
 // iOS. Same rule for the ids as on Android: a development export carries Google's iOS sample app id.
 struct AdsIosSettings {
-    bool present = false;          // the game has the admob plugin (or the one platform.ads.backend names) declared for iOS
-    std::string appId;             // GADApplicationIdentifier
-    bool test = true;              // FactoriaAdsTest
-    std::string audience;          // FactoriaAdsAudience
-    bool trackingPrompt = false;   // platform.ads.trackingPrompt: NSUserTrackingUsageDescription is written and the plugin asks
+    bool present = false;  // the game has the admob plugin (or the one platform.ads.backend names) declared for iOS
+    std::string appId;     // GADApplicationIdentifier
+    bool test = true;      // FactoriaAdsTest
+    std::string audience;  // FactoriaAdsAudience
+    bool trackingPrompt =
+        false;  // platform.ads.trackingPrompt: NSUserTrackingUsageDescription is written and the plugin asks
     std::string trackingDescription;  // the sentence in the default language
     // The sentence per language of the game (localization.languages), when platform.ads.trackingDescriptionKey is set and the game
     // is localized: the export writes <tag>.lproj/InfoPlist.strings from it. Empty otherwise.

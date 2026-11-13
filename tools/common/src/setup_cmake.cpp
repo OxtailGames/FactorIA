@@ -101,7 +101,8 @@ SetupComponent cmake_status(const SetupContext& ctx) {
     c.title = "CMake (iOS export)";
     if (ctx.host_os() != "macos") {
         c.state = "unsupported";
-        c.details = "Only the iOS export needs CMake (build_ios.sh), and iOS exports run on a Mac: nothing to install on this computer.";
+        c.details = "Only the iOS export needs CMake (build_ios.sh), and iOS exports run on a Mac: nothing to install "
+                    "on this computer.";
         return c;
     }
     c.canInstall = true;
@@ -114,10 +115,14 @@ SetupComponent cmake_status(const SetupContext& ctx) {
     }
     c.state = "missing";
     c.installSizeMb = 75;
-    c.details = "CMake " + std::string(kSetupCmakeMinimum) + " or newer is needed by build_ios.sh; the install downloads CMake " + kSetupCmakeVersion +
+    c.details = "CMake " + std::string(kSetupCmakeMinimum) +
+                " or newer is needed by build_ios.sh; the install downloads CMake " + kSetupCmakeVersion +
                 " from Kitware into " + (stdfs::path(ctx.home_dir()) / "tools" / "cmake").string() + ".";
-    c.problems.push_back(f.tooOldPath.empty() ? "No CMake " + std::string(kSetupCmakeMinimum) + " or newer was found (PATH, Homebrew, /Applications/CMake.app)."
-                                              : "CMake " + version_text(f.tooOldVersion) + " at " + f.tooOldPath.string() + " is older than " + kSetupCmakeMinimum + ".");
+    c.problems.push_back(f.tooOldPath.empty()
+                             ? "No CMake " + std::string(kSetupCmakeMinimum) +
+                                   " or newer was found (PATH, Homebrew, /Applications/CMake.app)."
+                             : "CMake " + version_text(f.tooOldVersion) + " at " + f.tooOldPath.string() +
+                                   " is older than " + kSetupCmakeMinimum + ".");
     return c;
 }
 
@@ -125,8 +130,13 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
     Installer in(ctx, "cmake");
     const std::string host = ctx.host_os();
     if (host != "macos" && !opt.force)
-        return in.fail("unsupported", make_error("Only the iOS export needs CMake, and iOS exports run on a Mac, so there is nothing to install on " + host + ".",
-                                                  "Pass force (factoria setup cmake --force) to install CMake into " + (stdfs::path(ctx.home_dir()) / "tools" / "cmake").string() + " anyway."));
+        return in.fail(
+            "unsupported",
+            make_error(
+                "Only the iOS export needs CMake, and iOS exports run on a Mac, so there is nothing to install on " +
+                    host + ".",
+                "Pass force (factoria setup cmake --force) to install CMake into " +
+                    (stdfs::path(ctx.home_dir()) / "tools" / "cmake").string() + " anyway."));
     if (!opt.force) {
         const Found found = look_for_cmake(ctx);
         if (!found.path.empty()) {
@@ -148,12 +158,15 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
 
     ctx.say("Looking up the checksum of " + name + "...");
     std::string sums;
-    if (auto f = fetch_text(ctx, base + "cmake-" + version + "-SHA-256.txt", "the CMake " + version + " checksums", in.staging(), sums)) return in.fail(*f);
+    if (auto f = fetch_text(ctx, base + "cmake-" + version + "-SHA-256.txt", "the CMake " + version + " checksums",
+                            in.staging(), sums))
+        return in.fail(*f);
     const auto table = parse_sha256_sums(sums);
     const auto expected = table.find(name);
     if (expected == table.end())
-        return in.fail("failed", make_error("Kitware's checksum list for CMake " + version + " has no entry for " + name + ".",
-                                            "Update FactorIA, or install CMake yourself (https://cmake.org/download)."));
+        return in.fail("failed",
+                       make_error("Kitware's checksum list for CMake " + version + " has no entry for " + name + ".",
+                                  "Update FactorIA, or install CMake yourself (https://cmake.org/download)."));
 
     const stdfs::path archive = in.staging() / name;
     std::uint64_t bytes = 0;
@@ -167,14 +180,20 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
     const stdfs::path root = stdfs::path(ctx.home_dir()) / "tools" / "cmake";
     const stdfs::path relExe = installed_cmake(ctx).lexically_relative(root);
     if (!is_file(top / relExe))
-        return in.fail("failed", make_error("The CMake archive " + name + " has no " + relExe.generic_string() + " inside.", "Update FactorIA, or install CMake yourself (https://cmake.org/download)."));
+        return in.fail("failed",
+                       make_error("The CMake archive " + name + " has no " + relExe.generic_string() + " inside.",
+                                  "Update FactorIA, or install CMake yourself (https://cmake.org/download)."));
     if (auto f = replace_dir(top, root)) return in.fail(*f);
     const stdfs::path exe = installed_cmake(ctx);
     make_executable(exe);
     const std::vector<int> v = probe_version(ctx, exe);
     if (!version_at_least(v, kSetupCmakeMinimum))
-        return in.fail("failed", make_error("The CMake installed at " + exe.string() + " does not run (`cmake --version` gave " + (v.empty() ? std::string("nothing usable") : version_text(v)) + ").",
-                                            "On macOS check System Settings > Privacy & Security for a blocked program, then run it again."));
+        return in.fail(
+            "failed",
+            make_error(
+                "The CMake installed at " + exe.string() + " does not run (`cmake --version` gave " +
+                    (v.empty() ? std::string("nothing usable") : version_text(v)) + ").",
+                "On macOS check System Settings > Privacy & Security for a blocked program, then run it again."));
     SetupStep s;
     s.id = "cmake";
     s.title = "CMake " + version;
@@ -186,8 +205,10 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
     in.add_step(s);
     in.report.paths = {{"cmake", exe.string()}};
     if (const Found first = look_for_cmake(ctx); !first.path.empty() && first.path != exe)
-        in.report.warnings.push_back("Another CMake (" + first.path.string() + ") comes first in the search; both work.");
-    in.report.nextSteps.push_back("`factoria export --platform ios` uses the CMake it finds (find_cmake): PATH first, then this one.");
+        in.report.warnings.push_back("Another CMake (" + first.path.string() +
+                                     ") comes first in the search; both work.");
+    in.report.nextSteps.push_back(
+        "`factoria export --platform ios` uses the CMake it finds (find_cmake): PATH first, then this one.");
     return in.finish();
 }
 

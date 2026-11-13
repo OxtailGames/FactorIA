@@ -75,13 +75,26 @@ TEST_CASE("usage errors exit with 2 and teach") {
 }
 
 TEST_CASE("every command has help with examples") {
-    for (const char* c : {"new", "templates", "run", "screenshot", "test", "validate", "call", "commands", "api", "mcp", "export", "setup", "version"}) {
+    for (const char* c : {"new", "templates", "run", "screenshot", "test", "validate", "call", "commands", "api", "mcp",
+                          "export", "setup", "version"}) {
         auto r = run({c, "--help"});
         CHECK_MESSAGE(r.code == 0, c);
         CHECK_MESSAGE(r.out.find("Examples:") != std::string::npos, c);
     }
-    for (auto sub : std::vector<std::vector<std::string>>{{"ai", "run"}, {"ai", "doctor"}, {"feedback", "add"}, {"feedback", "collect"}, {"feedback", "sharing"}, {"feedback", "share"}, {"feedback", "signin"}, {"feedback", "signout"}, {"docs", "search"},
-                                                             {"setup", "android"}, {"setup", "players"}, {"setup", "cmake"}, {"setup", "xcode"}, {"setup", "appimage"}}) {
+    for (auto sub : std::vector<std::vector<std::string>>{{"ai", "run"},
+                                                          {"ai", "doctor"},
+                                                          {"feedback", "add"},
+                                                          {"feedback", "collect"},
+                                                          {"feedback", "sharing"},
+                                                          {"feedback", "share"},
+                                                          {"feedback", "signin"},
+                                                          {"feedback", "signout"},
+                                                          {"docs", "search"},
+                                                          {"setup", "android"},
+                                                          {"setup", "players"},
+                                                          {"setup", "cmake"},
+                                                          {"setup", "xcode"},
+                                                          {"setup", "appimage"}}) {
         auto args = sub;
         args.push_back("--help");
         auto r = run(args);
@@ -93,7 +106,8 @@ TEST_CASE("every command has help with examples") {
 TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, without touching the computer") {
     auto h = run({"setup", "--help"});
     CHECK(h.code == 0);
-    for (const char* c : {"android", "players", "cmake", "xcode", "appimage", "FACTORIA_HOME"}) CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
+    for (const char* c : {"android", "players", "cmake", "xcode", "appimage", "FACTORIA_HOME"})
+        CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
 
     auto typo = run({"setup", "andriod"});
     CHECK(typo.code == 2);
@@ -129,17 +143,20 @@ TEST_CASE("templates and docs work without a project") {
     CHECK(bad.err.find("scripting") != std::string::npos);
 }
 
-TEST_CASE("docs list --audience is docs.list: the same filter, the same error, and `mcp --help` names the real core count") {
+TEST_CASE(
+    "docs list --audience is docs.list: the same filter, the same error, and `mcp --help` names the real core count") {
     auto all = run({"docs", "list", "--json"});
     auto game = run({"docs", "list", "--audience", "gameAi", "--json"});
     auto dev = run({"docs", "list", "--audience", "engineDev", "--json"});
     REQUIRE(all.code == 0);
     REQUIRE(game.code == 0);
     REQUIRE(dev.code == 0);
-    const fa::Json allDocs = fa::Json::parse(all.out), gameDocs = fa::Json::parse(game.out), devDocs = fa::Json::parse(dev.out);
+    const fa::Json allDocs = fa::Json::parse(all.out), gameDocs = fa::Json::parse(game.out),
+                   devDocs = fa::Json::parse(dev.out);
     CHECK(gameDocs.size() > 0);
     CHECK(gameDocs.size() < allDocs.size());
-    for (const fa::Json& d : gameDocs) CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
+    for (const fa::Json& d : gameDocs)
+        CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
     bool architecture = false;
     for (const fa::Json& d : devDocs) architecture = architecture || d["name"] == "architecture";
     CHECK(architecture);
@@ -152,7 +169,8 @@ TEST_CASE("docs list --audience is docs.list: the same filter, the same error, a
     CHECK(bad.err.find("gameAi") != std::string::npos);
     // The core count in the help is computed, so it cannot go stale.
     auto help = run({"mcp", "--help"});
-    CHECK(help.out.find("core (" + std::to_string(fa::core_command_names().size()) + " commands)") != std::string::npos);
+    CHECK(help.out.find("core (" + std::to_string(fa::core_command_names().size()) + " commands)") !=
+          std::string::npos);
 }
 
 TEST_CASE("docs read takes --heading, --start-line and --max-bytes like docs.read and prints the paging hint") {
@@ -248,7 +266,8 @@ struct PathsFixture {
     PathsFixture() {
         std::error_code ec;
         oldCwd = stdfs::current_path(ec);
-        root = stdfs::temp_directory_path() / ("fa_cli_paths_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        root = stdfs::temp_directory_path() /
+               ("fa_cli_paths_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         stdfs::create_directories(root);
         root = stdfs::canonical(root);
         project = root / "game";
@@ -287,7 +306,8 @@ TEST_CASE("run --input: an existing path relative to the current directory wins,
     stdfs::remove(f.elsewhere / "replays/jump.json");
 
     // An absolute path is used as it is.
-    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", (f.project / "replays/jump.json").string(), "--json"});
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input",
+             (f.project / "replays/jump.json").string(), "--json"});
     CHECK_MESSAGE(r.code == 0, (r.out + r.err));
 }
 
@@ -351,7 +371,8 @@ TEST_CASE("run --headless: the date is fixed, a replay keeps its own, --date win
                         "  onStart() { this.entity.name = \"date:\" + game.today().iso; }\n}\n");
     PathsFixture::write(f.project / "replays/dated.json", R"({"date": "2027-07-04", "frames": {"0": {}}})");
     auto state = [&](std::vector<std::string> args) {
-        std::vector<std::string> a = {"run", f.project.string(), "--headless", "--frames", "3", "--state-out", "state.json"};
+        std::vector<std::string> a = {"run", f.project.string(), "--headless", "--frames",
+                                      "3",   "--state-out",      "state.json"};
         a.insert(a.end(), args.begin(), args.end());
         auto r = run(a);
         CHECK_MESSAGE(r.code == 0, (r.out + r.err));
@@ -360,7 +381,8 @@ TEST_CASE("run --headless: the date is fixed, a replay keeps its own, --date win
     };
     CHECK(state({}).find("date:2026-01-01") != std::string::npos);
     CHECK(state({"--input", "replays/dated.json"}).find("date:2027-07-04") != std::string::npos);
-    CHECK(state({"--input", "replays/dated.json", "--date", "2030-12-31"}).find("date:2030-12-31") != std::string::npos);
+    CHECK(state({"--input", "replays/dated.json", "--date", "2030-12-31"}).find("date:2030-12-31") !=
+          std::string::npos);
     CHECK(state({"--date", "2028-02-29"}).find("date:2028-02-29") != std::string::npos);
 
     auto bad = run({"run", f.project.string(), "--headless", "--frames", "3", "--date", "2026-02-29"});
@@ -388,18 +410,21 @@ TEST_CASE("--json: a failure is a JSON error object on stdout, whatever the comm
     };
     // A failure the command reports (report_failure): the export cannot find the player it was given.
     const std::string missing = (f.root / "no-such-player").string();
-    check(run({"export", f.project.string(), "--platform", "linux", "--player", missing, "--json"}), 1, "failed", "not found");
+    check(run({"export", f.project.string(), "--platform", "linux", "--player", missing, "--json"}), 1, "failed",
+          "not found");
     // A failure thrown out of the command (CliError): no project there.
     check(run({"validate", (f.root / "nothing-here").string(), "--json"}), 1, "failed", "nothing-here");
     // Bad arguments (UsageError), exit code 2.
-    check(run({"export", f.project.string(), "--platform", "plan9", "--json"}), 2, "invalid_argument", "Unknown platform 'plan9'");
+    check(run({"export", f.project.string(), "--platform", "plan9", "--json"}), 2, "invalid_argument",
+          "Unknown platform 'plan9'");
     // Without --json, stdout stays empty.
     auto plain = run({"export", f.project.string(), "--platform", "linux", "--player", missing});
     CHECK(plain.code == 1);
     CHECK(plain.out.empty());
 }
 
-TEST_CASE("export --format appimage: a typo teaches, and a computer that cannot build one says so before writing anything") {
+TEST_CASE(
+    "export --format appimage: a typo teaches, and a computer that cannot build one says so before writing anything") {
     PathsFixture f;
     auto typo = run({"export", f.project.string(), "--platform", "linux", "--format", "appimge"});
     CHECK(typo.code == 2);
@@ -411,11 +436,13 @@ TEST_CASE("export --format appimage: a typo teaches, and a computer that cannot 
 #if !defined(__linux__)
     // Not Linux (or not x86_64): the AppImage needs appimagetool, a Linux x86_64 program, and the error says where to export instead.
     const std::string player = (f.root / "no-such-player").string();
-    auto refused = run({"export", f.project.string(), "--platform", "linux", "--format", "appimage", "--player", player, "--json"});
+    auto refused = run(
+        {"export", f.project.string(), "--platform", "linux", "--format", "appimage", "--player", player, "--json"});
     CHECK(refused.code == 1);
     const fa::Json j = fa::Json::parse(refused.out, nullptr, false);
     REQUIRE_MESSAGE(j.is_object(), refused.out);
-    CHECK(j["error"]["message"].get<std::string>().find("AppImage can only be built on Linux x86_64") != std::string::npos);
+    CHECK(j["error"]["message"].get<std::string>().find("AppImage can only be built on Linux x86_64") !=
+          std::string::npos);
     CHECK(j["error"]["hint"].get<std::string>().find("WSL") != std::string::npos);
 #endif
 }
@@ -464,7 +491,9 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;  // types/factoria.d.ts is for editors; the tests do not read it
         auto made = fa::create_project(dir, name, opt);
-        REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
+        REQUIRE_MESSAGE(
+            made.ok(),
+            (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
         {
             fa::cli::SessionOptions so;
             so.gfx = fa::cli::Gfx::None;
@@ -505,18 +534,23 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
         fa::ScaffoldOptions opt;
         opt.writeTypings = false;
         auto made = fa::create_project(dir, name, opt);
-        REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
+        REQUIRE_MESSAGE(
+            made.ok(),
+            (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
         {
             fa::cli::SessionOptions so;
             so.gfx = fa::cli::Gfx::None;
             auto session = fa::cli::Session::open(dir, so);
             REQUIRE(session->registry().has("play.auto"));
-            auto r = session->registry().call("play.auto", fa::Json{{"seconds", platformer ? 30 : 3}, {"seed", 5}, {"screenshots", false}});
+            auto r = session->registry().call(
+                "play.auto", fa::Json{{"seconds", platformer ? 30 : 3}, {"seed", 5}, {"screenshots", false}});
             REQUIRE_MESSAGE(r.ok, r.error.dump());
             CHECK(r.result["bot"] == (platformer ? "hook" : "explorer"));
             // The empty templates have nothing that moves, so the explorer ends in a stuck mark before the 3 seconds are over.
-            if (platformer) CHECK(r.result["ended"] == "won");
-            else CHECK((r.result["ended"] == "timeout" || r.result["ended"] == "stuck"));
+            if (platformer)
+                CHECK(r.result["ended"] == "won");
+            else
+                CHECK((r.result["ended"] == "timeout" || r.result["ended"] == "stuck"));
             CHECK(r.result["seed"] == 5);
             CHECK(r.result["phases"].size() >= 1);
             auto rep = session->registry().call("play.report", fa::Json{{"session", r.result["session"]}});
@@ -526,7 +560,8 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
             // A very short run never asks for more stuck time than it lasts (the default is clamped to `seconds`), and an explicit one says so.
             auto shortRun = session->registry().call("play.auto", fa::Json{{"seconds", 0.3}, {"screenshots", false}});
             CHECK_MESSAGE(shortRun.ok, shortRun.error.dump());
-            auto tooLong = session->registry().call("play.auto", fa::Json{{"seconds", 1}, {"stuckSeconds", 2}, {"screenshots", false}});
+            auto tooLong = session->registry().call(
+                "play.auto", fa::Json{{"seconds", 1}, {"stuckSeconds", 2}, {"screenshots", false}});
             REQUIRE_FALSE(tooLong.ok);
             CHECK(tooLong.error.dump().find("/stuckSeconds") != std::string::npos);
             // A bad argument names its JSON pointer.
@@ -591,8 +626,10 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
             for (auto it = node.begin(); it != node.end(); ++it) {
                 if (prefix.empty() && it.key()[0] == '$') continue;
                 const std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
-                if (it->is_object()) self(self, *it, key);
-                else keys.insert(key);
+                if (it->is_object())
+                    self(self, *it, key);
+                else
+                    keys.insert(key);
             }
         };
         walk(walk, table, "");
@@ -601,7 +638,8 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
     for (const char* language : {"en", "es"}) {
         const std::string tablePath = std::string("locales/") + language + ".json";
         REQUIRE_MESSAGE(docTables.count(tablePath) == 1, "docs/MENUS.md prints no " << tablePath);
-        const fa::Json fixture = fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / tablePath), nullptr, false);
+        const fa::Json fixture =
+            fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / tablePath), nullptr, false);
         CHECK(flat_keys(docTables[tablePath]) == flat_keys(fixture));
         CHECK(flat_keys(docTables[tablePath]) == flat_keys(docTables["locales/en.json"]));
     }
@@ -661,8 +699,8 @@ TEST_CASE("test: named files, folders and globs select what runs; a non-test pat
     REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
     auto write = [&](const char* rel, const char* name) {
         stdfs::create_directories((root / "game" / rel).parent_path());
-        std::ofstream((root / "game" / rel).string())
-            << "import { test, expect } from \"factoria:test\";\ntest(\"" << name << "\", () => { expect(1).toBe(1); });\n";
+        std::ofstream((root / "game" / rel).string()) << "import { test, expect } from \"factoria:test\";\ntest(\""
+                                                      << name << "\", () => { expect(1).toBe(1); });\n";
     };
     write("tests/alpha.test.js", "alpha");
     write("tests/beta.test.js", "beta");
@@ -694,7 +732,7 @@ TEST_CASE("test: named files, folders and globs select what runs; a non-test pat
         };
         const std::string notTest = fails("scripts/helper.js");
         CHECK(notTest.find("is not a test file") != std::string::npos);
-        CHECK(notTest.find("tests/alpha.test.js") != std::string::npos);  // says what to pass
+        CHECK(notTest.find("tests/alpha.test.js") != std::string::npos);                       // says what to pass
         CHECK(fails("tests/alpah.test.js").find("tests/alpha.test.js") != std::string::npos);  // did you mean
         CHECK(fails("tests/zzz*.test.js").find("matches no test file") != std::string::npos);
     }
@@ -722,8 +760,10 @@ TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of 
     std::vector<std::string> lacks;
     bool in = false;
     while (std::getline(f, line)) {
-        if (line.find("<!-- fa-call-not-in-tests") != std::string::npos) in = true;
-        else if (line.find("<!-- end -->") != std::string::npos) in = false;
+        if (line.find("<!-- fa-call-not-in-tests") != std::string::npos)
+            in = true;
+        else if (line.find("<!-- end -->") != std::string::npos)
+            in = false;
         else if (in)
             for (size_t i = line.find('`'); i != std::string::npos; i = line.find('`', i + 1)) {
                 const size_t j = line.find('`', i + 1);
@@ -734,7 +774,8 @@ TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of 
     }
     REQUIRE_FALSE(lacks.empty());
     const auto matches = [](const std::string& pattern, const std::string& name) {
-        return !pattern.empty() && pattern.back() == '*' ? name.starts_with(pattern.substr(0, pattern.size() - 1)) : name == pattern;
+        return !pattern.empty() && pattern.back() == '*' ? name.starts_with(pattern.substr(0, pattern.size() - 1))
+                                                         : name == pattern;
     };
 
     const stdfs::path oldRoot = fa::fs::project_root();
@@ -762,12 +803,16 @@ TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of 
             }
         }
         for (const std::string& name : all) {
-            const bool documented = std::any_of(lacks.begin(), lacks.end(), [&](const std::string& p) { return matches(p, name); });
-            if (inTest.count(name)) CHECK_MESSAGE(!documented, name << " is registered in a test but docs/SCRIPTING.md says it is not");
-            else CHECK_MESSAGE(documented, "docs/SCRIPTING.md does not list '" << name << "' as missing in a test");
+            const bool documented =
+                std::any_of(lacks.begin(), lacks.end(), [&](const std::string& p) { return matches(p, name); });
+            if (inTest.count(name))
+                CHECK_MESSAGE(!documented, name << " is registered in a test but docs/SCRIPTING.md says it is not");
+            else
+                CHECK_MESSAGE(documented, "docs/SCRIPTING.md does not list '" << name << "' as missing in a test");
         }
         for (const std::string& p : lacks)
-            CHECK_MESSAGE(std::any_of(all.begin(), all.end(), [&](const std::string& n) { return matches(p, n) && !inTest.count(n); }),
+            CHECK_MESSAGE(std::any_of(all.begin(), all.end(),
+                                      [&](const std::string& n) { return matches(p, n) && !inTest.count(n); }),
                           "docs/SCRIPTING.md lists '" << p << "' as missing in a test but nothing matches it");
     }
     std::error_code ec;
@@ -778,14 +823,18 @@ TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of 
 namespace {
 // A user config folder in a temp dir and a fake feedback server, for the sharing commands.
 struct CliShare {
-    std::filesystem::path dir = std::filesystem::temp_directory_path() / ("fa_cli_share_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::path dir =
+        std::filesystem::temp_directory_path() /
+        ("fa_cli_share_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::vector<fa::HttpRequest> requests;
     fa::ShareEnv env;
     std::unique_ptr<fa::ScopedShareEnv> scoped;
     CliShare() {
         std::filesystem::create_directories(dir / "home");
         const std::string home = (dir / "home").string();
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.defaultEndpoint = "https://feedback.example.test";
         env.githubClientId = "client-id";
         env.makeUuid = [] { return std::string("11111111-2222-4333-8444-555555555555"); };
@@ -795,7 +844,8 @@ struct CliShare {
             auto body = fa::Json::parse(r.body, nullptr, false);
             if (body.is_object() && body.contains("entries"))
                 for (const auto& e : body["entries"])
-                    results.push_back(fa::Json::object({{"localId", e["localId"]}, {"status", "accepted"}, {"shareId", "r_1"}}));
+                    results.push_back(
+                        fa::Json::object({{"localId", e["localId"]}, {"status", "accepted"}, {"shareId", "r_1"}}));
             fa::HttpResponse out;
             out.ok = true;
             out.status = 200;
@@ -812,16 +862,21 @@ struct CliShare {
     std::string project() {
         const auto p = dir / "game";
         std::filesystem::create_directories(p);
-        std::ofstream(p / "factoria.json") << R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+        std::ofstream(p / "factoria.json")
+            << R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
         return p.string();
     }
     std::string file(const std::string& proj) { return proj + "/ENGINE_FEEDBACK.json"; }
 };
-const char* kShareFlags[] = {"--category", "physics", "--severity", "major", "--title", "No cloth simulation",
-                             "--missing", "Nothing simulates cloth that drapes over bodies", "--workaround", "a script bends sprites by hand",
-                             "--share-title", "No cloth simulation",
-                             "--share-missing", "There is no cloth solver, so fabric cannot drape over bodies and fold.",
-                             "--reviewed"};
+const char* kShareFlags[] = {
+    "--category",      "physics",
+    "--severity",      "major",
+    "--title",         "No cloth simulation",
+    "--missing",       "Nothing simulates cloth that drapes over bodies",
+    "--workaround",    "a script bends sprites by hand",
+    "--share-title",   "No cloth simulation",
+    "--share-missing", "There is no cloth solver, so fabric cannot drape over bodies and fold.",
+    "--reviewed"};
 std::vector<std::string> add_args(const std::string& proj) {
     std::vector<std::string> a = {"feedback", "add", proj};
     for (const char* f : kShareFlags) a.push_back(f);
@@ -829,7 +884,8 @@ std::vector<std::string> add_args(const std::string& proj) {
 }
 }  // namespace
 
-TEST_CASE("feedback add: --share-* and --reviewed are stored; with sharing unset the answer says how the user turns it on") {
+TEST_CASE(
+    "feedback add: --share-* and --reviewed are stored; with sharing unset the answer says how the user turns it on") {
     CliShare s;
     const std::string proj = s.project();
     auto r = run(add_args(proj));
@@ -863,21 +919,48 @@ void write_efficiency_session(const std::string& proj) {
     constexpr std::int64_t t0 = 1'800'000'000'000;
     out << fa::Json::object({{"kind", "start"}, {"t", fa::iso_utc_ms(t0)}}).dump() << "\n";
     for (int i = 1; i <= 40; ++i) {
-        out << fa::Json::object({{"kind", "assistant"}, {"t", fa::iso_utc_ms(t0 + 60000 * i - 1000)},
-                                 {"usage", fa::Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})}, {"costUsd", 0.05},
-                                 {"content", fa::Json::array()}}).dump() << "\n";
-        out << fa::Json::object({{"kind", "tool_results"}, {"t", fa::iso_utc_ms(t0 + 60000 * i)}, {"results", fa::Json::array()}}).dump() << "\n";
+        out << fa::Json::object({{"kind", "assistant"},
+                                 {"t", fa::iso_utc_ms(t0 + 60000 * i - 1000)},
+                                 {"usage", fa::Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})},
+                                 {"costUsd", 0.05},
+                                 {"content", fa::Json::array()}})
+                   .dump()
+            << "\n";
+        out << fa::Json::object(
+                   {{"kind", "tool_results"}, {"t", fa::iso_utc_ms(t0 + 60000 * i)}, {"results", fa::Json::array()}})
+                   .dump()
+            << "\n";
     }
 }
 std::vector<std::string> efficiency_args(const std::string& proj, const char* share) {
-    return {"feedback", "add", proj, "--kind", "efficiency", "--category", "scene", "--title", "Quantum flux calibration routine",
-            "--waste", "Working out the order of the flux calibration calls took forty steps of trial",
-            "--evidence", "s1:1-40", "--fix-type", "guide", "--saving-share", share, "--saving-why", "the guide gives the calls in order",
-            "--applies-to", "every-game", "--suggestion", "A topic guide that lists the three calibration calls in order"};
+    return {"feedback",
+            "add",
+            proj,
+            "--kind",
+            "efficiency",
+            "--category",
+            "scene",
+            "--title",
+            "Quantum flux calibration routine",
+            "--waste",
+            "Working out the order of the flux calibration calls took forty steps of trial",
+            "--evidence",
+            "s1:1-40",
+            "--fix-type",
+            "guide",
+            "--saving-share",
+            share,
+            "--saving-why",
+            "the guide gives the calls in order",
+            "--applies-to",
+            "every-game",
+            "--suggestion",
+            "A topic guide that lists the three calibration calls in order"};
 }
 }  // namespace
 
-TEST_CASE("feedback add --kind efficiency: the engine measures the span, refuses what is not worth it, merges the same fix") {
+TEST_CASE(
+    "feedback add --kind efficiency: the engine measures the span, refuses what is not worth it, merges the same fix") {
     CliShare s;
     const std::string proj = s.project();
     write_efficiency_session(proj);
@@ -904,7 +987,8 @@ TEST_CASE("feedback add --kind efficiency: the engine measures the span, refuses
     CHECK(bad.code == 2);
     CHECK(bad.err.find("efficiency") != std::string::npos);
     auto badSpan = efficiency_args(proj, "0.5");
-    for (auto& a : badSpan) if (a == "s1:1-40") a = "s1:1to40";
+    for (auto& a : badSpan)
+        if (a == "s1:1-40") a = "s1:1to40";
     CHECK(run(badSpan).code == 2);
 }
 
@@ -967,7 +1051,8 @@ TEST_CASE("feedback share --yes confirms only the project it was run for") {
     const std::string proj = s.project();
     const std::filesystem::path other = s.dir / "game2";
     std::filesystem::create_directories(other);
-    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    std::ofstream(other / "factoria.json")
+        << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
     REQUIRE(run(add_args(proj)).code == 0);
     REQUIRE(run(add_args(other.string())).code == 0);
     REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
@@ -1026,12 +1111,14 @@ TEST_CASE("feedback share: --preview sends nothing; always sends; ask asks first
     }
 }
 
-TEST_CASE("feedback share: a project without ENGINE_FEEDBACK.json, or no project, flushes nothing (not another project's items)") {
+TEST_CASE("feedback share: a project without ENGINE_FEEDBACK.json, or no project, flushes nothing (not another "
+          "project's items)") {
     CliShare s;
     const std::string proj = s.project();
     const std::filesystem::path other = s.dir / "game2";
     std::filesystem::create_directories(other);
-    std::ofstream(other / "factoria.json") << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
+    std::ofstream(other / "factoria.json")
+        << R"({"name":"Other","id":"com.acme.other","version":"0.1.0","mainScene":"scenes/main.scene.json"})";
     // The other project has an entry that waits in the outbox; `proj` has no feedback file at all.
     REQUIRE(run(add_args(other.string())).code == 0);
     REQUIRE(run({"feedback", "sharing", "ask"}).code == 0);
@@ -1081,7 +1168,8 @@ TEST_CASE("feedback share: with sharing off for the project it says so and flush
     CHECK(s.requests.empty());
 }
 
-TEST_CASE("feedback sharing --clear: entries that waited under the project's ask keep waiting while the default is always") {
+TEST_CASE(
+    "feedback sharing --clear: entries that waited under the project's ask keep waiting while the default is always") {
     CliShare s;
     const std::string proj = s.project();
     REQUIRE(run(add_args(proj)).code == 0);
@@ -1128,8 +1216,10 @@ struct EnvVar {
 #ifdef _WIN32
         _putenv_s(name.c_str(), had ? old.c_str() : "");
 #else
-        if (had) setenv(name.c_str(), old.c_str(), 1);
-        else unsetenv(name.c_str());
+        if (had)
+            setenv(name.c_str(), old.c_str(), 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -1143,7 +1233,8 @@ struct ScratchDir {
         namespace stdfs = std::filesystem;
         std::error_code ec;
         oldCwd = stdfs::current_path(ec);
-        root = stdfs::temp_directory_path() / (prefix + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        root = stdfs::temp_directory_path() /
+               (prefix + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         stdfs::create_directories(root / "home");
         root = stdfs::canonical(root);
     }
@@ -1197,8 +1288,10 @@ TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot chan
     const std::string userArgs = R"({"scope":"user","pointer":"/limits/maxTurns","value":7})";
     const std::string projectArgs = R"({"scope":"project","pointer":"/limits/maxTurns","value":5})";
 
-    SUBCASE("started by an agent: scope user is refused (user_only), the file is untouched, scope project still works") {
-        for (const char* value : {"agent", "some-value-this-engine-does-not-know"}) {  // anything set restricts: never the user's call
+    SUBCASE(
+        "started by an agent: scope user is refused (user_only), the file is untouched, scope project still works") {
+        for (const char* value :
+             {"agent", "some-value-this-engine-does-not-know"}) {  // anything set restricts: never the user's call
             EnvVar caller("FACTORIA_CALLER", value);
             auto refused = run({"call", "ai.settings.set", userArgs, "--project", project.string(), "--json"});
             CHECK_MESSAGE(refused.code == 1, value);
@@ -1225,7 +1318,8 @@ TEST_CASE("call: a factoria started by an AI agent (FACTORIA_CALLER) cannot chan
 TEST_CASE("ai doctor and ai run use the AI settings of the project they run in") {
     namespace stdfs = std::filesystem;
     std::error_code ec;
-    const ScratchDir scratch("fa_cli_aiproj_");  // restores the working directory, then removes the folder, also when a check throws
+    const ScratchDir scratch(
+        "fa_cli_aiproj_");  // restores the working directory, then removes the folder, also when a check throws
     const stdfs::path root = scratch.root;
     const stdfs::path project = root / "game", sub = project / "assets" / "deep", elsewhere = root / "elsewhere";
     stdfs::create_directories(elsewhere);
@@ -1237,9 +1331,11 @@ TEST_CASE("ai doctor and ai run use the AI settings of the project they run in")
     std::ofstream(aiJson) << R"({"limits":{"maxTurns":30}})";
     EnvVar env("FACTORIA_AI_CONFIG", aiJson.string());
 
-    SUBCASE("a file the user saved here applies: doctor lists its overrides from a subfolder, run refuses a role it turned off") {
-        auto saved = fa::ai::save_project_settings(project.string(), fa::Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
-                                                   aiJson.string(), fa::ai::system_env(), true);
+    SUBCASE("a file the user saved here applies: doctor lists its overrides from a subfolder, run refuses a role it "
+            "turned off") {
+        auto saved = fa::ai::save_project_settings(
+            project.string(), fa::Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
+            aiJson.string(), fa::ai::system_env(), true);
         if (!saved.ok()) MESSAGE(saved.error().message);
         REQUIRE(saved.ok());
         stdfs::current_path(sub, ec);  // a folder INSIDE the project: find_project_root finds it
@@ -1439,7 +1535,8 @@ TEST_CASE("validate: a log line is covered only by a specific report message, wh
     fa::ValidationIssue longIssue;
     longIssue.message = "scenes\\main.scene.json: unknown component 'Sprit'";
     rep.warnings.push_back(longIssue);
-    CHECK(fa::cli::report_already_says(rep, "Cannot load scenes/main.scene.json: unknown component 'Sprit' (did you mean Sprite?)"));
+    CHECK(fa::cli::report_already_says(
+        rep, "Cannot load scenes/main.scene.json: unknown component 'Sprit' (did you mean Sprite?)"));
     CHECK_FALSE(fa::cli::report_already_says(rep, "Cannot load scenes/other.scene.json: unknown component 'Sprit'"));
 }
 
@@ -1461,7 +1558,8 @@ TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
     CHECK(errText.empty());
     CHECK(text.code == 1);
     CHECK(count_of(text.out, "Unknown component 'Sprit'") == 1);
-    const std::string errJson = with_process_stderr(root / "err2.txt", [&] { json = run({"validate", dir, "--json"}); });
+    const std::string errJson =
+        with_process_stderr(root / "err2.txt", [&] { json = run({"validate", dir, "--json"}); });
     CHECK(errJson.empty());
     CHECK(json.err.empty());
     auto parsed = fa::parse_json(json.out, "validate");

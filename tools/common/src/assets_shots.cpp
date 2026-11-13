@@ -27,7 +27,8 @@ Image resize_area(const Image& src, int w, int h) {
             const double x0 = x * sx, x1 = (x + 1) * sx;
             std::uint8_t* d = &out.rgba[(std::size_t(y) * out.width + x) * 4];
             if (x1 - x0 <= 1.0 && y1 - y0 <= 1.0) {  // growing (or 1:1): the pixel under the centre
-                const int px = std::clamp(int((x0 + x1) / 2), 0, src.width - 1), py = std::clamp(int((y0 + y1) / 2), 0, src.height - 1);
+                const int px = std::clamp(int((x0 + x1) / 2), 0, src.width - 1),
+                          py = std::clamp(int((y0 + y1) / 2), 0, src.height - 1);
                 std::copy_n(&src.rgba[(std::size_t(py) * src.width + px) * 4], 4, d);
                 continue;
             }
@@ -134,7 +135,9 @@ stdfs::path write_temporary_picture(const std::string& projectDir, const Image& 
     }
     const std::vector<std::uint8_t> png = encode_png(picture);
     std::string err;
-    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    &err))
+        fail("failed", err);
     return file;
 }
 
@@ -147,8 +150,13 @@ Json image_member(const stdfs::path& file, bool temporary) {
 Json call_in_child(const std::string& projectDir, const char* command, const Json& args, const CancelFlag* cancel) {
     const std::string exe = factoria_executable();
     if (exe.empty())
-        fail("gpu_busy", std::string("This process already uses the graphics card (the editor, a window or a session with graphics), and ") + command + " needs a second device; the factoria executable could not be located to run it in a child process.",
-             std::string("Run it from a terminal: factoria call ") + command + " '{...}'.");
+        fail(
+            "gpu_busy",
+            std::string(
+                "This process already uses the graphics card (the editor, a window or a session with graphics), and ") +
+                command +
+                " needs a second device; the factoria executable could not be located to run it in a child process.",
+            std::string("Run it from a terminal: factoria call ") + command + " '{...}'.");
     // projectDir is the folder as the tooling carries it (a native string); the child process takes UTF-8, so it goes through a path:
     // handing the native bytes over would mangle an accent in the folder's name on Windows.
     const std::string dir = fs::path_to_utf8(stdfs::path(projectDir));
@@ -158,27 +166,44 @@ Json call_in_child(const std::string& projectDir, const char* command, const Jso
     po.timeoutSeconds = 900;
     po.cancel = cancel;
     auto run = run_process(po);
-    if (!run.ok()) fail("failed", std::string("Cannot start ") + exe + " to run " + command + " in a child process: " + run.error().message, run.error().hint);
+    if (!run.ok())
+        fail("failed",
+             std::string("Cannot start ") + exe + " to run " + command + " in a child process: " + run.error().message,
+             run.error().hint);
     if (run->cancelled)
-        fail("cancelled", std::string(command) + " was stopped before it ended; the child process was killed and nothing was saved.", "Run it again when you want the result.");
+        fail("cancelled",
+             std::string(command) + " was stopped before it ended; the child process was killed and nothing was saved.",
+             "Run it again when you want the result.");
     if (run->timedOut)
-        fail("timeout", std::string(command) + " did not end within 900 seconds in its child process and was stopped.", std::string("Ask for less (fewer seconds), or run it from a terminal: factoria call ") + command + " '{...}'.");
+        fail("timeout", std::string(command) + " did not end within 900 seconds in its child process and was stopped.",
+             std::string("Ask for less (fewer seconds), or run it from a terminal: factoria call ") + command +
+                 " '{...}'.");
     auto out = parse_json(run->stdoutText, std::string("<") + command + " in a child process>");
     if (!out.ok()) {
-        const std::string tail = run->stderrText.size() > 600 ? run->stderrText.substr(run->stderrText.size() - 600) : run->stderrText;
-        fail("failed", std::format("The child process that runs {} (exit code {}) printed no result. Its error output ended with: {}", command, run->exitCode, tail),
+        const std::string tail =
+            run->stderrText.size() > 600 ? run->stderrText.substr(run->stderrText.size() - 600) : run->stderrText;
+        fail("failed",
+             std::format(
+                 "The child process that runs {} (exit code {}) printed no result. Its error output ended with: {}",
+                 command, run->exitCode, tail),
              std::string("Run the command from a terminal to see it: factoria call ") + command + " '{...}'.");
     }
     if (out->is_object() && out->contains("ok") && (*out)["ok"] == false) {
         const Json err = out->value("error", Json::object());
-        throw CommandError(err.value("code", std::string("failed")), err.value("message", std::string("The child process failed.")), err.value("hint", std::string()));
+        throw CommandError(err.value("code", std::string("failed")),
+                           err.value("message", std::string("The child process failed.")),
+                           err.value("hint", std::string()));
     }
     return *out;
 }
 
 void no_gpu_error(const char* command, const std::string& message, const char* alternative) {
-    fail("no_gpu", std::string(command) + " draws with the GPU for this, and this computer has no graphics device the engine can use. " + message,
-         std::string("Run it on a machine with a GPU (Metal, Direct3D 11, OpenGL; a Linux CI needs Mesa's EGL, llvmpipe). ") + alternative);
+    fail("no_gpu",
+         std::string(command) +
+             " draws with the GPU for this, and this computer has no graphics device the engine can use. " + message,
+         std::string(
+             "Run it on a machine with a GPU (Metal, Direct3D 11, OpenGL; a Linux CI needs Mesa's EGL, llvmpipe). ") +
+             alternative);
 }
 
 }  // namespace fa::assets_detail

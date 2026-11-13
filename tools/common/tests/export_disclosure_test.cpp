@@ -36,7 +36,8 @@ struct DisclosureFixture {
         return export_project(o);
     }
     static bool mentions(const std::vector<std::string>& lines, const std::string& text) {
-        return std::any_of(lines.begin(), lines.end(), [&](const std::string& l) { return l.find(text) != std::string::npos; });
+        return std::any_of(lines.begin(), lines.end(),
+                           [&](const std::string& l) { return l.find(text) != std::string::npos; });
     }
 };
 

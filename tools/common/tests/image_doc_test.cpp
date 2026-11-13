@@ -56,8 +56,8 @@ const ImageIssue* issue_at(const std::vector<ImageIssue>& issues, const std::str
 }
 
 bool near(Rgba a, Rgba b, int tol = 1) {
-    return std::abs(int(a.r) - int(b.r)) <= tol && std::abs(int(a.g) - int(b.g)) <= tol && std::abs(int(a.b) - int(b.b)) <= tol &&
-           std::abs(int(a.a) - int(b.a)) <= tol;
+    return std::abs(int(a.r) - int(b.r)) <= tol && std::abs(int(a.g) - int(b.g)) <= tol &&
+           std::abs(int(a.b) - int(b.b)) <= tol && std::abs(int(a.a) - int(b.a)) <= tol;
 }
 
 // ---- the W3C compositing and blending formulas, written again from the specification (doubles, sorting for the hue modes) ----
@@ -168,9 +168,10 @@ TEST_CASE("image blend: names, parsing and the eighteen modes") {
 }
 
 TEST_CASE("image blend: every mode matches the W3C formulas for opaque, translucent and transparent backdrops") {
-    const Color colors[] = {{0.2f, 0.5f, 0.8f, 1.0f},  {0.9f, 0.3f, 0.1f, 1.0f}, {0.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f},
-                            {0.5f, 0.5f, 0.5f, 1.0f},  {0.1f, 0.9f, 0.4f, 0.6f}, {0.7f, 0.2f, 0.6f, 0.5f}, {0.3f, 0.3f, 0.9f, 0.25f},
-                            {0.8f, 0.8f, 0.2f, 0.0f},  {1.0f, 0.0f, 0.0f, 1.0f}, {0.25f, 0.75f, 0.25f, 1.0f}, {0.4f, 0.6f, 0.45f, 0.9f}};
+    const Color colors[] = {{0.2f, 0.5f, 0.8f, 1.0f}, {0.9f, 0.3f, 0.1f, 1.0f},    {0.0f, 0.0f, 0.0f, 1.0f},
+                            {1.0f, 1.0f, 1.0f, 1.0f}, {0.5f, 0.5f, 0.5f, 1.0f},    {0.1f, 0.9f, 0.4f, 0.6f},
+                            {0.7f, 0.2f, 0.6f, 0.5f}, {0.3f, 0.3f, 0.9f, 0.25f},   {0.8f, 0.8f, 0.2f, 0.0f},
+                            {1.0f, 0.0f, 0.0f, 1.0f}, {0.25f, 0.75f, 0.25f, 1.0f}, {0.4f, 0.6f, 0.45f, 0.9f}};
     int checked = 0;
     for (const std::string& name : image_blend_names()) {
         const ImageBlend mode = *parse_image_blend(name);
@@ -179,9 +180,10 @@ TEST_CASE("image blend: every mode matches the W3C formulas for opaque, transluc
                 if (s.a <= 0) continue;  // a source with no alpha leaves the backdrop alone: tested below
                 const Color got = blend_pixel(mode, b, s);
                 const Color want = ref_composite(mode, b, s);
-                const std::string where = name + " backdrop (" + std::to_string(b.r) + "," + std::to_string(b.g) + "," + std::to_string(b.b) + "," +
-                                          std::to_string(b.a) + ") source (" + std::to_string(s.r) + "," + std::to_string(s.g) + "," +
-                                          std::to_string(s.b) + "," + std::to_string(s.a) + ")";
+                const std::string where = name + " backdrop (" + std::to_string(b.r) + "," + std::to_string(b.g) + "," +
+                                          std::to_string(b.b) + "," + std::to_string(b.a) + ") source (" +
+                                          std::to_string(s.r) + "," + std::to_string(s.g) + "," + std::to_string(s.b) +
+                                          "," + std::to_string(s.a) + ")";
                 CHECK_MESSAGE(std::fabs(got.a - want.a) < 1e-4, where);
                 if (want.a > 0) {
                     CHECK_MESSAGE(std::fabs(got.r - want.r) < 2e-4, where);
@@ -235,11 +237,13 @@ TEST_CASE("image doc: opacity, background, visibility and offsets") {
         CHECK(get(img, 0, 0) == Rgba{0, 0, 0, 0});
     }
     {
-        const Image img = draw(doc_of(4, 4, Json::array({fill("#00ff00", {{"visible", false}})}), {{"background", "#000000"}}));
+        const Image img =
+            draw(doc_of(4, 4, Json::array({fill("#00ff00", {{"visible", false}})}), {{"background", "#000000"}}));
         CHECK(get(img, 1, 1) == Rgba{0, 0, 0, 255});
     }
     {  // a layer box (width, height) moved by x, y; negative offsets and parts outside the canvas are cut
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ffffff", {{"width", 4}, {"height", 4}, {"x", -2}, {"y", 6}})})));
+        const Image img =
+            draw(doc_of(8, 8, Json::array({fill("#ffffff", {{"width", 4}, {"height", 4}, {"x", -2}, {"y", 6}})})));
         CHECK(get(img, 0, 6).a == 255);
         CHECK(get(img, 1, 7).a == 255);
         CHECK(get(img, 2, 6).a == 0);
@@ -257,28 +261,42 @@ TEST_CASE("image doc: a blend mode on a layer mixes with the pixels below") {
 TEST_CASE("image doc: groups are drawn together, with their own opacity, and isolate the blend modes inside") {
     {
         // two layers in a group at 50%: the overlap shows the top one at 50% over white, not the bottom one through it
-        const Image img = draw(doc_of(8, 8,
-                                      Json::array({fill("#ffffff"),
-                                                   {{"kind", "group"}, {"opacity", 0.5}, {"layers", Json::array({fill("#ff0000"), fill("#0000ff", {{"width", 4}, {"height", 4}})})}}})));
+        const Image img = draw(doc_of(
+            8, 8,
+            Json::array(
+                {fill("#ffffff"),
+                 {{"kind", "group"},
+                  {"opacity", 0.5},
+                  {"layers", Json::array({fill("#ff0000"), fill("#0000ff", {{"width", 4}, {"height", 4}})})}}})));
         CHECK(near(get(img, 1, 1), {128, 128, 255, 255}));
         CHECK(near(get(img, 6, 6), {255, 128, 128, 255}));
     }
     {
         // the multiply layer is inside a group over nothing, so it multiplies with nothing; the same layer outside multiplies the gray
-        const Image grouped = draw(doc_of(2, 2, Json::array({{{"kind", "group"}, {"layers", Json::array({fill("#ff0000", {{"blend", "multiply"}})})}}}), {{"background", "#808080"}}));
+        const Image grouped = draw(doc_of(
+            2, 2,
+            Json::array({{{"kind", "group"}, {"layers", Json::array({fill("#ff0000", {{"blend", "multiply"}})})}}}),
+            {{"background", "#808080"}}));
         CHECK(near(get(grouped, 0, 0), {255, 0, 0, 255}));
-        const Image flat = draw(doc_of(2, 2, Json::array({fill("#ff0000", {{"blend", "multiply"}})}), {{"background", "#808080"}}));
+        const Image flat =
+            draw(doc_of(2, 2, Json::array({fill("#ff0000", {{"blend", "multiply"}})}), {{"background", "#808080"}}));
         CHECK(near(get(flat, 0, 0), {128, 0, 0, 255}));
     }
     {  // a group takes the blend mode, masks and offset of its own
-        const Image img = draw(doc_of(4, 4, Json::array({{{"kind", "group"}, {"x", 2}, {"blend", "multiply"}, {"layers", Json::array({fill("#808080")})}}}), {{"background", "#ffffff"}}));
+        const Image img = draw(doc_of(
+            4, 4,
+            Json::array(
+                {{{"kind", "group"}, {"x", 2}, {"blend", "multiply"}, {"layers", Json::array({fill("#808080")})}}}),
+            {{"background", "#ffffff"}}));
         CHECK(near(get(img, 3, 0), {128, 128, 128, 255}));
         CHECK(get(img, 1, 0) == Rgba{255, 255, 255, 255});
     }
 }
 
 TEST_CASE("image doc: masks hide the layer by rectangle, ellipse, polygon, path and picture, invert and feather") {
-    const auto masked = [](Json mask) { return draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"masks", Json::array({mask})}})}))); };
+    const auto masked = [](Json mask) {
+        return draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"masks", Json::array({mask})}})})));
+    };
     {
         const Image img = masked({{"type", "rect"}, {"x", 4}, {"y", 4}, {"width", 4}, {"height", 8}});
         CHECK(get(img, 4, 4).a == 255);
@@ -303,7 +321,9 @@ TEST_CASE("image doc: masks hide the layer by rectangle, ellipse, polygon, path 
         CHECK(partial > 8);
     }
     {
-        const Image img = masked({{"type", "polygon"}, {"points", Json::array({Json::array({0, 0}), Json::array({16, 0}), Json::array({0, 16})})}});
+        const Image img =
+            masked({{"type", "polygon"},
+                    {"points", Json::array({Json::array({0, 0}), Json::array({16, 0}), Json::array({0, 16})})}});
         CHECK(get(img, 1, 1).a == 255);
         CHECK(get(img, 14, 14).a == 0);
     }
@@ -320,26 +340,48 @@ TEST_CASE("image doc: masks hide the layer by rectangle, ellipse, polygon, path 
         Image m = make_image(16, 16, {0, 0, 0, 255});
         fill_rect(m, 0, 0, 8, 16, {255, 255, 255, 255});
         write_png(p.file("m.png"), m);
-        const Image img = draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"masks", Json::array({{{"type", "pixels"}, {"source", "m.png"}}})}})})), p.dir);
+        const Image img =
+            draw(doc_of(16, 16,
+                        Json::array(
+                            {fill("#ffffff", {{"masks", Json::array({{{"type", "pixels"}, {"source", "m.png"}}})}})})),
+                 p.dir);
         CHECK(get(img, 2, 2).a == 255);
         CHECK(get(img, 12, 2).a == 0);
         // a picture mask smaller than the layer hides everything outside it
         Image small = make_image(4, 4, {255, 255, 255, 255});
         write_png(p.file("small.png"), small);
-        const Image img2 = draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"masks", Json::array({{{"type", "pixels"}, {"source", "small.png"}, {"x", 6}, {"y", 6}}})}})})), p.dir);
+        const Image img2 = draw(
+            doc_of(
+                16, 16,
+                Json::array({fill(
+                    "#ffffff",
+                    {{"masks", Json::array({{{"type", "pixels"}, {"source", "small.png"}, {"x", 6}, {"y", 6}}})}})})),
+            p.dir);
         CHECK(get(img2, 7, 7).a == 255);
         CHECK(get(img2, 2, 2).a == 0);
         CHECK(get(img2, 11, 11).a == 0);
     }
     {  // several masks multiply: the intersection
-        const Image img = draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 16}},
-                                                                                                  {{"type", "rect"}, {"x", 4}, {"y", 0}, {"width", 12}, {"height", 16}}})}})})));
+        const Image img = draw(doc_of(
+            16, 16,
+            Json::array({fill(
+                "#ffffff",
+                {{"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 16}},
+                                        {{"type", "rect"}, {"x", 4}, {"y", 0}, {"width", 12}, {"height", 16}}})}})})));
         CHECK(get(img, 2, 3).a == 0);
         CHECK(get(img, 5, 3).a == 255);
         CHECK(get(img, 10, 3).a == 0);
     }
     {  // mask coordinates are the layer's own, so they move with the layer's offset
-        const Image img = draw(doc_of(16, 16, Json::array({fill("#ffffff", {{"width", 8}, {"height", 8}, {"x", 8}, {"y", 8}, {"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 2}, {"height", 2}}})}})})));
+        const Image img = draw(doc_of(
+            16, 16,
+            Json::array({fill(
+                "#ffffff",
+                {{"width", 8},
+                 {"height", 8},
+                 {"x", 8},
+                 {"y", 8},
+                 {"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 2}, {"height", 2}}})}})})));
         CHECK(get(img, 8, 8).a == 255);
         CHECK(get(img, 9, 9).a == 255);
         CHECK(get(img, 10, 10).a == 0);
@@ -358,7 +400,8 @@ TEST_CASE("image doc: masks hide the layer by rectangle, ellipse, polygon, path 
         CHECK(get(img, 8, 8).a > 100);
         CHECK(get(img, 8, 8).a < 255);
         CHECK(get(img, 0, 8).a < 60);
-        CHECK(get(img, 4, 4).a < get(img, 8, 8).a);  // a corner is softer than the middle of an edge... and the middle is the brightest
+        CHECK(get(img, 4, 4).a <
+              get(img, 8, 8).a);  // a corner is softer than the middle of an edge... and the middle is the brightest
     }
 }
 
@@ -371,22 +414,33 @@ TEST_CASE("image doc: clipping follows the shape of the layer below") {
         CHECK(get(img, 6, 6).a == 0);
     }
     {  // two clipped layers follow the same base
-        const Image img = draw(doc_of(8, 8, Json::array({base, fill("#0000ff", {{"clip", true}, {"x", 2}, {"width", 2}, {"height", 8}}), fill("#00ff00", {{"clip", true}, {"x", 4}, {"width", 4}, {"height", 8}})})));
+        const Image img =
+            draw(doc_of(8, 8,
+                        Json::array({base, fill("#0000ff", {{"clip", true}, {"x", 2}, {"width", 2}, {"height", 8}}),
+                                     fill("#00ff00", {{"clip", true}, {"x", 4}, {"width", 4}, {"height", 8}})})));
         CHECK(get(img, 2, 3) == Rgba{0, 0, 255, 255});
         CHECK(get(img, 4, 3) == Rgba{0, 255, 0, 255});
         CHECK(get(img, 7, 3).a == 0);
     }
     {  // a clipped layer keeps its own blend mode inside the base's shape
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ffffff"), base, fill("#808080", {{"clip", true}, {"blend", "multiply"}})})));
+        const Image img = draw(doc_of(
+            8, 8, Json::array({fill("#ffffff"), base, fill("#808080", {{"clip", true}, {"blend", "multiply"}})})));
         CHECK(near(get(img, 3, 3), {128, 0, 0, 255}));
         CHECK(get(img, 0, 0) == Rgba{255, 255, 255, 255});
     }
     {  // a hidden base hides the layers clipped to it
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ff0000", {{"width", 4}, {"height", 4}, {"visible", false}}), fill("#0000ff", {{"clip", true}})})));
+        const Image img = draw(doc_of(8, 8,
+                                      Json::array({fill("#ff0000", {{"width", 4}, {"height", 4}, {"visible", false}}),
+                                                   fill("#0000ff", {{"clip", true}})})));
         CHECK(get(img, 1, 1).a == 0);
     }
     {  // the base's masks shape the clip too
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ff0000", {{"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 8}}})}}), fill("#0000ff", {{"clip", true}})})));
+        const Image img = draw(doc_of(
+            8, 8,
+            Json::array(
+                {fill("#ff0000",
+                      {{"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 8}}})}}),
+                 fill("#0000ff", {{"clip", true}})})));
         CHECK(get(img, 1, 1) == Rgba{0, 0, 255, 255});
         CHECK(get(img, 6, 1).a == 0);
     }
@@ -394,25 +448,50 @@ TEST_CASE("image doc: clipping follows the shape of the layer below") {
 
 TEST_CASE("image doc: gradient layers, linear and radial") {
     {
-        const Image img = draw(doc_of(4, 4, Json::array({{{"kind", "gradient"}, {"gradient", {{"type", "linear"}, {"angle", 0}, {"stops", Json::array({{{"at", 0}, {"color", "#000000"}}, {{"at", 1}, {"color", "#ffffff"}}})}}}}})));
+        const Image img =
+            draw(doc_of(4, 4,
+                        Json::array({{{"kind", "gradient"},
+                                      {"gradient",
+                                       {{"type", "linear"},
+                                        {"angle", 0},
+                                        {"stops", Json::array({{{"at", 0}, {"color", "#000000"}},
+                                                               {{"at", 1}, {"color", "#ffffff"}}})}}}}})));
         CHECK(near(get(img, 1, 0), {32, 32, 32, 255}));
         CHECK(near(get(img, 1, 3), {223, 223, 223, 255}));
         CHECK(get(img, 0, 1) == get(img, 3, 1));
     }
     {
-        const Image img = draw(doc_of(4, 4, Json::array({{{"kind", "gradient"}, {"gradient", {{"angle", 90}, {"stops", Json::array({{{"at", 0}, {"color", "#000000"}}, {{"at", 1}, {"color", "#ffffff"}}})}}}}})));
+        const Image img =
+            draw(doc_of(4, 4,
+                        Json::array({{{"kind", "gradient"},
+                                      {"gradient",
+                                       {{"angle", 90},
+                                        {"stops", Json::array({{{"at", 0}, {"color", "#000000"}},
+                                                               {{"at", 1}, {"color", "#ffffff"}}})}}}}})));
         CHECK(near(get(img, 0, 2), {32, 32, 32, 255}));
         CHECK(near(get(img, 3, 2), {223, 223, 223, 255}));
         CHECK(get(img, 1, 0) == get(img, 1, 3));
     }
     {
-        const Image img = draw(doc_of(8, 8, Json::array({{{"kind", "gradient"}, {"gradient", {{"type", "radial"}, {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}}, {{"at", 1}, {"color", "#000000"}}})}}}}})));
+        const Image img =
+            draw(doc_of(8, 8,
+                        Json::array({{{"kind", "gradient"},
+                                      {"gradient",
+                                       {{"type", "radial"},
+                                        {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}},
+                                                               {{"at", 1}, {"color", "#000000"}}})}}}}})));
         CHECK(get(img, 3, 3).r > 200);
         CHECK(get(img, 0, 0).r < 60);
         CHECK(get(img, 3, 3).r > get(img, 1, 1).r);
     }
     {  // three stops, and the stops' alpha is interpolated premultiplied: no dark fringe between a colour and transparent
-        const Image img = draw(doc_of(8, 1, Json::array({{{"kind", "gradient"}, {"gradient", {{"angle", 90}, {"stops", Json::array({{{"at", 0}, {"color", "#ff0000"}}, {{"at", 1}, {"color", "#ff000000"}}})}}}}})));
+        const Image img =
+            draw(doc_of(8, 1,
+                        Json::array({{{"kind", "gradient"},
+                                      {"gradient",
+                                       {{"angle", 90},
+                                        {"stops", Json::array({{{"at", 0}, {"color", "#ff0000"}},
+                                                               {{"at", 1}, {"color", "#ff000000"}}})}}}}})));
         const Rgba mid = get(img, 4, 0);
         CHECK(mid.r >= 254);
         CHECK(mid.a > 0);
@@ -422,15 +501,19 @@ TEST_CASE("image doc: gradient layers, linear and radial") {
 
 TEST_CASE("image doc: procedural layers are the texture generator's pictures") {
     AssetsProject p;
-    p.ok("assets.generate_texture", {{"path", "assets/t.png"}, {"preset", "parchment"}, {"width", 16}, {"height", 16}, {"seed", 3}});
+    p.ok("assets.generate_texture",
+         {{"path", "assets/t.png"}, {"preset", "parchment"}, {"width", 16}, {"height", 16}, {"seed", 3}});
     const Image direct = read_png(p.file("assets/t.png"));
-    const Image layered = draw(doc_of(16, 16, Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}, {"seed", 3}}}}})), p.dir);
+    const Image layered = draw(
+        doc_of(16, 16, Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}, {"seed", 3}}}}})),
+        p.dir);
     REQUIRE(layered.width == 16);
     CHECK(layered.rgba == direct.rgba);
 }
 
 TEST_CASE("image doc: svg layers from text and from a file, fitted inside the box") {
-    const char* svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' width='100' height='100'><rect width='100' height='100' fill='#ff0000'/></svg>";
+    const char* svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' width='100' height='100'><rect "
+                      "width='100' height='100' fill='#ff0000'/></svg>";
     {
         const Image img = draw(doc_of(16, 16, Json::array({{{"kind", "svg"}, {"svg", svg}}})));
         CHECK(near(get(img, 8, 8), {255, 0, 0, 255}));
@@ -439,7 +522,11 @@ TEST_CASE("image doc: svg layers from text and from a file, fitted inside the bo
     {
         AssetsProject p;
         write_all(p.file("crest.svg"), svg);
-        const Image img = draw(doc_of(16, 16, Json::array({{{"kind", "svg"}, {"source", "crest.svg"}, {"width", 8}, {"height", 8}, {"x", 4}, {"y", 4}}})), p.dir);
+        const Image img = draw(
+            doc_of(16, 16,
+                   Json::array(
+                       {{{"kind", "svg"}, {"source", "crest.svg"}, {"width", 8}, {"height", 8}, {"x", 4}, {"y", 4}}})),
+            p.dir);
         CHECK(near(get(img, 8, 8), {255, 0, 0, 255}));
         CHECK(get(img, 1, 1).a == 0);
         auto parsed = load_image_document(p.dir, "none.image.json");
@@ -459,7 +546,14 @@ TEST_CASE("image doc: text layers are drawn with an engine font, aligned from th
         return std::pair<int, int>(minX, maxX);
     };
     const auto text = [&](const std::string& align) {
-        return draw(doc_of(96, 40, Json::array({{{"kind", "text"}, {"text", "Hello"}, {"size", 20}, {"color", "#ffffff"}, {"x", 48}, {"y", 8}, {"align", align}}})));
+        return draw(doc_of(96, 40,
+                           Json::array({{{"kind", "text"},
+                                         {"text", "Hello"},
+                                         {"size", 20},
+                                         {"color", "#ffffff"},
+                                         {"x", 48},
+                                         {"y", 8},
+                                         {"align", align}}})));
     };
     const Image left = text("left"), center = text("center"), right = text("right");
     const auto [l0, l1] = bounds(left);
@@ -482,8 +576,12 @@ TEST_CASE("image doc: text layers are drawn with an engine font, aligned from th
             }
     CHECK(solid);
     // the pixel font works too, and a missing font is a teaching error
-    CHECK(bounds(draw(doc_of(64, 16, Json::array({{{"kind", "text"}, {"text", "ok"}, {"font", "builtin:pixel"}, {"size", 8}}})))).second > 0);
-    CHECK(problems(doc_of(8, 8, Json::array({{{"kind", "text"}, {"text", "x"}, {"font", "builtin:pixle"}}})))[0].pointer == "/layers/0/font");
+    CHECK(
+        bounds(draw(doc_of(64, 16,
+                           Json::array({{{"kind", "text"}, {"text", "ok"}, {"font", "builtin:pixel"}, {"size", 8}}}))))
+            .second > 0);
+    CHECK(problems(doc_of(8, 8, Json::array({{{"kind", "text"}, {"text", "x"}, {"font", "builtin:pixle"}}})))[0]
+              .pointer == "/layers/0/font");
 }
 
 TEST_CASE("image doc: pixels layers copy a PNG at their offset; provider layers draw the same") {
@@ -492,7 +590,8 @@ TEST_CASE("image doc: pixels layers copy a PNG at their offset; provider layers 
     fill_rect(src, 1, 1, 1, 1, {200, 100, 50, 128});
     write_png(p.file("art/src.png"), src);
     for (const char* kind : {"pixels", "provider"}) {
-        const Image img = draw(doc_of(6, 6, Json::array({{{"kind", kind}, {"source", "art/src.png"}, {"x", 3}, {"y", 2}}})), p.dir);
+        const Image img =
+            draw(doc_of(6, 6, Json::array({{{"kind", kind}, {"source", "art/src.png"}, {"x", 3}, {"y", 2}}})), p.dir);
         CHECK(get(img, 3, 2) == Rgba{10, 20, 30, 255});
         CHECK(get(img, 4, 3) == Rgba{200, 100, 50, 128});
         CHECK(get(img, 0, 0).a == 0);
@@ -502,25 +601,48 @@ TEST_CASE("image doc: pixels layers copy a PNG at their offset; provider layers 
 
 TEST_CASE("image doc: adjustments, adjustment layers and effects") {
     {
-        const Image img = draw(doc_of(2, 2, Json::array({fill("#ff0000", {{"adjustments", Json::array({{{"type", "invert"}}})}})})));
+        const Image img =
+            draw(doc_of(2, 2, Json::array({fill("#ff0000", {{"adjustments", Json::array({{{"type", "invert"}}})}})})));
         CHECK(get(img, 0, 0) == Rgba{0, 255, 255, 255});
     }
     {  // the adjustment layer works on what is below it, within its masks
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ff0000"), {{"kind", "adjustment"}, {"adjustments", Json::array({{{"type", "invert"}}})}, {"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 8}}})}}})));
+        const Image img = draw(doc_of(
+            8, 8,
+            Json::array(
+                {fill("#ff0000"),
+                 {{"kind", "adjustment"},
+                  {"adjustments", Json::array({{{"type", "invert"}}})},
+                  {"masks", Json::array({{{"type", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 8}}})}}})));
         CHECK(get(img, 1, 1) == Rgba{0, 255, 255, 255});
         CHECK(get(img, 6, 1) == Rgba{255, 0, 0, 255});
-        const Image half = draw(doc_of(2, 2, Json::array({fill("#000000"), {{"kind", "adjustment"}, {"opacity", 0.5}, {"adjustments", Json::array({{{"type", "invert"}}})}}})));
+        const Image half = draw(doc_of(
+            2, 2,
+            Json::array(
+                {fill("#000000"),
+                 {{"kind", "adjustment"}, {"opacity", 0.5}, {"adjustments", Json::array({{{"type", "invert"}}})}}})));
         CHECK(near(get(half, 0, 0), {128, 128, 128, 255}));
-        const Image bright = draw(doc_of(2, 2, Json::array({fill("#000000"), {{"kind", "adjustment"}, {"adjustments", Json::array({{{"type", "brightness"}, {"amount", 0.5}}})}}})));
+        const Image bright =
+            draw(doc_of(2, 2,
+                        Json::array({fill("#000000"),
+                                     {{"kind", "adjustment"},
+                                      {"adjustments", Json::array({{{"type", "brightness"}, {"amount", 0.5}}})}}})));
         CHECK(near(get(bright, 0, 0), {128, 128, 128, 255}));
     }
     {  // an adjustment layer that clips only touches the base's shape
-        const Image img = draw(doc_of(8, 8, Json::array({fill("#ff0000", {{"width", 4}, {"height", 8}}), {{"kind", "adjustment"}, {"clip", true}, {"adjustments", Json::array({{{"type", "invert"}}})}}})));
+        const Image img = draw(doc_of(
+            8, 8,
+            Json::array(
+                {fill("#ff0000", {{"width", 4}, {"height", 8}}),
+                 {{"kind", "adjustment"}, {"clip", true}, {"adjustments", Json::array({{{"type", "invert"}}})}}})));
         CHECK(get(img, 1, 1) == Rgba{0, 255, 255, 255});
         CHECK(get(img, 6, 1).a == 0);
     }
     {
-        const Image img = draw(doc_of(2, 2, Json::array({fill("#000000", {{"effects", Json::array({{{"type", "colorOverlay"}, {"color", "#ffffff"}, {"amount", 0.5}}})}})})));
+        const Image img = draw(doc_of(
+            2, 2,
+            Json::array({fill(
+                "#000000",
+                {{"effects", Json::array({{{"type", "colorOverlay"}, {"color", "#ffffff"}, {"amount", 0.5}}})}})})));
         CHECK(near(get(img, 0, 0), {128, 128, 128, 255}));
     }
 }
@@ -530,11 +652,25 @@ TEST_CASE("image doc: the same document draws the same bytes, and the bake does 
     write_png(p.file("src.png"), make_image(8, 8, {40, 90, 140, 255}));
     const Json doc = doc_of(
         48, 32,
-        Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}, {"seed", 5}}}},
-                     {{"kind", "gradient"}, {"blend", "overlay"}, {"gradient", {{"type", "radial"}, {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}}, {{"at", 1}, {"color", "#000000"}}})}}}},
-                     {{"kind", "pixels"}, {"source", "src.png"}, {"x", 5}, {"y", 5}, {"blend", "softLight"}, {"masks", Json::array({{{"type", "ellipse"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 8}, {"feather", 2}}})}},
-                     {{"kind", "text"}, {"text", "Hi"}, {"size", 14}, {"x", 20}, {"y", 6}, {"color", "#ffeecc"}},
-                     {{"kind", "group"}, {"opacity", 0.7}, {"layers", Json::array({fill("#223344", {{"width", 10}, {"height", 10}}), fill("#aa5500", {{"width", 5}, {"height", 5}, {"blend", "difference"}})})}}}));
+        Json::array(
+            {{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}, {"seed", 5}}}},
+             {{"kind", "gradient"},
+              {"blend", "overlay"},
+              {"gradient",
+               {{"type", "radial"},
+                {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}}, {{"at", 1}, {"color", "#000000"}}})}}}},
+             {{"kind", "pixels"},
+              {"source", "src.png"},
+              {"x", 5},
+              {"y", 5},
+              {"blend", "softLight"},
+              {"masks",
+               Json::array({{{"type", "ellipse"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 8}, {"feather", 2}}})}},
+             {{"kind", "text"}, {"text", "Hi"}, {"size", 14}, {"x", 20}, {"y", 6}, {"color", "#ffeecc"}},
+             {{"kind", "group"},
+              {"opacity", 0.7},
+              {"layers", Json::array({fill("#223344", {{"width", 10}, {"height", 10}}),
+                                      fill("#aa5500", {{"width", 5}, {"height", 5}, {"blend", "difference"}})})}}}));
     const Image a = draw(doc, p.dir), b = draw(doc, p.dir);
     CHECK(a.rgba == b.rgba);
     write_all(p.file("d.image.json"), doc.dump(2));
@@ -557,7 +693,10 @@ TEST_CASE("image doc: problems say the JSON pointer, what is wrong and a suggest
         CHECK(i->hint.find("fill") != std::string::npos);
     }
     SUBCASE("unknown blend mode, with the nested pointer of a group child") {
-        auto issues = problems(doc_of(8, 8, Json::array({fill("#fff"), {{"kind", "group"}, {"layers", Json::array({fill("#fff", {{"blend", "multiplyy"}})})}}})));
+        auto issues = problems(doc_of(
+            8, 8,
+            Json::array({fill("#fff"),
+                         {{"kind", "group"}, {"layers", Json::array({fill("#fff", {{"blend", "multiplyy"}})})}}})));
         const ImageIssue* i = issue_at(issues, "/layers/1/layers/0/blend");
         REQUIRE(i != nullptr);
         CHECK(i->hint.find("multiply") != std::string::npos);
@@ -585,8 +724,10 @@ TEST_CASE("image doc: problems say the JSON pointer, what is wrong and a suggest
         CHECK(issue_at(problems(Json{{"width", 8}, {"height", 8}}), "") != nullptr);
     }
     SUBCASE("values out of range and of the wrong type") {
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"opacity", 2}})}))), "/layers/0/opacity") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"visible", "yes"}})}))), "/layers/0/visible") != nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"opacity", 2}})}))), "/layers/0/opacity") !=
+              nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"visible", "yes"}})}))),
+                       "/layers/0/visible") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#nothex")}))), "/layers/0/color") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "fill"}}}))), "/layers/0") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({5}))), "/layers/0") != nullptr);
@@ -598,44 +739,82 @@ TEST_CASE("image doc: problems say the JSON pointer, what is wrong and a suggest
         CHECK(i->hint.find("bottom") != std::string::npos);
     }
     SUBCASE("gradients") {
-        auto stops = [](Json s) { return doc_of(8, 8, Json::array({{{"kind", "gradient"}, {"gradient", {{"stops", s}}}}})); };
-        CHECK(issue_at(problems(stops(Json::array({{{"at", 0}, {"color", "#fff"}}}))), "/layers/0/gradient/stops") != nullptr);
-        CHECK(issue_at(problems(stops(Json::array({{{"at", 0.8}, {"color", "#fff"}}, {{"at", 0.2}, {"color", "#000"}}}))), "/layers/0/gradient/stops/1/at") != nullptr);
-        CHECK(issue_at(problems(stops(Json::array({{{"at", 0}, {"color", "#fff"}}, {{"at", 3}, {"color", "#000"}}}))), "/layers/0/gradient/stops/1/at") != nullptr);
+        auto stops = [](Json s) {
+            return doc_of(8, 8, Json::array({{{"kind", "gradient"}, {"gradient", {{"stops", s}}}}}));
+        };
+        CHECK(issue_at(problems(stops(Json::array({{{"at", 0}, {"color", "#fff"}}}))), "/layers/0/gradient/stops") !=
+              nullptr);
+        CHECK(
+            issue_at(problems(stops(Json::array({{{"at", 0.8}, {"color", "#fff"}}, {{"at", 0.2}, {"color", "#000"}}}))),
+                     "/layers/0/gradient/stops/1/at") != nullptr);
+        CHECK(issue_at(problems(stops(Json::array({{{"at", 0}, {"color", "#fff"}}, {{"at", 3}, {"color", "#000"}}}))),
+                       "/layers/0/gradient/stops/1/at") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "gradient"}}}))), "/layers/0") != nullptr);
-        auto t = problems(doc_of(8, 8, Json::array({{{"kind", "gradient"}, {"gradient", {{"type", "radail"}, {"stops", Json::array({{{"at", 0}, {"color", "#fff"}}, {{"at", 1}, {"color", "#000"}}})}}}}})));
+        auto t = problems(doc_of(
+            8, 8,
+            Json::array(
+                {{{"kind", "gradient"},
+                  {"gradient",
+                   {{"type", "radail"},
+                    {"stops", Json::array({{{"at", 0}, {"color", "#fff"}}, {{"at", 1}, {"color", "#000"}}})}}}}})));
         const ImageIssue* i = issue_at(t, "/layers/0/gradient/type");
         REQUIRE(i != nullptr);
         CHECK(i->hint.find("radial") != std::string::npos);
     }
     SUBCASE("masks") {
-        auto issues = problems(doc_of(8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "elipse"}}})}})})));
+        auto issues =
+            problems(doc_of(8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "elipse"}}})}})})));
         const ImageIssue* i = issue_at(issues, "/layers/0/masks/0/type");
         REQUIRE(i != nullptr);
         CHECK(i->hint.find("ellipse") != std::string::npos);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "rect"}, {"x", 0}}})}})}))), "/layers/0/masks/0") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "path"}, {"path", "M 10 Q"}}})}})}))), "/layers/0/masks/0/path") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "polygon"}, {"points", Json::array({Json::array({0, 0}), Json::array({1, 1})})}}})}})}))), "/layers/0/masks/0/points") != nullptr);
+        CHECK(
+            issue_at(problems(doc_of(
+                         8, 8, Json::array({fill("#fff", {{"masks", Json::array({{{"type", "rect"}, {"x", 0}}})}})}))),
+                     "/layers/0/masks/0") != nullptr);
+        CHECK(issue_at(
+                  problems(doc_of(
+                      8, 8,
+                      Json::array({fill("#fff", {{"masks", Json::array({{{"type", "path"}, {"path", "M 10 Q"}}})}})}))),
+                  "/layers/0/masks/0/path") != nullptr);
+        CHECK(
+            issue_at(problems(doc_of(
+                         8, 8,
+                         Json::array({fill(
+                             "#fff", {{"masks", Json::array({{{"type", "polygon"},
+                                                              {"points", Json::array({Json::array({0, 0}),
+                                                                                      Json::array({1, 1})})}}})}})}))),
+                     "/layers/0/masks/0/points") != nullptr);
     }
     SUBCASE("adjustments and effects") {
-        auto issues = problems(doc_of(8, 8, Json::array({fill("#fff", {{"adjustments", Json::array({{{"type", "invrt"}}})}})})));
+        auto issues =
+            problems(doc_of(8, 8, Json::array({fill("#fff", {{"adjustments", Json::array({{{"type", "invrt"}}})}})})));
         const ImageIssue* i = issue_at(issues, "/layers/0/adjustments/0/type");
         REQUIRE(i != nullptr);
         CHECK(i->hint.find("invert") != std::string::npos);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"effects", Json::array({{{"type", "colorOverlay"}}})}})}))), "/layers/0/effects/0") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({fill("#fff", {{"adjustments", Json::array({{{"type", "brightness"}, {"amount", 4}}})}})}))), "/layers/0/adjustments/0/amount") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "adjustment"}}}))), "/layers/0/adjustments") != nullptr);
+        CHECK(
+            issue_at(problems(doc_of(
+                         8, 8, Json::array({fill("#fff", {{"effects", Json::array({{{"type", "colorOverlay"}}})}})}))),
+                     "/layers/0/effects/0") != nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8,
+                                       Json::array({fill("#fff", {{"adjustments", Json::array({{{"type", "brightness"},
+                                                                                                {"amount", 4}}})}})}))),
+                       "/layers/0/adjustments/0/amount") != nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "adjustment"}}}))), "/layers/0/adjustments") !=
+              nullptr);
     }
     SUBCASE("procedural") {
-        auto issues = problems(doc_of(8, 8, Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchmnt"}}}}})));
+        auto issues =
+            problems(doc_of(8, 8, Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchmnt"}}}}})));
         REQUIRE(!issues.empty());
         CHECK(issues[0].pointer.find("/layers/0/texture") == 0);
         CHECK(issues[0].hint.find("parchment") != std::string::npos);
     }
     SUBCASE("svg and text") {
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "svg"}}}))), "/layers/0") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "svg"}, {"svg", "not svg"}}}))), "/layers/0/svg") != nullptr);
-        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "text"}, {"text", "x"}, {"align", "centre"}}}))), "/layers/0/align") != nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "svg"}, {"svg", "not svg"}}}))), "/layers/0/svg") !=
+              nullptr);
+        CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "text"}, {"text", "x"}, {"align", "centre"}}}))),
+                       "/layers/0/align") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "text"}}}))), "/layers/0") != nullptr);
         CHECK(issue_at(problems(doc_of(8, 8, Json::array({{{"kind", "group"}}}))), "/layers/0") != nullptr);
     }
@@ -654,7 +833,9 @@ TEST_CASE("image doc: problems say the JSON pointer, what is wrong and a suggest
 
 TEST_CASE("image doc: the error of a document names the file, the pointer and how many more problems there are") {
     std::vector<ImageIssue> issues;
-    auto parsed = parse_image_document(doc_of(8, 8, Json::array({{{"kind", "fil"}}, fill("#fff", {{"opacity", 9}, {"blend", "mulitply"}})})), "art/bad.image.json", "", &issues);
+    auto parsed = parse_image_document(
+        doc_of(8, 8, Json::array({{{"kind", "fil"}}, fill("#fff", {{"opacity", 9}, {"blend", "mulitply"}})})),
+        "art/bad.image.json", "", &issues);
     REQUIRE_FALSE(parsed.ok());
     CHECK(issues.size() >= 3);
     const std::string message = parsed.error().message;
@@ -684,11 +865,20 @@ TEST_CASE("image schema: matches the code, and valid documents pass it") {
     CHECK(layer["kind"]["enum"] == Json(image_layer_kind_names()));
     const Json sample = doc_of(
         32, 32,
-        Json::array({fill("#202020", {{"blend", "multiply"}, {"masks", Json::array({{{"type", "ellipse"}, {"x", 0}, {"y", 0}, {"width", 16}, {"height", 16}, {"feather", 2}}})}}),
-                     {{"kind", "gradient"}, {"gradient", {{"type", "radial"}, {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}}, {{"at", 1}, {"color", "#000000"}}})}}}},
-                     {{"kind", "text"}, {"text", "Hi"}, {"size", 12}, {"align", "center"}},
-                     {{"kind", "group"}, {"layers", Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}}}}})}},
-                     {{"kind", "adjustment"}, {"adjustments", Json::array({{{"type", "brightness"}, {"amount", 0.1}}})}}}),
+        Json::array(
+            {fill("#202020",
+                  {{"blend", "multiply"},
+                   {"masks",
+                    Json::array(
+                        {{{"type", "ellipse"}, {"x", 0}, {"y", 0}, {"width", 16}, {"height", 16}, {"feather", 2}}})}}),
+             {{"kind", "gradient"},
+              {"gradient",
+               {{"type", "radial"},
+                {"stops", Json::array({{{"at", 0}, {"color", "#ffffff"}}, {{"at", 1}, {"color", "#000000"}}})}}}},
+             {{"kind", "text"}, {"text", "Hi"}, {"size", 12}, {"align", "center"}},
+             {{"kind", "group"},
+              {"layers", Json::array({{{"kind", "procedural"}, {"texture", {{"preset", "parchment"}}}}})}},
+             {{"kind", "adjustment"}, {"adjustments", Json::array({{{"type", "brightness"}, {"amount", 0.1}}})}}}),
         {{"background", "#ffffff"}, {"description", "a sample"}});
     CHECK(validate_json(*schema, sample).empty());
     CHECK(problems(sample).empty());
@@ -709,7 +899,8 @@ TEST_CASE("image bake: writes the PNG next to the document with a recipe, and tr
     AssetsProject p;
     write_all(p.file("art/sky.image.json"), kSimple.dump(2));
     CHECK(image_bake_status(p.dir, "art/sky.image.json").state == ImageBakeState::Missing);
-    CHECK(image_document_output(*load_image_document(p.dir, "art/sky.image.json"), "art/sky.image.json") == "art/sky.png");
+    CHECK(image_document_output(*load_image_document(p.dir, "art/sky.image.json"), "art/sky.image.json") ==
+          "art/sky.png");
 
     const Json r = p.ok("image.bake", {{"path", "art/sky.image.json"}});
     CHECK(r["document"] == "art/sky.image.json");
@@ -759,7 +950,8 @@ TEST_CASE("image bake: a file a layer reads is an input of the recipe, so changi
     CHECK(get(read_png(p.file("d.png")), 0, 0) == Rgba{9, 9, 9, 255});
 }
 
-TEST_CASE("image bake: a PNG nobody recorded is Unrecorded, an opaque picture is saved without alpha, a custom output works") {
+TEST_CASE("image bake: a PNG nobody recorded is Unrecorded, an opaque picture is saved without alpha, a custom output "
+          "works") {
     AssetsProject p;
     write_png(p.file("d.png"), make_image(8, 8, {5, 5, 5, 255}));
     write_all(p.file("d.image.json"), kSimple.dump());
@@ -780,7 +972,11 @@ TEST_CASE("image bake: a PNG nobody recorded is Unrecorded, an opaque picture is
 TEST_CASE("image bake: a provider layer makes the picture AI-made and keeps the source's record") {
     AssetsProject p;
     write_png(p.file("gen/key.png"), make_image(4, 4, {200, 160, 40, 255}));
-    const Json doc = doc_of(4, 4, Json::array({{{"kind", "provider"}, {"source", "gen/key.png"}, {"provenance", {{"provider", "openai"}, {"model", "gpt-image-1"}, {"prompt", "a brass key"}}}}}));
+    const Json doc = doc_of(
+        4, 4,
+        Json::array({{{"kind", "provider"},
+                      {"source", "gen/key.png"},
+                      {"provenance", {{"provider", "openai"}, {"model", "gpt-image-1"}, {"prompt", "a brass key"}}}}}));
     write_all(p.file("k.image.json"), doc.dump());
     const Json r = p.ok("image.bake", {{"path", "k.image.json"}});
     const Json m = p.manifest();
@@ -790,7 +986,8 @@ TEST_CASE("image bake: a provider layer makes the picture AI-made and keeps the 
     CHECK(m["assets"]["gen/key.png"]["provenance"]["provider"] == "openai");
     CHECK(m["assets"]["gen/key.png"]["provenance"]["prompt"] == "a brass key");
     // a plain pixels layer of an AI-made file passes the flag on
-    write_all(p.file("k2.image.json"), doc_of(4, 4, Json::array({{{"kind", "pixels"}, {"source", "gen/key.png"}}})).dump());
+    write_all(p.file("k2.image.json"),
+              doc_of(4, 4, Json::array({{{"kind", "pixels"}, {"source", "gen/key.png"}}})).dump());
     p.ok("image.bake", {{"path", "k2.image.json"}});
     CHECK(p.manifest()["assets"]["k2.png"]["provenance"]["ai"] == true);
 }
@@ -826,7 +1023,8 @@ TEST_CASE("image.save: checks the document, writes it as canonical JSON and bake
     CHECK(text.back() == '\n');
     CHECK(Json::parse(text)["width"] == 8);
 
-    const CommandResult bad = p.call("image.save", {{"path", "art/bad.image.json"}, {"document", doc_of(8, 8, Json::array({{{"kind", "fil"}}}))}});
+    const CommandResult bad = p.call(
+        "image.save", {{"path", "art/bad.image.json"}, {"document", doc_of(8, 8, Json::array({{{"kind", "fil"}}}))}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error.dump().find("/layers/0/kind") != std::string::npos);
     CHECK_FALSE(p.exists("art/bad.image.json"));
@@ -856,12 +1054,14 @@ TEST_CASE("image bake: a layer whose file went missing fails with the layer's po
 
 // ---- project.validate and export ---------------------------------------------------------------------------------------------
 
-TEST_CASE("validate: a broken image document is an error with its pointer; an unbaked one is a warning with the command") {
+TEST_CASE(
+    "validate: a broken image document is an error with its pointer; an unbaked one is a warning with the command") {
     TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const std::string dir = tmp.sub("game");
     const ValidationReport before = validate_project(dir);
-    write_all(stdfs::path(dir) / "art/bad.image.json", doc_of(8, 8, Json::array({fill("#fff", {{"blend", "multiplyy"}})})).dump());
+    write_all(stdfs::path(dir) / "art/bad.image.json",
+              doc_of(8, 8, Json::array({fill("#fff", {{"blend", "multiplyy"}})})).dump());
     write_all(stdfs::path(dir) / "art/ok.image.json", kSimple.dump());
     const ValidationReport r = validate_project(dir);
     CHECK_FALSE(r.ok);
@@ -890,28 +1090,36 @@ TEST_CASE("validate: a broken image document is an error with its pointer; an un
     write_all(stdfs::path(dir) / "art/ok.image.json", edited.dump());
     const ValidationReport stale = validate_project(dir);
     bool staleWarning = false;
-    for (const ValidationIssue& w : stale.warnings) staleWarning = staleWarning || w.message.find("stale") != std::string::npos;
+    for (const ValidationIssue& w : stale.warnings)
+        staleWarning = staleWarning || w.message.find("stale") != std::string::npos;
     CHECK(staleWarning);
 }
 
 TEST_CASE("image.create: `output` names the PNG the document bakes to, and is checked like the other paths") {
     AssetsProject p;
-    const Json r = p.ok("image.create", {{"path", "assets/src/enemy.image.json"}, {"width", 8}, {"height", 8}, {"background", "#203040"}, {"output", "./assets/art/enemy.png"}});
+    const Json r = p.ok("image.create", {{"path", "assets/src/enemy.image.json"},
+                                         {"width", 8},
+                                         {"height", 8},
+                                         {"background", "#203040"},
+                                         {"output", "./assets/art/enemy.png"}});
     CHECK(r["path"] == "assets/art/enemy.png");
     CHECK(p.exists("assets/art/enemy.png"));
     CHECK_FALSE(p.exists("assets/src/enemy.png"));
-    CHECK(parse_json(read_all(p.file("assets/src/enemy.image.json")), "doc").value()["output"] == "assets/art/enemy.png");
+    CHECK(parse_json(read_all(p.file("assets/src/enemy.image.json")), "doc").value()["output"] ==
+          "assets/art/enemy.png");
     CHECK(p.ok("image.info", {{"path", "assets/src/enemy.image.json"}})["bake"]["state"] == "fresh");
     CHECK(p.manifest()["assets"]["assets/art/enemy.png"]["provenance"]["recipe"]["command"] == "image.bake");
 
     for (const char* bad : {"../escape.png", "assets/art/enemy.jpg", "/tmp/x.png", ""}) {
-        const CommandResult e = p.call("image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", bad}});
+        const CommandResult e = p.call(
+            "image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", bad}});
         INFO("output " << bad);
         REQUIRE_FALSE(e.ok);
         CHECK(e.error.dump().find("/output") != std::string::npos);
         CHECK_FALSE(p.exists("assets/src/bad.image.json"));
     }
-    CHECK_FALSE(p.call("image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", 5}}).ok);
+    CHECK_FALSE(
+        p.call("image.create", {{"path", "assets/src/bad.image.json"}, {"width", 8}, {"height", 8}, {"output", 5}}).ok);
 }
 
 TEST_CASE("export: image documents are baked before the game is packed") {

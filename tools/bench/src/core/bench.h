@@ -20,9 +20,9 @@ inline constexpr const char* kFormat = "factoria.bench/1";
 struct Prepared {
     std::function<void()> prepare;  // optional, untimed, before every run (warm-up too): puts the scene back as it was
     std::function<double()> run;
-    std::int64_t items = 0;         // what one run processes (entities, bodies, calls...), for the report
-    std::string unit;               // "entities"
-    std::string skip;               // not empty: this benchmark cannot run here, and why ("no GPU: ...")
+    std::int64_t items = 0;  // what one run processes (entities, bodies, calls...), for the report
+    std::string unit;        // "entities"
+    std::string skip;        // not empty: this benchmark cannot run here, and why ("no GPU: ...")
 };
 
 struct Bench {
@@ -46,9 +46,9 @@ struct Measurement {
     std::string skipReason;
     int repeats = 0;
     double medianMs = 0, minMs = 0, maxMs = 0, p25Ms = 0, p75Ms = 0;  // wall clock of one run
-    double cpuMedianMs = 0;                                           // CPU time of the process (all threads) of one run
-    double spread = 0;                                                // (p75 - p25) / median: how much the repeats disagree
-    bool sameWork = true;                                             // every repeat returned the same checksum
+    double cpuMedianMs = 0;  // CPU time of the process (all threads) of one run
+    double spread = 0;       // (p75 - p25) / median: how much the repeats disagree
+    bool sameWork = true;    // every repeat returned the same checksum
     std::int64_t items = 0;
     std::string unit;
 };
@@ -70,7 +70,8 @@ std::string runner_id();
 // ------------------------------------------------------------------------------------------------ the JSON file
 // {format, runner, jobs, repeats, benchmarks: {name: {medianMs, minMs, maxMs, p25Ms, p75Ms, spread, cpuMedianMs, items, unit}}}.
 // Floats are rounded to three decimals: the last digits differ between machines and mean nothing.
-Json measurements_to_json(const std::string& runner, const std::string& jobs, int repeats, const std::vector<Measurement>& ms);
+Json measurements_to_json(const std::string& runner, const std::string& jobs, int repeats,
+                          const std::vector<Measurement>& ms);
 // `existing` (a baseline file, may be null) with the entries of `ms` replaced or added, the other entries and the hand-written
 // "warnRatio" / "failRatio" of an entry kept. A skipped measurement changes nothing.
 Json merge_baseline(const Json* existing, const std::string& runner, const std::string& jobs, int repeats,
@@ -102,8 +103,8 @@ std::string update_hint(const std::string& runner, const std::string& baselineFi
 // One benchmark against its entry of the baseline file (null = none). The limits are max(baseline * ratio, baseline + slack); an
 // entry's own "warnRatio" / "failRatio" win over `defaults`. "Faster" is a run under 70% of the baseline: it passes and says the
 // baseline can be refreshed.
-Comparison compare_one(const std::string& name, const Json* baselineEntry, const Measurement& m, const Thresholds& defaults,
-                       const std::string& runner, const std::string& baselineFile);
+Comparison compare_one(const std::string& name, const Json* baselineEntry, const Measurement& m,
+                       const Thresholds& defaults, const std::string& runner, const std::string& baselineFile);
 
 struct CompareReport {
     std::string runner;
@@ -112,7 +113,7 @@ struct CompareReport {
     std::vector<Comparison> rows;
     int count(Verdict v) const;
     bool failed(bool requireBaseline) const;  // a Fail row, or (requireBaseline) a NoBaseline one
-    std::string text() const;                 // the messages of the rows that warn, fail, are faster or have no baseline
+    std::string text() const;  // the messages of the rows that warn, fail, are faster or have no baseline
     Json to_json() const;
 };
 

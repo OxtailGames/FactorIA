@@ -44,7 +44,8 @@ public:
             ai::ToolCall c;
             c.id = "t2";
             c.name = "scene_spawn";
-            c.input = Json::parse(R"({"name":"AI Coin","position":[0,120],"components":{"Shape2D":{"shape":"circle","size":[28,28],"color":[1,0.85,0.1,1]}}})");
+            c.input = Json::parse(
+                R"({"name":"AI Coin","position":[0,120],"components":{"Shape2D":{"shape":"circle","size":[28,28],"color":[1,0.85,0.1,1]}}})");
             r.message.toolCalls.push_back(c);
             r.stopReason = ai::StopReason::ToolUse;
         } else {
@@ -84,9 +85,11 @@ static Image downscale(const Image& src, int w, int h) {
             unsigned sum[4] = {0, 0, 0, 0};
             for (int yy = y0; yy < y1; ++yy)
                 for (int xx = x0; xx < x1; ++xx)
-                    for (int c = 0; c < 4; ++c) sum[c] += src.rgba[(size_t(yy) * size_t(src.width) + size_t(xx)) * 4 + c];
+                    for (int c = 0; c < 4; ++c)
+                        sum[c] += src.rgba[(size_t(yy) * size_t(src.width) + size_t(xx)) * 4 + c];
             const unsigned n = unsigned((y1 - y0) * (x1 - x0));
-            for (int c = 0; c < 4; ++c) out.rgba[(size_t(y) * size_t(w) + size_t(x)) * 4 + c] = std::uint8_t(sum[c] / n);
+            for (int c = 0; c < 4; ++c)
+                out.rgba[(size_t(y) * size_t(w) + size_t(x)) * 4 + c] = std::uint8_t(sum[c] / n);
         }
     }
     return out;
@@ -113,7 +116,9 @@ void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
     ev.mouse_x = logicalPos.x * dpi_;
     ev.mouse_y = logicalPos.y * dpi_;
     ev.modifiers = atMods_;
-    ev.mouse_button = type == SAPP_EVENTTYPE_MOUSE_MOVE ? SAPP_MOUSEBUTTON_INVALID : (button == 1 ? SAPP_MOUSEBUTTON_RIGHT : SAPP_MOUSEBUTTON_LEFT);
+    ev.mouse_button = type == SAPP_EVENTTYPE_MOUSE_MOVE
+                          ? SAPP_MOUSEBUTTON_INVALID
+                          : (button == 1 ? SAPP_MOUSEBUTTON_RIGHT : SAPP_MOUSEBUTTON_LEFT);
     on_event(&ev);
 }
 
@@ -122,7 +127,8 @@ void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
 static bool centre_shown(Vec2 c) {
     if (!ImGui::IsItemVisible()) return false;
     const ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->PopupId == GImGui->LastItemData.ID) return true;  // an open BeginMenu(): the item is in the parent window
+    if (window->PopupId == GImGui->LastItemData.ID)
+        return true;  // an open BeginMenu(): the item is in the parent window
     // A window larger than the display has a clip rectangle past its edge: the point must be on the display too.
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const ImRect display(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y));
@@ -139,7 +145,8 @@ void Editor::at_track(const std::string& name, bool enabled) {
     atWidgetShown_[name] = centre_shown(centre);  // false when a scrolling area (or a collapsed section) hides it
     // The script waits for this widget (at_widget): scroll its window (and the windows around it) until it is in view, as a
     // person on a small screen would.
-    if (!atWidgetShown_[name] && name == atScrollTo_) ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterX | ImGuiScrollFlags_KeepVisibleCenterY);
+    if (!atWidgetShown_[name] && name == atScrollTo_)
+        ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterX | ImGuiScrollFlags_KeepVisibleCenterY);
 }
 
 void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
@@ -183,7 +190,8 @@ Vec2 Editor::at_widget(const std::string& name) {
             atStepRetry_ = true;
             return kNowhere;
         }
-        at_check(false, "widget '" + name + "' is inside the visible part of its window (scrolling its window did not bring it in)");
+        at_check(false, "widget '" + name +
+                            "' is inside the visible part of its window (scrolling its window did not bring it in)");
         return kNowhere;
     }
     return it->second;
@@ -214,7 +222,8 @@ bool Editor::at_keep_waiting() {
 
 void Editor::autotest_pre_frame() {
     ++atFramesDrawn_;
-    if (atReopenIn_ > 0 && !engine_ && --atReopenIn_ == 0) open_project(atReopenDir_);  // section U: a stay on the welcome screen
+    if (atReopenIn_ > 0 && !engine_ && --atReopenIn_ == 0)
+        open_project(atReopenDir_);  // section U: a stay on the welcome screen
     ++atFrame_;
     if (atWaitAi_) {  // hold the script until the (scripted) AI run finished
         if (ai_running() && at_keep_waiting()) {
@@ -233,9 +242,12 @@ void Editor::autotest_pre_frame() {
             // would only report a symptom, and on a CI log the symptom alone does not say a wait expired); the others
             // leave a warning with the frame, so a log shows that the script went on without its condition.
             if (!atWaitWhat_.empty())
-                at_check(false, "waited 60 s for " + atWaitWhat_ + ", which never held (script frame " + std::to_string(atFrame_) + ")");
+                at_check(false, "waited 60 s for " + atWaitWhat_ + ", which never held (script frame " +
+                                    std::to_string(atFrame_) + ")");
             else
-                FA_WARN("autotest", "a wait_until condition did not hold within 60 s; the script went on (script frame {})", atFrame_);
+                FA_WARN("autotest",
+                        "a wait_until condition did not hold within 60 s; the script went on (script frame {})",
+                        atFrame_);
         }
         atWaitUntil_ = nullptr;
         atWaitWhat_.clear();
@@ -247,7 +259,8 @@ void Editor::autotest_pre_frame() {
         if (f == 2) {
             update_.current = "0.1.0";
             update_.latest = "0.2.0";
-            update_.notes = "# FactorIA v0.2.0\n\n## What's Changed\n* The editor updates itself\n\n# FactorIA v0.1.1\n\nFixes.\n";
+            update_.notes =
+                "# FactorIA v0.2.0\n\n## What's Changed\n* The editor updates itself\n\n# FactorIA v0.1.1\n\nFixes.\n";
             updateStage_ = UpdateStage::Offer;
         } else if (f == 6) {
             atPendingShots_.push_back(atOutDir_ + "/editor_update.png");
@@ -259,7 +272,8 @@ void Editor::autotest_pre_frame() {
         } else if (f == 9) {
             inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, atMouse_);
         } else if (f == 11) {
-            at_check(updateStage_ == UpdateStage::Idle && !restartAfterQuit_, "Not now closes the update popup and keeps this version");
+            at_check(updateStage_ == UpdateStage::Idle && !restartAfterQuit_,
+                     "Not now closes the update popup and keeps this version");
         }
         if (f == 12) {
             atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
@@ -268,19 +282,22 @@ void Editor::autotest_pre_frame() {
         }
         if (f == 16) {
             at_check(showProjectDialog_ && !engine_, "welcome dialog is shown without a project");
-            stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_welcome_project_" + std::to_string(std::rand()));
-            {   // std::rand() is not seeded, so the name is the same on every run: a folder a run that was killed left behind would fail this one
+            stdfs::path proj =
+                stdfs::temp_directory_path() / ("fa_editor_welcome_project_" + std::to_string(std::rand()));
+            {  // std::rand() is not seeded, so the name is the same on every run: a folder a run that was killed left behind would fail this one
                 std::error_code staleEc;
                 stdfs::remove_all(proj, staleEc);
             }
             auto r = create_project(proj.string(), "2d-empty", ScaffoldOptions{"Welcome Test"});
-            at_check(bool(r), "create_project from the dialog's template list" + (r ? "" : " (" + r.error().to_string() + ")"));
+            at_check(bool(r),
+                     "create_project from the dialog's template list" + (r ? "" : " (" + r.error().to_string() + ")"));
             if (r) {
                 atTempProject_ = r->dir;
                 open_project(r->dir);
             }
         } else if (f == 22) {
-            at_check(engine_ != nullptr && projectName_ == "Welcome Test", "opening a project from the no-project state boots the engine");
+            at_check(engine_ != nullptr && projectName_ == "Welcome Test",
+                     "opening a project from the no-project state boots the engine");
             at_check(windowTitle_ == std::string("FactorIA ") + FA_ENGINE_VERSION + " \xE2\x80\x94 Welcome Test",
                      "the window title names the engine version and the open project (" + windowTitle_ + ")");
             atPendingShots_.push_back(atOutDir_ + "/editor_after_open.png");
@@ -289,7 +306,8 @@ void Editor::autotest_pre_frame() {
         } else if (f == 34) {
             at_check(engine_ != nullptr && world().entity_count() > 0, "re-opening a project rebuilds engine and UI");
             at_check(!showProjectDialog_, "project dialog closed after opening");
-            (void)save_json_file(atOutDir_ + "/autotest_welcome_result.json", Json::object({{"failures", atFailures_}}));
+            (void)save_json_file(atOutDir_ + "/autotest_welcome_result.json",
+                                 Json::object({{"failures", atFailures_}}));
             sapp_request_quit();
         }
         return;
@@ -310,7 +328,8 @@ void Editor::autotest_pre_frame() {
     auto near = [](Vec3 a, Vec3 b) { return std::fabs(a.x - b.x) < 0.01f && std::fabs(a.y - b.y) < 0.01f; };
     const std::string out = atOutDir_ + "/";
 
-    if (!at_section_selected("S")) {  // FA_EDITOR_AUTOTEST_SECTIONS without S: the script of the sections asked for, at once
+    if (!at_section_selected(
+            "S")) {  // FA_EDITOR_AUTOTEST_SECTIONS without S: the script of the sections asked for, at once
         if (f == 8) {
             at_build_tools_script();
             atStepAt_ = f + 2;
@@ -336,10 +355,12 @@ void Editor::autotest_pre_frame() {
     } else if (f == 10) {
         // The Console runs a command the way the AI does: an undo snapshot first, then the call.
         atOriginalPos_ = player_pos();
-        const Json fields = Json::object({{"position", Json::array({atOriginalPos_.x + 40, atOriginalPos_.y, atOriginalPos_.z})}});
+        const Json fields =
+            Json::object({{"position", Json::array({atOriginalPos_.x + 40, atOriginalPos_.y, atOriginalPos_.z})}});
         run_console_line("scene.set_component " +
                          Json::object({{"id", "player"}, {"component", "Transform"}, {"fields", fields}}).dump());
-        at_check(near(player_pos(), Vec3{atOriginalPos_.x + 40, atOriginalPos_.y, 0}), "scene.set_component changed Transform.position");
+        at_check(near(player_pos(), Vec3{atOriginalPos_.x + 40, atOriginalPos_.y, 0}),
+                 "scene.set_component changed Transform.position");
         at_check(dirty() && undo_depth() >= 1, "the edit marks the scene dirty and records undo");
     } else if (f == 12) {
         undo();
@@ -382,7 +403,8 @@ void Editor::autotest_pre_frame() {
             const auto listed = [&](const char* name) { return criticProxy->has(name); };
             at_check(!listed("ai.run") && !listed("ai.review") && !listed("ai.settings.set") && !listed("scene.save"),
                      "a reviewer's MCP registry lists no ai.run, ai.review, ai.settings.set or scene.save");
-            at_check(!criticProxy->call("ai.settings.set", Json::object()).ok && !criticProxy->call("scene.save", Json::object()).ok,
+            at_check(!criticProxy->call("ai.settings.set", Json::object()).ok &&
+                         !criticProxy->call("scene.save", Json::object()).ok,
                      "...and none of them can be called");
             at_check(listed("scene.list_entities"), "...but the commands that look are there");
             bool onlyReadOnly = true;
@@ -400,9 +422,11 @@ void Editor::autotest_pre_frame() {
         play();
         at_check(play_state() == PlayState::Playing, "Play starts the game");
         atOriginalPos_ = player_pos();
-        w.feel().reduceMotionSetting = true;  // what a game's own accessibility option does: it must not outlive the session
+        w.feel().reduceMotionSetting =
+            true;  // what a game's own accessibility option does: it must not outlive the session
         w.feel().reducedEffectsSetting = false;
-        at_check(!command_edits_scene("feel.shake", Json::object()) && !command_edits_scene("feel.settings", Json::object()),
+        at_check(!command_edits_scene("feel.shake", Json::object()) &&
+                     !command_edits_scene("feel.settings", Json::object()),
                  "feel.* commands neither take an undo step nor mark the scene dirty");
     } else if (f == 50) {
         at_check(w.frame() > 0 || engine_->frame_index() > 10, "game simulated while playing");
@@ -434,7 +458,8 @@ void Editor::autotest_pre_frame() {
         at_check(true, "console commands executed");
         {
             std::lock_guard<std::mutex> lock(aiMu_);
-            for (auto& st : aiStatus_) FA_INFO("autotest", "ai provider {}: available={} ({})", st.name, st.available, st.detail);
+            for (auto& st : aiStatus_)
+                FA_INFO("autotest", "ai provider {}: available={} ({})", st.name, st.available, st.detail);
             at_check(aiDetected_.load(), "AI providers detected in the background");
         }
         select_id("player");
@@ -491,7 +516,8 @@ void Editor::autotest_pre_frame() {
         in.severity = "minor";
         in.title = "Editor autotest sample entry";
         in.missing = "Autotest: nothing is actually missing.";
-        for (int i = 0; i < 60; ++i) in.missing += "\nA long entry, line " + std::to_string(i) + ": the panel must not grow for it.";
+        for (int i = 0; i < 60; ++i)
+            in.missing += "\nA long entry, line " + std::to_string(i) + ": the panel must not grow for it.";
         in.workaround = "None needed.";
         (void)add_feedback_entry_to_file(fs::join(projectDir_, engine_->project().feedbackFile), in, projectName_);
         feedbackPolled_ = -10;
@@ -504,7 +530,8 @@ void Editor::autotest_pre_frame() {
         atPendingShots_.push_back(out + "editor_feedback.png");
         // Only the entries table and the detail scroll: the panel and its body area never get a scrollbar of their own.
         ImGuiWindow* fb = ImGui::FindWindowByName("Engine Feedback");
-        at_check(fb && fb->ScrollMax.y <= 0.0f && !fb->ScrollbarY, "the Engine Feedback panel does not scroll by itself");
+        at_check(fb && fb->ScrollMax.y <= 0.0f && !fb->ScrollbarY,
+                 "the Engine Feedback panel does not scroll by itself");
         bool body = false, detailScrolls = false;
         for (ImGuiWindow* c : ImGui::GetCurrentContext()->Windows) {
             if (!fb || c->ParentWindow != fb) continue;

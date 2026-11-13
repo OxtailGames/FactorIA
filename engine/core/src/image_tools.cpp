@@ -23,7 +23,10 @@ void fill_rect(Image& img, int x0, int y0, int w, int h, std::uint8_t r, std::ui
     for (int y = std::max(0, y0); y < std::min(img.height, y0 + h); ++y)
         for (int x = std::max(0, x0); x < std::min(img.width, x0 + w); ++x) {
             std::uint8_t* p = &img.rgba[(std::size_t(y) * img.width + x) * 4];
-            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+            p[0] = r;
+            p[1] = g;
+            p[2] = b;
+            p[3] = 255;
         }
 }
 
@@ -77,8 +80,8 @@ Image crop_image(const Image& src, int x, int y, int w, int h) {
     const int x0 = std::max(0, x), x1 = std::min(src.width, x + w);
     if (x1 <= x0) return out;
     for (int yy = std::max(0, y); yy < std::min(src.height, y + h); ++yy)
-        std::memcpy(&out.rgba[(std::size_t(yy - y) * w + (x0 - x)) * 4], &src.rgba[(std::size_t(yy) * src.width + x0) * 4],
-                    std::size_t(x1 - x0) * 4);
+        std::memcpy(&out.rgba[(std::size_t(yy - y) * w + (x0 - x)) * 4],
+                    &src.rgba[(std::size_t(yy) * src.width + x0) * 4], std::size_t(x1 - x0) * 4);
     return out;
 }
 
@@ -86,10 +89,13 @@ Image resize_nearest(const Image& src, int width, int height) {
     if (src.empty() || width < 1 || height < 1) return {};
     Image out = blank(width, height);
     for (int y = 0; y < height; ++y) {
-        const int sy = std::min(src.height - 1, int((std::int64_t(y) * 2 + 1) * src.height / (std::int64_t(height) * 2)));
+        const int sy =
+            std::min(src.height - 1, int((std::int64_t(y) * 2 + 1) * src.height / (std::int64_t(height) * 2)));
         for (int x = 0; x < width; ++x) {
-            const int sx = std::min(src.width - 1, int((std::int64_t(x) * 2 + 1) * src.width / (std::int64_t(width) * 2)));
-            std::memcpy(&out.rgba[(std::size_t(y) * width + x) * 4], &src.rgba[(std::size_t(sy) * src.width + sx) * 4], 4);
+            const int sx =
+                std::min(src.width - 1, int((std::int64_t(x) * 2 + 1) * src.width / (std::int64_t(width) * 2)));
+            std::memcpy(&out.rgba[(std::size_t(y) * width + x) * 4], &src.rgba[(std::size_t(sy) * src.width + sx) * 4],
+                        4);
         }
     }
     return out;
@@ -128,8 +134,8 @@ Image contact_sheet(const std::vector<Image>& tiles, const std::vector<std::stri
                                : crop_image(tiles[i], 0, 0, l.tileWidth, l.tileHeight);
         const Image& src = tile.empty() ? tiles[i] : tile;
         for (int y = 0; y < l.tileHeight && y < src.height; ++y)
-            std::memcpy(&sheet.rgba[(std::size_t(oy + y) * sheet.width + ox) * 4], &src.rgba[std::size_t(y) * src.width * 4],
-                        std::size_t(std::min(l.tileWidth, src.width)) * 4);
+            std::memcpy(&sheet.rgba[(std::size_t(oy + y) * sheet.width + ox) * 4],
+                        &src.rgba[std::size_t(y) * src.width * 4], std::size_t(std::min(l.tileWidth, src.width)) * 4);
         if (i < labels.size()) draw_label(sheet, ox, oy, labels[i], k);
     }
     return sheet;
@@ -137,9 +143,9 @@ Image contact_sheet(const std::vector<Image>& tiles, const std::vector<std::stri
 
 Result<ProfileChannel> parse_profile_channel(std::string_view name) {
     static const std::pair<const char*, ProfileChannel> kChannels[] = {{"luminance", ProfileChannel::Luminance},
-                                                                        {"red", ProfileChannel::Red},
-                                                                        {"green", ProfileChannel::Green},
-                                                                        {"blue", ProfileChannel::Blue}};
+                                                                       {"red", ProfileChannel::Red},
+                                                                       {"green", ProfileChannel::Green},
+                                                                       {"blue", ProfileChannel::Blue}};
     std::vector<std::string> names;
     for (const auto& [n, c] : kChannels) {
         if (name == n) return c;
@@ -148,7 +154,8 @@ Result<ProfileChannel> parse_profile_channel(std::string_view name) {
     return make_error("Unknown channel '" + std::string(name) + "'.", did_you_mean(name, names));
 }
 
-std::vector<float> profile_line(const Image& img, Vec2 from, Vec2 to, ProfileChannel channel, std::vector<Vec2>* points) {
+std::vector<float> profile_line(const Image& img, Vec2 from, Vec2 to, ProfileChannel channel,
+                                std::vector<Vec2>* points) {
     std::vector<float> out;
     if (points) points->clear();
     if (img.empty()) return out;
@@ -174,7 +181,8 @@ std::vector<float> profile_line(const Image& img, Vec2 from, Vec2 to, ProfileCha
     return out;
 }
 
-std::vector<ProfileStep> find_steps(const std::vector<float>& values, float threshold, int window, std::size_t maxSteps) {
+std::vector<ProfileStep> find_steps(const std::vector<float>& values, float threshold, int window,
+                                    std::size_t maxSteps) {
     std::vector<ProfileStep> steps;
     window = std::max(1, window);
     const int n = int(values.size());
@@ -183,13 +191,19 @@ std::vector<ProfileStep> find_steps(const std::vector<float>& values, float thre
         float bestAbs = 0;
         for (int w = 1; w <= window && i + w < n; ++w) {
             const float d = std::fabs(values[std::size_t(i + w)] - values[std::size_t(i)]);
-            if (d > bestAbs) { bestAbs = d; bestW = w; }
+            if (d > bestAbs) {
+                bestAbs = d;
+                bestW = w;
+            }
         }
         if (bestW > 0 && bestAbs >= threshold) {
             // A flat first or last sample is not part of the jump: report the riser itself (0, 0, 255 is a step of width 1).
             int first = i, w = bestW;
             const float flat = bestAbs * 0.1f;
-            while (w > 1 && std::fabs(values[std::size_t(first + 1)] - values[std::size_t(first)]) <= flat) { ++first; --w; }
+            while (w > 1 && std::fabs(values[std::size_t(first + 1)] - values[std::size_t(first)]) <= flat) {
+                ++first;
+                --w;
+            }
             while (w > 1 && std::fabs(values[std::size_t(first + w)] - values[std::size_t(first + w - 1)]) <= flat) --w;
             ProfileStep s;
             s.index = first;

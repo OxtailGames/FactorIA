@@ -25,12 +25,14 @@ struct SteamApi {
     void* remoteStorage = nullptr;
     void* remotePlay = nullptr;  // null when the library has no ISteamRemotePlay: the remotePlay service is then off
 
-    void* module = nullptr;     // the library's handle (dlopen, LoadLibrary)
-    i32 pipe = 0;               // the HSteamPipe of manual dispatch
-    std::string library;        // the file that was loaded
-    std::string accessors;      // the interface versions in use: "ISteamUserStats v013, ..."
-    std::vector<std::string> newerInterfaces;  // those newer than the SDKs the plugin was checked against: "ISteamUtils v011"
-    std::string appIdSource;    // where the app id came from: "the SteamAppId variable", "steam_appid.txt in <folder>", ""
+    void* module = nullptr;  // the library's handle (dlopen, LoadLibrary)
+    i32 pipe = 0;            // the HSteamPipe of manual dispatch
+    std::string library;     // the file that was loaded
+    std::string accessors;   // the interface versions in use: "ISteamUserStats v013, ..."
+    std::vector<std::string>
+        newerInterfaces;  // those newer than the SDKs the plugin was checked against: "ISteamUtils v011"
+    std::string
+        appIdSource;  // where the app id came from: "the SteamAppId variable", "steam_appid.txt in <folder>", ""
     bool needsStatsRequest = false;  // SDK 1.60 and older: stats arrive after RequestCurrentStats
 };
 

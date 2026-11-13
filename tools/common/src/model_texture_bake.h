@@ -29,22 +29,22 @@ std::string document_path(const ModelDoc& doc, const std::string& output);
 std::vector<std::string> layer_files(const ModelDoc& doc, const std::string& output);
 
 struct TextureBake {
-    std::string document;               // the image document, project-relative
-    std::string png;                    // the picture it bakes to: what the .glb uses as base colour texture
-    std::vector<std::string> files;     // the layer pictures written (project-relative)
-    std::vector<std::string> inputs;    // project files read: material textures, decal images and the image document
+    std::string document;             // the image document, project-relative
+    std::string png;                  // the picture it bakes to: what the .glb uses as base colour texture
+    std::vector<std::string> files;   // the layer pictures written (project-relative)
+    std::vector<std::string> inputs;  // project files read: material textures, decal images and the image document
     ModelTextureReport report;
     bool documentCreated = false;
     int size = 0;
-    std::string layout;                 // a fingerprint of the uv layout the layers were made for
+    std::string layout;  // a fingerprint of the uv layout the layers were made for
     std::vector<std::string> warnings;
 };
 
 // Bakes the layers of `doc.texturing` over the evaluated `build`, writes them, creates or updates the image document and bakes it. Hold a
 // ProjectRootGuard. `previousLayout` is the layout fingerprint the last bake recorded ("" if none). Throws CommandError (assets_detail::fail)
 // for a project problem, like the other tools; returns an Error for a bake problem.
-Result<TextureBake> bake_model_texture(const std::string& projectDir, const ModelDoc& doc, const ModelBuild& build, const std::string& output,
-                                       const std::string& previousLayout);
+Result<TextureBake> bake_model_texture(const std::string& projectDir, const ModelDoc& doc, const ModelBuild& build,
+                                       const std::string& output, const std::string& previousLayout);
 
 // Makes the mesh use the composed picture: every submesh gets `png` as its base colour texture (the material colour becomes white: it is
 // in the picture), and the vertex colours are dropped when the picture holds them (texturing.vertexColors "bake").

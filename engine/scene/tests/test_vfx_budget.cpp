@@ -19,9 +19,10 @@ std::shared_ptr<const VfxDoc> doc_of(const std::string& text, const char* path =
 
 // One burst of `n` particles of size `size` that live `life` seconds and do not move, so the counts are exact.
 std::string burst(int n, double size, double life, int cap) {
-    return R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"puff","emitter":{"burst":)" + std::to_string(n) +
-           R"(,"rate":0,"lifetime":)" + std::to_string(life) + R"(,"lifetimeVariance":0,"startSize":)" + std::to_string(size) + R"(,"endSize":)" +
-           std::to_string(size) + R"(,"speed":0,"speedVariance":0,"maxParticles":)" + std::to_string(cap) + R"(}}]})";
+    return R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"puff","emitter":{"burst":)" +
+           std::to_string(n) + R"(,"rate":0,"lifetime":)" + std::to_string(life) +
+           R"(,"lifetimeVariance":0,"startSize":)" + std::to_string(size) + R"(,"endSize":)" + std::to_string(size) +
+           R"(,"speed":0,"speedVariance":0,"maxParticles":)" + std::to_string(cap) + R"(}}]})";
 }
 
 }  // namespace
@@ -49,7 +50,8 @@ TEST_CASE("vfx_measure counts the particles and the screen they cover") {
 }
 
 TEST_CASE("vfx_measure is repeatable and follows the seed's document, not the clock") {
-    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burst":30,"rate":40,"lifetime":0.6,"speed":80,"speedVariance":0.5,"maxParticles":200},"duration":0.5}]})");
+    const auto d = doc_of(
+        R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":{"burst":30,"rate":40,"lifetime":0.6,"speed":80,"speedVariance":0.5,"maxParticles":200},"duration":0.5}]})");
     const VfxBudget a = vfx_measure(*d);
     const VfxBudget b = vfx_measure(*d);
     CHECK(a.peakParticles == b.peakParticles);
@@ -107,8 +109,9 @@ std::string many_bursts(int count, int n, double size, double life, int cap) {
     std::string parts;
     for (int i = 0; i < count; ++i) {
         if (i) parts += ",";
-        parts += R"({"type":"emitter","name":"e)" + std::to_string(i) + R"(","emitter":{"burst":)" + std::to_string(n) + R"(,"rate":0,"lifetime":)" +
-                 std::to_string(life) + R"(,"lifetimeVariance":0,"startSize":)" + std::to_string(size) + R"(,"endSize":)" + std::to_string(size) +
+        parts += R"({"type":"emitter","name":"e)" + std::to_string(i) + R"(","emitter":{"burst":)" + std::to_string(n) +
+                 R"(,"rate":0,"lifetime":)" + std::to_string(life) + R"(,"lifetimeVariance":0,"startSize":)" +
+                 std::to_string(size) + R"(,"endSize":)" + std::to_string(size) +
                  R"(,"speed":0,"speedVariance":0,"maxParticles":)" + std::to_string(cap) + "}}";
     }
     return R"({"format":"factoria.vfx/1","parts":[)" + parts + "]}";
@@ -125,7 +128,8 @@ TEST_CASE("vfx_measure: the overdraw is compared as printed (two decimals), not 
 
 TEST_CASE("vfx_measure: a fix that would leave nothing of the effect is not offered") {
     SUBCASE("particles: the other emitters already hold the budget") {
-        const auto d = doc_of(many_bursts(4, 100, 4.0, 1.0, 200));   // 400 live; the biggest holds 100; 100 over, so its cap would be 0
+        const auto d = doc_of(
+            many_bursts(4, 100, 4.0, 1.0, 200));  // 400 live; the biggest holds 100; 100 over, so its cap would be 0
         const VfxBudget b = vfx_measure(*d);
         REQUIRE(b.peakParticles == 400);
         const VfxBudgetFinding* f = nullptr;
@@ -136,7 +140,8 @@ TEST_CASE("vfx_measure: a fix that would leave nothing of the effect is not offe
         CHECK(f->hint.find("no single edit") != std::string::npos);
     }
     SUBCASE("overdraw: the other emitters already cover the budget") {
-        const auto d = doc_of(many_bursts(4, 4, 356.0, 0.5, 20));    // 4 emitters of 0.55 screens: 2.2 together, the others alone 1.65
+        const auto d = doc_of(
+            many_bursts(4, 4, 356.0, 0.5, 20));  // 4 emitters of 0.55 screens: 2.2 together, the others alone 1.65
         const VfxBudget b = vfx_measure(*d);
         const VfxBudgetFinding* f = nullptr;
         for (const VfxBudgetFinding& x : b.findings)
@@ -154,7 +159,7 @@ TEST_CASE("vfx_measure: a fix that would leave nothing of the effect is not offe
         const VfxBudgetFinding* f = nullptr;
         for (const VfxBudgetFinding& x : b.findings)
             if (x.kind == "overdraw") f = &x;
-        REQUIRE(b.perEmitter.size() == 2);   // a one-step effect (duration 0) still tells its emitters apart
+        REQUIRE(b.perEmitter.size() == 2);  // a one-step effect (duration 0) still tells its emitters apart
         REQUIRE(f);
         CHECK(f->pointer == "/parts/0/emitter/startSize");
         REQUIRE(f->fix.is_object());
@@ -194,7 +199,8 @@ TEST_CASE("vfx_budget_limits: phone is the default") {
 }
 
 TEST_CASE("vfx_measure: a 3D emitter counts its particles and says its overdraw is not measured") {
-    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":40,"lifetime":0.5,"startSize":500,"endSize":500}}]})");
+    const auto d = doc_of(
+        R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":40,"lifetime":0.5,"startSize":500,"endSize":500}}]})");
     const VfxBudget b = vfx_measure(*d);
     CHECK(b.peakParticles == 40);
     CHECK(b.peakOverdraw == 0.0);
@@ -208,7 +214,8 @@ TEST_CASE("vfx_measure: a 3D emitter counts its particles and says its overdraw 
 TEST_CASE("vfx_measure: with a camera a 3D emitter's quads are projected through it and counted as overdraw") {
     // One still particle of 5 units, 5 m in front of a 90 degree camera: the view is 10 units tall and 10 * 1280/720 wide, so the quad
     // covers 25 / (10 * 17.78) = 0.14 of the screen.
-    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
+    const auto d = doc_of(
+        R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
         "lifetimeVariance":0,"startSize":5,"endSize":5,"speed":0,"speedVariance":0,"maxParticles":4}}]})");
     VfxBudgetOptions o;
     o.camera = VfxBudgetCamera{};
@@ -243,16 +250,18 @@ TEST_CASE("vfx_measure: with a camera a 3D emitter's quads are projected through
     behind.cameraDistance = -3.0;
     CHECK(vfx_measure(*d, behind).peakOverdraw == 0.0);
     // Big, close quads are a finding like any other overdraw.
-    const auto big = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"fog","emitter":{"is3D":true,"burst":6,"rate":0,"lifetime":0.5,
+    const auto big = doc_of(
+        R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"fog","emitter":{"is3D":true,"burst":6,"rate":0,"lifetime":0.5,
         "lifetimeVariance":0,"startSize":8,"endSize":8,"speed":0,"speedVariance":0,"maxParticles":8}}]})");
     const VfxBudget bb = vfx_measure(*big, o);
     REQUIRE(bb.findings.size() == 1);
     CHECK(bb.findings[0].kind == "overdraw");
-    CHECK(vfx_measure(*big).findings.empty());   // without the camera there is nothing to compare
+    CHECK(vfx_measure(*big).findings.empty());  // without the camera there is nothing to compare
 }
 
 TEST_CASE("vfx_measure: without a camera the note says there is nothing to project through") {
-    const auto d = doc_of(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":3,"lifetime":0.5}}]})");
+    const auto d = doc_of(
+        R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"sparks","emitter":{"is3D":true,"burst":3,"lifetime":0.5}}]})");
     const VfxBudget b = vfx_measure(*d);
     CHECK_FALSE(b.camera3d);
     REQUIRE(b.notes.size() == 1);

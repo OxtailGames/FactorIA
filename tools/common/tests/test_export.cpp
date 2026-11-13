@@ -27,13 +27,16 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 // The warnings of a report without the one every project without an icon gets.
 std::vector<std::string> warnings_without_icon_note(const std::vector<std::string>& warnings) {
     std::vector<std::string> out;
     for (const auto& w : warnings)
-        if (w.find("No icon is set") == std::string::npos && w.find("allowPlayerMismatch") == std::string::npos) out.push_back(w);
+        if (w.find("No icon is set") == std::string::npos && w.find("allowPlayerMismatch") == std::string::npos)
+            out.push_back(w);
     return out;
 }
 
@@ -44,14 +47,16 @@ std::string make_fake_player(const testing::TempDir& tmp) {
     return p;
 }
 
-std::string make_project(const testing::TempDir& tmp, const std::string& name = "Space Dodge", const std::string& tpl = "2d-platformer") {
+std::string make_project(const testing::TempDir& tmp, const std::string& name = "Space Dodge",
+                         const std::string& tpl = "2d-platformer") {
     std::string dir = tmp.sub("proj");
     ScaffoldOptions so;
     so.name = name;
     so.id = "com.example.spacedodge";
     auto r = create_project(dir, tpl, so);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    Image hero;  // a real picture: a mobile export decodes every PNG (to compress it), and warns about one it cannot read
+    Image
+        hero;  // a real picture: a mobile export decodes every PNG (to compress it), and warns about one it cannot read
     hero.width = hero.height = 1;
     hero.rgba = {255, 255, 255, 255};
     const auto png = encode_png(hero);
@@ -73,8 +78,10 @@ struct ScopedEnv {
 #if defined(_WIN32)
         _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -84,7 +91,8 @@ std::string make_fake_mobile(const testing::TempDir& tmp, const std::string& dir
                              std::vector<std::string> abis = {"arm64-v8a", "x86_64"},
                              std::vector<std::string> slices = {"iphoneos", "iphonesimulator"}) {
     const stdfs::path root = stdfs::path(tmp.sub(dir));
-    for (const auto& abi : abis) testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", "fake " + abi);
+    for (const auto& abi : abis)
+        testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", "fake " + abi);
     for (const auto& sdk : slices) {
         testing::write_all(root / "ios" / sdk / "libfactoria_player_main.a", "fake player " + sdk);
         testing::write_all(root / "ios" / sdk / "libfa_core.a", "fake core " + sdk);
@@ -101,7 +109,8 @@ struct MobileNextToExe {
         std::error_code ec;
         if (stdfs::exists(dir, ec)) return;
         active = true;
-        for (const char* abi : {"arm64-v8a", "x86_64"}) testing::write_all(dir / "android" / "jniLibs" / abi / "libfactoria_player.so", abi);
+        for (const char* abi : {"arm64-v8a", "x86_64"})
+            testing::write_all(dir / "android" / "jniLibs" / abi / "libfactoria_player.so", abi);
     }
     ~MobileNextToExe() {
         std::error_code ec;
@@ -172,11 +181,13 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
             game = root + "/Space Dodge.app/Contents/Resources/game";
             exe = root + "/Space Dodge.app/Contents/MacOS/space-dodge";
             notices = "Space Dodge.app/Contents/Resources/FACTORIA_NOTICES.txt";
-            CHECK(testing::read_all(root + "/Space Dodge.app/Contents/Info.plist").find("com.example.spacedodge") != std::string::npos);
+            CHECK(testing::read_all(root + "/Space Dodge.app/Contents/Info.plist").find("com.example.spacedodge") !=
+                  std::string::npos);
 #if !defined(__APPLE__)
             // codesign runs only on macOS: the report says how to seal the bundle on a Mac (macOS: next test case).
             bool warned = false;
-            for (const auto& w : rep.warnings) warned = warned || w.find("codesign --force --sign -") != std::string::npos;
+            for (const auto& w : rep.warnings)
+                warned = warned || w.find("codesign --force --sign -") != std::string::npos;
             CHECK(warned);
 #endif
         }
@@ -210,7 +221,8 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     testing::write_all(plugin / "linux" / "libexample.so", "so");
     testing::write_all(plugin / "linux" / "libdependency.so", "so");  // a library the plugin needs goes with it
     Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
-    project["plugins"] = Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["windows", "linux", "macos"]}})");
+    project["plugins"] =
+        Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["windows", "linux", "macos"]}})");
     testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
 
     for (const char* platform : {"linux", "windows"}) {
@@ -241,7 +253,9 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     o.playerBinary = make_fake_player(tmp);
     auto r = export_project(o);
     REQUIRE_FALSE(r.ok());
-    CHECK(r.error().message.find("factoria.json#/plugins/example: the macos build is missing: macos/libexample.dylib") != std::string::npos);
+    CHECK(
+        r.error().message.find("factoria.json#/plugins/example: the macos build is missing: macos/libexample.dylib") !=
+        std::string::npos);
     CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-macos")));
     CHECK(r.error().hint.find("--allow-missing-plugins") != std::string::npos);
     CHECK(r.error().hint.find("not \"optional\"") != std::string::npos);  // this one is not declared optional
@@ -255,7 +269,8 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     CHECK(left->to_json()["pluginsLeftOut"][0] == "example");
     bool said = false;
     for (const std::string& w : left->warnings)
-        said = said || (w.find("plugin 'example' is left out") != std::string::npos && w.find("NOT declared \"optional\"") != std::string::npos);
+        said = said || (w.find("plugin 'example' is left out") != std::string::npos &&
+                        w.find("NOT declared \"optional\"") != std::string::npos);
     CHECK(said);
     CHECK(stdfs::exists(tmp.sub("out/space-dodge-macos")));
 
@@ -270,7 +285,8 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     auto optional = export_project(o);
     REQUIRE_MESSAGE(optional.ok(), (optional.ok() ? "" : optional.error().to_string()));
     said = false;
-    for (const std::string& w : optional->warnings) said = said || w.find("it is declared optional") != std::string::npos;
+    for (const std::string& w : optional->warnings)
+        said = said || w.find("it is declared optional") != std::string::npos;
     CHECK(said);
 
     // A plugin whose build exists is shipped, flag or not; the export command and its dry run take the argument too.
@@ -286,7 +302,8 @@ TEST_CASE("export: a native plugin's build ships next to the executable, its fol
     const std::string player = make_fake_player(tmp);
     auto viaCommand = reg.call("project.export", {{"platform", "macos"}, {"out", "dist"}, {"player", player}});
     CHECK_FALSE(viaCommand.ok);
-    auto allowed = reg.call("project.export", {{"platform", "macos"}, {"out", "dist"}, {"player", player}, {"allowMissingPlugins", true}});
+    auto allowed = reg.call(
+        "project.export", {{"platform", "macos"}, {"out", "dist"}, {"player", player}, {"allowMissingPlugins", true}});
     REQUIRE_MESSAGE(allowed.ok, allowed.error.dump());
     CHECK(allowed.result["pluginsLeftOut"][0] == "example");
 }
@@ -304,11 +321,13 @@ TEST_CASE("export: an output folder deeper than Windows' MAX_PATH works") {
     o.playerBinary = make_fake_player(tmp);
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    const stdfs::path scene = stdfs::path(r->outputDir) / "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json";
+    const stdfs::path scene =
+        stdfs::path(r->outputDir) / "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json";
     CHECK(scene.string().size() > 260);
     std::error_code ec;
     CHECK(stdfs::is_regular_file(fs::os_path(scene), ec));
-    CHECK(std::find(r->files.begin(), r->files.end(), "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json") != r->files.end());
+    CHECK(std::find(r->files.begin(), r->files.end(),
+                    "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json") != r->files.end());
     // Exporting again replaces the folder (the marker is found and the old tree removed, all past the limit).
     auto again = export_project(o);
     REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
@@ -325,7 +344,8 @@ TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify acce
     std::string player = tmp.sub("signed_player/factoria_player");
     stdfs::create_directories(stdfs::path(player).parent_path());
     stdfs::copy_file("/usr/bin/true", player);
-    REQUIRE(std::system(("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
+    REQUIRE(std::system(
+                ("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
 
     ExportOptions o;
     o.projectDir = proj;
@@ -459,7 +479,8 @@ TEST_CASE("export: only an empty folder or one an export wrote is replaced") {
         CAPTURE(platform);
         ExportOptions l = o;
         l.platform = platform;
-        if (platform == "android") l.format = "gradle";  // the folder is what is checked, not this computer's JDK and SDK
+        if (platform == "android")
+            l.format = "gradle";  // the folder is what is checked, not this computer's JDK and SDK
         const stdfs::path dir = tmp.sub("legacy-" + platform + "/space-dodge-" + platform);
         l.outDir = dir.parent_path().string();
         testing::write_all(dir / "old-file.txt", "from an earlier export");
@@ -549,10 +570,11 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     CHECK(rep.mode == "source");
     CHECK(rep.to_json()["mode"] == "source");
     stdfs::path root = rep.outputDir;
-    for (const char* f : {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
-                          "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
-                          "app/src/main/assets/factoria.json", "app/src/main/assets/scenes/main.scene.json",
-                          "app/src/main/assets/assets_index.txt", "app/src/main/assets/FACTORIA_NOTICES.txt"})
+    for (const char* f :
+         {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
+          "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
+          "app/src/main/assets/factoria.json", "app/src/main/assets/scenes/main.scene.json",
+          "app/src/main/assets/assets_index.txt", "app/src/main/assets/FACTORIA_NOTICES.txt"})
         CHECK_MESSAGE(stdfs::exists(root / f), f);
     CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/ENGINE_FEEDBACK.json"));
     CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/.factoria"));
@@ -635,7 +657,8 @@ TEST_CASE("export: android orientation and keyword ids") {
     o.format = "gradle";
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("sensorPortrait") != std::string::npos);
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("sensorPortrait") !=
+          std::string::npos);
 
     json = testing::read_all(stdfs::path(proj) / "factoria.json");
     pos = json.find("com.example.spacedodge");
@@ -713,9 +736,10 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     // The prebuilt players are copied where Gradle packages them as they are.
     CHECK(testing::read_all(root / "app/src/main/jniLibs/arm64-v8a/libfactoria_player.so") == "fake arm64-v8a");
     CHECK(testing::read_all(root / "app/src/main/jniLibs/x86_64/libfactoria_player.so") == "fake x86_64");
-    for (const char* f : {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
-                          "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
-                          "app/src/main/assets/factoria.json", "app/src/main/assets/assets_index.txt"})
+    for (const char* f :
+         {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
+          "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
+          "app/src/main/assets/factoria.json", "app/src/main/assets/assets_index.txt"})
         CHECK_MESSAGE(stdfs::exists(root / f), f);
 
     // Nothing in the project compiles native code or points at an engine checkout.
@@ -745,7 +769,8 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     CHECK(steps.find("ndk;") == std::string::npos);
 
     // The same manifest as source mode: the template is shared, only the native build differs.
-    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:value=\"factoria_player\"") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:value=\"factoria_player\"") !=
+          std::string::npos);
 }
 
 TEST_CASE("export: android picks the mode by the documented rule") {
@@ -864,9 +889,10 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
     CHECK(r->to_json()["mode"] == "prebuilt");
     stdfs::path root = r->outputDir;
 
-    for (const char* f : {"CMakeLists.txt", "cmake/plist.cmake", "cmake/Info.plist.in", "cmake/copy_game.cmake", "build_ios.sh",
-                          "game/factoria.json", "lib/iphoneos/libfactoria_player_main.a", "lib/iphoneos/libfa_core.a",
-                          "lib/iphonesimulator/libfactoria_player_main.a", "lib/iphonesimulator/libfa_core.a"})
+    for (const char* f :
+         {"CMakeLists.txt", "cmake/plist.cmake", "cmake/Info.plist.in", "cmake/copy_game.cmake", "build_ios.sh",
+          "game/factoria.json", "lib/iphoneos/libfactoria_player_main.a", "lib/iphoneos/libfa_core.a",
+          "lib/iphonesimulator/libfactoria_player_main.a", "lib/iphonesimulator/libfa_core.a"})
         CHECK_MESSAGE(stdfs::exists(root / f), f);
     CHECK(testing::read_all(root / "lib/iphonesimulator/libfa_core.a") == "fake core iphonesimulator");
     CHECK_FALSE(stdfs::exists(root / "game/ENGINE_FEEDBACK.json"));
@@ -882,7 +908,8 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
     std::string script = testing::read_all(root / "build_ios.sh");
     CHECK(script.find("mode: prebuilt") != std::string::npos);
     CHECK(script.find("\"$CMAKE\" -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
-    CHECK(script.find("CMAKE=\"${FACTORIA_CMAKE:-}\"") != std::string::npos);  // CMake: FACTORIA_CMAKE, the found one, PATH
+    CHECK(script.find("CMAKE=\"${FACTORIA_CMAKE:-}\"") !=
+          std::string::npos);  // CMake: FACTORIA_CMAKE, the found one, PATH
     CHECK(script.find("factoria setup cmake") != std::string::npos);
     CHECK(script.find("-DCMAKE_SYSTEM_NAME=iOS") != std::string::npos);
     CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
@@ -908,7 +935,8 @@ TEST_CASE("export: a native plugin's static libraries are linked into the iOS ap
     const stdfs::path plugins = stdfs::path(proj) / "plugins";
     for (const char* name : {"example", "alpha"})
         for (const char* sdk : {"iphoneos", "iphonesimulator"})
-            testing::write_all(plugins / name / "ios" / sdk / (std::string("lib") + name + ".a"), std::string(name) + " " + sdk);
+            testing::write_all(plugins / name / "ios" / sdk / (std::string("lib") + name + ".a"),
+                               std::string(name) + " " + sdk);
     testing::write_all(plugins / "example" / "src" / "plugin.c", "/* source */");
     Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
     project["plugins"] = Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["ios"]},
@@ -928,7 +956,8 @@ TEST_CASE("export: a native plugin's static libraries are linked into the iOS ap
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const stdfs::path root = r->outputDir;
         // The project that links the app is written with the code that registers the plugins.
-        CHECK(testing::read_all(root / "CMakeLists.txt").find("fa_ios_link_plugins(factoria_player)") != std::string::npos);
+        CHECK(testing::read_all(root / "CMakeLists.txt").find("fa_ios_link_plugins(factoria_player)") !=
+              std::string::npos);
         CHECK(testing::read_all(root / "cmake/plugins.cmake").find("fa_register_static_plugin") != std::string::npos);
     }
     SUBCASE("source mode") {
@@ -943,7 +972,8 @@ TEST_CASE("export: a native plugin's static libraries are linked into the iOS ap
         stdfs::remove(plugins / "example" / "ios" / "iphonesimulator" / "libexample.a");
         auto r = export_project(o);
         REQUIRE_FALSE(r.ok());
-        CHECK(r.error().message.find("factoria.json#/plugins/example: the ios build is missing: ios/iphonesimulator/libexample.a") !=
+        CHECK(r.error().message.find(
+                  "factoria.json#/plugins/example: the ios build is missing: ios/iphonesimulator/libexample.a") !=
               std::string::npos);
         return;
     }
@@ -962,7 +992,8 @@ TEST_CASE("export: a native plugin's static libraries are linked into the iOS ap
 // A game with the Apple plugin's manifests (docs/MOBILE.md, "Native plugins (iOS)") and a catalog with products.
 static void add_apple_plugin(const std::string& proj, const char* iosManifest, const char* macosManifest) {
     const stdfs::path plugin = stdfs::path(proj) / "plugins" / "apple";
-    for (const char* sdk : {"iphoneos", "iphonesimulator"}) testing::write_all(plugin / "ios" / sdk / "libapple.a", sdk);
+    for (const char* sdk : {"iphoneos", "iphonesimulator"})
+        testing::write_all(plugin / "ios" / sdk / "libapple.a", sdk);
     testing::write_all(plugin / "macos" / "libapple.dylib", "dylib");
     if (iosManifest) testing::write_all(plugin / "ios" / "plugin.json", iosManifest);
     if (macosManifest) testing::write_all(plugin / "macos" / "plugin.json", macosManifest);
@@ -981,7 +1012,8 @@ static const char* kAppleIosManifest = R"json({
                    "com.apple.developer.ubiquity-kvstore-identifier": "$(TeamIdentifierPrefix)$(CFBundleIdentifier)"}
 })json";
 
-TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, entitlements and a StoreKit configuration") {
+TEST_CASE(
+    "export: the plugins' manifests give the iOS app frameworks, Swift, entitlements and a StoreKit configuration") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     add_apple_plugin(proj, kAppleIosManifest, nullptr);
@@ -1002,7 +1034,8 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         CHECK(script.find("-DFA_GAME_PLUGIN_SWIFT=ON") != std::string::npos);
         CHECK(script.find("-DFA_GAME_ENTITLEMENTS=\"$HERE/factoria_player.entitlements\"") != std::string::npos);
         CHECK(script.find("-DFA_GAME_STOREKIT=ON") != std::string::npos);
-        CHECK(script.find("-DSTOREKIT=\"$HERE/Products.storekit\" -P \"$HERE/storekit_scheme.cmake\"") != std::string::npos);
+        CHECK(script.find("-DSTOREKIT=\"$HERE/Products.storekit\" -P \"$HERE/storekit_scheme.cmake\"") !=
+              std::string::npos);
         CHECK(script.find("-DPROJECT=\"$HERE/build/FactorIA.xcodeproj\"") != std::string::npos);
         // The step that wires the file runs after the project is configured, not before.
         CHECK(script.find("storekit_scheme.cmake") > script.find("-DFA_IOS_DEVELOPMENT_TEAM"));
@@ -1017,13 +1050,16 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         CHECK((*config)["products"][0]["productID"] == "com.example.gems100");  // ids.apple, else the id
         CHECK((*config)["products"][1]["productID"] == "no_ads");
         CHECK(stdfs::exists(root / "storekit_scheme.cmake"));
-        CHECK(stdfs::exists(root / "plugins/apple/ios/plugin.json") == false);  // the ios/ folder is copied as <name>/<sdk>/...
+        CHECK(stdfs::exists(root / "plugins/apple/ios/plugin.json") ==
+              false);  // the ios/ folder is copied as <name>/<sdk>/...
         CHECK(testing::read_all(root / "plugins/apple/plugin.json").find("StoreKit") != std::string::npos);
 
         bool capabilities = false, storekit = false;
         for (const std::string& s : r->nextSteps) {
-            capabilities = capabilities || (s.find("com.apple.developer.game-center") != std::string::npos && s.find("com.example.spacedodge") != std::string::npos);
-            storekit = storekit || (s.find("Products.storekit") != std::string::npos && s.find("simctl launch") != std::string::npos);
+            capabilities = capabilities || (s.find("com.apple.developer.game-center") != std::string::npos &&
+                                            s.find("com.example.spacedodge") != std::string::npos);
+            storekit = storekit || (s.find("Products.storekit") != std::string::npos &&
+                                    s.find("simctl launch") != std::string::npos);
         }
         CHECK(capabilities);
         CHECK(storekit);
@@ -1032,7 +1068,8 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         add_apple_plugin(proj, R"({"entitlements": {"com.apple.developer.game-center": true}})", nullptr);
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK(stdfs::exists(stdfs::path(r->outputDir) / "Products.storekit"));  // the catalog has products: the plugin is not needed
+        CHECK(stdfs::exists(stdfs::path(r->outputDir) /
+                            "Products.storekit"));  // the catalog has products: the plugin is not needed
         const std::string script = testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh");
         CHECK(script.find("storekit_scheme") != std::string::npos);
         CHECK(script.find("FA_GAME_PLUGIN_SWIFT") == std::string::npos);
@@ -1045,7 +1082,8 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
         auto none = export_project(o);
         REQUIRE_MESSAGE(none.ok(), (none.ok() ? "" : none.error().to_string()));
         CHECK_FALSE(stdfs::exists(stdfs::path(none->outputDir) / "factoria_player.entitlements"));
-        CHECK(testing::read_all(stdfs::path(none->outputDir) / "build_ios.sh").find("FA_GAME_ENTITLEMENTS") == std::string::npos);
+        CHECK(testing::read_all(stdfs::path(none->outputDir) / "build_ios.sh").find("FA_GAME_ENTITLEMENTS") ==
+              std::string::npos);
     }
     SUBCASE("a manifest that is wrong stops the export and says where") {
         add_apple_plugin(proj, R"({"framworks": ["StoreKit"]})", nullptr);
@@ -1062,7 +1100,8 @@ TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, en
 // GoogleMobileAds is a static framework (an `ar` archive) and UserMessagingPlatform a dynamic one. No Google download is needed.
 static void add_admob_plugin(const std::string& proj, const char* platform) {
     const stdfs::path plugin = stdfs::path(proj) / "plugins" / "admob";
-    for (const char* sdk : {"iphoneos", "iphonesimulator"}) testing::write_all(plugin / "ios" / sdk / "libadmob.a", sdk);
+    for (const char* sdk : {"iphoneos", "iphonesimulator"})
+        testing::write_all(plugin / "ios" / sdk / "libadmob.a", sdk);
     testing::write_all(plugin / "ios" / "plugin.json", R"json({
       "swift": true,
       "xcframeworks": ["frameworks/GoogleMobileAds.xcframework", "frameworks/UserMessagingPlatform.xcframework"],
@@ -1070,13 +1109,19 @@ static void add_admob_plugin(const std::string& proj, const char* platform) {
     })json");
     const stdfs::path frameworks = plugin / "ios" / "frameworks";
     for (const char* slice : {"ios-arm64", "ios-arm64_x86_64-simulator"}) {
-        testing::write_all(frameworks / "GoogleMobileAds.xcframework" / slice / "GoogleMobileAds.framework" / "GoogleMobileAds", "!<arch>\nstatic");
-        testing::write_all(frameworks / "UserMessagingPlatform.xcframework" / slice / "UserMessagingPlatform.framework" / "UserMessagingPlatform", "dynamic");
+        testing::write_all(frameworks / "GoogleMobileAds.xcframework" / slice / "GoogleMobileAds.framework" /
+                               "GoogleMobileAds",
+                           "!<arch>\nstatic");
+        testing::write_all(frameworks / "UserMessagingPlatform.xcframework" / slice /
+                               "UserMessagingPlatform.framework" / "UserMessagingPlatform",
+                           "dynamic");
     }
     testing::write_all(frameworks / "GoogleMobileAds.xcframework" / "Info.plist", "<plist/>");
     Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
-    project["plugins"] = Json::parse(std::string(R"({"admob": {"path": "plugins/admob", "platforms": [")") + platform + R"("]}})");
-    project["platform"] = Json::parse(R"({"ads": {"trackingPrompt": true, "trackingDescription": "To show you \"fitting\" ads.",
+    project["plugins"] =
+        Json::parse(std::string(R"({"admob": {"path": "plugins/admob", "platforms": [")") + platform + R"("]}})");
+    project["platform"] =
+        Json::parse(R"({"ads": {"trackingPrompt": true, "trackingDescription": "To show you \"fitting\" ads.",
                                         "placements": [{"id": "more_time", "type": "rewarded"}]}})");
     testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
 }
@@ -1092,7 +1137,9 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
     o.outDir = tmp.sub("out");
     o.mobileDir = make_fake_mobile(tmp);
     o.buildSourceRoot = tmp.sub("no-checkout-here");
-    const auto has = [](const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; };
+    const auto has = [](const std::string& text, const std::string& part) {
+        return text.find(part) != std::string::npos;
+    };
     const auto edit_project = [&](const std::function<void(Json&)>& change) {
         Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
         change(project);
@@ -1104,22 +1151,29 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const stdfs::path root = r->outputDir;
         // Copied with the plugin (the frameworks are a download that git ignores, so the export is what carries them to the Mac).
-        CHECK(stdfs::exists(root / "plugins/admob/frameworks/GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/GoogleMobileAds"));
-        CHECK(stdfs::exists(root / "plugins/admob/frameworks/UserMessagingPlatform.xcframework/ios-arm64_x86_64-simulator"));
+        CHECK(stdfs::exists(root / "plugins/admob/frameworks/GoogleMobileAds.xcframework/ios-arm64/"
+                                   "GoogleMobileAds.framework/GoogleMobileAds"));
+        CHECK(stdfs::exists(root /
+                            "plugins/admob/frameworks/UserMessagingPlatform.xcframework/ios-arm64_x86_64-simulator"));
         const std::string script = testing::read_all(root / "build_ios.sh");
-        CHECK(has(script, "-DFA_GAME_PLUGIN_XCFRAMEWORKS='admob/frameworks/GoogleMobileAds.xcframework;admob/frameworks/UserMessagingPlatform.xcframework'"));
-        CHECK(has(script, "-DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS='admob/frameworks/UserMessagingPlatform.xcframework'"));  // only the dynamic one
+        CHECK(has(script, "-DFA_GAME_PLUGIN_XCFRAMEWORKS='admob/frameworks/GoogleMobileAds.xcframework;admob/"
+                          "frameworks/UserMessagingPlatform.xcframework'"));
+        CHECK(has(
+            script,
+            "-DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS='admob/frameworks/UserMessagingPlatform.xcframework'"));  // only the dynamic one
         CHECK(has(script, "-DFA_GAME_PLUGIN_SWIFT=ON"));
         CHECK(has(script, "-DFA_GAME_INFO_PLIST_EXTRA=\"$HERE/InfoPlistExtra.xml\""));
         CHECK_FALSE(has(script, "FA_GAME_LOCALIZED_STRINGS"));  // a game that is not localized has one sentence
 
         const std::string plist = testing::read_all(root / "InfoPlistExtra.xml");
-        CHECK(has(plist, "<key>GADApplicationIdentifier</key>\n\t<string>ca-app-pub-3940256099942544~1458002511</string>"));
+        CHECK(has(plist,
+                  "<key>GADApplicationIdentifier</key>\n\t<string>ca-app-pub-3940256099942544~1458002511</string>"));
         CHECK(has(plist, "<key>FactoriaAdsTest</key>\n\t<true/>"));
         CHECK(has(plist, "<key>FactoriaAdsAudience</key>\n\t<string>general</string>"));
         CHECK(has(plist, "<key>FactoriaAdsTrackingPrompt</key>\n\t<true/>"));
         CHECK(has(plist, "<key>NSUserTrackingUsageDescription</key>\n\t<string>To show you \"fitting\" ads.</string>"));
-        CHECK(has(plist, "<key>SKAdNetworkItems</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>"));
+        CHECK(has(plist, "<key>SKAdNetworkItems</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>SKAdNetworkIdentifier</"
+                         "key>\n\t\t\t<string>cstr6suwn9.skadnetwork</string>"));
         CHECK(has(plist, "4fzdc2evr5.skadnetwork"));
         CHECK_FALSE(has(plist, "<?xml"));  // pairs only: platforms/ios/Info.plist.in holds the rest
 
@@ -1131,16 +1185,19 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         bool linked = false, ads = false;
         for (const std::string& s : r->nextSteps) {
             linked = linked || (has(s, "GoogleMobileAds.xcframework") && has(s, "embeds the dynamic ones (1)"));
-            ads = ads || (has(s, "GADApplicationIdentifier ca-app-pub-3940256099942544~1458002511") && has(s, "development export always shows test ads") &&
-                          has(s, "privacy.tracking"));
+            ads = ads || (has(s, "GADApplicationIdentifier ca-app-pub-3940256099942544~1458002511") &&
+                          has(s, "development export always shows test ads") && has(s, "privacy.tracking"));
         }
         CHECK(linked);
         CHECK(ads);
-        for (const std::string& w : r->warnings) CHECK_MESSAGE(!has(w, "appIds"), w);  // a development export does not warn about ids
+        for (const std::string& w : r->warnings)
+            CHECK_MESSAGE(!has(w, "appIds"), w);  // a development export does not warn about ids
     }
 
     SUBCASE("a release export carries the catalog's iOS app id and warns about the placements without a unit") {
-        edit_project([](Json& p) { p["platform"]["ads"]["appIds"] = Json::parse(R"({"ios": "ca-app-pub-1234567890123456~0987654321"})"); });
+        edit_project([](Json& p) {
+            p["platform"]["ads"]["appIds"] = Json::parse(R"({"ios": "ca-app-pub-1234567890123456~0987654321"})");
+        });
         o.release = true;
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -1149,7 +1206,8 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         CHECK_FALSE(has(plist, "ca-app-pub-3940256099942544"));
         CHECK(has(plist, "<key>FactoriaAdsTest</key>\n\t<false/>"));
         bool unit = false;
-        for (const std::string& w : r->warnings) unit = unit || (has(w, "placement \"more_time\"") && has(w, "admob_ios"));
+        for (const std::string& w : r->warnings)
+            unit = unit || (has(w, "placement \"more_time\"") && has(w, "admob_ios"));
         CHECK(unit);
         for (const std::string& w : r->warnings) CHECK_MESSAGE(!has(w, "appIds"), w);
     }
@@ -1158,7 +1216,8 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         o.release = true;
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK(has(testing::read_all(stdfs::path(r->outputDir) / "InfoPlistExtra.xml"), "ca-app-pub-3940256099942544~1458002511"));
+        CHECK(has(testing::read_all(stdfs::path(r->outputDir) / "InfoPlistExtra.xml"),
+                  "ca-app-pub-3940256099942544~1458002511"));
         bool appId = false;
         for (const std::string& w : r->warnings) appId = appId || has(w, "platform.ads.appIds.ios is not set");
         CHECK(appId);
@@ -1168,16 +1227,22 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         bool warned = false;
-        for (const std::string& w : r->warnings) warned = warned || (has(w, "platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not"));
+        for (const std::string& w : r->warnings)
+            warned = warned || (has(w, "platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not"));
         CHECK(warned);
 
-        edit_project([](Json& p) { p["export"]["ios"]["privacy"] = Json::parse(R"({"tracking": true, "trackingDomains": ["googleads.g.doubleclick.net"]})"); });
+        edit_project([](Json& p) {
+            p["export"]["ios"]["privacy"] =
+                Json::parse(R"({"tracking": true, "trackingDomains": ["googleads.g.doubleclick.net"]})");
+        });
         auto tracked = export_project(o);
         REQUIRE_MESSAGE(tracked.ok(), (tracked.ok() ? "" : tracked.error().to_string()));
         for (const std::string& w : tracked->warnings) CHECK_MESSAGE(!has(w, "trackingPrompt"), w);
-        CHECK(has(testing::read_all(stdfs::path(tracked->outputDir) / "PrivacyInfo.xcprivacy"), "<key>NSPrivacyTracking</key>\n\t<true/>"));
+        CHECK(has(testing::read_all(stdfs::path(tracked->outputDir) / "PrivacyInfo.xcprivacy"),
+                  "<key>NSPrivacyTracking</key>\n\t<true/>"));
         bool step = false;
-        for (const std::string& s : tracked->nextSteps) step = step || (has(s, "PrivacyInfo.xcprivacy says the app tracks") && has(s, "1 tracking domain(s)"));
+        for (const std::string& s : tracked->nextSteps)
+            step = step || (has(s, "PrivacyInfo.xcprivacy says the app tracks") && has(s, "1 tracking domain(s)"));
         CHECK(step);
     }
 
@@ -1202,11 +1267,14 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const stdfs::path root = r->outputDir;
         CHECK(has(testing::read_all(root / "build_ios.sh"), "-DFA_GAME_LOCALIZED_STRINGS=\"$HERE/InfoPlist\""));
-        CHECK(testing::read_all(root / "InfoPlist/es.lproj/InfoPlist.strings") == "\"NSUserTrackingUsageDescription\" = \"Anuncios a tu medida.\";\n");
-        CHECK(testing::read_all(root / "InfoPlist/en.lproj/InfoPlist.strings") == "\"NSUserTrackingUsageDescription\" = \"Ads that \\\"fit\\\" you.\";\n");
+        CHECK(testing::read_all(root / "InfoPlist/es.lproj/InfoPlist.strings") ==
+              "\"NSUserTrackingUsageDescription\" = \"Anuncios a tu medida.\";\n");
+        CHECK(testing::read_all(root / "InfoPlist/en.lproj/InfoPlist.strings") ==
+              "\"NSUserTrackingUsageDescription\" = \"Ads that \\\"fit\\\" you.\";\n");
         const std::string plist = testing::read_all(root / "InfoPlistExtra.xml");
         CHECK(has(plist, "<string>Ads that \"fit\" you.</string>"));
-        CHECK(has(plist, "<key>CFBundleLocalizations</key>\n\t<array>\n\t\t<string>en</string>\n\t\t<string>es</string>"));
+        CHECK(has(plist,
+                  "<key>CFBundleLocalizations</key>\n\t<array>\n\t\t<string>en</string>\n\t\t<string>es</string>"));
     }
 
     SUBCASE("a plugin that lists an XCFramework it does not have stops the export and says where to get it") {
@@ -1221,18 +1289,24 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
     }
 
     SUBCASE("an XCFramework without the slice of the simulator exports with a warning") {
-        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
+        stdfs::remove_all(stdfs::path(proj) /
+                          "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         bool warned = false;
-        for (const std::string& w : r->warnings) warned = warned || (has(w, "GoogleMobileAds.xcframework has no slice for the iOS Simulator") && has(w, "--simulator"));
+        for (const std::string& w : r->warnings)
+            warned = warned || (has(w, "GoogleMobileAds.xcframework has no slice for the iOS Simulator") &&
+                                has(w, "--simulator"));
         CHECK(warned);
     }
 
     SUBCASE("an XCFramework with no iOS slice at all is refused") {
         stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64");
-        stdfs::remove_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
-        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/macos-arm64/GoogleMobileAds.framework/GoogleMobileAds", "x");
+        stdfs::remove_all(stdfs::path(proj) /
+                          "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/ios-arm64_x86_64-simulator");
+        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework/macos-arm64/"
+                                               "GoogleMobileAds.framework/GoogleMobileAds",
+                           "x");
         auto r = export_project(o);
         REQUIRE_FALSE(r.ok());
         CHECK(has(r.error().message, "has no iOS slice"));
@@ -1240,7 +1314,8 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
     }
 
     SUBCASE("a plugin that writes the key the export writes for the ads plugin is refused") {
-        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/plugin.json", R"({"swift": true, "infoPlist": {"GADApplicationIdentifier": "ca-app-pub-1~2"}})");
+        testing::write_all(stdfs::path(proj) / "plugins/admob/ios/plugin.json",
+                           R"({"swift": true, "infoPlist": {"GADApplicationIdentifier": "ca-app-pub-1~2"}})");
         auto r = export_project(o);
         REQUIRE_FALSE(r.ok());
         CHECK(has(r.error().message, "GADApplicationIdentifier"));
@@ -1248,11 +1323,15 @@ TEST_CASE("export: the ads plugin's XCFrameworks are linked and embedded, and th
     }
 
     SUBCASE("a game without the plugin gets none of it") {
-        edit_project([](Json& p) { p.erase("plugins"); p["platform"].erase("ads"); });
+        edit_project([](Json& p) {
+            p.erase("plugins");
+            p["platform"].erase("ads");
+        });
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const std::string script = testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh");
-        for (const char* key : {"FA_GAME_PLUGIN_XCFRAMEWORKS", "FA_GAME_INFO_PLIST_EXTRA", "FA_GAME_LOCALIZED_STRINGS"}) CHECK_FALSE(has(script, key));
+        for (const char* key : {"FA_GAME_PLUGIN_XCFRAMEWORKS", "FA_GAME_INFO_PLIST_EXTRA", "FA_GAME_LOCALIZED_STRINGS"})
+            CHECK_FALSE(has(script, key));
         CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "InfoPlistExtra.xml"));
     }
 }
@@ -1281,7 +1360,9 @@ TEST_CASE("export: macOS keeps plugin.json out of the app and writes the entitle
     CHECK(entitlements.find("$(") == std::string::npos);
     bool signing = false;
     for (const std::string& s : r->nextSteps)
-        signing = signing || (s.find("provisioningProfile") != std::string::npos && s.find("sign.macos") != std::string::npos && s.find("space-dodge.entitlements") != std::string::npos);
+        signing = signing ||
+                  (s.find("provisioningProfile") != std::string::npos && s.find("sign.macos") != std::string::npos &&
+                   s.find("space-dodge.entitlements") != std::string::npos);
     CHECK(signing);
     // Windows and Linux builds of the same game drop the manifest too, and write nothing else.
     add_apple_plugin(proj, kAppleIosManifest, "{}");
@@ -1393,9 +1474,16 @@ TEST_CASE("export: the exported linux player runs the game" * doctest::skip(!kIs
     // Locate the player in the build tree: <build>/tools/common/fa_test_tooling -> <build>/player/factoria_player.
     stdfs::path exeDir = stdfs::read_symlink("/proc/self/exe").parent_path();
     stdfs::path player;
-    for (auto c : {exeDir / "../../player/factoria_player", exeDir / "../player/factoria_player", exeDir / "factoria_player"})
-        if (stdfs::exists(c)) { player = stdfs::weakly_canonical(c); break; }
-    if (player.empty()) { MESSAGE("factoria_player not built; skipping"); return; }
+    for (auto c :
+         {exeDir / "../../player/factoria_player", exeDir / "../player/factoria_player", exeDir / "factoria_player"})
+        if (stdfs::exists(c)) {
+            player = stdfs::weakly_canonical(c);
+            break;
+        }
+    if (player.empty()) {
+        MESSAGE("factoria_player not built; skipping");
+        return;
+    }
     if (std::system("command -v xvfb-run >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1") != 0) {
         MESSAGE("xvfb-run/timeout not installed; skipping");
         return;
@@ -1410,7 +1498,8 @@ TEST_CASE("export: the exported linux player runs the game" * doctest::skip(!kIs
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     std::string log = tmp.sub("run.log");
-    std::string cmd = "cd '" + r->outputDir + "' && xvfb-run -a -s '-screen 0 1280x720x24' timeout 5 ./space-dodge >'" + log + "' 2>&1";
+    std::string cmd = "cd '" + r->outputDir + "' && xvfb-run -a -s '-screen 0 1280x720x24' timeout 5 ./space-dodge >'" +
+                      log + "' 2>&1";
     int rc = std::system(cmd.c_str());
     std::string out = testing::read_all(log);
     INFO(out);
@@ -1427,13 +1516,16 @@ TEST_CASE("export: the exported linux player runs the game" * doctest::skip(!kIs
     while ((pos = out.find("] ERROR ", pos)) != std::string::npos) {
         std::size_t eol = out.find('\n', pos);
         std::string line = out.substr(pos, eol - pos);
-        if (line.find("] ERROR script:") != std::string::npos) MESSAGE("script error in exported game: " << line);
-        else CHECK_MESSAGE(false, line);
+        if (line.find("] ERROR script:") != std::string::npos)
+            MESSAGE("script error in exported game: " << line);
+        else
+            CHECK_MESSAGE(false, line);
         pos += 8;
     }
 }
 
-TEST_CASE("export ios: Products.storekit is written without the Apple plugin, with one localization per language of the game") {
+TEST_CASE("export ios: Products.storekit is written without the Apple plugin, with one localization per language of "
+          "the game") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
@@ -1474,7 +1566,8 @@ TEST_CASE("export ios: Products.storekit is written without the Apple plugin, wi
 }
 
 // A player stand-in the exporter treats as an executable (starts with MZ) and carries the given build fingerprint.
-static std::string fingerprinted_player(const testing::TempDir& tmp, const std::string& fingerprint, const char* name = "factoria_player.exe") {
+static std::string fingerprinted_player(const testing::TempDir& tmp, const std::string& fingerprint,
+                                        const char* name = "factoria_player.exe") {
     const std::string p = tmp.sub(std::string("fp_player/") + name);
     std::string bytes = std::string("MZ\x90\0 padding \0", 14);
     if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
@@ -1516,7 +1609,8 @@ TEST_CASE("export desktop: a player from another build stops the export unless a
     SUBCASE("the same commit with uncommitted changes on one side only is a warning") {
         const std::string mine = build_fingerprint();
         const auto dirty = mine.find("-dirty");
-        o.playerBinary = fingerprinted_player(tmp, dirty == std::string::npos ? mine + "-dirty" : mine.substr(0, dirty));
+        o.playerBinary =
+            fingerprinted_player(tmp, dirty == std::string::npos ? mine + "-dirty" : mine.substr(0, dirty));
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         bool said = false;
@@ -1541,7 +1635,8 @@ TEST_CASE("export desktop: a player from another build stops the export unless a
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         bool said = false;
-        for (const std::string& w : r->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        for (const std::string& w : r->warnings)
+            said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
         CHECK(said);
     }
     SUBCASE("the export command maps the argument (the player is the one `setup players` installed)") {
@@ -1561,7 +1656,8 @@ TEST_CASE("export desktop: a player from another build stops the export unless a
         REQUIRE_FALSE(refused.ok);
         CHECK(refused.error["message"].get<std::string>().find("0123456789ab") != std::string::npos);
         CHECK(refused.error["hint"].get<std::string>().find("allowPlayerMismatch") != std::string::npos);
-        auto allowed = reg.call("project.export", {{"platform", other}, {"out", "dist"}, {"allowPlayerMismatch", true}});
+        auto allowed =
+            reg.call("project.export", {{"platform", other}, {"out", "dist"}, {"allowPlayerMismatch", true}});
         CHECK(allowed.ok);
     }
     SUBCASE("a text stand-in is not an executable and is not compared") {

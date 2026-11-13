@@ -132,7 +132,11 @@ TEST_CASE("bloom: golden image of a small neon scene") {
     auto neon = [&](Vec3 p, ShapeType type, Vec2 size, Color color, bool filled = true, float thickness = 2) {
         Entity e = make(w, "neon", p);
         auto& s = w.add<Shape2D>(e);
-        s.shape = type; s.size = size; s.color = color; s.filled = filled; s.thickness = thickness;
+        s.shape = type;
+        s.size = size;
+        s.color = color;
+        s.filled = filled;
+        s.thickness = thickness;
         s.blend = BlendMode::Additive;
     };
     neon({-90, 40, 0}, ShapeType::Rectangle, {60, 30}, Color{1.0f, 0.1f, 0.8f, 1});
@@ -151,12 +155,12 @@ TEST_CASE("bloom: the glow sits on the shape, not mirrored (off-center shape)") 
     s.world.get<Transform>(s.shape)->position = {-100, 50, 0};  // pixels x 40..79, y 30..49 (top-left of the frame)
     s.bloom(true);
     Image img = g.render(s.world);
-    CHECK(is_lit(img.pixel(60, 26)));                   // just above the shape
-    CHECK(is_lit(img.pixel(60, 53)));                   // just below
-    CHECK(is_lit(img.pixel(36, 40)));                   // just left
-    CHECK(is_lit(img.pixel(83, 40)));                   // just right
-    CHECK_FALSE(is_lit(img.pixel(60, kH - 1 - 26)));    // vertically mirrored position
-    CHECK_FALSE(is_lit(img.pixel(kW - 1 - 60, 40)));    // horizontally mirrored position
+    CHECK(is_lit(img.pixel(60, 26)));                 // just above the shape
+    CHECK(is_lit(img.pixel(60, 53)));                 // just below
+    CHECK(is_lit(img.pixel(36, 40)));                 // just left
+    CHECK(is_lit(img.pixel(83, 40)));                 // just right
+    CHECK_FALSE(is_lit(img.pixel(60, kH - 1 - 26)));  // vertically mirrored position
+    CHECK_FALSE(is_lit(img.pixel(kW - 1 - 60, 40)));  // horizontally mirrored position
     CHECK_FALSE(is_lit(img.pixel(kW - 1 - 60, kH - 1 - 40)));
 }
 
@@ -194,13 +198,13 @@ TEST_CASE("bloom: deterministic, two runs give the same pixels") {
         Image first = g.render(a.world);
         Image second = g.render(a.world);  // same renderer, next frame
         CHECK(first.rgba == second.rgba);
-        g.render(a.world);                 // interleave something different
+        g.render(a.world);  // interleave something different
         a.bloom(false);
         g.render(a.world);
         a.bloom(true, 0.4f, 1.3f, radius);
         Image third = g.render(a.world);
         CHECK(first.rgba == third.rgba);
-        Scene2D b;                          // a brand-new world with identical content
+        Scene2D b;  // a brand-new world with identical content
         b.bloom(true, 0.4f, 1.3f, radius);
         CHECK(first.rgba == g.render(b.world).rgba);
     }
@@ -282,7 +286,9 @@ TEST_CASE("bloom: invalid values are clamped instead of breaking the frame") {
 
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const float inf = std::numeric_limits<float>::infinity();
-    struct Case { float threshold, intensity, radius; };
+    struct Case {
+        float threshold, intensity, radius;
+    };
     for (Case c : {Case{nan, nan, nan}, Case{-5, -1, -3}, Case{5, 1e9f, 1e9f}, Case{0.5f, 1, 0}, Case{inf, inf, inf},
                    Case{0.5f, 1, -inf}}) {
         s.bloom(true, c.threshold, c.intensity, c.radius);
@@ -356,7 +362,8 @@ TEST_CASE("bloom: follows a resized game target") {
     Image wide = g.render(s.world);
     CHECK(wide.width == 400);
     CHECK(wide.height == 200);
-    CHECK(wide.pixel(224, 100).r > kClear.r + 0.05f);  // glow 4 px right of the rectangle (x 180..219) in the bigger target
+    CHECK(wide.pixel(224, 100).r >
+          kClear.r + 0.05f);  // glow 4 px right of the rectangle (x 180..219) in the bigger target
     g.renderer.set_target_size(kW, kH);
     Image back = g.render(s.world);
     CHECK(back.rgba == small.rgba);
@@ -445,10 +452,11 @@ TEST_CASE("bloomScreenSpace: true (the default) makes screen-space items glow, f
 
     s.camera().bloomScreenSpace = false;
     Image crisp = g.render(s.world);
-    CHECK(hud_glow_pixels(crisp, off) == 0);  // not one pixel around the HUD changed: it is exactly the frame without bloom
-    CHECK(world_glow_pixels(crisp) > 300);    // the world still glows
+    CHECK(hud_glow_pixels(crisp, off) ==
+          0);  // not one pixel around the HUD changed: it is exactly the frame without bloom
+    CHECK(world_glow_pixels(crisp) > 300);  // the world still glows
     CHECK(max_channel(crisp.pixel(40, 20)) > 0.95f);
-    for (int y = 0; y < kH; ++y)              // HUD region identical, including the text glyphs
+    for (int y = 0; y < kH; ++y)  // HUD region identical, including the text glyphs
         for (int x = 0; x < kHudX1; ++x) {
             REQUIRE(crisp.pixel(x, y).r == off.pixel(x, y).r);
             REQUIRE(crisp.pixel(x, y).g == off.pixel(x, y).g);
@@ -572,15 +580,23 @@ TEST_CASE("bloomScreenSpace=false: screen-space particles stay crisp, world part
     // A white additive dot in the HUD region: screen pixel (50, 90).
     Entity e = make(s.world, "hud-sparks", {50, 90, 0});
     auto& p = s.world.add<ParticleEmitter>(e);
-    p.emitting = false; p.rate = 0; p.burst = 1; p.lifetime = 1000.0f; p.lifetimeVariance = 0; p.speed = 0;
-    p.speedVariance = 0; p.spread = 0; p.gravity = {0, 0, 0}; p.startSize = p.endSize = 20;
+    p.emitting = false;
+    p.rate = 0;
+    p.burst = 1;
+    p.lifetime = 1000.0f;
+    p.lifetimeVariance = 0;
+    p.speed = 0;
+    p.speedVariance = 0;
+    p.spread = 0;
+    p.gravity = {0, 0, 0};
+    p.startSize = p.endSize = 20;
     p.startColor = p.endColor = Color::white();
     p.blend = BlendMode::Additive;
     p.space = RenderSpace::Screen;
 
     s.bloom(false);
     Image off = g.render(s.world);
-    CHECK(max_channel(off.pixel(50, 90)) > 0.95f);   // the dot
+    CHECK(max_channel(off.pixel(50, 90)) > 0.95f);  // the dot
     CHECK(hud_glow_pixels(off, off) == 0);
 
     s.bloom(true);
@@ -591,9 +607,9 @@ TEST_CASE("bloomScreenSpace=false: screen-space particles stay crisp, world part
 
     s.camera().bloomScreenSpace = false;
     Image crisp = g.render(s.world);
-    CHECK(hud_glow_pixels(crisp, off) == 0);         // the HUD pass draws the dot after the bloom: no halo at all
+    CHECK(hud_glow_pixels(crisp, off) == 0);  // the HUD pass draws the dot after the bloom: no halo at all
     CHECK(max_channel(crisp.pixel(50, 90)) > 0.95f);
-    CHECK(world_glow_pixels(crisp) > 300);           // the world rectangle still glows
+    CHECK(world_glow_pixels(crisp) > 300);  // the world rectangle still glows
 
     // The same emitter in world space (world (-110, 0) is the same pixel) is bloomed whatever the flag says.
     s.world.get<Transform>(e)->position = {-110, 0, 0};
@@ -647,7 +663,10 @@ TEST_CASE("bloom cost at 1280x720 (FA_BLOOM_BENCH=1)" * doctest::skip(!bloom_ben
     };
 
     std::printf("\nbloom cost at 1280x720 (%s):\n", g.gpu.description());
-    for (int i = 0; i < 8; ++i) { frame(false, 16); frame(true, 16); }  // warm up (shader JIT, targets)
+    for (int i = 0; i < 8; ++i) {
+        frame(false, 16);
+        frame(true, 16);
+    }  // warm up (shader JIT, targets)
     for (float radius : {8.0f, 16.0f, 32.0f, 64.0f, 128.0f}) {
         std::vector<double> offMs, onMs, offCpu, onCpu;
         for (int i = 0; i < 40; ++i) {  // interleaved so drift and other processes hit both equally
@@ -657,8 +676,8 @@ TEST_CASE("bloom cost at 1280x720 (FA_BLOOM_BENCH=1)" * doctest::skip(!bloom_ben
             onCpu.push_back(lastCpuMs);
         }
         double off = median(offMs), on = median(onMs);
-        std::printf("  radius %5.0f: off %.2f ms, on %.2f ms, bloom adds %.2f ms/frame (CPU recording %.2f ms of it)\n", radius,
-                    off, on, on - off, median(onCpu) - median(offCpu));
+        std::printf("  radius %5.0f: off %.2f ms, on %.2f ms, bloom adds %.2f ms/frame (CPU recording %.2f ms of it)\n",
+                    radius, off, on, on - off, median(onCpu) - median(offCpu));
     }
     std::fflush(stdout);
     g.renderer.set_target_size(kW, kH);

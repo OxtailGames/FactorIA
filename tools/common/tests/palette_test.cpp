@@ -22,7 +22,8 @@ Image strip(std::initializer_list<std::array<std::uint8_t, 4>> pixels) {
     img.height = 1;
     img.rgba.reserve(pixels.size() * 4);
     for (const auto& p : pixels)
-        for (const std::uint8_t byte : p) img.rgba.push_back(byte);  // not vector::insert: GCC 13 reports a false overflow for it
+        for (const std::uint8_t byte : p)
+            img.rgba.push_back(byte);  // not vector::insert: GCC 13 reports a false overflow for it
     return img;
 }
 
@@ -53,7 +54,8 @@ TEST_CASE("load_palette: a list of #rrggbb colours") {
 TEST_CASE("load_palette: the distinct opaque colours of an image") {
     testing::TempDir tmp;
     ProjectRoot root(tmp.path);
-    Image img = strip({{255, 0, 0, 255}, {255, 0, 0, 255}, {0, 0, 255, 255}, {9, 9, 9, 0}});  // the transparent pixel is no colour
+    Image img = strip(
+        {{255, 0, 0, 255}, {255, 0, 0, 255}, {0, 0, 255, 255}, {9, 9, 9, 0}});  // the transparent pixel is no colour
     REQUIRE(save_png(img, "palette.png").ok());
     auto palette = load_palette(Json("palette.png"));
     REQUIRE(palette.ok());
@@ -68,7 +70,8 @@ TEST_CASE("load_palette: the distinct opaque colours of an image") {
     Image many;
     many.width = 300;
     many.height = 1;
-    for (int i = 0; i < 300; ++i) many.rgba.insert(many.rgba.end(), {std::uint8_t(i % 256), std::uint8_t(i / 256), 0, 255});
+    for (int i = 0; i < 300; ++i)
+        many.rgba.insert(many.rgba.end(), {std::uint8_t(i % 256), std::uint8_t(i / 256), 0, 255});
     REQUIRE(save_png(many, "many.png").ok());
     auto tooMany = load_palette(Json("many.png"));
     REQUIRE_FALSE(tooMany.ok());
@@ -90,6 +93,6 @@ TEST_CASE("quantize_to_palette: nearest colour, alpha kept") {
     CHECK(out.rgba[11] == 0);
     CHECK(out.rgba[12] == 200);
     CHECK(out.rgba[13] == 30);
-    CHECK(quantize_to_palette(src, {}).rgba == src.rgba);  // no palette: unchanged
+    CHECK(quantize_to_palette(src, {}).rgba == src.rgba);       // no palette: unchanged
     CHECK(quantize_to_palette(out, palette).rgba == out.rgba);  // idempotent
 }

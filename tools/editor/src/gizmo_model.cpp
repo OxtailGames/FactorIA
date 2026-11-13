@@ -24,7 +24,8 @@ float seg_distance(Vec2 p, Vec2 a, Vec2 b) {
 
 float ring_distance(Vec2 p, const std::vector<Vec2>& ring) {
     float best = std::numeric_limits<float>::max();
-    for (size_t i = 0; i < ring.size(); ++i) best = std::min(best, seg_distance(p, ring[i], ring[(i + 1) % ring.size()]));
+    for (size_t i = 0; i < ring.size(); ++i)
+        best = std::min(best, seg_distance(p, ring[i], ring[(i + 1) % ring.size()]));
     return best;
 }
 
@@ -33,9 +34,12 @@ float ring_distance(Vec2 p, const std::vector<Vec2>& ring) {
 Vec3 unit_axis(int i) { return {i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f}; }
 float axis_value(Vec3 v, int i) { return i == 0 ? v.x : i == 1 ? v.y : v.z; }
 Vec3 with_axis(Vec3 v, int i, float value) {
-    if (i == 0) v.x = value;
-    else if (i == 1) v.y = value;
-    else v.z = value;
+    if (i == 0)
+        v.x = value;
+    else if (i == 1)
+        v.y = value;
+    else
+        v.z = value;
     return v;
 }
 
@@ -121,15 +125,21 @@ std::vector<GizmoShape> gizmo_layout(GizmoMode mode, const GizmoView& view, cons
 
 GizmoHandle gizmo_hit(const std::vector<GizmoShape>& shapes, Vec2 m, float tol) {
     for (const GizmoShape& s : shapes)
-        if (s.type == GizmoShape::Type::Centre && std::fabs(m.x - s.centre.x) <= s.half && std::fabs(m.y - s.centre.y) <= s.half) return s.handle;
+        if (s.type == GizmoShape::Type::Centre && std::fabs(m.x - s.centre.x) <= s.half &&
+            std::fabs(m.y - s.centre.y) <= s.half)
+            return s.handle;
     for (const GizmoShape& s : shapes)
-        if (s.type == GizmoShape::Type::Arm && s.tipBox && std::fabs(m.x - s.to.x) <= s.half && std::fabs(m.y - s.to.y) <= s.half) return s.handle;
+        if (s.type == GizmoShape::Type::Arm && s.tipBox && std::fabs(m.x - s.to.x) <= s.half &&
+            std::fabs(m.y - s.to.y) <= s.half)
+            return s.handle;
     GizmoHandle best;
     float bestD = tol;
     for (const GizmoShape& s : shapes) {
         float d = std::numeric_limits<float>::max();
-        if (s.type == GizmoShape::Type::Arm) d = seg_distance(m, s.from, s.to);
-        else if (s.type == GizmoShape::Type::Ring) d = ring_distance(m, s.ring);
+        if (s.type == GizmoShape::Type::Arm)
+            d = seg_distance(m, s.from, s.to);
+        else if (s.type == GizmoShape::Type::Ring)
+            d = ring_distance(m, s.ring);
         if (d <= bestD && (d < bestD || !best)) {  // the first of equals wins (x before y before z)
             best = s.handle;
             bestD = d;
@@ -173,7 +183,9 @@ Vec3 snap_move(Vec3 start, Vec3 moved, float step) {
     return {snap(start.x, moved.x), snap(start.y, moved.y), snap(start.z, moved.z)};
 }
 
-Vec3 world_to_local_position(const Mat4& parentWorld, Vec3 world) { return parentWorld.inverse().transform_point(world); }
+Vec3 world_to_local_position(const Mat4& parentWorld, Vec3 world) {
+    return parentWorld.inverse().transform_point(world);
+}
 
 float wrap_deg(float d) {
     d = std::fmod(d, 360.0f);

@@ -152,7 +152,8 @@ Entity Editor::pick_at(Vec2 design) {
         // World-space entities are tested at the world point under the cursor, screen-space ones at the design pixel.
         if (!pick_hit(w, e, b, b.screenSpace ? design : Vec2{wp.x, wp.y}, designSize, &layer)) continue;
         // Higher layer wins, then later in the scene; screen-space items (HUD) are drawn over the world, so they win over it.
-        const std::int64_t key = std::int64_t(layer) * 1000000 + order + (b.screenSpace ? std::int64_t(100000000000) : 0);
+        const std::int64_t key =
+            std::int64_t(layer) * 1000000 + order + (b.screenSpace ? std::int64_t(100000000000) : 0);
         if (key > bestKey) {
             bestKey = key;
             best = e;
@@ -164,11 +165,14 @@ Entity Editor::pick_at(Vec2 design) {
 void Editor::draw_viewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // Status goes in the title (the ### id keeps docking/layout stable); an overlay would hide the game's HUD.
-    static float lastScale = 1.0f;  // one viewport window; the scale is only known after Begin, so the title is a frame behind
+    static float lastScale =
+        1.0f;  // one viewport window; the scale is only known after Begin, so the title is a frame behind
     char title[96] = "Viewport###Viewport";
     if (Renderer* tr = engine_->renderer(); tr && tr->target_width() > 0)
         std::snprintf(title, sizeof title, "Viewport  -  %s  %dx%d  %.0f%%###Viewport",
-                      play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED",
+                      play_ == PlayState::Edit      ? "EDIT"
+                      : play_ == PlayState::Playing ? "PLAYING"
+                                                    : "PAUSED",
                       int(tr->target_width()), int(tr->target_height()), lastScale * 100.0f);
     if (vpFocusNext_) ImGui::SetNextWindowFocus();
     vpFocusNext_ = false;
@@ -197,18 +201,23 @@ void Editor::draw_viewport() {
     ImGui::SetCursorScreenPos(imgMin);
     // The renderer's offscreen target is stored bottom-up on GL backends; flip so the image is upright.
 #if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
-    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz, ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz, ImVec2(0, 1),
+                 ImVec2(1, 0));
 #else
     ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz);
 #endif
     ImGui::SetCursorScreenPos(imgMin);
     ImGui::InvisibleButton("##viewport_hit", sz,
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
     vpImageMin_ = imgMin;
     vpImageSize_ = sz;
     const bool hovered = ImGui::IsItemHovered();
     vpHovered_ = hovered;
-    { const ImVec2 m = ImGui::GetIO().MousePos; viewport_accept_drop(*r, Vec2{(m.x - imgMin.x) / sz.x * tw, (m.y - imgMin.y) / sz.y * th}); }
+    {
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        viewport_accept_drop(*r, Vec2{(m.x - imgMin.x) / sz.x * tw, (m.y - imgMin.y) / sz.y * th});
+    }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImGuiIO& io = ImGui::GetIO();
 
@@ -238,13 +247,18 @@ void Editor::draw_viewport() {
         } else {
             onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         }
-        if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
-        if (hovered && gizmoHover_) ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
-        else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, rotate, scale the selection");
+        if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            select(pick_at(design_of(io.MousePos)));
+        if (hovered && gizmoHover_)
+            ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
+        else if (hovered)
+            ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, "
+                                  "rotate, scale the selection");
     } else {
         gizmo_end_drag(false);
         gizmoShapes_.clear();
-        if (vpFocused_) dl->AddRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), IM_COL32(80, 220, 255, 255), 0, 0, 2.0f);
+        if (vpFocused_)
+            dl->AddRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), IM_COL32(80, 220, 255, 255), 0, 0, 2.0f);
     }
 
     // ---- overlays
@@ -261,8 +275,10 @@ void Editor::draw_viewport() {
                 dl->AddCircle(a, std::max(2.0f, std::hypot(b.x - a.x, b.y - a.y)), col, 28, 1.0f);
             } else {
                 const Vec2 h = c.size * 0.5f;
-                ImVec2 p[4] = {project(e, Vec3{c.offset.x - h.x, c.offset.y - h.y, 0}, false), project(e, Vec3{c.offset.x + h.x, c.offset.y - h.y, 0}, false),
-                               project(e, Vec3{c.offset.x + h.x, c.offset.y + h.y, 0}, false), project(e, Vec3{c.offset.x - h.x, c.offset.y + h.y, 0}, false)};
+                ImVec2 p[4] = {project(e, Vec3{c.offset.x - h.x, c.offset.y - h.y, 0}, false),
+                               project(e, Vec3{c.offset.x + h.x, c.offset.y - h.y, 0}, false),
+                               project(e, Vec3{c.offset.x + h.x, c.offset.y + h.y, 0}, false),
+                               project(e, Vec3{c.offset.x - h.x, c.offset.y + h.y, 0}, false)};
                 dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.0f);
             }
         });
@@ -281,8 +297,10 @@ void Editor::draw_viewport() {
                                  to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z - h})),
                                  to_vp(r->world_to_screen(Vec3{c.center.x + h, c.center.y, c.center.z + h})),
                                  to_vp(r->world_to_screen(Vec3{c.center.x - h, c.center.y, c.center.z + h}))};
-            dl->AddConvexPolyFilled(q, 4, c.blocked ? IM_COL32(255, 70, 60, 90)
-                                           : c.moving ? IM_COL32(70, 170, 255, 110) : IM_COL32(60, 220, 120, 70));
+            dl->AddConvexPolyFilled(q, 4,
+                                    c.blocked  ? IM_COL32(255, 70, 60, 90)
+                                    : c.moving ? IM_COL32(70, 170, 255, 110)
+                                               : IM_COL32(60, 220, 120, 70));
         }
         // Off-mesh links (NavLink3D): a line from the start to the end, with an arrowhead at the end of a one-way one;
         // grey when an end is not on walkable ground.
@@ -309,8 +327,10 @@ void Editor::draw_viewport() {
             ImVec2 c8[8];
             Vec3 lo, hi;
             mesh_local_box(sel, lo, hi);
-            for (int i = 0; i < 8; ++i) c8[i] = project(sel, Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z}, false);
-            static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+            for (int i = 0; i < 8; ++i)
+                c8[i] = project(sel, Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z}, false);
+            static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3},
+                                             {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (auto& ed : edges) dl->AddLine(c8[ed[0]], c8[ed[1]], col, 2.0f);
         } else {
             // The engine's own footprint of the entity's visuals: one oriented box per visual (rotation and scale included),

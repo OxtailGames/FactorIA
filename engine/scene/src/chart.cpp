@@ -40,7 +40,10 @@ std::vector<std::vector<double>> chart_series(const Chart& c) {
 }
 
 Color chart_series_color(const Chart& c, int i) {
-    static const Color palette[] = {{0.55f, 0.78f, 1.0f, 1}, {1.0f, 0.82f, 0.38f, 1}, {0.55f, 0.9f, 0.55f, 1}, {1.0f, 0.5f, 0.5f, 1},
+    static const Color palette[] = {{0.55f, 0.78f, 1.0f, 1},
+                                    {1.0f, 0.82f, 0.38f, 1},
+                                    {0.55f, 0.9f, 0.55f, 1},
+                                    {1.0f, 0.5f, 0.5f, 1},
                                     {0.8f, 0.6f, 1.0f, 1}};
     const int n = int(sizeof(palette) / sizeof(palette[0]));
     if (c.colors.is_array() && !c.colors.empty()) {
@@ -101,14 +104,17 @@ ChartLayout chart_layout(const Chart& c, const std::vector<std::vector<double>>&
     return L;
 }
 
-std::optional<ChartSample> chart_sample_at(const Chart& c, const std::vector<std::vector<double>>& series, const Rect& r, Vec2 p) {
+std::optional<ChartSample> chart_sample_at(const Chart& c, const std::vector<std::vector<double>>& series,
+                                           const Rect& r, Vec2 p) {
     if (!r.contains(p) || series.empty()) return std::nullopt;
     const ChartLayout L = chart_layout(c, series, r);
     if (L.count == 0 || L.slots == 0 || !(L.plot.w > 0)) return std::nullopt;
     const float rel = std::clamp(p.x - L.plot.x, 0.0f, L.plot.w);
     int slot;
-    if (L.line) slot = L.slots > 1 ? int(std::lround(rel / L.plot.w * float(L.slots - 1))) : 0;
-    else slot = std::min(L.slots - 1, int(rel / L.slot_width()));
+    if (L.line)
+        slot = L.slots > 1 ? int(std::lround(rel / L.plot.w * float(L.slots - 1))) : 0;
+    else
+        slot = std::min(L.slots - 1, int(rel / L.slot_width()));
     const int index = slot - L.first;
     if (index < 0 || index >= L.count) return std::nullopt;
     // The series: for bars the one whose bar the pointer is over (columns split evenly), for lines the closest point vertically.

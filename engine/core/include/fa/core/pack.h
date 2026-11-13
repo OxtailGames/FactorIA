@@ -73,7 +73,8 @@ namespace fa {
 
 inline constexpr std::uint32_t kPackFormatVersion = 2;
 inline constexpr std::uint32_t kPackBlockSize = 256 * 1024;  // the most bytes one block decodes to (format 2)
-inline constexpr const char* kPackFileName = "game.pak";  // where an export puts it: next to the executable (see EXPORTING.md)
+inline constexpr const char* kPackFileName =
+    "game.pak";  // where an export puts it: next to the executable (see EXPORTING.md)
 
 // The largest file (decoded) a pack of `packBytes` bytes may hold: 64 times the pack's size, and never less than 256 MiB.
 // A reader refuses a bigger one as damaged when it opens the pack, so a hostile index cannot make a read allocate
@@ -109,8 +110,9 @@ struct PackStats {
     std::uint64_t packBytes = 0;  // the size of the pack file (data + index + header and footer)
     // By the codec each file ended up with (index = Codec value): a file whose codec saved nothing counts as store.
     std::array<PackCodecStats, 3> codecs{};
-    std::uint64_t orderedFiles = 0;   // files placed by set_order (the rest came after them, by path)
-    std::uint64_t blocksKeptRaw = 0;  // blocks of lz4 / zstd files stored as they are, because the codec saved too little
+    std::uint64_t orderedFiles = 0;  // files placed by set_order (the rest came after them, by path)
+    std::uint64_t blocksKeptRaw =
+        0;  // blocks of lz4 / zstd files stored as they are, because the codec saved too little
     // Blocks a codec could not compress (an error from fa::compress): stored as they are, and the first error is kept
     // here so the export can say so. 0 in a working build.
     std::uint64_t compressErrors = 0;
@@ -171,16 +173,19 @@ public:
 
     // Opens `file` and reads its index. The errors say what is wrong with the file (not a pack, cut short, damaged,
     // written by a newer FactorIA) and how to fix it (export the game again with this FactorIA version).
-    static Result<std::shared_ptr<const PackReader>> open(const std::filesystem::path& file, const PackOpenOptions& options = {});
+    static Result<std::shared_ptr<const PackReader>> open(const std::filesystem::path& file,
+                                                          const PackOpenOptions& options = {});
     // Opens a pack that is already in memory (a download, a test, a fuzz input): `bytes` is moved into the reader, which
     // answers every read from it. The same checks as open(): any byte string is either a pack or an error, never a
     // crash. `name` stands for the file in the error messages. Nothing is registered with the Windows file rules.
-    static Result<std::shared_ptr<const PackReader>> open_memory(std::vector<std::uint8_t> bytes, std::string name = "(memory)");
+    static Result<std::shared_ptr<const PackReader>> open_memory(std::vector<std::uint8_t> bytes,
+                                                                 std::string name = "(memory)");
 
-    bool contains(std::string_view path) const;       // a file; `path` is normalized, project-relative
-    bool is_directory(std::string_view path) const;   // "" (the root) or a folder with at least one file below it
+    bool contains(std::string_view path) const;         // a file; `path` is normalized, project-relative
+    bool is_directory(std::string_view path) const;     // "" (the root) or a folder with at least one file below it
     std::int64_t size_of(std::string_view path) const;  // decoded bytes; -1 when the pack has no such file
-    std::int64_t stored_size_of(std::string_view path) const;  // bytes the file takes in the pack; -1 when it is not there
+    std::int64_t
+    stored_size_of(std::string_view path) const;  // bytes the file takes in the pack; -1 when it is not there
     // The codec the file is stored with (store when the pack has no such file).
     Codec codec_of(std::string_view path) const;
     // The file's bytes, read (and decoded) now. A missing file is an error with a "did you mean" taken from the index; a
@@ -198,7 +203,9 @@ public:
     // A fixed number (the pack file's modification time when it was opened) for every file: a pack never changes.
     std::int64_t modified_time() const { return mtime_; }
     std::uint32_t format_version() const { return version_; }
-    bool mapped() const { return map_ != nullptr; }  // reads come from memory: a mapping or open_memory (else positional reads)
+    bool mapped() const {
+        return map_ != nullptr;
+    }  // reads come from memory: a mapping or open_memory (else positional reads)
     // The data region in pack order: each file's path, in the order its bytes lie in the pack (tests, `factoria` tools).
     std::vector<std::string> data_order() const;
 
@@ -217,8 +224,9 @@ private:
     PackReader() = default;
     // What open() and open_memory() share: checks the header, the footer and the index of the `fileSize` bytes read_at()
     // serves, then (a file only: `file` is not null) maps the pack and registers it.
-    static Result<std::shared_ptr<const PackReader>> finish_open(std::shared_ptr<PackReader> pack, const std::string& name,
-                                                                 std::uint64_t fileSize, const std::filesystem::path* file,
+    static Result<std::shared_ptr<const PackReader>> finish_open(std::shared_ptr<PackReader> pack,
+                                                                 const std::string& name, std::uint64_t fileSize,
+                                                                 const std::filesystem::path* file,
                                                                  const PackOpenOptions& options);
     struct Entry {
         std::string path;
@@ -246,11 +254,11 @@ private:
     std::uint32_t version_ = 0;
     std::uint32_t blockSize_ = kPackBlockSize;
     std::int64_t mtime_ = 0;
-    std::intptr_t native_ = -1;    // the open file (HANDLE or descriptor), shared by every reader thread
-    std::intptr_t mapping_ = 0;    // Windows: the file mapping object
+    std::intptr_t native_ = -1;          // the open file (HANDLE or descriptor), shared by every reader thread
+    std::intptr_t mapping_ = 0;          // Windows: the file mapping object
     const std::uint8_t* map_ = nullptr;  // the whole pack, when mapped (or held in memory_)
     std::vector<std::uint8_t> memory_;   // open_memory: the pack's bytes, which map_ points into
-    bool inMemory_ = false;  // open_memory: map_ points into memory_ and is not a file mapping to unmap
+    bool inMemory_ = false;              // open_memory: map_ points into memory_ and is not a file mapping to unmap
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
     mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};

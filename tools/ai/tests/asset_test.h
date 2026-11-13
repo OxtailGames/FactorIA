@@ -22,7 +22,8 @@ inline AiConfig config_from(const char* json) { return config_from(Json::parse(j
 
 // Every kind of asset made by the fake provider.
 inline AiConfig fake_config() {
-    return config_from(R"({"assets":{"image":{"provider":"fake"},"sound":{"provider":"fake"},"music":{"provider":"fake"},
+    return config_from(
+        R"({"assets":{"image":{"provider":"fake"},"sound":{"provider":"fake"},"music":{"provider":"fake"},
                            "voice":{"provider":"fake"},"model3d":{"provider":"fake"}}})");
 }
 
@@ -57,7 +58,8 @@ struct Wire {
     }
 };
 
-inline std::string png_bytes(int width, int height, std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) {
+inline std::string png_bytes(int width, int height, std::uint8_t r, std::uint8_t g, std::uint8_t b,
+                             std::uint8_t a = 255) {
     Image img;
     img.width = width;
     img.height = height;
@@ -88,20 +90,24 @@ inline std::set<std::uint32_t> colours_of(const Image& img) {
 // provider in a test never writes the developer's real folder and the day does not change under a test that runs at midnight.
 inline ShareEnv scratch_home_env(const std::string& home) {
     ShareEnv env;
-    env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+    env.env = [home](const std::string& name) -> std::string {
+        return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+    };
     env.now = [] { return std::int64_t(1800000000); };  // 2027-01-15 08:00 UTC
     return env;
 }
 // A test that already gave the user folder its own (a `Home` with a fixed clock or a short lock wait) keeps it: the Game does not replace it.
 struct Game {
-    TempDir home;                 // first: the user folder outlives everything that uses it
-    std::optional<ScopedShareEnv> scopedHome;  // set first thing in the constructor (MSVC does not build it from a ?: of a non-copyable type)
+    TempDir home;  // first: the user folder outlives everything that uses it
+    std::optional<ScopedShareEnv>
+        scopedHome;  // set first thing in the constructor (MSVC does not build it from a ?: of a non-copyable type)
     TempDir dir;
     CommandRegistry registry;
 
     explicit Game(const AiConfig& config, ProviderRuntime runtime = {}) {
         if (share_env().config_dir() == ShareEnv().config_dir()) scopedHome.emplace(scratch_home_env(home.str()));
-        asset_run_begin("");  // calls without a named run (CLI, MCP) add up per process: every test starts from nothing spent
+        asset_run_begin(
+            "");  // calls without a named run (CLI, MCP) add up per process: every test starts from nothing spent
         AiCommandOptions opt;
         opt.loadConfig = [config] { return Result<AiConfig>(config); };
         opt.projectDir = [this] { return dir.str(); };

@@ -34,16 +34,20 @@ void collect(const Json& schema, const std::string& where, std::vector<std::stri
     auto props = schema.find("properties");
     if (props != schema.end() && props->is_object()) {
         if (!schema.contains("additionalProperties")) unclosed.push_back(where);
-        for (auto it = props->begin(); it != props->end(); ++it) collect(it.value(), where + "/properties/" + it.key(), unclosed, depth + 1);
+        for (auto it = props->begin(); it != props->end(); ++it)
+            collect(it.value(), where + "/properties/" + it.key(), unclosed, depth + 1);
     }
     if (auto it = schema.find("items"); it != schema.end()) collect(*it, where + "/items", unclosed, depth + 1);
-    if (auto it = schema.find("additionalProperties"); it != schema.end() && it->is_object()) collect(*it, where + "/additionalProperties", unclosed, depth + 1);
+    if (auto it = schema.find("additionalProperties"); it != schema.end() && it->is_object())
+        collect(*it, where + "/additionalProperties", unclosed, depth + 1);
     for (const char* key : {"anyOf", "oneOf"})
         if (auto it = schema.find(key); it != schema.end() && it->is_array())
-            for (std::size_t i = 0; i < it->size(); ++i) collect((*it)[i], where + "/" + key + "/" + std::to_string(i), unclosed, depth + 1);
+            for (std::size_t i = 0; i < it->size(); ++i)
+                collect((*it)[i], where + "/" + key + "/" + std::to_string(i), unclosed, depth + 1);
     for (const char* key : {"$defs", "definitions"})
         if (auto it = schema.find(key); it != schema.end() && it->is_object())
-            for (auto d = it->begin(); d != it->end(); ++d) collect(d.value(), where + "/" + key + "/" + d.key(), unclosed, depth + 1);
+            for (auto d = it->begin(); d != it->end(); ++d)
+                collect(d.value(), where + "/" + key + "/" + d.key(), unclosed, depth + 1);
 }
 
 }  // namespace
@@ -55,13 +59,15 @@ TEST_CASE("command schemas: every command of the real registry is closed or expl
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string()
+                                          : made.error().to_string()));  // doctest -s builds the message on success too
     {
         cli::SessionOptions so;
         so.gfx = cli::Gfx::None;
         auto session = cli::Session::open(dir, so);
         CommandRegistry& reg = session->registry();
-        cli::register_cli_commands(reg, dir, &session->engine());  // the ai.* commands and project.create, as `factoria mcp` has them
+        cli::register_cli_commands(
+            reg, dir, &session->engine());  // the ai.* commands and project.create, as `factoria mcp` has them
 
         std::set<std::string> openRoots;
         std::size_t checked = 0;
@@ -70,9 +76,11 @@ TEST_CASE("command schemas: every command of the real registry is closed or expl
             INFO(c->name);
             REQUIRE(c->inputSchema.is_object());
             const auto root_open = c->inputSchema.find("additionalProperties");
-            REQUIRE_MESSAGE(root_open != c->inputSchema.end(),
-                            c->name << ": the root of the input schema declares neither properties nor additionalProperties. List the "
-                                       "arguments in `properties` (the schema is then closed), or say `additionalProperties: true`.");
+            REQUIRE_MESSAGE(
+                root_open != c->inputSchema.end(),
+                c->name
+                    << ": the root of the input schema declares neither properties nor additionalProperties. List the "
+                       "arguments in `properties` (the schema is then closed), or say `additionalProperties: true`.");
             if (!(root_open->is_boolean() && !root_open->get<bool>())) openRoots.insert(c->name);
             std::vector<std::string> unclosed;
             collect(c->inputSchema, "", unclosed);
@@ -80,8 +88,13 @@ TEST_CASE("command schemas: every command of the real registry is closed or expl
                 FAIL_CHECK(c->name << ": the object schema at '" << w << "' was not closed by CommandRegistry::add");
         }
         CHECK(checked > 150);  // the real registry, not a stub
-        for (const std::string& name : openRoots) CHECK_MESSAGE(open_root_commands().count(name), name << " has an open root schema that this test does not list. Declare its arguments, or list it here with the reason.");
-        for (const std::string& name : open_root_commands()) CHECK_MESSAGE(openRoots.count(name), name << " is listed as open here but its schema is closed (or the command is gone): remove it from the list.");
+        for (const std::string& name : openRoots)
+            CHECK_MESSAGE(open_root_commands().count(name),
+                          name << " has an open root schema that this test does not list. Declare its arguments, or "
+                                  "list it here with the reason.");
+        for (const std::string& name : open_root_commands())
+            CHECK_MESSAGE(openRoots.count(name), name << " is listed as open here but its schema is closed (or the "
+                                                         "command is gone): remove it from the list.");
     }
     fs::set_project_root(oldRoot);
     std::error_code ec;

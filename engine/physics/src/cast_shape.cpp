@@ -58,8 +58,7 @@ Result<CastShape> cast_shape_from_json(const Json& j, bool is3d) {
         return fail(std::string("The cast shape has no \"shape\" name; a ") + dim + " cast takes " +
                         (is3d ? "\"sphere\" or \"box\"" : "\"circle\" or \"box\"") + ".",
                     is3d);
-    if (!sh->is_string())
-        return fail("The cast shape's \"shape\" must be a string, but got " + sh->dump() + ".", is3d);
+    if (!sh->is_string()) return fail("The cast shape's \"shape\" must be a string, but got " + sh->dump() + ".", is3d);
     const std::string name = sh->get<std::string>();
     const std::string lower = to_lower(name);
 
@@ -69,8 +68,9 @@ Result<CastShape> cast_shape_from_json(const Json& j, bool is3d) {
     } else if (lower == (is3d ? "sphere" : "circle")) {
         out.kind = CastShape::Kind::Circle;
     } else if (lower == (is3d ? "circle" : "sphere")) {
-        const std::string what = std::string("\"") + name + "\" is a " + (is3d ? "2D" : "3D") + " shape, but this is a " +
-                                 dim + " cast (" + (is3d ? "from/to have a z" : "from/to are 2D") + ").";
+        const std::string what = std::string("\"") + name + "\" is a " + (is3d ? "2D" : "3D") +
+                                 " shape, but this is a " + dim + " cast (" +
+                                 (is3d ? "from/to have a z" : "from/to are 2D") + ").";
         return fail(what, is3d,
                     is3d ? "A 3D cast uses \"sphere\" (radius) or \"box\" (size [x, y, z]); \"circle\" is the 2D name."
                          : "A 2D cast uses \"circle\" (radius) or \"box\" (size [width, height]); pass 3D from/to "
@@ -93,7 +93,8 @@ Result<CastShape> cast_shape_from_json(const Json& j, bool is3d) {
                         "Give " + wanted + " as " + form + " in " + unit + ".");
         }
         const std::vector<std::string> keys = {"shape", circle ? "radius" : "size"};
-        return fail("Unknown key \"" + key + "\" in the " + shapeName + " cast shape. " + did_you_mean(key, keys), is3d);
+        return fail("Unknown key \"" + key + "\" in the " + shapeName + " cast shape. " + did_you_mean(key, keys),
+                    is3d);
     }
 
     if (circle) {
@@ -109,8 +110,8 @@ Result<CastShape> cast_shape_from_json(const Json& j, bool is3d) {
         if (s == j.end() || !positive_list(*s, n, v)) {
             const std::string form = is3d ? "[x, y, z]" : "[width, height]";
             const bool wrongCount = s != j.end() && s->is_array() && s->size() == (is3d ? 2u : 3u);
-            return fail(std::string("A ") + dim + " box cast needs \"size\", " + form + " as positive numbers in " + unit +
-                            (s == j.end() ? "." : ", but got " + s->dump() + "."),
+            return fail(std::string("A ") + dim + " box cast needs \"size\", " + form + " as positive numbers in " +
+                            unit + (s == j.end() ? "." : ", but got " + s->dump() + "."),
                         is3d,
                         !wrongCount ? ""
                         : is3d      ? "A 3D box needs all three dimensions."

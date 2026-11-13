@@ -18,7 +18,8 @@ namespace fa {
 
 Result<ProcessResult> run_process(const ProcessOptions& opt) {
     const std::string program = opt.argv.empty() ? std::string("a program") : "'" + opt.argv[0] + "'";
-    return make_error("Cannot start " + program + ": running other programs is not available on iOS, Android and the web",
+    return make_error("Cannot start " + program +
+                          ": running other programs is not available on iOS, Android and the web",
                       "Export, build and tool commands run on the desktop: use Windows, macOS or Linux.");
 }
 
@@ -102,11 +103,15 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     int outPipe[2], errPipe[2], execPipe[2];
     if (pipe(outPipe) != 0) return make_error(std::string("pipe failed: ") + std::strerror(errno));
     if (pipe(errPipe) != 0) {
-        close(outPipe[0]); close(outPipe[1]);
+        close(outPipe[0]);
+        close(outPipe[1]);
         return make_error(std::string("pipe failed: ") + std::strerror(errno));
     }
     if (pipe(execPipe) != 0) {
-        close(outPipe[0]); close(outPipe[1]); close(errPipe[0]); close(errPipe[1]);
+        close(outPipe[0]);
+        close(outPipe[1]);
+        close(errPipe[0]);
+        close(errPipe[1]);
         return make_error(std::string("pipe failed: ") + std::strerror(errno));
     }
     set_cloexec(execPipe[1]);
@@ -128,8 +133,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
             int e = errno;
             if (inFd >= 0) close(inFd);
             for (int fd : {outPipe[0], outPipe[1], errPipe[0], errPipe[1], execPipe[0], execPipe[1]}) close(fd);
-            return make_error("Cannot write the standard input of '" + opt.argv[0] + "' to a temporary file: " +
-                                  std::strerror(e),
+            return make_error("Cannot write the standard input of '" + opt.argv[0] +
+                                  "' to a temporary file: " + std::strerror(e),
                               "Check that /tmp exists and is writable.");
         }
         set_cloexec(inFd);
@@ -141,20 +146,30 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     pid_t pid = fork();
     if (pid < 0) {
         int e = errno;
-        close(outPipe[0]); close(outPipe[1]); close(errPipe[0]); close(errPipe[1]);
-        close(execPipe[0]); close(execPipe[1]);
+        close(outPipe[0]);
+        close(outPipe[1]);
+        close(errPipe[0]);
+        close(errPipe[1]);
+        close(execPipe[0]);
+        close(execPipe[1]);
         if (inFd >= 0) close(inFd);
         return make_error(std::string("fork failed: ") + std::strerror(e));
     }
     if (pid == 0) {
         // Own process group so we can kill the whole tree. setsid() makes a new group (pgid == pid) too, and fails for a group
         // leader, so it replaces setpgid() rather than following it.
-        if (opt.newSession) setsid();
-        else setpgid(0, 0);
-        if (inFd >= 0) dup2(inFd, 0);
+        if (opt.newSession)
+            setsid();
+        else
+            setpgid(0, 0);
+        if (inFd >= 0)
+            dup2(inFd, 0);
         else {
             int devnull = open("/dev/null", O_RDONLY);
-            if (devnull >= 0) { dup2(devnull, 0); if (devnull > 2) close(devnull); }
+            if (devnull >= 0) {
+                dup2(devnull, 0);
+                if (devnull > 2) close(devnull);
+            }
         }
         dup2(outPipe[1], 1);
         dup2(errPipe[1], 2);
@@ -162,7 +177,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         if (errPipe[1] > 2) close(errPipe[1]);
         if (cwd && chdir(cwd) != 0) {
             int e = errno;
-            ssize_t w = write(execPipe[1], &e, sizeof e); (void)w;
+            ssize_t w = write(execPipe[1], &e, sizeof e);
+            (void)w;
             _exit(127);
         }
         // execvpe is a GNU extension; emulate: search PATH of the *child* env is
@@ -171,11 +187,13 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         detail::close_inherited_descriptors(execPipe[1]);
         detail::exec_with_retry(hasSlash, argv.data());
         int e = errno;
-        ssize_t w = write(execPipe[1], &e, sizeof e); (void)w;
+        ssize_t w = write(execPipe[1], &e, sizeof e);
+        (void)w;
         _exit(127);
     }
     // parent
-    if (!opt.newSession) setpgid(pid, pid);  // (a session leader's group cannot be changed: setsid() in the child did it)
+    if (!opt.newSession)
+        setpgid(pid, pid);  // (a session leader's group cannot be changed: setsid() in the child did it)
     if (inFd >= 0) close(inFd);
     close(outPipe[1]);
     close(errPipe[1]);
@@ -184,16 +202,20 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     int execErr = 0;
     {
         ssize_t r;
-        do { r = read(execPipe[0], &execErr, sizeof execErr); } while (r < 0 && errno == EINTR);
+        do {
+            r = read(execPipe[0], &execErr, sizeof execErr);
+        } while (r < 0 && errno == EINTR);
         close(execPipe[0]);
         if (r == static_cast<ssize_t>(sizeof execErr)) {
-            close(outPipe[0]); close(errPipe[0]);
+            close(outPipe[0]);
+            close(errPipe[0]);
             int st = 0;
             waitpid(pid, &st, 0);
             std::string msg = "Cannot start '" + opt.argv[0] + "': " + std::strerror(execErr);
-            std::string hint = execErr == ENOENT
-                ? (opt.workingDir.empty() ? "Is it installed and on PATH?" : "Check that it is on PATH and the working directory exists.")
-                : "Check file permissions.";
+            std::string hint = execErr == ENOENT ? (opt.workingDir.empty()
+                                                        ? "Is it installed and on PATH?"
+                                                        : "Check that it is on PATH and the working directory exists.")
+                                                 : "Check file permissions.";
             return make_error(msg, hint);
         }
     }
@@ -222,17 +244,26 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
 
     while (outFd >= 0 || errFd >= 0) {
         if (!terminated) {
-            if (is_cancelled(opt.cancel)) { res.cancelled = true; terminate(); }
-            else if (opt.timeoutSeconds > 0 && now_seconds() - start > opt.timeoutSeconds) {
-                res.timedOut = true; terminate();
+            if (is_cancelled(opt.cancel)) {
+                res.cancelled = true;
+                terminate();
+            } else if (opt.timeoutSeconds > 0 && now_seconds() - start > opt.timeoutSeconds) {
+                res.timedOut = true;
+                terminate();
             }
         } else if (killAt > 0 && now_seconds() > killAt) {
             kill(-pid, SIGKILL);
             kill(pid, SIGKILL);
             killAt = -1;
             // Descendants holding the pipes open must not block us forever.
-            if (outFd >= 0) { close(outFd); outFd = -1; }
-            if (errFd >= 0) { close(errFd); errFd = -1; }
+            if (outFd >= 0) {
+                close(outFd);
+                outFd = -1;
+            }
+            if (errFd >= 0) {
+                close(errFd);
+                errFd = -1;
+            }
             break;
         }
         if (opt.endWithChild && !reaped) {
@@ -244,15 +275,27 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         if (reaped && now_seconds() - exitedAt > 2.0) {
             // The program is gone but something it started still holds the pipes: stop waiting for them.
             kill(-pid, SIGKILL);
-            if (outFd >= 0) { close(outFd); outFd = -1; }
-            if (errFd >= 0) { close(errFd); errFd = -1; }
+            if (outFd >= 0) {
+                close(outFd);
+                outFd = -1;
+            }
+            if (errFd >= 0) {
+                close(errFd);
+                errFd = -1;
+            }
             break;
         }
         pollfd fds[2];
         int n = 0;
         int idxOut = -1, idxErr = -1;
-        if (outFd >= 0) { idxOut = n; fds[n++] = {outFd, POLLIN, 0}; }
-        if (errFd >= 0) { idxErr = n; fds[n++] = {errFd, POLLIN, 0}; }
+        if (outFd >= 0) {
+            idxOut = n;
+            fds[n++] = {outFd, POLLIN, 0};
+        }
+        if (errFd >= 0) {
+            idxErr = n;
+            fds[n++] = {errFd, POLLIN, 0};
+        }
         int pr = poll(fds, n, 50);
         if (pr < 0) {
             if (errno == EINTR) continue;
@@ -260,8 +303,14 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         }
         auto drain = [&](int& fd, bool isOut) {
             ssize_t r;
-            do { r = read(fd, buf, sizeof buf); } while (r < 0 && errno == EINTR);
-            if (r <= 0) { close(fd); fd = -1; return; }
+            do {
+                r = read(fd, buf, sizeof buf);
+            } while (r < 0 && errno == EINTR);
+            if (r <= 0) {
+                close(fd);
+                fd = -1;
+                return;
+            }
             if (isOut) {
                 if (opt.captureStdout && res.stdoutText.size() < opt.maxCapture)
                     res.stdoutText.append(buf, static_cast<std::size_t>(r));
@@ -287,13 +336,22 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         if (w == pid) break;
         if (w < 0 && errno != EINTR) break;
         double t = now_seconds();
-        if (is_cancelled(opt.cancel) && !terminated) { res.cancelled = true; terminate(); }
-        if (terminated && killAt > 0 && t > killAt) { kill(-pid, SIGKILL); kill(pid, SIGKILL); killAt = -1; }
+        if (is_cancelled(opt.cancel) && !terminated) {
+            res.cancelled = true;
+            terminate();
+        }
+        if (terminated && killAt > 0 && t > killAt) {
+            kill(-pid, SIGKILL);
+            kill(pid, SIGKILL);
+            killAt = -1;
+        }
         if (t - waitStart > 5 && !terminated) terminate();
         usleep(10000);
     }
-    if (WIFEXITED(status)) res.exitCode = WEXITSTATUS(status);
-    else res.exitCode = -1;
+    if (WIFEXITED(status))
+        res.exitCode = WEXITSTATUS(status);
+    else
+        res.exitCode = -1;
     return res;
 }
 

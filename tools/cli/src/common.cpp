@@ -6,7 +6,7 @@
 #if defined(_WIN32)
 #include <process.h>  // _getpid
 #else
-#include <unistd.h>   // getpid
+#include <unistd.h>  // getpid
 #endif
 
 #include "fa/ai/commands.h"
@@ -74,9 +74,10 @@ std::string resolve_input_path(const std::string& path, const std::string& proje
         if (fsys::is_regular_file(t.candidate, ec)) return t.candidate.string();
         if (fsys::is_directory(t.candidate, ec)) isFolder = true;
     }
-    std::string msg = "Cannot find " + what + " '" + path + "'" + (isFolder ? " (a folder of that name exists, but a file is needed)" : "") +
-                      ". Looked in:";
-    for (const Tried& t : tried) msg += "\n  - " + t.candidate.generic_string() + " (" + t.where + ")";  // '/' on every platform
+    std::string msg = "Cannot find " + what + " '" + path + "'" +
+                      (isFolder ? " (a folder of that name exists, but a file is needed)" : "") + ". Looked in:";
+    for (const Tried& t : tried)
+        msg += "\n  - " + t.candidate.generic_string() + " (" + t.where + ")";  // '/' on every platform
     // A similarly named file next to where it was expected.
     std::string similar;
     std::vector<std::string> names;
@@ -92,8 +93,9 @@ std::string resolve_input_path(const std::string& path, const std::string& proje
             break;
         }
     }
-    std::string hint = given.is_absolute() ? "Check the path." :
-                       "A relative path is looked up in the current directory first, then in the project folder; pass an absolute path to be explicit.";
+    std::string hint = given.is_absolute() ? "Check the path."
+                                           : "A relative path is looked up in the current directory first, then in the "
+                                             "project folder; pass an absolute path to be explicit.";
     if (!similar.empty()) hint += " Did you mean '" + similar + "'?";
     throw UsageError(msg, hint);
 }
@@ -116,13 +118,16 @@ std::string resolve_project_dir(const Context& ctx, std::size_t posIndex, bool r
         if (!required) return {};
         throw CliError("No FactorIA project found: no " + std::string(kProjectFileName) +
                            " in the current directory or any parent.",
-                       "Pass the project folder (factoria " + ctx.cmdPath + " path/to/game), use --project, or create one with 'factoria new <dir>'.");
+                       "Pass the project folder (factoria " + ctx.cmdPath +
+                           " path/to/game), use --project, or create one with 'factoria new <dir>'.");
     }
     std::error_code ec;
     if (!fsys::exists(fsys::path(dir) / kProjectFileName, ec)) {
         throw CliError("'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found.",
-                       fsys::is_directory(dir, ec) ? "Create one with 'factoria new " + dir + "', or pass the folder that contains " + kProjectFileName + "."
-                                                   : "The directory does not exist. Create it with 'factoria new " + dir + "'.");
+                       fsys::is_directory(dir, ec)
+                           ? "Create one with 'factoria new " + dir + "', or pass the folder that contains " +
+                                 kProjectFileName + "."
+                           : "The directory does not exist. Create it with 'factoria new " + dir + "'.");
     }
     return dir;
 }
@@ -135,7 +140,8 @@ std::string date_flag(const Args& args) {
     return text;
 }
 
-EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed, const std::string& date) {
+EngineConfig project_engine_config(const std::string& projectDir, const std::string& scene, u64 seed,
+                                   const std::string& date) {
     EngineConfig cfg;
     cfg.projectDir = projectDir;
     cfg.shaderCompiler = make_engine_shader_compiler(projectDir);
@@ -180,11 +186,11 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
         std::error_code ec;
         s->scratchDir_ = fsys::temp_directory_path(ec) / ("factoria-scratch-" + std::to_string(
 #if defined(_WIN32)
-                                                                       ::_getpid()
+                                                                                    ::_getpid()
 #else
-                                                                       ::getpid()
+                                                                                    ::getpid()
 #endif
-                                                                           ));
+                                                                                        ));
         fsys::remove_all(s->scratchDir_, ec);
         auto made = create_project(s->scratchDir_.string(), "2d-empty", {});
         if (!made.ok()) throw CliError("Cannot create scratch project: " + made.error().message, made.error().hint);
@@ -205,7 +211,8 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.hotReload = opt.hotReload;
     cfg.renderMode = opt.renderMode;
     cfg.memoryStorage = opt.memoryStorage;
-    cfg.platformBackend = "fake";  // call, session, test and the MCP server never talk to a real store (docs/PLATFORM.md)
+    cfg.platformBackend =
+        "fake";  // call, session, test and the MCP server never talk to a real store (docs/PLATFORM.md)
     cfg.scriptDebugger = opt.scriptDebugger;
 
     std::string firstError;
@@ -223,7 +230,8 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
         e->shutdown();
         if (opt.gfx == Gfx::Required)
             throw CliError("Cannot start the engine with graphics: " + err,
-                           "Screenshots need a GPU (headless EGL works with Mesa llvmpipe; windowed code: xvfb-run -a factoria ...).");
+                           "Screenshots need a GPU (headless EGL works with Mesa llvmpipe; windowed code: xvfb-run -a "
+                           "factoria ...).");
     }
     cfg.graphics = false;
     auto e = std::make_unique<Engine>();
@@ -270,7 +278,8 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         registry.add(info, [](const Json&) {
             Json arr = Json::array();
             for (const auto& t : list_templates())
-                arr.push_back(Json::object({{"name", t.name}, {"description", t.description}, {"dimension", t.dimension}}));
+                arr.push_back(
+                    Json::object({{"name", t.name}, {"description", t.description}, {"dimension", t.dimension}}));
             return arr;
         });
         CommandInfo ci;
@@ -278,8 +287,10 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         ci.summary = "Create a new game project from a template.";
         ci.description =
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
-            "scripts, a test, AGENTS.md (the guide for AI agents; CLAUDE.md imports it), ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
-            "`factoria mcp --project <dir>` to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
+            "scripts, a test, AGENTS.md (the guide for AI agents; CLAUDE.md imports it), ENGINE_FEEDBACK.json and the "
+            "real types/factoria.d.ts. Afterwards start "
+            "`factoria mcp --project <dir>` to work on it. Example: "
+            "{\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
         ci.readOnly = false;
         ci.category = "project";
         ci.inputSchema = Json::parse(R"({
@@ -294,7 +305,8 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
             ScaffoldOptions o;
             o.name = a.value("name", std::string());
             o.id = a.value("id", std::string());
-            auto r = create_project(absolute_path(a.at("dir").get<std::string>()), a.value("template", std::string("2d-empty")), o);
+            auto r = create_project(absolute_path(a.at("dir").get<std::string>()),
+                                    a.value("template", std::string("2d-empty")), o);
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             return r->to_json();
         });
@@ -303,15 +315,21 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
     ao.projectDir = [projectDir]() { return projectDir; };
     // What a sub-agent does goes to the project's progress file, where the terminal of a `factoria ai run` (whose
     // orchestrator started this server) prints it: this process has no other way to reach that terminal.
-    ao.onRunStart = [projectDir](const ai::AiRunInfo& info) { ai::append_progress_line(projectDir, info.role + ": starting"); };
-    ao.onRunEvent = [projectDir, last = std::make_shared<std::string>()](const ai::AiRunInfo& info, const ai::AgentEvent& e) {
+    ao.onRunStart = [projectDir](const ai::AiRunInfo& info) {
+        ai::append_progress_line(projectDir, info.role + ": starting");
+    };
+    ao.onRunEvent = [projectDir, last = std::make_shared<std::string>()](const ai::AiRunInfo& info,
+                                                                         const ai::AgentEvent& e) {
         const std::string what = ai::describe_agent_event(e);
         if (what.empty() || what == *last) return;  // a streamed reply is one line, not one per word
         *last = what;
         ai::append_progress_line(projectDir, info.role + (e.depth > 0 ? " > " : ": ") + what);
     };
     ao.onRunEnd = [projectDir](const ai::AiRunInfo& info, bool ok, const std::string&, const std::string& error) {
-        ai::append_progress_line(projectDir, info.role + (ok ? ": finished" : ": failed" + (error.empty() ? std::string() : " (" + error.substr(0, 160) + ")")));
+        ai::append_progress_line(
+            projectDir,
+            info.role +
+                (ok ? ": finished" : ": failed" + (error.empty() ? std::string() : " (" + error.substr(0, 160) + ")")));
     };
     ai::register_ai_commands(registry, ao);
     // A critic's or reviewer's own shell (FACTORIA_ROLE, set on the CLI agents factoria starts for a role) gets the commands that

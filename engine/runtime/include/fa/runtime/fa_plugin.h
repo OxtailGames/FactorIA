@@ -75,7 +75,8 @@ extern "C" {
 
 typedef struct FaPluginApi FaPluginApi;
 typedef struct FaCall FaCall; /* one call of a command or function; answer it with api->reply or api->fail */
-typedef struct FaRequest FaRequest; /* one platform request; answer it once with resolve() or reject(), now or later, any thread */
+typedef struct FaRequest
+    FaRequest; /* one platform request; answer it once with resolve() or reject(), now or later, any thread */
 
 /* Runs a command or a script function. args_json: UTF-8 JSON text, an object for a command (already checked against
  * its input_schema, defaults filled in), an array of the arguments for a function. `user` is the desc's user. */
@@ -92,16 +93,17 @@ typedef struct FaCommandDesc {
 } FaCommandDesc;
 
 typedef struct FaFunctionDesc {
-    const char* name;  /* a JavaScript identifier: scripts call plugins.<plugin>.<name>(...args) */
-    const char* doc;   /* what it does, its arguments and its result (required): it goes into types/factoria.d.ts */
+    const char* name; /* a JavaScript identifier: scripts call plugins.<plugin>.<name>(...args) */
+    const char* doc;  /* what it does, its arguments and its result (required): it goes into types/factoria.d.ts */
     FaHandler handler;
     void* user;
 } FaFunctionDesc;
 
 /* A platform backend (version 2): the plugin answers the game's `platform` requests with a store SDK. */
 typedef struct FaBackendDesc {
-    const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
-    const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
+    const char* name; /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
+    const char*
+        services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
                            * "overlay","presence","integrity","ads","remotePlay" (required; leave out
                            * what it does not offer: the engine then answers "unavailable") */
     /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
@@ -115,9 +117,9 @@ typedef struct FaBackendDesc {
 
 /* A TextField the player focused or left with a gamepad (version 3). Its strings are valid during the call only. */
 typedef struct FaTextInput {
-    int focused;      /* 1: the field took the focus, or the player pressed the pad's submit button on it again (show the
+    int focused; /* 1: the field took the focus, or the player pressed the pad's submit button on it again (show the
                        * keyboard); 0: it lost the focus (hide the keyboard; the answer is ignored) */
-    float x, y;       /* the field's rectangle in window pixels, from the top left of the window's drawing area */
+    float x, y;  /* the field's rectangle in window pixels, from the top left of the window's drawing area */
     float width, height;
     const char* text; /* what the field holds now, UTF-8 */
     int multiline;    /* 1 when the field takes several lines (no TextField does yet: always 0) */
@@ -130,7 +132,7 @@ typedef struct FaTextInput {
 typedef int (*FaTextInputHandler)(const FaTextInput* input, void* user);
 
 struct FaPluginApi {
-    uint32_t version;    /* FA_PLUGIN_API_VERSION of the engine running the plugin */
+    uint32_t version;     /* FA_PLUGIN_API_VERSION of the engine running the plugin */
     const char* plugin;   /* the plugin's name in factoria.json */
     const char* platform; /* "windows", "macos", "linux", "android" or "ios" */
     void* host;           /* the engine's: never touch it */

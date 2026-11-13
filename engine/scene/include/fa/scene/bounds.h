@@ -73,11 +73,11 @@ std::string sprite_vertex_colors_problem(const Sprite& s);
 
 // One drawn thing of an entity.
 struct VisualFootprint {
-    const char* component = "";                  // "Tilemap", "Sprite", "Shape2D", "Text" or a UI widget ("Button", "Panel"...)
-    RenderSpace space = RenderSpace::World;      // Screen: design pixels, origin top-left, local y flipped (see below)
-    std::int32_t layer = 0;                      // the component's draw layer
-    Vec2 anchor{0, 0};                           // Screen space only: the component's anchor (fraction of the design size)
-    bool safeArea = false;                       // Screen space only: the anchor is relative to the safe area (anchor_point)
+    const char* component = "";  // "Tilemap", "Sprite", "Shape2D", "Text" or a UI widget ("Button", "Panel"...)
+    RenderSpace space = RenderSpace::World;  // Screen: design pixels, origin top-left, local y flipped (see below)
+    std::int32_t layer = 0;                  // the component's draw layer
+    Vec2 anchor{0, 0};                       // Screen space only: the component's anchor (fraction of the design size)
+    bool safeArea = false;  // Screen space only: the anchor is relative to the safe area (anchor_point)
     // Screen space only: the entity is mirrored (ui_mirrored, ui.mirrorRtl). `anchor` and `box` / `hull` are already the mirror
     // image (anchor.x flipped, local x negated); the caller puts the world matrix's translation x negated in the formula below.
     bool mirrored = false;

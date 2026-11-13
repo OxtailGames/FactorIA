@@ -21,12 +21,14 @@ struct VpMap {
     Renderer* r = nullptr;
     ImVec2 imgMin{}, size{};
     Vec2 design(ImVec2 m) const {
-        return Vec2{(m.x - imgMin.x) / size.x * float(r->target_width()), (m.y - imgMin.y) / size.y * float(r->target_height())};
+        return Vec2{(m.x - imgMin.x) / size.x * float(r->target_width()),
+                    (m.y - imgMin.y) / size.y * float(r->target_height())};
     }
     Vec3 to_world(ImVec2 m, float z) const { return r->screen_to_world(design(m), z); }
     ImVec2 to_screen(Vec3 w) const {
         const Vec2 d = r->world_to_screen(w);
-        return ImVec2(imgMin.x + d.x / float(r->target_width()) * size.x, imgMin.y + d.y / float(r->target_height()) * size.y);
+        return ImVec2(imgMin.x + d.x / float(r->target_width()) * size.x,
+                      imgMin.y + d.y / float(r->target_height()) * size.y);
     }
 };
 
@@ -47,7 +49,8 @@ bool grid_of(const World& w, Entity e, const SkinBox& box, int& cols, int& rows)
 }
 
 Vec2 vertex_local(const SkinBox& box, int cols, int rows, int r, int c) {
-    return Vec2{box.x0 + (box.x1 - box.x0) * float(c) / float(cols), box.y1 + (box.y0 - box.y1) * float(r) / float(rows)};
+    return Vec2{box.x0 + (box.x1 - box.x0) * float(c) / float(cols),
+                box.y1 + (box.y0 - box.y1) * float(r) / float(rows)};
 }
 
 // The weight of `bone` at each vertex (row-major from the top row); the automatic ones when the skin has not been painted yet.
@@ -67,7 +70,8 @@ std::vector<float> bone_weights(const World& w, Entity e, const SkinBox& box, in
         const Json& entry = explicitWeights[i];
         if (!entry.is_array()) continue;
         for (std::size_t k = 0; k + 1 < entry.size(); k += 2)
-            if (entry[k].is_number() && entry[k + 1].is_number() && entry[k].get<int>() == bone) out[i] += entry[k + 1].get<float>();
+            if (entry[k].is_number() && entry[k + 1].is_number() && entry[k].get<int>() == bone)
+                out[i] += entry[k + 1].get<float>();
     }
     return out;
 }
@@ -75,7 +79,8 @@ std::vector<float> bone_weights(const World& w, Entity e, const SkinBox& box, in
 ImU32 heat(float weight, int alpha) {
     const float t = std::clamp(weight, 0.0f, 1.0f);
     // blue (none) -> green -> red (full)
-    const float r = t < 0.5f ? 0.0f : (t - 0.5f) * 2.0f, g = t < 0.5f ? t * 2.0f : 1.0f - (t - 0.5f) * 2.0f, b = t < 0.5f ? 1.0f - t * 2.0f : 0.0f;
+    const float r = t < 0.5f ? 0.0f : (t - 0.5f) * 2.0f, g = t < 0.5f ? t * 2.0f : 1.0f - (t - 0.5f) * 2.0f,
+                b = t < 0.5f ? 1.0f - t * 2.0f : 0.0f;
     return IM_COL32(int(40 + 215 * r), int(60 + 195 * g), int(60 + 195 * b), alpha);
 }
 
@@ -135,10 +140,12 @@ void Editor::bone_finish_chain() {
         prefix = base + std::to_string(n);
     }
     Json points = Json::array();
-    for (const Vec2& p : bone_.chain) points.push_back(Json::array({std::round(p.x * 100.0f) / 100.0f, std::round(p.y * 100.0f) / 100.0f}));
+    for (const Vec2& p : bone_.chain)
+        points.push_back(Json::array({std::round(p.x * 100.0f) / 100.0f, std::round(p.y * 100.0f) / 100.0f}));
     std::string err;
-    const CommandResult r = edit_command("bone:chain:" + std::to_string(uiFrame_), "bones.create",
-                                         Json::object({{"parent", w.id_of(parent)}, {"points", points}, {"prefix", prefix}}), &err);
+    const CommandResult r =
+        edit_command("bone:chain:" + std::to_string(uiFrame_), "bones.create",
+                     Json::object({{"parent", w.id_of(parent)}, {"points", points}, {"prefix", prefix}}), &err);
     if (!r.ok) {
         bone_.error = "bones.create: " + err;
         notify("Could not make the bones: " + err, 2);
@@ -150,7 +157,9 @@ void Editor::bone_finish_chain() {
         if (!first.is_null()) select(first);
         if (bone_.bindRoot.empty()) bone_.bindRoot = r.result["bones"][0].value("id", std::string());
     }
-    notify(std::format("Made {} bone{} under '{}'.", bone_.chain.size() - 1, bone_.chain.size() == 2 ? "" : "s", w.info(parent).name), 0);
+    notify(std::format("Made {} bone{} under '{}'.", bone_.chain.size() - 1, bone_.chain.size() == 2 ? "" : "s",
+                       w.info(parent).name),
+           0);
     bone_cancel_chain();
 }
 
@@ -166,14 +175,19 @@ bool Editor::bone_bind(std::string* error) {
     Entity sprite = selected();
     if (sprite.is_null() || !w.has<Sprite>(sprite)) {
         sprite = bone_.skinId.empty() ? kNullEntity : w.find_by_id(bone_.skinId);
-        if (sprite.is_null() || !w.alive(sprite) || !w.has<Sprite>(sprite)) return fail("Select the sprite to bind first (the entity with the Sprite).");
+        if (sprite.is_null() || !w.alive(sprite) || !w.has<Sprite>(sprite))
+            return fail("Select the sprite to bind first (the entity with the Sprite).");
     }
     const Entity root = bone_.bindRoot.empty() ? kNullEntity : w.find_by_id(bone_.bindRoot);
-    if (root.is_null() || !w.alive(root) || !w.has<Bone2D>(root)) return fail("Pick the root bone: the bound bones are it and every bone below it.");
+    if (root.is_null() || !w.alive(root) || !w.has<Bone2D>(root))
+        return fail("Pick the root bone: the bound bones are it and every bone below it.");
     std::string err;
-    const CommandResult r = edit_command("bone:bind:" + std::to_string(uiFrame_), "skin.bind",
-                                         Json::object({{"entity", w.id_of(sprite)}, {"root", w.id_of(root)},
-                                                       {"mesh", Json::array({std::max(1, bone_.meshColumns), std::max(1, bone_.meshRows)})}}), &err);
+    const CommandResult r = edit_command(
+        "bone:bind:" + std::to_string(uiFrame_), "skin.bind",
+        Json::object({{"entity", w.id_of(sprite)},
+                      {"root", w.id_of(root)},
+                      {"mesh", Json::array({std::max(1, bone_.meshColumns), std::max(1, bone_.meshRows)})}}),
+        &err);
     if (!r.ok) return fail("skin.bind: " + err);
     bone_.error.clear();
     bone_.skinId = w.id_of(sprite);
@@ -208,7 +222,10 @@ bool Editor::bone_paint_at(Vec2 localPoint, bool firstOfStroke) {
     if (vertices.empty()) return false;
     static const char* modes[] = {"add", "set", "smooth"};
     const int mode = std::clamp(bone_.mode, 0, 2);
-    Json args = Json::object({{"entity", w.id_of(e)}, {"vertices", vertices}, {"mode", modes[mode]}, {"weight", std::round(bone_.strength * 1000.0f) / 1000.0f}});
+    Json args = Json::object({{"entity", w.id_of(e)},
+                              {"vertices", vertices},
+                              {"mode", modes[mode]},
+                              {"weight", std::round(bone_.strength * 1000.0f) / 1000.0f}});
     if (mode != 2) args["bone"] = bone_.boneIndex;
     if (firstOfStroke || bone_.paintKey.empty()) bone_.paintKey = "bone:paint:" + std::to_string(uiFrame_);
     if (lastEditKey_ == bone_.paintKey) lastEditTime_ = time_;  // one stroke, one undo step, however slowly it goes
@@ -236,17 +253,20 @@ bool Editor::bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hove
     if (bone_.tool == BoneTool::Chain) {
         const bool keys = (vpHovered_ || vpFocused_) && !io.WantTextInput;
         if (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) bone_cancel_chain();
-        if (keys && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false))) bone_finish_chain();
+        if (keys && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)))
+            bone_finish_chain();
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             Entity parent = bone_.chainParent.empty() ? selected() : w.find_by_id(bone_.chainParent);
             if (parent.is_null() || !w.alive(parent)) {
-                bone_.error = "Select the entity the bones hang from first (a character's root, or another bone to extend it).";
+                bone_.error =
+                    "Select the entity the bones hang from first (a character's root, or another bone to extend it).";
                 notify(bone_.error, 1);
                 return true;
             }
             bone_.chainParent = w.id_of(parent);
             const Vec2 p = local_point(w, parent, map.to_world(io.MousePos, w.world_position(parent).z));
-            if (bone_.chain.empty() || std::hypot(p.x - bone_.chain.back().x, p.y - bone_.chain.back().y) > 0.5f) bone_.chain.push_back(p);
+            if (bone_.chain.empty() || std::hypot(p.x - bone_.chain.back().x, p.y - bone_.chain.back().y) > 0.5f)
+                bone_.chain.push_back(p);
             bone_.error.clear();
             return true;
         }
@@ -278,7 +298,10 @@ bool Editor::bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hove
 
     if (bone_.tool == BoneTool::Ik) {
         // Handles at the targets of the IK2D chains; dragging one moves the target entity and solves the chain.
-        struct H { Entity ik, target; ImVec2 pos; };
+        struct H {
+            Entity ik, target;
+            ImVec2 pos;
+        };
         std::vector<H> handles;
         for (Entity ik : w.entities_with(TypeRegistry::global().of<IK2D>())) {
             const IK2D* c = w.get<IK2D>(ik);
@@ -307,13 +330,18 @@ bool Editor::bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hove
             if (!parent.is_null()) local = w.world_matrix(parent).inverse().transform_point(world);
             const Transform* t = w.get<Transform>(target);
             if (t) {
-                const Vec3 v{std::round(local.x * 100.0f) / 100.0f, std::round(local.y * 100.0f) / 100.0f, t->position.z};
+                const Vec3 v{std::round(local.x * 100.0f) / 100.0f, std::round(local.y * 100.0f) / 100.0f,
+                             t->position.z};
                 if (v.x != t->position.x || v.y != t->position.y) {
                     std::string err;
-                    const CommandResult res = edit_command(bone_.ikKey, "scene.set_component",
-                                                           field_edit_args(bone_.ikTarget, "Transform", "position", Json::array({v.x, v.y, v.z})), &err);
-                    if (!res.ok) bone_.error = "Could not move the target: " + err;
-                    else update_ik2d(w);  // the editor does not tick the engine: solve the chains now so the bones follow
+                    const CommandResult res = edit_command(
+                        bone_.ikKey, "scene.set_component",
+                        field_edit_args(bone_.ikTarget, "Transform", "position", Json::array({v.x, v.y, v.z})), &err);
+                    if (!res.ok)
+                        bone_.error = "Could not move the target: " + err;
+                    else
+                        update_ik2d(
+                            w);  // the editor does not tick the engine: solve the chains now so the bones follow
                 }
             }
             return true;
@@ -357,7 +385,8 @@ void Editor::bone_tools_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 
             const Mat4 m = w.world_matrix(parent);
             for (const Vec2& p : bone_.chain) pts.push_back(map.to_screen(m.transform_point(Vec3{p.x, p.y, 0})));
         }
-        for (std::size_t i = 0; i + 1 < pts.size(); ++i) dl->AddLine(pts[i], pts[i + 1], IM_COL32(255, 205, 60, 255), 2.5f);
+        for (std::size_t i = 0; i + 1 < pts.size(); ++i)
+            dl->AddLine(pts[i], pts[i + 1], IM_COL32(255, 205, 60, 255), 2.5f);
         if (!pts.empty() && vpHovered_) dl->AddLine(pts.back(), mouse, IM_COL32(255, 205, 60, 120), 1.5f);
         for (const ImVec2& p : pts) {
             dl->AddCircleFilled(p, 5.0f, IM_COL32(255, 205, 60, 255));
@@ -387,7 +416,8 @@ void Editor::bone_tools_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 
         if (vpHovered_) {  // the brush
             const Vec3 c0 = m.transform_point(Vec3{0, 0, 0}), c1 = m.transform_point(Vec3{bone_.radius, 0, 0});
             const ImVec2 a = map.to_screen(c0), b = map.to_screen(c1);
-            dl->AddCircle(mouse, std::max(3.0f, std::hypot(b.x - a.x, b.y - a.y)), IM_COL32(255, 255, 255, 220), 32, 1.5f);
+            dl->AddCircle(mouse, std::max(3.0f, std::hypot(b.x - a.x, b.y - a.y)), IM_COL32(255, 255, 255, 220), 32,
+                          1.5f);
         }
         return;
     }
@@ -397,13 +427,16 @@ void Editor::bone_tools_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 
             const IK2D* c = w.get<IK2D>(ik);
             if (!c || c->target.is_null() || !w.alive(c->target)) continue;
             const ImVec2 p = map.to_screen(w.world_position(c->target));
-            const ImVec2 tip = map.to_screen(Vec3{bone_world_segment(w, ik).tip.x, bone_world_segment(w, ik).tip.y, w.world_position(ik).z});
+            const ImVec2 tip = map.to_screen(
+                Vec3{bone_world_segment(w, ik).tip.x, bone_world_segment(w, ik).tip.y, w.world_position(ik).z});
             const bool live = bone_.ikTarget == w.id_of(c->target);
             const bool hot = live || std::hypot(p.x - mouse.x, p.y - mouse.y) < kHandlePx * 1.6f;
             const ImU32 col = hot ? IM_COL32(255, 235, 120, 255) : IM_COL32(255, 140, 60, 255);
             if (w.has<Bone2D>(ik)) dl->AddLine(tip, p, IM_COL32(255, 140, 60, 120), 1.5f);
-            dl->AddQuadFilled(ImVec2(p.x, p.y - kHandlePx), ImVec2(p.x + kHandlePx, p.y), ImVec2(p.x, p.y + kHandlePx), ImVec2(p.x - kHandlePx, p.y), col);
-            dl->AddQuad(ImVec2(p.x, p.y - kHandlePx), ImVec2(p.x + kHandlePx, p.y), ImVec2(p.x, p.y + kHandlePx), ImVec2(p.x - kHandlePx, p.y), IM_COL32(0, 0, 0, 220), 1.5f);
+            dl->AddQuadFilled(ImVec2(p.x, p.y - kHandlePx), ImVec2(p.x + kHandlePx, p.y), ImVec2(p.x, p.y + kHandlePx),
+                              ImVec2(p.x - kHandlePx, p.y), col);
+            dl->AddQuad(ImVec2(p.x, p.y - kHandlePx), ImVec2(p.x + kHandlePx, p.y), ImVec2(p.x, p.y + kHandlePx),
+                        ImVec2(p.x - kHandlePx, p.y), IM_COL32(0, 0, 0, 220), 1.5f);
             dl->AddText(ImVec2(p.x + kHandlePx + 3, p.y - 7), col, w.info(c->target).name.c_str());
         }
     }
@@ -436,7 +469,8 @@ void Editor::draw_bone_tools_panel() {
         // Side by side while they fit; a narrow window (a small display) wraps the row instead of clipping a button.
         const float width = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
         const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-        if (!firstMode && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
+        if (!firstMode && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
+            ImGui::SameLine();
         firstMode = false;
         if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.42f, 0.70f, 1));
         if (ImGui::Button(label)) {
@@ -449,12 +483,15 @@ void Editor::draw_bone_tools_panel() {
         at_track(id);
         ImGui::SetItemTooltip("%s", tip);
     };
-    mode_button(" Draw chain ", BoneTool::Chain, "bone:tool:chain", "Click points in the viewport to lay a chain of bones; Enter finishes, Esc cancels");
-    mode_button(" Weights ", BoneTool::Weights, "bone:tool:weights", "Show and paint how much one bone moves each vertex of the selected skinned sprite");
+    mode_button(" Draw chain ", BoneTool::Chain, "bone:tool:chain",
+                "Click points in the viewport to lay a chain of bones; Enter finishes, Esc cancels");
+    mode_button(" Weights ", BoneTool::Weights, "bone:tool:weights",
+                "Show and paint how much one bone moves each vertex of the selected skinned sprite");
     mode_button(" IK targets ", BoneTool::Ik, "bone:tool:ik", "Drag the targets of the IK2D chains in the viewport");
     if (b.tool == BoneTool::Off) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Pick a tool. While one is on the viewport gizmo is off (click the tool again to leave it).");
+        ImGui::TextWrapped(
+            "Pick a tool. While one is on the viewport gizmo is off (click the tool again to leave it).");
         ImGui::PopStyleColor();
     }
 
@@ -462,14 +499,16 @@ void Editor::draw_bone_tools_panel() {
     if (b.tool == BoneTool::Chain) {
         ImGui::SeparatorText("Draw a chain");
         const Entity parent = b.chainParent.empty() ? selected() : w.find_by_id(b.chainParent);
-        ImGui::TextWrapped("Click in the viewport to place the joints, from the root to the tip. The bones hang from: %s",
-                           parent.is_null() ? "(select an entity first)" : w.info(parent).name.c_str());
+        ImGui::TextWrapped(
+            "Click in the viewport to place the joints, from the root to the tip. The bones hang from: %s",
+            parent.is_null() ? "(select an entity first)" : w.info(parent).name.c_str());
         ImGui::SetNextItemWidth(140);
         ImGui::InputText("name prefix", &b.chainPrefix);
-        ImGui::SetItemTooltip("Bones are called <prefix>_1, <prefix>_2 ... (a free prefix is picked when the name is taken)");
+        ImGui::SetItemTooltip(
+            "Bones are called <prefix>_1, <prefix>_2 ... (a free prefix is picked when the name is taken)");
         at_track("bone:chain:prefix");
-        ImGui::Text("%zu point%s, %zu bone%s", b.chain.size(), b.chain.size() == 1 ? "" : "s", b.chain.size() > 1 ? b.chain.size() - 1 : 0,
-                    b.chain.size() == 2 ? "" : "s");
+        ImGui::Text("%zu point%s, %zu bone%s", b.chain.size(), b.chain.size() == 1 ? "" : "s",
+                    b.chain.size() > 1 ? b.chain.size() - 1 : 0, b.chain.size() == 2 ? "" : "s");
         ImGui::BeginDisabled(b.chain.size() < 2);
         if (ImGui::Button("Finish chain (Enter)")) bone_finish_chain();
         at_track("bone:chain:finish", b.chain.size() >= 2);
@@ -485,8 +524,11 @@ void Editor::draw_bone_tools_panel() {
     ImGui::SeparatorText("Bind a sprite to bones");
     {
         Entity sprite = selected();
-        if (sprite.is_null() || !w.has<Sprite>(sprite)) sprite = b.skinId.empty() ? kNullEntity : w.find_by_id(b.skinId);
-        ImGui::TextWrapped("Sprite: %s", (!sprite.is_null() && w.alive(sprite) && w.has<Sprite>(sprite)) ? w.info(sprite).name.c_str() : "(select the entity with the Sprite)");
+        if (sprite.is_null() || !w.has<Sprite>(sprite))
+            sprite = b.skinId.empty() ? kNullEntity : w.find_by_id(b.skinId);
+        ImGui::TextWrapped("Sprite: %s", (!sprite.is_null() && w.alive(sprite) && w.has<Sprite>(sprite))
+                                             ? w.info(sprite).name.c_str()
+                                             : "(select the entity with the Sprite)");
         const std::vector<Entity> bones = all_bones(w);
         Entity root = b.bindRoot.empty() ? kNullEntity : w.find_by_id(b.bindRoot);
         if (!root.is_null() && !w.alive(root)) root = kNullEntity;
@@ -500,19 +542,22 @@ void Editor::draw_bone_tools_panel() {
         }
         at_track("bone:bindroot");
         ImGui::SetItemTooltip("The skin follows this bone and every bone below it");
-        if (ImGui::Button("Use the selected bone") && !selected().is_null() && w.has<Bone2D>(selected())) b.bindRoot = w.id_of(selected());
+        if (ImGui::Button("Use the selected bone") && !selected().is_null() && w.has<Bone2D>(selected()))
+            b.bindRoot = w.id_of(selected());
         at_track("bone:bindselected");
         ImGui::SetNextItemWidth(60);
         ImGui::DragInt("mesh columns", &b.meshColumns, 0.2f, 1, 64);
         ImGui::SetNextItemWidth(60);
         ImGui::DragInt("mesh rows", &b.meshRows, 0.2f, 1, 64);
-        ImGui::SetItemTooltip("The grid the sprite is cut into; weights are painted per grid vertex. 4 x 8 is plenty for a limb");
+        ImGui::SetItemTooltip(
+            "The grid the sprite is cut into; weights are painted per grid vertex. 4 x 8 is plenty for a limb");
         if (ImGui::Button("Bind sprite to bones")) {
             std::string err;
             if (!bone_bind(&err)) notify(err, 1);
         }
         at_track("bone:bind");
-        ImGui::SetItemTooltip("skin.bind: adds the SpriteSkin, names its bones and records the bind pose (the picture does not change)");
+        ImGui::SetItemTooltip(
+            "skin.bind: adds the SpriteSkin, names its bones and records the bind pose (the picture does not change)");
     }
 
     // ---- weights
@@ -520,24 +565,29 @@ void Editor::draw_bone_tools_panel() {
         ImGui::SeparatorText("Paint weights");
         const Entity e = bone_skin_entity();
         if (e.is_null()) {
-            ImGui::TextWrapped("Select a sprite that is bound to bones (Bind a sprite to bones above). Its mesh shows as dots coloured by the weight of the bone you pick.");
+            ImGui::TextWrapped("Select a sprite that is bound to bones (Bind a sprite to bones above). Its mesh shows "
+                               "as dots coloured by the weight of the bone you pick.");
         } else {
             const SpriteSkin* skin = w.get<SpriteSkin>(e);
             const SkinBones resolved = skin_resolve_bones(w, e, *skin);
-            ImGui::Text("Skin: %s, %zu bone%s", w.info(e).name.c_str(), resolved.entities.size(), resolved.entities.size() == 1 ? "" : "s");
+            ImGui::Text("Skin: %s, %zu bone%s", w.info(e).name.c_str(), resolved.entities.size(),
+                        resolved.entities.size() == 1 ? "" : "s");
             // The selected bone, when the skin has it, is the one shown.
             const Entity sel = selected();
             for (std::size_t i = 0; i < resolved.entities.size(); ++i)
-                if (!sel.is_null() && resolved.entities[i] == sel && b.boneIndex != int(i) && !b.painting) b.boneIndex = int(i);
+                if (!sel.is_null() && resolved.entities[i] == sel && b.boneIndex != int(i) && !b.painting)
+                    b.boneIndex = int(i);
             b.boneIndex = std::clamp(b.boneIndex, 0, std::max(0, int(resolved.entities.size()) - 1));
             std::string current = "(none)";
-            if (std::size_t(b.boneIndex) < resolved.entities.size() && !resolved.entities[std::size_t(b.boneIndex)].is_null())
+            if (std::size_t(b.boneIndex) < resolved.entities.size() &&
+                !resolved.entities[std::size_t(b.boneIndex)].is_null())
                 current = w.info(resolved.entities[std::size_t(b.boneIndex)]).name;
             ImGui::SetNextItemWidth(200);
             if (ImGui::BeginCombo("bone", current.c_str())) {
                 for (std::size_t i = 0; i < resolved.entities.size(); ++i) {
                     if (resolved.entities[i].is_null()) continue;
-                    if (ImGui::Selectable(w.info(resolved.entities[i]).name.c_str(), int(i) == b.boneIndex)) b.boneIndex = int(i);
+                    if (ImGui::Selectable(w.info(resolved.entities[i]).name.c_str(), int(i) == b.boneIndex))
+                        b.boneIndex = int(i);
                     at_track("bone:weights:bone:" + w.info(resolved.entities[i]).name);
                 }
                 ImGui::EndCombo();
@@ -551,7 +601,8 @@ void Editor::draw_bone_tools_panel() {
                 ImGui::SameLine();
             }
             ImGui::NewLine();
-            ImGui::SetItemTooltip("Add: raise the bone's weight by the strength. Set: give the bone exactly that weight. Smooth: blend toward the neighbours");
+            ImGui::SetItemTooltip("Add: raise the bone's weight by the strength. Set: give the bone exactly that "
+                                  "weight. Smooth: blend toward the neighbours");
             ImGui::SetNextItemWidth(200);
             ImGui::SliderFloat("radius", &b.radius, 2.0f, 200.0f, "%.0f");
             at_track("bone:radius");
@@ -562,8 +613,8 @@ void Editor::draw_bone_tools_panel() {
             ImGui::SetItemTooltip("The weight added, set or blended per dab");
             if (ImGui::Button("Start from automatic weights")) {
                 std::string err;
-                const CommandResult r = edit_command("bone:autoweights:" + std::to_string(uiFrame_), "skin.auto_weights",
-                                                     Json::object({{"entity", w.id_of(e)}}), &err);
+                const CommandResult r = edit_command("bone:autoweights:" + std::to_string(uiFrame_),
+                                                     "skin.auto_weights", Json::object({{"entity", w.id_of(e)}}), &err);
                 if (!r.ok) notify("skin.auto_weights: " + err, 1);
             }
             at_track("bone:autoweights");
@@ -583,8 +634,12 @@ void Editor::draw_bone_tools_panel() {
             ++n;
             ImGui::BulletText("%s -> %s", w.info(ik).name.c_str(), w.info(c->target).name.c_str());
         }
-        if (n == 0) ImGui::TextWrapped("No IK2D with a target in this scene. Add an IK2D to the last bone of a chain and set its target.");
-        else ImGui::TextWrapped("Drag the diamonds in the viewport. The bones turn to follow; the pose stays in the bones' rotation until you change it.");
+        if (n == 0)
+            ImGui::TextWrapped(
+                "No IK2D with a target in this scene. Add an IK2D to the last bone of a chain and set its target.");
+        else
+            ImGui::TextWrapped("Drag the diamonds in the viewport. The bones turn to follow; the pose stays in the "
+                               "bones' rotation until you change it.");
     }
     if (!b.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", b.error.c_str());
     ImGui::End();

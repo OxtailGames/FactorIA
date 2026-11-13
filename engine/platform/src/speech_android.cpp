@@ -36,7 +36,8 @@ public:
         if (android_clear_exception(env) || !cls) return;
         cls_ = static_cast<jclass>(env->NewGlobalRef(cls));
         env->DeleteLocalRef(cls);
-        jmethodID ctor = env->GetMethodID(cls_, "<init>", "(Landroid/content/Context;Landroid/speech/tts/TextToSpeech$OnInitListener;)V");
+        jmethodID ctor = env->GetMethodID(
+            cls_, "<init>", "(Landroid/content/Context;Landroid/speech/tts/TextToSpeech$OnInitListener;)V");
         if (android_clear_exception(env) || !ctor) return;
         jobject tts = env->NewObject(cls_, ctor, activity->clazz, nullptr);
         if (android_clear_exception(env) || !tts) return;
@@ -119,7 +120,8 @@ private:
         while (!pending_.empty()) {
             const Line& line = pending_.front();
             if (std::chrono::steady_clock::now() - line.asked > kGiveUpAfter) {
-                fa::log(LogLevel::Warn, "speech", "ui.speak: the Android speech engine did not start; the line was dropped");
+                fa::log(LogLevel::Warn, "speech",
+                        "ui.speak: the Android speech engine did not start; the line was dropped");
                 pending_.clear();
                 return;
             }
@@ -131,7 +133,9 @@ private:
     bool try_say(JNIEnv* env, const Line& line) {
         if (line.language != appliedLanguage_ && !line.language.empty()) {
             jclass localeCls = env->FindClass("java/util/Locale");
-            jmethodID forTag = localeCls ? env->GetStaticMethodID(localeCls, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;") : nullptr;
+            jmethodID forTag = localeCls ? env->GetStaticMethodID(localeCls, "forLanguageTag",
+                                                                  "(Ljava/lang/String;)Ljava/util/Locale;")
+                                         : nullptr;
             if (!android_clear_exception(env) && forTag) {
                 const std::u16string tag16 = utf8_to_utf16(line.language);
                 jstring tag = env->NewString(reinterpret_cast<const jchar*>(tag16.data()), jsize(tag16.size()));

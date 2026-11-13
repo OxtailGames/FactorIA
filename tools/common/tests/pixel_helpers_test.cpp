@@ -16,7 +16,11 @@ namespace {
 
 PixelPalette pal5() {
     PixelPalette p;
-    p.entries = {{"outline", {0x1a, 0x1c, 0x2c}}, {"skin-dark", {0xb0, 0x6a, 0x40}}, {"skin", {0xe0, 0xa0, 0x70}}, {"skin-light", {0xf8, 0xd0, 0xa8}}, {"sky", {0x38, 0xb7, 0x64}}};
+    p.entries = {{"outline", {0x1a, 0x1c, 0x2c}},
+                 {"skin-dark", {0xb0, 0x6a, 0x40}},
+                 {"skin", {0xe0, 0xa0, 0x70}},
+                 {"skin-light", {0xf8, 0xd0, 0xa8}},
+                 {"sky", {0x38, 0xb7, 0x64}}};
     p.ramps = {{1, 2, 3}};
     return p;
 }
@@ -31,7 +35,6 @@ std::string T(const IndexGrid& g) {
 
 }  // namespace
 
-
 namespace {
 const PixelMask kNoMask;
 }
@@ -43,7 +46,7 @@ TEST_CASE("pixel_outline: outer 4- and 8-connected, inner, flat colour") {
     o.color = 0;
     IndexGrid g = sq;
     CHECK(pixel_outline(g, p, o) == 8);
-    CHECK(T(g) == ".00.|0220|0220|.00.|");   // 4-connected: the corners stay open
+    CHECK(T(g) == ".00.|0220|0220|.00.|");  // 4-connected: the corners stay open
     g = sq;
     o.eightConnected = true;
     CHECK(pixel_outline(g, p, o) == 12);
@@ -61,7 +64,7 @@ TEST_CASE("pixel_outline: darkest of the ramp and selective sel-out") {
     PixelOutline o;
     o.colour = PixelOutline::Colour::RampDarkest;
     pixel_outline(g, p, o);
-    CHECK(T(g) == ".1111.|122221|122221|122221|122221|.1111.|");   // skin-dark, the darkest of the skin ramp
+    CHECK(T(g) == ".1111.|122221|122221|122221|122221|.1111.|");  // skin-dark, the darkest of the skin ramp
     // sel-out: the lightest fill, 2 steps darker on the shadow side, 1 step on the side facing the upper-left light
     g = G({"......", ".3333.", ".3333.", ".3333.", ".3333.", "......"});
     o = PixelOutline{};
@@ -84,7 +87,7 @@ TEST_CASE("pixel_outline: darkest of the ramp and selective sel-out") {
     PixelMask left(16, 0);
     for (int y = 0; y < 4; ++y) left[std::size_t(y) * 4] = 1;
     CHECK(pixel_outline(g, p, o, left) == 2);
-    CHECK(T(g) == "....|022.|022.|....|");   // only the outline pixels in column 0
+    CHECK(T(g) == "....|022.|022.|....|");  // only the outline pixels in column 0
 }
 
 TEST_CASE("pixel_shade: shadow on the side away from the light, highlight on the side facing it") {
@@ -93,11 +96,12 @@ TEST_CASE("pixel_shade: shadow on the side away from the light, highlight on the
                                            ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".........."};
     IndexGrid g = G(body);
     PixelShade s;
-    s.lightDegrees = 135;   // upper-left
+    s.lightDegrees = 135;  // upper-left
     s.shadowWidth = 2;
     s.highlightWidth = 1;
     CHECK(pixel_shade(g, p, s) > 0);
-    CHECK(T(g) == "..........|.33333311.|.32222211.|.32222211.|.32222211.|.32222211.|.32222211.|.11111111.|.11111111.|..........|");
+    CHECK(T(g) == "..........|.33333311.|.32222211.|.32222211.|.32222211.|.32222211.|.32222211.|.11111111.|.11111111.|."
+                  ".........|");
     // the light from the right flips the sides
     g = G(body);
     s.lightDegrees = 0;
@@ -111,12 +115,13 @@ TEST_CASE("pixel_shade: shadow on the side away from the light, highlight on the
     s.lightDegrees = 135;
     pixel_shade(g, p, s, m);
     CHECK(T(g).find("2222222") == std::string::npos);
-    CHECK(index_grid_rows(g)[4] == ".32112222.");   // the selection is shaded as its own shape
+    CHECK(index_grid_rows(g)[4] == ".32112222.");  // the selection is shaded as its own shape
 }
 
 TEST_CASE("pixel_shade: a dithered transition mixes the two bands and is deterministic") {
     const PixelPalette p = pal5();
-    IndexGrid a = G({"..........", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".........."});
+    IndexGrid a = G({"..........", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.", ".22222222.",
+                     ".22222222.", ".22222222.", ".........."});
     IndexGrid b = a;
     PixelShade s;
     s.shadowWidth = 2;
@@ -126,7 +131,7 @@ TEST_CASE("pixel_shade: a dithered transition mixes the two bands and is determi
     pixel_shade(a, p, s);
     pixel_shade(b, p, s);
     CHECK(T(a) == T(b));
-    for (int v : a.v) CHECK((v == -1 || v == 1 || v == 2));   // never a colour outside the ramp steps
+    for (int v : a.v) CHECK((v == -1 || v == 1 || v == 2));  // never a colour outside the ramp steps
 }
 
 TEST_CASE("pixel_dither: checker and Bayer patterns, gradients, canvas-aligned origin") {
@@ -224,7 +229,7 @@ TEST_CASE("pixel_rotate: 90 degrees is an exact turn, 45 degrees keeps the palet
         const IndexGrid r = pixel_rotate(disc, 45, m);
         std::set<int> colours(r.v.begin(), r.v.end());
         colours.erase(-1);
-        CHECK(colours == std::set<int>{2, 3});   // no colour that was not there
+        CHECK(colours == std::set<int>{2, 3});  // no colour that was not there
         CHECK(r.w >= 8);
     }
     CHECK(T(pixel_rotate(disc, 45, PixelRotateMethod::RotSprite)) ==
@@ -246,7 +251,7 @@ TEST_CASE("pixel_dominant_downscale and pixel_area_downscale") {
         for (int x = 0; x < 2; ++x) set(x, y, 0xe0, 0xa1, 0x70);
     set(0, 0, 0x38, 0xb7, 0x65);
     const IndexGrid d = pixel_dominant_downscale(src, p, 2, 2, 0.5);
-    CHECK(T(d) == "2.|2.|");   // the stray sky-green pixel does not win its area
+    CHECK(T(d) == "2.|2.|");  // the stray sky-green pixel does not win its area
     const Image a = pixel_area_downscale(src, 2, 2);
     CHECK(a.width == 2);
     CHECK(a.rgba[3] == 255);
@@ -260,12 +265,19 @@ namespace {
 constexpr const char* kDoc = "assets/art/h.image.json";
 
 Json palette_json() {
-    return Json::array({{{"name", "outline"}, {"color", "#1a1c2c"}}, {{"name", "skin-dark"}, {"color", "#b06a40"}}, {{"name", "skin"}, {"color", "#e0a070"}},
-                        {{"name", "skin-light"}, {"color", "#f8d0a8"}}, {{"name", "sky"}, {"color", "#38b764"}}});
+    return Json::array({{{"name", "outline"}, {"color", "#1a1c2c"}},
+                        {{"name", "skin-dark"}, {"color", "#b06a40"}},
+                        {{"name", "skin"}, {"color", "#e0a070"}},
+                        {{"name", "skin-light"}, {"color", "#f8d0a8"}},
+                        {{"name", "sky"}, {"color", "#38b764"}}});
 }
 
 void make_doc(const AssetsProject& p, int w = 12, int h = 12) {
-    p.ok("image.create", {{"path", kDoc}, {"width", w}, {"height", h}, {"palette", palette_json()}, {"ramps", Json::array({Json::array({"skin-dark", "skin", "skin-light"})})}});
+    p.ok("image.create", {{"path", kDoc},
+                          {"width", w},
+                          {"height", h},
+                          {"palette", palette_json()},
+                          {"ramps", Json::array({Json::array({"skin-dark", "skin", "skin-light"})})}});
 }
 
 Json read_doc(const AssetsProject& p) { return parse_json(read_all(p.file(kDoc)), kDoc).value(); }
@@ -276,13 +288,18 @@ std::string rows_of(const Json& layer) {
     return out;
 }
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 }  // namespace
 
 namespace {
 void block3(const AssetsProject& p, const char* layer = "s", int frame = -1) {
-    Json a = {{"path", kDoc}, {"layer", layer}, {"create", true}, {"stamp", {{"x", 4}, {"y", 4}, {"rows", Json::array({"3333", "3333", "3333", "3333"})}}}};
+    Json a = {{"path", kDoc},
+              {"layer", layer},
+              {"create", true},
+              {"stamp", {{"x", 4}, {"y", 4}, {"rows", Json::array({"3333", "3333", "3333", "3333"})}}}};
     if (frame >= 0) a["frame"] = frame;
     p.ok("image.pixel", a);
 }
@@ -294,7 +311,9 @@ TEST_CASE("image.pixel.outline: selective outline with the style light, region a
     write_all(p.file("assets.json"), Json({{"style", {{"lightDirection", "upper-left"}}}}).dump(2));
     block3(p);
     Json r = p.ok("image.pixel.outline", {{"path", kDoc}, {"layer", "s"}, {"mode", "selective"}});
-    CHECK(rows_of(read_doc(p)["layers"][0]) == "............|............|............|....2222....|...233331...|...233331...|...233331...|...233331...|....1111....|............|............|............|");
+    CHECK(rows_of(read_doc(p)["layers"][0]) ==
+          "............|............|............|....2222....|...233331...|...233331...|...233331...|...233331...|...."
+          "1111....|............|............|............|");
     CHECK(r["changed"] == true);
     CHECK(r["pixelsChanged"] == 16);
     CHECK(r["region"] == Json({{"x", 3}, {"y", 3}, {"width", 6}, {"height", 6}}));
@@ -302,7 +321,8 @@ TEST_CASE("image.pixel.outline: selective outline with the style light, region a
     CHECK(r.contains("$image"));
     CHECK(p.exists("assets/art/h.png"));
     // the same outline again changes nothing: it is the shape that is outlined, the outline included, so ask for inner instead
-    Json inner = p.ok("image.pixel.outline", {{"path", kDoc}, {"layer", "s"}, {"side", "inner"}, {"mode", "flat"}, {"color", "outline"}});
+    Json inner = p.ok("image.pixel.outline",
+                      {{"path", kDoc}, {"layer", "s"}, {"side", "inner"}, {"mode", "flat"}, {"color", "outline"}});
     CHECK(inner["pixelsChanged"].get<int>() > 0);
 }
 
@@ -343,7 +363,9 @@ TEST_CASE("image.pixel.shade: the light from the argument, else the style, else 
     REQUIRE_FALSE(badName.ok);
     CHECK(error_of(badName).find("upper-left") != std::string::npos);
     Json r = p.ok("image.pixel.shade", {{"path", kDoc}, {"layer", "s"}, {"light", "upper-left"}, {"shadowWidth", 1}});
-    CHECK(rows_of(read_doc(p)["layers"][0]) == "............|............|............|............|....3332....|....3332....|....3332....|....2222....|............|............|............|............|");
+    CHECK(rows_of(read_doc(p)["layers"][0]) ==
+          "............|............|............|............|....3332....|....3332....|....3332....|....2222....|...."
+          "........|............|............|............|");
     CHECK(r["light"]["name"] == "upper-left");
     CHECK(r["light"]["from"] == "light");
     write_all(p.file("assets.json"), Json({{"style", {{"lightDirection", "left"}}}}).dump(2));
@@ -354,18 +376,31 @@ TEST_CASE("image.pixel.shade: the light from the argument, else the style, else 
 TEST_CASE("image.pixel.dither: a constant blend, a gradient, a rect, the ramp") {
     AssetsProject p;
     make_doc(p, 8, 4);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
-    Json r = p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin-dark", "skin"})}, {"level", 0.5}, {"pattern", "checker"}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    Json r = p.ok("image.pixel.dither", {{"path", kDoc},
+                                         {"layer", "s"},
+                                         {"colors", Json::array({"skin-dark", "skin"})},
+                                         {"level", 0.5},
+                                         {"pattern", "checker"}});
     CHECK(rows_of(read_doc(p)["layers"][0]) == "21212121|12121212|21212121|12121212|");
     CHECK(r["pixelsChanged"].get<int>() > 0);
     CHECK(r["pattern"] == "checker");
-    p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin-dark", "skin"})}, {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
+    p.ok("image.pixel.dither", {{"path", kDoc},
+                                {"layer", "s"},
+                                {"colors", Json::array({"skin-dark", "skin"})},
+                                {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
     CHECK(rows_of(read_doc(p)["layers"][0]) == "11212222|11121212|11212122|11121222|");
     // a rect limits the region
-    p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "skin"})}, {"level", 0}, {"rect", {{"x", 0}, {"y", 0}, {"width", 2}, {"height", 1}}}});
+    p.ok("image.pixel.dither", {{"path", kDoc},
+                                {"layer", "s"},
+                                {"colors", Json::array({"skin", "skin"})},
+                                {"level", 0},
+                                {"rect", {{"x", 0}, {"y", 0}, {"width", 2}, {"height", 1}}}});
     CHECK(read_doc(p)["layers"][0]["rows"][0].get<std::string>().substr(0, 2) == "22");
     // the ramp: the three skin colours, light to dark
-    p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"ramp", "skin"}, {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
+    p.ok("image.pixel.dither",
+         {{"path", kDoc}, {"layer", "s"}, {"ramp", "skin"}, {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
     const std::string top = read_doc(p)["layers"][0]["rows"][0].get<std::string>();
     CHECK(top.front() == '3');
     CHECK(top.back() == '1');
@@ -374,17 +409,26 @@ TEST_CASE("image.pixel.dither: a constant blend, a gradient, a rect, the ramp") 
 TEST_CASE("image.pixel.dither teaches: level and gradient together, a colour outside the palette") {
     AssetsProject p;
     make_doc(p, 8, 4);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
-    auto both = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"level", 0.5}, {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    auto both = p.call("image.pixel.dither", {{"path", kDoc},
+                                              {"layer", "s"},
+                                              {"colors", Json::array({"skin", "sky"})},
+                                              {"level", 0.5},
+                                              {"gradient", {{"from", {0, 0}}, {"to", {7, 0}}}}});
     REQUIRE_FALSE(both.ok);
     CHECK(error_of(both).find("level") != std::string::npos);
-    auto off = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "#010203"})}, {"level", 0.5}});
+    auto off = p.call("image.pixel.dither",
+                      {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "#010203"})}, {"level", 0.5}});
     REQUIRE_FALSE(off.ok);
     CHECK(error_of(off).find("/colors/1") != std::string::npos);
     auto none = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"level", 0.5}});
     REQUIRE_FALSE(none.ok);
     CHECK(error_of(none).find("colors") != std::string::npos);
-    auto same = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"gradient", {{"from", {1, 1}}, {"to", {1, 1}}}}});
+    auto same = p.call("image.pixel.dither", {{"path", kDoc},
+                                              {"layer", "s"},
+                                              {"colors", Json::array({"skin", "sky"})},
+                                              {"gradient", {{"from", {1, 1}}, {"to", {1, 1}}}}});
     REQUIRE_FALSE(same.ok);
     CHECK(error_of(same).find("same pixel") != std::string::npos);
 }
@@ -392,7 +436,11 @@ TEST_CASE("image.pixel.dither teaches: level and gradient together, a colour out
 TEST_CASE("image.pixel.cleanup reports what it fixed") {
     AssetsProject p;
     make_doc(p, 6, 5);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"stamp", {{"x", 0}, {"y", 0}, {"rows", Json::array({".....", "..2..", ".....", "..33.", "..33."})}}}});
+    p.ok("image.pixel",
+         {{"path", kDoc},
+          {"layer", "s"},
+          {"create", true},
+          {"stamp", {{"x", 0}, {"y", 0}, {"rows", Json::array({".....", "..2..", ".....", "..33.", "..33."})}}}});
     Json r = p.ok("image.pixel.cleanup", {{"path", kDoc}, {"layer", "s"}});
     CHECK(rows_of(read_doc(p)["layers"][0]) == "......|......|......|..33..|..33..|");
     CHECK(r["orphans"] == 1);
@@ -411,12 +459,17 @@ TEST_CASE("image.pixel.cleanup reports what it fixed") {
 TEST_CASE("image.pixel.rotate and image.pixel.scale") {
     AssetsProject p;
     make_doc(p, 8, 8);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"stamp", {{"x", 2}, {"y", 2}, {"rows", Json::array({"2.2", ".2.", "3.."})}}}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "s"},
+                         {"create", true},
+                         {"stamp", {{"x", 2}, {"y", 2}, {"rows", Json::array({"2.2", ".2.", "3.."})}}}});
     Json r = p.ok("image.pixel.rotate", {{"path", kDoc}, {"layer", "s"}, {"angle", 90}});
-    CHECK(rows_of(read_doc(p)["layers"][0]) == "........|........|..3.2...|...2....|....2...|........|........|........|");
+    CHECK(rows_of(read_doc(p)["layers"][0]) ==
+          "........|........|..3.2...|...2....|....2...|........|........|........|");
     CHECK(r["size"] == Json({{"width", 3}, {"height", 3}}));
     Json sc = p.ok("image.pixel.scale", {{"path", kDoc}, {"layer", "s"}, {"factor", 2}});
-    CHECK(rows_of(read_doc(p)["layers"][0]) == "........|.33..22.|.33..22.|...22...|...22...|.....22.|.....22.|........|");
+    CHECK(rows_of(read_doc(p)["layers"][0]) ==
+          "........|.33..22.|.33..22.|...22...|...22...|.....22.|.....22.|........|");
     CHECK(sc["size"] == Json({{"width", 6}, {"height", 6}}));
     // a rotation by 45 degrees keeps the palette: only colours 2 and 3 are in the rows
     p.ok("image.pixel.rotate", {{"path", kDoc}, {"layer", "s"}, {"angle", 45}});
@@ -437,28 +490,60 @@ TEST_CASE("image.pixel.rotate and image.pixel.scale") {
 TEST_CASE("pixel helpers honour a stored selection and a range of frames") {
     AssetsProject p;
     make_doc(p, 8, 4);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"stamp", {{"x", 0}, {"y", 0}, {"rows", Json::array({"22222222", "22222222", "22222222", "22222222"})}}}});
-    p.ok("image.select", {{"path", kDoc}, {"name", "left"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 4}});
-    p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "skin-dark"})}, {"level", 1}, {"selection", "left"}});
+    p.ok("image.pixel",
+         {{"path", kDoc},
+          {"layer", "s"},
+          {"create", true},
+          {"stamp", {{"x", 0}, {"y", 0}, {"rows", Json::array({"22222222", "22222222", "22222222", "22222222"})}}}});
+    p.ok("image.select",
+         {{"path", kDoc}, {"name", "left"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 4}, {"height", 4}});
+    p.ok("image.pixel.dither", {{"path", kDoc},
+                                {"layer", "s"},
+                                {"colors", Json::array({"skin", "skin-dark"})},
+                                {"level", 1},
+                                {"selection", "left"}});
     CHECK(rows_of(read_doc(p)["layers"][0]) == "11112222|11112222|11112222|11112222|");
-    auto missing = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"level", 1}, {"selection", "nope"}});
+    auto missing = p.call("image.pixel.dither", {{"path", kDoc},
+                                                 {"layer", "s"},
+                                                 {"colors", Json::array({"skin", "sky"})},
+                                                 {"level", 1},
+                                                 {"selection", "nope"}});
     REQUIRE_FALSE(missing.ok);
     CHECK(error_of(missing).find("no selection named 'nope'") != std::string::npos);
     CHECK(error_of(missing).find("left") != std::string::npos);
     // frames: the same change on every cel of an animation
     p.ok("image.frame.add", {{"path", kDoc}, {"count", 2}, {"from", 0}});
-    Json all = p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"level", 1}, {"frames", "all"}, {"selection", "left"}});
+    Json all = p.ok("image.pixel.dither", {{"path", kDoc},
+                                           {"layer", "s"},
+                                           {"colors", Json::array({"skin", "sky"})},
+                                           {"level", 1},
+                                           {"frames", "all"},
+                                           {"selection", "left"}});
     CHECK(all["processedFrames"] == Json::array({0, 1, 2}));
     CHECK(all["perFrame"].size() == 3);
     CHECK(all["pixelsChanged"] == 48);
     // a single frame leaves the others alone
-    Json one = p.ok("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "skin-light"})}, {"level", 1}, {"frame", 1}, {"selection", "left"}});
+    Json one = p.ok("image.pixel.dither", {{"path", kDoc},
+                                           {"layer", "s"},
+                                           {"colors", Json::array({"skin", "skin-light"})},
+                                           {"level", 1},
+                                           {"frame", 1},
+                                           {"selection", "left"}});
     CHECK(one["frame"] == 1);
     CHECK(one["pixelsChanged"] == 16);
-    auto badFrame = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"level", 1}, {"frames", Json::array({0, 7})}});
+    auto badFrame = p.call("image.pixel.dither", {{"path", kDoc},
+                                                  {"layer", "s"},
+                                                  {"colors", Json::array({"skin", "sky"})},
+                                                  {"level", 1},
+                                                  {"frames", Json::array({0, 7})}});
     REQUIRE_FALSE(badFrame.ok);
     CHECK(error_of(badFrame).find("/frames/1") != std::string::npos);
-    auto twice = p.call("image.pixel.dither", {{"path", kDoc}, {"layer", "s"}, {"colors", Json::array({"skin", "sky"})}, {"level", 1}, {"frames", "all"}, {"frame", 0}});
+    auto twice = p.call("image.pixel.dither", {{"path", kDoc},
+                                               {"layer", "s"},
+                                               {"colors", Json::array({"skin", "sky"})},
+                                               {"level", 1},
+                                               {"frames", "all"},
+                                               {"frame", 0}});
     REQUIRE_FALSE(twice.ok);
     CHECK(error_of(twice).find("not both") != std::string::npos);
 }
@@ -467,16 +552,17 @@ TEST_CASE("image.to_pixel_art: a painted layer becomes a palette-exact indexed l
     AssetsProject p;
     make_doc(p, 16, 16);
     p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "fill"}, {"name", "paint"}, {"color", "#e0a171"}}}});
-    Json r = p.ok("image.to_pixel_art", {{"path", kDoc}, {"source", "paint"}, {"into", "art"}, {"width", 4}, {"outline", "outline"}});
+    Json r = p.ok("image.to_pixel_art",
+                  {{"path", kDoc}, {"source", "paint"}, {"into", "art"}, {"width", 4}, {"outline", "outline"}});
     CHECK(r["sourceSize"] == Json({{"width", 16}, {"height", 16}}));
-    CHECK(r["size"] == Json({{"width", 6}, {"height", 6}}));   // 4 x 4 plus the outline ring
+    CHECK(r["size"] == Json({{"width", 6}, {"height", 6}}));  // 4 x 4 plus the outline ring
     Json art;
     const Json doc = read_doc(p);
     for (const Json& l : doc["layers"])
         if (l["name"] == "art") art = l;
     REQUIRE(art.is_object());
     CHECK(art["kind"] == "indexed");
-    CHECK(rows_of(art) == ".0000.|022220|022220|022220|022220|.0000.|");   // 4-connected: corners open
+    CHECK(rows_of(art) == ".0000.|022220|022220|022220|022220|.0000.|");  // 4-connected: corners open
     CHECK(art["x"] == -1);
     CHECK(r["colorsUsed"] == 2);
     // the same call again replaces the layer
@@ -484,9 +570,15 @@ TEST_CASE("image.to_pixel_art: a painted layer becomes a palette-exact indexed l
     CHECK(again["replacedLayer"] == true);
     CHECK(again["size"] == Json({{"width", 2}, {"height", 2}}));
     // average + dither only uses palette colours
-    Json dith = p.ok("image.to_pixel_art", {{"path", kDoc}, {"source", "paint"}, {"into", "art2"}, {"width", 8}, {"method", "average"}, {"dither", "bayer4"}});
-    CHECK(dith["orphansFixed"] == 0);   // a dither is made of single pixels: orphans are off unless asked for
-    auto bad = p.call("image.to_pixel_art", {{"path", kDoc}, {"source", "paint"}, {"into", "art3"}, {"width", 8}, {"dither", "bayer4"}});
+    Json dith = p.ok("image.to_pixel_art", {{"path", kDoc},
+                                            {"source", "paint"},
+                                            {"into", "art2"},
+                                            {"width", 8},
+                                            {"method", "average"},
+                                            {"dither", "bayer4"}});
+    CHECK(dith["orphansFixed"] == 0);  // a dither is made of single pixels: orphans are off unless asked for
+    auto bad = p.call("image.to_pixel_art",
+                      {{"path", kDoc}, {"source", "paint"}, {"into", "art3"}, {"width", 8}, {"dither", "bayer4"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(error_of(bad).find("average") != std::string::npos);
     auto noSize = p.call("image.to_pixel_art", {{"path", kDoc}, {"source", "paint"}, {"into", "art3"}});

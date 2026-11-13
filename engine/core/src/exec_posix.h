@@ -46,8 +46,10 @@ inline void close_inherited_descriptors(int keep) {
 inline void exec_with_retry(bool hasSlash, char* const* argv) {
     long pauseMs = 10;
     for (int attempt = 0;; ++attempt) {
-        if (hasSlash) execv(argv[0], argv);
-        else execvp(argv[0], argv);
+        if (hasSlash)
+            execv(argv[0], argv);
+        else
+            execvp(argv[0], argv);
         if (errno != ETXTBSY || attempt == 7) return;  // 7 pauses: 10 + 20 + ... + 640 ms
         const int saved = errno;
         const struct timespec pause = {0, pauseMs * 1000 * 1000};

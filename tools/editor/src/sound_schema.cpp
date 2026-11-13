@@ -41,7 +41,8 @@ Json resolve(const Json& node, const Json* value, int depth = 0) {
     if (node.contains("$ref") && node["$ref"].is_string()) {
         const std::string ref = node["$ref"].get<std::string>();
         const std::string prefix = "#/$defs/";
-        if (ref.rfind(prefix, 0) == 0 && schema().contains("$defs") && schema()["$defs"].contains(ref.substr(prefix.size()))) {
+        if (ref.rfind(prefix, 0) == 0 && schema().contains("$defs") &&
+            schema()["$defs"].contains(ref.substr(prefix.size()))) {
             Json target = resolve(schema()["$defs"][ref.substr(prefix.size())], value, depth + 1);
             for (auto it = node.begin(); it != node.end(); ++it)
                 if (it.key() != "$ref") target[it.key()] = it.value();
@@ -58,11 +59,14 @@ Json resolve(const Json& node, const Json* value, int depth = 0) {
         const std::string type = value && value->is_object() ? value->value("type", std::string()) : std::string();
         for (const Json& branch : node["oneOf"]) {
             Json b = resolve(branch, value, depth + 1);
-            if (b.contains("properties") && b["properties"].contains("type") && b["properties"]["type"].value("const", std::string()) == type && !type.empty()) return b;
+            if (b.contains("properties") && b["properties"].contains("type") &&
+                b["properties"]["type"].value("const", std::string()) == type && !type.empty())
+                return b;
         }
         for (const Json& branch : node["oneOf"]) {
             Json b = resolve(branch, value, depth + 1);
-            if (b.is_object() && b.value("type", std::string()) == (value && value->is_number() ? "number" : "object")) return b;
+            if (b.is_object() && b.value("type", std::string()) == (value && value->is_number() ? "number" : "object"))
+                return b;
         }
         return resolve(node["oneOf"][0], value, depth + 1);
     }
@@ -75,13 +79,20 @@ std::optional<Json> node_at(const Json& patch, const std::string& pointer) {
     const Json* value = &patch;
     for (const std::string& token : split_pointer(pointer)) {
         const Json* next = nullptr;
-        if (value && value->is_object() && value->contains(token)) next = &(*value)[token];
-        else if (value && value->is_array() && !token.empty() && std::all_of(token.begin(), token.end(), ::isdigit) && std::stoul(token) < value->size()) next = &(*value)[std::stoul(token)];
+        if (value && value->is_object() && value->contains(token))
+            next = &(*value)[token];
+        else if (value && value->is_array() && !token.empty() && std::all_of(token.begin(), token.end(), ::isdigit) &&
+                 std::stoul(token) < value->size())
+            next = &(*value)[std::stoul(token)];
         Json child;
-        if (node.contains("properties") && node["properties"].is_object() && node["properties"].contains(token)) child = node["properties"][token];
-        else if (node.contains("items")) child = node["items"];
-        else if (node.contains("additionalProperties") && node["additionalProperties"].is_object()) child = node["additionalProperties"];
-        else return std::nullopt;
+        if (node.contains("properties") && node["properties"].is_object() && node["properties"].contains(token))
+            child = node["properties"][token];
+        else if (node.contains("items"))
+            child = node["items"];
+        else if (node.contains("additionalProperties") && node["additionalProperties"].is_object())
+            child = node["additionalProperties"];
+        else
+            return std::nullopt;
         node = resolve(child, next);
         value = next;
     }
@@ -154,7 +165,8 @@ std::vector<std::string> sfx_effect_types() {
     std::vector<std::string> out;
     if (!schema().contains("$defs") || !schema()["$defs"].contains("effect")) return out;
     for (const Json& b : schema()["$defs"]["effect"].value("oneOf", Json::array()))
-        if (b.contains("properties") && b["properties"].contains("type") && b["properties"]["type"].contains("const")) out.push_back(b["properties"]["type"]["const"].get<std::string>());
+        if (b.contains("properties") && b["properties"].contains("type") && b["properties"]["type"].contains("const"))
+            out.push_back(b["properties"]["type"]["const"].get<std::string>());
     return out;
 }
 
@@ -185,11 +197,16 @@ Json sfx_new_value(const Json& patch, const std::string& pointer, const std::str
         const std::string key = r.get<std::string>();
         if (!node->contains("properties") || !(*node)["properties"].contains(key)) continue;
         const Json prop = resolve((*node)["properties"][key], nullptr);
-        if (key == "type" && !type.empty()) out[key] = type;
-        else if (prop.contains("const")) out[key] = prop["const"];
-        else if (prop.contains("default")) out[key] = prop["default"];
-        else if (prop.contains("enum") && !prop["enum"].empty()) out[key] = prop["enum"][0];
-        else if (kind_of(prop) == "object") out[key] = sfx_new_value(patch, pointer + "/" + key, "");
+        if (key == "type" && !type.empty())
+            out[key] = type;
+        else if (prop.contains("const"))
+            out[key] = prop["const"];
+        else if (prop.contains("default"))
+            out[key] = prop["default"];
+        else if (prop.contains("enum") && !prop["enum"].empty())
+            out[key] = prop["enum"][0];
+        else if (kind_of(prop) == "object")
+            out[key] = sfx_new_value(patch, pointer + "/" + key, "");
         else if (kind_of(prop) == "array") {
             Json arr = Json::array();
             if (prop.value("minItems", 0) > 0 && prop.contains("items") && prop["items"].is_object()) {
@@ -198,11 +215,16 @@ Json sfx_new_value(const Json& patch, const std::string& pointer, const std::str
                 for (int i = 1; i < prop.value("minItems", 0) && kind_of(item) == "number"; ++i) arr.push_back(0);
             }
             out[key] = arr;
-        } else if (kind_of(prop) == "boolean") out[key] = false;
-        else if (kind_of(prop) == "string") out[key] = "";
-        else out[key] = prop.contains("minimum") ? prop["minimum"] : Json(0);
+        } else if (kind_of(prop) == "boolean")
+            out[key] = false;
+        else if (kind_of(prop) == "string")
+            out[key] = "";
+        else
+            out[key] = prop.contains("minimum") ? prop["minimum"] : Json(0);
     }
-    if (!type.empty() && !out.contains("type") && node->contains("properties") && (*node)["properties"].contains("type")) out["type"] = type;
+    if (!type.empty() && !out.contains("type") && node->contains("properties") &&
+        (*node)["properties"].contains("type"))
+        out["type"] = type;
     return out;
 }
 

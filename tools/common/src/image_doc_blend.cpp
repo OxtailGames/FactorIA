@@ -11,12 +11,13 @@ namespace fa {
 
 namespace {
 
-constexpr const char* kBlendNames[] = {"normal",    "multiply",  "screen",   "overlay",  "darken",     "lighten",
-                                       "colorDodge", "colorBurn", "hardLight", "softLight", "difference", "exclusion",
-                                       "add",        "subtract",  "hue",      "saturation", "color",     "luminosity"};
+constexpr const char* kBlendNames[] = {
+    "normal",    "multiply",   "screen",    "overlay", "darken",   "lighten", "colorDodge", "colorBurn", "hardLight",
+    "softLight", "difference", "exclusion", "add",     "subtract", "hue",     "saturation", "color",     "luminosity"};
 constexpr int kBlendCount = int(sizeof(kBlendNames) / sizeof(kBlendNames[0]));
 
-constexpr const char* kKindNames[] = {"pixels", "fill", "gradient", "procedural", "svg", "text", "provider", "group", "adjustment", "indexed", "tileset"};
+constexpr const char* kKindNames[] = {"pixels",   "fill",  "gradient",   "procedural", "svg",    "text",
+                                      "provider", "group", "adjustment", "indexed",    "tileset"};
 
 }  // namespace
 
@@ -31,11 +32,15 @@ std::optional<ImageBlend> parse_image_blend(std::string_view name) {
     return std::nullopt;
 }
 
-std::vector<std::string> image_blend_names() { return std::vector<std::string>(kBlendNames, kBlendNames + kBlendCount); }
+std::vector<std::string> image_blend_names() {
+    return std::vector<std::string>(kBlendNames, kBlendNames + kBlendCount);
+}
 
 const char* image_layer_kind_name(ImageLayerKind kind) { return kKindNames[int(kind)]; }
 
-std::vector<std::string> image_layer_kind_names() { return std::vector<std::string>(std::begin(kKindNames), std::end(kKindNames)); }
+std::vector<std::string> image_layer_kind_names() {
+    return std::vector<std::string>(std::begin(kKindNames), std::end(kKindNames));
+}
 
 }  // namespace fa
 
@@ -178,7 +183,8 @@ Image to_image(const Raster& raster) {
     for (std::size_t i = 0; i < raster.px.size(); i += 4) {
         const long a = std::lround(std::clamp(raster.px[i + 3], 0.0f, 1.0f) * 255.0f);
         if (a == 0) continue;
-        for (int c = 0; c < 3; ++c) img.rgba[i + c] = std::uint8_t(std::lround(std::clamp(raster.px[i + c], 0.0f, 1.0f) * 255.0f));
+        for (int c = 0; c < 3; ++c)
+            img.rgba[i + c] = std::uint8_t(std::lround(std::clamp(raster.px[i + c], 0.0f, 1.0f) * 255.0f));
         img.rgba[i + 3] = std::uint8_t(a);
     }
     return img;

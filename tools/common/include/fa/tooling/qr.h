@@ -15,7 +15,12 @@
 
 namespace fa {
 
-enum class QrEcc : std::uint8_t { Low, Medium, Quartile, High };  // about 7%, 15%, 25%, 30% of the codewords can be wrong
+enum class QrEcc : std::uint8_t {
+    Low,
+    Medium,
+    Quartile,
+    High
+};  // about 7%, 15%, 25%, 30% of the codewords can be wrong
 
 struct QrCode {
     int version = 0;  // 1..40
@@ -25,7 +30,8 @@ struct QrCode {
     std::vector<std::uint8_t> modules;  // size * size, row by row from the top left: 1 = dark. No quiet zone.
 
     bool dark(int x, int y) const {
-        return x >= 0 && y >= 0 && x < size && y < size && modules[static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x)] != 0;
+        return x >= 0 && y >= 0 && x < size && y < size &&
+               modules[static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x)] != 0;
     }
     // The rows as text ('#' dark, '.' light), for tests and logs.
     std::vector<std::string> rows() const;

@@ -56,54 +56,71 @@ double number_arg(const Json& a, const char* key, double def, double lo, double 
 Json run_play_auto(const Json& a, const std::string& projectDir) {
     tooling_detail::require_project_dir(projectDir, "play.auto");
     PlayAutoOptions opt;
-    opt.seconds = number_arg(a, "seconds", 60.0, 0.1, kPlayAutoMaxSeconds, "A minute of play is 60; the longest run is an hour of game time.");
+    opt.seconds = number_arg(a, "seconds", 60.0, 0.1, kPlayAutoMaxSeconds,
+                             "A minute of play is 60; the longest run is an hour of game time.");
     // Not given: 10 game seconds, or half of a shorter run (a short run could never call a game stuck otherwise); never more than the run.
-    opt.stuckSeconds = number_arg(a, "stuckSeconds", std::min(opt.seconds, std::max(0.5, std::min(10.0, opt.seconds / 2.0))), 0.5, kPlayAutoMaxSeconds,
-                                  "10 game seconds without anything moving is long enough for a platformer; slow games need more.");
+    opt.stuckSeconds =
+        number_arg(a, "stuckSeconds", std::min(opt.seconds, std::max(0.5, std::min(10.0, opt.seconds / 2.0))), 0.5,
+                   kPlayAutoMaxSeconds,
+                   "10 game seconds without anything moving is long enough for a platformer; slow games need more.");
     {
         auto it = a.find("speed");
         if (it != a.end() && !it->is_null()) {
             if (!it->is_number_integer() || it->get<long long>() < 1 || it->get<long long>() > kPlayAutoMaxSpeed)
-                bad("/speed", std::format("must be a whole number from 1 to {}.", kPlayAutoMaxSpeed), "It is how many fixed steps one frame runs; 1 plays every step, 4 is about four times as fast.");
+                bad("/speed", std::format("must be a whole number from 1 to {}.", kPlayAutoMaxSpeed),
+                    "It is how many fixed steps one frame runs; 1 plays every step, 4 is about four times as fast.");
             opt.speed = int(it->get<long long>());
         }
         it = a.find("seed");
         if (it != a.end() && !it->is_null()) {
             if (!it->is_number_integer() || it->get<long long>() < 0 || it->get<long long>() > 9007199254740991LL)
-                bad("/seed", "must be a whole number from 0 to 9007199254740991.", "The same seed plays the same game; try another to see a different run.");
+                bad("/seed", "must be a whole number from 0 to 9007199254740991.",
+                    "The same seed plays the same game; try another to see a different run.");
             opt.seed = std::uint64_t(it->get<long long>());
         }
     }
     if (opt.stuckSeconds > opt.seconds)
-        bad("/stuckSeconds", std::format("is {} game seconds but the run only lasts {}, so a stuck game could never be told apart from a short run.", opt.stuckSeconds, opt.seconds),
+        bad("/stuckSeconds",
+            std::format("is {} game seconds but the run only lasts {}, so a stuck game could never be told apart from "
+                        "a short run.",
+                        opt.stuckSeconds, opt.seconds),
             "Ask for more seconds, or lower stuckSeconds below seconds.");
     const std::string botKind = tooling_detail::arg_string(a, "bot", false, "auto");
     if (botKind != "auto" && botKind != "hook" && botKind != "explorer")
-        bad("/bot", "must be \"auto\", \"hook\" or \"explorer\", got \"" + botKind + "\". " + did_you_mean(botKind, std::vector<std::string>{"auto", "hook", "explorer"}),
+        bad("/bot",
+            "must be \"auto\", \"hook\" or \"explorer\", got \"" + botKind + "\". " +
+                did_you_mean(botKind, std::vector<std::string>{"auto", "hook", "explorer"}),
             "auto uses scripts/autoplay.js when there is one, else the generic explorer.");
     const bool hasHookFile = stdfs::exists(fs::os_path(project_root_path(projectDir) / "scripts" / "autoplay.js"));
     if (botKind == "hook" && !hasHookFile)
         bad("/bot", "\"hook\" needs scripts/autoplay.js, and the project has none.",
-            "Create it with game.autoplay((bot) => [...]) (docs/SCRIPTING.md, \"The bot\"), or leave bot out to let the generic explorer play.");
+            "Create it with game.autoplay((bot) => [...]) (docs/SCRIPTING.md, \"The bot\"), or leave bot out to let "
+            "the generic explorer play.");
     opt.useHook = botKind != "explorer";
     opt.hookRequired = botKind == "hook";
     opt.screenshots = tooling_detail::arg_bool(a, "screenshots", true);
     const std::string scene = tooling_detail::arg_string(a, "scene", false);
-    const stdfs::path scenePath = scene.empty() ? stdfs::path() : (fs::is_absolute(scene) ? fs::path_from_utf8(scene) : project_root_path(projectDir) / fs::path_from_utf8(scene));
+    const stdfs::path scenePath =
+        scene.empty() ? stdfs::path()
+                      : (fs::is_absolute(scene) ? fs::path_from_utf8(scene)
+                                                : project_root_path(projectDir) / fs::path_from_utf8(scene));
     if (!scene.empty() && !stdfs::exists(fs::os_path(scenePath))) {
         const std::vector<std::string> scenes = scene_candidates(projectDir);
         bad("/scene", "the scene '" + scene + "' does not exist in the project. " + did_you_mean(scene, scenes),
-            "Pass a project-relative path such as scenes/level1.scene.json, or leave scene out for the project's mainScene.");
+            "Pass a project-relative path such as scenes/level1.scene.json, or leave scene out for the project's "
+            "mainScene.");
     }
 
     // A process has one graphics device: when this one has it (the editor, a window) the pictures need a child process.
     if (opt.screenshots && gfx_device_active()) return assets_detail::call_in_child(projectDir, "play.auto", a);
 
-    EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, scene, opt.screenshots && !gfx_device_active(), RenderMode::OnDemand);
+    EngineConfig cfg = tooling_detail::headless_engine_config(
+        projectDir, scene, opt.screenshots && !gfx_device_active(), RenderMode::OnDemand);
     // The order the bot's run first read the files in goes into .factoria/cache/load-order.json (fa/tooling/load_order.h).
-    cfg.loadOrderSink = [projectDir](const LoadOrder& order) {  // a cold session (fa/tooling/load_order.h, "Which session wins")
-        record_load_order_logged(project_root_path(projectDir), order, LoadOrderSource::Run);
-    };
+    cfg.loadOrderSink =
+        [projectDir](const LoadOrder& order) {  // a cold session (fa/tooling/load_order.h, "Which session wins")
+            record_load_order_logged(project_root_path(projectDir), order, LoadOrderSource::Run);
+        };
     auto r = play_auto(cfg, opt);
     if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
     Json out = r.value();
@@ -117,7 +134,8 @@ Json run_play_auto(const Json& a, const std::string& projectDir) {
 
 std::string factoria_executable() {
     std::error_code ec;
-    if (const char* env = std::getenv("FA_FACTORIA_EXE"); env && *env) {  // a wrong override is not replaced by another program
+    if (const char* env = std::getenv("FA_FACTORIA_EXE");
+        env && *env) {             // a wrong override is not replaced by another program
         const stdfs::path p(env);  // getenv gives the native encoding (the ANSI code page on Windows), not UTF-8
         return stdfs::is_regular_file(p, ec) ? fs::path_to_utf8(p) : std::string();
     }
@@ -141,7 +159,8 @@ void register_play_auto_commands(CommandRegistry& registry, const std::string& p
     c.name = "play.auto";
     c.category = "play";
     c.readOnly = false;
-    c.summary = "Let the game play itself, headless and fast, and write the run as a play session: phases, score, how it ended, problems found, pictures.";
+    c.summary = "Let the game play itself, headless and fast, and write the run as a play session: phases, score, how "
+                "it ended, problems found, pictures.";
     c.description =
         "Run this after you build a feature and BEFORE you ask the user to play: it plays the game with "
         "nobody at the keyboard and tells you whether it can be finished, where it gets stuck and what "
@@ -152,8 +171,7 @@ void register_play_auto_commands(CommandRegistry& registry, const std::string& p
         "sample level). Without that file a generic explorer holds the declared input actions in seeded "
         "patterns (and taps the menu actions when the scene has buttons), so any game still gets "
         "smoke-played; bot \"explorer\" forces it. Example: {\"seconds\":120,\"seed\":7} or "
-        "{\"scene\":\"scenes/level2.scene.json\",\"bot\":\"explorer\",\"speed\":4}."
-        FA_COMMAND_DETAILS
+        "{\"scene\":\"scenes/level2.scene.json\",\"bot\":\"explorer\",\"speed\":4}." FA_COMMAND_DETAILS
         "The run ends with `ended`: \"won\" or \"lost\" (the hook returned { end } or the game called "
         "game.phase(name, { ends })), \"timeout\" (the seconds passed), \"quit\" (the game quit), \"stuck\" "
         "(nothing moved and nothing changed for stuckSeconds, or a menu has nobody to press it), \"broken\" "

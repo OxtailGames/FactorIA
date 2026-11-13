@@ -15,8 +15,9 @@ struct Swatch {
     Color color;
 };
 // Six flat 40x40 swatches in a row at y = 0 (pixels y 70..109), centres at x = 60, 100, ... 260.
-const Swatch kSwatches[] = {{{-100, 0, 0}, {1, 0, 0, 1}},       {{-60, 0, 0}, {0, 1, 0, 1}},    {{-20, 0, 0}, {0, 0, 1, 1}},
-                            {{20, 0, 0}, {1, 1, 1, 1}},         {{60, 0, 0}, {0.5f, 0.5f, 0.5f, 1}}, {{100, 0, 0}, {1, 0.6f, 0.1f, 1}}};
+const Swatch kSwatches[] = {{{-100, 0, 0}, {1, 0, 0, 1}},        {{-60, 0, 0}, {0, 1, 0, 1}},
+                            {{-20, 0, 0}, {0, 0, 1, 1}},         {{20, 0, 0}, {1, 1, 1, 1}},
+                            {{60, 0, 0}, {0.5f, 0.5f, 0.5f, 1}}, {{100, 0, 0}, {1, 0.6f, 0.1f, 1}}};
 
 struct FilterScene {
     World world;
@@ -57,12 +58,14 @@ TEST_CASE("colorFilter: none draws exactly what a camera without the field draws
     CHECK(again.rgba == plain.rgba);
 }
 
-TEST_CASE("colorFilter: greyscale, protanopia, deuteranopia and tritanopia match the CPU simulation for white and grey") {
+TEST_CASE(
+    "colorFilter: greyscale, protanopia, deuteranopia and tritanopia match the CPU simulation for white and grey") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     FilterScene s;
     // White and grey carry no colour: dichromacy and greyscale leave them as they are (this also pins the sRGB round trip).
-    for (ColorFilter f : {ColorFilter::Greyscale, ColorFilter::Protanopia, ColorFilter::Deuteranopia, ColorFilter::Tritanopia}) {
+    for (ColorFilter f :
+         {ColorFilter::Greyscale, ColorFilter::Protanopia, ColorFilter::Deuteranopia, ColorFilter::Tritanopia}) {
         s.filter(f);
         Image img = g.render(s.world);
         CHECK(near_color(swatch_pixel(img, 3), Color{1, 1, 1, 1}));
@@ -92,9 +95,9 @@ TEST_CASE("colorFilter: highContrast stretches around mid grey") {
     FilterScene s;
     s.filter(ColorFilter::HighContrast);
     Image img = g.render(s.world);
-    CHECK(near_color(swatch_pixel(img, 4), Color{0.5f, 0.5f, 0.5f, 1}));      // mid grey stays
-    CHECK(near_color(swatch_pixel(img, 5), Color{1.0f, 0.68f, 0.0f, 1}));     // (1, .6, .1) -> (1, .68, 0)
-    CHECK(near_color(img.pixel(5, 5), Color{0.0f, 0.0f, 0.0f, 1}));           // the 0.2 clear darkens to 0
+    CHECK(near_color(swatch_pixel(img, 4), Color{0.5f, 0.5f, 0.5f, 1}));   // mid grey stays
+    CHECK(near_color(swatch_pixel(img, 5), Color{1.0f, 0.68f, 0.0f, 1}));  // (1, .6, .1) -> (1, .68, 0)
+    CHECK(near_color(img.pixel(5, 5), Color{0.0f, 0.0f, 0.0f, 1}));        // the 0.2 clear darkens to 0
 }
 
 TEST_CASE("colorFilter: daltonize moves the lost red/green difference into the visible channels") {
@@ -121,8 +124,10 @@ TEST_CASE("colorFilter: golden image of every filter") {
         ColorFilter filter;
         const char* name;
     };
-    for (const Case& c : {Case{ColorFilter::Greyscale, "2d_filter_greyscale"}, Case{ColorFilter::HighContrast, "2d_filter_highcontrast"},
-                          Case{ColorFilter::Protanopia, "2d_filter_protanopia"}, Case{ColorFilter::Deuteranopia, "2d_filter_deuteranopia"},
+    for (const Case& c : {Case{ColorFilter::Greyscale, "2d_filter_greyscale"},
+                          Case{ColorFilter::HighContrast, "2d_filter_highcontrast"},
+                          Case{ColorFilter::Protanopia, "2d_filter_protanopia"},
+                          Case{ColorFilter::Deuteranopia, "2d_filter_deuteranopia"},
                           Case{ColorFilter::Tritanopia, "2d_filter_tritanopia"}}) {
         s.filter(c.filter);
         INFO(c.name);

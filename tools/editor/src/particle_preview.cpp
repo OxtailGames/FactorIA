@@ -10,7 +10,9 @@ namespace fa::editor {
 
 namespace {
 
-std::uint64_t mix(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 ParticleEmitter emitter_of(const VfxPart& part) {
     ParticleEmitter pe;
@@ -82,7 +84,7 @@ void ParticlePreview::begin_frame() {
 
 void ParticlePreview::catch_up() {
     if (framed_) {
-        if (slicedThisFrame_) return;   // seek, catch_up and advance of one frame share one bounded slice
+        if (slicedThisFrame_) return;  // seek, catch_up and advance of one frame share one bounded slice
         slicedThisFrame_ = true;
     }
     run_slice();
@@ -105,7 +107,7 @@ void ParticlePreview::settle() {
 
 void ParticlePreview::advance(double dt) {
     if (!doc_ || dt <= 0.0) return;
-    if (catching_up()) {   // a seek is still on its way: finish it before playing on from there
+    if (catching_up()) {  // a seek is still on its way: finish it before playing on from there
         catch_up();
         return;
     }
@@ -151,13 +153,16 @@ long ParticlePreview::step_once() {
         sim.step(em, env, float(kPreviewStep));
     });
     for (auto it = sims_.begin(); it != sims_.end();) {
-        if (seen.count(it->first)) ++it;
-        else it = sims_.erase(it);
+        if (seen.count(it->first))
+            ++it;
+        else
+            it = sims_.erase(it);
     }
     if (vfx) {
         fired_.clear();
         for (std::size_t i = 0; i < doc_->parts.size() && i < 32; ++i)
-            if ((vfx->rt.started & (1u << i)) && (doc_->parts[i].kind == VfxPartKind::Sound || doc_->parts[i].kind == VfxPartKind::Command))
+            if ((vfx->rt.started & (1u << i)) &&
+                (doc_->parts[i].kind == VfxPartKind::Sound || doc_->parts[i].kind == VfxPartKind::Command))
                 fired_.push_back(int(i));
     }
     world_->flush();
@@ -212,7 +217,8 @@ double ParticlePreview::timeline_length() const {
     // per document, not every frame: it parses the emitter fields).
     double longest = 0.0;
     for (const VfxPart& p : doc_->parts)
-        if (p.kind == VfxPartKind::Emitter) longest = std::max(longest, vfx_emitter_drain_seconds(*world_, emitter_of(p)));
+        if (p.kind == VfxPartKind::Emitter)
+            longest = std::max(longest, vfx_emitter_drain_seconds(*world_, emitter_of(p)));
     length_ = std::clamp(doc_->duration + longest + kVfxDrainSlack, 0.25, kPreviewMaxTime);
     lengthValid_ = true;
     return length_;

@@ -31,13 +31,14 @@ namespace fa {
 
 // What the old process hands the new one when it restarts itself (the hidden option --resume-session, a JSON object).
 struct McpResume {
-    Json session;                 // McpServer::session_state(); null = the client had not initialized yet
-    std::int64_t startedMs = 0;   // when the first process of the chain started, ms since 1970: `.mcp.json` is compared with it
-    std::string previousBuild;    // label of the build that ran before
-    std::string lost;             // what the restart discarded ("" = nothing)
-    std::string executable;       // the file executed again
-    std::vector<std::string> notices;  // notices of the old process not yet delivered by a tool result
-    int restarts = 0;             // restarts in a row since the client started the server
+    Json session;  // McpServer::session_state(); null = the client had not initialized yet
+    std::int64_t startedMs =
+        0;  // when the first process of the chain started, ms since 1970: `.mcp.json` is compared with it
+    std::string previousBuild;          // label of the build that ran before
+    std::string lost;                   // what the restart discarded ("" = nothing)
+    std::string executable;             // the file executed again
+    std::vector<std::string> notices;   // notices of the old process not yet delivered by a tool result
+    int restarts = 0;                   // restarts in a row since the client started the server
     std::int64_t configReportedMs = 0;  // modification time of the .mcp.json whose change was already reported
     std::string to_string() const;
     static Result<McpResume> parse(std::string_view text);
@@ -66,7 +67,8 @@ Result<void> restart_process(const std::filesystem::path& executable, const std:
 class McpUpdateMonitor {
 public:
     // `resume` is set in a process that was started by a restart: its session is restored in `server`.
-    McpUpdateMonitor(McpServer& server, UpdateWatch& watch, McpUpdateOptions options, const McpResume* resume = nullptr);
+    McpUpdateMonitor(McpServer& server, UpdateWatch& watch, McpUpdateOptions options,
+                     const McpResume* resume = nullptr);
 
     // After a restart, once the server serves: notifications/tools/list_changed and resources/list_changed, a
     // notifications/message, and the notice for the first tool result. Does nothing in a first process.
@@ -102,11 +104,11 @@ private:
     std::chrono::steady_clock::time_point lastCheck_{};
     bool checked_ = false;
     bool lookedWithClient_ = false;  // one look was made after the client initialized
-    FileStamp reportedStamp_;      // the executable stamp already reported (Windows) or acted on
+    FileStamp reportedStamp_;        // the executable stamp already reported (Windows) or acted on
     bool restartPending_ = false;
     std::string deferredBy_;
-    std::string failedReason_;     // a restart that failed
-    bool configChecked_ = false;   // the missing-timeout fix was tried
+    std::string failedReason_;           // a restart that failed
+    bool configChecked_ = false;         // the missing-timeout fix was tried
     std::int64_t configReportedMs_ = 0;  // mtime of the .mcp.json already reported
     bool addedTimeout_ = false;
     std::string timeoutError_;

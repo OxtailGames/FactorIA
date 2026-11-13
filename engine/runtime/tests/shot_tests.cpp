@@ -114,18 +114,21 @@ TEST_CASE("game.screenshot: region and zoom give round(w * zoom) x round(h * zoo
     CHECK(e.renderer()->target_width() == 320);
 
     // Mistakes teach.
-    for (Json bad : {Json{{"region", Json::array({0, 0, 10, 10})}, {"zoom", 50}}, Json{{"region", Json::array({400, 0, 10, 10})}},
-                     Json{{"region", Json::array({0, 0, 0, 10})}}, Json{{"zoom", 2}, {"scale", 2}},
-                     Json{{"region", Json::array({0, 0, 320, 180})}, {"zoom", 32}}, Json{{"columns", 2}}, Json{{"regoin", Json::array({0, 0, 1, 1})}}}) {
+    for (Json bad : {Json{{"region", Json::array({0, 0, 10, 10})}, {"zoom", 50}},
+                     Json{{"region", Json::array({400, 0, 10, 10})}}, Json{{"region", Json::array({0, 0, 0, 10})}},
+                     Json{{"zoom", 2}, {"scale", 2}}, Json{{"region", Json::array({0, 0, 320, 180})}, {"zoom", 32}},
+                     Json{{"columns", 2}}, Json{{"regoin", Json::array({0, 0, 1, 1})}}}) {
         auto r = c.call("game.screenshot", bad);
         INFO(bad.dump());
         CHECK_FALSE(r.ok);
         CHECK_FALSE(r.error.dump().empty());
     }
-    CHECK(c.call("game.screenshot", Json{{"regoin", Json::array({0, 0, 1, 1})}}).error.dump().find("region") != std::string::npos);
+    CHECK(c.call("game.screenshot", Json{{"regoin", Json::array({0, 0, 1, 1})}}).error.dump().find("region") !=
+          std::string::npos);
 }
 
-TEST_CASE("game.screenshot: without path the picture is temporary, with path it is kept, and an old one is pruned at init") {
+TEST_CASE(
+    "game.screenshot: without path the picture is temporary, with path it is kept, and an old one is pruned at init") {
     TempProject p("temp");
     Engine e;
     std::string err;
@@ -149,7 +152,8 @@ TEST_CASE("game.screenshot: without path the picture is temporary, with path it 
     REQUIRE(reg.ok);
     CHECK(stdfs::path(reg.result["$image"]["path"].get<std::string>()).filename() == "frame_3_region.png");
     // With a path: kept, `path` in the result, no temporary flag.
-    const std::string mine = (p.dir / "shots" / "mine.png").generic_string();  // a caller's path: inside the project, not a managed folder
+    const std::string mine =
+        (p.dir / "shots" / "mine.png").generic_string();  // a caller's path: inside the project, not a managed folder
     auto kept = c.call("game.screenshot", Json{{"path", mine}});
     REQUIRE_MESSAGE(kept.ok, kept.error.dump());
     CHECK(stdfs::equivalent(stdfs::path(kept.result["path"].get<std::string>()), stdfs::path(mine)));
@@ -179,8 +183,12 @@ TEST_CASE("game.screenshot: a filmstrip steps the game and lays the captures out
     e.step(2);
     const int start = int(c.call("game.step", Json{{"frames", 0}}).result["frame"]);
     // Tile size = region size * zoom; 13 tiles in 4 columns.
-    auto r = c.call("game.screenshot", Json{{"frames", 48}, {"everyFrames", 4}, {"columns", 4}, {"zoom", 1},
-                                            {"region", Json::array({100, 60, 120, 60})}, {"path", (p.dir / "film.png").generic_string()}});
+    auto r = c.call("game.screenshot", Json{{"frames", 48},
+                                            {"everyFrames", 4},
+                                            {"columns", 4},
+                                            {"zoom", 1},
+                                            {"region", Json::array({100, 60, 120, 60})},
+                                            {"path", (p.dir / "film.png").generic_string()}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["tiles"].size() == 13);
     CHECK(r.result["tiles"][0]["offset"] == 0);
@@ -213,7 +221,8 @@ TEST_CASE("game.screenshot: a filmstrip steps the game and lays the captures out
     CHECK(auto_zoom.result["tiles"].size() == 3);
     CHECK(auto_zoom.result["width"].get<int>() <= 2100);
     CHECK(auto_zoom.result["zoom"].get<double>() <= 1.0);
-    CHECK(stdfs::path(auto_zoom.result["$image"]["path"].get<std::string>()).filename().string().find("_sheet.png") != std::string::npos);
+    CHECK(stdfs::path(auto_zoom.result["$image"]["path"].get<std::string>()).filename().string().find("_sheet.png") !=
+          std::string::npos);
     CHECK(auto_zoom.result["temporary"] == true);
 
     // Limits teach: too many tiles, a sheet over 8192 px, everyFrames without frames.
@@ -250,10 +259,15 @@ TEST_CASE("render.inspect: a luminance profile along a line lists the hard steps
     CHECK(r.result["steps"][2]["delta"].get<double>() < -100);
     CHECK(r.result["stepCount"] == 3);
     // A threshold above the biggest jump finds nothing; a lower one on a flat stretch finds nothing either.
-    CHECK(c.call("render.inspect", Json::parse(R"({"from":[100,90],"to":[220,90],"threshold":200})")).result["steps"].empty());
-    CHECK(c.call("render.inspect", Json::parse(R"({"from":[140,90],"to":[155,90],"threshold":1})")).result["steps"].empty());
+    CHECK(c.call("render.inspect", Json::parse(R"({"from":[100,90],"to":[220,90],"threshold":200})"))
+              .result["steps"]
+              .empty());
+    CHECK(c.call("render.inspect", Json::parse(R"({"from":[140,90],"to":[155,90],"threshold":1})"))
+              .result["steps"]
+              .empty());
     // Only the edge between the boxes, at a higher render scale: the position is still in design pixels.
-    auto fine = c.call("render.inspect", Json::parse(R"({"from":[150,90],"to":[170,90],"threshold":20,"scale":4,"channel":"red"})"));
+    auto fine = c.call("render.inspect",
+                       Json::parse(R"({"from":[150,90],"to":[170,90],"threshold":20,"scale":4,"channel":"red"})"));
     REQUIRE_MESSAGE(fine.ok, fine.error.dump());
     CHECK(fine.result["count"] == 81);
     REQUIRE(fine.result["steps"].size() == 1);
@@ -304,7 +318,8 @@ TEST_CASE("render.pick: lists what draws a pixel, topmost first") {
     CHECK(r.result["world"][0].get<double>() == doctest::Approx(0.0).epsilon(0.01));
     CHECK(r.result["widget"].is_null());
     // Between the front square and the edge of the back one: back only.
-    CHECK(ids(c.call("render.pick", Json::parse(R"({"position":[205,90]})")).result) == std::vector<std::string>{"back"});
+    CHECK(ids(c.call("render.pick", Json::parse(R"({"position":[205,90]})")).result) ==
+          std::vector<std::string>{"back"});
     // The screen-space HUD box is above the world visuals under it, at any layer.
     auto hud = c.call("render.pick", Json::parse(R"({"position":[150,60]})"));
     REQUIRE(hud.ok);

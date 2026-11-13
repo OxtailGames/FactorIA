@@ -151,7 +151,8 @@ Bench script_function(const char* name, const char* summary, std::int64_t items,
 Bench script_behaviours() {
     Bench b;
     b.name = "script.behaviours";
-    b.summary = "30 frames of 300 behaviours: onFixedUpdate, onUpdate and onLateUpdate, each reading and writing the entity";
+    b.summary =
+        "30 frames of 300 behaviours: onFixedUpdate, onUpdate and onLateUpdate, each reading and writing the entity";
     b.make = [] {
         auto host = std::make_shared<BenchHost>();
         Prepared p;
@@ -196,8 +197,8 @@ function e2(x) { return x * 0.5; }
 
 void add_script_benches(std::vector<Bench>& out) {
     out.push_back(script_function("script.native_calls",
-                                  "JS -> C++ calls: world.find, entity.alive and entity.id, 60000 times",
-                                  60000, "calls", R"(
+                                  "JS -> C++ calls: world.find, entity.alive and entity.id, 60000 times", 60000,
+                                  "calls", R"(
 globalThis.bench = function () {
   let n = 0;
   for (let i = 0; i < 20000; i++) {
@@ -206,9 +207,10 @@ globalThis.bench = function () {
   }
   return n;
 };)"));
-    out.push_back(script_function("script.component_access",
-                                  "Component fields from JS: 100 entities x 100 passes of position, a Sprite colour and a Collider2D size",
-                                  100 * 100, "entity passes", R"(
+    out.push_back(script_function(
+        "script.component_access",
+        "Component fields from JS: 100 entities x 100 passes of position, a Sprite colour and a Collider2D size",
+        100 * 100, "entity passes", R"(
 globalThis.entities = [];
 for (let i = 0; i < 100; i++) globalThis.entities.push(world.find('e' + i));
 globalThis.bench = function () {

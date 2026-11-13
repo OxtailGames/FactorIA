@@ -86,7 +86,9 @@ TextExtent text_extent_of(const VisualMeasure& measure) {
 }
 
 TextExtent approx_text_extent() {
-    return [](const std::string& text, const std::string&, float px, float wrap, TextStyle style) { return approx_text_size(text, px, wrap, style.markup); };
+    return [](const std::string& text, const std::string&, float px, float wrap, TextStyle style) {
+        return approx_text_size(text, px, wrap, style.markup);
+    };
 }
 
 Vec2 approx_text_size(const Text& t, float textScale) {
@@ -163,7 +165,8 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float t
         l.font = &tb->font;
         l.spec = {tb->fontSize, tb->minFontSize, tb->autoShrink, tb->maxTextScale, true, 0, 0, 0};
         l.spec.style = {tb->markup, tb->bold};
-        const float side = tb->texture.empty() ? std::min(r.w, r.h) * 0.7f : std::min(r.w, r.h) - 8.0f;  // inside the disc
+        const float side =
+            tb->texture.empty() ? std::min(r.w, r.h) * 0.7f : std::min(r.w, r.h) - 8.0f;  // inside the disc
         l.zone = Rect::from_center(r.center(), {std::max(1.0f, side), std::max(1.0f, side)});
     } else {
         return std::nullopt;
@@ -174,7 +177,8 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float t
     return l;
 }
 
-std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, float textScale, const TextExtent& extent) {
+std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, float textScale,
+                                       const TextExtent& extent) {
     std::optional<UiLabel> l = ui_label(w, e, r, textScale);
     if (!l || l->text->empty()) return std::nullopt;
     UiLabelFit out{*l, {}};

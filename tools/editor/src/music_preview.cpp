@@ -6,14 +6,15 @@
 namespace fa::editor {
 
 namespace {
-constexpr double kAhead = 0.35;        // seconds kept queued
-constexpr std::size_t kChunk = 1024;   // frames mixed at a time: the resolution of the audible playhead
-constexpr float kLayerFade = 0.35f;    // seconds a layer takes to fade: quick enough to hear the slider move
+constexpr double kAhead = 0.35;       // seconds kept queued
+constexpr std::size_t kChunk = 1024;  // frames mixed at a time: the resolution of the audible playhead
+constexpr float kLayerFade = 0.35f;   // seconds a layer takes to fade: quick enough to hear the slider move
 constexpr float kLayerRange = 0.25f;
 constexpr float kJumpFade = 0.12f;
 }  // namespace
 
-MusicPreview::MusicPreview(Audio* audio, std::function<bool()> engineMixes) : audio_(audio), engineMixes_(std::move(engineMixes)) {}
+MusicPreview::MusicPreview(Audio* audio, std::function<bool()> engineMixes)
+    : audio_(audio), engineMixes_(std::move(engineMixes)) {}
 
 MusicPreview::~MusicPreview() { stop(); }
 
@@ -134,7 +135,9 @@ MusicPreview::Where MusicPreview::where() const {
     return w;
 }
 
-std::vector<float> MusicPreview::stem_gains() const { return transport_ ? transport_->stem_gains() : std::vector<float>{}; }
+std::vector<float> MusicPreview::stem_gains() const {
+    return transport_ ? transport_->stem_gains() : std::vector<float>{};
+}
 
 void MusicPreview::finish() {
     lastPos_ = position_frames();
@@ -155,8 +158,10 @@ void MusicPreview::update(double dt) {
     std::vector<MusicEvent> events;
     transport_->take_events(events);
     for (const MusicEvent& e : events) {
-        if (e.kind == MusicEventKind::Section) ++sectionEvents_;
-        else if (e.kind == MusicEventKind::Bar) ++barEvents_;
+        if (e.kind == MusicEventKind::Section)
+            ++sectionEvents_;
+        else if (e.kind == MusicEventKind::Bar)
+            ++barEvents_;
     }
     transport_->prune_sources();
     // A looped section: when nothing waits for a boundary and the transport (which mixes a third of a second ahead of what is heard) is inside
@@ -166,7 +171,8 @@ void MusicPreview::update(double dt) {
         if (span >= 0 && src_->map.spans[std::size_t(span)].section == loopSection_)
             transport_->go_to_section(loopSection_, MusicQuantize::Section, 0.02f, nullptr);
     }
-    if (transport_->ended() && audio_->pcm_queued_frames(voice_) < 2.5) finish();   // the mixer keeps the last frame for its interpolation
+    if (transport_->ended() && audio_->pcm_queued_frames(voice_) < 2.5)
+        finish();  // the mixer keeps the last frame for its interpolation
 }
 
 }  // namespace fa::editor

@@ -11,7 +11,7 @@ void* fa_vorbis_open(const unsigned char* data, int size, int* channels, int* ra
     stb_vorbis_info info = stb_vorbis_get_info(v);
     *channels = info.channels;
     *rate = (int)info.sample_rate;
-    *frames = stb_vorbis_stream_length_in_samples(v);  /* scans the last page: start decoding from a clean state */
+    *frames = stb_vorbis_stream_length_in_samples(v); /* scans the last page: start decoding from a clean state */
     stb_vorbis_seek_start(v);
     return v;
 }

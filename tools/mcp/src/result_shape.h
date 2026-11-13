@@ -28,7 +28,7 @@ struct ShapedResult {
     Json value;                   // the result, or its cut-down copy (always valid JSON)
     std::vector<ResultCut> cuts;  // empty when nothing was cut
     std::size_t originalBytes = 0;
-    bool replaced = false;        // nothing of the result fitted: `value` is only the note
+    bool replaced = false;  // nothing of the result fitted: `value` is only the note
 };
 
 // Room kept free under the cap for the truncation note (it lists at most kMaxListedCuts cuts).

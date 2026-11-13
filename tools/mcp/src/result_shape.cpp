@@ -13,19 +13,25 @@ namespace {
 constexpr std::size_t kMinStringBytes = 256;  // a string is never cut below this
 constexpr int kMaxPasses = 24;                // each pass cuts at least one part; deep results stop here
 
-std::size_t key_size(const std::string& key) { return Json(key).dump(-1, ' ', false, Json::error_handler_t::replace).size(); }
+std::size_t key_size(const std::string& key) {
+    return Json(key).dump(-1, ' ', false, Json::error_handler_t::replace).size();
+}
 
 std::string pointer_token(const std::string& key) {
     std::string out;
     for (char c : key) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
+        if (c == '~')
+            out += "~0";
+        else if (c == '/')
+            out += "~1";
+        else
+            out += c;
     }
     return out;
 }
 
-void record(std::vector<ResultCut>& cuts, const std::string& pointer, const char* unit, std::size_t kept, std::size_t of) {
+void record(std::vector<ResultCut>& cuts, const std::string& pointer, const char* unit, std::size_t kept,
+            std::size_t of) {
     for (ResultCut& c : cuts)
         if (c.pointer == pointer) {  // cut again: `of` stays the size the result had
             c.kept = kept;
@@ -36,7 +42,8 @@ void record(std::vector<ResultCut>& cuts, const std::string& pointer, const char
 
 // Frees about `excess` bytes inside `node` (at `pointer`): first inside its heaviest child when that child alone weighs more
 // than the excess, then by dropping its tail. Returns the bytes freed.
-std::size_t shrink(Json& node, const std::string& pointer, std::size_t excess, std::vector<ResultCut>& cuts, int depth) {
+std::size_t shrink(Json& node, const std::string& pointer, std::size_t excess, std::vector<ResultCut>& cuts,
+                   int depth) {
     if (excess == 0) return 0;
     if (node.is_string()) {
         const std::string& s = node.get_ref<const std::string&>();
@@ -81,7 +88,8 @@ std::size_t shrink(Json& node, const std::string& pointer, std::size_t excess, s
     std::vector<std::size_t> sizes;
     sizes.reserve(n);
     for (auto it = node.begin(); it != node.end(); ++it)
-        sizes.push_back(json_size(*it) + 1 + (node.is_object() ? key_size(it.key()) + 1 : 0));  // + comma (+ key and colon)
+        sizes.push_back(json_size(*it) + 1 +
+                        (node.is_object() ? key_size(it.key()) + 1 : 0));  // + comma (+ key and colon)
     while (keep > 1 && freed + dropped < excess) dropped += sizes[--keep];
     const std::size_t of = n;
     if (node.is_array()) {
@@ -180,15 +188,17 @@ std::string truncation_note(const ShapedResult& shaped, std::size_t cap, const s
             const std::string pointer = c.pointer.size() <= kShownPointer
                                             ? c.pointer
                                             : std::string(utf8_prefix(c.pointer, kShownPointer)) + "...";
-            note += (i ? "; " : "") + (c.pointer.empty() ? std::string("the result") : "`" + pointer + "`") + " keeps the first " +
-                    std::to_string(c.kept) + " of " + std::to_string(c.of) + " " + c.unit;
+            note += (i ? "; " : "") + (c.pointer.empty() ? std::string("the result") : "`" + pointer + "`") +
+                    " keeps the first " + std::to_string(c.kept) + " of " + std::to_string(c.of) + " " + c.unit;
         }
-        if (shaped.cuts.size() > kMaxListedCuts) note += "; and " + std::to_string(shaped.cuts.size() - kMaxListedCuts) + " more parts";
+        if (shaped.cuts.size() > kMaxListedCuts)
+            note += "; and " + std::to_string(shaped.cuts.size() - kMaxListedCuts) + " more parts";
         note += ".";
     }
     const auto list = [](const std::vector<std::string>& names) {
         std::string s;
-        for (std::size_t i = 0; i < names.size(); ++i) s += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + ("`" + names[i] + "`");
+        for (std::size_t i = 0; i < names.size(); ++i)
+            s += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + ("`" + names[i] + "`");
         return s;
     };
     if (!pagingArgs.empty()) {
@@ -197,7 +207,8 @@ std::string truncation_note(const ShapedResult& shaped, std::size_t cap, const s
     } else if (!narrowingArgs.empty()) {
         note += " This command does not page: ask for less with " + list(narrowingArgs) + ".";
     } else {
-        note += " This command does not page: ask for a smaller part (one entity, one file, one scene) or use a command that "
+        note += " This command does not page: ask for a smaller part (one entity, one file, one scene) or use a "
+                "command that "
                 "lists less.";
     }
     return note;
@@ -207,12 +218,12 @@ namespace {
 
 // Names of arguments that page through a result, and of arguments that narrow it. Matched exactly (camelCase JSON keys);
 // paging_name() also takes the command's own camelCase names.
-constexpr std::array<const char*, 16> kPagingNames = {"offset", "limit", "cursor", "page", "pageSize", "perPage",
-                                                       "startLine", "endLine", "maxLines", "maxBytes", "maxResults",
-                                                       "maxItems", "maxEntries", "skip", "start", "max"};
-constexpr std::array<const char*, 16> kNarrowingNames = {"filter", "query", "path", "prefix", "glob", "pattern", "tag",
-                                                          "category", "kind", "heading", "section", "fields", "depth",
-                                                          "maxDepth", "entity", "name"};
+constexpr std::array<const char*, 16> kPagingNames = {
+    "offset",   "limit",    "cursor",     "page",     "pageSize",   "perPage", "startLine", "endLine",
+    "maxLines", "maxBytes", "maxResults", "maxItems", "maxEntries", "skip",    "start",     "max"};
+constexpr std::array<const char*, 16> kNarrowingNames = {
+    "filter", "query",   "path",    "prefix", "glob",  "pattern",  "tag",    "category",
+    "kind",   "heading", "section", "fields", "depth", "maxDepth", "entity", "name"};
 
 template <std::size_t N>
 bool named(const std::string& key, const std::array<const char*, N>& names) {
@@ -225,7 +236,8 @@ bool typed_as(const Json& prop, std::initializer_list<const char*> types, bool u
     const auto t = prop.is_object() ? prop.find("type") : prop.end();
     if (!prop.is_object() || t == prop.end()) return untyped;
     auto one = [&](const Json& v) {
-        return v.is_string() && std::any_of(types.begin(), types.end(), [&](const char* n) { return v.get<std::string>() == n; });
+        return v.is_string() &&
+               std::any_of(types.begin(), types.end(), [&](const char* n) { return v.get<std::string>() == n; });
     };
     if (t->is_array()) return std::any_of(t->begin(), t->end(), one);
     return one(*t);
@@ -239,7 +251,8 @@ bool camel_word(const std::string& key, std::string_view part) {
     const auto upper = [](char c) { return c >= 'A' && c <= 'Z'; };
     if (key.compare(0, n, part) == 0 && upper(key[n])) return true;
     const std::size_t at = key.size() - n;
-    return upper(key[at]) && key[at] == static_cast<char>(part[0] - 'a' + 'A') && key.compare(at + 1, n - 1, part.substr(1)) == 0;
+    return upper(key[at]) && key[at] == static_cast<char>(part[0] - 'a' + 'A') &&
+           key.compare(at + 1, n - 1, part.substr(1)) == 0;
 }
 
 // An argument that pages through a result: one of kPagingNames (a count or a position: an integer, a number or a string,
@@ -256,7 +269,8 @@ bool paging_name(const std::string& key, const Json& prop) {
 template <typename Pick>
 std::vector<std::string> properties_where(const Json& inputSchema, Pick pick) {
     std::vector<std::string> out;
-    if (!inputSchema.is_object() || !inputSchema.contains("properties") || !inputSchema["properties"].is_object()) return out;
+    if (!inputSchema.is_object() || !inputSchema.contains("properties") || !inputSchema["properties"].is_object())
+        return out;
     const Json& props = inputSchema["properties"];
     for (auto it = props.begin(); it != props.end(); ++it)
         if (pick(it.key(), it.value())) out.push_back(it.key());
@@ -265,7 +279,9 @@ std::vector<std::string> properties_where(const Json& inputSchema, Pick pick) {
 
 }  // namespace
 
-std::vector<std::string> paging_arguments(const Json& inputSchema) { return properties_where(inputSchema, paging_name); }
+std::vector<std::string> paging_arguments(const Json& inputSchema) {
+    return properties_where(inputSchema, paging_name);
+}
 std::vector<std::string> narrowing_arguments(const Json& inputSchema) {
     return properties_where(inputSchema, [](const std::string& key, const Json& prop) {
         return !paging_name(key, prop) && named(key, kNarrowingNames);

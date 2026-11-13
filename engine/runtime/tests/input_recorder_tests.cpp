@@ -39,11 +39,14 @@ TEST_CASE("input recorder: timing has one [dt, steps] per frame, unreported fram
 
 TEST_CASE("input recorder: the recorded file is read by the headless replay without problems") {
     const stdfs::path dir = fs::make_temp_dir("fa_play_recorder").value();
-    REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
-                           R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
-                               "display":{"width":64,"height":64},"physics":{"fixedHz":60}})").ok());
+    REQUIRE(fs::write_text(
+                (dir / "factoria.json").generic_string(),
+                R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
+                               "display":{"width":64,"height":64},"physics":{"fixedHz":60}})")
+                .ok());
     REQUIRE(fs::write_text((dir / "main.scene.json").generic_string(),
-                           R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})").ok());
+                           R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})")
+                .ok());
     InputRecorder r;
     r.start(0);
     r.key(1, Key::A, true);
@@ -81,15 +84,19 @@ TEST_CASE("input recorder: http answers go to the frame of the request, in reque
 
 TEST_CASE("input recorder: a recording with http answers replays headless without problems") {
     const stdfs::path dir = fs::make_temp_dir("fa_input_recorder_http").value();
-    REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
-                           R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
+    REQUIRE(fs::write_text(
+                (dir / "factoria.json").generic_string(),
+                R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"main.scene.json",
                                "display":{"width":64,"height":64},"physics":{"fixedHz":60},
-                               "network":{"hosts":["api.example.com"],"purpose":"Test."}})").ok());
+                               "network":{"hosts":["api.example.com"],"purpose":"Test."}})")
+                .ok());
     REQUIRE(fs::write_text((dir / "main.scene.json").generic_string(),
-                           R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})").ok());
+                           R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})")
+                .ok());
     InputRecorder r;
     r.start(0);
-    r.http(1, Json::parse(R"({"result":{"status":200,"headers":{"content-type":"application/json"},"text":"{\"daily\":7}"}})"));
+    r.http(1, Json::parse(
+                  R"({"result":{"status":200,"headers":{"content-type":"application/json"},"text":"{\"daily\":7}"}})"));
     r.http(1, Json::parse(R"({"error":"network","message":"no route","hint":"Try again."})"));
     REQUIRE(save_json_file((dir / "input.json").generic_string(), r.input()).ok());
 
@@ -107,14 +114,18 @@ TEST_CASE("input recorder: a recording with http answers replays headless withou
 
 TEST_CASE("input recorder: a play at variable frame times replays exactly (onUpdate dt, fixed steps, input edges)") {
     const stdfs::path dir = fs::make_temp_dir("fa_play_exact").value();
-    auto w = [&](const char* rel, const char* text) { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); };
-    w("factoria.json", R"({"format":"factoria.project/1","name":"Exact","id":"com.example.exact","mainScene":"main.scene.json",
+    auto w = [&](const char* rel, const char* text) {
+        REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok());
+    };
+    w("factoria.json",
+      R"({"format":"factoria.project/1","name":"Exact","id":"com.example.exact","mainScene":"main.scene.json",
                            "display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
     w("main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
                              {"id":"p","components":{"Transform":{},"Script":{"path":"p.js"}}}]})");
     w("p.js", "import { Behaviour, input } from 'factoria';\n"
               "export default class P extends Behaviour {\n"
-              "  onUpdate(dt) { const p = this.entity.position; if (input.keyDown('Space')) p.x += dt * 10; if (input.keyPressed('Space')) p.y += 1; }\n"
+              "  onUpdate(dt) { const p = this.entity.position; if (input.keyDown('Space')) p.x += dt * 10; if "
+              "(input.keyPressed('Space')) p.y += 1; }\n"
               "  onFixedUpdate() { this.entity.position.z += input.keyDown('Space') ? 1 : 0.01; }\n"
               "}\n");
     EngineConfig c;
@@ -181,7 +192,9 @@ namespace {
 struct RecProject {
     stdfs::path dir = fs::make_temp_dir("fa_input_rec").value();
     RecProject() {
-        write("factoria.json", R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"scenes/main.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Rec","id":"com.example.rec","mainScene":"scenes/main.scene.json",
                                    "display":{"width":64,"height":64},"physics":{"fixedHz":60},"input":{"actions":{"boost":["B"]}}})");
         write("scenes/main.scene.json",
               R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
@@ -199,14 +212,16 @@ struct RecProject {
                       "    if (input.pressed('boost')) p.y += 10;\n"
                       "  }\n"
                       "}\n");
-        write("props.js", "import { Behaviour, game, input, scene } from 'factoria';\n"
-                          "export default class Q extends Behaviour {\n"
-                          "  onStart() { const pr = game.sceneProps(); this.entity.position.x = pr.level === undefined ? -1 : pr.level;\n"
-                          "              this.entity.position.y = (pr.nested && pr.nested.list) ? pr.nested.list.length : 0; }\n"
-                          "  onUpdate() { if (input.keyPressed('L')) scene.load('scenes/main.scene.json', { level: 9 });\n"
-                          "               if (input.keyPressed('K')) scene.load('scenes/main.scene.json');\n"
-                          "               if (input.keyPressed('R')) scene.reload(); }\n"
-                          "}\n");
+        write("props.js",
+              "import { Behaviour, game, input, scene } from 'factoria';\n"
+              "export default class Q extends Behaviour {\n"
+              "  onStart() { const pr = game.sceneProps(); this.entity.position.x = pr.level === undefined ? -1 : "
+              "pr.level;\n"
+              "              this.entity.position.y = (pr.nested && pr.nested.list) ? pr.nested.list.length : 0; }\n"
+              "  onUpdate() { if (input.keyPressed('L')) scene.load('scenes/main.scene.json', { level: 9 });\n"
+              "               if (input.keyPressed('K')) scene.load('scenes/main.scene.json');\n"
+              "               if (input.keyPressed('R')) scene.reload(); }\n"
+              "}\n");
     }
     ~RecProject() {
         std::error_code ec;
@@ -230,7 +245,8 @@ Json entity_position(const Json& state, const char* id) {
     for (const Json& e : state["entities"])
         if (e["id"] == id) {  // a default position is not written, nor a Transform that has nothing else
             const Json& c = e["components"];
-            return c.contains("Transform") ? c["Transform"].value("position", Json::array({0, 0, 0})) : Json::array({0, 0, 0});
+            return c.contains("Transform") ? c["Transform"].value("position", Json::array({0, 0, 0}))
+                                           : Json::array({0, 0, 0});
         }
     return Json();
 }
@@ -291,7 +307,8 @@ TEST_CASE("input recorder: a recorded keyboard and pad session replays to the sa
         REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
         e.input().on_key(Key::Space, true);  // held when the recording starts: part of the session
         e.start_input_recording();
-        const double dts[] = {0.016, 0.05, 0.004, 0.02, 0.3, 0.033, 0.001, 0.07, 0.016, 0.02, 0.009, 0.045, 0.016, 0.016};
+        const double dts[] = {0.016, 0.05,  0.004, 0.02,  0.3,   0.033, 0.001,
+                              0.07,  0.016, 0.02,  0.009, 0.045, 0.016, 0.016};
         for (int i = 0; i < int(std::size(dts)); ++i) {
             if (i == 1) e.input().on_gamepad_axis(0, GamepadAxis::LeftX, 0.8f);
             if (i == 2) e.input().on_gamepad_button(0, GamepadButton::A, true);
@@ -442,7 +459,8 @@ TEST_CASE("input.record: start, stop returns the replay, path writes it, stop wi
     e.shutdown();
 }
 
-TEST_CASE("scene props: a scene started with props sees them in its first start(), a reload keeps them, a plain load drops them") {
+TEST_CASE("scene props: a scene started with props sees them in its first start(), a reload keeps them, a plain load "
+          "drops them") {
     RecProject p;
     EngineConfig c = p.config();
     c.sceneProps = Json::parse(R"({"level":3,"nested":{"list":[1,2]}})");

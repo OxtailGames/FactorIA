@@ -29,9 +29,9 @@
 namespace fa::test {
 
 struct GoldenLimits {
-    double maxMeanError = 0.004;       // mean absolute channel error over the whole picture, 0..1
-    double maxDifferingShare = 0.08;   // share of pixels (0..1) with a channel more than pixelThreshold off
-    double maxPixelError = 0.6;        // the largest single-channel error anywhere, 0..1
+    double maxMeanError = 0.004;      // mean absolute channel error over the whole picture, 0..1
+    double maxDifferingShare = 0.08;  // share of pixels (0..1) with a channel more than pixelThreshold off
+    double maxPixelError = 0.6;       // the largest single-channel error anywhere, 0..1
     float pixelThreshold = 4.0f / 255.0f;
 };
 
@@ -115,8 +115,10 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
     std::error_code ec;
     if (!std::filesystem::exists(golden, ec)) {
         r.verdict = GoldenVerdict::Missing;
-        msg << "golden " << fs::path_to_utf8(golden) << " does not exist. A missing golden is a failure, not a new reference: "
-            << "if this picture is the intended one, run the test once with FA_UPDATE_GOLDENS=1, look at the written PNG and "
+        msg << "golden " << fs::path_to_utf8(golden)
+            << " does not exist. A missing golden is a failure, not a new reference: "
+            << "if this picture is the intended one, run the test once with FA_UPDATE_GOLDENS=1, look at the written "
+               "PNG and "
                "commit it (docs/BUILDING.md, \"Golden images\")";
         r.message = msg.str();
         return r;
@@ -131,25 +133,28 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
     if (loaded->width != img.width || loaded->height != img.height) {
         r.verdict = GoldenVerdict::SizeMismatch;
         r.diff = diff_images(*loaded, img, limits.pixelThreshold);
-        msg << "golden " << fs::path_to_utf8(golden) << " is " << loaded->width << "x" << loaded->height << " but the picture is "
-            << img.width << "x" << img.height;
+        msg << "golden " << fs::path_to_utf8(golden) << " is " << loaded->width << "x" << loaded->height
+            << " but the picture is " << img.width << "x" << img.height;
         r.message = msg.str();
         return r;
     }
     r.diff = diff_images(*loaded, img, limits.pixelThreshold);
     const double pixels = double(img.width) * double(img.height);
     r.differingShare = pixels > 0.0 ? double(r.diff.differingPixels) / pixels : 0.0;
-    msg << "golden " << fs::path_to_utf8(golden) << ": meanError=" << r.diff.meanError << " (limit " << limits.maxMeanError << "), "
-        << "differingShare=" << r.differingShare << " (" << r.diff.differingPixels << " pixels over " << limits.pixelThreshold * 255.0f
-        << "/255; limit " << limits.maxDifferingShare << "), maxError=" << r.diff.maxError << " (limit " << limits.maxPixelError << ")";
+    msg << "golden " << fs::path_to_utf8(golden) << ": meanError=" << r.diff.meanError << " (limit "
+        << limits.maxMeanError << "), "
+        << "differingShare=" << r.differingShare << " (" << r.diff.differingPixels << " pixels over "
+        << limits.pixelThreshold * 255.0f << "/255; limit " << limits.maxDifferingShare
+        << "), maxError=" << r.diff.maxError << " (limit " << limits.maxPixelError << ")";
     if (r.diff.meanError > limits.maxMeanError || r.differingShare > limits.maxDifferingShare ||
         r.diff.maxError > limits.maxPixelError)
         r.verdict = GoldenVerdict::TooDifferent;
     r.message = msg.str();
     // FA_GOLDEN_REPORT=1: one line per golden with the measured numbers, to choose limits from a backend (docs/BUILDING.md).
-    if (const char* report = std::getenv("FA_GOLDEN_REPORT"); report && std::string(report) == "1" && r.verdict != GoldenVerdict::Wrote)
-        std::fprintf(stderr, "GOLDEN %s mean=%.6f share=%.6f max=%.4f\n", fs::path_to_utf8(golden.filename()).c_str(), r.diff.meanError,
-                     r.differingShare, r.diff.maxError);
+    if (const char* report = std::getenv("FA_GOLDEN_REPORT");
+        report && std::string(report) == "1" && r.verdict != GoldenVerdict::Wrote)
+        std::fprintf(stderr, "GOLDEN %s mean=%.6f share=%.6f max=%.4f\n", fs::path_to_utf8(golden.filename()).c_str(),
+                     r.diff.meanError, r.differingShare, r.diff.maxError);
     return r;
 }
 
@@ -157,7 +162,8 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
 // be looked at, and copied over the golden by hand or by FA_UPDATE_GOLDENS=1 when it is the intended one. When that folder
 // cannot be written (a read-only checkout, a Docker volume) the picture goes to the temp folder instead; the failure message
 // names the path that was written, or says that none could be.
-inline GoldenResult expect_golden_file(const Image& img, const std::filesystem::path& golden, const GoldenLimits& limits = {}) {
+inline GoldenResult expect_golden_file(const Image& img, const std::filesystem::path& golden,
+                                       const GoldenLimits& limits = {}) {
     GoldenResult r = compare_golden(img, golden, limits, golden_update_requested());
     if (r.verdict == GoldenVerdict::Wrote) {
         MESSAGE(r.message);
@@ -175,7 +181,8 @@ inline GoldenResult expect_golden_file(const Image& img, const std::filesystem::
                 std::filesystem::path alt = tmp / golden.filename();
                 alt.replace_extension(".actual.png");
                 if (!ec && save_png(img, fs::path_to_utf8(alt)).ok())
-                    r.message += "; " + fs::path_to_utf8(actual) + " is not writable, so the picture is saved as " + fs::path_to_utf8(alt);
+                    r.message += "; " + fs::path_to_utf8(actual) + " is not writable, so the picture is saved as " +
+                                 fs::path_to_utf8(alt);
                 else
                     r.message += "; the picture could not be saved (neither next to the golden nor in the temp folder)";
             }

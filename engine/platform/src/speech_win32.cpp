@@ -89,7 +89,8 @@ private:
         if (lcid == 0) return nullptr;
         ISpObjectTokenCategory* category = nullptr;
         if (FAILED(CoCreateInstance(kClsidSpObjectTokenCategory, nullptr, CLSCTX_ALL, kIidSpObjectTokenCategory,
-                                    reinterpret_cast<void**>(&category))) || !category)
+                                    reinterpret_cast<void**>(&category))) ||
+            !category)
             return nullptr;
         ISpObjectToken* result = nullptr;
         if (SUCCEEDED(category->SetId(SPCAT_VOICES, FALSE))) {

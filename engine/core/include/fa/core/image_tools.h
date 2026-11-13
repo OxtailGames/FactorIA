@@ -23,7 +23,7 @@ Image resize_nearest(const Image& src, int width, int height);
 struct SheetLayout {
     int columns = 0, rows = 0;
     int tileWidth = 0, tileHeight = 0;
-    int gap = 0;           // pixels between tiles and around the border
+    int gap = 0;                // pixels between tiles and around the border
     int width = 0, height = 0;  // the whole sheet
 };
 // `count` tiles of tileWidth x tileHeight in `columns` columns (0 = the number that makes the sheet closest to square,
@@ -53,15 +53,16 @@ std::vector<float> profile_line(const Image& img, Vec2 from, Vec2 to, ProfileCha
 
 // A jump between samples `index` and `index + width`.
 struct ProfileStep {
-    int index = 0;      // the sample before the jump
-    int width = 1;      // samples the jump takes (1..window)
+    int index = 0;  // the sample before the jump
+    int width = 1;  // samples the jump takes (1..window)
     float from = 0, to = 0;
-    float delta = 0;    // to - from; negative = darker
+    float delta = 0;  // to - from; negative = darker
 };
 // Every place where the value changes by at least `threshold` (> 0) within `window` samples (>= 1). Scans from the
 // start: at each sample it looks 1..window samples ahead and takes the largest change; when that reaches the threshold
 // it is reported and the scan continues after it, so a jump is reported once and a staircase gives one step per riser.
 // At most `maxSteps` are returned.
-std::vector<ProfileStep> find_steps(const std::vector<float>& values, float threshold, int window = 2, std::size_t maxSteps = 200);
+std::vector<ProfileStep> find_steps(const std::vector<float>& values, float threshold, int window = 2,
+                                    std::size_t maxSteps = 200);
 
 }  // namespace fa

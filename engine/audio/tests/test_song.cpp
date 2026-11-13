@@ -56,7 +56,8 @@ struct T {
     std::string name, instrument, notes;
 };
 Json song_of(const std::vector<T>& tracks, const std::string& key = "C", const std::string& mode = "major") {
-    Json j = Json::parse(R"({"format": "factoria.song/1", "tempo": 120, "tracks": {}, "sections": [{"name": "main", "play": {}}]})");
+    Json j = Json::parse(
+        R"({"format": "factoria.song/1", "tempo": 120, "tracks": {}, "sections": [{"name": "main", "play": {}}]})");
     j["key"] = key;
     j["mode"] = mode;
     for (const T& t : tracks) {
@@ -74,8 +75,8 @@ SongCheckReport check_of(const Json& j, const SongCheckOptions& o = {}) {
     return *r;
 }
 
-
-SongPattern notes_of(const std::string& text, std::vector<SongIssue>* issues = nullptr, int declaredBars = 0, SongMeter meter = {}) {
+SongPattern notes_of(const std::string& text, std::vector<SongIssue>* issues = nullptr, int declaredBars = 0,
+                     SongMeter meter = {}) {
     SongPattern p;
     std::vector<SongIssue> local;
     song_parse_note_text(text, "/p", meter, declaredBars, p, issues ? *issues : local);
@@ -309,10 +310,17 @@ TEST_CASE("song parse: every problem is listed with its pointer, a fix and a sug
     CHECK(r.error().message.find("more problem") != std::string::npos);
     bool instrument = false, note = false, tempo = false, unknown = false;
     for (const SongIssue& i : issues) {
-        if (i.pointer == "/tracks/lead/instrument") { instrument = true; CHECK(i.hint.find("keys") != std::string::npos); }
-        if (i.pointer == "/tracks/lead/patterns/a") { note = true; CHECK(i.column == 12); }
+        if (i.pointer == "/tracks/lead/instrument") {
+            instrument = true;
+            CHECK(i.hint.find("keys") != std::string::npos);
+        }
+        if (i.pointer == "/tracks/lead/patterns/a") {
+            note = true;
+            CHECK(i.column == 12);
+        }
         if (i.pointer == "/tempo") tempo = true;
-        if (i.pointer.find("bogus") != std::string::npos || i.message.find("bogus") != std::string::npos) unknown = true;
+        if (i.pointer.find("bogus") != std::string::npos || i.message.find("bogus") != std::string::npos)
+            unknown = true;
     }
     CHECK(instrument);
     CHECK(note);
@@ -367,7 +375,7 @@ TEST_CASE("song expand: swing delays the off-beats and leaves the beats") {
     SongTimeline t = expanded(s);
     REQUIRE(t.notes.size() == 8);
     CHECK(t.notes[0].tick == 0);
-    CHECK(t.notes[1].tick == 480 + 80);   // 0.5 * 480 / 3
+    CHECK(t.notes[1].tick == 480 + 80);  // 0.5 * 480 / 3
     CHECK(t.notes[2].tick == 960);
     CHECK(t.notes[3].tick == 960 + 480 + 80);
     // A track's own swing overrides the song's.
@@ -453,10 +461,10 @@ TEST_CASE("song helpers: arpeggios parse back as notes of the right length") {
     auto first = song_arpeggio(*prog, m, up);
     REQUIRE(first);
     SongPattern fp = notes_of(*first, nullptr, 4);
-    CHECK(fp.events[0].pitches == std::vector<int>{57});   // A3
-    CHECK(fp.events[1].pitches == std::vector<int>{60});   // C4
-    CHECK(fp.events[2].pitches == std::vector<int>{64});   // E4
-    CHECK(fp.events[3].pitches == std::vector<int>{57});   // and round again
+    CHECK(fp.events[0].pitches == std::vector<int>{57});  // A3
+    CHECK(fp.events[1].pitches == std::vector<int>{60});  // C4
+    CHECK(fp.events[2].pitches == std::vector<int>{64});  // E4
+    CHECK(fp.events[3].pitches == std::vector<int>{57});  // and round again
     // Random is a function of the seed.
     SongArpeggioOptions r1, r2, r3;
     r1.direction = r2.direction = r3.direction = "random";
@@ -546,7 +554,8 @@ TEST_CASE("song helpers: drum styles parse as grids and fit the meter") {
 
 // ---- checks ------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("check off_key: a note outside the key is reported once with a count; passing tones and in-key notes are not") {
+TEST_CASE(
+    "check off_key: a note outside the key is reported once with a count; passing tones and in-key notes are not") {
     SongCheckOptions o;
     o.rules = {"off_key"};
     Json bad = song_of({{"lead", "keys", "C4:4 F#4 G4 F#4"}});
@@ -642,7 +651,8 @@ TEST_CASE("check structure: silent tracks and sections, unused patterns") {
     CHECK(check_of(song_of({{"lead", "keys", "C4:1"}}), o).issues.empty());
     // A section where everything is muted has no notes.
     Json silent = song_of({{"lead", "keys", "C4:1"}});
-    silent["sections"].push_back(Json::parse(R"({"name": "quiet", "bars": 1, "play": {"lead": "a"}, "mute": ["lead"]})"));
+    silent["sections"].push_back(
+        Json::parse(R"({"name": "quiet", "bars": 1, "play": {"lead": "a"}, "mute": ["lead"]})"));
     r = check_of(silent, o);
     bool section = false;
     for (const SongCheckIssue& i : r.issues) section |= i.message.find("section `quiet`") != std::string::npos;
@@ -700,7 +710,8 @@ TEST_CASE("check loudness: renders the song, finds clipping and a loudness off t
     clip["mixer"] = Json{{"master", Json{{"loudness", "off"}, {"limiter", false}}}};
     SongCheckReport c = check_of(clip, o);
     bool error = false;
-    for (const SongCheckIssue& i : c.issues) error |= i.severity == "error" && i.message.find("clips") != std::string::npos;
+    for (const SongCheckIssue& i : c.issues)
+        error |= i.severity == "error" && i.message.find("clips") != std::string::npos;
     CHECK(error);
     CHECK(c.peakDb > 0.0);
     // The default master has a limiter: the same song does not clip, and the report says how hard the limiter worked.
@@ -857,15 +868,15 @@ TEST_CASE("song write: note text parses back to the same notes") {
     round_trip("C4:4 E4 G4 C5");
     round_trip("C4:8 E4 G4 E4 r:2 | C4:2 r:2");
     round_trip("v100 A4:4 D5 F5:8 E5 D5:4 | v60 B4:4 D5 E5 A4:4");
-    round_trip("C4:8! D4' E4:4v70 F4:8t G4 A4 B4:4.. r:16 r:2.");                    // marks, a velocity, triplets, double dots
-    round_trip("C4:1~ | C4:1");                                                   // a tie across the bar line
-    round_trip("C4:2~ C4:8~ C4:4.~ C4:16 r:2 r:4 r:8 r:16");                                   // a note no single duration can say
-    round_trip("[C4 E4 G4]:2 [D4 F4 A4] | (Am7@3):1");                            // chords, by notes and by name
-    round_trip("C4:2 E4 G4 E4 & C3:1 C3 & G2:2. r:4 G2:2. r:4");                                  // voices
-    round_trip("{ C4:8 E4 }x4 r:1");                                             // a group is notes after all
+    round_trip("C4:8! D4' E4:4v70 F4:8t G4 A4 B4:4.. r:16 r:2.");  // marks, a velocity, triplets, double dots
+    round_trip("C4:1~ | C4:1");                                    // a tie across the bar line
+    round_trip("C4:2~ C4:8~ C4:4.~ C4:16 r:2 r:4 r:8 r:16");       // a note no single duration can say
+    round_trip("[C4 E4 G4]:2 [D4 F4 A4] | (Am7@3):1");             // chords, by notes and by name
+    round_trip("C4:2 E4 G4 E4 & C3:1 C3 & G2:2. r:4 G2:2. r:4");   // voices
+    round_trip("{ C4:8 E4 }x4 r:1");                               // a group is notes after all
     round_trip("C4:2.", SongMeter{3, 4});
     round_trip("C4:4. D4:8 E4:4 | G4:2.", SongMeter{6, 8});
-    round_trip("r:1");                                                            // nothing played
+    round_trip("r:1");  // nothing played
 }
 
 TEST_CASE("song write: overlapping notes become voices, equal notes a chord, a long note one tied note") {

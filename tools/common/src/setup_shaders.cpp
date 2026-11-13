@@ -42,17 +42,19 @@ namespace {
 std::string shdc_file(const SetupContext& ctx) { return "sokol-shdc" + exe_suffix(ctx.host_os()); }
 
 std::string shdc_url(const SokolShdcBinary& b, const SetupContext& ctx) {
-    return std::string("https://raw.githubusercontent.com/floooh/sokol-tools-bin/") + kSetupSokolShdcCommit + "/bin/" + b.dir +
-           "/" + shdc_file(ctx);
+    return std::string("https://raw.githubusercontent.com/floooh/sokol-tools-bin/") + kSetupSokolShdcCommit + "/bin/" +
+           b.dir + "/" + shdc_file(ctx);
 }
 
 // Windows only: antivirus programs flag the pinned sokol-shdc.exe by mistake, so the file may vanish after the install.
 std::string defender_note(const SetupContext& ctx, const SokolShdcBinary& b) {
     if (ctx.host_os() != "windows") return {};
-    return std::string("Windows Defender may remove sokol-shdc.exe: it flags this pinned file as a threat by mistake (a known false "
+    return std::string("Windows Defender may remove sokol-shdc.exe: it flags this pinned file as a threat by mistake "
+                       "(a known false "
                        "positive, Trojan:Win32/Bearfoos.B!ml; the file's SHA-256 is ") +
            b.sha256 +
-           "). Restore it from Windows Security > Virus & threat protection > Protection history, or allow it there, or point "
+           "). Restore it from Windows Security > Virus & threat protection > Protection history, or allow it there, "
+           "or point "
            "SOKOL_SHDC at a copy you trust. Games never contain sokol-shdc: only the developer's computer needs it.";
 }
 
@@ -92,11 +94,14 @@ SetupComponent shaders_status(const SetupContext& ctx) {
     c.state = "missing";
     c.installSizeMb = shdc_size_mb(ctx.host_os());
     c.details = std::string("The install downloads sokol-shdc (sokol-tools-bin commit ") +
-                std::string(kSetupSokolShdcCommit).substr(0, 7) + ", SHA-256 checked) into " + sokol_shdc_install_dir(ctx) + ".";
+                std::string(kSetupSokolShdcCommit).substr(0, 7) + ", SHA-256 checked) into " +
+                sokol_shdc_install_dir(ctx) + ".";
     if (!envPath.empty())
-        c.problems.push_back("$SOKOL_SHDC names " + envPath + ", which is not a file: fix the path or unset the variable.");
+        c.problems.push_back("$SOKOL_SHDC names " + envPath +
+                             ", which is not a file: fix the path or unset the variable.");
     if (const std::string note = defender_note(ctx, *bin); !note.empty()) c.problems.push_back(note);
-    c.problems.push_back("Custom materials (*.material.json) are compiled with sokol-shdc: run `factoria setup shaders`.");
+    c.problems.push_back(
+        "Custom materials (*.material.json) are compiled with sokol-shdc: run `factoria setup shaders`.");
     return c;
 }
 
@@ -104,12 +109,13 @@ SetupResult shaders_install(const SetupContext& ctx, const SetupInstallOptions& 
     return shaders_install_binary(ctx, opt, sokol_shdc_binary(ctx));
 }
 
-SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& opt, const SokolShdcBinary* bin) {
+SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& opt,
+                                   const SokolShdcBinary* bin) {
     Installer in(ctx, "shaders");
     if (!bin)
-        return in.fail("unsupported",
-                       make_error("There is no sokol-shdc build for " + ctx.host_os() + "-" + ctx.host_architecture() + ".",
-                                  kUnsupportedHint));
+        return in.fail("unsupported", make_error("There is no sokol-shdc build for " + ctx.host_os() + "-" +
+                                                     ctx.host_architecture() + ".",
+                                                 kUnsupportedHint));
     StepTimer timer;
     SetupStep s;
     s.id = "sokol-shdc";
@@ -144,8 +150,10 @@ SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOp
     if (!std::ifstream(dest, std::ios::binary).good()) {  // gone or unreadable right after a good checksum
         std::string why = "sokol-shdc was downloaded and verified but " + dest.string() + " cannot be read afterwards.";
         const std::string note = defender_note(ctx, *bin);
-        return in.fail("failed", make_error(why, note.empty() ? "Check the folder's permissions and that no other program removes the file."
-                                                              : note));
+        return in.fail(
+            "failed",
+            make_error(why, note.empty() ? "Check the folder's permissions and that no other program removes the file."
+                                         : note));
     }
     in.report.changed = true;
     s.outcome = "installed";
@@ -162,7 +170,8 @@ SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOp
             stdfs::remove_all(it->path(), rm);
         }
     in.report.paths = {{"sokol-shdc", dest.string()}};
-    in.report.nextSteps.push_back("`factoria validate` and `factoria run` compile the custom materials (*.material.json) of a game with it.");
+    in.report.nextSteps.push_back(
+        "`factoria validate` and `factoria run` compile the custom materials (*.material.json) of a game with it.");
     return in.finish();
 }
 

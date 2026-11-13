@@ -184,7 +184,8 @@ TEST_CASE("pick bounds: a Tilemap in rows form is picked by its rows, from its t
     // x -300..-172, y 152..200 (local y goes DOWN from the corner).
     CHECK(pick_hit(w, map, b, Vec2{-250, 180}, kDesign));
     CHECK(pick_hit(w, map, b, Vec2{-173, 153}, kDesign));
-    CHECK_FALSE(pick_hit(w, map, b, Vec2{-250, 205}, kDesign));  // above the corner: the UNdone mirror image would be here
+    CHECK_FALSE(
+        pick_hit(w, map, b, Vec2{-250, 205}, kDesign));  // above the corner: the UNdone mirror image would be here
     CHECK_FALSE(pick_hit(w, map, b, Vec2{-250, 150}, kDesign));
     CHECK_FALSE(pick_hit(w, map, b, Vec2{-170, 180}, kDesign));
     // The flat form with width/height gives the same kind of box; an empty map has no footprint, only the marker.
@@ -265,7 +266,8 @@ TEST_CASE("pick bounds: an entity with several visuals is hit on any of them, th
     Sprite& sp = w.add<Sprite>(e);
     sp.size = {20, 20};
     sp.layer = 2;
-    Shape2D& sh = add_shape(w, e, ShapeType::Rectangle, {20, 20}, {0, 0});  // x 0..20, y 0..20 (overlaps the sprite's quarter)
+    Shape2D& sh =
+        add_shape(w, e, ShapeType::Rectangle, {20, 20}, {0, 0});  // x 0..20, y 0..20 (overlaps the sprite's quarter)
     sh.layer = 7;
     const PickBounds b = pick_bounds(w, e, {});
     REQUIRE(b.parts.size() == 2);

@@ -66,7 +66,8 @@ TEST_CASE("model kernel: box counts, bounds and orientation") {
     m.bounds(lo, hi);
     CHECK(lo == Vec3{-0.5f, -0.5f, -0.5f});
     CHECK(hi == Vec3{0.5f, 0.5f, 0.5f});
-    for (std::size_t i = 0; i < m.positions.size(); ++i) CHECK(dot(m.normals[i], m.positions[i]) > 0.4f);  // away from the centre
+    for (std::size_t i = 0; i < m.positions.size(); ++i)
+        CHECK(dot(m.normals[i], m.positions[i]) > 0.4f);  // away from the centre
 
     const ModelMesh big = model_box({{1, 2, 3}, 2, 3, 4});
     CHECK(big.triangle_count() == 2 * 2 * (2 * 3 + 2 * 4 + 3 * 4));
@@ -148,7 +149,8 @@ TEST_CASE("model kernel: sphere, capsule and torus") {
     sph.bounds(lo, hi);
     CHECK(hi.y == doctest::Approx(0.5f));
     CHECK(lo.y == doctest::Approx(-0.5f));
-    for (std::size_t i = 0; i < sph.positions.size(); ++i) CHECK(dot(sph.normals[i], normalize(sph.positions[i])) > 0.999f);
+    for (std::size_t i = 0; i < sph.positions.size(); ++i)
+        CHECK(dot(sph.normals[i], normalize(sph.positions[i])) > 0.999f);
 
     const ModelMesh cap = model_capsule({});
     CHECK(cap.vertex_count() == 450);

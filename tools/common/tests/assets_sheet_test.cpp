@@ -37,15 +37,19 @@ TEST_CASE("assets.slice_sheet: a grid is checked against the image and recorded"
     CHECK(r["mode"] == "grid");
     CHECK(r["path"] == "assets/walk.png");
     CHECK(r["written"] == false);
-    CHECK(r["sheet"] == Json::object({{"columns", 4}, {"rows", 2}, {"frameWidth", 16}, {"frameHeight", 16}, {"frames", 8}}));
-    CHECK(r["spriteAnimator"] == Json::object({{"columns", 4}, {"rows", 2}, {"firstFrame", 0}, {"lastFrame", 7}, {"fps", 12.0}, {"loop", true}}));
+    CHECK(r["sheet"] ==
+          Json::object({{"columns", 4}, {"rows", 2}, {"frameWidth", 16}, {"frameHeight", 16}, {"frames", 8}}));
+    CHECK(r["spriteAnimator"] ==
+          Json::object(
+              {{"columns", 4}, {"rows", 2}, {"firstFrame", 0}, {"lastFrame", 7}, {"fps", 12.0}, {"loop", true}}));
     CHECK_FALSE(r.contains("warnings"));
     CHECK(has_text(r["nextSteps"], "SpriteAnimator"));
     CHECK(read_all(p.file("assets/walk.png")) == before);  // the image is not touched
     CHECK(p.manifest()["assets"]["assets/walk.png"]["sheet"] == r["sheet"]);
 
     // The same grid by the size of a frame; `frames` leaves the last cells unused.
-    const Json byFrame = p.ok("assets.slice_sheet", {{"path", "assets/walk.png"}, {"frameWidth", 32}, {"frameHeight", 16}, {"frames", 3}});
+    const Json byFrame = p.ok("assets.slice_sheet",
+                              {{"path", "assets/walk.png"}, {"frameWidth", 32}, {"frameHeight", 16}, {"frames", 3}});
     CHECK(byFrame["sheet"]["columns"] == 2);
     CHECK(byFrame["sheet"]["rows"] == 2);
     CHECK(byFrame["sheet"]["frames"] == 3);
@@ -68,11 +72,13 @@ TEST_CASE("assets.slice_sheet: a grid that does not fit the image is an error th
     CHECK(message(width).find("does not divide the image width (64 px)") != std::string::npos);
     CHECK(message(width).find("4 px are left over") != std::string::npos);
 
-    CommandResult both = p.call("assets.slice_sheet", {{"path", "assets/walk.png"}, {"columns", 2}, {"frameWidth", 16}});
+    CommandResult both =
+        p.call("assets.slice_sheet", {{"path", "assets/walk.png"}, {"columns", 2}, {"frameWidth", 16}});
     REQUIRE_FALSE(both.ok);
     CHECK(message(both).find("disagree") != std::string::npos);
 
-    CommandResult tooMany = p.call("assets.slice_sheet", {{"path", "assets/walk.png"}, {"columns", 4}, {"rows", 2}, {"frames", 9}});
+    CommandResult tooMany =
+        p.call("assets.slice_sheet", {{"path", "assets/walk.png"}, {"columns", 4}, {"rows", 2}, {"frames", 9}});
     REQUIRE_FALSE(tooMany.ok);
     CHECK(message(tooMany).find("frames is 9 but a 4 x 2 grid has 8 cells") != std::string::npos);
 
@@ -93,7 +99,8 @@ TEST_CASE("assets.slice_sheet: empty frames are reported") {
     REQUIRE(r.contains("warnings"));
     CHECK(has_warning(r, "4 of the 8 frames are empty (frames 4, 5, 6, 7)"));
     // Counting only the drawn frames is fine.
-    CHECK_FALSE(p.ok("assets.slice_sheet", {{"path", "assets/half.png"}, {"columns", 4}, {"rows", 2}, {"frames", 4}}).contains("warnings"));
+    CHECK_FALSE(p.ok("assets.slice_sheet", {{"path", "assets/half.png"}, {"columns", 4}, {"rows", 2}, {"frames", 4}})
+                    .contains("warnings"));
 }
 
 TEST_CASE("assets.slice_sheet: auto finds uneven sprites and repacks them into a uniform grid") {
@@ -104,8 +111,10 @@ TEST_CASE("assets.slice_sheet: auto finds uneven sprites and repacks them into a
     CHECK(r["path"] == "assets/raw_sheet.png");
     CHECK(r["written"] == true);
     CHECK(r["imageSize"] == Json::array({30, 8}));
-    CHECK(r["sheet"] == Json::object({{"columns", 3}, {"rows", 1}, {"frameWidth", 10}, {"frameHeight", 8}, {"frames", 3}}));
-    CHECK(r["foundSprites"] == Json::array({Json::array({2, 2, 6, 8}), Json::array({14, 4, 10, 4}), Json::array({30, 3, 4, 4})}));
+    CHECK(r["sheet"] ==
+          Json::object({{"columns", 3}, {"rows", 1}, {"frameWidth", 10}, {"frameHeight", 8}, {"frames", 3}}));
+    CHECK(r["foundSprites"] ==
+          Json::array({Json::array({2, 2, 6, 8}), Json::array({14, 4, 10, 4}), Json::array({30, 3, 4, 4})}));
     CHECK(r["spriteAnimator"]["lastFrame"] == 2);
     CHECK(has_text(r["nextSteps"], "assets/raw_sheet.png"));
 
@@ -126,7 +135,11 @@ TEST_CASE("assets.slice_sheet: auto finds uneven sprites and repacks them into a
     CHECK(p.manifest()["assets"]["assets/raw_sheet.png"]["sheet"] == r["sheet"]);
 
     // align bottom puts every sprite on the ground line; columns wraps the new sheet; out names the file.
-    const Json bottom = p.ok("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}, {"align", "bottom"}, {"columns", 2}, {"out", "assets/ground.png"}});
+    const Json bottom = p.ok("assets.slice_sheet", {{"path", "assets/raw.png"},
+                                                    {"auto", true},
+                                                    {"align", "bottom"},
+                                                    {"columns", 2},
+                                                    {"out", "assets/ground.png"}});
     CHECK(bottom["path"] == "assets/ground.png");
     CHECK(bottom["sheet"]["columns"] == 2);
     CHECK(bottom["sheet"]["rows"] == 2);
@@ -158,11 +171,13 @@ TEST_CASE("assets.slice_sheet: auto groups sprites into rows and keeps detached 
     write_png(p.file("assets/rows.png"), img);
 
     const Json r = p.ok("assets.slice_sheet", {{"path", "assets/rows.png"}, {"auto", true}});
-    CHECK(r["foundSprites"] == Json::array({Json::array({2, 2, 10, 10}), Json::array({20, 4, 6, 6}), Json::array({5, 20, 8, 6})}));
-    CHECK(r["sheet"] == Json::object({{"columns", 2}, {"rows", 2}, {"frameWidth", 10}, {"frameHeight", 10}, {"frames", 3}}));
+    CHECK(r["foundSprites"] ==
+          Json::array({Json::array({2, 2, 10, 10}), Json::array({20, 4, 6, 6}), Json::array({5, 20, 8, 6})}));
+    CHECK(r["sheet"] ==
+          Json::object({{"columns", 2}, {"rows", 2}, {"frameWidth", 10}, {"frameHeight", 10}, {"frames", 3}}));
     CHECK(r["imageSize"] == Json::array({20, 20}));
     const Image out = read_png(p.file("assets/rows_sheet.png"));
-    CHECK(get(out, 4, 4) == kGreen);  // the dot stayed inside the first frame
+    CHECK(get(out, 4, 4) == kGreen);      // the dot stayed inside the first frame
     CHECK(get(out, 10 + 2, 2) == kBlue);  // the square, centred in the second cell: (10-6)/2 = 2
     CHECK(get(out, 10 + 1, 2) == kClear);
     CHECK(get(out, 1, 10 + 2) == kGreen);  // the third sprite starts the second row, (10-8)/2 = 1
@@ -196,7 +211,8 @@ TEST_CASE("assets.slice_sheet: auto explains what it cannot do") {
     CHECK(message(solid).find("one single sprite") != std::string::npos);
     CHECK(hint(solid).find("background") != std::string::npos);
 
-    CommandResult notPng = p.call("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}, {"out", "assets/raw.jpg"}});
+    CommandResult notPng =
+        p.call("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}, {"out", "assets/raw.jpg"}});
     REQUIRE_FALSE(notPng.ok);
     CHECK(message(notPng).find(".png") != std::string::npos);
     CHECK_FALSE(p.exists("assets/raw_sheet.png"));
@@ -211,19 +227,23 @@ TEST_CASE("assets.slice_sheet: background auto makes a solid background transpar
     fill_rect(img, 18, 2, 6, 8, kBlue);
     write_png(p.file("assets/green.png"), img);
 
-    const Json r = p.ok("assets.slice_sheet", {{"path", "assets/green.png"}, {"auto", true}, {"background", "auto"}, {"frames", 2}});
+    const Json r = p.ok("assets.slice_sheet",
+                        {{"path", "assets/green.png"}, {"auto", true}, {"background", "auto"}, {"frames", 2}});
     CHECK(r["path"] == "assets/green_sheet.png");
     CHECK(r["sheet"]["frames"] == 2);
-    CHECK(r["backgroundPixelsCleared"] == 30 * 12 - 8 * 8 - 6 * 8);  // the hole in the red sprite is not reached from outside
+    CHECK(r["backgroundPixelsCleared"] ==
+          30 * 12 - 8 * 8 - 6 * 8);  // the hole in the red sprite is not reached from outside
     const Image out = read_png(p.file("assets/green_sheet.png"));
-    CHECK(get(out, 0, 0) == kRed);  // two cells of 8x8: the red sprite fills the first one
+    CHECK(get(out, 0, 0) == kRed);      // two cells of 8x8: the red sprite fills the first one
     CHECK(get(out, 2, 2) == backdrop);  // the enclosed pixels stay
     CHECK(get(out, 8, 0) == kClear);  // the blue sprite (6 wide) is centred in the second cell, and its sides are clear
     CHECK(get(out, 9, 0) == kBlue);
     CHECK(read_png(p.file("assets/green.png")).rgba == img.rgba);  // the source is kept
 
     // On a grid it also writes the transparent image next to the source, and the grid is checked on it.
-    const Json grid = p.ok("assets.slice_sheet", {{"path", "assets/green.png"}, {"columns", 2}, {"background", "auto"}, {"out", "assets/clear.png"}});
+    const Json grid =
+        p.ok("assets.slice_sheet",
+             {{"path", "assets/green.png"}, {"columns", 2}, {"background", "auto"}, {"out", "assets/clear.png"}});
     CHECK(grid["path"] == "assets/clear.png");
     CHECK(grid["written"] == true);
     CHECK(grid["sheet"]["frameWidth"] == 15);
@@ -233,20 +253,25 @@ TEST_CASE("assets.slice_sheet: background auto makes a solid background transpar
     Image mixed = make_image(10, 10, kRed);
     fill_rect(mixed, 9, 9, 1, 1, kBlue);
     write_png(p.file("assets/mixed.png"), mixed);
-    CommandResult bad = p.call("assets.slice_sheet", {{"path", "assets/mixed.png"}, {"auto", true}, {"background", "auto"}});
+    CommandResult bad =
+        p.call("assets.slice_sheet", {{"path", "assets/mixed.png"}, {"auto", true}, {"background", "auto"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(message(bad).find("four corners") != std::string::npos);
 
     // Already transparent: left alone, with a note.
     write_png(p.file("assets/clean.png"), uneven_sprites());
-    const Json clean = p.ok("assets.slice_sheet", {{"path", "assets/clean.png"}, {"auto", true}, {"background", "auto"}});
+    const Json clean =
+        p.ok("assets.slice_sheet", {{"path", "assets/clean.png"}, {"auto", true}, {"background", "auto"}});
     CHECK(has_warning(clean, "already transparent"));
 }
 
 TEST_CASE("assets.slice_sheet: the provenance of the source follows the new sheet") {
     AssetsProject p;
     write_png(p.tmp.path / "art/raw.png", uneven_sprites());
-    p.ok("assets.import", {{"source", (p.tmp.path / "art/raw.png").string()}, {"license", "CC-BY 4.0"}, {"author", "Ana"}, {"ai", false}});
+    p.ok("assets.import", {{"source", (p.tmp.path / "art/raw.png").string()},
+                           {"license", "CC-BY 4.0"},
+                           {"author", "Ana"},
+                           {"ai", false}});
     p.ok("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}});
     const Json entry = p.manifest()["assets"]["assets/raw_sheet.png"];
     CHECK(entry["provenance"]["license"] == "CC-BY 4.0");
@@ -257,7 +282,8 @@ TEST_CASE("assets.slice_sheet: the provenance of the source follows the new shee
 
     // A broken assets.json stops the command before it writes anything.
     write_all(p.file("assets.json"), "{ nope");
-    CommandResult broken = p.call("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}, {"out", "assets/again.png"}});
+    CommandResult broken =
+        p.call("assets.slice_sheet", {{"path", "assets/raw.png"}, {"auto", true}, {"out", "assets/again.png"}});
     REQUIRE_FALSE(broken.ok);
     CHECK_FALSE(p.exists("assets/again.png"));
 }

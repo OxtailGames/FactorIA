@@ -118,9 +118,9 @@ TEST_CASE("flash: a lit 3D mesh at strength 1 is the flash colour, in the light 
     CHECK(plain.b > plain.r + 0.1f);  // a blue cube
     flash_now(w, cube, Color{1, 0.2f, 0.2f, 1}, 1.0f);
     const Color flashed = g.render(w).pixel(160, 90);
-    CHECK(flashed.r > 0.9f);                 // the flash colour ...
+    CHECK(flashed.r > 0.9f);  // the flash colour ...
     CHECK(flashed.g == doctest::Approx(0.2f).epsilon(0.25));
-    CHECK(flashed.b < 0.4f);                 // ... not the blue of the cube
+    CHECK(flashed.b < 0.4f);  // ... not the blue of the cube
     // No light at all: emission carries it, the silhouette is still the flash colour.
     w.destroy(sun);
     w.flush();

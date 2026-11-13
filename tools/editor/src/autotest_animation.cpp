@@ -48,7 +48,8 @@ void Editor::at_section_Y(AtScript& at) {
         auto ry = std::make_shared<Recipes>();
         const std::string png = "assets/ay_coin.png", svg = "assets/ay_src.svg", tile = "proj:file:assets/ay_coin.png";
         auto svg_text = [](const char* fill, int size) {
-            return std::string("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><circle cx=\"32\" cy=\"32\" r=\"") +
+            return std::string("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><circle cx=\"32\" "
+                               "cy=\"32\" r=\"") +
                    std::to_string(size) + "\" fill=\"" + fill + "\"/></svg>";
         };
         step(2, [this, ry, project_file, svg_text, png, svg] {
@@ -58,8 +59,9 @@ void Editor::at_section_Y(AtScript& at) {
             ry->manifest = ry->hadManifest ? read_file(project_file("assets.json")) : std::string();
             write_file(project_file(svg), svg_text("#e03030", 20));
             std::string err;
-            CommandResult r = edit_command("at:y:make", "assets.rasterize_svg",
-                                           Json::object({{"path", png}, {"source", svg}, {"width", 32}, {"height", 32}}), &err);
+            CommandResult r =
+                edit_command("at:y:make", "assets.rasterize_svg",
+                             Json::object({{"path", png}, {"source", svg}, {"width", 32}, {"height", 32}}), &err);
             at_check(r.ok, "assets.rasterize_svg made a picture with a recipe: " + err);
             ry->firstPng = read_file(project_file(png));
             showProject_ = true;
@@ -87,7 +89,8 @@ void Editor::at_section_Y(AtScript& at) {
         step(3, [this, png] {
             const std::vector<std::string> stale = stale_assets(projBrowser_.listing);
             at_check(stale == std::vector<std::string>{png}, "the saved source makes the picture stale");
-            at_check(at_visible("recipe:regenerate") && at_visible("recipe:notnow"), "the banner offers Regenerate and Not now");
+            at_check(at_visible("recipe:regenerate") && at_visible("recipe:notnow"),
+                     "the banner offers Regenerate and Not now");
         });
         snap("editor_recipe_stale.png");
         click("recipe:notnow");
@@ -99,7 +102,8 @@ void Editor::at_section_Y(AtScript& at) {
         });
         click("proj:regenerate");
         step(6, [this, ry, project_file, png] {
-            at_check(read_file(project_file(png)) != ry->firstPng, "Regenerate drew the picture again from the new source");
+            at_check(read_file(project_file(png)) != ry->firstPng,
+                     "Regenerate drew the picture again from the new source");
             const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
             at_check(st && !st->stale(), "...and it is up to date again");
             at_check(stale_assets(projBrowser_.listing).empty(), "...so nothing is stale");
@@ -114,7 +118,8 @@ void Editor::at_section_Y(AtScript& at) {
         });
         click("recipe:regenerate");
         step(6, [this, png] {
-            at_check(stale_assets(projBrowser_.listing).empty(), "the banner's Regenerate made the stale picture again");
+            at_check(stale_assets(projBrowser_.listing).empty(),
+                     "the banner's Regenerate made the stale picture again");
             at_check(!at_visible("recipe:notice"), "...and the banner is gone");
         });
         step(2, [this, project_file, svg] {
@@ -133,8 +138,10 @@ void Editor::at_section_Y(AtScript& at) {
             std::error_code ec;
             stdfs::remove(project_file(png), ec);
             stdfs::remove(project_file(svg), ec);
-            if (ry->hadManifest) write_file(project_file("assets.json"), ry->manifest);
-            else stdfs::remove(project_file("assets.json"), ec);
+            if (ry->hadManifest)
+                write_file(project_file("assets.json"), ry->manifest);
+            else
+                stdfs::remove(project_file("assets.json"), ec);
             projBrowser_.selected.clear();
             projBrowser_.offeredStale.clear();
             project_files_changed();
@@ -174,19 +181,24 @@ void Editor::at_section_Z(AtScript& at) {
                     px[1] = std::uint8_t(x / 8 == 1 ? 255 : 40);
                     px[2] = std::uint8_t(x / 8 == 2 ? 255 : 40);
                 }
-            at_check(save_png(img, project_file("assets/autotest_sheet.png")).ok(), "a sprite sheet was written for the sheet test");
-            write_file(project_file("assets.json"),
-                       R"({"format": "factoria.assets/1", "assets": {"assets/autotest_sheet.png": {"sheet": {"columns": 3, "rows": 1,
+            at_check(save_png(img, project_file("assets/autotest_sheet.png")).ok(),
+                     "a sprite sheet was written for the sheet test");
+            write_file(
+                project_file("assets.json"),
+                R"({"format": "factoria.assets/1", "assets": {"assets/autotest_sheet.png": {"sheet": {"columns": 3, "rows": 1,
                           "frameWidth": 8, "frameHeight": 8, "frames": 3, "clips": [
                           {"name": "run", "firstFrame": 0, "lastFrame": 1, "fps": 4, "loop": true},
                           {"name": "idle", "firstFrame": 2, "lastFrame": 2, "fps": 1, "loop": true}]}}}})");
             std::string err;
-            CommandResult r = edit_command("at:sheethero", "scene.spawn",
-                                           Json::object({{"id", "sheethero"}, {"name", "Sheet Hero"},
-                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
-                                                                                      {"Sprite", Json::object({{"texture", "assets/autotest_sheet.png"}})},
-                                                                                      {"SpriteAnimator", Json::object()}})}}),
-                                           &err);
+            CommandResult r = edit_command(
+                "at:sheethero", "scene.spawn",
+                Json::object({{"id", "sheethero"},
+                              {"name", "Sheet Hero"},
+                              {"components",
+                               Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
+                                             {"Sprite", Json::object({{"texture", "assets/autotest_sheet.png"}})},
+                                             {"SpriteAnimator", Json::object()}})}}),
+                &err);
             at_check(r.ok, "an entity with a Sprite and a SpriteAnimator was spawned: " + err);
             projBrowser_.stale = true;
             projBrowser_.query.search = "autotest_sheet";
@@ -219,7 +231,9 @@ void Editor::at_section_Z(AtScript& at) {
         });
         step(1, [this] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return at_visible("insp:SpriteAnimator.clip:run") && at_visible("insp:SpriteAnimator.clip:idle"); };
+            atWaitUntil_ = [this] {
+                return at_visible("insp:SpriteAnimator.clip:run") && at_visible("insp:SpriteAnimator.clip:idle");
+            };
         });
         step(2, [this, y] {
             at_check(true, "the Inspector lists the clips of the Sprite's texture under SpriteAnimator.clip");
@@ -316,18 +330,26 @@ void Editor::at_section_B2(AtScript& at) {
             std::error_code ec;
             stdfs::remove(project_file("anim/clip.anim.json"), ec);
             std::string err;
-            CommandResult r = edit_command("at:puppet", "scene.spawn",
-                                           Json::object({{"id", "puppet"}, {"name", "Puppet"},
-                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 120, 0})}})},
-                                                                                      {"Animator", Json::object()}})}}),
-                                           &err);
+            CommandResult r = edit_command(
+                "at:puppet", "scene.spawn",
+                Json::object({{"id", "puppet"},
+                              {"name", "Puppet"},
+                              {"components",
+                               Json::object({{"Transform", Json::object({{"position", Json::array({300, 120, 0})}})},
+                                             {"Animator", Json::object()}})}}),
+                &err);
             at_check(r.ok, "a Puppet with an Animator was spawned: " + err);
-            r = edit_command("at:puppetbody", "scene.spawn",
-                             Json::object({{"id", "puppet_body"}, {"name", "Body"}, {"parent", "puppet"},
-                                           {"components", Json::object({{"Transform", Json::object()},
-                                                                        {"Sprite", Json::object({{"size", Json::array({60, 60})},
-                                                                                                 {"color", Json::array({0.9, 0.5, 0.2, 1})}})}})}}),
-                             &err);
+            r = edit_command(
+                "at:puppetbody", "scene.spawn",
+                Json::object(
+                    {{"id", "puppet_body"},
+                     {"name", "Body"},
+                     {"parent", "puppet"},
+                     {"components",
+                      Json::object({{"Transform", Json::object()},
+                                    {"Sprite", Json::object({{"size", Json::array({60, 60})},
+                                                             {"color", Json::array({0.9, 0.5, 0.2, 1})}})}})}}),
+                &err);
             at_check(r.ok, "...with a Sprite part called Body: " + err);
             select_id("puppet_body");
             showAnimation_ = true;
@@ -337,7 +359,8 @@ void Editor::at_section_B2(AtScript& at) {
         });
         wait_until([this] { return at_visible("anim:newclip"); });
         step(2, [this] {
-            at_check(anim_owner() == world().find_by_id("puppet"), "selecting the Body part makes its parent's Animator the one the panel edits");
+            at_check(anim_owner() == world().find_by_id("puppet"),
+                     "selecting the Body part makes its parent's Animator the one the panel edits");
             at_check(!at_visible("anim:play"), "...and with no clip yet there is no transport");
         });
         click_widget("anim:newclip");
@@ -345,12 +368,14 @@ void Editor::at_section_B2(AtScript& at) {
         click_widget("anim:newclip:create");
         step(6, [this, b] {
             const Animator* a = world().get<Animator>(world().find_by_id("puppet"));
-            at_check(a && a->clips.is_object() && a->clips.contains("clip"), "New clip lists the clip in Animator.clips");
+            at_check(a && a->clips.is_object() && a->clips.contains("clip"),
+                     "New clip lists the clip in Animator.clips");
             at_check(stdfs::exists(projectDir_ + "/anim/clip.anim.json"), "...and writes anim/clip.anim.json");
             at_check(anim_.clipName == "clip", "...and the panel opens it");
             at_check(at_visible("anim:record") && at_visible("anim:play"), "...so the transport and Record are there");
             at_check(undo_depth() == b->undo + 2, "...as two undo steps: the clip file, then the Animator.clips entry");
-            dirty_ = false;  // from here on the checks ask whether record mode, scrubbing and clip edits touch the scene
+            dirty_ =
+                false;  // from here on the checks ask whether record mode, scrubbing and clip edits touch the scene
         });
         click_widget("anim:clips");
         step(3, [this] { at_check(at_visible("anim:clip:clip"), "the clip list names the new clip"); });
@@ -365,7 +390,10 @@ void Editor::at_section_B2(AtScript& at) {
             anim_set_playhead(0.2);
             focus_window("Animation");
         });
-        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        step(4, [this] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
         wait_until([this] { return at_visible("gizmo:move:x"); });
         step(2, [this, b, body_x] {
             b->undo = undo_depth();
@@ -377,7 +405,9 @@ void Editor::at_section_B2(AtScript& at) {
             at_check(ti >= 0, "a Transform.position track was made for the Body part in record mode");
             const ClipKey* k = key_at(0.2);
             at_check(k != nullptr, "...with a key at the playhead (0.2 s)");
-            if (k) at_check(k->value[0] > b->firstX + 10.0f, "...holding the position the drag reached, not the rest position");
+            if (k)
+                at_check(k->value[0] > b->firstX + 10.0f,
+                         "...holding the position the drag reached, not the rest position");
             if (k) b->secondX = k->value[0];
             at_check(anim_.recordedKeys >= 1, "the panel counts the keys record mode wrote");
             at_check(!dirty_, "record mode leaves the scene file unchanged (no unsaved changes)");
@@ -389,7 +419,10 @@ void Editor::at_section_B2(AtScript& at) {
         snap("editor_animation_record.png");
         // a second key at 0.6 s
         step(2, [this] { anim_set_playhead(0.6); });
-        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        step(4, [this] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
         wait_until([this] { return at_visible("gizmo:move:x"); });
         drag_arrow(40);
         step(4, [this, key_at, clip_now, position_track, b] {
@@ -398,13 +431,18 @@ void Editor::at_section_B2(AtScript& at) {
             if (k) at_check(k->value[0] > b->secondX + 10.0f, "...further along");
             const auto clip = clip_now();
             const int ti = position_track();
-            at_check(clip && ti >= 0 && clip->tracks[std::size_t(ti)].keys.size() == 3,
-                     "the track has the rest key at 0 s (the part stays as it was until the first key) and the two recorded ones (" + [&] {
-                         std::string out;
-                         if (clip && ti >= 0)
-                             for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys) out += std::to_string(k.t) + ":" + std::to_string(k.value[0]) + " ";
-                         return out;
-                     }() + ")");
+            at_check(
+                clip && ti >= 0 && clip->tracks[std::size_t(ti)].keys.size() == 3,
+                "the track has the rest key at 0 s (the part stays as it was until the first key) and the two recorded "
+                "ones (" +
+                    [&] {
+                        std::string out;
+                        if (clip && ti >= 0)
+                            for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys)
+                                out += std::to_string(k.t) + ":" + std::to_string(k.value[0]) + " ";
+                        return out;
+                    }() +
+                    ")");
             if (k) b->firstX = k->value[0];
             anim_.recording = false;
         });
@@ -429,10 +467,12 @@ void Editor::at_section_B2(AtScript& at) {
             const float bottom = std::min(w->Pos.y + w->Size.y, ImGui::GetIO().DisplaySize.y - 24.0f);
             return Vec2{w->Pos.x + w->Size.x * 0.5f, bottom - 12.0f};
         };
-        scroll_until_at([position_track] { return "anim:key:" + std::to_string(position_track()) + ":600"; }, -6, rows_point, 100000, -1e9f);
+        scroll_until_at([position_track] { return "anim:key:" + std::to_string(position_track()) + ":600"; }, -6,
+                        rows_point, 100000, -1e9f);
         step(3, [this, b, position_track] {
             b->undo = undo_depth();
-            at_check(at_visible("anim:key:" + std::to_string(position_track()) + ":600"), "the dopesheet shows the key at 600 ms");
+            at_check(at_visible("anim:key:" + std::to_string(position_track()) + ":600"),
+                     "the dopesheet shows the key at 600 ms");
         });
         step(2, [this, b, position_track] {
             b->grab = b->cur = at_widget("anim:key:" + std::to_string(position_track()) + ":600");
@@ -472,7 +512,8 @@ void Editor::at_section_B2(AtScript& at) {
         click_widget("anim:menu:ease:quadOut");
         step(5, [this, b, key_at] {
             const ClipKey* k = key_at(0.2);
-            at_check(k && k->interp == ClipInterp::Ease && k->ease >= 0 && clip_ease_names()[std::size_t(k->ease)] == "quadOut",
+            at_check(k && k->interp == ClipInterp::Ease && k->ease >= 0 &&
+                         clip_ease_names()[std::size_t(k->ease)] == "quadOut",
                      "the context menu sets the easing of the key to quadOut");
             at_check(undo_depth() == b->undo + 1, "...as one undo step");
         });
@@ -484,7 +525,8 @@ void Editor::at_section_B2(AtScript& at) {
         click_widget("anim:event:ok");
         step(5, [this, clip_now] {
             const auto clip = clip_now();
-            at_check(clip && clip->events.size() == 1 && clip->events[0].name == "event", "Add event writes a marker named 'event' into the clip");
+            at_check(clip && clip->events.size() == 1 && clip->events[0].name == "event",
+                     "Add event writes a marker named 'event' into the clip");
             at_check(at_visible("anim:event:0"), "...and the ruler shows it");
         });
 
@@ -493,14 +535,17 @@ void Editor::at_section_B2(AtScript& at) {
         click_widget("anim:addevent");
         wait_until([this] { return at_visible("anim:event:ok"); });
         step(2, [this] { anim_.error = "panel message"; });
-        for (int i = 0; i < 5; ++i) {   // the name box has the focus and holds "event": its own edit buffer, so it is emptied with the keys
+        for (
+            int i = 0; i < 5;
+            ++i) {  // the name box has the focus and holds "event": its own edit buffer, so it is emptied with the keys
             step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_BACKSPACE); });
             step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_BACKSPACE); });
         }
         step(2, [this] { at_check(anim_.eventName.empty(), "Backspace emptied the name box"); });
         click_widget("anim:event:ok");
         step(3, [this, clip_now] {
-            at_check(anim_.eventError.find("name or game feel") != std::string::npos, "an event with no name and no actions is refused inside the popup: " + anim_.eventError);
+            at_check(anim_.eventError.find("name or game feel") != std::string::npos,
+                     "an event with no name and no actions is refused inside the popup: " + anim_.eventError);
             at_check(anim_.error == "panel message", "...and the panel's own error line is not touched");
             const auto clip = clip_now();
             at_check(clip && clip->events.size() == 1, "...nothing was added");
@@ -533,14 +578,19 @@ void Editor::at_section_B2(AtScript& at) {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return anim_.onionDrawn > 0; };
         });
-        step(3, [this] { at_check(anim_.onion && anim_.onionDrawn >= 2, "the onion skin draws the poses before and after the playhead (" + std::to_string(anim_.onionDrawn) + " ghosts)"); });
+        step(3, [this] {
+            at_check(anim_.onion && anim_.onionDrawn >= 2,
+                     "the onion skin draws the poses before and after the playhead (" +
+                         std::to_string(anim_.onionDrawn) + " ghosts)");
+        });
         snap("editor_animation_onion.png");
         scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:onion");
         step(4, [this, project_file] {
             at_check(!anim_.onion && anim_.onionDrawn == 0, "turning Onion off draws no ghosts");
             anim_unpose();
-            at_check(!dirty_ && undo_depth() > 0, "the whole session left the scene unchanged and the steps are on the undo stack");
+            at_check(!dirty_ && undo_depth() > 0,
+                     "the whole session left the scene unchanged and the steps are on the undo stack");
             showAnimation_ = false;
             select_id("");
             std::error_code ec;
@@ -594,23 +644,34 @@ void Editor::at_section_C2(AtScript& at) {
             write_file(project_file(scenePath_), kFixtureScene);
             reload_scene_from_disk();
             std::string err;
-            CommandResult r = edit_command("at:rig", "scene.spawn",
-                                           Json::object({{"id", "rig"}, {"name", "Rig"},
-                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-300, 50, 0})}})}})}}),
-                                           &err);
+            CommandResult r = edit_command(
+                "at:rig", "scene.spawn",
+                Json::object(
+                    {{"id", "rig"},
+                     {"name", "Rig"},
+                     {"components",
+                      Json::object({{"Transform", Json::object({{"position", Json::array({-300, 50, 0})}})}})}}),
+                &err);
             at_check(r.ok, "a Rig entity was spawned: " + err);
-            r = edit_command("at:limb", "scene.spawn",
-                             Json::object({{"id", "limb"}, {"name", "Limb"},
-                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({200, 100, 0})}})},
-                                                                        {"Sprite", Json::object({{"size", Json::array({40, 120})},
-                                                                                                 {"color", Json::array({0.3, 0.7, 0.9, 1})}})}})}}),
-                             &err);
+            r = edit_command(
+                "at:limb", "scene.spawn",
+                Json::object(
+                    {{"id", "limb"},
+                     {"name", "Limb"},
+                     {"components",
+                      Json::object({{"Transform", Json::object({{"position", Json::array({200, 100, 0})}})},
+                                    {"Sprite", Json::object({{"size", Json::array({40, 120})},
+                                                             {"color", Json::array({0.3, 0.7, 0.9, 1})}})}})}}),
+                &err);
             at_check(r.ok, "...and a Limb sprite: " + err);
-            r = edit_command("at:iktarget", "scene.spawn",
-                             Json::object({{"id", "ik_target"}, {"name", "Target"},
-                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-200, -20, 0})}})},
-                                                                        {"Shape2D", Json::object({{"size", Json::array({10, 10})}})}})}}),
-                             &err);
+            r = edit_command(
+                "at:iktarget", "scene.spawn",
+                Json::object({{"id", "ik_target"},
+                              {"name", "Target"},
+                              {"components",
+                               Json::object({{"Transform", Json::object({{"position", Json::array({-200, -20, 0})}})},
+                                             {"Shape2D", Json::object({{"size", Json::array({10, 10})}})}})}}),
+                &err);
             at_check(r.ok, "...and an IK target: " + err);
             select_id("rig");
             showBoneTools_ = true;
@@ -635,7 +696,8 @@ void Editor::at_section_C2(AtScript& at) {
         step(5, [this, c, bone_named] {
             const Entity b1 = bone_named("bone_1"), b2 = bone_named("bone_2");
             at_check(!b1.is_null() && !b2.is_null(), "Finish chain makes bone_1 and bone_2");
-            at_check(!b1.is_null() && world().parent(b1) == world().find_by_id("rig"), "...the first hangs from the Rig");
+            at_check(!b1.is_null() && world().parent(b1) == world().find_by_id("rig"),
+                     "...the first hangs from the Rig");
             at_check(!b2.is_null() && world().parent(b2) == b1, "...the second from the first");
             at_check(undo_depth() == c->undo + 1, "the chain is ONE undo step");
             undo();
@@ -669,7 +731,9 @@ void Editor::at_section_C2(AtScript& at) {
         click_widget("bone:tool:weights");
         step(2, [this] { select_id("limb"); });
         step(5, [this] {
-            at_check(bone_.tool == BoneTool::Weights && bone_.weightDots == 15, "the weights tool draws a dot on each of the 15 mesh vertices (" + std::to_string(bone_.weightDots) + ")");
+            at_check(bone_.tool == BoneTool::Weights && bone_.weightDots == 15,
+                     "the weights tool draws a dot on each of the 15 mesh vertices (" +
+                         std::to_string(bone_.weightDots) + ")");
         });
         scroll_to("bone:mode:set", "Bone tools");
         click_widget("bone:mode:set");
@@ -689,12 +753,15 @@ void Editor::at_section_C2(AtScript& at) {
         step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, panel_of(180, 100)); });
         step(5, [this, c] {
             const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
-            at_check(skin && skin->weights.is_array() && skin->weights.size() == 15, "painting writes explicit weights for the 15 vertices");
+            at_check(skin && skin->weights.is_array() && skin->weights.size() == 15,
+                     "painting writes explicit weights for the 15 vertices");
             bool full = false;
-            if (skin && skin->weights.is_array() && !skin->weights.empty() && skin->weights[0].is_array() && skin->weights[0].size() >= 2)
+            if (skin && skin->weights.is_array() && !skin->weights.empty() && skin->weights[0].is_array() &&
+                skin->weights[0].size() >= 2)
                 full = skin->weights[0][0].get<int>() == 0 && skin->weights[0][1].get<float>() > 0.99f;
             at_check(full, "...the top-left vertex is fully bone_1's");
-            at_check(bone_.strokes >= 2, "...with more than one dab along the drag (" + std::to_string(bone_.strokes) + ")");
+            at_check(bone_.strokes >= 2,
+                     "...with more than one dab along the drag (" + std::to_string(bone_.strokes) + ")");
             at_check(undo_depth() == c->undo + 1, "the whole stroke is ONE undo step");
             undo();
             const SpriteSkin* after = world().get<SpriteSkin>(world().find_by_id("limb"));
@@ -708,23 +775,28 @@ void Editor::at_section_C2(AtScript& at) {
         step(4, [this] {
             at_check(bone_.boneIndex == 1, "selecting bone_2 in the Hierarchy picks it as the bone shown");
             at_check(bone_.weightDots == 15, "...the overlay is still on the Limb");
-            at_check(bone_.bonesDrawn == 1, "...and the viewport outlines the selected bone (" + std::to_string(bone_.bonesDrawn) + ")");
+            at_check(bone_.bonesDrawn == 1,
+                     "...and the viewport outlines the selected bone (" + std::to_string(bone_.bonesDrawn) + ")");
         });
 
         // ---- IK: a handle at the target
         step(2, [this, bone_named, c] {
             std::string err;
             const Entity b2 = bone_named("bone_2");
-            const CommandResult r = edit_command("at:ik", "scene.set_component",
-                                                 Json::object({{"id", world().id_of(b2)}, {"component", "IK2D"},
-                                                               {"fields", Json::object({{"target", "ik_target"}, {"chainLength", 2}})}}), &err);
+            const CommandResult r =
+                edit_command("at:ik", "scene.set_component",
+                             Json::object({{"id", world().id_of(b2)},
+                                           {"component", "IK2D"},
+                                           {"fields", Json::object({{"target", "ik_target"}, {"chainLength", 2}})}}),
+                             &err);
             at_check(r.ok, "an IK2D on bone_2 targets the Target: " + err);
             select_id("rig");
         });
         scroll_to("bone:tool:ik", "Bone tools", 6);
         click_widget("bone:tool:ik");
         step(4, [this, c, bone_named] {
-            at_check(bone_.tool == BoneTool::Ik && bone_.ikHandles == 1, "the IK tool draws one handle for the one IK chain");
+            at_check(bone_.tool == BoneTool::Ik && bone_.ikHandles == 1,
+                     "the IK tool draws one handle for the one IK chain");
             c->undo = undo_depth();
             const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
             c->targetX = t->position.x;
@@ -748,13 +820,16 @@ void Editor::at_section_C2(AtScript& at) {
         step(2, [this, c] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, c->cur); });
         step(5, [this, c, bone_named] {
             const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
-            at_check(t && t->position.x > c->targetX + 20.0f && t->position.y > c->targetY + 20.0f, "dragging the handle moves the IK target");
+            at_check(t && t->position.x > c->targetX + 20.0f && t->position.y > c->targetY + 20.0f,
+                     "dragging the handle moves the IK target");
             at_check(undo_depth() == c->undo + 1, "...as ONE undo step");
-            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) > 0.01f, "...and the bones turned to follow it");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) > 0.01f,
+                     "...and the bones turned to follow it");
             undo();
             const Transform* back = world().get<Transform>(world().find_by_id("ik_target"));
             at_check(back && std::fabs(back->position.x - c->targetX) < 0.01f, "Undo puts the target back");
-            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) < 0.01f, "...and the bones with it");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) < 0.01f,
+                     "...and the bones with it");
         });
         snap("editor_bone_ik.png");
         step(2, [this] {

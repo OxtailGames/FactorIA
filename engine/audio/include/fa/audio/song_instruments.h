@@ -17,11 +17,11 @@
 namespace fa {
 
 struct SongInstrumentInfo {
-    std::string name;                 // "pluck", "pad", "bass", ...
-    std::string family;               // "keys", "pluck", "bass", "lead", "pad", "bell", "ensemble" or "chiptune"
-    std::string what;                 // how it sounds and what it is for
-    int low = 24, high = 96;          // the MIDI range it sounds good in (notes outside it are flagged by music.check)
-    int voices = 16;                  // its default polyphony: how many notes can be held at once before the oldest is cut
+    std::string name;         // "pluck", "pad", "bass", ...
+    std::string family;       // "keys", "pluck", "bass", "lead", "pad", "bell", "ensemble" or "chiptune"
+    std::string what;         // how it sounds and what it is for
+    int low = 24, high = 96;  // the MIDI range it sounds good in (notes outside it are flagged by music.check)
+    int voices = 16;          // its default polyphony: how many notes can be held at once before the oldest is cut
 };
 
 // The built-in pitched instruments, grouped by family, in the order the docs list them.
@@ -35,9 +35,9 @@ const std::vector<SongInstrumentFamily>& song_instrument_families();
 
 // A drum kit: the same lanes (song_drum_lanes()) in another style.
 struct SongKitInfo {
-    std::string name;                 // "acoustic", "electronic" or "chiptune"
+    std::string name;  // "acoustic", "electronic" or "chiptune"
     std::string what;
-    std::string instrument;           // what a track writes as its instrument: "kit" (acoustic) or "kit:<name>"
+    std::string instrument;  // what a track writes as its instrument: "kit" (acoustic) or "kit:<name>"
 };
 const std::vector<SongKitInfo>& song_kits();
 // "kit" -> "acoustic", "kit:electronic" -> "electronic"; nothing for another name.

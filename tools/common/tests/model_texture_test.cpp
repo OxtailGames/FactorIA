@@ -32,7 +32,9 @@ Image solid_image(int size, Rgba c) { return make_image(size, size, c); }
 struct Textured {
     AssetsProject p;
     Json first;
-    explicit Textured(const Json& set = {{"size", 256}, {"ao", true}, {"wear", Json::array({{{"mask", "edges"}, {"color", "#e0d8c8"}}})}}) {
+    explicit Textured(const Json& set = {{"size", 256},
+                                         {"ao", true},
+                                         {"wear", Json::array({{{"mask", "edges"}, {"color", "#e0d8c8"}}})}}) {
         write_all(p.file(kCrate), kCrateDoc);
         first = p.ok("model.texture", {{"path", kCrate}, {"set", set}, {"picture", false}});
     }
@@ -42,7 +44,8 @@ struct Textured {
 
 }  // namespace
 
-TEST_CASE("model.texture: adds the atlas, writes the layer pictures and the image document, and the .glb draws the composed picture") {
+TEST_CASE("model.texture: adds the atlas, writes the layer pictures and the image document, and the .glb draws the "
+          "composed picture") {
     Textured t;
     const Json& r = t.first;
     CHECK(r["changed"] == true);
@@ -54,7 +57,8 @@ TEST_CASE("model.texture: adds the atlas, writes the layer pictures and the imag
     CHECK(r["texture"]["document"] == "assets/models/crate.texture.image.json");
     CHECK(r["texture"]["image"] == "assets/models/crate.texture.png");
     CHECK(r["texture"]["created"] == true);
-    for (const char* f : {"base", "uv", "wear", "occlusion"}) CHECK(t.p.exists(std::string("assets/models/crate.") + f + ".png"));
+    for (const char* f : {"base", "uv", "wear", "occlusion"})
+        CHECK(t.p.exists(std::string("assets/models/crate.") + f + ".png"));
     CHECK_FALSE(t.p.exists("assets/models/crate.decals.png"));  // no decals: no layer
     CHECK_FALSE(t.p.exists("assets/models/crate.ao.png"));      // not in maps.write
     CHECK(t.p.exists("assets/models/crate.paint.png"));         // the blank layer to paint on
@@ -77,7 +81,8 @@ TEST_CASE("model.texture: adds the atlas, writes the layer pictures and the imag
     const Json manifest = t.p.manifest();
     CHECK(manifest["assets"].contains("assets/models/crate.base.png"));
     CHECK(manifest["assets"]["assets/models/crate.base.png"]["provenance"]["kind"] == "image");
-    CHECK(manifest["assets"]["assets/models/crate.glb"]["provenance"]["texture"]["document"] == "assets/models/crate.texture.image.json");
+    CHECK(manifest["assets"]["assets/models/crate.glb"]["provenance"]["texture"]["document"] ==
+          "assets/models/crate.texture.image.json");
     CHECK(t.state() == ModelBakeState::Fresh);
 
     // a picture the size of the atlas, not blank: the wood colour is in it
@@ -121,7 +126,11 @@ TEST_CASE("model.texture: a re-bake keeps the layers that were painted and rewri
 
     // a new wear entry changes the model's layers; the paint layer, its picture and the red square stay
     const std::string paintBytes = read_all(t.p.file("assets/models/crate.paint.png"));
-    const Json r = t.p.ok("model.texture", {{"path", kCrate}, {"set", {{"wear", Json::array({{{"mask", "edges"}, {"color", "#e0d8c8"}}, {{"mask", "cavity"}}})}}}, {"picture", false}});
+    const Json r =
+        t.p.ok("model.texture",
+               {{"path", kCrate},
+                {"set", {{"wear", Json::array({{{"mask", "edges"}, {"color", "#e0d8c8"}}, {{"mask", "cavity"}}})}}},
+                {"picture", false}});
     CHECK(r["texture"]["created"] == false);
     CHECK(read_all(t.p.file("assets/models/crate.paint.png")) == paintBytes);
     CHECK(get(read_png(t.p.file("assets/models/crate.texture.png")), 50, 50) == Rgba{255, 0, 0, 255});
@@ -160,7 +169,14 @@ TEST_CASE("model.texture: a uv change under painted layers is warned about, an u
 TEST_CASE("model.texture: the .glb is stale when a decal picture, a material texture or the texture document changes") {
     Textured t;
     write_png(t.p.file("assets/textures/mark.png"), solid_image(16, {200, 30, 30, 255}));
-    const Json d = t.p.ok("model.decal", {{"path", kCrate}, {"add", {{"name", "mark"}, {"image", "assets/textures/mark.png"}, {"position", {0, 0, 0.5}}, {"normal", "front"}, {"size", {0.5, 0.5}}}}, {"picture", false}});
+    const Json d = t.p.ok("model.decal", {{"path", kCrate},
+                                          {"add",
+                                           {{"name", "mark"},
+                                            {"image", "assets/textures/mark.png"},
+                                            {"position", {0, 0, 0.5}},
+                                            {"normal", "front"},
+                                            {"size", {0.5, 0.5}}}},
+                                          {"picture", false}});
     CHECK(d["texture"]["report"]["decals"][0]["texels"].get<int>() > 100);
     CHECK(t.p.exists("assets/models/crate.decals.png"));
     CHECK(t.state() == ModelBakeState::Fresh);
@@ -202,12 +218,15 @@ TEST_CASE("model.texture: the LODs of gameReady draw the same texture as the .gl
 }
 
 TEST_CASE("model.texture: clear removes the layer pictures and keeps the image document and what was painted") {
-    Textured t({{"size", 128}, {"maps", {{"write", Json::array({"curvature"})}}}, {"wear", Json::array({{{"mask", "edges"}}})}});
+    Textured t({{"size", 128},
+                {"maps", {{"write", Json::array({"curvature"})}}},
+                {"wear", Json::array({{{"mask", "edges"}}})}});
     CHECK(t.p.exists("assets/models/crate.curvature.png"));
     const Json r = t.p.ok("model.texture", {{"path", kCrate}, {"clear", true}});
     CHECK(r["texturing"].is_null());
     CHECK(r["nextSteps"].dump().find("image document") != std::string::npos);
-    for (const char* f : {"base", "uv", "wear", "curvature"}) CHECK_FALSE(t.p.exists(std::string("assets/models/crate.") + f + ".png"));
+    for (const char* f : {"base", "uv", "wear", "curvature"})
+        CHECK_FALSE(t.p.exists(std::string("assets/models/crate.") + f + ".png"));
     CHECK_FALSE(t.p.manifest()["assets"].contains("assets/models/crate.base.png"));
     CHECK(t.p.exists("assets/models/crate.texture.image.json"));
     CHECK(t.p.exists("assets/models/crate.paint.png"));
@@ -216,7 +235,8 @@ TEST_CASE("model.texture: clear removes the layer pictures and keeps the image d
     CHECK(t.state() == ModelBakeState::Fresh);
 }
 
-TEST_CASE("model.texture: set merges (maps field by field), replace replaces, and a mistake writes nothing and lists every issue") {
+TEST_CASE("model.texture: set merges (maps field by field), replace replaces, and a mistake writes nothing and lists "
+          "every issue") {
     Textured t({{"size", 128}, {"maps", {{"samples", 8}, {"edgeAngle", 30}}}});
     t.p.ok("model.texture", {{"path", kCrate}, {"set", {{"maps", {{"samples", 12}}}}}, {"bake", false}});
     CHECK(t.doc()["texturing"]["maps"]["samples"] == 12);
@@ -228,12 +248,14 @@ TEST_CASE("model.texture: set merges (maps field by field), replace replaces, an
     CHECK(t.doc()["texturing"] == Json({{"ao", true}}));
 
     const std::string before = read_all(t.p.file(kCrate));
-    auto bad = t.p.call("model.texture", {{"path", kCrate}, {"set", {{"size", 7}, {"wear", Json::array({{{"mask", "edgess"}}})}, {"decalz", 1}}}});
+    auto bad = t.p.call(
+        "model.texture",
+        {{"path", kCrate}, {"set", {{"size", 7}, {"wear", Json::array({{{"mask", "edgess"}}})}, {"decalz", 1}}}});
     REQUIRE_FALSE(bad.ok);
     const std::string text = bad.error.dump();
     CHECK(text.find("/texturing/size") != std::string::npos);
     CHECK(text.find("/texturing/wear/0/mask") != std::string::npos);
-    CHECK(text.find("edges") != std::string::npos);        // did you mean
+    CHECK(text.find("edges") != std::string::npos);  // did you mean
     CHECK(text.find("decals") != std::string::npos);
     CHECK(text.find("Nothing was written") != std::string::npos);
     CHECK(read_all(t.p.file(kCrate)) == before);
@@ -244,7 +266,8 @@ TEST_CASE("model.texture: set merges (maps field by field), replace replaces, an
     CHECK_FALSE(t.p.call("model.texture", {{"path", kCrate}, {"sett", {}}}).ok);
 }
 
-TEST_CASE("model.texture: a tile uv layout cannot be textured; a material texture is projected triplanar and reported") {
+TEST_CASE(
+    "model.texture: a tile uv layout cannot be textured; a material texture is projected triplanar and reported") {
     AssetsProject p;
     write_png(p.file("assets/textures/stripes.png"), [] {
         Image img = make_image(16, 16, {200, 160, 60, 255});
@@ -260,7 +283,9 @@ TEST_CASE("model.texture: a tile uv layout cannot be textured; a material textur
     CHECK(tile.error.dump().find("tile") != std::string::npos);
     CHECK(read_all(p.file(kCrate)).find("texturing") == std::string::npos);
 
-    const Json r = p.ok("model.uv", {{"path", kCrate}, {"set", {{"layout", "atlas"}, {"method", "unwrap"}}}, {"picture", false}, {"bake", false}});
+    const Json r = p.ok(
+        "model.uv",
+        {{"path", kCrate}, {"set", {{"layout", "atlas"}, {"method", "unwrap"}}}, {"picture", false}, {"bake", false}});
     const Json t = p.ok("model.texture", {{"path", kCrate}, {"set", {{"size", 128}}}, {"picture", false}});
     CHECK(t["texture"]["report"]["parts"][0]["mapping"] == "triplanar");
     CHECK(t["texture"]["report"]["parts"][0]["texture"] == "assets/textures/stripes.png");
@@ -286,7 +311,12 @@ TEST_CASE("model.texture: a tile uv layout cannot be textured; a material textur
 TEST_CASE("model.decal: add, replace by name, remove and clear; a missing picture writes nothing and teaches") {
     Textured t({{"size", 256}});
     write_png(t.p.file("assets/textures/mark.png"), solid_image(16, {250, 250, 20, 255}));
-    const Json a = t.p.ok("model.decal", {{"path", kCrate}, {"add", {{"image", "assets/textures/mark.png"}, {"position", {0, 0, 0.5}}, {"normal", "front"}, {"size", 0.4}}}, {"picture", false}});
+    const Json a = t.p.ok(
+        "model.decal",
+        {{"path", kCrate},
+         {"add",
+          {{"image", "assets/textures/mark.png"}, {"position", {0, 0, 0.5}}, {"normal", "front"}, {"size", 0.4}}},
+         {"picture", false}});
     CHECK(a["changes"][0] == "added 'decal1'");
     CHECK(a["decals"].size() == 1);
     CHECK(a["decals"][0]["name"] == "decal1");
@@ -295,11 +325,21 @@ TEST_CASE("model.decal: add, replace by name, remove and clear; a missing pictur
     // the decal's colour is in the baked texture
     const Image tex = read_png(t.p.file("assets/models/crate.texture.png"));
     bool yellow = false;
-    for (std::size_t i = 0; i + 3 < tex.rgba.size(); i += 4) yellow = yellow || (tex.rgba[i] > 240 && tex.rgba[i + 1] > 240 && tex.rgba[i + 2] < 60);
+    for (std::size_t i = 0; i + 3 < tex.rgba.size(); i += 4)
+        yellow = yellow || (tex.rgba[i] > 240 && tex.rgba[i + 1] > 240 && tex.rgba[i + 2] < 60);
     CHECK(yellow);
 
-    const Json b = t.p.ok("model.decal", {{"path", kCrate}, {"add", Json::array({{{"name", "decal1"}, {"image", "assets/textures/mark.png"}, {"position", {0, 0, -0.5}}, {"normal", "back"}, {"size", 0.2}},
-                                                                                  {{"name", "side"}, {"image", "assets/textures/mark.png"}, {"position", {0.5, 0, 0}}, {"normal", "right"}, {"size", 0.2}}})},
+    const Json b = t.p.ok("model.decal", {{"path", kCrate},
+                                          {"add", Json::array({{{"name", "decal1"},
+                                                                {"image", "assets/textures/mark.png"},
+                                                                {"position", {0, 0, -0.5}},
+                                                                {"normal", "back"},
+                                                                {"size", 0.2}},
+                                                               {{"name", "side"},
+                                                                {"image", "assets/textures/mark.png"},
+                                                                {"position", {0.5, 0, 0}},
+                                                                {"normal", "right"},
+                                                                {"size", 0.2}}})},
                                           {"picture", false}});
     CHECK(b["decals"].size() == 2);
     CHECK(b["changes"][0] == "replaced 'decal1'");
@@ -318,7 +358,9 @@ TEST_CASE("model.decal: add, replace by name, remove and clear; a missing pictur
     CHECK(t.p.ok("model.decal", {{"path", kCrate}, {"picture", false}})["changed"] == false);
 
     const std::string before = read_all(t.p.file(kCrate));
-    auto missing = t.p.call("model.decal", {{"path", kCrate}, {"add", {{"image", "assets/textures/nope.png"}, {"position", {0, 0, 0.5}}, {"size", 0.4}}}});
+    auto missing = t.p.call(
+        "model.decal",
+        {{"path", kCrate}, {"add", {{"image", "assets/textures/nope.png"}, {"position", {0, 0, 0.5}}, {"size", 0.4}}}});
     REQUIRE_FALSE(missing.ok);
     CHECK(missing.error.dump().find("assets/textures/nope.png") != std::string::npos);
     CHECK(read_all(t.p.file(kCrate)) == before);
@@ -333,20 +375,35 @@ TEST_CASE("model.decal: a decal that misses the surface is reported and a model 
     AssetsProject p;
     write_all(p.file(kCrate), kCrateDoc);
     write_png(p.file("assets/textures/mark.png"), solid_image(16, {250, 250, 20, 255}));
-    const Json r = p.ok("model.decal", {{"path", kCrate}, {"add", {{"name", "far"}, {"image", "assets/textures/mark.png"}, {"position", {0, 0, 5}}, {"normal", "front"}, {"size", 0.4}, {"depth", 0.1}}}, {"picture", false}});
+    const Json r = p.ok("model.decal", {{"path", kCrate},
+                                        {"add",
+                                         {{"name", "far"},
+                                          {"image", "assets/textures/mark.png"},
+                                          {"position", {0, 0, 5}},
+                                          {"normal", "front"},
+                                          {"size", 0.4},
+                                          {"depth", 0.1}}},
+                                        {"picture", false}});
     CHECK(r["uvAdded"]["method"] == "unwrap");
     CHECK(r["texture"]["report"]["decals"][0]["texels"] == 0);
     CHECK(r["nextSteps"].dump().find("painted no texel") != std::string::npos);
     CHECK(r["warnings"].dump().find("far") != std::string::npos);
 }
 
-TEST_CASE("model.palette: sets the vertexColors section, reports the colours and returns the swatches; the style palette makes the bake depend on the style guide") {
+TEST_CASE("model.palette: sets the vertexColors section, reports the colours and returns the swatches; the style "
+          "palette makes the bake depend on the style guide") {
     AssetsProject p;
     write_all(p.file("assets/models/house.model.json"), R"({"format": "factoria.model/1", "nodes": [
         {"op": "box", "size": [2, 1, 2], "part": "wall"}, {"op": "box", "size": [2.2, 0.2, 2.2], "position": [0, 0.6, 0], "part": "roof"}]})");
     const char* house = "assets/models/house.model.json";
-    const Json r = p.ok("model.palette", {{"path", house}, {"set", {{"palette", Json::array({"#8a3b2b", "#d8c8a0", "#445566"})}, {"flat", true}, {"variation", 0.04},
-                                                                  {"parts", {{"wall", {{"color", 1}}}, {"roof", {{"color", 0}}}, {"ghost", {{"color", 2}}}}}}}});
+    const Json r =
+        p.ok("model.palette",
+             {{"path", house},
+              {"set",
+               {{"palette", Json::array({"#8a3b2b", "#d8c8a0", "#445566"})},
+                {"flat", true},
+                {"variation", 0.04},
+                {"parts", {{"wall", {{"color", 1}}}, {"roof", {{"color", 0}}}, {"ghost", {{"color", 2}}}}}}}});
     CHECK(r["changed"] == true);
     CHECK(r["vertexColors"]["flat"] == true);
     CHECK(r["palette"].size() == 3);
@@ -357,7 +414,9 @@ TEST_CASE("model.palette: sets the vertexColors section, reports the colours and
     CHECK(r["bake"]["state"] == "baked");
     CHECK(p.exists("assets/models/house.glb"));
     // merging: another part's colour, the rest stays
-    p.ok("model.palette", {{"path", house}, {"set", {{"parts", {{"ghost", nullptr}, {"wall", {{"variation", 0.1}}}}}}}, {"picture", false}});
+    p.ok("model.palette", {{"path", house},
+                           {"set", {{"parts", {{"ghost", nullptr}, {"wall", {{"variation", 0.1}}}}}}},
+                           {"picture", false}});
     const Json doc = parse_json(read_all(p.file(house)), "doc").value();
     CHECK_FALSE(doc["vertexColors"]["parts"].contains("ghost"));
     CHECK(doc["vertexColors"]["parts"]["wall"]["color"] == 1);
@@ -404,9 +463,11 @@ TEST_CASE("model.bake_maps: measures ao, curvature and thickness in the atlas wi
     CHECK(read_all(p.file(kCrate)) == before);
     CHECK_FALSE(p.exists("assets/models/crate.glb"));
     // the same call gives the same numbers
-    CHECK(p.ok("model.bake_maps", {{"path", kCrate}, {"size", 128}, {"samples", 8}, {"picture", false}})["report"] == r["report"]);
+    CHECK(p.ok("model.bake_maps", {{"path", kCrate}, {"size", 128}, {"samples", 8}, {"picture", false}})["report"] ==
+          r["report"]);
     // one map; the document's own texturing.maps are the defaults
-    const Json one = p.ok("model.bake_maps", {{"path", kCrate}, {"size", 64}, {"maps", Json::array({"curvature"})}, {"picture", false}});
+    const Json one = p.ok("model.bake_maps",
+                          {{"path", kCrate}, {"size", 64}, {"maps", Json::array({"curvature"})}, {"picture", false}});
     CHECK(one["report"]["maps"].size() == 1);
     CHECK(one["report"]["maps"][0]["name"] == "curvature");
     CHECK_FALSE(one.contains("$image"));
@@ -416,10 +477,14 @@ TEST_CASE("model.bake_maps: measures ao, curvature and thickness in the atlas wi
     CHECK_FALSE(p.call("model.bake_maps", {{"path", kCrate}, {"size", 5}}).ok);
 }
 
-TEST_CASE("model.create and model.edit: the texturing and vertexColors sections can be given with the document and replaced through the document operation") {
+TEST_CASE("model.create and model.edit: the texturing and vertexColors sections can be given with the document and "
+          "replaced through the document operation") {
     AssetsProject p;
-    const Json r = p.ok("model.create", {{"path", kCrate}, {"nodes", Json::array({{{"op", "box"}, {"part", "body"}}})}, {"uv", {{"method", "unwrap"}}},
-                                         {"texturing", {{"size", 64}, {"ao", true}}}, {"vertexColors", {{"color", "#80a0c0"}}}});
+    const Json r = p.ok("model.create", {{"path", kCrate},
+                                         {"nodes", Json::array({{{"op", "box"}, {"part", "body"}}})},
+                                         {"uv", {{"method", "unwrap"}}},
+                                         {"texturing", {{"size", 64}, {"ao", true}}},
+                                         {"vertexColors", {{"color", "#80a0c0"}}}});
     CHECK(r["texture"]["document"] == "assets/models/crate.texture.image.json");
     CHECK(r["measurements"]["vertexColors"]["coloredTriangles"] == 12);
     CHECK(p.exists("assets/models/crate.occlusion.png"));
@@ -444,7 +509,8 @@ TEST_CASE("docs/MODELING.md: the examples of Texturing are valid documents") {
     REQUIRE(from != std::string::npos);
     REQUIRE(to != std::string::npos);
     int found = 0;
-    for (std::size_t at = text.find("```json\n", from); at != std::string::npos && at < to; at = text.find("```json\n", at + 1)) {
+    for (std::size_t at = text.find("```json\n", from); at != std::string::npos && at < to;
+         at = text.find("```json\n", at + 1)) {
         const std::size_t begin = at + 8, end = text.find("```", begin);
         REQUIRE(end != std::string::npos);
         std::string block = text.substr(begin, end - begin);

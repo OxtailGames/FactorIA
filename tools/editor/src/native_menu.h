@@ -17,10 +17,10 @@ namespace fa::editor {
 // What the app menu ("FactorIA": About, Settings..., Services, Hide..., Quit) needs from the editor.
 struct NativeAppMenuSpec {
     std::string appName = "FactorIA";
-    std::string version;                  // About: FA_ENGINE_VERSION
-    std::string build;                    // About: the build fingerprint
-    std::function<void()> openSettings;   // Settings... (Cmd+,)
-    std::function<void()> quit;           // Quit (Cmd+Q): sapp_request_quit, so the unsaved-changes dialog still runs
+    std::string version;                 // About: FA_ENGINE_VERSION
+    std::string build;                   // About: the build fingerprint
+    std::function<void()> openSettings;  // Settings... (Cmd+,)
+    std::function<void()> quit;          // Quit (Cmd+Q): sapp_request_quit, so the unsaved-changes dialog still runs
     // False builds the menus without making them the application's main menu (the unit tests: no NSApplication needed).
     bool install = true;
 };
@@ -28,7 +28,7 @@ struct NativeAppMenuSpec {
 // One native menu item as the system shows it (NativeMenu::snapshot, for tests).
 struct NativeItemInfo {
     std::string title;
-    std::string keyEquivalent;            // "s"; empty when none
+    std::string keyEquivalent;                                             // "s"; empty when none
     bool command = false, shift = false, option = false, control = false;  // its key equivalent's modifiers
     bool enabled = true, checked = false, separator = false, hasSubmenu = false;
     std::string tooltip;

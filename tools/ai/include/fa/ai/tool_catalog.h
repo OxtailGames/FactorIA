@@ -36,12 +36,12 @@ std::vector<std::string> core_tool_names();
 std::vector<std::string> default_tool_groups(std::string_view role);
 
 struct ToolPlanOptions {
-    bool withDelegate = false;          // agent_delegate (the orchestrator)
-    bool readOnly = false;              // only is_read_only_tool commands exist for this role
+    bool withDelegate = false;  // agent_delegate (the orchestrator)
+    bool readOnly = false;      // only is_read_only_tool commands exist for this role
     // What the role's calls may do (role_capabilities): a command that needs more is not offered, listed or callable.
     CapabilitySet granted = CapabilitySet::all();
-    std::vector<std::string> groups;    // tool groups to load in full: command categories, or exact command names
-    bool catalog = true;                // false = every command in full (no tool_describe / tool_call)
+    std::vector<std::string> groups;  // tool groups to load in full: command categories, or exact command names
+    bool catalog = true;              // false = every command in full (no tool_describe / tool_call)
     // The catalog is used only when the definitions it leaves out add up to more than this many bytes. A project with few
     // commands (tests) gets them all in full, which is cheaper than the two extra tools.
     u64 minCatalogSavingBytes = 6000;
@@ -51,18 +51,18 @@ struct CatalogEntry {
     std::string command;   // "assets.slice_sheet"
     std::string toolName;  // "assets_slice_sheet": the name the provider-safe tool would have
     std::string category;
-    std::string summary;   // the first line of CommandInfo::summary
-    bool readOnly = false; // is_read_only_tool
+    std::string summary;    // the first line of CommandInfo::summary
+    bool readOnly = false;  // is_read_only_tool
 };
 
 struct ToolPlan {
-    std::vector<ToolDef> tools;              // offered in full, sorted by name (byte-stable); tool_describe / tool_call included
-    std::vector<CatalogEntry> catalog;       // listed only, sorted by category then name
-    std::vector<std::string> loadedGroups;   // the groups that matched at least one command
-    std::vector<std::string> notes;          // problems the user can fix: a group name that matches nothing, with suggestions
-    bool useCatalog = false;                 // tool_describe / tool_call are in `tools` and the catalog is in the prompt
-    u64 toolBytes = 0;                       // size of `tools` (estimate_context counts it the same way)
-    u64 fullBytes = 0;                       // what offering every command in full would have cost
+    std::vector<ToolDef> tools;  // offered in full, sorted by name (byte-stable); tool_describe / tool_call included
+    std::vector<CatalogEntry> catalog;      // listed only, sorted by category then name
+    std::vector<std::string> loadedGroups;  // the groups that matched at least one command
+    std::vector<std::string> notes;  // problems the user can fix: a group name that matches nothing, with suggestions
+    bool useCatalog = false;         // tool_describe / tool_call are in `tools` and the catalog is in the prompt
+    u64 toolBytes = 0;               // size of `tools` (estimate_context counts it the same way)
+    u64 fullBytes = 0;               // what offering every command in full would have cost
     // The "# Tools" section of the system prompt: how to use the catalog and its lines. "" when !useCatalog.
     std::string catalogText;
 };
@@ -82,7 +82,7 @@ Json describe_commands(const CommandRegistry& registry, const std::vector<std::s
 // The registry command a name stands for: "scene.spawn" or "scene_spawn". nullptr when none is usable by the session
 // (excluded, not read-only for a read-only role, or needing a capability `granted` lacks); `why` then says which it is. `hint`
 // gets the did-you-mean suggestions.
-const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly, std::string& why,
-                                   std::string& hint, CapabilitySet granted = CapabilitySet::all());
+const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly,
+                                   std::string& why, std::string& hint, CapabilitySet granted = CapabilitySet::all());
 
 }  // namespace fa::ai

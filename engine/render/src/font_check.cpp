@@ -27,9 +27,13 @@ struct Be {
     std::uint64_t n;
     mutable bool bad = false;
     std::uint32_t u8(std::uint64_t at) const { return at < n ? d[at] : (bad = true, 0u); }
-    std::uint32_t u16(std::uint64_t at) const { return at + 2 <= n ? std::uint32_t(d[at]) << 8 | d[at + 1] : (bad = true, 0u); }
+    std::uint32_t u16(std::uint64_t at) const {
+        return at + 2 <= n ? std::uint32_t(d[at]) << 8 | d[at + 1] : (bad = true, 0u);
+    }
     std::uint32_t u32(std::uint64_t at) const {
-        return at + 4 <= n ? std::uint32_t(d[at]) << 24 | std::uint32_t(d[at + 1]) << 16 | std::uint32_t(d[at + 2]) << 8 | d[at + 3] : (bad = true, 0u);
+        return at + 4 <= n ? std::uint32_t(d[at]) << 24 | std::uint32_t(d[at + 1]) << 16 |
+                                 std::uint32_t(d[at + 2]) << 8 | d[at + 3]
+                           : (bad = true, 0u);
     }
 };
 
@@ -77,7 +81,8 @@ std::string check_cmap(const Be& f, const Table& cmap) {
                 reach = std::max(reach, s + 1);
                 const std::uint64_t items = std::max<std::uint64_t>(seg, std::uint64_t(reach) + 1);
                 if (16 + 6 * seg + 2 * items > room)
-                    return "a format 4 'cmap' subtable has search fields (searchRange, entrySelector, rangeShift) that point past its end";
+                    return "a format 4 'cmap' subtable has search fields (searchRange, entrySelector, rangeShift) that "
+                           "point past its end";
                 for (std::uint64_t i = 0; i < items; ++i) {
                     const std::uint64_t end = f.u16(at + 14 + 2 * i), start = f.u16(at + 16 + 2 * seg + 2 * i);
                     const std::uint64_t rangeOffset = f.u16(at + 16 + 6 * seg + 2 * i);
@@ -92,15 +97,18 @@ std::string check_cmap(const Be& f, const Table& cmap) {
         } else if (format == 6) {
             if (room < 10 || 10 + 2ull * f.u16(at + 8) > room) return "a format 6 'cmap' subtable is cut short";
         } else if (format == 12 || format == 13) {
-            if (room < 16 || 16 + 12ull * f.u32(at + 12) > room) return "a format 12 or 13 'cmap' subtable is cut short";
+            if (room < 16 || 16 + 12ull * f.u32(at + 12) > room)
+                return "a format 12 or 13 'cmap' subtable is cut short";
         }
         // stb_truetype uses the LAST Unicode subtable (platform 0, or platform 3 with encoding 1 or 10) and asserts on a format it
         // does not read, so a font whose choice is one of those is refused instead of failing in every glyph lookup.
         const std::uint32_t platform = f.u16(cmap.at + 4 + 8ull * r), encoding = f.u16(cmap.at + 4 + 8ull * r + 2);
         if (platform == 0 || (platform == 3 && (encoding == 1 || encoding == 10))) chosenFormat = format;
     }
-    if (chosenFormat >= 0 && chosenFormat != 0 && chosenFormat != 4 && chosenFormat != 6 && chosenFormat != 12 && chosenFormat != 13)
-        return "its Unicode 'cmap' table has format " + std::to_string(chosenFormat) + ", and the engine reads formats 0, 4, 6, 12 and 13";
+    if (chosenFormat >= 0 && chosenFormat != 0 && chosenFormat != 4 && chosenFormat != 6 && chosenFormat != 12 &&
+        chosenFormat != 13)
+        return "its Unicode 'cmap' table has format " + std::to_string(chosenFormat) +
+               ", and the engine reads formats 0, 4, 6, 12 and 13";
     return f.bad ? "its 'cmap' table is cut short" : std::string();
 }
 
@@ -143,7 +151,8 @@ struct GlyphWalk {
                 if (contours >= 0) {
                     // simple glyph: end points, instructions, then one flag per point (with repeats) and its x and y offsets
                     std::uint64_t p = at + 10 + 2ull * std::uint64_t(contours);
-                    const std::uint64_t points = contours ? std::uint64_t(f.u16(at + 10 + 2ull * std::uint64_t(contours) - 2)) + 1 : 0;
+                    const std::uint64_t points =
+                        contours ? std::uint64_t(f.u16(at + 10 + 2ull * std::uint64_t(contours) - 2)) + 1 : 0;
                     // stb_truetype sizes its vertex array from the last end point and, for a contour that starts off the curve, also
                     // reads the point after the first one: the end points must rise, and a last contour of one point must be on the
                     // curve (its flag is checked below, with the flags).
@@ -161,18 +170,24 @@ struct GlyphWalk {
                         std::uint64_t repeat = 1;
                         if (flag & 8) repeat += f.u8(p++);
                         repeat = std::min(repeat, points - i);
-                        if (lone >= i && lone < i + repeat && !(flag & 1)) out.unsafe = true;  // a last contour of one point, off the curve
+                        if (lone >= i && lone < i + repeat && !(flag & 1))
+                            out.unsafe = true;  // a last contour of one point, off the curve
                         i += repeat;
                         xBytes += repeat * ((flag & 2) ? 1 : (flag & 16) ? 0 : 2);
                         yBytes += repeat * ((flag & 4) ? 1 : (flag & 32) ? 0 : 2);
                     }
-                    if (p + xBytes + yBytes > glyf.at + glyf.len || f.bad) problem = "a glyph's outline runs past the end of the 'glyf' table";
+                    if (p + xBytes + yBytes > glyf.at + glyf.len || f.bad)
+                        problem = "a glyph's outline runs past the end of the 'glyf' table";
                 } else {
                     // composite glyph: components until one has no "more" bit
                     std::uint64_t p = at + 10;
                     for (int guard = 0;; ++guard) {
                         const std::uint32_t flags = f.u16(p), part = f.u16(p + 2);
-                        p += 4 + ((flags & 1) ? 4 : 2) + ((flags & 8) ? 2 : (flags & 0x40) ? 4 : (flags & 0x80) ? 8 : 0);
+                        p += 4 + ((flags & 1) ? 4 : 2) +
+                             ((flags & 8)      ? 2
+                              : (flags & 0x40) ? 4
+                              : (flags & 0x80) ? 8
+                                               : 0);
                         if (f.bad || p > glyf.at + glyf.len) {
                             problem = "a composite glyph runs past the end of the 'glyf' table";
                             break;
@@ -183,7 +198,8 @@ struct GlyphWalk {
                         out.cost += w.cost;
                         out.height = std::max(out.height, w.height + 1);
                         out.unsafe = out.unsafe || w.unsafe;
-                        if (out.cost > kMaxComponentWork || guard >= 4096) out.unsafe = true;  // it would draw too many glyphs
+                        if (out.cost > kMaxComponentWork || guard >= 4096)
+                            out.unsafe = true;  // it would draw too many glyphs
                         if (!(flags & 0x20) || out.unsafe) break;
                     }
                     if (out.height > kMaxComponentDepth) out.unsafe = true;
@@ -218,7 +234,8 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
             t.at = f.u32(rec + 8);
             t.len = f.u32(rec + 12);
             t.present = true;
-            if (t.at + t.len > size) t.present = false, t.len = ~std::uint64_t(0);  // marks "listed, but outside the file"
+            if (t.at + t.len > size)
+                t.present = false, t.len = ~std::uint64_t(0);  // marks "listed, but outside the file"
             return t;
         }
         return t;
@@ -226,8 +243,10 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
     const Table cmap = find("cmap"), head = find("head"), hhea = find("hhea"), hmtx = find("hmtx"), maxp = find("maxp"),
                 loca = find("loca"), glyf = find("glyf"), cff = find("CFF ");
     for (const Table* t : {&cmap, &head, &hhea, &hmtx, &maxp, &loca, &glyf, &cff})
-        if (t->len == ~std::uint64_t(0)) return refuse("a table of its directory lies outside the file (the file is truncated)");
-    if (!cmap.present || !head.present || !hhea.present || !hmtx.present) return {};  // stb_truetype refuses it with its own message
+        if (t->len == ~std::uint64_t(0))
+            return refuse("a table of its directory lies outside the file (the file is truncated)");
+    if (!cmap.present || !head.present || !hhea.present || !hmtx.present)
+        return {};  // stb_truetype refuses it with its own message
     if (head.len < 54 || hhea.len < 36) return refuse("its 'head' or 'hhea' table is too short");
     if (std::string why = check_cmap(f, cmap); !why.empty()) return refuse(std::move(why));
     if (!glyf.present) return {};  // outlines in a 'CFF ' table (or none): stb_truetype's own checked reader
@@ -236,7 +255,8 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
     const std::uint64_t glyphs = maxp.present && maxp.len >= 6 ? f.u16(maxp.at + 4) : 0xffffull;
     if (glyphs == 0) return refuse("its 'maxp' table says it has no glyphs");
     const std::uint64_t entry = f.u16(head.at + 50) == 0 ? 2 : 4;
-    if (loca.len < (glyphs + 1) * entry) return refuse("its 'loca' table has fewer entries than the glyph count in 'maxp'");
+    if (loca.len < (glyphs + 1) * entry)
+        return refuse("its 'loca' table has fewer entries than the glyph count in 'maxp'");
     const std::uint64_t longMetrics = f.u16(hhea.at + 34);
     if (longMetrics == 0) return refuse("its 'hhea' table says there are no horizontal metrics");
     if (hmtx.len < (glyphs <= longMetrics ? 4 * glyphs : 4 * longMetrics + 2 * (glyphs - longMetrics)))
@@ -245,11 +265,19 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
     std::vector<std::uint64_t> start(glyphs + 1);
     for (std::uint64_t g = 0; g <= glyphs; ++g)
         start[g] = entry == 2 ? 2ull * f.u16(loca.at + 2 * g) : f.u32(loca.at + 4 * g);
-    GlyphWalk w{f, glyf, start, std::vector<Walked>(glyphs), std::vector<unsigned char>(glyphs), std::vector<unsigned char>(glyphs), {}};
+    GlyphWalk w{f,
+                glyf,
+                start,
+                std::vector<Walked>(glyphs),
+                std::vector<unsigned char>(glyphs),
+                std::vector<unsigned char>(glyphs),
+                {}};
     for (std::uint32_t g = 0; g < glyphs && w.problem.empty(); ++g) w.walk(g, 0);
     if (!w.problem.empty()) return refuse(w.problem);
     if (f.bad) return refuse("a table is cut short");
-    if (w.memo[0].unsafe) return refuse("its glyph 0 (the .notdef box, drawn in place of every glyph that cannot be drawn) cannot be read");
+    if (w.memo[0].unsafe)
+        return refuse(
+            "its glyph 0 (the .notdef box, drawn in place of every glyph that cannot be drawn) cannot be read");
     FontCheck c;
     for (std::uint32_t g = 0; g < glyphs; ++g) {
         if (!w.memo[g].unsafe) continue;

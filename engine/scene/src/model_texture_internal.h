@@ -27,10 +27,10 @@ inline float smooth(float x) { return x * x * (3 - 2 * x); }
 struct Geo {
     std::vector<Vec3> pos, nrm;
     std::vector<Vec2> uv;
-    std::vector<Vec4> col;                       // empty when the mesh has no colours
+    std::vector<Vec4> col;  // empty when the mesh has no colours
     std::vector<std::array<std::uint32_t, 3>> tri;
-    std::vector<std::uint32_t> sub;              // submesh of each triangle
-    std::vector<Vec3> faceN;                     // unit; zero for a triangle with no area
+    std::vector<std::uint32_t> sub;  // submesh of each triangle
+    std::vector<Vec3> faceN;         // unit; zero for a triangle with no area
     std::vector<float> area;
     Vec3 bmin{}, bmax{};
     float diag = 1;
@@ -42,16 +42,16 @@ Geo make_geo(const MeshData& mesh);
 // pieces are filled by `bleed` rounds of copying the data of a covered neighbour (so the colour computed from it continues past the border).
 struct Texels {
     int size = 0;
-    std::vector<std::int32_t> tri;               // -1: no triangle
+    std::vector<std::int32_t> tri;  // -1: no triangle
     std::vector<float> b1, b2;
-    std::vector<std::uint8_t> bled;              // 1: filled by the bleed
-    std::size_t covered = 0;                     // texels inside a triangle (bleed not counted)
-    std::size_t overlapped = 0;                  // of those, claimed by two or more triangles
+    std::vector<std::uint8_t> bled;  // 1: filled by the bleed
+    std::size_t covered = 0;         // texels inside a triangle (bleed not counted)
+    std::size_t overlapped = 0;      // of those, claimed by two or more triangles
     bool has(std::size_t i) const { return tri[i] >= 0; }
 };
 Texels rasterize(const Geo& g, int size, int bleed);
 Vec3 texel_point(const Geo& g, const Texels& t, std::size_t i);
-Vec3 texel_normal(const Geo& g, const Texels& t, std::size_t i);   // interpolated vertex normal, unit
+Vec3 texel_normal(const Geo& g, const Texels& t, std::size_t i);  // interpolated vertex normal, unit
 
 // Nearest hit of a ray with the triangles, both faces.
 class Bvh {
@@ -96,7 +96,7 @@ private:
         bool convex;
     };
     std::vector<Seg> segs_;
-    std::vector<float> vertexH_;                 // per Geo vertex
+    std::vector<float> vertexH_;  // per Geo vertex
     Vec3 lo_{}, hi_{};
     float cell_ = 1;
     int nx_ = 1, ny_ = 1, nz_ = 1;

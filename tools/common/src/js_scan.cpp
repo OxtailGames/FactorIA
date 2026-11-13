@@ -28,23 +28,37 @@ Masked mask_source(const std::string& t) {
         const char n = i + 1 < t.size() ? t[i + 1] : '\0';
         switch (st) {
             case S::Code:
-                if (!subst.empty() && c == '{') ++subst.back();
+                if (!subst.empty() && c == '{')
+                    ++subst.back();
                 else if (!subst.empty() && c == '}') {
                     if (--subst.back() == 0) {
-                        blank(m.bare, i);  // the closing brace is not code either: an orphan `}` would unbalance declared_names
+                        blank(m.bare,
+                              i);  // the closing brace is not code either: an orphan `}` would unbalance declared_names
                         subst.pop_back();
                         st = S::Template;
                     }
-                }
-                else if (c == '/' && n == '/') { st = S::Line; blank(m.code, i); blank(m.bare, i); }
-                else if (c == '/' && n == '*') { st = S::Block; blank(m.code, i); blank(m.bare, i); }
-                else if (c == '\'') st = S::Single;
-                else if (c == '"') st = S::Double;
-                else if (c == '`') st = S::Template;
+                } else if (c == '/' && n == '/') {
+                    st = S::Line;
+                    blank(m.code, i);
+                    blank(m.bare, i);
+                } else if (c == '/' && n == '*') {
+                    st = S::Block;
+                    blank(m.code, i);
+                    blank(m.bare, i);
+                } else if (c == '\'')
+                    st = S::Single;
+                else if (c == '"')
+                    st = S::Double;
+                else if (c == '`')
+                    st = S::Template;
                 break;
             case S::Line:
-                if (c == '\n') st = S::Code;
-                else { blank(m.code, i); blank(m.bare, i); }
+                if (c == '\n')
+                    st = S::Code;
+                else {
+                    blank(m.code, i);
+                    blank(m.bare, i);
+                }
                 break;
             case S::Block:
                 blank(m.code, i);
@@ -184,11 +198,14 @@ std::map<std::string, std::string> tool_commands(const stdfs::path& projectDir) 
     return toolFile;
 }
 
-std::string tool_only_call_message(const std::string& scriptFile, const ProjectCall& call, const std::string& toolFile) {
-    return scriptFile + ":" + std::to_string(call.line) + " calls project." + call.name +
-           ", the command of " + toolFile +
-           ". tools/ is left out of the export, so in the shipped game that call fails (there is no such command). Tools are for "
-           "working on the game: move what the game needs into a module under scripts/ and import it from both the tool and the "
+std::string tool_only_call_message(const std::string& scriptFile, const ProjectCall& call,
+                                   const std::string& toolFile) {
+    return scriptFile + ":" + std::to_string(call.line) + " calls project." + call.name + ", the command of " +
+           toolFile +
+           ". tools/ is left out of the export, so in the shipped game that call fails (there is no such command). "
+           "Tools are for "
+           "working on the game: move what the game needs into a module under scripts/ and import it from both the "
+           "tool and the "
            "script (docs/EXPORTING.md, \"What is shipped and what is not\")";
 }
 

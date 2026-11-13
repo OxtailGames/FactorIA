@@ -25,13 +25,13 @@ PosKey key_of(const Vec3& p) {
     return k;
 }
 
-
 // Edges used by more than two triangles, counting by position (a seam between parts is one edge).
 std::size_t non_manifold_edges(const std::vector<Vec3>& positions, const std::vector<std::uint32_t>& indices) {
     std::map<std::pair<PosKey, PosKey>, std::uint32_t> uses;
     for (std::size_t i = 0; i + 2 < indices.size(); i += 3)
         for (int k = 0; k < 3; ++k) {
-            PosKey a = key_of(positions[indices[i + std::size_t(k)]]), b = key_of(positions[indices[i + std::size_t((k + 1) % 3)]]);
+            PosKey a = key_of(positions[indices[i + std::size_t(k)]]),
+                   b = key_of(positions[indices[i + std::size_t((k + 1) % 3)]]);
             if (b < a) std::swap(a, b);
             ++uses[{a, b}];
         }
@@ -40,14 +40,17 @@ std::size_t non_manifold_edges(const std::vector<Vec3>& positions, const std::ve
     return bad;
 }
 
-ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std::vector<float>& attributes, std::size_t attributeStride,
-                                  const std::vector<float>& weights, const std::vector<std::uint32_t>& indicesIn,
-                                  const std::vector<std::uint32_t>& triPartsIn, const ModelSimplifyParams& params, bool lockSeams) {
+ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std::vector<float>& attributes,
+                                  std::size_t attributeStride, const std::vector<float>& weights,
+                                  const std::vector<std::uint32_t>& indicesIn,
+                                  const std::vector<std::uint32_t>& triPartsIn, const ModelSimplifyParams& params,
+                                  bool lockSeams) {
     ModelSimplifyResult out;
     const std::size_t triCount = indicesIn.size() / 3;
     std::vector<std::uint32_t> parts = triPartsIn;
     if (parts.size() != triCount) parts.assign(triCount, 0);
-    const bool haveAttr = attributeStride > 0 && attributes.size() >= positions.size() * attributeStride && weights.size() >= attributeStride;
+    const bool haveAttr = attributeStride > 0 && attributes.size() >= positions.size() * attributeStride &&
+                          weights.size() >= attributeStride;
 
     // Every part gets its own copy of each vertex it uses. Copies at one position are a seam to meshoptimizer: it collapses along the seam
     // moving all copies together, so a part boundary may shorten along itself but never opens a crack, and a collapse never joins two parts.
@@ -76,7 +79,8 @@ ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std:
         flat[i * 3 + 1] = p.y;
         flat[i * 3 + 2] = p.z;
         if (haveAttr)
-            std::copy(attributes.begin() + std::ptrdiff_t(keep[i] * attributeStride), attributes.begin() + std::ptrdiff_t((keep[i] + 1) * attributeStride),
+            std::copy(attributes.begin() + std::ptrdiff_t(keep[i] * attributeStride),
+                      attributes.begin() + std::ptrdiff_t((keep[i] + 1) * attributeStride),
                       attr.begin() + std::ptrdiff_t(i * attributeStride));
     }
 
@@ -100,9 +104,10 @@ ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std:
     const float maxError = params.maxError > 0 ? float(params.maxError) : 1e30f;
     const std::size_t targetIdx = params.targetTriangles > 0 ? params.targetTriangles * 3 : 0;
     float err = 0;
-    const std::size_t n = meshopt_simplifyWithUpdate(idx.data(), idx.size(), flat.data(), vcount, 12, haveAttr ? attr.data() : nullptr,
-                                                     attributeStride * sizeof(float), haveAttr ? weights.data() : nullptr,
-                                                     haveAttr ? attributeStride : 0, lockSeams ? locked.data() : nullptr, targetIdx, maxError, options, &err);
+    const std::size_t n = meshopt_simplifyWithUpdate(
+        idx.data(), idx.size(), flat.data(), vcount, 12, haveAttr ? attr.data() : nullptr,
+        attributeStride * sizeof(float), haveAttr ? weights.data() : nullptr, haveAttr ? attributeStride : 0,
+        lockSeams ? locked.data() : nullptr, targetIdx, maxError, options, &err);
     idx.resize(n);
     out.error = err;
     out.limitedByError = params.targetTriangles > 0 && n / 3 > params.targetTriangles && params.maxError > 0;
@@ -110,7 +115,8 @@ ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std:
     // Compact: parts in increasing id (triangles in input order inside a part), vertices in order of first use.
     std::vector<std::uint32_t> order(n / 3);
     for (std::size_t t = 0; t < order.size(); ++t) order[t] = std::uint32_t(t);
-    std::stable_sort(order.begin(), order.end(), [&](std::uint32_t x, std::uint32_t y) { return copyPart[idx[x * 3]] < copyPart[idx[y * 3]]; });
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::uint32_t x, std::uint32_t y) { return copyPart[idx[x * 3]] < copyPart[idx[y * 3]]; });
     std::vector<std::uint32_t> remap(vcount, 0xFFFFFFFFu);
     for (std::uint32_t t : order) {
         for (int k = 0; k < 3; ++k) {
@@ -132,10 +138,12 @@ ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std:
 
 }  // namespace
 
-ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std::vector<float>& attributes, std::size_t attributeStride,
-                                   const std::vector<float>& weights, const std::vector<std::uint32_t>& indices,
+ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std::vector<float>& attributes,
+                                   std::size_t attributeStride, const std::vector<float>& weights,
+                                   const std::vector<std::uint32_t>& indices,
                                    const std::vector<std::uint32_t>& triParts, const ModelSimplifyParams& params) {
-    ModelSimplifyResult out = simplify_once(positions, attributes, attributeStride, weights, indices, triParts, params, false);
+    ModelSimplifyResult out =
+        simplify_once(positions, attributes, attributeStride, weights, indices, triParts, params, false);
     // Where several parts meet, meshoptimizer can leave an edge shared by three triangles. A mesh that had none must not get one: try again
     // with the part boundaries locked, and keep the input when even that is not clean.
     const std::size_t before = non_manifold_edges(positions, indices);
@@ -153,8 +161,8 @@ ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std
     return same;
 }
 
-ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices, std::vector<std::uint32_t>& triParts,
-                                  const ModelDecimateParams& params) {
+ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices,
+                                  std::vector<std::uint32_t>& triParts, const ModelDecimateParams& params) {
     ModelDecimateStats stats;
     stats.trianglesBefore = indices.size() / 3;
     ModelSimplifyParams sp;

@@ -45,8 +45,8 @@ int make_tile(int index, int turns = 0, bool flipX = false, bool flipY = false);
 
 // One problem found in the data of a Tilemap component.
 struct TilemapIssue {
-    bool error = true;        // false = warning
-    std::string pointer;      // JSON pointer relative to the component, e.g. "/tiles/12" ("" = the whole component)
+    bool error = true;    // false = warning
+    std::string pointer;  // JSON pointer relative to the component, e.g. "/tiles/12" ("" = the whole component)
     std::string message;
     std::string hint;
 };
@@ -63,8 +63,8 @@ struct TilemapIssue {
 // Entries that are not numbers, and negative numbers, are -1 (empty). Entries keep their flip/rotate flag bits (see
 // kTileFlipX): tile_index() says which tile, tile_flags() how it is turned.
 struct TilemapSize {
-    int width = 0;               // tiles per row
-    int height = 0;              // number of rows
+    int width = 0;   // tiles per row
+    int height = 0;  // number of rows
     bool empty() const { return width <= 0 || height <= 0; }
 };
 // Just the size of the effective grid (cheap: no tile list is built). 0 x 0 when `tiles` is empty or not an array.
@@ -87,9 +87,9 @@ std::uint32_t tilemap_version(Tilemap& tm);
 
 // The size plus the flat tile list.
 struct TilemapGrid {
-    int width = 0;               // tiles per row
-    int height = 0;              // number of rows
-    std::vector<int> tiles;      // width * height entries, row-major, row 0 = TOP row, -1 = empty
+    int width = 0;           // tiles per row
+    int height = 0;          // number of rows
+    std::vector<int> tiles;  // width * height entries, row-major, row 0 = TOP row, -1 = empty
 
     bool empty() const { return width <= 0 || height <= 0; }
     // Tile at (col, row); -1 when outside the map.

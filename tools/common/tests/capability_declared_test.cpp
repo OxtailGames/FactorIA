@@ -28,12 +28,14 @@ struct Call {
 bool refused_by_a_path_rule(const CommandResult& r) {
     const std::string code = r.error.is_object() ? r.error.value("code", std::string()) : std::string();
     const std::string message = r.error.is_object() ? r.error.value("message", std::string()) : std::string();
-    const std::vector<std::string> rules = {"path_outside_root", "absolute_path_denied", "managed_path_denied", "invalid_path"};
+    const std::vector<std::string> rules = {"path_outside_root", "absolute_path_denied", "managed_path_denied",
+                                            "invalid_path"};
     for (const std::string& rule : rules)
         if (code == rule || message.find("(code: " + rule + ")") != std::string::npos) return true;
     if (code != "invalid_argument") return false;
-    for (const char* wording : {"is not a path inside the project", "is not a project path", "cannot be written", "escapes the project", "does not accept",
-                                "must be a project-relative path", "is not under assets/"})
+    for (const char* wording :
+         {"is not a path inside the project", "is not a project path", "cannot be written", "escapes the project",
+          "does not accept", "must be a project-relative path", "is not under assets/"})
         if (message.find(wording) != std::string::npos) return true;
     return false;
 }
@@ -55,14 +57,18 @@ TEST_CASE("tooling commands declare their capabilities explicitly (M92.1b2b)") {
         {"checkpoint.create", writes_project()},
         {"checkpoint.read", reads()},
         {"project.validate", reads()},
-        {"project.export", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}},
+        {"project.export",
+         CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}},
         {"feedback.list", reads()},
         {"feedback.report", writes_project()},
         {"feedback.verdicts", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}},
-        {"feedback.share", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Publish}},
+        {"feedback.share",
+         CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network, Capability::Publish}},
         {"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
-        {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}},
-        {"sign.macos", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}},
+        {"setup.install",
+         CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process, Capability::Network}},
+        {"sign.macos",
+         CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}},
         {"shader.compile", CapabilitySet{Capability::Read, Capability::Process}},
         {"image.create", writes_project()},
         {"image.info", reads()},
@@ -82,7 +88,8 @@ TEST_CASE("tooling commands declare their capabilities explicitly (M92.1b2b)") {
     }
 }
 
-TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the project or inside .git for an MCP client") {
+TEST_CASE(
+    "image, vector, vector_rig and sign.macos refuse an output outside the project or inside .git for an MCP client") {
     testing::TempDir tmp;
     testing::TempDir other;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
@@ -115,7 +122,11 @@ TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the
         {"image.frame.add", Json::object({{"path", ".git/evil.image.json"}})},
         {"image.tile.set", Json::object({{"path", ".git/evil.image.json"}, {"enabled", true}})},
         {"image.pixel", Json::object({{"path", "../evil.image.json"}, {"layer", "0"}})},
-        {"image.draw", Json::object({{"path", outsideDoc}, {"layer", "0"}, {"shapes", Json::array({Json::object({{"type", "fill"}, {"at", Json::array({0, 0})}, {"color", "x"}})})}})},
+        {"image.draw",
+         Json::object({{"path", outsideDoc},
+                       {"layer", "0"},
+                       {"shapes", Json::array({Json::object(
+                                      {{"type", "fill"}, {"at", Json::array({0, 0})}, {"color", "x"}})})}})},
         {"image.tileset.build", Json::object({{"path", "../evil.image.json"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"output", "../evil.png"}})},
         {"image.tileset.build", Json::object({{"path", "assets/art/t.image.json"}, {"output", ".git/evil.png"}})},
@@ -155,13 +166,15 @@ TEST_CASE("image, vector, vector_rig and sign.macos refuse an output outside the
 
     // Inside the project the same caller can write.
     CommandCallerScope mcp(CommandCaller::Mcp);
-    auto ok = reg.call("image.create", Json::object({{"path", "assets/art/ok.image.json"}, {"width", 8}, {"height", 8}}));
+    auto ok =
+        reg.call("image.create", Json::object({{"path", "assets/art/ok.image.json"}, {"width", 8}, {"height", 8}}));
     CHECK_MESSAGE(ok.ok, ok.error.dump());
     CHECK(stdfs::exists(game / "assets" / "art" / "ok.image.json"));
     CHECK(stdfs::exists(game / "assets" / "art" / "ok.png"));
 }
 
-TEST_CASE("a {read,state} scope is refused the writers and the network commands; the command-line user may write an absolute path") {
+TEST_CASE("a {read,state} scope is refused the writers and the network commands; the command-line user may write an "
+          "absolute path") {
     testing::TempDir tmp;
     testing::TempDir other;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
@@ -197,7 +210,8 @@ TEST_CASE("a {read,state} scope is refused the writers and the network commands;
     {
         // An MCP client may not name a folder outside the project.
         CommandCallerScope mcp(CommandCaller::Mcp);
-        CHECK_FALSE(reg.call("project.new_plugin", Json::object({{"name", "p1"}, {"path", outside}, {"dryRun", true}})).ok);
+        CHECK_FALSE(
+            reg.call("project.new_plugin", Json::object({{"name", "p1"}, {"path", outside}, {"dryRun", true}})).ok);
         CHECK_FALSE(stdfs::exists(other.path / "plug"));
     }
     // The command-line user (every capability) may.

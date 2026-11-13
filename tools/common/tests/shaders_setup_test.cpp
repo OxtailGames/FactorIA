@@ -16,7 +16,8 @@ namespace stdfs = std::filesystem;
 
 namespace fa::setup_detail {
 // Defined in tools/common/src/setup_shaders.cpp (private to fa_tooling): the install of one given binary entry.
-SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options, const SokolShdcBinary* bin);
+SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options,
+                                   const SokolShdcBinary* bin);
 }  // namespace fa::setup_detail
 
 namespace {
@@ -62,11 +63,13 @@ struct Lab {
     }
 };
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 std::string url_of(const SokolShdcBinary& b, const std::string& file) {
-    return std::string("https://raw.githubusercontent.com/floooh/sokol-tools-bin/") + kSetupSokolShdcCommit + "/bin/" + b.dir +
-           "/" + file;
+    return std::string("https://raw.githubusercontent.com/floooh/sokol-tools-bin/") + kSetupSokolShdcCommit + "/bin/" +
+           b.dir + "/" + file;
 }
 
 SetupInstallOptions options(bool force = false) {
@@ -86,8 +89,9 @@ SetupComponent shaders_status(const SetupContext& c) {
 
 TEST_CASE("setup shaders: every desktop host has a binary, others are unsupported") {
     Lab lab;
-    const std::pair<const char*, const char*> hosts[] = {{"windows", "x64"}, {"windows", "aarch64"}, {"linux", "x64"},
-                                                         {"linux", "aarch64"}, {"macos", "x64"},     {"macos", "aarch64"}};
+    const std::pair<const char*, const char*> hosts[] = {{"windows", "x64"}, {"windows", "aarch64"},
+                                                         {"linux", "x64"},   {"linux", "aarch64"},
+                                                         {"macos", "x64"},   {"macos", "aarch64"}};
     for (const auto& [host, arch] : hosts) {
         CAPTURE(host);
         CAPTURE(arch);
@@ -211,7 +215,8 @@ TEST_CASE("setup shaders: Windows downloads sokol-shdc.exe from bin/win32") {
 }
 
 TEST_CASE("setup shaders: compile_shaders.sh pins the same commit and hashes as setup.h") {
-    const std::string script = testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "shaders" / "compile_shaders.sh");
+    const std::string script =
+        testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "shaders" / "compile_shaders.sh");
     REQUIRE_FALSE(script.empty());
     CHECK(has_text(script, std::string("SHDC_COMMIT=") + kSetupSokolShdcCommit));
     for (const SokolShdcBinary& b : kSetupSokolShdcBinaries) {
@@ -224,13 +229,16 @@ TEST_CASE("setup shaders: compile_shaders.sh pins the same commit and hashes as 
 TEST_CASE("setup shaders: setup.h keeps the pin lines that the release's bundle script reads") {
     // scripts/bundle-sokol-shdc.sh (release.yml) reads the pin from setup.h with sed, one line per value, and fails the
     // release when it cannot: these are the lines it reads, so a reformat of setup.h fails here first.
-    std::string header = testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "common" / "include" / "fa" / "tooling" / "setup.h");
+    std::string header =
+        testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "common" / "include" / "fa" / "tooling" / "setup.h");
     std::erase(header, '\r');  // a Windows checkout may have CRLF; the script drops it too
-    CHECK(has_text(header, std::string("\ninline constexpr const char* kSetupSokolShdcCommit = \"") + kSetupSokolShdcCommit + "\";\n"));
+    CHECK(has_text(header, std::string("\ninline constexpr const char* kSetupSokolShdcCommit = \"") +
+                               kSetupSokolShdcCommit + "\";\n"));
     CHECK(has_text(header, "\ninline constexpr SokolShdcBinary kSetupSokolShdcBinaries[] = {\n"));
     for (const SokolShdcBinary& b : kSetupSokolShdcBinaries) {
         CAPTURE(b.dir);
-        CHECK(has_text(header, std::string("\n    {\"") + b.host + "\", \"" + b.arch + "\", \"" + b.dir + "\", \"" + b.sha256 + "\"},\n"));
+        CHECK(has_text(header, std::string("\n    {\"") + b.host + "\", \"" + b.arch + "\", \"" + b.dir + "\", \"" +
+                                   b.sha256 + "\"},\n"));
     }
 }
 
@@ -239,8 +247,7 @@ TEST_CASE("setup shaders: setup.status and setup.install know the component") {
     SetupContext c = lab.ctx();
     bool listed = false;
     const Json status = setup_status(c, {}, false).to_json();
-    for (const Json& comp : status["components"])
-        listed = listed || comp.value("id", "") == "shaders";
+    for (const Json& comp : status["components"]) listed = listed || comp.value("id", "") == "shaders";
     CHECK(listed);
     SetupInstallOptions typo = options();
     typo.component = "shader";
@@ -270,12 +277,13 @@ TEST_CASE("setup shaders: on Windows the status and a vanished file explain the 
     const SokolShdcBinary fake{"windows", "", "win32", sum.c_str()};
     lab.served[url_of(fake, "sokol-shdc.exe")] = body;
     SetupContext gone = lab.ctx("windows", "x64");
-    gone.progress = [&](const std::string& line) {  // the "still there?" line: the antivirus removes the file just before
-        if (has_text(line, "still there")) {
-            std::error_code ec;
-            stdfs::remove(stdfs::path(sokol_shdc_install_dir(gone)) / "sokol-shdc.exe", ec);
-        }
-    };
+    gone.progress =
+        [&](const std::string& line) {  // the "still there?" line: the antivirus removes the file just before
+            if (has_text(line, "still there")) {
+                std::error_code ec;
+                stdfs::remove(stdfs::path(sokol_shdc_install_dir(gone)) / "sokol-shdc.exe", ec);
+            }
+        };
     const SetupResult r = setup_detail::shaders_install_binary(gone, options(), &fake);
     REQUIRE_FALSE(r.ok);
     CHECK(has_text(r.error.message, "cannot be read"));

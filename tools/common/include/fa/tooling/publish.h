@@ -50,9 +50,9 @@ const std::vector<std::string>& publish_platforms();
 // ---------------------------------------------------------------------------
 
 struct SteamPublishSettings {
-    std::string account;                          // steamcmd login name; "" = not set
-    std::map<std::string, long long> depots;      // platform -> depot id
-    std::string branch;                           // beta branch to set live after a build; "" = none (never "default")
+    std::string account;                      // steamcmd login name; "" = not set
+    std::map<std::string, long long> depots;  // platform -> depot id
+    std::string branch;                       // beta branch to set live after a build; "" = none (never "default")
 };
 
 struct ItchPublishSettings {
@@ -62,27 +62,28 @@ struct ItchPublishSettings {
 
 struct EpicPublishSettings {
     std::string organizationId, productId, clientId;
-    std::map<std::string, std::string> artifacts; // platform -> artifact id
+    std::map<std::string, std::string> artifacts;  // platform -> artifact id
 };
 
 struct GogPublishSettings {
-    std::string productId;                        // the game's product id of the GOG Developer Portal
-    std::string clientId;                         // GALAXY SDK client id; "" = not set
+    std::string productId;  // the game's product id of the GOG Developer Portal
+    std::string clientId;   // GALAXY SDK client id; "" = not set
     std::vector<std::string> languages = {"en-US"};
 };
 
 struct AppStorePublishSettings {
-    std::string appleId;                          // the app's numeric Apple ID in App Store Connect (App Information > General Information)
+    std::string appleId;  // the app's numeric Apple ID in App Store Connect (App Information > General Information)
 };
 
 struct GooglePlayPublishSettings {
-    std::string track = "internal";               // internal | alpha | beta | production, or the name of a custom closed track
-    std::string releaseStatus = "draft";          // draft | completed
-    std::map<std::string, std::string> changelogs;  // Play locale (en-US) -> project-relative text file: the "What's new" of the release
+    std::string track = "internal";       // internal | alpha | beta | production, or the name of a custom closed track
+    std::string releaseStatus = "draft";  // draft | completed
+    std::map<std::string, std::string>
+        changelogs;  // Play locale (en-US) -> project-relative text file: the "What's new" of the release
 };
 
 struct MicrosoftPublishSettings {
-    std::string productId;                        // the app's Store ID in Partner Center (12 letters and digits, e.g. 9NBLGGH4NNS1)
+    std::string productId;  // the app's Store ID in Partner Center (12 letters and digits, e.g. 9NBLGGH4NNS1)
 };
 
 struct PublishSettings {
@@ -99,9 +100,9 @@ struct PublishSettings {
 std::string itch_channel_for(const ItchPublishSettings& settings, const std::string& platform);
 
 struct PublishSettingsParse {
-    PublishSettings settings;                     // what could be read; an invalid field keeps its default
-    std::vector<ExportSettingsIssue> errors;      // wrong type or value
-    std::vector<ExportSettingsIssue> warnings;    // unknown keys (with "did you mean")
+    PublishSettings settings;                   // what could be read; an invalid field keeps its default
+    std::vector<ExportSettingsIssue> errors;    // wrong type or value
+    std::vector<ExportSettingsIssue> warnings;  // unknown keys (with "did you mean")
 };
 
 // Reads "publish" from the parsed factoria.json. Pure: no file is looked at. A store the game does not publish to may be
@@ -113,22 +114,28 @@ PublishSettingsParse parse_publish_settings(const Json& projectJson);
 // ---------------------------------------------------------------------------
 
 struct PublishOptions {
-    std::string store;                            // steam | itch | epic | gog | appstore | googleplay
-    std::string projectDir;                       // folder containing factoria.json
-    std::vector<std::string> platforms;           // windows | macos | linux ("" = every one that has an export and is set up for the store)
-    std::string outDir;                           // parent folder of the exports ("" = <projectDir>/build/export)
-    std::map<std::string, std::string> folders;   // platform -> folder to upload instead of <out>/<slug>-<platform> (inside the project)
-    bool dryRun = false;                          // write the build files and report the command lines; run nothing
-    std::string account;                          // steam: login name (else publish.steam.account)
-    std::string appId;                            // steam: app id (else steam_appid.txt)
-    std::string branch;                           // steam: beta branch to set live (else publish.steam.branch); gog: branch to publish to
-    std::string artifact;                         // appstore / googleplay / microsoft: the .ipa / .aab / .msix to upload ("" = build/export/<slug>.ipa, build/export/<slug>-android/<slug>.aab)
-    std::string track, releaseStatus;             // googleplay: release track and draft|completed (else publish.googleplay.track / .releaseStatus)
-    std::string host;                             // "" = this computer ("macos" | "windows" | "linux"); only tests change it (appstore runs on macOS only)
-    std::function<void(const std::string& line)> progress;  // optional: each line the uploader prints (the same lines go to the log)
-    const CancelFlag* cancel = nullptr;           // optional: set to true to stop the uploader (its process tree is killed)
-    ExportEnvLookup env = system_export_env();    // environment variables (secrets, tool paths); only tests change it
-    std::string toolConfigPath;                   // "" = machine_export_config_path(env); only tests change it
+    std::string store;       // steam | itch | epic | gog | appstore | googleplay
+    std::string projectDir;  // folder containing factoria.json
+    std::vector<std::string>
+        platforms;       // windows | macos | linux ("" = every one that has an export and is set up for the store)
+    std::string outDir;  // parent folder of the exports ("" = <projectDir>/build/export)
+    std::map<std::string, std::string>
+        folders;          // platform -> folder to upload instead of <out>/<slug>-<platform> (inside the project)
+    bool dryRun = false;  // write the build files and report the command lines; run nothing
+    std::string account;  // steam: login name (else publish.steam.account)
+    std::string appId;    // steam: app id (else steam_appid.txt)
+    std::string branch;   // steam: beta branch to set live (else publish.steam.branch); gog: branch to publish to
+    std::string
+        artifact;  // appstore / googleplay / microsoft: the .ipa / .aab / .msix to upload ("" = build/export/<slug>.ipa, build/export/<slug>-android/<slug>.aab)
+    std::string track,
+        releaseStatus;  // googleplay: release track and draft|completed (else publish.googleplay.track / .releaseStatus)
+    std::string
+        host;  // "" = this computer ("macos" | "windows" | "linux"); only tests change it (appstore runs on macOS only)
+    std::function<void(const std::string& line)>
+        progress;                        // optional: each line the uploader prints (the same lines go to the log)
+    const CancelFlag* cancel = nullptr;  // optional: set to true to stop the uploader (its process tree is killed)
+    ExportEnvLookup env = system_export_env();  // environment variables (secrets, tool paths); only tests change it
+    std::string toolConfigPath;                 // "" = machine_export_config_path(env); only tests change it
 };
 
 struct PublishUpload {
@@ -137,22 +144,22 @@ struct PublishUpload {
     std::string destination;  // where it goes: "Steam app 480, depot 481", "user/game:windows"...
     std::size_t files = 0;    // files that are uploaded (the export's own marker and AI disclosure are left out)
     std::uint64_t bytes = 0;
-    bool uploaded = false;    // its uploader finished successfully
+    bool uploaded = false;  // its uploader finished successfully
 };
 
 struct PublishStep {
     std::string title;
     std::vector<std::string> command;  // the command line, secrets replaced by <redacted>
-    std::vector<std::string> env;      // NAMES of the environment variables set for the uploader (values are never listed)
-    std::vector<std::string> files;    // build files written for it
+    std::vector<std::string> env;  // NAMES of the environment variables set for the uploader (values are never listed)
+    std::vector<std::string> files;  // build files written for it
     bool ran = false;
-    int exitCode = -1;                 // of the uploader once it ran
+    int exitCode = -1;  // of the uploader once it ran
 };
 
 struct PublishReport {
     std::string store, version;
-    std::string tool, toolFrom;        // the uploader and where it was found ("FACTORIA_STEAMCMD", "export.json", "PATH")
-    std::string log;                   // absolute path of the log (empty for a dry run)
+    std::string tool, toolFrom;  // the uploader and where it was found ("FACTORIA_STEAMCMD", "export.json", "PATH")
+    std::string log;             // absolute path of the log (empty for a dry run)
     bool dryRun = false;
     bool uploaded = false;             // every step ran and succeeded
     bool failed = false;               // an uploader failed, could not start, or was cancelled
@@ -160,7 +167,7 @@ struct PublishReport {
     int exitCode = -1;                 // of the last uploader that ran
     std::vector<PublishUpload> uploads;
     std::vector<PublishStep> steps;
-    std::vector<std::string> files;    // everything written, absolute (build files and the log)
+    std::vector<std::string> files;  // everything written, absolute (build files and the log)
     std::vector<std::string> warnings;
     std::vector<std::string> nextSteps;
     Json to_json() const;

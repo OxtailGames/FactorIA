@@ -63,6 +63,7 @@ Result<void> animator_sample(World& world, Entity e, std::string_view clip, floa
 // Sets the weight (0..1) of the layer called `layer`. Weight 0 stops the layer, a rising weight starts it from its first pose.
 Result<void> animator_set_layer_weight(World& world, Entity e, std::string_view layer, float weight);
 // Plays `clip` on the layer (which has a plain `clip`, no `states`), cross-fading over `fadeSeconds`; "" empties the layer.
-Result<void> animator_play_layer(World& world, Entity e, std::string_view layer, std::string_view clip, float fadeSeconds);
+Result<void> animator_play_layer(World& world, Entity e, std::string_view layer, std::string_view clip,
+                                 float fadeSeconds);
 
 }  // namespace fa

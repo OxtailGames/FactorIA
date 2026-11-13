@@ -56,8 +56,8 @@ struct LoadOrderMerge {
     std::size_t scenes = 0;  // scenes in the file after the merge
     std::size_t files = 0;   // file entries in it
     std::size_t added = 0;   // entries this merge added
-    bool changed = false;    // the merge changed the order (new files, a reorder by a cold session, a scene marked cold)
-    bool skipped = false;    // nothing recorded: the project is an exported game (load_order_recordable)
+    bool changed = false;  // the merge changed the order (new files, a reorder by a cold session, a scene marked cold)
+    bool skipped = false;  // nothing recorded: the project is an exported game (load_order_recordable)
 };
 
 // `recorded` with `seen` merged in (see the top of this file). Pure and deterministic.

@@ -72,8 +72,8 @@ std::vector<std::string> split_names(std::string_view matcher) {
 // Letters, digits, _ - space , | (and . * for command names): the list form of a matcher.
 bool is_name_list(std::string_view m, bool commandNames) {
     for (char c : m) {
-        const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == ' ' || c == ',' || c == '|' ||
-                        (commandNames && (c == '.' || c == '*'));
+        const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == ' ' || c == ',' ||
+                        c == '|' || (commandNames && (c == '.' || c == '*'));
         if (!ok) return false;
     }
     return true;
@@ -102,7 +102,9 @@ bool glob_match(std::string_view pattern, std::string_view text) {
 std::string quote_arg(const std::string& s) {
     bool plain = !s.empty();
     for (char c : s)
-        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == '/' || c == ':' || c == '\\')) plain = false;
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == '/' || c == ':' ||
+              c == '\\'))
+            plain = false;
     if (plain) return s;
 #ifdef _WIN32
     std::string out = "\"";
@@ -116,7 +118,8 @@ std::string quote_arg(const std::string& s) {
 }
 
 std::int64_t now_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 }  // namespace
@@ -144,7 +147,8 @@ bool is_command_hook_event(HookEvent e) { return e == HookEvent::BeforeCommand |
 bool hook_event_has_matcher(HookEvent e) { return e != HookEvent::UserPromptSubmit && e != HookEvent::Stop; }
 
 bool hook_event_can_block(HookEvent e) {
-    return e == HookEvent::PreToolUse || e == HookEvent::UserPromptSubmit || e == HookEvent::Stop || e == HookEvent::BeforeCommand;
+    return e == HookEvent::PreToolUse || e == HookEvent::UserPromptSubmit || e == HookEvent::Stop ||
+           e == HookEvent::BeforeCommand;
 }
 
 std::string hook_matcher_problem(std::string_view matcher) {
@@ -154,7 +158,8 @@ std::string hook_matcher_problem(std::string_view matcher) {
         std::regex re{std::string(matcher)};
     } catch (const std::regex_error& e) {
         return "'" + std::string(matcher) + "' is not a valid regular expression (" + e.what() +
-               "). Use tool or command names separated by | (\"Edit|Write\", \"scene.*|assets.generate_*\"), or a regular expression such as \"mcp__.*\".";
+               "). Use tool or command names separated by | (\"Edit|Write\", \"scene.*|assets.generate_*\"), or a "
+               "regular expression such as \"mcp__.*\".";
     }
     return {};
 }
@@ -177,28 +182,31 @@ bool hook_matches(HookEvent event, std::string_view matcher, std::string_view va
 
 std::string hook_module_problem(std::string_view module) {
     const std::string m(module);
-    if (m.empty()) return "a hook of type \"js\" needs its \"module\", a file of the hooks/ folder such as hooks/guard.js";
+    if (m.empty())
+        return "a hook of type \"js\" needs its \"module\", a file of the hooks/ folder such as hooks/guard.js";
     if (m.find('\\') != std::string::npos || m.find(':') != std::string::npos || m[0] == '/' || m[0] == '~')
-        return "module '" + m + "' must be a path inside the project written with / and relative to it, such as hooks/guard.js";
+        return "module '" + m +
+               "' must be a path inside the project written with / and relative to it, such as hooks/guard.js";
     if (m.rfind(std::string(kProjectHooksFolder) + "/", 0) != 0)
-        return "module '" + m + "' is not in the hooks/ folder of the project. Move it there and write \"module\": \"hooks/" +
+        return "module '" + m +
+               "' is not in the hooks/ folder of the project. Move it there and write \"module\": \"hooks/" +
                (m.rfind('/') == std::string::npos ? m : m.substr(m.rfind('/') + 1)) + "\"";
     std::size_t pos = 0;
     while (pos <= m.size()) {
         const std::size_t slash = m.find('/', pos);
         const std::string part = m.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
         if (part == ".." || part == "." || (part.empty() && slash != std::string::npos))
-            return "module '" + m + "' leaves the hooks/ folder or has an empty path part; write a plain path such as hooks/guard.js";
+            return "module '" + m +
+                   "' leaves the hooks/ folder or has an empty path part; write a plain path such as hooks/guard.js";
         if (slash == std::string::npos) break;
         pos = slash + 1;
     }
-    if (m.size() < 4 || m.substr(m.size() - 3) != ".js") return "module '" + m + "' is not a .js file; a JavaScript hook is a module such as hooks/guard.js";
+    if (m.size() < 4 || m.substr(m.size() - 3) != ".js")
+        return "module '" + m + "' is not a .js file; a JavaScript hook is a module such as hooks/guard.js";
     return {};
 }
 
-std::string HookHandler::label() const {
-    return clip(extension + ": " + (type == "js" ? module : command), 100);
-}
+std::string HookHandler::label() const { return clip(extension + ": " + (type == "js" ? module : command), 100); }
 
 bool HookSet::has_event(HookEvent e) const {
     return std::any_of(groups.begin(), groups.end(), [&](const HookGroup& g) { return g.event == e; });
@@ -244,7 +252,8 @@ HookSet make_hook_set(const std::vector<HookSource>& sources) {
                     if (handler.runs_here()) {
                         g.handlers.push_back(std::move(handler));
                     } else {
-                        const std::string note = src.extension + ": the " + it.key() + " hook of type " + handler.type + " runs only in Claude Code";
+                        const std::string note = src.extension + ": the " + it.key() + " hook of type " + handler.type +
+                                                 " runs only in Claude Code";
                         if (noted.insert(note).second) set.notRun.push_back(note);
                     }
                 }
@@ -260,7 +269,8 @@ Json hooks_for_claude_code(const Json& hooks, const std::string& factoriaCommand
     if (!hooks.is_object()) return out;
     for (auto it = hooks.begin(); it != hooks.end(); ++it) {
         const auto engineEvent = parse_hook_event(it.key());
-        if (engineEvent && is_command_hook_event(*engineEvent)) continue;  // engine events: Claude Code does not know them
+        if (engineEvent && is_command_hook_event(*engineEvent))
+            continue;  // engine events: Claude Code does not know them
         if (!it.value().is_array()) continue;
         Json groups = Json::array();
         for (const Json& group : it.value()) {
@@ -274,7 +284,8 @@ Json hooks_for_claude_code(const Json& hooks, const std::string& factoriaCommand
                     if (util::str(h, "type") != "js") continue;
                     Json command = Json::object();
                     command["type"] = "command";
-                    command["command"] = quote_arg(factoriaCommand) + " hooks run " + quote_arg(util::str(h, "module")) + " --project " + quote_arg(projectDir);
+                    command["command"] = quote_arg(factoriaCommand) + " hooks run " +
+                                         quote_arg(util::str(h, "module")) + " --project " + quote_arg(projectDir);
                     if (h.contains("timeout")) command["timeout"] = h["timeout"];
                     h = command;
                 }
@@ -321,7 +332,8 @@ std::string HookOutcome::failures() const {
 }
 
 Json hook_outcome_json(const HookOutcome& o) {
-    Json j = Json::object({{"blocked", o.blocked}, {"stop", o.stop}, {"allowed", o.allowed}, {"failed", o.anyFailed()}});
+    Json j =
+        Json::object({{"blocked", o.blocked}, {"stop", o.stop}, {"allowed", o.allowed}, {"failed", o.anyFailed()}});
     if (!o.reason.empty()) j["reason"] = o.reason;
     if (!o.blockedBy.empty()) j["blockedBy"] = o.blockedBy;
     if (!o.stopReason.empty()) j["stopReason"] = o.stopReason;
@@ -379,7 +391,8 @@ void join_into(std::string& dst, const std::string& more) {
 
 }  // namespace
 
-void apply_hook_answer(HookEvent event, const Json& answer, const std::string& label, HookOutcome& out, HookRunRecord& rec) {
+void apply_hook_answer(HookEvent event, const Json& answer, const std::string& label, HookOutcome& out,
+                       HookRunRecord& rec) {
     if (!answer.is_object()) return;
     auto block = [&](const std::string& reason) {
         out.blocked = true;
@@ -403,17 +416,15 @@ void apply_hook_answer(HookEvent event, const Json& answer, const std::string& l
         switch (event) {
             case HookEvent::PostToolUse:
             case HookEvent::PostToolUseFailure:
-                out.feedback.push_back(reason.empty() ? "A hook flagged this result." : reason);  // the tool already ran
+                out.feedback.push_back(reason.empty() ? "A hook flagged this result."
+                                                      : reason);  // the tool already ran
                 rec.decision = "block";
                 join_into(rec.reason, reason);
                 break;
             case HookEvent::SessionStart:
             case HookEvent::SessionEnd:
-            case HookEvent::AfterCommand:
-                break;  // nothing left to refuse
-            default:
-                block(reason);
-                break;
+            case HookEvent::AfterCommand: break;  // nothing left to refuse
+            default: block(reason); break;
         }
     } else if (decision == "approve" && event == HookEvent::PreToolUse) {
         out.allowed = true;  // Claude Code's older form of permissionDecision "allow"
@@ -469,7 +480,8 @@ std::string first_line(const std::string& s) {
 }
 
 // What a program printed on stdout when it exited 0: JSON (the decisions) or plain text (context for two events).
-void read_stdout(HookEvent event, const std::string& text, const std::string& label, HookOutcome& out, HookRunRecord& rec) {
+void read_stdout(HookEvent event, const std::string& text, const std::string& label, HookOutcome& out,
+                 HookRunRecord& rec) {
     const std::string body = trim(text);
     if (body.empty()) return;
     if (body[0] == '{') {
@@ -479,7 +491,8 @@ void read_stdout(HookEvent event, const std::string& text, const std::string& la
             return;
         }
         rec.failed = true;
-        rec.error = "printed text that starts with { but is not valid JSON. Print one JSON object such as {\"decision\": \"block\", \"reason\": \"...\"}, or plain text with no leading {.";
+        rec.error = "printed text that starts with { but is not valid JSON. Print one JSON object such as "
+                    "{\"decision\": \"block\", \"reason\": \"...\"}, or plain text with no leading {.";
         return;
     }
     if (event == HookEvent::SessionStart || event == HookEvent::UserPromptSubmit) {
@@ -488,8 +501,8 @@ void read_stdout(HookEvent event, const std::string& text, const std::string& la
     }
 }
 
-void run_command_handler(const HookHandler& h, HookEvent event, const std::string& stdinText, double timeout, const HookRunContext& ctx,
-                         HookOutcome& out, HookRunRecord& rec) {
+void run_command_handler(const HookHandler& h, HookEvent event, const std::string& stdinText, double timeout,
+                         const HookRunContext& ctx, HookOutcome& out, HookRunRecord& rec) {
     ProcessOptions po;
 #ifdef _WIN32
     po.argv = {"cmd.exe", "/C", h.command};
@@ -527,7 +540,8 @@ void run_command_handler(const HookHandler& h, HookEvent event, const std::strin
     if (r->cancelled) return;  // the run was stopped: not the hook's fault
     if (r->timedOut) {
         rec.failed = true;
-        rec.error = "took longer than " + std::to_string(int(timeout)) + " s and was stopped. Make it faster, or give it a longer \"timeout\" (seconds) in its hook.";
+        rec.error = "took longer than " + std::to_string(int(timeout)) +
+                    " s and was stopped. Make it faster, or give it a longer \"timeout\" (seconds) in its hook.";
         return;
     }
     const std::string label = h.label();
@@ -536,7 +550,8 @@ void run_command_handler(const HookHandler& h, HookEvent event, const std::strin
         return;
     }
     if (r->exitCode == 2) {
-        const std::string why = trim(r->stderrText).empty() ? "the hook exited with code 2 and said nothing on stderr" : trim(r->stderrText);
+        const std::string why = trim(r->stderrText).empty() ? "the hook exited with code 2 and said nothing on stderr"
+                                                            : trim(r->stderrText);
         if (hook_event_can_block(event)) {
             out.blocked = true;
             if (out.blockedBy.empty()) out.blockedBy = label;
@@ -548,19 +563,21 @@ void run_command_handler(const HookHandler& h, HookEvent event, const std::strin
             rec.decision = "block";
             rec.reason = clip(why, 1000);
         } else {
-            out.systemMessages.push_back(label + ": " + why);  // this event cannot refuse anything: the user sees stderr
+            out.systemMessages.push_back(label + ": " +
+                                         why);  // this event cannot refuse anything: the user sees stderr
         }
         return;
     }
     rec.failed = true;
     rec.error = "exited with code " + std::to_string(r->exitCode) +
                 (trim(r->stderrText).empty() ? std::string() : ": " + first_line(r->stderrText)) +
-                ". Exit 0 lets the action go on and prints JSON decisions; exit 2 blocks it with stderr as the reason; any other code is a failure of the hook, "
+                ". Exit 0 lets the action go on and prints JSON decisions; exit 2 blocks it with stderr as the reason; "
+                "any other code is a failure of the hook, "
                 "reported and ignored.";
 }
 
-void run_js_handler(const HookHandler& h, HookEvent event, const Json& input, double timeout, const HookRunContext& ctx, HookOutcome& out,
-                    HookRunRecord& rec) {
+void run_js_handler(const HookHandler& h, HookEvent event, const Json& input, double timeout, const HookRunContext& ctx,
+                    HookOutcome& out, HookRunRecord& rec) {
     const auto t0 = std::chrono::steady_clock::now();
     JsHookResult r = run_js_hook(ctx.projectDir, h.module, event, input, timeout);
     rec.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -584,13 +601,16 @@ void run_js_handler(const HookHandler& h, HookEvent event, const Json& input, do
         }
     } else {
         rec.failed = true;
-        rec.error = "returned " + std::string(r.value.type_name()) + ". Return an object such as {decision: \"block\", reason: \"...\"}, a string (context for SessionStart and UserPromptSubmit) or nothing.";
+        rec.error = "returned " + std::string(r.value.type_name()) +
+                    ". Return an object such as {decision: \"block\", reason: \"...\"}, a string (context for "
+                    "SessionStart and UserPromptSubmit) or nothing.";
     }
 }
 
 }  // namespace
 
-HookOutcome run_hooks(const HookSet& set, HookEvent event, std::string_view matchValue, const Json& input, const HookRunContext& ctx) {
+HookOutcome run_hooks(const HookSet& set, HookEvent event, std::string_view matchValue, const Json& input,
+                      const HookRunContext& ctx) {
     HookOutcome out;
     const auto groups = set.matching(event, matchValue);
     if (groups.empty()) return out;
@@ -605,7 +625,7 @@ HookOutcome run_hooks(const HookSet& set, HookEvent event, std::string_view matc
             if (!done.insert(h.type + "\n" + h.command + "\n" + h.module).second) continue;
             HookRunRecord rec;
             note_start(rec, event, std::string(matchValue), h);
-            const double timeout = h.timeoutSeconds > 0 ? std::min(h.timeoutSeconds, kMaxHookTimeoutSeconds)
+            const double timeout = h.timeoutSeconds > 0            ? std::min(h.timeoutSeconds, kMaxHookTimeoutSeconds)
                                    : ctx.defaultTimeoutSeconds > 0 ? ctx.defaultTimeoutSeconds
                                                                    : kDefaultHookTimeoutSeconds;
             if (h.type == "js") {

@@ -81,7 +81,8 @@ FbxConverters find_fbx_converters() {
     namespace stdfs = std::filesystem;
     FbxConverters found;
     std::error_code ec;
-    if (const char* env = std::getenv("FACTORIA_FBX2GLTF"); env && *env && stdfs::is_regular_file(env, ec)) found.fbx2gltf = env;
+    if (const char* env = std::getenv("FACTORIA_FBX2GLTF"); env && *env && stdfs::is_regular_file(env, ec))
+        found.fbx2gltf = env;
     if (found.fbx2gltf.empty()) found.fbx2gltf = which("FBX2glTF");
     found.blender = which("blender");
     if (found.blender.empty()) found.blender = blender_in_install_folders();
@@ -90,8 +91,10 @@ FbxConverters find_fbx_converters() {
 
 void set_fbx_converters(const FbxConverters* converters) {
     std::lock_guard lock(g_overrideMutex);
-    if (converters) g_override = *converters;
-    else g_override.reset();
+    if (converters)
+        g_override = *converters;
+    else
+        g_override.reset();
 }
 
 namespace assets_detail {
@@ -99,17 +102,24 @@ namespace assets_detail {
 Result<ImportOutput> import_fbx(const ImportRequest& request) {
     const FbxConverters converters = find_fbx_converters();
     if (converters.fbx2gltf.empty() && converters.blender.empty())
-        return make_error("FBX is a closed format, so FactorIA converts it with another program, and neither FBX2glTF nor Blender was found.",
-                          "Install Blender (free, https://www.blender.org/download/; it is found in PATH or its standard install folder) or FBX2glTF "
-                          "(https://github.com/godotengine/FBX2glTF/releases; put it in PATH or set FACTORIA_FBX2GLTF to its path), then import "
-                          "again. Or convert the model to .glb yourself (Blender: File > Export > glTF 2.0) and import that file.");
+        return make_error(
+            "FBX is a closed format, so FactorIA converts it with another program, and neither FBX2glTF nor Blender "
+            "was found.",
+            "Install Blender (free, https://www.blender.org/download/; it is found in PATH or its standard install "
+            "folder) or FBX2glTF "
+            "(https://github.com/godotengine/FBX2glTF/releases; put it in PATH or set FACTORIA_FBX2GLTF to its path), "
+            "then import "
+            "again. Or convert the model to .glb yourself (Blender: File > Export > glTF 2.0) and import that file.");
 
     auto workDir = fs::make_temp_dir("fa_fbx");
     if (!workDir.ok()) return workDir.error();
     const stdfs::path work = *workDir;
     struct Cleanup {
         stdfs::path dir;
-        ~Cleanup() { std::error_code ec; stdfs::remove_all(dir, ec); }
+        ~Cleanup() {
+            std::error_code ec;
+            stdfs::remove_all(dir, ec);
+        }
     } cleanup{work};
     const stdfs::path glb = work / "model.glb";
     std::string used, failure;
@@ -122,32 +132,37 @@ Result<ImportOutput> import_fbx(const ImportRequest& request) {
         auto r = run_process(options);
         std::error_code ec;
         if (r.ok() && r->exitCode == 0 && stdfs::is_regular_file(glb, ec) && stdfs::file_size(glb, ec) > 0) return true;
-        failure = r.ok() ? (r->timedOut ? "it did not finish in 5 minutes" : "it exited with code " + std::to_string(r->exitCode) + ":\n" + tail(*r))
+        failure = r.ok() ? (r->timedOut ? "it did not finish in 5 minutes"
+                                        : "it exited with code " + std::to_string(r->exitCode) + ":\n" + tail(*r))
                          : r.error().message;
         stdfs::remove(glb, ec);
         return false;
     };
-    if (!converters.fbx2gltf.empty() &&
-        run(converters.fbx2gltf, {"--binary", "--input", request.source.string(), "--output", (work / "model").string()}))
+    if (!converters.fbx2gltf.empty() && run(converters.fbx2gltf, {"--binary", "--input", request.source.string(),
+                                                                  "--output", (work / "model").string()}))
         used = "FBX2glTF";
     if (used.empty() && !converters.blender.empty()) {
         const stdfs::path script = work / "convert.py";
-        if (!tooling_detail::write_file(script, kBlenderScript)) return make_error("cannot write a temporary file in " + work.string());
-        if (run(converters.blender, {"-b", "--factory-startup", "--python-exit-code", "1", "--python", script.string(), "--",
-                                     request.source.string(), glb.string()}))
+        if (!tooling_detail::write_file(script, kBlenderScript))
+            return make_error("cannot write a temporary file in " + work.string());
+        if (run(converters.blender, {"-b", "--factory-startup", "--python-exit-code", "1", "--python", script.string(),
+                                     "--", request.source.string(), glb.string()}))
             used = "Blender";
     }
     if (used.empty())
         return make_error("Converting '" + request.source.filename().string() + "' failed: " + failure,
-                          "Open the FBX in Blender (File > Import > FBX) to see whether it loads, and export it as .glb from there; then import the .glb.");
+                          "Open the FBX in Blender (File > Import > FBX) to see whether it loads, and export it as "
+                          ".glb from there; then import the .glb.");
 
     auto bytes = read_bytes(glb);
     if (!bytes.ok()) return make_error("The converter did not leave a readable file.");
     ImportOutput out;
     out.files.push_back({request.dest, std::move(*bytes)});
     out.details = Json::object({{"converter", used}});
-    out.warnings.push_back("Converted with " + used + ". The engine draws the meshes and materials; skins and animations are not used yet. Check the "
-                           "scale and orientation with game.screenshot.");
+    out.warnings.push_back(
+        "Converted with " + used +
+        ". The engine draws the meshes and materials; skins and animations are not used yet. Check the "
+        "scale and orientation with game.screenshot.");
     return out;
 }
 

@@ -68,7 +68,8 @@ Held held_open(const std::filesystem::path& file) {
         // "not held" for a game running from the folder (the MinGW + Wine job of scripts/ci-local.sh). An exclusive open
         // conflicts with every open handle instead: stricter than Windows (a holder that shared delete counts too),
         // which only makes an export refuse where Windows would have let it through.
-        const HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        const HANDLE h =
+            CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h != INVALID_HANDLE_VALUE) {
             CloseHandle(h);
             return Held::No;

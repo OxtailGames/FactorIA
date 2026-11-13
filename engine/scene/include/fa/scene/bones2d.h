@@ -30,9 +30,9 @@
 
 namespace fa {
 
-constexpr int kMaxSkinBones = 64;         // bones a SpriteSkin can name
-constexpr int kMaxBonesPerVertex = 4;     // bones a vertex follows
-constexpr int kIkMaxSweeps = 24;          // sweeps of the ccd solver per step
+constexpr int kMaxSkinBones = 64;      // bones a SpriteSkin can name
+constexpr int kMaxBonesPerVertex = 4;  // bones a vertex follows
+constexpr int kIkMaxSweeps = 24;       // sweeps of the ccd solver per step
 
 // ---------------------------------------------------------------------------------------------------------------- affine --
 // A 2D affine map: x' = a x + c y + tx, y' = b x + d y + ty (columns (a, b) and (c, d), the same layout as Mat4's x and y axes).
@@ -46,7 +46,9 @@ struct Affine2 {
     // The inverse; the identity (and *invertible = false) when the map is singular.
     Affine2 inverse(bool* invertible = nullptr) const;
     static Affine2 from_mat4(const Mat4& m);
-    bool operator==(const Affine2& o) const { return a == o.a && b == o.b && c == o.c && d == o.d && tx == o.tx && ty == o.ty; }
+    bool operator==(const Affine2& o) const {
+        return a == o.a && b == o.b && c == o.c && d == o.d && tx == o.tx && ty == o.ty;
+    }
 };
 
 // ---------------------------------------------------------------------------------------------------------------- bones --
@@ -92,9 +94,9 @@ struct SkinBox {
 
 // The deformed mesh of a skinned sprite, in the sprite's local space (before skew and the entity matrix).
 struct SkinMesh {
-    int columns = 0, rows = 0;                    // the grid the mesh was cut from
-    std::vector<Vec2> position;                   // one per used vertex, after offsets and bones
-    std::vector<Vec2> uv;                         // the same vertices: fraction of the region, x across, y DOWN (0 = top edge)
+    int columns = 0, rows = 0;   // the grid the mesh was cut from
+    std::vector<Vec2> position;  // one per used vertex, after offsets and bones
+    std::vector<Vec2> uv;        // the same vertices: fraction of the region, x across, y DOWN (0 = top edge)
     std::vector<std::array<std::uint32_t, 4>> quads;  // vertex indices of each cell, in the winding the renderer draws
 };
 
@@ -102,7 +104,8 @@ struct SkinMesh {
 // leaves it empty; a sprite with neither a mesh grid nor `outline` says how to fix it). May return true and still set `*problem`
 // (an outline that could not be traced draws the full grid; bones that were not found are left out): log it once.
 // A skin that is not bound yet draws undeformed. `problem` may be null.
-bool build_skin_mesh(const World& w, Entity e, const Sprite& sprite, const SkinBox& box, SkinMesh& out, std::string* problem);
+bool build_skin_mesh(const World& w, Entity e, const Sprite& sprite, const SkinBox& box, SkinMesh& out,
+                     std::string* problem);
 
 // One vertex's bones: up to 4, weights summing to 1.
 struct VertexWeights {
@@ -113,7 +116,8 @@ struct VertexWeights {
 // Automatic weights: each vertex follows its nearest bones with weight 1 / (distance to the bone's segment^2 + 0.25), the top 4,
 // dropping any under 2% of the total, normalised. `segments` are the bones' {origin, tip} in the vertices' space; a bone with a
 // zero-size segment (origin == tip) acts as a point. Ties go to the lower bone index. Deterministic.
-std::vector<VertexWeights> auto_skin_weights(const std::vector<Vec2>& vertices, const std::vector<std::pair<Vec2, Vec2>>& segments);
+std::vector<VertexWeights> auto_skin_weights(const std::vector<Vec2>& vertices,
+                                             const std::vector<std::pair<Vec2, Vec2>>& segments);
 // The automatic weights of the skin on `e` written as explicit ones (the `weights` array format, one entry per vertex of the full
 // grid): what to paint over. Error when `e` has no skin, mesh or bones.
 Result<Json> skin_auto_weights(const World& w, Entity e, const SkinBox& box);

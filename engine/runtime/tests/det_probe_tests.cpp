@@ -32,7 +32,8 @@ namespace {
 
 stdfs::path repo_path(const char* rel) {
     const std::string root = FA_REPO_ROOT;
-    return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(root.data()), root.size())) / stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(rel)));
+    return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(root.data()), root.size())) /
+           stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(rel)));
 }
 
 std::map<std::string, std::string> parse_line(const std::string& line) {
@@ -58,7 +59,8 @@ TEST_CASE("det probe: the scripts' math, 2D and 3D physics and nav give the comm
         }
     } cleanup{dir};
     std::error_code ec;
-    stdfs::copy(repo_path("templates/2d-platformer"), dir, stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
+    stdfs::copy(repo_path("templates/2d-platformer"), dir,
+                stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
     REQUIRE_MESSAGE(!ec, "copying templates/2d-platformer: " << ec.message());
     stdfs::create_directories(dir / "scripts");
     stdfs::copy_file(repo_path("tools/cli/tests/determinism_probe.js"), dir / "scripts" / "determinism_probe.js",
@@ -74,8 +76,10 @@ TEST_CASE("det probe: the scripts' math, 2D and 3D physics and nav give the comm
         ss << in.rdbuf();
         scene = Json::parse(ss.str());
     }
-    scene["entities"].push_back(Json::object({{"id", "detProbe"}, {"name", "Determinism probe"},
-                                              {"components", Json::object({{"Script", Json::object({{"path", "scripts/determinism_probe.js"}})}})}}));
+    scene["entities"].push_back(Json::object(
+        {{"id", "detProbe"},
+         {"name", "Determinism probe"},
+         {"components", Json::object({{"Script", Json::object({{"path", "scripts/determinism_probe.js"}})}})}}));
     std::ofstream(scenePath, std::ios::binary) << scene.dump(2);
 
     EngineConfig cfg;
@@ -92,7 +96,8 @@ TEST_CASE("det probe: the scripts' math, 2D and 3D physics and nav give the comm
 
     std::string line;
     for (const LogEntry& e : recent_logs(5000, LogLevel::Info))
-        if (e.message.find("FA_DET_HASH ") != std::string::npos) line = e.message.substr(e.message.find("FA_DET_HASH ") + 12);
+        if (e.message.find("FA_DET_HASH ") != std::string::npos)
+            line = e.message.substr(e.message.find("FA_DET_HASH ") + 12);
     REQUIRE_MESSAGE(!line.empty(), "the probe printed no FA_DET_HASH line; errors: " << report["scriptErrors"].dump());
     std::printf("FA_DET_HASH platform=%s %s\n", FA_PLATFORM_NAME, line.c_str());
     std::fflush(stdout);
@@ -108,8 +113,8 @@ TEST_CASE("det probe: the scripts' math, 2D and 3D physics and nav give the comm
     const auto want = parse_line(expected);
     REQUIRE(!want.empty());
     for (const auto& [key, value] : want) {
-        INFO("section " << key << ": this platform prints " << (got.count(key) ? got.at(key) : "(missing)") << ", expected " << value
-                        << ". Printed line: " << line);
+        INFO("section " << key << ": this platform prints " << (got.count(key) ? got.at(key) : "(missing)")
+                        << ", expected " << value << ". Printed line: " << line);
         CHECK(got.count(key) == 1);
         if (got.count(key)) CHECK(got.at(key) == value);
     }

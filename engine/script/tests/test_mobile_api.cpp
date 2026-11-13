@@ -209,10 +209,10 @@ TEST_CASE("typescript declarations: screen, onBack, vibrate and the test helpers
     TestHost h("dts_mobile");
     REQUIRE(h.start());
     const std::string dts = h.scripts.typescript_declarations();
-    for (const char* needle : {"export interface ScreenAPI {", "export const screen: ScreenAPI;", "readonly safeArea: Rect;",
-                               "readonly insets: ScreenInsets;", "onBack(handler: () => boolean | void): () => void;",
-                               "vibrate(seconds?: number): void;", "pressBack(): void;", "setSafeArea(insets:",
-                               "vibrations(): number[];"}) {
+    for (const char* needle :
+         {"export interface ScreenAPI {", "export const screen: ScreenAPI;", "readonly safeArea: Rect;",
+          "readonly insets: ScreenInsets;", "onBack(handler: () => boolean | void): () => void;",
+          "vibrate(seconds?: number): void;", "pressBack(): void;", "setSafeArea(insets:", "vibrations(): number[];"}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }

@@ -8,11 +8,11 @@
 using namespace fa;
 
 TEST_CASE("android keycodes map to engine keys") {
-    CHECK(android_key_to_key(29) == Key::A);        // KEYCODE_A
-    CHECK(android_key_to_key(54) == Key::Z);        // KEYCODE_Z
-    CHECK(android_key_to_key(7) == Key::Num0);      // KEYCODE_0
+    CHECK(android_key_to_key(29) == Key::A);    // KEYCODE_A
+    CHECK(android_key_to_key(54) == Key::Z);    // KEYCODE_Z
+    CHECK(android_key_to_key(7) == Key::Num0);  // KEYCODE_0
     CHECK(android_key_to_key(16) == Key::Num9);
-    CHECK(android_key_to_key(144) == Key::Num0);    // KEYCODE_NUMPAD_0, like sokol_app on desktop
+    CHECK(android_key_to_key(144) == Key::Num0);  // KEYCODE_NUMPAD_0, like sokol_app on desktop
     CHECK(android_key_to_key(62) == Key::Space);
     CHECK(android_key_to_key(66) == Key::Enter);
     CHECK(android_key_to_key(67) == Key::Backspace);  // KEYCODE_DEL deletes backwards
@@ -27,8 +27,10 @@ TEST_CASE("android keycodes map to engine keys") {
 }
 
 TEST_CASE("only keys that can type are asked for a character") {
-    for (int code : {7, 16, 29, 54, 55, 56, 62, 68, 69, 73, 76, 77, 81, 144, 153, 158}) CHECK(AndroidKeys::may_type(code));
-    for (int code : {4, 19, 22, 24, 57, 59, 61, 66, 67, 82, 96, 111, 112, 122, 131}) CHECK_FALSE(AndroidKeys::may_type(code));
+    for (int code : {7, 16, 29, 54, 55, 56, 62, 68, 69, 73, 76, 77, 81, 144, 153, 158})
+        CHECK(AndroidKeys::may_type(code));
+    for (int code : {4, 19, 22, 24, 57, 59, 61, 66, 67, 82, 96, 111, 112, 122, 131})
+        CHECK_FALSE(AndroidKeys::may_type(code));
 }
 
 TEST_CASE("Back is consumed and arrives as one edge per press") {
@@ -56,11 +58,11 @@ TEST_CASE("a keyboard types characters and key edges, in order") {
     AndroidKeys keys;
     Input in;
     in.begin_frame();
-    CHECK(keys.on_key(33, true, 'e', false));   // KEYCODE_E
+    CHECK(keys.on_key(33, true, 'e', false));  // KEYCODE_E
     CHECK(keys.on_key(33, false, 0, false));
-    CHECK(keys.on_key(33, true, 'E', false));   // with shift held: the glue asked Java with the meta state
-    CHECK(keys.on_key(67, true, 0, false));     // Backspace types nothing
-    CHECK(keys.on_key(62, true, ' ', false));   // Space is a key and a character
+    CHECK(keys.on_key(33, true, 'E', false));  // with shift held: the glue asked Java with the meta state
+    CHECK(keys.on_key(67, true, 0, false));    // Backspace types nothing
+    CHECK(keys.on_key(62, true, ' ', false));  // Space is a key and a character
     keys.feed(in);
     CHECK(in.text_utf8() == "eE ");
     CHECK(in.key_down(Key::Space));
@@ -86,10 +88,10 @@ TEST_CASE("a held key repeats its character but not its edge") {
 TEST_CASE("keys that mean nothing here are left to the system") {
     AndroidKeys keys;
     Input in;
-    CHECK_FALSE(keys.on_key(24, true, 0, false));    // volume up
-    CHECK_FALSE(keys.on_key(25, false, 0, false));   // volume down
-    CHECK_FALSE(keys.on_key(96, true, 0, false));    // a gamepad button that reached here
-    CHECK(keys.on_key(19, true, 0, false));          // an arrow key is ours
+    CHECK_FALSE(keys.on_key(24, true, 0, false));   // volume up
+    CHECK_FALSE(keys.on_key(25, false, 0, false));  // volume down
+    CHECK_FALSE(keys.on_key(96, true, 0, false));   // a gamepad button that reached here
+    CHECK(keys.on_key(19, true, 0, false));         // an arrow key is ours
     // A key of no known name that types a character is still consumed and typed (an accented key of a national layout).
     CHECK(keys.on_key(9999, true, 0x00E9, false));
     // A control character is never text.

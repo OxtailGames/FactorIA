@@ -23,8 +23,9 @@ struct TempProject {
   "id": "com.example.audiofx",
   "mainScene": "scenes/main.scene.json",
   "display": { "width": 320, "height": 180, "scaleMode": "pixelPerfect" })") +
-                                    (audioSection.empty() ? "" : ",\n  \"audio\": " + audioSection) + "\n}");
-        write("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ] })");
+                                   (audioSection.empty() ? "" : ",\n  \"audio\": " + audioSection) + "\n}");
+        write("scenes/main.scene.json",
+              R"({ "format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ] })");
     }
     ~TempProject() {
         std::error_code ec;

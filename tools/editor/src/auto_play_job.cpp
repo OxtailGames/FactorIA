@@ -15,8 +15,9 @@ namespace fa::editor {
 namespace stdfs = std::filesystem;
 
 Json auto_play_args(const AutoPlayRequest& request) {
-    const double seconds = std::isfinite(request.seconds) ? std::clamp(request.seconds, kAutoPlayMinSeconds, kAutoPlayMaxSeconds)
-                                                          : kAutoPlayDefaultSeconds;
+    const double seconds = std::isfinite(request.seconds)
+                               ? std::clamp(request.seconds, kAutoPlayMinSeconds, kAutoPlayMaxSeconds)
+                               : kAutoPlayDefaultSeconds;
     return Json::object({{"seconds", seconds}, {"screenshots", request.screenshots}});
 }
 
@@ -31,22 +32,25 @@ AutoPlayOutcome auto_play_outcome(const ProcessResult& run, const std::string& s
     }
     if (run.timedOut) {
         out.error = "The bot did not finish in time and was stopped.";
-        out.hint = "Play fewer seconds (the window's Seconds), or run it from a terminal to watch it: factoria call play.auto '{\"seconds\":30}'.";
+        out.hint = "Play fewer seconds (the window's Seconds), or run it from a terminal to watch it: factoria call "
+                   "play.auto '{\"seconds\":30}'.";
         return out;
     }
     auto parsed = parse_json(stdoutText, "<play.auto in a child process>");
     if (!parsed.ok() || !parsed.value().is_object()) {
         const std::string& err = run.stderrText;
         const std::string tail = err.size() > 400 ? err.substr(err.size() - 400) : err;
-        out.error = std::format("The child process that runs play.auto (exit code {}) printed no result. Its error output ended with: {}",
-                                run.exitCode, tail.empty() ? std::string("(nothing)") : tail);
+        out.error = std::format(
+            "The child process that runs play.auto (exit code {}) printed no result. Its error output ended with: {}",
+            run.exitCode, tail.empty() ? std::string("(nothing)") : tail);
         out.hint = "Run it from a terminal to see why: factoria call --project <dir> play.auto '{\"seconds\":10}'.";
         return out;
     }
     const Json& j = parsed.value();
     if (j.contains("ok") && j["ok"] == false) {
         const Json err = j.value("error", Json::object());
-        out.error = err.is_object() ? err.value("message", std::string("play.auto failed.")) : std::string("play.auto failed.");
+        out.error =
+            err.is_object() ? err.value("message", std::string("play.auto failed.")) : std::string("play.auto failed.");
         out.hint = err.is_object() ? err.value("hint", std::string()) : std::string();
         return out;
     }
@@ -70,7 +74,8 @@ AutoPlayOutcome auto_play_outcome(const ProcessResult& run, const std::string& s
 std::string auto_play_summary(const AutoPlayOutcome& o) {
     if (o.cancelled) return "The AI play was cancelled; nothing was saved.";
     if (!o.ok) return "The AI could not play: " + o.error;
-    const std::string problems = o.problems == 0 ? "no problems" : std::format("{} problem{}", o.problems, o.problems == 1 ? "" : "s");
+    const std::string problems =
+        o.problems == 0 ? "no problems" : std::format("{} problem{}", o.problems, o.problems == 1 ? "" : "s");
     return std::format("The AI played in {:.0f} s: it ended \"{}\" with {}.", o.seconds, o.ended, problems);
 }
 
@@ -89,7 +94,8 @@ bool AutoPlayJob::start(const AutoPlayRequest& request) {
     if (exe.empty()) {
         AutoPlayOutcome out;
         out.error = "The factoria command line tool was not found next to the editor, so the bot has nothing to run.";
-        out.hint = "Reinstall FactorIA (the editor is started by the `factoria` next to it), or run: factoria call play.auto '{\"seconds\":60}'.";
+        out.hint = "Reinstall FactorIA (the editor is started by the `factoria` next to it), or run: factoria call "
+                   "play.auto '{\"seconds\":60}'.";
         std::lock_guard<std::mutex> lock(mu_);
         result_ = std::move(out);
         return true;
@@ -98,7 +104,8 @@ bool AutoPlayJob::start(const AutoPlayRequest& request) {
     // UTF-8 for the child (process_win32 widens argv and the working directory as UTF-8): the path object carries the real name, so an
     // accent in the folder survives on Windows; the editor's native string would arrive as bytes of the ANSI code page.
     const std::string projectUtf8 = fs::path_to_utf8(request.projectDir);
-    po.argv = {exe, "call", "--project", projectUtf8, "--no-graphics", "--json", "play.auto", auto_play_args(request).dump()};
+    po.argv = {
+        exe, "call", "--project", projectUtf8, "--no-graphics", "--json", "play.auto", auto_play_args(request).dump()};
     po.workingDir = projectUtf8;
     po.cancel = &cancel_;
     po.timeoutSeconds = 1200;  // a safety net: the bot's own wall-clock cap is 800 s

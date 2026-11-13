@@ -12,14 +12,17 @@ namespace {
 class DeadBackend : public SpeechBackend {
 public:
     bool available() override { return false; }
-    void speak(std::string_view, std::string_view, bool) override { FAIL("a backend that is not available must not be asked to speak"); }
+    void speak(std::string_view, std::string_view, bool) override {
+        FAIL("a backend that is not available must not be asked to speak");
+    }
     void stop() override {}
 };
 
 }  // namespace
 
 TEST_CASE("speech api: ui.speak records lines in the current language and game.spoken() lists them") {
-    TestHost h("speech_record", Json::parse(R"({ "localization": { "defaultLanguage": "en", "languages": ["en", "es"] } })"));
+    TestHost h("speech_record",
+               Json::parse(R"({ "localization": { "defaultLanguage": "en", "languages": ["en", "es"] } })"));
     h.file("locales/en.json", R"({ "$name": "English", "hi": "Hello" })");
     h.file("locales/es.json", R"({ "$name": "Español", "hi": "Hola" })");
     h.file("tests/speech.test.js", R"js(

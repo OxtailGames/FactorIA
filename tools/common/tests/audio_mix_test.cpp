@@ -23,11 +23,25 @@ constexpr int kRate = 44100;
 // A mono 16-bit WAV of the samples (clamped to full scale).
 std::string wav_of(const std::vector<double>& x) {
     std::string b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char(v >> (8 * i))); };
-    auto u16 = [&](std::uint16_t v) { b.push_back(char(v)); b.push_back(char(v >> 8)); };
-    b += "RIFF"; u32(std::uint32_t(36 + x.size() * 2)); b += "WAVEfmt "; u32(16); u16(1); u16(1);
-    u32(kRate); u32(kRate * 2); u16(2); u16(16);
-    b += "data"; u32(std::uint32_t(x.size() * 2));
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(char(v >> (8 * i)));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        b.push_back(char(v));
+        b.push_back(char(v >> 8));
+    };
+    b += "RIFF";
+    u32(std::uint32_t(36 + x.size() * 2));
+    b += "WAVEfmt ";
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(kRate);
+    u32(kRate * 2);
+    u16(2);
+    u16(16);
+    b += "data";
+    u32(std::uint32_t(x.size() * 2));
     for (double v : x) u16(std::uint16_t(std::int16_t(std::lround(std::clamp(v, -1.0, 1.0) * 32767.0))));
     return b;
 }
@@ -49,7 +63,9 @@ struct Project {
     CommandRegistry registry;
     Project() { register_tooling_commands(registry, tmp.str()); }
     void write(const std::string& rel, const std::string& data) { testing::write_all(tmp.path / rel, data); }
-    void scene(const std::string& body) { write("scenes/main.scene.json", R"({"format":"factoria.scene/1",)" + body + "}"); }
+    void scene(const std::string& body) {
+        write("scenes/main.scene.json", R"({"format":"factoria.scene/1",)" + body + "}");
+    }
     CommandResult mix(const Json& args = Json::object()) { return registry.call("assets.check_mix", args); }
 };
 
@@ -63,8 +79,8 @@ const Json* find(const Json& findings, const std::string& sound, const std::stri
 
 TEST_CASE("assets.check_mix: a click at the start and the end, and a faded sound without one") {
     Project p;
-    p.write("assets/click.wav", wav_of(tone(440, 0.4, 1.0, kPiD / 2)));          // starts and ends away from zero
-    p.write("assets/clean.wav", wav_of(tone(440, 0.4, 1.0, 0.0, 0.01)));        // faded over 10 ms
+    p.write("assets/click.wav", wav_of(tone(440, 0.4, 1.0, kPiD / 2)));   // starts and ends away from zero
+    p.write("assets/clean.wav", wav_of(tone(440, 0.4, 1.0, 0.0, 0.01)));  // faded over 10 ms
     CommandResult r = p.mix({{"includeOk", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json& f = r.result["findings"];
@@ -98,7 +114,8 @@ TEST_CASE("assets.check_mix: clipping is counted and the true peak is measured")
     CHECK((*find(f, "assets/quiet.wav", "true_peak"))["verdict"] == "ok");
     // A sine at a quarter of the sample rate peaking between samples reads higher as a true peak than as a sample peak.
     std::vector<double> between(kRate / 4);
-    for (std::size_t i = 0; i < between.size(); ++i) between[i] = 0.99 * std::sin(2.0 * kPiD * (kRate / 4.0) * double(i) / kRate + kPiD / 4.0);
+    for (std::size_t i = 0; i < between.size(); ++i)
+        between[i] = 0.99 * std::sin(2.0 * kPiD * (kRate / 4.0) * double(i) / kRate + kPiD / 4.0);
     p.write("assets/between.wav", wav_of(between));
     r = p.mix({{"paths", Json::array({"assets/between.wav"})}, {"includeOk", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -110,8 +127,11 @@ TEST_CASE("assets.check_mix: clipping is counted and the true peak is measured")
 
 TEST_CASE("assets.check_mix: a loop seam is found only for sounds played looping") {
     Project p;
-    p.write("assets/seam.wav", wav_of(tone(100, 0.5, 1.005, kPiD / 2)));  // 100.5 periods of a cosine: the end is at -0.5, the start at 0.5
-    p.write("assets/bend.wav", wav_of(tone(100, 0.5, 1.005, 0.0)));  // a sine: both ends at zero, but the slope turns round
+    p.write(
+        "assets/seam.wav",
+        wav_of(tone(100, 0.5, 1.005, kPiD / 2)));  // 100.5 periods of a cosine: the end is at -0.5, the start at 0.5
+    p.write("assets/bend.wav",
+            wav_of(tone(100, 0.5, 1.005, 0.0)));  // a sine: both ends at zero, but the slope turns round
     p.write("assets/seamless.wav", wav_of(tone(100, 0.5, 1.0, 0.0)));  // 100 periods
     p.write("assets/once.wav", wav_of(tone(100, 0.5, 1.005, 0.0, 0.01)));
     p.scene(R"("entities":[
@@ -133,7 +153,8 @@ TEST_CASE("assets.check_mix: a loop seam is found only for sounds played looping
     const std::string bendHint = (*find(f, "assets/bend.wav", "loop_seam_slope"))["hint"].get<std::string>();
     CHECK(bendHint.find("goes the same way at both ends") != std::string::npos);
     CHECK(bendHint.find("assets.generate_loop") != std::string::npos);
-    if (const Json* seamSlope = find(f, "assets/seam.wav", "loop_seam_slope"); seamSlope && (*seamSlope)["verdict"] != "ok")
+    if (const Json* seamSlope = find(f, "assets/seam.wav", "loop_seam_slope");
+        seamSlope && (*seamSlope)["verdict"] != "ok")
         CHECK((*seamSlope)["hint"] == (*jump)["hint"]);
     REQUIRE(find(f, "assets/seamless.wav", "loop_seam_jump"));
     CHECK((*find(f, "assets/seamless.wav", "loop_seam_jump"))["verdict"] == "ok");
@@ -190,7 +211,8 @@ TEST_CASE("assets.check_mix: loudness against a target per bus, the spread witho
     CHECK((*find(r.result["findings"], "assets/loud.wav", "loudness_spread"))["verdict"] == "fail");
     CHECK(find(r.result["findings"], "assets/nowhere.wav", "loudness_spread") == nullptr);  // alone on the ui bus
 
-    r = p.mix({{"targets", Json::object({{"sfx", Json::object({{"lufs", -20}, {"toleranceLu", 2}})}})}, {"includeOk", true}});
+    r = p.mix(
+        {{"targets", Json::object({{"sfx", Json::object({{"lufs", -20}, {"toleranceLu", 2}})}})}, {"includeOk", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json* t = find(r.result["findings"], "assets/loud.wav", "loudness_target");
     REQUIRE(t);
@@ -200,7 +222,9 @@ TEST_CASE("assets.check_mix: loudness against a target per bus, the spread witho
     CHECK(r.result["targetSource"] == "targets argument");
 
     // style.audio of assets.json is the default target; a sound no scene plays is on the unknown bus.
-    p.write("assets.json", R"({"format":"factoria.assets/1","style":{"audio":{"loudnessLufs":{"default":-14},"toleranceLu":1}},"assets":{}})");
+    p.write(
+        "assets.json",
+        R"({"format":"factoria.assets/1","style":{"audio":{"loudnessLufs":{"default":-14},"toleranceLu":1}},"assets":{}})");
     p.write("scripts/s.js", "");
     r = p.mix({{"includeOk", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -225,7 +249,8 @@ TEST_CASE("assets.check_mix: teaching errors, silence and an empty project") {
 TEST_CASE("assets.spectrogram: a picture with the numbers, kept with out") {
     Project p;
     p.write("assets/tone.wav", wav_of(tone(1000, 0.5, 1.0, kPiD / 2)));
-    CommandResult r = p.registry.call("assets.spectrogram", {{"path", "assets/tone.wav"}, {"width", 600}, {"height", 400}, {"loop", true}});
+    CommandResult r = p.registry.call("assets.spectrogram",
+                                      {{"path", "assets/tone.wav"}, {"width", 600}, {"height", 400}, {"loop", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["picture"]["width"] == 600);
     CHECK(r.result["seconds"].get<double>() == doctest::Approx(1.0));
@@ -239,7 +264,8 @@ TEST_CASE("assets.spectrogram: a picture with the numbers, kept with out") {
     CHECK(stdfs::exists(temp));
     CHECK(testing::read_all(temp).substr(1, 3) == "PNG");
 
-    r = p.registry.call("assets.spectrogram", {{"path", "assets/tone.wav"}, {"out", "assets/src/tone.png"}, {"channels", "each"}});
+    r = p.registry.call("assets.spectrogram",
+                        {{"path", "assets/tone.wav"}, {"out", "assets/src/tone.png"}, {"channels", "each"}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(stdfs::exists(p.tmp.path / "assets/src/tone.png"));
     CHECK_FALSE(r.result["$image"].contains("temporary"));
@@ -255,10 +281,18 @@ namespace {
 // `wav` with a `smpl` chunk after its data: one loop over frames [start, last] (both inclusive); `cut` bytes of the body at most.
 std::string with_smpl(std::string wav, std::uint32_t start, std::uint32_t last, std::size_t cut = 60) {
     std::string body;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) body.push_back(char(v >> (8 * i))); };
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) body.push_back(char(v >> (8 * i)));
+    };
     for (int i = 0; i < 7; ++i) u32(0);
-    u32(1); u32(0);                                         // loop count, sampler data
-    u32(0); u32(0); u32(start); u32(last); u32(0); u32(0);  // id, type, start, end, fraction, play count
+    u32(1);
+    u32(0);  // loop count, sampler data
+    u32(0);
+    u32(0);
+    u32(start);
+    u32(last);
+    u32(0);
+    u32(0);  // id, type, start, end, fraction, play count
     body.resize(std::min(body.size(), cut));
     wav += "smpl";
     for (int i = 0; i < 4; ++i) wav.push_back(char(std::uint32_t(body.size()) >> (8 * i)));
@@ -269,10 +303,12 @@ std::string with_smpl(std::string wav, std::uint32_t start, std::uint32_t last, 
 
 TEST_CASE("assets.check_mix: loop points come from assets.json first and the smpl chunk is the fallback") {
     Project p;
-    const std::string seam = wav_of(tone(100, 0.5, 1.005, kPiD / 2));  // the ends differ by a jump; frames 0..44099 are 100 whole periods
-    p.write("assets/smpl.wav", with_smpl(seam, 0, 44099));             // the chunk says: loop the clean part
-    p.write("assets/both.wav", with_smpl(seam, 0, 44319));             // the chunk says the whole file (a jump), assets.json the clean part
-    p.write("assets/cut.wav", with_smpl(seam, 0, 44099, 40));          // a chunk cut short is ignored, not read past its end
+    const std::string seam =
+        wav_of(tone(100, 0.5, 1.005, kPiD / 2));  // the ends differ by a jump; frames 0..44099 are 100 whole periods
+    p.write("assets/smpl.wav", with_smpl(seam, 0, 44099));  // the chunk says: loop the clean part
+    p.write("assets/both.wav",
+            with_smpl(seam, 0, 44319));  // the chunk says the whole file (a jump), assets.json the clean part
+    p.write("assets/cut.wav", with_smpl(seam, 0, 44099, 40));  // a chunk cut short is ignored, not read past its end
     p.write("assets/clamp.wav", wav_of(tone(100, 0.5, 1.0, kPiD / 2)));  // seamless as a whole file
     // clamp.wav: a loopEnd past the end plays loopStart..end (a quarter period in: starts at 0, ends at 0.5), which is a jump.
     p.write("assets.json", R"({"assets": {"assets/both.wav": {"import": {"loopStart": 0.0, "loopEnd": 1.0}},
@@ -286,19 +322,24 @@ TEST_CASE("assets.check_mix: loop points come from assets.json first and the smp
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json& f = r.result["findings"];
     REQUIRE(find(f, "assets/smpl.wav", "loop_seam_jump"));
-    CHECK((*find(f, "assets/smpl.wav", "loop_seam_jump"))["verdict"] == "ok");    // the smpl chunk, nothing in assets.json
+    CHECK((*find(f, "assets/smpl.wav", "loop_seam_jump"))["verdict"] ==
+          "ok");  // the smpl chunk, nothing in assets.json
     REQUIRE(find(f, "assets/both.wav", "loop_seam_jump"));
-    CHECK((*find(f, "assets/both.wav", "loop_seam_jump"))["verdict"] == "ok");    // assets.json wins over the smpl chunk (which would fail)
+    CHECK((*find(f, "assets/both.wav", "loop_seam_jump"))["verdict"] ==
+          "ok");  // assets.json wins over the smpl chunk (which would fail)
     REQUIRE(find(f, "assets/clamp.wav", "loop_seam_jump"));
-    CHECK((*find(f, "assets/clamp.wav", "loop_seam_jump"))["verdict"] == "fail");  // loopEnd clamped to the file, not dropped
+    CHECK((*find(f, "assets/clamp.wav", "loop_seam_jump"))["verdict"] ==
+          "fail");  // loopEnd clamped to the file, not dropped
     REQUIRE(find(f, "assets/cut.wav", "loop_seam_jump"));
-    CHECK((*find(f, "assets/cut.wav", "loop_seam_jump"))["verdict"] == "fail");   // truncated chunk: the whole file's seam
+    CHECK((*find(f, "assets/cut.wav", "loop_seam_jump"))["verdict"] ==
+          "fail");  // truncated chunk: the whole file's seam
 }
 
 TEST_CASE("assets.check_mix: an .ogg is judged across the loopStart and loopEnd of assets.json") {
     Project p;
     const std::string wav = wav_of(tone(100, 0.5, 2.005, kPiD / 2));
-    auto ogg = encode_vorbis(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(wav.data()), wav.size()), 0.9);
+    auto ogg = encode_vorbis(
+        std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(wav.data()), wav.size()), 0.9);
     REQUIRE(ogg.ok());
     const std::string bytes(ogg->begin(), ogg->end());
     p.write("assets/open.ogg", bytes);
@@ -319,7 +360,9 @@ TEST_CASE("assets.check_mix: an .ogg is judged across the loopStart and loopEnd 
 TEST_CASE("assets.check_mix: when every sound is a recipe input the note says they were skipped") {
     Project p;
     p.write("assets/raw/a.wav", wav_of(tone(200, 0.3, 0.5)));
-    p.write("assets.json", R"({"assets": {"assets/mix.wav": {"provenance": {"recipe": {"command": "audio.bake", "args": {}, "inputs": [{"path": "assets/raw/a.wav", "sha256": "x"}]}}}}})");
+    p.write(
+        "assets.json",
+        R"({"assets": {"assets/mix.wav": {"provenance": {"recipe": {"command": "audio.bake", "args": {}, "inputs": [{"path": "assets/raw/a.wav", "sha256": "x"}]}}}}})");
     CommandResult r = p.mix();
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     REQUIRE(r.result["skipped"].size() == 1);

@@ -92,7 +92,8 @@ void fse_build_ctable(FseCTable& t, const std::int16_t* norm, unsigned symbols, 
     t.rle = false;
     t.stateTable.assign(size, 0);
     std::array<std::uint32_t, 65> cumul{};
-    for (unsigned s = 0; s < symbols; ++s) cumul[s + 1] = cumul[s] + (norm[s] == -1 ? 1u : static_cast<std::uint32_t>(norm[s]));
+    for (unsigned s = 0; s < symbols; ++s)
+        cumul[s + 1] = cumul[s] + (norm[s] == -1 ? 1u : static_cast<std::uint32_t>(norm[s]));
     std::vector<std::uint8_t> tableSymbol(size);
     unsigned high = size - 1;
     for (unsigned s = 0; s < symbols; ++s)
@@ -143,7 +144,8 @@ void fse_encode(const FseCTable& t, FseState& st, unsigned symbol, BitWriter& bw
     const FseSymbolTT& tt = t.tt[symbol];
     const std::uint32_t nbBitsOut = (st.value + tt.deltaNbBits) >> 16;
     bw.add(st.value, nbBitsOut);
-    st.value = t.stateTable[static_cast<std::size_t>(static_cast<std::int32_t>(st.value >> nbBitsOut) + tt.deltaFindState)];
+    st.value =
+        t.stateTable[static_cast<std::size_t>(static_cast<std::int32_t>(st.value >> nbBitsOut) + tt.deltaFindState)];
 }
 
 void fse_flush(const FseCTable& t, const FseState& st, BitWriter& bw) {
@@ -175,7 +177,8 @@ bool fse_normalize(const std::uint32_t* count, unsigned symbols, std::uint64_t t
         unsigned best = 0;
         for (unsigned s = 0; s < symbols; ++s) {
             if (count[s] == 0) continue;
-            const std::int64_t err = static_cast<std::int64_t>(count[s]) * size - static_cast<std::int64_t>(norm[s]) * t64;
+            const std::int64_t err =
+                static_cast<std::int64_t>(count[s]) * size - static_cast<std::int64_t>(norm[s]) * t64;
             if (bestErr < 0 || err > bestErr) {
                 bestErr = err;
                 best = s;
@@ -190,7 +193,8 @@ bool fse_normalize(const std::uint32_t* count, unsigned symbols, std::uint64_t t
         unsigned best = 0;
         for (unsigned s = 0; s < symbols; ++s) {
             if (norm[s] <= 1) continue;
-            const std::int64_t err = static_cast<std::int64_t>(norm[s]) * t64 - static_cast<std::int64_t>(count[s]) * size;
+            const std::int64_t err =
+                static_cast<std::int64_t>(norm[s]) * t64 - static_cast<std::int64_t>(count[s]) * size;
             if (!found || err > bestErr) {
                 found = true;
                 bestErr = err;
@@ -288,7 +292,8 @@ bool huffman_build(const std::uint32_t* hist, HufCode& h) {
     for (unsigned s = 0; s < 256; ++s)
         if (hist[s]) syms.push_back(s);
     if (syms.size() < 2) return false;
-    std::sort(syms.begin(), syms.end(), [&](unsigned a, unsigned b) { return hist[a] != hist[b] ? hist[a] < hist[b] : a < b; });
+    std::sort(syms.begin(), syms.end(),
+              [&](unsigned a, unsigned b) { return hist[a] != hist[b] ? hist[a] < hist[b] : a < b; });
     const std::size_t n = syms.size();
     // Two-queue construction: leaves in ascending weight, internal nodes are created in ascending weight too.
     std::vector<std::uint64_t> weight(2 * n - 1);
@@ -401,7 +406,8 @@ bool huffman_weights_fse(const std::uint8_t* weights, unsigned count, std::vecto
 bool huffman_write_tree(const HufCode& h, std::vector<std::uint8_t>& out) {
     const unsigned count = h.lastSymbol;  // the last symbol's weight is implied
     std::array<std::uint8_t, 256> weights{};
-    for (unsigned s = 0; s < count; ++s) weights[s] = static_cast<std::uint8_t>(h.len[s] ? h.maxBits + 1 - h.len[s] : 0);
+    for (unsigned s = 0; s < count; ++s)
+        weights[s] = static_cast<std::uint8_t>(h.len[s] ? h.maxBits + 1 - h.len[s] : 0);
     std::vector<std::uint8_t> fse;
     const bool haveFse = huffman_weights_fse(weights.data(), count, fse) && fse.size() < 128;
     const std::size_t direct = count <= 128 ? 1 + (count + 1) / 2 : SIZE_MAX;
@@ -495,11 +501,11 @@ inline std::size_t hash4(std::uint32_t v, unsigned bits) { return (v * 265443576
 constexpr std::size_t kMinMatch = 4;
 
 struct Params {
-    int strategy;       // 0 fast (one hash table), 1 hash chains
+    int strategy;  // 0 fast (one hash table), 1 hash chains
     unsigned windowLog;
-    unsigned hashLog;   // hash table of 4-byte sequences (the chain heads for strategy 1)
-    unsigned stepShift; // strategy 0: the step grows by 1 every 1 << stepShift bytes without a match
-    unsigned attempts;  // strategy 1: chain links followed per position
+    unsigned hashLog;    // hash table of 4-byte sequences (the chain heads for strategy 1)
+    unsigned stepShift;  // strategy 0: the step grows by 1 every 1 << stepShift bytes without a match
+    unsigned attempts;   // strategy 1: chain links followed per position
     unsigned lazy;
     unsigned nice;
 };
@@ -606,7 +612,8 @@ private:
             commit(seqs, anchor, ip, len, off, rep);
             ip += len;
             anchor = ip;
-            if (ip - 2 <= limit) tableShort_[hash4(load32(src_ + ip - 2), hashLog_)] = static_cast<std::uint32_t>(ip - 2);
+            if (ip - 2 <= limit)
+                tableShort_[hash4(load32(src_ + ip - 2), hashLog_)] = static_cast<std::uint32_t>(ip - 2);
         }
     }
 
@@ -649,7 +656,8 @@ private:
                 const std::size_t dist = ip - cpos;
                 if (dist > maxDist_ || dist >= chainSize_) break;
                 const std::uint8_t* ref = src_ + cpos;
-                if ((chainBest.len == 0 || (here + chainBest.len < limit && ref[chainBest.len] == here[chainBest.len])) &&
+                if ((chainBest.len == 0 ||
+                     (here + chainBest.len < limit && ref[chainBest.len] == here[chainBest.len])) &&
                     load32(ref) == seq) {
                     const std::size_t len = kMinMatch + count_match(here + kMinMatch, ref + kMinMatch, limit);
                     if (len > chainBest.len) {
@@ -723,7 +731,9 @@ unsigned ll_code(std::uint32_t v) {
     return static_cast<unsigned>(std::upper_bound(std::begin(kLlBase), std::end(kLlBase), v) - std::begin(kLlBase)) - 1;
 }
 unsigned ml_code(std::uint32_t matchLen) {
-    return static_cast<unsigned>(std::upper_bound(std::begin(kMlBase), std::end(kMlBase), matchLen) - std::begin(kMlBase)) - 1;
+    return static_cast<unsigned>(std::upper_bound(std::begin(kMlBase), std::end(kMlBase), matchLen) -
+                                 std::begin(kMlBase)) -
+           1;
 }
 
 // How one of the three symbol streams of a block is coded.
@@ -911,7 +921,9 @@ private:
         }
         if (n >= 64) {
             std::vector<std::uint8_t> section;
-            if (huffman_literals(lits, section) && section.size() + (n >> 6) + 2 < n + (n < 32 ? 1 : n < 4096 ? 2 : 3)) {
+            if (huffman_literals(lits, section) && section.size() + (n >> 6) + 2 < n + (n < 32     ? 1
+                                                                                        : n < 4096 ? 2
+                                                                                                   : 3)) {
                 body.insert(body.end(), section.begin(), section.end());
                 return;
             }
@@ -963,7 +975,8 @@ private:
             bits = 18;
         }
         if (comp >= (1u << bits) || n >= (1u << bits)) return false;
-        const std::uint64_t head = 2u | (static_cast<std::uint64_t>(sizeFormat) << 2) | (static_cast<std::uint64_t>(n) << 4) |
+        const std::uint64_t head = 2u | (static_cast<std::uint64_t>(sizeFormat) << 2) |
+                                   (static_cast<std::uint64_t>(n) << 4) |
                                    (static_cast<std::uint64_t>(comp) << (4 + bits));
         const unsigned headBytes = sizeFormat <= 1 ? 3 : sizeFormat == 2 ? 4 : 5;
         for (unsigned i = 0; i < headBytes; ++i) section.push_back(static_cast<std::uint8_t>(head >> (8 * i)));

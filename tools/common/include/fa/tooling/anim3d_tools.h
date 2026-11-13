@@ -27,7 +27,8 @@ struct Anim3DRigModel {
 };
 
 // Loads `rigPath`, a .rig.glb or the .rig.json that bakes it, from project `projectDir`. The Error says what is wrong with "did you mean".
-Result<std::shared_ptr<Anim3DRigModel>> load_anim3d_rig_model(const std::string& projectDir, const std::string& rigPath);
+Result<std::shared_ptr<Anim3DRigModel>> load_anim3d_rig_model(const std::string& projectDir,
+                                                              const std::string& rigPath);
 
 // The bind mesh of `model` skinned by `pose`, the way the renderer draws the Animator (its bounds are the posed ones).
 MeshData skin_rig_mesh(const Anim3DRigModel& model, const Pose& pose);
@@ -60,6 +61,7 @@ Quat mirror_rotation(Quat q);
 // Keys that mirror the pose of `clip` at `time` left to right, for the bones the clip animates. `from`: "swap" (default) exchanges both
 // sides and mirrors the bones on the mid plane in place; "left" copies the left side onto the right one; "right" the other way. Only bones
 // that have a track (on either side of the pair) get a key; nothing else changes. Deterministic.
-std::vector<Anim3DPoseKey> mirror_pose_keys(const Anim3DClip& clip, const Rig3D& rig, float time, const std::string& from = "swap");
+std::vector<Anim3DPoseKey> mirror_pose_keys(const Anim3DClip& clip, const Rig3D& rig, float time,
+                                            const std::string& from = "swap");
 
 }  // namespace fa

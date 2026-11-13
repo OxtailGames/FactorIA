@@ -58,7 +58,8 @@ std::uint64_t stat(const Json& j, const char* key) { return j.at(key).get<std::u
 
 }  // namespace
 
-TEST_CASE("audio rings: the command ring hands values over in order, whole batches at a time, and refuses past its size") {
+TEST_CASE(
+    "audio rings: the command ring hands values over in order, whole batches at a time, and refuses past its size") {
     audio_detail::SpscRing<int> ring(5);
     CHECK(ring.capacity() == 8);  // rounded up to a power of two
     for (int i = 0; i < 8; ++i) CHECK(ring.push(i));
@@ -84,7 +85,8 @@ TEST_CASE("audio rings: the command ring hands values over in order, whole batch
     }
 }
 
-TEST_CASE("audio rings: the triple buffer gives the reader the newest whole value, and nothing new when nothing was published") {
+TEST_CASE("audio rings: the triple buffer gives the reader the newest whole value, and nothing new when nothing was "
+          "published") {
     audio_detail::TripleBuffer<int> tb;
     CHECK_FALSE(tb.update());
     tb.back() = 1;
@@ -132,7 +134,8 @@ TEST_CASE("audio rings: one producer and one consumer thread pass 200000 values 
 
 TEST_CASE("audio callback: with a device, applying commands and mixing allocate nothing") {
     Fixture fx;
-    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
+    fx.write_assets(
+        R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
     std::vector<float> st;  // 22050 Hz stereo, 3 s: the resampler works while it streams
     for (int i = 0; i < 66150; ++i) {
         st.push_back(0.3f * std::sin(0.05f * float(i)));
@@ -224,7 +227,8 @@ TEST_CASE("audio callback: it mixes while another thread holds the API lock") {
 
 TEST_CASE("audio callback: a stream the decode jobs do not refill underruns into silence, is counted and resumes") {
     Fixture fx;
-    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/long.wav": {"import": {"stream": "always"}}}})");
+    fx.write_assets(
+        R"({"format": "factoria.assets/1", "assets": {"sounds/long.wav": {"import": {"stream": "always"}}}})");
     write_sine_wav(fx.dir / "sounds/long.wav", 3.0, 440.0, 0.5);
     AudioTestAccess::use_manual_device(fx.audio, 44100);
     AudioTestAccess::set_stream_service(fx.audio, false);  // as if the jobs were late
@@ -252,10 +256,12 @@ TEST_CASE("audio callback: a stream the decode jobs do not refill underruns into
 }
 
 TEST_CASE("audio callback: several threads playing, changing and stopping voices while the callback mixes") {
-    JobPool pool(jobs::Settings::threads(2));  // the stream refills run on workers; stopped when the test ends, however it ends
+    JobPool pool(
+        jobs::Settings::threads(2));  // the stream refills run on workers; stopped when the test ends, however it ends
     {
         Fixture fx;
-        fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
+        fx.write_assets(
+            R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
         write_sine_wav(fx.dir / "sounds/streamed.wav", 2.0, 330.0, 0.3);
         write_sine_wav(fx.dir / "sounds/short.wav", 0.05, 600.0, 0.5);
         REQUIRE(fx.audio.load("sounds/short.wav"));
@@ -280,12 +286,15 @@ TEST_CASE("audio callback: several threads playing, changing and stopping voices
                 for (int i = 0; i < kRounds; ++i) {
                     PlayParams p = on(i % 2 ? "sfx" : "ui", i % 4 != 0, true, 0.1f + 0.01f * float(i % 50));
                     p.priority = (t * 37 + i * 11) % 256;
-                    const char* clip = i % 10 == 0 ? "sounds/streamed.wav" : (i % 3 == 0 ? "sounds/short.wav" : "sounds/sine.wav");
+                    const char* clip =
+                        i % 10 == 0 ? "sounds/streamed.wav" : (i % 3 == 0 ? "sounds/short.wav" : "sounds/sine.wav");
                     const VoiceId v = fx.audio.play(clip, p);
                     if (v != 0) {
                         fx.audio.set_voice_volume(v, 0.2f, 0.05f);
-                        if (i % 3 == 1) fx.audio.stop(v);
-                        else kept[std::size_t(t)].push_back(v);
+                        if (i % 3 == 1)
+                            fx.audio.stop(v);
+                        else
+                            kept[std::size_t(t)].push_back(v);
                     }
                     if (i % 25 == 0) fx.audio.set_bus_volume(t % 2 ? "sfx" : "ui", 0.5f + 0.1f * float(t), 0.1f);
                     (void)fx.audio.is_playing(v);
@@ -307,7 +316,8 @@ TEST_CASE("audio callback: several threads playing, changing and stopping voices
         }
         stopMixing.store(true, std::memory_order_release);
         callback.join();
-        CHECK_MESSAGE(AudioTestAccess::mirror_voices(fx.audio) == 0, "the mixer did not acknowledge the end of every voice");
+        CHECK_MESSAGE(AudioTestAccess::mirror_voices(fx.audio) == 0,
+                      "the mixer did not acknowledge the end of every voice");
 
         const Json st = fx.audio.stats();
         CHECK(stat(st, "activeVoices") == 0);
@@ -391,7 +401,8 @@ TEST_CASE("audio callback: a stall does not pile up repeated fades, pauses and e
     render_blocks(fx.audio, 2);
     AudioTestAccess::pump(fx.audio);
     REQUIRE(AudioTestAccess::mirror_voices(fx.audio) == 3);
-    send_settings(fx.audio, 2048 + 1500);  // the ring is full and 1500 settings wait: past the point where Keeps are merged
+    send_settings(fx.audio,
+                  2048 + 1500);  // the ring is full and 1500 settings wait: past the point where Keeps are merged
     const std::size_t before = AudioTestAccess::staged_commands(fx.audio);
     REQUIRE(before >= 1024);
     fx.audio.stop(stopped);  // a stop: never dropped, never merged
@@ -610,7 +621,8 @@ TEST_CASE("audio callback: the parameters an AudioSource sent while the device s
     CHECK(world.get<AudioSource>(e)->playing);
 }
 
-TEST_CASE("audio callback: a queue of commands that must stay is kept whole, warns once and drains when the device is back") {
+TEST_CASE(
+    "audio callback: a queue of commands that must stay is kept whole, warns once and drains when the device is back") {
     struct Lines {
         std::mutex mu;
         std::vector<std::string> warnings;

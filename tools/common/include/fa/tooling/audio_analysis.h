@@ -18,12 +18,13 @@
 namespace fa {
 
 struct AudioAnalysis {
-    std::string path;     // project-relative path that was asked for
-    std::string file;     // the file that was read: `path`, or its twin `<path>.qoa` when only that exists
+    std::string path;  // project-relative path that was asked for
+    std::string file;  // the file that was read: `path`, or its twin `<path>.qoa` when only that exists
     Loudness loudness;
-    bool cached = false;  // the measurement came from the `analysis` record of assets.json (it still described the file)
-    Json record;          // the `analysis` keys that describe `file` (loudnessLufs, peakDb, seconds, bytes, sha256)
-    Json settings;        // effective audio import settings: stream, normalize, targetLufs, convert
+    bool cached =
+        false;      // the measurement came from the `analysis` record of assets.json (it still described the file)
+    Json record;    // the `analysis` keys that describe `file` (loudnessLufs, peakDb, seconds, bytes, sha256)
+    Json settings;  // effective audio import settings: stream, normalize, targetLufs, convert
 };
 
 // The sound files of the project at `projectDir`, sorted: every .wav, .ogg, .mp3 and .qoa under assets/, plus the ones

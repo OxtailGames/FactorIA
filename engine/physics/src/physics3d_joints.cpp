@@ -16,13 +16,15 @@
 namespace fa::detail {
 
 namespace {
-constexpr float kBeta = 0.2f;        // fraction of a position error removed per sub-step
-constexpr float kMaxBias = 10.0f;    // fastest correction of a position error (m/s)
+constexpr float kBeta = 0.2f;      // fraction of a position error removed per sub-step
+constexpr float kMaxBias = 10.0f;  // fastest correction of a position error (m/s)
 
 // A joint of a chain (three or more jointed dynamic bodies, see kChainIterations): its anchors are brought together by
 // moving the bodies, not through the velocity.
 template <class B>
-bool in_chain(const B& a, const B* b) { return a.chainDrag > 0.0f || (b && b->chainDrag > 0.0f); }
+bool in_chain(const B& a, const B* b) {
+    return a.chainDrag > 0.0f || (b && b->chainDrag > 0.0f);
+}
 
 Vec3 any_perpendicular(Vec3 a) {
     const Vec3 pick = std::fabs(a.x) < 0.6f ? Vec3{1, 0, 0} : (std::fabs(a.y) < 0.6f ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
@@ -51,7 +53,8 @@ void Physics3D::build_joint(JointState& j, const Body& a, const Body* b, const J
     const Vec3 anchorW = originA + frame_to_world(a.rot, jt.anchor * scaleA);
     j.anchorA = jt.anchor * scaleA - a.localOffset;
     if (b) {
-        j.anchorB = jt.autoAnchor ? world_to_frame(b->rot, anchorW - b->center) : jt.connectedAnchor * b->localScale - b->localOffset;
+        j.anchorB = jt.autoAnchor ? world_to_frame(b->rot, anchorW - b->center)
+                                  : jt.connectedAnchor * b->localScale - b->localOffset;
     } else {
         j.anchorB = jt.autoAnchor ? anchorW : jt.connectedAnchor;
     }
@@ -87,30 +90,39 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
         auto ita = index_.find(key);
         if (ita == index_.end() || !bodies_[ita->second].enabled) {
             if (ita == index_.end())
-                j.problem = std::format("entity '{}' has a Joint3D but no RigidBody3D. Add a RigidBody3D (and a Collider3D "
-                                        "for its shape) to the entity that swings.", world.id_of(e));
+                j.problem =
+                    std::format("entity '{}' has a Joint3D but no RigidBody3D. Add a RigidBody3D (and a Collider3D "
+                                "for its shape) to the entity that swings.",
+                                world.id_of(e));
             continue;
         }
         Body& a = bodies_[ita->second];
         const Body* b = nullptr;
         if (!jt->connected.is_null()) {
             if (jt->connected == e) {
-                j.problem = std::format("entity '{}': Joint3D.connected is the entity itself. Name the OTHER body, or leave "
-                                        "it empty to join the world.", world.id_of(e));
+                j.problem =
+                    std::format("entity '{}': Joint3D.connected is the entity itself. Name the OTHER body, or leave "
+                                "it empty to join the world.",
+                                world.id_of(e));
             } else if (!live(world, jt->connected)) {
-                j.problem = std::format("entity '{}': Joint3D.connected names an entity that does not exist (any more). "
-                                        "Set it to a living entity id, or empty for the world.", world.id_of(e));
+                j.problem =
+                    std::format("entity '{}': Joint3D.connected names an entity that does not exist (any more). "
+                                "Set it to a living entity id, or empty for the world.",
+                                world.id_of(e));
             } else if (auto itb = index_.find(jt->connected.bits()); itb == index_.end()) {
-                j.problem = std::format("entity '{}': the connected entity '{}' has no RigidBody3D or Collider3D, so there is "
-                                        "no body to join. Add one, or leave Joint3D.connected empty to join the world.",
-                                        world.id_of(e), world.id_of(jt->connected));
+                j.problem =
+                    std::format("entity '{}': the connected entity '{}' has no RigidBody3D or Collider3D, so there is "
+                                "no body to join. Add one, or leave Joint3D.connected empty to join the world.",
+                                world.id_of(e), world.id_of(jt->connected));
             } else {
                 b = &bodies_[itb->second];
             }
         }
         if (j.problem.empty() && !a.hasShape)
-            j.problem = std::format("entity '{}': a Joint3D needs a Collider3D on the same entity (its shape gives the body "
-                                    "its inertia).", world.id_of(e));
+            j.problem =
+                std::format("entity '{}': a Joint3D needs a Collider3D on the same entity (its shape gives the body "
+                            "its inertia).",
+                            world.id_of(e));
         if (!j.problem.empty()) {
             if (j.problem != previousProblem) FA_ERROR("physics", "{}", j.problem);
             continue;
@@ -124,9 +136,9 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
         const float lower = radians(std::min(jt->lowerLimit, jt->upperLimit));
         const float upper = radians(std::max(jt->lowerLimit, jt->upperLimit));
         const float damping = std::max(jt->damping, 0.0f);
-        if (!fresh && (j.useLimits != jt->useLimits || j.lower != lower || j.upper != upper || j.useMotor != jt->useMotor ||
-                       j.motorSpeed != radians(jt->motorSpeed) || j.maxTorque != std::max(jt->maxMotorTorque, 0.0f) ||
-                       j.damping != damping)) {
+        if (!fresh && (j.useLimits != jt->useLimits || j.lower != lower || j.upper != upper ||
+                       j.useMotor != jt->useMotor || j.motorSpeed != radians(jt->motorSpeed) ||
+                       j.maxTorque != std::max(jt->maxMotorTorque, 0.0f) || j.damping != damping)) {
             wake(a);
             if (b) wake(bodies_[index_[jt->connected.bits()]]);
         }
@@ -153,8 +165,10 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
         j.active = true;
     }
     for (auto it = joints_.begin(); it != joints_.end();) {
-        if (it->second.seen != stamp + 1) it = joints_.erase(it);
-        else ++it;
+        if (it->second.seen != stamp + 1)
+            it = joints_.erase(it);
+        else
+            ++it;
     }
     // Solve order: by the owner body's creation sequence (which follows the scene's entity order and restarts at reset()),
     // never by entity bits, so a scene simulates the same whatever the World held before it.
@@ -166,8 +180,8 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
 }
 
 // Hinge angle: rotation of A relative to B about the axis, continuous (unwrapped against the previous value).
-static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, const Vec3& refA, const Vec3& refB, bool hasB,
-                         float previous) {
+static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, const Vec3& refA, const Vec3& refB,
+                         bool hasB, float previous) {
     const Vec3 aw = frame_to_world(RA, axisA);
     const Vec3 ra = frame_to_world(RA, refA);
     Vec3 rb = hasB ? frame_to_world(RB, refB) : refB;
@@ -196,7 +210,8 @@ void Physics3D::correct_joints(float h) {
                 if (ib == index_.end()) continue;
                 B = &bodies_[ib->second];
             }
-            if (!((A.type == BodyType::Dynamic && !A.asleep) || (B && B->type == BodyType::Dynamic && !B->asleep))) continue;
+            if (!((A.type == BodyType::Dynamic && !A.asleep) || (B && B->type == BodyType::Dynamic && !B->asleep)))
+                continue;
             if (!in_chain(A, B)) continue;
             const Vec3 rA = frame_to_world(A.rot, j.anchorA);
             const Vec3 rB = B ? frame_to_world(B->rot, j.anchorB) : Vec3{};
@@ -234,14 +249,23 @@ bool Physics3D::prepare_joints(float h) {
         JointState& j = *jp;
         if (!j.active) continue;
         auto ia = index_.find(j.e.bits());
-        if (ia == index_.end()) { j.active = false; continue; }
+        if (ia == index_.end()) {
+            j.active = false;
+            continue;
+        }
         j.ia = ia->second;
         j.hasB = j.seqB != 0 && index_.count(j.conn.bits()) != 0;
         if (j.hasB) j.ib = index_[j.conn.bits()];
-        if (j.seqB != 0 && !j.hasB) { j.active = false; continue; }
+        if (j.seqB != 0 && !j.hasB) {
+            j.active = false;
+            continue;
+        }
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
-        if (A.invMass + (B ? B->invMass : 0.0f) <= 0.0f && !A.rotDyn && !(B && B->rotDyn)) { j.active = false; continue; }  // nothing can move
+        if (A.invMass + (B ? B->invMass : 0.0f) <= 0.0f && !A.rotDyn && !(B && B->rotDyn)) {
+            j.active = false;
+            continue;
+        }  // nothing can move
         // A chain at rest (asleep) costs nothing: its impulses wait for the bodies to wake.
         j.live = (A.type == BodyType::Dynamic && !A.asleep) || (B && B->type == BodyType::Dynamic && !B->asleep);
         if (!j.live) continue;
@@ -250,7 +274,8 @@ bool Physics3D::prepare_joints(float h) {
         j.rA = frame_to_world(RA, j.anchorA);
         j.rB = B ? frame_to_world(RB, j.anchorB) : Vec3{};
         if (in_chain(A, B)) {
-            j.pBias = {};  // the error of a chain's joints was already removed by correct_joints, not through the velocity
+            j.pBias =
+                {};  // the error of a chain's joints was already removed by correct_joints, not through the velocity
         } else {
             const Vec3 pA = A.center + j.rA, pB = B ? B->center + j.rB : j.anchorB;
             Vec3 bias = (pB - pA) * (-kBeta / h);
@@ -266,8 +291,9 @@ bool Physics3D::prepare_joints(float h) {
         };
         const Vec3 c0 = kmul({1, 0, 0}), c1 = kmul({0, 1, 0}), c2 = kmul({0, 0, 1});
         const float det = dot(c0, cross(c1, c2));
-        if (std::fabs(det) < 1e-12f) { j.kinv[0] = j.kinv[1] = j.kinv[2] = {}; }
-        else {
+        if (std::fabs(det) < 1e-12f) {
+            j.kinv[0] = j.kinv[1] = j.kinv[2] = {};
+        } else {
             j.kinv[0] = cross(c1, c2) / det;
             j.kinv[1] = cross(c2, c0) / det;
             j.kinv[2] = cross(c0, c1) / det;
@@ -303,8 +329,10 @@ bool Physics3D::prepare_joints(float h) {
         push_at(A, j.rA, -j.pImp);
         if (B) push_at(*B, j.rB, j.pImp);
         Vec3 L{};
-        if (j.type == JointType3D::Hinge) L = j.t1 * j.aImp.x + j.t2 * j.aImp.y + j.aw * (j.lowImp + j.upImp + j.motorImp);
-        else if (j.type == JointType3D::Fixed) L = j.aImp;
+        if (j.type == JointType3D::Hinge)
+            L = j.t1 * j.aImp.x + j.t2 * j.aImp.y + j.aw * (j.lowImp + j.upImp + j.motorImp);
+        else if (j.type == JointType3D::Fixed)
+            L = j.aImp;
         push_ang(A, L);
         if (B) push_ang(*B, -L);
         // Damping: the relative turning loses a fraction per sub-step (an implicit step: stable for any value).
@@ -340,7 +368,7 @@ void Physics3D::solve_joints(float h, int iteration) {
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
         if (iteration >= std::max(A.iterations, B ? B->iterations : 0)) continue;  // this chain has had its iterations
-        auto apply_ang = [&](Vec3 L) {  // +L on A, -L on B
+        auto apply_ang = [&](Vec3 L) {                                             // +L on A, -L on B
             push_ang(A, L);
             if (B) push_ang(*B, -L);
         };
@@ -423,12 +451,16 @@ void Physics3D::finish_joints(World& world, float dt) {
             bool driving = j.useMotor && target > 1e-4f && j.maxTorque > 0.0f;
             if (driving && j.useLimits) {
                 const float margin = 0.01f;
-                if ((j.motorSpeed > 0.0f && j.angle >= j.upper - margin) || (j.motorSpeed < 0.0f && j.angle <= j.lower + margin))
+                if ((j.motorSpeed > 0.0f && j.angle >= j.upper - margin) ||
+                    (j.motorSpeed < 0.0f && j.angle <= j.lower + margin))
                     driving = false;
             }
-            const float speed = std::fabs(dot((A.angVel - (B ? B->angVel : Vec3{})) * kDegToRad, normalize(frame_to_world(A.rot, j.axisA))));
-            if (driving && speed < 0.1f * target) j.stallTime += dt;
-            else j.stallTime = 0.0f;
+            const float speed = std::fabs(
+                dot((A.angVel - (B ? B->angVel : Vec3{})) * kDegToRad, normalize(frame_to_world(A.rot, j.axisA))));
+            if (driving && speed < 0.1f * target)
+                j.stallTime += dt;
+            else
+                j.stallTime = 0.0f;
         } else if (!j.useMotor) {
             j.stallTime = 0.0f;
         }

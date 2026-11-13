@@ -132,7 +132,8 @@ TEST_CASE("platform catalog: backend is a plugin name, \"auto\", or one per plat
     auto one = parse_platform_catalog(Json::parse(R"({"backend": "auto"})"));
     CHECK(one.ok());
     CHECK(one.catalog.backend.empty());
-    auto per = parse_platform_catalog(Json::parse(R"({"backend": {"windows": "steam", "macos": "steam", "ios": "apple"}})"));
+    auto per =
+        parse_platform_catalog(Json::parse(R"({"backend": {"windows": "steam", "macos": "steam", "ios": "apple"}})"));
     REQUIRE(per.ok());
     CHECK(per.catalog.backend_for("windows") == "steam");
     CHECK(per.catalog.backend_for("ios") == "apple");
@@ -158,20 +159,30 @@ TEST_CASE("platform catalog: errors name the field, the problem and the fix") {
         return c.error().to_string();
     };
     // The example of the spec, character for character.
-    CHECK(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A"}, {"id": "b", "type": "consumable ", "title": "B"}]})") ==
-          "factoria.json#/platform/products/1/type: \"consumable \" is not a product type; use one of \"consumable\", \"nonConsumable\", "
-          "\"subscription\" (did you mean \"consumable\"?) (hint: Fix the value in factoria.json (docs/PLATFORM.md, \"The catalog\").)");
-    CHECK(has(first(R"({"products": [{"id": "a", "title": "A"}]})"), "#/platform/products/0/type: missing \"type\"; use one of"));
+    CHECK(
+        first(
+            R"({"products": [{"id": "a", "type": "consumable", "title": "A"}, {"id": "b", "type": "consumable ", "title": "B"}]})") ==
+        "factoria.json#/platform/products/1/type: \"consumable \" is not a product type; use one of \"consumable\", "
+        "\"nonConsumable\", "
+        "\"subscription\" (did you mean \"consumable\"?) (hint: Fix the value in factoria.json (docs/PLATFORM.md, "
+        "\"The catalog\").)");
+    CHECK(has(first(R"({"products": [{"id": "a", "title": "A"}]})"),
+              "#/platform/products/0/type: missing \"type\"; use one of"));
     CHECK(has(first(R"({"achievements": [{"name": "A"}]})"), "#/platform/achievements/0/id: missing \"id\""));
-    CHECK(has(first(R"({"achievements": [{"id": "has space", "name": "A"}]})"), "is not a valid id; use 1-64 letters, digits"));
-    CHECK(has(first(R"({"achievements": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]})"), "the id \"a\" is used twice (first at /platform/achievements/0/id)"));
+    CHECK(has(first(R"({"achievements": [{"id": "has space", "name": "A"}]})"),
+              "is not a valid id; use 1-64 letters, digits"));
+    CHECK(has(first(R"({"achievements": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]})"),
+              "the id \"a\" is used twice (first at /platform/achievements/0/id)"));
     CHECK(has(first(R"({"achievements": [{"id": "a"}]})"), "#/platform/achievements/0/name: missing \"name\""));
     CHECK(has(first(R"({"achievements": [{"id": "a", "name": "A", "hidden": "yes"}]})"), "expected true or false"));
     CHECK(has(first(R"({"stats": [{"id": "a", "type": "flot"}]})"), "did you mean \"float\"?"));
     CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "order": "desc"}]})"), "is not a leaderboard order"));
-    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": -1}]})"), "#/platform/products/0/price: expected a number of at least 0"));
-    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "ids": {"Steam": "x"}}]})"), "is not a backend name"));
-    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "ids": {"steam": 3}}]})"), "expected the store's id as a non-empty string"));
+    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "price": -1}]})"),
+              "#/platform/products/0/price: expected a number of at least 0"));
+    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "ids": {"Steam": "x"}}]})"),
+              "is not a backend name"));
+    CHECK(has(first(R"({"products": [{"id": "a", "type": "consumable", "title": "A", "ids": {"steam": 3}}]})"),
+              "expected the store's id as a non-empty string"));
     CHECK(has(first(R"({"achievements": {"id": "a"}})"), "#/platform/achievements: expected an array of achievements"));
     CHECK(has(first(R"("steam")"), "#/platform: expected an object"));
 }
@@ -188,7 +199,8 @@ TEST_CASE("platform catalog: every problem is reported, unknown keys are warning
     CHECK(errors == 3);    // the bad id, the product type, the empty title
     CHECK(warnings == 2);  // achievments, tpye
     bool suggested = false;
-    for (const PlatformIssue& i : parsed.issues) suggested = suggested || has(i.message, "did you mean \"achievements\"?");
+    for (const PlatformIssue& i : parsed.issues)
+        suggested = suggested || has(i.message, "did you mean \"achievements\"?");
     CHECK(suggested);
     // What parsed is kept: the entries with an error are left out.
     CHECK(parsed.catalog.stats.size() == 2);
@@ -207,16 +219,21 @@ TEST_CASE("platform: a mistake is an error before the backend sees anything") {
     CHECK(has(m, "did you mean \"first_win\"?"));
     CHECK(has(m, "declare it in factoria.json platform.achievements"));
     CHECK(has(m, "The game's achievements: \"first_win\", \"veteran\"."));
-    CHECK(has(g.mistake("purchases.buy", Json::parse(R"({"id": "gems_9"})")), "declare it in factoria.json platform.products"));
+    CHECK(has(g.mistake("purchases.buy", Json::parse(R"({"id": "gems_9"})")),
+              "declare it in factoria.json platform.products"));
     CHECK(has(g.mistake("stats.get", Json::parse(R"({"id": "wins "})")), "did you mean \"wins\"?"));
     CHECK(has(g.mistake("achievements.unlock", Json::object()), "the argument \"id\" is missing"));
     CHECK(has(g.mistake("achievements.unlock", Json::parse(R"({"id": 3})")), "must be a string"));
-    CHECK(has(g.mistake("achievements.progress", Json::parse(R"({"id": "first_win", "progress": 1.5})")), "fraction from 0 to 1"));
-    CHECK(has(g.mistake("achievements.progress", Json::parse(R"({"id": "first_win", "progress": "half"})")), "must be a finite number"));
+    CHECK(has(g.mistake("achievements.progress", Json::parse(R"({"id": "first_win", "progress": 1.5})")),
+              "fraction from 0 to 1"));
+    CHECK(has(g.mistake("achievements.progress", Json::parse(R"({"id": "first_win", "progress": "half"})")),
+              "must be a finite number"));
     CHECK(has(g.mistake("stats.set", Json::parse(R"({"id": "wins", "value": 1.5})")), "is an int"));
     CHECK(has(g.mistake("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 1.5})")), "whole number"));
-    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "high_score", "range": "tops"})")), "did you mean \"top\"?"));
-    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "high_score", "count": 101})")), "from 1 to 100"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "high_score", "range": "tops"})")),
+              "did you mean \"top\"?"));
+    CHECK(
+        has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "high_score", "count": 101})")), "from 1 to 100"));
     CHECK(has(g.mistake("cloud.save", Json::parse(R"({"key": "my key", "data": "{}"})")), "is not valid"));
     CHECK(has(g.mistake("presence.set", Json::parse(R"({"text": "x", "data": {"level": 3}})")), "must be strings"));
     CHECK(has(g.mistake("overlay.open", Json::parse(R"({"page": "achievments"})")), "did you mean \"achievements\"?"));
@@ -257,20 +274,28 @@ TEST_CASE("platform: integrity.token checks the challenge before the request lea
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": null})")), "is missing"));
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": 42})")), "\"challenge\" must be a string"));
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": 42})")), "got number 42"));
-    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "short"})")), "too short: 5 characters, it needs 16 to 500"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "short"})")),
+              "too short: 5 characters, it needs 16 to 500"));
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": ""})")), "too short: 0 characters"));
-    CHECK(has(g.mistake("integrity.token", Json{{"challenge", std::string(501, 'a')}}), "too long: 501 characters, it needs 16 to 500"));
+    CHECK(has(g.mistake("integrity.token", Json{{"challenge", std::string(501, 'a')}}),
+              "too long: 501 characters, it needs 16 to 500"));
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "short"})")), hint.c_str()));
 
     // A bad character is named with its position (from 1); standard Base64's + and / get the fix.
     const std::string plus = g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefg+hijklmnopqrstuv=="})"));
-    CHECK(has(plus, "the challenge has the character \"+\" at position 8; only A-Z a-z 0-9 - _ = are allowed (URL-safe Base64)"));
+    CHECK(has(
+        plus,
+        "the challenge has the character \"+\" at position 8; only A-Z a-z 0-9 - _ = are allowed (URL-safe Base64)"));
     CHECK(has(plus, "URL-safe Base64 writes - and _ instead"));
-    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abc/defghijklmnopqrstuv"})")), "the character \"/\" at position 4"));
-    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnop qrstuv"})")), "the character \" \" at position 17"));
-    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnopqrstuv\n"})")), "the character \"\\n\" at position 23"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abc/defghijklmnopqrstuv"})")),
+              "the character \"/\" at position 4"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnop qrstuv"})")),
+              "the character \" \" at position 17"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnopqrstuv\n"})")),
+              "the character \"\\n\" at position 23"));
     // Not ASCII: named without echoing it; the position counts characters, not bytes.
-    const std::string accent = g.mistake("integrity.token", Json::parse("{\"challenge\": \"aaaa\\u00e9aaaaaaaaaaaaaaaa\"}"));
+    const std::string accent =
+        g.mistake("integrity.token", Json::parse("{\"challenge\": \"aaaa\\u00e9aaaaaaaaaaaaaaaa\"}"));
     CHECK(has(accent, "the challenge has a non-ASCII character at position 5"));
     // The first bad character is the one reported, even when the length is wrong too.
     CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "a b"})")), "at position 2"));
@@ -313,10 +338,14 @@ TEST_CASE("platform: integrity.token needs the integrity service, and its answer
     play->backendName = "google";
     pp->handler = [](const Recorder::Call& c, const PlatformSink& sink) {
         const std::string c0 = c.args["challenge"].get<std::string>();
-        if (c0[0] == 'A') sink.complete(c.id, Json{{"token", "signed.token.1"}});
-        else if (c0[0] == 'B') sink.complete(c.id, Json::object());
-        else if (c0[0] == 'C') sink.complete(c.id, Json{{"token", 7}});
-        else sink.complete(c.id, Json("signed"));
+        if (c0[0] == 'A')
+            sink.complete(c.id, Json{{"token", "signed.token.1"}});
+        else if (c0[0] == 'B')
+            sink.complete(c.id, Json::object());
+        else if (c0[0] == 'C')
+            sink.complete(c.id, Json{{"token", 7}});
+        else
+            sink.complete(c.id, Json("signed"));
     };
     ps.set_backend(std::move(play));
     CHECK(ps.has_service("integrity"));
@@ -331,7 +360,8 @@ TEST_CASE("platform: integrity.token needs the integrity service, and its answer
         REQUIRE(r->answer.has_value());
         CHECK_FALSE(r->answer->ok);
         CHECK(r->answer->error.code == "failed");
-        CHECK(has(r->answer->error.message, "the \"google\" backend answered integrity.token without a string \"token\""));
+        CHECK(has(r->answer->error.message,
+                  "the \"google\" backend answered integrity.token without a string \"token\""));
     }
 }
 
@@ -347,26 +377,39 @@ TEST_CASE("platform: the backend gets the store ids, and answers with a store id
     CHECK(ps.start("achievements.unlock", Json::parse(R"({"id": "first_win"})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "first_win", "storeId": "com.studio.game.first_win"})"));
     CHECK(ps.start("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 120})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "high_score", "storeId": "high_score_v2", "name": "High score", "order": "descending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "score": 120})"));
+    CHECK(
+        r->calls.back().args ==
+        Json::parse(
+            R"({"id": "high_score", "storeId": "high_score_v2", "name": "High score", "order": "descending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "score": 120})"));
     CHECK(ps.start("stats.set", Json::parse(R"({"id": "wins", "value": 3})")).ok());
     CHECK(r->calls.back().args == Json::parse(R"({"id": "wins", "storeId": "wins", "type": "int", "value": 3})"));
     CHECK(ps.start("leaderboards.entries", Json::parse(R"({"id": "best_time"})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "best_time", "storeId": "best_time", "name": "Best time", "order": "ascending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "range": "top", "count": 10})"));
+    CHECK(
+        r->calls.back().args ==
+        Json::parse(
+            R"({"id": "best_time", "storeId": "best_time", "name": "Best time", "order": "ascending", "period": "allTime", "periodKey": "", "date": "2026-01-01", "range": "top", "count": 10})"));
     CHECK(ps.start("achievements.list", Json::object()).ok());
     CHECK(r->calls.back().args["achievements"].size() == 2);
     CHECK(ps.start("purchases.buy", Json::parse(R"({"id": "gems_100"})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "gems_100", "storeId": "com.studio.game.gems100", "type": "consumable"})"));
+    CHECK(r->calls.back().args ==
+          Json::parse(R"({"id": "gems_100", "storeId": "com.studio.game.gems100", "type": "consumable"})"));
 
     // The store answers with ITS ids: the game gets the catalog's.
     const std::uint64_t buyId = r->calls.back().id;
-    r->kept.complete(buyId, Json::parse(R"({"status": "purchased", "id": "com.studio.game.gems100", "transactionId": "T1", "receipt": "R1"})"));
+    r->kept.complete(
+        buyId,
+        Json::parse(
+            R"({"status": "purchased", "id": "com.studio.game.gems100", "transactionId": "T1", "receipt": "R1"})"));
     auto answers = ps.take_answers();
     REQUIRE(answers.size() == 1);
     CHECK(answers[0].result["productId"] == "gems_100");
 
     // finish() needs the product: the engine remembered it from the buy.
     CHECK(ps.start("purchases.finish", Json::parse(R"({"transactionId": "T1"})")).ok());
-    CHECK(r->calls.back().args == Json::parse(R"({"id": "gems_100", "storeId": "com.studio.game.gems100", "type": "consumable", "transactionId": "T1"})"));
+    CHECK(
+        r->calls.back().args ==
+        Json::parse(
+            R"({"id": "gems_100", "storeId": "com.studio.game.gems100", "type": "consumable", "transactionId": "T1"})"));
     r->kept.complete(r->calls.back().id, Json::object());
     ps.take_answers();
     {  // finished once
@@ -382,7 +425,8 @@ TEST_CASE("platform: the backend gets the store ids, and answers with a store id
     CHECK(r->calls.back().args["products"][0]["currency"] == "EUR");
     // achievements.list answered with store ids.
     CHECK(ps.start("achievements.list", Json::object()).ok());
-    r->kept.complete(r->calls.back().id, Json::parse(R"([{"storeId": "com.studio.game.first_win", "unlocked": true, "progress": 1}])"));
+    r->kept.complete(r->calls.back().id,
+                     Json::parse(R"([{"storeId": "com.studio.game.first_win", "unlocked": true, "progress": 1}])"));
     CHECK(ps.take_answers()[0].result[0]["id"] == "first_win");
 }
 
@@ -480,7 +524,10 @@ TEST_CASE("platform: events are checked, the player is tracked, and unknown even
     CHECK(ps.player()["signedIn"] == false);
     r->kept.emit("player", Json::parse(R"({"id": "p1", "name": "Ann", "signedIn": true})"));
     r->kept.emit("overlay", Json::parse(R"({"open": true})"));
-    r->kept.emit("purchase", Json::parse(R"({"status": "purchased", "productId": "com.studio.game.gems100", "transactionId": "T9", "receipt": "R"})"));
+    r->kept.emit(
+        "purchase",
+        Json::parse(
+            R"({"status": "purchased", "productId": "com.studio.game.gems100", "transactionId": "T9", "receipt": "R"})"));
     r->kept.emit("rumble", Json::object());
     auto events = ps.take_events();
     REQUIRE(events.size() == 3);
@@ -566,30 +613,40 @@ TEST_CASE("fake: sign in and the default answers of achievements, stats and lead
     CHECK(g.ok("player.signIn") == Json::parse(R"({"id": "fake-player", "name": "Player", "signedIn": true})"));
     CHECK(g.ps.player()["name"] == "Player");  // tracked from the answer
 
-    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})")) == Json::parse(R"({"id": "first_win", "unlocked": true, "newly": true})"));
+    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})")) ==
+          Json::parse(R"({"id": "first_win", "unlocked": true, "newly": true})"));
     CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["newly"] == false);
-    CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 0.4})")) == Json::parse(R"({"id": "veteran", "progress": 0.4, "unlocked": false})"));
-    CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 0.1})"))["progress"] == doctest::Approx(0.4));  // never goes down
+    CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 0.4})")) ==
+          Json::parse(R"({"id": "veteran", "progress": 0.4, "unlocked": false})"));
+    CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 0.1})"))["progress"] ==
+          doctest::Approx(0.4));  // never goes down
     CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 1})"))["unlocked"] == true);
     Json list = g.ok("achievements.list");
     REQUIRE(list.size() == 2);
-    CHECK(list[0] == Json::parse(R"({"id": "first_win", "unlocked": true, "progress": 1.0, "name": "First win", "description": "Win one match."})"));
+    CHECK(
+        list[0] ==
+        Json::parse(
+            R"({"id": "first_win", "unlocked": true, "progress": 1.0, "name": "First win", "description": "Win one match."})"));
     CHECK(list[1]["unlocked"] == true);
     CHECK(g.ok("achievements.reset") == Json::object());
     CHECK(g.ok("achievements.list")[0]["unlocked"] == false);
 
     CHECK(g.ok("stats.get", Json::parse(R"({"id": "wins"})")) == Json::parse(R"({"id": "wins", "value": 0})"));
-    CHECK(g.ok("stats.set", Json::parse(R"({"id": "wins", "value": 7})")) == Json::parse(R"({"id": "wins", "value": 7})"));
+    CHECK(g.ok("stats.set", Json::parse(R"({"id": "wins", "value": 7})")) ==
+          Json::parse(R"({"id": "wins", "value": 7})"));
     CHECK(g.ok("stats.get", Json::parse(R"({"id": "wins"})"))["value"] == 7);
     g.ok("stats.set", Json::parse(R"({"id": "distance", "value": 12.5})"));
     CHECK(g.ok("stats.get", Json::parse(R"({"id": "distance"})"))["value"] == doctest::Approx(12.5));
 
     CHECK(g.ok("leaderboards.entries", Json::parse(R"({"id": "high_score"})")) == Json::array());
-    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 100})")) == Json::parse(R"({"id": "high_score", "score": 100, "best": 100})"));
-    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 40})"))["best"] == 100);  // higher is better
+    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 100})")) ==
+          Json::parse(R"({"id": "high_score", "score": 100, "best": 100})"));
+    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 40})"))["best"] ==
+          100);  // higher is better
     CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "high_score", "score": 250})"))["best"] == 250);
     CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "best_time", "score": 9000})"))["best"] == 9000);
-    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "best_time", "score": 8000})"))["best"] == 8000);  // ascending: lower wins
+    CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "best_time", "score": 8000})"))["best"] ==
+          8000);  // ascending: lower wins
     CHECK(g.ok("leaderboards.submit", Json::parse(R"({"id": "best_time", "score": 9500})"))["best"] == 8000);
     CHECK(g.ok("leaderboards.entries", Json::parse(R"({"id": "high_score", "range": "around", "count": 5})")) ==
           Json::parse(R"([{"rank": 1, "name": "Player", "score": 250, "playerId": "fake-player", "isPlayer": true}])"));
@@ -615,10 +672,13 @@ TEST_CASE("fake: cloud.stat answers the size and a deterministic time, and a mis
     g.ok("cloud.save", Json::parse(R"({"key": "slot1", "data": "{\"level\":3}"})"));
     g.ok("cloud.save", Json::parse(R"({"key": "a", "data": "x"})"));
     // The clock starts at 2026-01-01T00:00:00Z and moves on one second with each save: no wall clock.
-    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": true, "size": 11, "modified": 1767225600})"));
-    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})")) == Json::parse(R"({"exists": true, "size": 1, "modified": 1767225601})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) ==
+          Json::parse(R"({"exists": true, "size": 11, "modified": 1767225600})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})")) ==
+          Json::parse(R"({"exists": true, "size": 1, "modified": 1767225601})"));
     g.ok("cloud.save", Json::parse(R"({"key": "slot1", "data": "{\"level\":30}"})"));
-    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": true, "size": 12, "modified": 1767225602})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) ==
+          Json::parse(R"({"exists": true, "size": 12, "modified": 1767225602})"));
     // Reading does not change the time, and stat does not read.
     g.ok("cloud.load", Json::parse(R"({"key": "a"})"));
     CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})"))["modified"] == 1767225601);
@@ -651,13 +711,16 @@ TEST_CASE("fake: Remote Play guests connect and disconnect, and the sessions say
     CHECK(g.ps.has_service("remotePlay"));
     CHECK(g.ok("remotePlay.sessions") == Json::array());
 
-    auto first = g.fake().connect_guest(Json::parse(R"({"guestName": "Ana", "formFactor": "phone", "resolution": {"width": 2400, "height": 1080}})"));
+    auto first = g.fake().connect_guest(
+        Json::parse(R"({"guestName": "Ana", "formFactor": "phone", "resolution": {"width": 2400, "height": 1080}})"));
     REQUIRE(first.ok());
-    CHECK(first.value() == Json::parse(R"({"id": 1, "guestName": "Ana", "guestId": "fake-guest-1", "deviceName": "Fake device",
+    CHECK(first.value() ==
+          Json::parse(R"({"id": 1, "guestName": "Ana", "guestId": "fake-guest-1", "deviceName": "Fake device",
                                            "formFactor": "phone", "resolution": {"width": 2400, "height": 1080}})"));
     auto second = g.fake().connect_guest(Json::object());  // everything made up
     REQUIRE(second.ok());
-    CHECK(second.value() == Json::parse(R"({"id": 2, "guestName": "Guest 2", "guestId": "fake-guest-2", "deviceName": "Fake device",
+    CHECK(second.value() ==
+          Json::parse(R"({"id": 2, "guestName": "Guest 2", "guestId": "fake-guest-2", "deviceName": "Fake device",
                                             "formFactor": "computer", "resolution": {"width": 1920, "height": 1080}})"));
     Json sessions = g.ok("remotePlay.sessions");
     REQUIRE(sessions.size() == 2);
@@ -760,18 +823,22 @@ TEST_CASE("fake: purchases, transactions and restore") {
     Game g;
     Json products = g.ok("purchases.products");
     REQUIRE(products.size() == 2);
-    CHECK(products[0] == Json::parse(R"({"id": "gems_100", "title": "100 gems", "description": "A pile of gems.", "price": "$0.99",
+    CHECK(products[0] ==
+          Json::parse(R"({"id": "gems_100", "title": "100 gems", "description": "A pile of gems.", "price": "$0.99",
                                          "priceValue": 0.99, "currency": "USD", "type": "consumable"})"));
     CHECK(products[1]["price"] == "2.99 EUR");
     CHECK(g.ok("purchases.products", Json::parse(R"({"ids": ["remove_ads"]})")).size() == 1);
 
     Json bought = g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"));
-    CHECK(bought == Json::parse(R"({"status": "purchased", "productId": "gems_100", "transactionId": "fake-1", "receipt": "fake-receipt-1"})"));
+    CHECK(
+        bought ==
+        Json::parse(
+            R"({"status": "purchased", "productId": "gems_100", "transactionId": "fake-1", "receipt": "fake-receipt-1"})"));
     Json second = g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"));
     CHECK(second["transactionId"] == "fake-2");
     g.ok("purchases.buy", Json::parse(R"({"id": "remove_ads"})"));
     Json state = g.fake().state();
-    CHECK(state["unfinished"].size() == 3);  // nothing is finished by itself
+    CHECK(state["unfinished"].size() == 3);                     // nothing is finished by itself
     CHECK(state["owned"] == Json::parse(R"(["remove_ads"])"));  // consumables are not owned
 
     CHECK(g.ok("purchases.finish", Json::parse(R"({"transactionId": "fake-1"})")) == Json::object());
@@ -794,7 +861,8 @@ TEST_CASE("fake: overlay and presence") {
     CHECK(g.ok("presence.set", Json::parse(R"({"text": "In level 3", "data": {"level": "3"}})")) == Json::object());
     CHECK(g.fake().state()["presence"] == Json::parse(R"({"text": "In level 3", "data": {"level": "3"}})"));
     auto calls = g.fake().state()["calls"];
-    CHECK(calls[calls.size() - 2]["args"] == Json::parse(R"({"page": "store", "id": "gems_100", "storeId": "gems_100"})"));
+    CHECK(calls[calls.size() - 2]["args"] ==
+          Json::parse(R"({"page": "store", "id": "gems_100", "storeId": "gems_100"})"));
 }
 
 TEST_CASE("fake: integrity tokens are numbered from 1, restart on reset, and can be scripted") {
@@ -805,7 +873,10 @@ TEST_CASE("fake: integrity tokens are numbered from 1, restart on reset, and can
     CHECK(g.ok("integrity.token", args)["token"] == "fake-integrity-2");
 
     // A scripted error uses no number; neither does a scripted token (the made-up one is still next).
-    REQUIRE(g.fake().respond("integrity.token", Json::parse(R"({"error": "unavailable", "message": "Google Play services are missing"})")).ok());
+    REQUIRE(g.fake()
+                .respond("integrity.token",
+                         Json::parse(R"({"error": "unavailable", "message": "Google Play services are missing"})"))
+                .ok());
     PlatformError e = g.fails("integrity.token", args);
     CHECK(e.code == "unavailable");
     CHECK(e.message == "Google Play services are missing");
@@ -856,7 +927,10 @@ TEST_CASE("fake: not signed in rejects everything but player.signIn") {
 TEST_CASE("fake: respond() has three forms and answers first in, first out") {
     Game g;
     // {error}: reject, with a message and hint of your own, or defaults.
-    REQUIRE(g.fake().respond("purchases.buy", Json::parse(R"({"error": "network", "message": "no route to the store", "hint": "retry"})")).ok());
+    REQUIRE(g.fake()
+                .respond("purchases.buy",
+                         Json::parse(R"({"error": "network", "message": "no route to the store", "hint": "retry"})"))
+                .ok());
     PlatformError e = g.fails("purchases.buy", Json::parse(R"({"id": "gems_100"})"));
     CHECK(e.code == "network");
     CHECK(e.message == "no route to the store");
@@ -880,7 +954,8 @@ TEST_CASE("fake: respond() has three forms and answers first in, first out") {
     Json state = g.fake().state();
     CHECK(state["owned"].empty());
     CHECK(state["unfinished"].empty());
-    CHECK(g.ok("purchases.buy", Json::parse(R"({"id": "remove_ads"})"))["transactionId"] == "fake-1");  // no number was used up
+    CHECK(g.ok("purchases.buy", Json::parse(R"({"id": "remove_ads"})"))["transactionId"] ==
+          "fake-1");  // no number was used up
 
     // times, and a FIFO per method.
     REQUIRE(g.fake().respond("achievements.unlock", Json::parse(R"({"error": "network"})"), 2).ok());
@@ -889,7 +964,8 @@ TEST_CASE("fake: respond() has three forms and answers first in, first out") {
     CHECK(g.fails("achievements.unlock", Json::parse(R"({"id": "first_win"})")).code == "network");
     CHECK(g.fails("achievements.unlock", Json::parse(R"({"id": "first_win"})")).code == "network");
     CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["newly"] == false);
-    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["newly"] == false);  // default: unlocked by the merged one
+    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["newly"] ==
+          false);  // default: unlocked by the merged one
     CHECK(g.fake().state()["scripted"].empty());
 }
 
@@ -947,7 +1023,10 @@ TEST_CASE("fake: emit() sends events, and a purchased one records an unfinished 
     REQUIRE(g.fake().emit("purchase", Json::parse(R"({"status": "pending", "productId": "remove_ads"})")).ok());
     auto events = g.ps.take_events();
     REQUIRE(events.size() == 3);
-    CHECK(events[1].data == Json::parse(R"({"productId": "gems_100", "status": "purchased", "transactionId": "fake-1", "receipt": "fake-receipt-1"})"));
+    CHECK(
+        events[1].data ==
+        Json::parse(
+            R"({"productId": "gems_100", "status": "purchased", "transactionId": "fake-1", "receipt": "fake-receipt-1"})"));
     CHECK(events[2].data.value("transactionId", "") == "");
     CHECK(g.fake().state()["unfinished"].size() == 1);
     CHECK(g.ok("purchases.finish", Json::parse(R"({"transactionId": "fake-1"})")) == Json::object());
@@ -956,8 +1035,8 @@ TEST_CASE("fake: emit() sends events, and a purchased one records an unfinished 
     auto bad = g.fake().emit("purchas", Json::object());
     REQUIRE_FALSE(bad.ok());
     CHECK(has(bad.error().hint, "Did you mean 'purchase'?"));
-    CHECK_FALSE(g.fake().emit("purchase", Json::object()).ok());       // needs a productId
-    CHECK_FALSE(g.fake().emit("overlay", Json::object()).ok());        // needs open
+    CHECK_FALSE(g.fake().emit("purchase", Json::object()).ok());  // needs a productId
+    CHECK_FALSE(g.fake().emit("overlay", Json::object()).ok());   // needs open
     CHECK_FALSE(g.fake().emit("overlay", Json(3)).ok());
 }
 
@@ -988,7 +1067,8 @@ TEST_CASE("fake: the request log and reset()") {
     CHECK(fresh["signedIn"] == true);
     CHECK(fresh["delayFrames"] == 0);
     CHECK(fresh["achievements"].empty());
-    CHECK(g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"))["transactionId"] == "fake-1");  // numbering starts over
+    CHECK(g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"))["transactionId"] ==
+          "fake-1");  // numbering starts over
 }
 
 TEST_CASE("fake: reset_session() forgets pending requests and transactions") {
@@ -1021,8 +1101,14 @@ TEST_CASE("platform: achievements and products list their text in the current la
     Game g(text);
     std::string language = "en";
     const std::map<std::string, std::map<std::string, std::string>> tables = {
-        {"en", {{"ach.first_win.name", "First win"}, {"ach.first_win.desc", "Win one match."}, {"shop.gems_100", "100 gems"}}},
-        {"es", {{"ach.first_win.name", "Primera victoria"}, {"ach.first_win.desc", "Gana una partida."}, {"shop.gems_100", "100 gemas"}}}};
+        {"en",
+         {{"ach.first_win.name", "First win"},
+          {"ach.first_win.desc", "Win one match."},
+          {"shop.gems_100", "100 gems"}}},
+        {"es",
+         {{"ach.first_win.name", "Primera victoria"},
+          {"ach.first_win.desc", "Gana una partida."},
+          {"shop.gems_100", "100 gemas"}}}};
     g.ps.set_translator([&](const std::string& key) -> std::optional<std::string> {
         const auto& t = tables.at(language);
         auto it = t.find(key);
@@ -1165,13 +1251,18 @@ TEST_CASE("platform catalog: ads placements and leaderboard periods parse, and m
         REQUIRE_FALSE(r.ok());
         return r.error().to_string();
     };
-    CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "period": "dayly"}]})"), "#/platform/leaderboards/0/period: \"dayly\" is not a leaderboard period; use one of"));
+    CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "period": "dayly"}]})"),
+              "#/platform/leaderboards/0/period: \"dayly\" is not a leaderboard period; use one of"));
     CHECK(has(first(R"({"leaderboards": [{"id": "a", "name": "A", "period": "dayly"}]})"), "did you mean \"daily\"?"));
-    CHECK(has(first(R"({"ads": {"placements": [{"id": "a", "type": "banner"}]}})"), "#/platform/ads/placements/0/type: \"banner\" is not an ad type"));
-    CHECK(has(first(R"({"ads": {"placements": [{"type": "rewarded"}]}})"), "#/platform/ads/placements/0/id: missing \"id\""));
-    CHECK(has(first(R"({"ads": {"placements": [{"id": "a"}, {"id": "a"}]}})"), "the id \"a\" is used twice (first at /platform/ads/placements/0/id)"));
+    CHECK(has(first(R"({"ads": {"placements": [{"id": "a", "type": "banner"}]}})"),
+              "#/platform/ads/placements/0/type: \"banner\" is not an ad type"));
+    CHECK(has(first(R"({"ads": {"placements": [{"type": "rewarded"}]}})"),
+              "#/platform/ads/placements/0/id: missing \"id\""));
+    CHECK(has(first(R"({"ads": {"placements": [{"id": "a"}, {"id": "a"}]}})"),
+              "the id \"a\" is used twice (first at /platform/ads/placements/0/id)"));
     CHECK(has(first(R"({"ads": [1]})"), "#/platform/ads: expected an object"));
-    CHECK(has(first(R"({"ads": {"placements": {"id": "a"}}})"), "#/platform/ads/placements: expected an array of ad placements"));
+    CHECK(has(first(R"({"ads": {"placements": {"id": "a"}}})"),
+              "#/platform/ads/placements: expected an array of ad placements"));
     auto warned = parse_platform_catalog(Json::parse(R"({"ads": {"placement": []}})"));
     REQUIRE(warned.issues.size() == 1);
     CHECK(has(warned.issues[0].message, "did you mean \"placements\"?"));
@@ -1185,17 +1276,26 @@ TEST_CASE("fake: ads outcomes, consent, and the placement is checked against the
     CHECK(a.result == Json::parse(R"({"available": true})"));
     a = g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})"));
     CHECK(a.result == Json::parse(R"({"rewarded": true})"));
-    CHECK(g.fake().state()["calls"][1]["args"] == Json::parse(R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded", "ids": {"fake": "unit-1"}, "audience": "general", "underAge": null, "release": false})"));
+    CHECK(
+        g.fake().state()["calls"][1]["args"] ==
+        Json::parse(
+            R"({"placement": "more_time", "adUnitId": "unit-1", "type": "rewarded", "ids": {"fake": "unit-1"}, "audience": "general", "underAge": null, "release": false})"));
 
     REQUIRE(g.fake().set_ad("closedEarly").ok());
-    CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result == Json::parse(R"({"rewarded": false, "reason": "closedEarly"})"));
+    CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result ==
+          Json::parse(R"({"rewarded": false, "reason": "closedEarly"})"));
     REQUIRE(g.fake().set_ad("noFill").ok());
     CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == false);
     CHECK(g.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")).result["reason"] == "noFill");
     REQUIRE(g.fake().set_ad("consentRefused").ok());
-    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "denied", "tracking": "denied", "canShowAds": false, "privacyOptions": "notRequired"})"));
+    CHECK(g.ask("ads.consent").result ==
+          Json::parse(
+              R"({"gdpr": "denied", "tracking": "denied", "canShowAds": false, "privacyOptions": "notRequired"})"));
     REQUIRE(g.fake().set_ad("watched", "granted", "notRequired").ok());
-    CHECK(g.ask("ads.consent").result == Json::parse(R"({"gdpr": "granted", "tracking": "notRequired", "canShowAds": true, "privacyOptions": "notRequired"})"));
+    CHECK(
+        g.ask("ads.consent").result ==
+        Json::parse(
+            R"({"gdpr": "granted", "tracking": "notRequired", "canShowAds": true, "privacyOptions": "notRequired"})"));
     CHECK(g.fake().state()["ads"]["shown"] == 2);
     CHECK(g.fake().state()["ads"]["rewarded"] == 1);
 
@@ -1228,13 +1328,17 @@ struct TwoBackends {
         auto s = std::make_unique<Recorder>();
         s->backendName = "steam";
         s->offered = {"achievements", "overlay", "ads"};
-        s->handler = [](const Recorder::Call& c, const PlatformSink& sink) { sink.complete(c.id, Json::object({{"from", "store"}})); };
+        s->handler = [](const Recorder::Call& c, const PlatformSink& sink) {
+            sink.complete(c.id, Json::object({{"from", "store"}}));
+        };
         store = s.get();
         ps.set_backend(std::move(s), "test");
         auto a = std::make_unique<Recorder>();
         a->backendName = "admob";
         a->offered = {"ads"};
-        a->handler = [](const Recorder::Call& c, const PlatformSink& sink) { sink.complete(c.id, Json::object({{"from", "ads"}})); };
+        a->handler = [](const Recorder::Call& c, const PlatformSink& sink) {
+            sink.complete(c.id, Json::object({{"from", "ads"}}));
+        };
         ads = a.get();
         ps.set_ads_backend(std::move(a), "platform.ads.backend is \"admob\"");
     }
@@ -1295,7 +1399,8 @@ TEST_CASE("platform: an ads-only plugin backend gets ads.*, the store backend ge
     CHECK(answers[0].result["gdpr"] == "granted");
 }
 
-TEST_CASE("platform: without an ads plugin the store backend serves ads, or nothing does, and platform.state says which") {
+TEST_CASE(
+    "platform: without an ads plugin the store backend serves ads, or nothing does, and platform.state says which") {
     PlatformServices ps;
     ps.set_catalog(catalog(kAdsCatalog));
     auto store = std::make_unique<Recorder>();
@@ -1365,7 +1470,8 @@ TEST_CASE("platform: audience \"children\" counts every player as a child; \"mix
     SUBCASE("mixed") {
         TwoBackends t(R"({"ads": {"audience": "mixed", "placements": [{"id": "more_time"}]}})");
         // Before the game knows the age nothing reaches the network: no consent form, no ad.
-        CHECK(t.ask("ads.available", Json::parse(R"({"placement": "more_time"})")) == Json::parse(R"({"available": false})"));
+        CHECK(t.ask("ads.available", Json::parse(R"({"placement": "more_time"})")) ==
+              Json::parse(R"({"available": false})"));
         CHECK(t.ask("ads.showRewarded", Json::parse(R"({"placement": "more_time"})")) ==
               Json::parse(R"({"rewarded": false, "reason": "consentRefused"})"));
         CHECK(t.ads->calls.empty());
@@ -1379,7 +1485,8 @@ TEST_CASE("platform: audience \"children\" counts every player as a child; \"mix
 TEST_CASE("fake: setUnderAge is kept, and the privacy options form shows only when it is required") {
     Game g(R"({"ads": {"audience": "mixed", "placements": [{"id": "more_time"}]}})");
     CHECK(g.ps.info()["underAge"].is_null());
-    CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == false);  // age unknown
+    CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] ==
+          false);  // age unknown
     g.ok("ads.setUnderAge", Json::parse(R"({"underAge": true})"));
     CHECK(g.ps.info()["underAge"] == true);
     CHECK(g.ask("ads.available", Json::parse(R"({"placement": "more_time"})")).result["available"] == true);
@@ -1428,7 +1535,8 @@ TEST_CASE("platform catalog: ads appIds, audience and backend parse, and mistake
     CHECK(has(slash, "/platform/ads/appIds/android"));
     CHECK(has(slash, "is not an AdMob app id"));
     CHECK(has(slash, "ad unit"));
-    const std::string platformName = text(R"({"ads": {"appIds": {"androd": "ca-app-pub-3940256099942544~3347511713"}}})");
+    const std::string platformName =
+        text(R"({"ads": {"appIds": {"androd": "ca-app-pub-3940256099942544~3347511713"}}})");
     CHECK(has(platformName, "did you mean \"android\""));
     CHECK(has(text(R"({"ads": {"appIds": "x"}})"), "expected an object"));
 }
@@ -1445,7 +1553,8 @@ TEST_CASE("platform catalog: the iOS app id, the tracking prompt and its sentenc
     CHECK(good.catalog.placements[0].store_id("admob_ios") == "ca-app-pub-1234567890123456/0987654321");
     CHECK(good.catalog.placements[0].store_id("admob") == "ca-app-pub-1234567890123456/1234567890");
 
-    auto keyed = parse_platform_catalog(Json::parse(R"({"ads": {"trackingPrompt": true, "trackingDescriptionKey": "ads.tracking", "placements": [{"id": "p"}]}})"));
+    auto keyed = parse_platform_catalog(Json::parse(
+        R"({"ads": {"trackingPrompt": true, "trackingDescriptionKey": "ads.tracking", "placements": [{"id": "p"}]}})"));
     REQUIRE(keyed.ok());
     CHECK(keyed.catalog.adsTrackingDescriptionKey == "ads.tracking");
 
@@ -1477,8 +1586,10 @@ TEST_CASE("platform catalog: the iOS app id, the tracking prompt and its sentenc
     CHECK(has(text(R"({"ads": {"trackingPromt": true}})"), "did you mean \"trackingPrompt\""));
 }
 
-TEST_CASE("platform: the request of an ad carries every network's id of the placement, so a plugin picks its platform's unit") {
-    TwoBackends t(R"({"ads": {"placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-1234567890123456/1234567890", "admob_ios": "ca-app-pub-1234567890123456/0987654321"}}]}})");
+TEST_CASE("platform: the request of an ad carries every network's id of the placement, so a plugin picks its "
+          "platform's unit") {
+    TwoBackends t(
+        R"({"ads": {"placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-1234567890123456/1234567890", "admob_ios": "ca-app-pub-1234567890123456/0987654321"}}]}})");
     t.ask("ads.available", Json::parse(R"({"placement": "more_time"})"));
     REQUIRE(t.ads->calls.size() == 1);
     const Json& ids = t.ads->calls[0].args["ids"];
@@ -1533,7 +1644,8 @@ TEST_CASE("fake: leaderboards keep one board per day or week of the date source;
     CHECK(rp->calls == 2);
 }
 
-TEST_CASE("platform: an explicit day addresses another daily board; Game Center and Play Games only know the current day") {
+TEST_CASE(
+    "platform: an explicit day addresses another daily board; Game Center and Play Games only know the current day") {
     Game g(R"({"leaderboards": [{"id": "d", "name": "D", "order": "ascending", "period": "daily"},
                                 {"id": "w", "name": "W", "period": "weekly"}]})");
     CalendarDate now = parse_calendar_date("2026-10-23T23:30:00").value();
@@ -1546,7 +1658,8 @@ TEST_CASE("platform: an explicit day addresses another daily board; Game Center 
     CHECK(g.fake().state()["calls"][1]["args"]["periodKey"] == "2026-10-23");
     CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})")).result[0]["score"] == 5);
     CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d"})")).result[0]["score"] == 9);
-    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "w", "day": "2026-10-22"})")), "only addresses a daily board"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "w", "day": "2026-10-22"})")),
+              "only addresses a daily board"));
     CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-02-30"})")), "YYYY-MM-DD"));
     CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": 5})")), "must be a string"));
 
@@ -1598,7 +1711,8 @@ TEST_CASE("platform: release is a flag of the run, and a backend without the ads
 
 // ---------------------------------------------------------------------------------------------------- deadlines ----
 // The tests drive the clock themselves, so no wait depends on the speed of the machine.
-TEST_CASE("platform deadlines: a request nobody answers is answered \"network\" at its deadline, and the backend is told") {
+TEST_CASE(
+    "platform deadlines: a request nobody answers is answered \"network\" at its deadline, and the backend is told") {
     PlatformServices ps;
     ps.set_catalog(catalog());
     auto rec = std::make_unique<Recorder>();
@@ -1655,7 +1769,8 @@ TEST_CASE("platform deadlines: the player's own time, http.fetch's timeout and a
     CHECK(ps.request_timeout("purchases.buy") == doctest::Approx(kPlatformInteractiveTimeoutSeconds));
     CHECK(ps.request_timeout("ads.showRewarded") == doctest::Approx(kPlatformInteractiveTimeoutSeconds));
     CHECK(ps.request_timeout("http.fetch") == doctest::Approx(15.0 + kPlatformHttpGraceSeconds));
-    CHECK(ps.request_timeout("http.fetch", Json::parse(R"({"timeout": 60})")) == doctest::Approx(60.0 + kPlatformHttpGraceSeconds));
+    CHECK(ps.request_timeout("http.fetch", Json::parse(R"({"timeout": 60})")) ==
+          doctest::Approx(60.0 + kPlatformHttpGraceSeconds));
     ps.set_request_timeout("stats.get", 2.5);
     CHECK(ps.request_timeout("stats.get") == doctest::Approx(2.5));
     ps.set_request_timeout("stats.get", 0.0);
@@ -1692,7 +1807,7 @@ TEST_CASE("platform deadlines: the fake backend has none, and the real clock is 
     auto r = g.ps.start("stats.get", Json::parse(R"({"id":"wins"})"));
     REQUIRE(r.ok());
     CHECK_FALSE(r->answer.has_value());
-    now = 1.0e6;  // far past every deadline
+    now = 1.0e6;   // far past every deadline
     g.ps.frame();  // releases one frame of the delay; nothing timed out
     CHECK(g.ps.timed_out() == 0);
     for (int i = 0; i < 5; ++i) g.ps.frame();
@@ -1772,7 +1887,8 @@ TEST_CASE("platform deadlines: a purchase that succeeds after its deadline reach
     CHECK(backend->cancelled == std::vector<std::uint64_t>{buy->id});
 
     // The store took the money after all.
-    backend->kept.complete(buy->id, Json::object({{"status", "purchased"}, {"transactionId", "tx-9"}, {"receipt", "r"}}));
+    backend->kept.complete(buy->id,
+                           Json::object({{"status", "purchased"}, {"transactionId", "tx-9"}, {"receipt", "r"}}));
     CHECK(ps.take_answers().empty());  // the game already has its answer
     auto events = ps.take_events();
     REQUIRE(events.size() == 1);
@@ -1810,7 +1926,8 @@ TEST_CASE("platform deadlines: a late restore, a late failure and a late cancell
     ps.frame();
     CHECK(ps.take_answers().size() == 4);
 
-    backend->kept.complete(restore->id, Json::parse(R"([{"productId":"remove_ads","transactionId":"tx-r1","receipt":"x"}])"));
+    backend->kept.complete(restore->id,
+                           Json::parse(R"([{"productId":"remove_ads","transactionId":"tx-r1","receipt":"x"}])"));
     backend->kept.complete(cancelled->id, Json::object({{"status", "cancelled"}}));
     backend->kept.fail(failed->id, {"failed", "the sheet closed", ""});
     backend->kept.complete(stat->id, Json::object({{"id", "wins"}, {"value", 1}}));
@@ -1840,7 +1957,9 @@ TEST_CASE("platform deadlines: only the last kPlatformMaxWatchedPurchases reques
     now = kPlatformInteractiveTimeoutSeconds;
     ps.frame();
     CHECK(int(ps.take_answers().size()) == count);
-    for (std::uint64_t id : ids) backend->kept.complete(id, Json::object({{"status", "purchased"}, {"transactionId", "tx-" + std::to_string(id)}}));
+    for (std::uint64_t id : ids)
+        backend->kept.complete(id,
+                               Json::object({{"status", "purchased"}, {"transactionId", "tx-" + std::to_string(id)}}));
     CHECK(ps.take_events().size() == kPlatformMaxWatchedPurchases);  // the oldest five are forgotten
 }
 
@@ -1849,9 +1968,12 @@ TEST_CASE("platform events: a full queue drops overlay and player events before 
     auto rec = std::make_unique<Recorder>();
     Recorder* backend = rec.get();
     ps.set_backend(std::move(rec));
-    backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t1"}}));
-    for (int i = 0; i < int(kPlatformMaxQueuedEvents) + 50; ++i) backend->kept.emit("overlay", Json::object({{"open", true}, {"n", i}}));
-    backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "b"}, {"transactionId", "t2"}}));
+    backend->kept.emit("purchase",
+                       Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t1"}}));
+    for (int i = 0; i < int(kPlatformMaxQueuedEvents) + 50; ++i)
+        backend->kept.emit("overlay", Json::object({{"open", true}, {"n", i}}));
+    backend->kept.emit("purchase",
+                       Json::object({{"status", "purchased"}, {"productId", "b"}, {"transactionId", "t2"}}));
     CHECK(ps.dropped_events() == 52);  // 1 + 1074 + 1 events, 1024 kept
     auto events = ps.take_events();
     REQUIRE(events.size() == kPlatformMaxQueuedEvents);
@@ -1871,7 +1993,9 @@ TEST_CASE("platform events: when only purchases are left, the oldest purchase go
     ps.set_backend(std::move(rec));
     const int total = int(kPlatformMaxQueuedEvents) + 7;
     for (int i = 0; i < total; ++i)
-        backend->kept.emit("purchase", Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t" + std::to_string(i)}}));
+        backend->kept.emit(
+            "purchase",
+            Json::object({{"status", "purchased"}, {"productId", "a"}, {"transactionId", "t" + std::to_string(i)}}));
     CHECK(ps.dropped_events() == 7);
     auto events = ps.take_events();
     REQUIRE(events.size() == kPlatformMaxQueuedEvents);

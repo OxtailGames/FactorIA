@@ -13,7 +13,9 @@ namespace fa {
 namespace {
 
 double round_to(double v, double scale) { return std::round(v * scale) / scale; }
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::string str_of(const Json& j, const char* key) {
     if (!j.is_object()) return {};
@@ -39,7 +41,8 @@ EfficiencyMeasure clamped_measure(const Json& j) {
 
 bool version_text_ok(const std::string& v) {
     if (v.empty() || v.size() > 32) return false;
-    if (!std::isdigit(static_cast<unsigned char>(v[0]))) return false;  // like the schema and the server: a version starts with a digit
+    if (!std::isdigit(static_cast<unsigned char>(v[0])))
+        return false;  // like the schema and the server: a version starts with a digit
     for (char c : v)
         if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '+' && c != '_' && c != '-') return false;
     return true;
@@ -51,8 +54,8 @@ bool version_text_ok(const std::string& v) {
 
 namespace {
 
-Json block_from(const std::string& fixType, const std::string& appliesTo, const Json& measured, const Json& saving, double expectedShare,
-                int spans, const std::string& afterFix, bool candidate) {
+Json block_from(const std::string& fixType, const std::string& appliesTo, const Json& measured, const Json& saving,
+                double expectedShare, int spans, const std::string& afterFix, bool candidate) {
     Json b = Json::object();
     b["fixType"] = fixType;
     b["appliesTo"] = appliesTo;
@@ -70,8 +73,10 @@ Json block_from(const std::string& fixType, const std::string& appliesTo, const 
 Json efficiency_share_block(const Json& e) {
     if (!e.is_object() || str_of(e, "kind") != "efficiency") return Json();
     const std::string fixType = str_of(e, "fixType"), appliesTo = str_of(e, "appliesTo");
-    if (!has(efficiency_fix_types(), fixType) || !has(efficiency_applies_to(), appliesTo) || appliesTo == "this-game") return Json();
-    if (!e.contains("measured") || !e["measured"].is_object() || !e.contains("saving") || !e["saving"].is_object()) return Json();
+    if (!has(efficiency_fix_types(), fixType) || !has(efficiency_applies_to(), appliesTo) || appliesTo == "this-game")
+        return Json();
+    if (!e.contains("measured") || !e["measured"].is_object() || !e.contains("saving") || !e["saving"].is_object())
+        return Json();
     double share = 0;
     if (e.contains("expectedSaving") && e["expectedSaving"].is_object() && e["expectedSaving"].contains("share") &&
         e["expectedSaving"]["share"].is_number())
@@ -85,8 +90,10 @@ Json efficiency_clean_block(const Json& b) {
     if (!b.is_object()) return Json();
     const std::string fixType = str_of(b, "fixType"), appliesTo = str_of(b, "appliesTo");
     if (!has(efficiency_fix_types(), fixType) || !has(efficiency_applies_to(), appliesTo)) return Json();
-    if (!b.contains("measured") || !b["measured"].is_object() || !b.contains("saving") || !b["saving"].is_object()) return Json();
-    const double share = b.contains("expectedShare") && b["expectedShare"].is_number() ? b["expectedShare"].get<double>() : 0.0;
+    if (!b.contains("measured") || !b["measured"].is_object() || !b.contains("saving") || !b["saving"].is_object())
+        return Json();
+    const double share =
+        b.contains("expectedShare") && b["expectedShare"].is_number() ? b["expectedShare"].get<double>() : 0.0;
     int spans = 0;  // a count from outside: clamped before the cast, NaN-proof (the comparison is false for it)
     if (b.contains("spans") && b["spans"].is_number()) {
         const double v = b["spans"].get<double>();
@@ -104,7 +111,7 @@ double efficiency_fix_cost_hours(const std::string& fixType) {
     if (fixType == "example") return 4.0;
     if (fixType == "commandOption") return 4.0;
     if (fixType == "newCommand") return 16.0;  // a command with its tests, docs and typings costs more than a day
-    return kEfficiencyRoadmapHours;  // engineChange (and anything unknown): the bar the roadmap asks
+    return kEfficiencyRoadmapHours;            // engineChange (and anything unknown): the bar the roadmap asks
 }
 
 namespace {
@@ -131,10 +138,11 @@ Triage triage_of(const std::string& fixType, const EfficiencyMeasure& total) {
     if (fixType == "commandOption" || fixType == "newCommand") {
         const double cost = efficiency_fix_cost_hours(fixType);
         if (hours_of(total) >= cost) return {"command-worth-it", "command: worth it"};
-        return {"command-not-yet", "command: not yet (" + hours_text(hours_of(total)) + " of the " + hours_text(cost) + " hours it costs)"};
+        return {"command-not-yet", "command: not yet (" + hours_text(hours_of(total)) + " of the " + hours_text(cost) +
+                                       " hours it costs)"};
     }
-    const std::string n = hours_text(minutesHours) + " of the " + fmt("%g", kEfficiencyRoadmapHours) + " hours / " + usd_text(total.costUsd) +
-                          " of the $" + fmt("%g", kEfficiencyRoadmapUsd);
+    const std::string n = hours_text(minutesHours) + " of the " + fmt("%g", kEfficiencyRoadmapHours) + " hours / " +
+                          usd_text(total.costUsd) + " of the $" + fmt("%g", kEfficiencyRoadmapUsd);
     if (minutesHours >= kEfficiencyRoadmapHours || total.costUsd >= kEfficiencyRoadmapUsd)
         return {"engine-roadmap", "engine change: reached the roadmap bar (" + n + ")"};
     return {"engine-below-threshold", "engine change: below threshold (" + n + " it needs)"};
@@ -143,7 +151,8 @@ Triage triage_of(const std::string& fixType, const EfficiencyMeasure& total) {
 // "about 12.5 minutes", "about 120k tokens" or "about 14 steps": what this entry measured, in its own words.
 std::string own_saving_text(const EfficiencyMeasure& s) {
     if (s.minutes >= 1.0) return "about " + fmt("%.0f", std::round(s.minutes)) + " minutes";
-    if (s.tokens >= 1000) return "about " + fmt("%.0f", std::round(static_cast<double>(s.tokens) / 1000.0)) + "k tokens";
+    if (s.tokens >= 1000)
+        return "about " + fmt("%.0f", std::round(static_cast<double>(s.tokens) / 1000.0)) + "k tokens";
     if (s.steps > 0) return "about " + std::to_string(s.steps) + " steps";
     return "very little";
 }
@@ -155,13 +164,19 @@ bool has_reject_reason(const std::string& code) { return code == "doc-now" || co
 std::string reject_reason_for(const std::string& code, const EfficiencyMeasure& own) {
     const std::string mine = own_saving_text(own);
     if (code == "doc-now")
-        return "This is answered by documentation, not by new engine code: a doc section or guide will carry it. Thank you for the measured "
-               "report (" + mine + " saved where it was filed); look for it in the docs.";
-    return "Not taken as an engine change: a change like this is made only when the time it saves adds up to many hours across games, and "
-           "this report shows " + mine + ". A doc section or a guide may cover it instead.";
+        return "This is answered by documentation, not by new engine code: a doc section or guide will carry it. Thank "
+               "you for the measured "
+               "report (" +
+               mine + " saved where it was filed); look for it in the docs.";
+    return "Not taken as an engine change: a change like this is made only when the time it saves adds up to many "
+           "hours across games, and "
+           "this report shows " +
+           mine + ". A doc section or a guide may cover it instead.";
 }
 
-std::string trust_of(const std::string& t) { return t == "verified" ? "verified" : t == "anonymous" ? "anonymous" : "local"; }
+std::string trust_of(const std::string& t) {
+    return t == "verified" ? "verified" : t == "anonymous" ? "anonymous" : "local";
+}
 
 }  // namespace
 
@@ -222,9 +237,10 @@ Json rank_efficiency(std::vector<EfficiencyGroup> groups) {
         totalJson["costUsd"] = round_to(total.costUsd, 100);
         totalJson["hours"] = hours;
         j["total"] = totalJson;
-        j["perGame"] = Json::object({{"minutes", round_to(total.minutes / games, 10)},
-                                     {"tokens", static_cast<std::uint64_t>(std::llround(static_cast<double>(total.tokens) / games))},
-                                     {"costUsd", round_to(total.costUsd / games, 100)}});
+        j["perGame"] = Json::object(
+            {{"minutes", round_to(total.minutes / games, 10)},
+             {"tokens", static_cast<std::uint64_t>(std::llround(static_cast<double>(total.tokens) / games))},
+             {"costUsd", round_to(total.costUsd / games, 100)}});
         Json cost = Json::object({{"hours", efficiency_fix_cost_hours(g.fixType)}});
         if (g.fixType == "engineChange") cost["usd"] = kEfficiencyRoadmapUsd;
         j["fixCost"] = cost;
@@ -232,14 +248,19 @@ Json rank_efficiency(std::vector<EfficiencyGroup> groups) {
         if (!afterFix.empty()) j["afterFix"] = afterFix;
         Json entries = Json::array();
         for (const EfficiencyVoice& v : g.voices) {
-            Json e = Json::object({{"project", v.project}, {"id", v.id}, {"trust", trust_of(v.trust)}, {"occurrences", v.occurrences},
-                                   {"saving", v.saving.to_json()}, {"measured", v.measured.to_json()}});
+            Json e = Json::object({{"project", v.project},
+                                   {"id", v.id},
+                                   {"trust", trust_of(v.trust)},
+                                   {"occurrences", v.occurrences},
+                                   {"saving", v.saving.to_json()},
+                                   {"measured", v.measured.to_json()}});
             if (has_reject_reason(verdict.code)) e["rejectReason"] = reject_reason_for(verdict.code, v.saving);
             if (!v.shareId.empty()) e["shareId"] = v.shareId;
             entries.push_back(std::move(e));
         }
         j["entries"] = std::move(entries);
-        items.push_back({std::move(j), hours, round_to(total.costUsd, 100), static_cast<double>(total.tokens), g.title});
+        items.push_back(
+            {std::move(j), hours, round_to(total.costUsd, 100), static_cast<double>(total.tokens), g.title});
     }
     std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
         if (a.hours != b.hours) return a.hours > b.hours;

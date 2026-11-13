@@ -26,7 +26,8 @@ struct NetProject {
     ValidationReport validate() const { return validate_project(dir); }
 };
 
-std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file, const std::string& pointer = "*") {
+std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file,
+                                       const std::string& pointer = "*") {
     std::vector<const ValidationIssue*> found;
     for (const auto& i : list)
         if (i.file == file && (pointer == "*" || i.pointer == pointer)) found.push_back(&i);
@@ -45,7 +46,8 @@ TEST_CASE("validate: a good network section adds nothing") {
 }
 
 TEST_CASE("validate: network mistakes are reported once each, at their pointer, with a fix") {
-    NetProject p(R"({"hosts": ["https://api.example.com/v1", "api.example.com", "API.example.com", 7], "purpse": "x"})");
+    NetProject p(
+        R"({"hosts": ["https://api.example.com/v1", "api.example.com", "API.example.com", 7], "purpse": "x"})");
     const ValidationReport r = p.validate();
     CHECK_FALSE(r.ok);
 
@@ -89,8 +91,10 @@ TEST_CASE("validate: hosts without a purpose warn, because the privacy notice ne
 
 TEST_CASE("validate: a script that calls http.fetch in a game with no declared hosts is warned about, once") {
     NetProject p(nullptr);
-    testing::write_all(p.dir + "/scripts/net.js", "import { http } from \"factoria\";\nexport function ask() { return http.fetch(\"https://api.example.com/x\"); }\n");
-    testing::write_all(p.dir + "/scripts/net2.js", "import { http } from \"factoria\";\nexport function ask2() { return http.fetch(\"https://api.example.com/y\"); }\n");
+    testing::write_all(p.dir + "/scripts/net.js", "import { http } from \"factoria\";\nexport function ask() { return "
+                                                  "http.fetch(\"https://api.example.com/x\"); }\n");
+    testing::write_all(p.dir + "/scripts/net2.js", "import { http } from \"factoria\";\nexport function ask2() { "
+                                                   "return http.fetch(\"https://api.example.com/y\"); }\n");
     ValidationReport r = p.validate();
     std::size_t warned = 0;
     for (const auto& w : r.warnings)
@@ -119,10 +123,12 @@ TEST_CASE("validate: analytics and remoteConfig need https URLs whose host is in
         REQUIRE(save_json_file(p.dir + "/factoria.json", *j).ok());
         return p.validate();
     };
-    auto good = with(R"({"analytics": {"endpoint": "https://stats.example.com/e"}, "remoteConfig": {"url": "https://stats.example.com/c.json"}})");
+    auto good = with(
+        R"({"analytics": {"endpoint": "https://stats.example.com/e"}, "remoteConfig": {"url": "https://stats.example.com/c.json"}})");
     for (const auto& e : good.errors) CHECK_MESSAGE(false, e.to_string());
 
-    auto bad = with(R"({"analytics": {"endpoint": "https://other.example.com/e", "batch": 500}, "remoteConfig": {"url": "http://stats.example.com/c.json"}})");
+    auto bad = with(
+        R"({"analytics": {"endpoint": "https://other.example.com/e", "batch": 500}, "remoteConfig": {"url": "http://stats.example.com/c.json"}})");
     CHECK_FALSE(bad.ok);
     const auto host = at(bad.errors, "factoria.json", "/analytics/endpoint");
     REQUIRE(host.size() == 1);  // once: the section parser's message replaces the schema's

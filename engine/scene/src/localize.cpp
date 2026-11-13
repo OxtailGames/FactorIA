@@ -18,10 +18,13 @@ int apply(const World& world, Entity e, const I18n& i18n, const std::string& key
     std::optional<std::string> text = i18n.translate(key, args);
     if (!text) {
         i18n.warn_once("component|" + key,
-                       std::format("{} of entity '{}' has the key '{}', which no string table has: it keeps its own text \"{}\" (hint: {})", what,
-                                   world.id_of(e), key, target,
-                                   i18n.enabled() ? "add the key to locales/" + i18n.default_language() + ".json"
-                                                  : std::string("factoria.json has no \"localization\" section, so nothing is translated: add one (docs/LOCALIZATION.md)")));
+                       std::format("{} of entity '{}' has the key '{}', which no string table has: it keeps its own "
+                                   "text \"{}\" (hint: {})",
+                                   what, world.id_of(e), key, target,
+                                   i18n.enabled()
+                                       ? "add the key to locales/" + i18n.default_language() + ".json"
+                                       : std::string("factoria.json has no \"localization\" section, so nothing is "
+                                                     "translated: add one (docs/LOCALIZATION.md)")));
         return 0;
     }
     if (*text == target) return 0;
@@ -41,25 +44,43 @@ int localize_entity(World& world, Entity e, const I18n& i18n) {
     int changed = 0;
     if (Text* t = world.get<Text>(e)) changed += apply(world, e, i18n, t->key, t->keyArgs, t->text, "Text.text");
     if (Button* b = world.get<Button>(e)) changed += apply(world, e, i18n, b->key, b->keyArgs, b->text, "Button.text");
-    if (Toggle* t = world.get<Toggle>(e)) changed += apply(world, e, i18n, t->key, t->keyArgs, t->label, "Toggle.label");
-    if (Slider* s = world.get<Slider>(e)) changed += apply(world, e, i18n, s->key, s->keyArgs, s->label, "Slider.label");
-    if (Slider* s = world.get<Slider>(e)) changed += apply(world, e, i18n, s->formatKey, kFormatArgs(), s->format, "Slider.format");
-    if (TextField* f = world.get<TextField>(e)) changed += apply(world, e, i18n, f->key, f->keyArgs, f->placeholder, "TextField.placeholder");
-    if (TouchButton* b = world.get<TouchButton>(e)) changed += apply(world, e, i18n, b->key, b->keyArgs, b->text, "TouchButton.text");
-    if (Interactable* i = world.get<Interactable>(e)) changed += apply(world, e, i18n, i->key, i->keyArgs, i->label, "Interactable.label");
+    if (Toggle* t = world.get<Toggle>(e))
+        changed += apply(world, e, i18n, t->key, t->keyArgs, t->label, "Toggle.label");
+    if (Slider* s = world.get<Slider>(e))
+        changed += apply(world, e, i18n, s->key, s->keyArgs, s->label, "Slider.label");
+    if (Slider* s = world.get<Slider>(e))
+        changed += apply(world, e, i18n, s->formatKey, kFormatArgs(), s->format, "Slider.format");
+    if (TextField* f = world.get<TextField>(e))
+        changed += apply(world, e, i18n, f->key, f->keyArgs, f->placeholder, "TextField.placeholder");
+    if (TouchButton* b = world.get<TouchButton>(e))
+        changed += apply(world, e, i18n, b->key, b->keyArgs, b->text, "TouchButton.text");
+    if (Interactable* i = world.get<Interactable>(e))
+        changed += apply(world, e, i18n, i->key, i->keyArgs, i->label, "Interactable.label");
     return changed;
 }
 
 int localize_world(World& world, const I18n& i18n) {
     int changed = 0;
-    world.each<Text>([&](Entity e, Text& t) { changed += apply(world, e, i18n, t.key, t.keyArgs, t.text, "Text.text"); });
-    world.each<Button>([&](Entity e, Button& b) { changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "Button.text"); });
-    world.each<Toggle>([&](Entity e, Toggle& t) { changed += apply(world, e, i18n, t.key, t.keyArgs, t.label, "Toggle.label"); });
-    world.each<Slider>([&](Entity e, Slider& s) { changed += apply(world, e, i18n, s.key, s.keyArgs, s.label, "Slider.label"); });
-    world.each<Slider>([&](Entity e, Slider& s) { changed += apply(world, e, i18n, s.formatKey, kFormatArgs(), s.format, "Slider.format"); });
-    world.each<TextField>([&](Entity e, TextField& f) { changed += apply(world, e, i18n, f.key, f.keyArgs, f.placeholder, "TextField.placeholder"); });
-    world.each<TouchButton>([&](Entity e, TouchButton& b) { changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "TouchButton.text"); });
-    world.each<Interactable>([&](Entity e, Interactable& i) { changed += apply(world, e, i18n, i.key, i.keyArgs, i.label, "Interactable.label"); });
+    world.each<Text>(
+        [&](Entity e, Text& t) { changed += apply(world, e, i18n, t.key, t.keyArgs, t.text, "Text.text"); });
+    world.each<Button>(
+        [&](Entity e, Button& b) { changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "Button.text"); });
+    world.each<Toggle>(
+        [&](Entity e, Toggle& t) { changed += apply(world, e, i18n, t.key, t.keyArgs, t.label, "Toggle.label"); });
+    world.each<Slider>(
+        [&](Entity e, Slider& s) { changed += apply(world, e, i18n, s.key, s.keyArgs, s.label, "Slider.label"); });
+    world.each<Slider>([&](Entity e, Slider& s) {
+        changed += apply(world, e, i18n, s.formatKey, kFormatArgs(), s.format, "Slider.format");
+    });
+    world.each<TextField>([&](Entity e, TextField& f) {
+        changed += apply(world, e, i18n, f.key, f.keyArgs, f.placeholder, "TextField.placeholder");
+    });
+    world.each<TouchButton>([&](Entity e, TouchButton& b) {
+        changed += apply(world, e, i18n, b.key, b.keyArgs, b.text, "TouchButton.text");
+    });
+    world.each<Interactable>([&](Entity e, Interactable& i) {
+        changed += apply(world, e, i18n, i.key, i.keyArgs, i.label, "Interactable.label");
+    });
     return changed;
 }
 

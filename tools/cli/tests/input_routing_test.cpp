@@ -15,7 +15,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-void write_text(const stdfs::path& p, const std::string& text) { REQUIRE(fa::fs::write_text(p.generic_string(), text).ok()); }
+void write_text(const stdfs::path& p, const std::string& text) {
+    REQUIRE(fa::fs::write_text(p.generic_string(), text).ok());
+}
 
 const char* kTest = R"JS(
 import { test, expect, game } from "factoria:test";
@@ -104,7 +106,8 @@ test("the wheel reaches a script under a modal Panel with wheelPassThrough, and 
 TEST_CASE("scripts: input.consume, text input mode and Panel.wheelPassThrough") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_input_routing").value() / "proj";
-    write_text(dir / "factoria.json", R"({"format":"factoria.project/1","name":"Routing","id":"com.factoria.tests.routing","version":"0.1.0",
+    write_text(dir / "factoria.json",
+               R"({"format":"factoria.project/1","name":"Routing","id":"com.factoria.tests.routing","version":"0.1.0",
         "mainScene":"scenes/main.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"pause":["P","Escape"]}}})");
     write_text(dir / "scenes" / "main.scene.json", R"({"format":"factoria.scene/1","entities":[
@@ -113,16 +116,15 @@ TEST_CASE("scripts: input.consume, text input mode and Panel.wheelPassThrough") 
         {"id":"field","components":{"TextField":{"size":[300,50],"anchor":[0.5,0.2]}}},
         {"id":"dialog","active":false,"components":{"Panel":{"size":[400,300],"anchor":[0.5,0.6],"modal":true}},
          "children":[{"id":"ok","components":{"Button":{"text":"Ok","size":[100,40]}}}]}]})");
-    write_text(dir / "scripts" / "spy.js",
-               "import { Behaviour, input } from \"factoria\";\n"
-               "export default class Spy extends Behaviour {\n"
-               "  onUpdate() {\n"
-               "    const s = globalThis.spy;\n"
-               "    if (!s) return;\n"
-               "    if (input.pressed(\"pause\")) s.pauses++;\n"
-               "    if (input.mouse.wheel !== 0) s.wheel = input.mouse.wheel;\n"
-               "  }\n"
-               "}\n");
+    write_text(dir / "scripts" / "spy.js", "import { Behaviour, input } from \"factoria\";\n"
+                                           "export default class Spy extends Behaviour {\n"
+                                           "  onUpdate() {\n"
+                                           "    const s = globalThis.spy;\n"
+                                           "    if (!s) return;\n"
+                                           "    if (input.pressed(\"pause\")) s.pauses++;\n"
+                                           "    if (input.mouse.wheel !== 0) s.wheel = input.mouse.wheel;\n"
+                                           "  }\n"
+                                           "}\n");
     write_text(dir / "tests" / "routing.test.js", kTest);
 
     fa::cli::SessionOptions so;

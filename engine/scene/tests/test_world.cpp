@@ -107,8 +107,12 @@ TEST_CASE("world: iteration order is deterministic insertion order") {
     // Many removals trigger compaction; order is preserved.
     World big;
     std::vector<Entity> v;
-    for (int i = 0; i < 400; ++i) { v.push_back(big.create()); big.add<Sprite>(v.back()); }
-    for (int i = 0; i < 400; ++i) if (i % 3 != 0) big.remove<Sprite>(v[i]);
+    for (int i = 0; i < 400; ++i) {
+        v.push_back(big.create());
+        big.add<Sprite>(v.back());
+    }
+    for (int i = 0; i < 400; ++i)
+        if (i % 3 != 0) big.remove<Sprite>(v[i]);
     auto list = big.entities_with(&World::type_of<Sprite>());
     REQUIRE(list.size() == 134);
     for (std::size_t i = 0; i < list.size(); ++i) CHECK(list[i] == v[i * 3]);
@@ -117,13 +121,16 @@ TEST_CASE("world: iteration order is deterministic insertion order") {
 TEST_CASE("world: each with several components and safe mutation") {
     World w;
     Entity a = w.create(), b = w.create(), c = w.create();
-    w.add<Sprite>(a); w.add<Sprite>(b); w.add<Sprite>(c);
-    w.add<Camera>(a); w.add<Camera>(c);
+    w.add<Sprite>(a);
+    w.add<Sprite>(b);
+    w.add<Sprite>(c);
+    w.add<Camera>(a);
+    w.add<Camera>(c);
     int n = 0;
     w.each<Sprite, Camera>([&](Entity e, Sprite&, Camera&) {
         ++n;
-        w.destroy(e);        // deferred: safe while iterating
-        w.remove<Camera>(c); // removing others: safe, they are skipped
+        w.destroy(e);         // deferred: safe while iterating
+        w.remove<Camera>(c);  // removing others: safe, they are skipped
     });
     CHECK(n == 1);
     CHECK(w.entity_count() == 3);
@@ -310,7 +317,8 @@ TEST_CASE("world: clock and rng are deterministic") {
 
 TEST_CASE("tooltip settings: factoria.json \"ui\" keys are read and every mistake says where and what to write") {
     auto ok = parse_tooltip_settings(Json::parse(R"({"tooltipDelay":0.4,"tooltipOnTouch":true,
-        "tooltip":{"color":"#102030","fontSize":16,"maxWidth":280,"padding":[6,4,6,4],"layer":500}})"), "factoria.json#/ui");
+        "tooltip":{"color":"#102030","fontSize":16,"maxWidth":280,"padding":[6,4,6,4],"layer":500}})"),
+                                     "factoria.json#/ui");
     REQUIRE_MESSAGE(ok.ok(), (ok.ok() ? std::string() : ok.error().to_string()));
     CHECK(ok->delay == doctest::Approx(0.4f));
     CHECK(ok->onTouch);

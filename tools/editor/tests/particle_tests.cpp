@@ -29,7 +29,8 @@ struct FxProject {
     FxProject() {
         dir = fs::make_temp_dir("fa_particle_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<ParticleModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<ParticleModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
     }
     ~FxProject() {
         model.reset();
@@ -51,7 +52,8 @@ struct FxProject {
 
 }  // namespace
 
-TEST_CASE("particle curve helpers: a key goes where it was clicked, stays between its neighbours and the list stays sorted") {
+TEST_CASE(
+    "particle curve helpers: a key goes where it was clicked, stays between its neighbours and the list stays sorted") {
     Curve c;
     CHECK(curve_add_key(c, 0.0f, 1.0f) == 0);
     CHECK(curve_add_key(c, 1.0f, 0.0f) == 1);
@@ -194,7 +196,7 @@ TEST_CASE("particle model: a drag is one edit, written when the mouse is release
     for (int v : {10, 20, 30}) p.model->preview_field("/parts/0/emitter/burst", v);
     CHECK(p.model->field_previewing());
     CHECK(p.model->shown_json()["parts"][0]["emitter"]["burst"] == 30);
-    CHECK(p.file() == before);   // nothing written yet
+    CHECK(p.file() == before);  // nothing written yet
     const ParticleEditOutcome out = p.model->commit_field("Edit burst");
     REQUIRE_MESSAGE(out.ok, out.error);
     CHECK_FALSE(p.model->field_previewing());
@@ -234,15 +236,16 @@ TEST_CASE("particle model: a same-size edit that keeps the file's time is still 
     const auto digit = text.find_first_of("0123456789", pos);
     REQUIRE(digit != std::string::npos);
     std::string other = text;
-    other[digit] = other[digit] == '7' ? '8' : '7';   // one character: the size stays
+    other[digit] = other[digit] == '7' ? '8' : '7';  // one character: the size stays
     REQUIRE(other != text);
     std::ofstream(file, std::ios::binary | std::ios::trunc) << other;
-    stdfs::last_write_time(file, when, ec);           // and the time, as a file system with a coarse clock would
+    stdfs::last_write_time(file, when, ec);  // and the time, as a file system with a coarse clock would
     CHECK(p.model->poll_external());
     CHECK(p.model->saved_json() == Json::parse(other));
 }
 
-TEST_CASE("particle model: undo and redo refuse to overwrite a file that was changed outside, and Reload takes the file as it is") {
+TEST_CASE("particle model: undo and redo refuse to overwrite a file that was changed outside, and Reload takes the "
+          "file as it is") {
     FxProject p;
     p.open();
     const ParticleEditOutcome out = p.model->set_field("/parts/0/emitter/burst", 41, "Edit burst");
@@ -253,16 +256,17 @@ TEST_CASE("particle model: undo and redo refuse to overwrite a file that was cha
     CHECK_FALSE(p.model->apply_step(out.step, false));
     CHECK(p.model->conflict());
     CHECK(p.model->status().find("Reload") != std::string::npos);
-    CHECK(p.file()["doc"] == "edited in another program");   // the outside edit is still there
+    CHECK(p.file()["doc"] == "edited in another program");  // the outside edit is still there
     CHECK(p.file()["parts"][0]["emitter"]["burst"] == 41);
     CHECK(p.model->reload());
     CHECK_FALSE(p.model->conflict());
     CHECK(p.model->doc()->description == "edited in another program");
-    CHECK_FALSE(p.model->apply_step(out.step, false));        // the file is not what the step left, still
+    CHECK_FALSE(p.model->apply_step(out.step, false));  // the file is not what the step left, still
     CHECK(p.model->conflict());
 }
 
-TEST_CASE("particle model: while an undo conflict is shown, polling does not read the file; Reload does and names the stale step once") {
+TEST_CASE("particle model: while an undo conflict is shown, polling does not read the file; Reload does and names the "
+          "stale step once") {
     FxProject p;
     p.open();
     const ParticleEditOutcome first = p.model->set_field("/parts/0/emitter/burst", 41, "Edit burst");
@@ -277,17 +281,17 @@ TEST_CASE("particle model: while an undo conflict is shown, polling does not rea
         CHECK_FALSE(p.model->poll_external());
         CHECK(p.model->conflict());
     }
-    CHECK(p.model->doc()->description != "edited in another program");   // nothing was read
+    CHECK(p.model->doc()->description != "edited in another program");  // nothing was read
     CHECK(p.model->step_count() == 2);
     CHECK(p.model->reload());
     CHECK_FALSE(p.model->conflict());
     CHECK(p.model->doc()->description == "edited in another program");
     CHECK(p.model->take_stale_step() == second.step);
     CHECK(p.model->take_stale_step() == 0);
-    p.model->retain_steps({first.step});   // the editor's stacks, without the stale step
+    p.model->retain_steps({first.step});  // the editor's stacks, without the stale step
     CHECK(p.model->step_count() == 1);
     CHECK(p.model->step(second.step) == nullptr);
-    CHECK_FALSE(p.model->poll_external());   // polling works again, and finds nothing new
+    CHECK_FALSE(p.model->poll_external());  // polling works again, and finds nothing new
 }
 
 TEST_CASE("particle preview: the timeline counts the sub-emitters and the trail, like the effect system") {
@@ -297,7 +301,11 @@ TEST_CASE("particle preview: the timeline counts the sub-emitters and the trail,
     ParticlePreview pv;
     pv.set_document(p.model->doc());
     const double plain = pv.timeline_length();
-    REQUIRE(p.model->set_field("/parts/0/emitter/subEmitters", Json::parse(R"({"death":{"emitter":{"burst":3,"lifetime":4,"lifetimeVariance":0}}})"), "Sub").ok);
+    REQUIRE(p.model
+                ->set_field("/parts/0/emitter/subEmitters",
+                            Json::parse(R"({"death":{"emitter":{"burst":3,"lifetime":4,"lifetimeVariance":0}}})"),
+                            "Sub")
+                .ok);
     pv.set_document(p.model->doc());
     CHECK(pv.timeline_length() >= plain + 3.9);
     const double withSub = pv.timeline_length();
@@ -319,7 +327,7 @@ TEST_CASE("particle preview: after begin_frame, seek + catch_up + advance of one
     pv.seek(10.0);
     pv.catch_up();
     pv.advance(0.016);
-    CHECK(pv.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // not three shares
+    CHECK(pv.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);  // not three shares
     CHECK(pv.catching_up());
     pv.begin_frame();
     const double t1 = pv.time();
@@ -327,7 +335,7 @@ TEST_CASE("particle preview: after begin_frame, seek + catch_up + advance of one
     pv.catch_up();
     pv.advance(0.016);
     CHECK(pv.time() > t1);
-    CHECK(pv.time() - t1 <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // the next frame: one more share
+    CHECK(pv.time() - t1 <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);  // the next frame: one more share
 }
 
 TEST_CASE("particle preview: the same seed and the same time show the same particles; a seek rebuilds from the start") {
@@ -340,8 +348,8 @@ TEST_CASE("particle preview: the same seed and the same time show the same parti
     b.set_document(p.model->doc());
     a.seek(0.0);
     b.seek(0.0);
-    for (int i = 0; i < 30; ++i) a.advance(1.0 / 60.0);   // played
-    b.seek(a.time());                                      // scrubbed to the same moment
+    for (int i = 0; i < 30; ++i) a.advance(1.0 / 60.0);  // played
+    b.seek(a.time());                                    // scrubbed to the same moment
     b.settle();
     REQUIRE(a.live_particles() > 0);
     REQUIRE(a.dots().size() == b.dots().size());
@@ -386,10 +394,11 @@ TEST_CASE("particle preview: lights glow while they last and sounds and commands
     CHECK(v.lights().empty());
     v.seek(0.0);
     for (int i = 0; i < 90; ++i) v.advance(1.0 / 60.0);
-    CHECK(v.fired().size() == 1);   // the command; it was not run
+    CHECK(v.fired().size() == 1);  // the command; it was not run
 }
 
-TEST_CASE("particle preview: a far seek is done a bounded share per call and ends on the same particles as one done at once") {
+TEST_CASE("particle preview: a far seek is done a bounded share per call and ends on the same particles as one done at "
+          "once") {
     FxProject p;
     p.open();
     // a long effect: 6 s of emission and particles that live 12 s, so the timeline is far longer than one call's share of steps
@@ -401,18 +410,18 @@ TEST_CASE("particle preview: a far seek is done a bounded share per call and end
     whole.set_document(p.model->doc());
     const double far = std::min(slow.timeline_length() * 0.9, 20.0);
     const int wantedSteps = int(far / kPreviewStep);
-    REQUIRE(wantedSteps > 2 * kPreviewStepBudget);   // more than one call's share, so the test sees the catching up
+    REQUIRE(wantedSteps > 2 * kPreviewStepBudget);  // more than one call's share, so the test sees the catching up
 
     slow.seek(far);
-    CHECK(slow.catching_up());                        // the first call did not get there
+    CHECK(slow.catching_up());  // the first call did not get there
     CHECK(slow.target_time() == doctest::Approx(far).epsilon(0.01));
-    CHECK(slow.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);   // and did at most its budget
+    CHECK(slow.time() <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);  // and did at most its budget
     int calls = 1;
     double last = slow.time();
     while (slow.catching_up() && calls < 1000) {
         slow.catch_up();
         ++calls;
-        CHECK(slow.time() > last);                    // every call moves on
+        CHECK(slow.time() > last);  // every call moves on
         CHECK(slow.time() - last <= double(kPreviewStepBudget) * kPreviewStep + 1e-9);
         last = slow.time();
     }

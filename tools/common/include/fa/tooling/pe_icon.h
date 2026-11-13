@@ -29,9 +29,9 @@
 namespace fa {
 
 struct PeIconPatch {
-    int replaced = 0;               // RT_ICON images overwritten with the game icon
-    std::vector<int> sizes;         // their sizes in pixels, in the order found
-    int skipped = 0;                // RT_ICON images left as they were: PNG-compressed, not 32-bit, or of an unexpected length
+    int replaced = 0;        // RT_ICON images overwritten with the game icon
+    std::vector<int> sizes;  // their sizes in pixels, in the order found
+    int skipped = 0;         // RT_ICON images left as they were: PNG-compressed, not 32-bit, or of an unexpected length
     bool signatureRemoved = false;  // the file carried an Authenticode signature and it was removed
     bool truncated = false;         // ... and its bytes were cut off the end of the file
 };

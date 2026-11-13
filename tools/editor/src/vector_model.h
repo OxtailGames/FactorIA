@@ -41,17 +41,17 @@ using VectorFileSet = ImageFileSet;
 
 struct VectorStep {
     int id = 0;
-    std::string rel;                // the file the panel had open (the image document for an svg layer)
-    std::string layer;              // the svg layer ("" for an svg file)
+    std::string rel;    // the file the panel had open (the image document for an svg layer)
+    std::string layer;  // the svg layer ("" for an svg file)
     std::string label;
     VectorFileSet before, after;
 };
 
 struct VectorEditOutcome {
     bool ok = true;
-    std::string error;              // what went wrong, with the command's hint
-    int step = 0;                   // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;                    // the last command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the last command's result
 };
 
 // One anchor of one shape: the id or selector of the element (VecItem::ref), the subpath and the node in it.
@@ -66,7 +66,7 @@ struct VectorSnapSettings {
     bool grid = false;
     bool points = true;
     bool guides = true;
-    double gridSize = 10;           // drawing units
+    double gridSize = 10;  // drawing units
 };
 
 enum class VectorSnapKind { None, Grid, Point, Guide };
@@ -82,13 +82,13 @@ struct VectorStyle {
 // The pen tool's path while it is being drawn: ONE subpath in the drawing space.
 struct VectorPen {
     bool active = false;
-    VecNodePath path;               // the nodes so far (one subpath); when continuing, the existing nodes come first
-    bool dragging = false;          // the last node's handle follows the mouse
+    VecNodePath path;       // the nodes so far (one subpath); when continuing, the existing nodes come first
+    bool dragging = false;  // the last node's handle follows the mouse
     // continuing an existing open path
-    std::string continueShape;      // the element ("" = a new path)
+    std::string continueShape;  // the element ("" = a new path)
     int continueSubpath = 0;
     bool continueAtEnd = true;
-    int existing = 0;               // how many nodes were there when it started
+    int existing = 0;  // how many nodes were there when it started
 };
 
 class VectorModel {
@@ -96,15 +96,16 @@ public:
     VectorModel(std::string projectDir, VectorCommandFn call);
 
     // ---- the document ----------------------------------------------------------------------------------------------
-    bool open(const std::string& svgRel);                                         // a *.svg file; false: error() says why
-    bool open_layer(const std::string& documentRel, const std::string& layer);   // an svg layer: its name or index path ("1", "1/0")
+    bool open(const std::string& svgRel);  // a *.svg file; false: error() says why
+    bool open_layer(const std::string& documentRel,
+                    const std::string& layer);  // an svg layer: its name or index path ("1", "1/0")
     void close();
     bool is_open() const { return !rel_.empty(); }
-    bool valid() const { return valid_; }           // the SVG loads (it may be open and broken: error() has the reason)
+    bool valid() const { return valid_; }  // the SVG loads (it may be open and broken: error() has the reason)
     bool is_layer() const { return isLayer_; }
-    const std::string& path() const { return rel_; }               // the .svg file, or the image document
-    const std::string& layer() const { return layer_; }            // the layer as given to open_layer
-    const std::string& layer_path() const { return layerPath_; }   // its index path in the document
+    const std::string& path() const { return rel_; }              // the .svg file, or the image document
+    const std::string& layer() const { return layer_; }           // the layer as given to open_layer
+    const std::string& layer_path() const { return layerPath_; }  // its index path in the document
     std::string title() const;
     const std::string& error() const { return error_; }
     // The SVG text on the canvas: the file's, or with a drag going on the result of that drag.
@@ -135,13 +136,16 @@ public:
     void toggle_selected(const std::string& ref);
     void add_to_selection(const std::string& ref);
     void clear_selection();
-    void select_all();                                  // every element of the current group level
+    void select_all();  // every element of the current group level
     bool selection_bounds(VecRect& out, bool visual = true) const;
     // The group the user went into (double click); clicks pick the children of it. "" = the top level.
     const std::string& context() const { return context_; }
     void enter_group(const std::string& ref);
     // Makes `ref` (a group, or "" for the top level) the level clicks pick at, keeping the selection.
-    void set_context(const std::string& ref) { context_ = ref; nodeSel_.clear(); }
+    void set_context(const std::string& ref) {
+        context_ = ref;
+        nodeSel_.clear();
+    }
     void leave_group();
     // The element a click at `p` picks at the current group level (-1 = none). `tolerance` is in drawing units.
     int pick(VecPoint p, double tolerance) const;
@@ -168,19 +172,21 @@ public:
     void cancel_preview();
 
     // The common edits, built from the commands above.
-    VectorEditOutcome move_selection(double dx, double dy);                          // vector.transform translate
-    VectorEditOutcome delete_selection();                                            // vector.delete
-    VectorEditOutcome duplicate_selection(double dx = 0, double dy = 0);             // vector.duplicate (the copies are selected)
-    VectorEditOutcome group_selection();                                             // vector.group (the group is selected)
-    VectorEditOutcome ungroup_selection();                                           // vector.ungroup
-    VectorEditOutcome set_style(const Json& props, const std::string& label = "Change style");    // vector.set on the selection
+    VectorEditOutcome move_selection(double dx, double dy);               // vector.transform translate
+    VectorEditOutcome delete_selection();                                 // vector.delete
+    VectorEditOutcome duplicate_selection(double dx = 0, double dy = 0);  // vector.duplicate (the copies are selected)
+    VectorEditOutcome group_selection();                                  // vector.group (the group is selected)
+    VectorEditOutcome ungroup_selection();                                // vector.ungroup
+    VectorEditOutcome set_style(const Json& props,
+                                const std::string& label = "Change style");  // vector.set on the selection
     VectorEditOutcome set_hidden(const std::string& ref, bool hidden);
     VectorEditOutcome set_locked(const std::string& ref, bool locked);
     VectorEditOutcome rename(const std::string& ref, const std::string& id);
     // Moves elements in the drawing order or into another group: `to` front|back|forward|backward, or `parent` ("root" or a group) and
     // `before` (an element; "" = the end of the parent).
     VectorEditOutcome reorder(const std::vector<std::string>& refs, const std::string& to);
-    VectorEditOutcome regroup(const std::vector<std::string>& refs, const std::string& parent, const std::string& before);
+    VectorEditOutcome regroup(const std::vector<std::string>& refs, const std::string& parent,
+                              const std::string& before);
     // Boolean operation on the selection (union, subtract, intersect, exclude); the result is selected.
     VectorEditOutcome boolean_op(const std::string& op);
     // Adds a shape at the level the user is in (the current group) and selects it.
@@ -197,14 +203,14 @@ public:
     bool preview_node_ops(const std::string& shape, const Json& ops);
     // The nodes of the element `ref` with their handles, in the drawing space (empty when it is not a shape).
     const VecNodePath* nodes_of(const std::string& ref) const;
-    VectorStyle style;                                  // what new shapes get
+    VectorStyle style;  // what new shapes get
 
     // ---- the pen ---------------------------------------------------------------------------------------------------
     const VectorPen& pen() const { return pen_; }
     // A press of the mouse: a new node at `p` (the first node of a closed path when `p` is within `tolerance` of it and closes the path:
     // returns true then, and the caller finishes the pen). `continuePath`: a press on the end node of the selected open path continues it.
     bool pen_press(VecPoint p, double tolerance);
-    void pen_drag(VecPoint p);                          // the mouse moves with the button down: the node's out handle follows
+    void pen_drag(VecPoint p);  // the mouse moves with the button down: the node's out handle follows
     void pen_release();
     // Continues the open path `shape` from the end (or the start) of its subpath.
     bool pen_continue(const std::string& shape, int subpath, bool atEnd);
@@ -219,9 +225,11 @@ public:
     std::vector<double> guidesX, guidesY;
     // The point `p` moved onto the nearest grid line, guide or point of the drawing within `tolerance` (drawing units); the shapes in
     // `exclude` (the ones being moved) do not attract.
-    VecPoint snap_point(VecPoint p, double tolerance, const std::vector<std::string>& exclude, VectorSnapKind* kind = nullptr) const;
+    VecPoint snap_point(VecPoint p, double tolerance, const std::vector<std::string>& exclude,
+                        VectorSnapKind* kind = nullptr) const;
     // The move `delta` of `box` corrected so that its edges, centre or corners land on a snap target.
-    VecPoint snap_move(const VecRect& box, VecPoint delta, double tolerance, const std::vector<std::string>& exclude) const;
+    VecPoint snap_move(const VecRect& box, VecPoint delta, double tolerance,
+                       const std::vector<std::string>& exclude) const;
 
     // ---- saving ----------------------------------------------------------------------------------------------------
     // The edits are on disk already. For an svg layer of an image document, Save bakes the document's PNG (image.save).

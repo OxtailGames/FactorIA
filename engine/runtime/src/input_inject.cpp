@@ -24,34 +24,41 @@ void apply_one_gamepad(Input& in, const Json& g, std::vector<std::string>& probl
     if (g.contains("index")) {
         const Json& i = g["index"];
         if (!i.is_number_integer() || i.get<long long>() < 0 || i.get<long long>() >= kMaxGamepads) {
-            note("index must be an integer from 0 to " + std::to_string(kMaxGamepads - 1) + ", got " + describe_json_value(i));
+            note("index must be an integer from 0 to " + std::to_string(kMaxGamepads - 1) + ", got " +
+                 describe_json_value(i));
             return;
         }
         index = i.get<int>();
     }
     if (g.contains("connected")) {
-        if (g["connected"].is_boolean()) in.on_gamepad_connected(index, g["connected"].get<bool>());
-        else note("connected must be true or false, got " + describe_json_value(g["connected"]));
+        if (g["connected"].is_boolean())
+            in.on_gamepad_connected(index, g["connected"].get<bool>());
+        else
+            note("connected must be true or false, got " + describe_json_value(g["connected"]));
     }
     if (g.contains("buttons")) {
         if (!g["buttons"].is_object()) {
-            note("buttons must be an object like {\"A\": true, \"DpadLeft\": false}, got " + describe_json_value(g["buttons"]));
+            note("buttons must be an object like {\"A\": true, \"DpadLeft\": false}, got " +
+                 describe_json_value(g["buttons"]));
         } else {
             for (auto it = g["buttons"].begin(); it != g["buttons"].end(); ++it) {
                 GamepadButton b{};
                 if (!gamepad_button_from_name(it.key(), b)) {
-                    note("unknown button '" + it.key() + "' (ignored). " + did_you_mean(it.key(), gamepad_button_names()));
+                    note("unknown button '" + it.key() + "' (ignored). " +
+                         did_you_mean(it.key(), gamepad_button_names()));
                 } else if (it->is_boolean()) {
                     in.on_gamepad_button(index, b, it->get<bool>());
                 } else {
-                    note("button '" + it.key() + "' must be true (down) or false (up), got " + describe_json_value(*it));
+                    note("button '" + it.key() + "' must be true (down) or false (up), got " +
+                         describe_json_value(*it));
                 }
             }
         }
     }
     if (g.contains("axes")) {
         if (!g["axes"].is_object()) {
-            note("axes must be an object like {\"LeftX\": -1, \"RightTrigger\": 0.5}, got " + describe_json_value(g["axes"]));
+            note("axes must be an object like {\"LeftX\": -1, \"RightTrigger\": 0.5}, got " +
+                 describe_json_value(g["axes"]));
         } else {
             for (auto it = g["axes"].begin(); it != g["axes"].end(); ++it) {
                 GamepadAxis a{};
@@ -60,7 +67,8 @@ void apply_one_gamepad(Input& in, const Json& g, std::vector<std::string>& probl
                 else if (it->is_number())
                     in.on_gamepad_axis(index, a, it->get<float>());
                 else
-                    note("axis '" + it.key() + "' must be a number (-1..1, triggers 0..1), got " + describe_json_value(*it));
+                    note("axis '" + it.key() + "' must be a number (-1..1, triggers 0..1), got " +
+                         describe_json_value(*it));
             }
         }
     }
@@ -69,7 +77,8 @@ void apply_one_gamepad(Input& in, const Json& g, std::vector<std::string>& probl
 void apply_one_touch(Input& in, const Json& t, std::vector<std::string>& problems) {
     auto note = [&](const std::string& m) { problems.push_back("touch: " + m); };
     if (!t.is_object()) {
-        note("expected an object like {\"id\": 1, \"position\": [640, 360], \"down\": true}, got " + describe_json_value(t));
+        note("expected an object like {\"id\": 1, \"position\": [640, 360], \"down\": true}, got " +
+             describe_json_value(t));
         return;
     }
     static const std::vector<std::string> known = {"id", "position", "down"};
@@ -104,7 +113,8 @@ void apply_one_touch(Input& in, const Json& t, std::vector<std::string>& problem
             return;
         }
     } else if (down && !known_id) {
-        note("position is required to put a finger down, e.g. {\"id\": " + std::to_string(id) + ", \"position\": [640, 360]}.");
+        note("position is required to put a finger down, e.g. {\"id\": " + std::to_string(id) +
+             ", \"position\": [640, 360]}.");
         return;
     }
     if (!down) {  // lift where it was (or where `position` says); an unknown id is a no-op

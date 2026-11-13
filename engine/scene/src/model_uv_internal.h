@@ -15,12 +15,13 @@ namespace fa::uv {
 // (a chart is a rigid piece of the surface laid flat), scaled to texels only when charts are packed or tiled.
 struct Work {
     const ModelMesh* mesh = nullptr;
-    std::vector<std::uint32_t> welded;  // per source vertex: the id of its welded vertex (positions within 1e-5 are one point of the surface)
-    std::vector<Vec3> wpos;             // per welded vertex: its position
-    std::vector<std::uint32_t> part;    // per triangle: index into `names`
-    std::vector<std::string> names;     // the distinct part names, in order of first use
-    std::vector<Vec2> uv;               // 3 per triangle
-    std::vector<std::int32_t> chart;    // per triangle: the chart it is in (-1 = none yet)
+    std::vector<std::uint32_t>
+        welded;  // per source vertex: the id of its welded vertex (positions within 1e-5 are one point of the surface)
+    std::vector<Vec3> wpos;           // per welded vertex: its position
+    std::vector<std::uint32_t> part;  // per triangle: index into `names`
+    std::vector<std::string> names;   // the distinct part names, in order of first use
+    std::vector<Vec2> uv;             // 3 per triangle
+    std::vector<std::int32_t> chart;  // per triangle: the chart it is in (-1 = none yet)
     std::int32_t chartCount = 0;
 
     std::size_t triangle_count() const { return mesh->triangle_count(); }
@@ -56,7 +57,8 @@ std::vector<std::int32_t> components(const std::vector<CornerKey>& keys, std::si
 // xatlas: cuts the part's triangles into charts and flattens them. `seams` is "few", "balanced" or "many".
 // `partTris[p]` are the triangles of part p to unwrap (empty: leave the part alone). Charts come out in metres, upright, one chart id each;
 // triangles xatlas cannot place (no area) keep chart -2.
-Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>& partTris, float texelsPerMeter, const std::string& seams);
+Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>& partTris, float texelsPerMeter,
+                          const std::string& seams);
 
 // Packing: one atlas for all the charts (`scales` is the texel density of each part, texels per metre, times `shrink`).
 struct PackRequest {

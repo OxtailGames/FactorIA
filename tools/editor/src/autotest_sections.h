@@ -18,6 +18,7 @@ struct AutotestSection {
     const char* title;
 };
 
+// clang-format off: tools/editor/CMakeLists.txt reads this table one row per line
 inline constexpr AutotestSection kAutotestSections[] = {
     {"S", "Start: select, edit, undo, play, AI marshaling, feedback, viewport click and keys"},
     {"T", "Toolbar Screenshot button"},
@@ -72,6 +73,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
     {"R4", "Review window: a sheet made by a command is offered in a toast and opens on its button, 3 and the arrows select, Compare shows 1 and 2 side by side, Enter and the confirmation pick through review.pick (the other files move to the drop folder), History shows the pick and opens the sheet read-only, the Level generator's Sheet of seeds makes a sheet in a child factoria whose pick sets the seed"},
 };
+// clang-format on
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).
 // An unknown id is an error that lists the sections.

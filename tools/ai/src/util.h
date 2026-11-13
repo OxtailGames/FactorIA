@@ -31,12 +31,17 @@ public:
     bool held() const { return lock_.held(); }
     Error error() const {
         if (lock_.unwritable())
-            return make_error("Cannot save '" + file_ + "': the lock file " + lock_.path() + " cannot be made in its folder",
-                              "Check that the folder of the file exists and that your account may create files in it, then save again.");
-        return make_error("Cannot save '" + file_ + "': another FactorIA program (a second editor, an agent's `factoria`) holds the lock file " +
-                              lock_.path() + " and did not finish in one second, so nothing was changed.",
-                          "Try again in a few seconds. A lock left by a program that crashed expires after about 10 s; if it stays and no "
-                          "FactorIA program is running, delete that lock file.");
+            return make_error("Cannot save '" + file_ + "': the lock file " + lock_.path() +
+                                  " cannot be made in its folder",
+                              "Check that the folder of the file exists and that your account may create files in it, "
+                              "then save again.");
+        return make_error(
+            "Cannot save '" + file_ +
+                "': another FactorIA program (a second editor, an agent's `factoria`) holds the lock file " +
+                lock_.path() + " and did not finish in one second, so nothing was changed.",
+            "Try again in a few seconds. A lock left by a program that crashed expires after about 10 s; if it stays "
+            "and no "
+            "FactorIA program is running, delete that lock file.");
     }
 
 private:

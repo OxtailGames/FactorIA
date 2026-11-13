@@ -59,8 +59,8 @@ struct Scene {
         a = &world.add<Animator>(e);
         auto r = object_patch_from_json(*TypeRegistry::global().find("Animator"), a, fields);
         const std::string err = r.ok() ? std::string() : r.error().to_string();
-    INFO(err);
-    REQUIRE(r.ok());
+        INFO(err);
+        REQUIRE(r.ok());
     }
     // One fixed step; returns the names of the events it produced, in order.
     std::vector<std::string> step(float dt = 0.25f) {
@@ -100,7 +100,7 @@ TEST_CASE("skeleton: nodes, skin, clips and vertex weights of the two-bone sampl
     REQUIRE(sv.joints.size() == 12);
     CHECK(sv.joints[0][0] == 0);
     CHECK(sv.weights[0][0] == doctest::Approx(1.0f));
-    CHECK(sv.joints[4][1] == 1);                              // middle ring: half Root, half Tip
+    CHECK(sv.joints[4][1] == 1);  // middle ring: half Root, half Tip
     CHECK(sv.weights[4][0] == doctest::Approx(0.5f));
     CHECK(sv.weights[4][1] == doctest::Approx(0.5f));
     CHECK(sv.joints[8][0] == 1);
@@ -122,7 +122,8 @@ TEST_CASE("skeleton: a missing file and a missing clip teach") {
 TEST_CASE("sampling: the bind pose is the identity palette") {
     Fixture fx;
     auto sk = model();
-    for (const Mat4& m : skin_palette(*sk, rest_pose(*sk), 0)) CHECK(near(m.transform_point({0.3f, 1.2f, -0.1f}), {0.3f, 1.2f, -0.1f}));
+    for (const Mat4& m : skin_palette(*sk, rest_pose(*sk), 0))
+        CHECK(near(m.transform_point({0.3f, 1.2f, -0.1f}), {0.3f, 1.2f, -0.1f}));
 }
 
 TEST_CASE("sampling: LINEAR rotation halfway bends the tip 45 degrees") {
@@ -177,15 +178,15 @@ TEST_CASE("animator: plays a clip in the fixed step and writes the palette") {
 TEST_CASE("animator: cross-fade blends the outgoing and incoming clip") {
     Fixture fx;
     Scene s(Json::parse(R"({"clip": "Bend"})"));
-    s.step();                                              // Bend at 0.25
+    s.step();  // Bend at 0.25
     REQUIRE(animator_play(s.world, s.e, "Slide", 1.0f).ok());
-    s.step(0.5f);                                          // Slide at 0.5 (Root x = 1); Bend carried on to 0.75; fade at halfway
+    s.step(0.5f);  // Slide at 0.5 (Root x = 1); Bend carried on to 0.75; fade at halfway
     const float bendDeg = 0.75f * 90.0f;
-    const float half = radians(bendDeg) * 0.5f;            // slerp(Rz(67.5), identity, .5) = Rz(33.75)
-    const float a = half;                                  // angle of the blended rotation
+    const float half = radians(bendDeg) * 0.5f;                // slerp(Rz(67.5), identity, .5) = Rz(33.75)
+    const float a = half;                                      // angle of the blended rotation
     const Vec3 tipFromJoint = {-std::sin(a), std::cos(a), 0};  // (0,1,0) turned by Rz(33.75)
     CHECK(near(skinned(s.a->palette, 1, {0, 2, 0}), Vec3{0.5f, 1.0f, 0} + tipFromJoint));
-    s.step(0.5f);                                          // fade over: pure Slide
+    s.step(0.5f);  // fade over: pure Slide
     CHECK(s.a->clip == "Slide");
     CHECK(near(skinned(s.a->palette, 1, {0, 2, 0}), {0, 2, 0}));  // Slide wrapped from 1.0 to 0.0: Root back at x = 0
 }
@@ -217,9 +218,9 @@ TEST_CASE("animator: clip events fire exactly once per loop, in the step that pa
         if (count(ev, "start")) start.push_back(i);
         other += count(ev, "other");
     }
-    CHECK(half == std::vector<int>{2, 6, 10});          // t = .5, 1.5, 2.5
-    CHECK(start == std::vector<int>{1, 4, 8, 12});      // t = 0 (first step), 1, 2, 3
-    CHECK(other == 0);                                  // another clip's events never fire
+    CHECK(half == std::vector<int>{2, 6, 10});      // t = .5, 1.5, 2.5
+    CHECK(start == std::vector<int>{1, 4, 8, 12});  // t = 0 (first step), 1, 2, 3
+    CHECK(other == 0);                              // another clip's events never fire
 }
 
 TEST_CASE("animator: event data names the clip and the entity") {
@@ -272,7 +273,7 @@ TEST_CASE("state machine: parameters drive transitions, with onEnter events, tri
     CHECK(s.a->state == "idle");
     CHECK(s.a->clip == "Slide");
     CHECK(count(ev, "in_idle") == 1);
-    CHECK(s.step().empty());                       // nothing changes without input
+    CHECK(s.step().empty());  // nothing changes without input
     REQUIRE(animator_set(s.world, s.e, "speed", 3).ok());
     ev = s.step();
     CHECK(s.a->state == "run");
@@ -284,11 +285,13 @@ TEST_CASE("state machine: parameters drive transitions, with onEnter events, tri
     s.step();
     CHECK(s.a->state == "hit");
     CHECK_FALSE(s.a->loop);
-    s.step(); s.step(); s.step();                  // Spline lasts 1 s (0.25 played): finished after three more steps
+    s.step();
+    s.step();
+    s.step();  // Spline lasts 1 s (0.25 played): finished after three more steps
     CHECK_FALSE(s.a->playing);
     CHECK(s.a->state == "hit");
-    s.step();                                      // the onFinish transition fires on the next step
-    CHECK(s.a->state == "idle");                   // idle -> run needs grounded, which is false
+    s.step();                     // the onFinish transition fires on the next step
+    CHECK(s.a->state == "idle");  // idle -> run needs grounded, which is false
 }
 
 TEST_CASE("state machine: errors name the declared parameters") {
@@ -311,7 +314,10 @@ TEST_CASE("animator: two identical runs give identical palettes and events") {
     Scene a(Json::parse(cfg)), b(Json::parse(cfg));
     std::vector<std::string> evA, evB;
     for (int i = 0; i < 90; ++i) {
-        if (i == 30) { CHECK(animator_set(a.world, a.e, "v", 2).ok()); CHECK(animator_set(b.world, b.e, "v", 2).ok()); }
+        if (i == 30) {
+            CHECK(animator_set(a.world, a.e, "v", 2).ok());
+            CHECK(animator_set(b.world, b.e, "v", 2).ok());
+        }
         for (auto& n : a.step(1.0f / 60.0f)) evA.push_back(n);
         for (auto& n : b.step(1.0f / 60.0f)) evB.push_back(n);
         REQUIRE(a.a->palette.size() == b.a->palette.size());
@@ -353,7 +359,8 @@ PoseRun run_many_animators(const jobs::Settings* settings) {
             world.add<MeshRenderer>(e).mesh = kModel;
             Animator& a = world.add<Animator>(e);
             const std::string cfg = R"({"events": [{"clip": "Bend", "time": 0.3, "name": "e"}], "params": {"v": 0},
-                "states": {"a": {"clip": ")" + std::string(i % 3 ? "Bend" : "Slide") + R"("}, "b": {"clip": "Spline"}},
+                "states": {"a": {"clip": ")" +
+                                    std::string(i % 3 ? "Bend" : "Slide") + R"("}, "b": {"clip": "Spline"}},
                 "transitions": [{"from": "a", "to": "b", "when": "v > 1", "fade": 0.4}]})";
             REQUIRE(object_patch_from_json(*TypeRegistry::global().find("Animator"), &a, Json::parse(cfg)).ok());
             a.speed = 0.5f + float(i % 17) * 0.1f;
@@ -373,7 +380,8 @@ PoseRun run_many_animators(const jobs::Settings* settings) {
 
 }  // namespace
 
-TEST_CASE("animator: many animators give the same palettes and events with the pool stopped, inline and 1, 2, 8 workers") {
+TEST_CASE(
+    "animator: many animators give the same palettes and events with the pool stopped, inline and 1, 2, 8 workers") {
     Fixture fx;
     REQUIRE(!jobs::running());
     const PoseRun base = run_many_animators(nullptr);
@@ -390,7 +398,8 @@ TEST_CASE("animator: many animators give the same palettes and events with the p
         bool same = true;
         for (std::size_t i = 0; same && i < base.palettes.size(); ++i)
             same = run.palettes[i].size() == base.palettes[i].size() &&
-                   std::memcmp(run.palettes[i].data(), base.palettes[i].data(), base.palettes[i].size() * sizeof(Mat4)) == 0;
+                   std::memcmp(run.palettes[i].data(), base.palettes[i].data(),
+                               base.palettes[i].size() * sizeof(Mat4)) == 0;
         CHECK(same);
     }
 }

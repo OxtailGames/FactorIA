@@ -44,7 +44,8 @@ std::uint64_t get_u64(const std::uint8_t* p) {
 bool valid_name(std::string_view name) {
     if (name.empty() || name.size() > 128 || name == "." || name == "..") return false;
     for (char c : name) {
-        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
+                        c == '_' || c == '-';
         if (!ok) return false;
     }
     return true;
@@ -67,9 +68,7 @@ BlobCache::BlobCache(stdfs::path dir, std::string key) : dir_(std::move(dir)), k
     if (key_.size() > kMaxKeyBytes) key_.resize(kMaxKeyBytes);
 }
 
-stdfs::path BlobCache::file_for(std::string_view name) const {
-    return dir_ / (std::string(name) + ".facache");
-}
+stdfs::path BlobCache::file_for(std::string_view name) const { return dir_ / (std::string(name) + ".facache"); }
 
 std::vector<std::uint8_t> BlobCache::encode(std::string_view key, std::span<const std::uint8_t> payload) {
     std::vector<std::uint8_t> out;
@@ -103,7 +102,8 @@ BlobCache::Status BlobCache::load(std::string_view name, std::vector<std::uint8_
     if (endPos < 0 || !in) return Status::Miss;
     const std::uintmax_t size = std::uintmax_t(endPos);
     auto ignore = [&](Status status, const std::string& reason) {
-        const std::string text = reason + "; ignoring " + fs::path_to_utf8(file_for(name)) + " (it is rebuilt and stored again)";
+        const std::string text =
+            reason + "; ignoring " + fs::path_to_utf8(file_for(name)) + " (it is rebuilt and stored again)";
         if (why) *why = text;
         FA_INFO("cache", "{}", text);
         out.clear();
@@ -112,16 +112,19 @@ BlobCache::Status BlobCache::load(std::string_view name, std::vector<std::uint8_
     // magic + version + key length + payload size + digest is the smallest a file can be.
     const std::size_t fixed = 4 + 4 + 4 + 8 + kDigestChars;
     if (size < fixed || size > kMaxBlobBytes + kMaxKeyBytes + fixed)
-        return ignore(Status::Damaged, size < fixed ? "the cache file is cut short (" + std::to_string(size) + " bytes, a header alone is " +
-                                                          std::to_string(fixed) + ")"
+        return ignore(Status::Damaged, size < fixed ? "the cache file is cut short (" + std::to_string(size) +
+                                                          " bytes, a header alone is " + std::to_string(fixed) + ")"
                                                     : "the cache file is bigger than the 64 MiB limit");
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
     in.read(reinterpret_cast<char*>(bytes.data()), std::streamsize(bytes.size()));
-    if (std::size_t(in.gcount()) != bytes.size()) return ignore(Status::Damaged, "the cache file could not be read completely");
+    if (std::size_t(in.gcount()) != bytes.size())
+        return ignore(Status::Damaged, "the cache file could not be read completely");
     in.close();
-    if (std::memcmp(bytes.data(), kMagic, 4) != 0) return ignore(Status::Damaged, "the file does not start with the cache magic (not a cache file)");
+    if (std::memcmp(bytes.data(), kMagic, 4) != 0)
+        return ignore(Status::Damaged, "the file does not start with the cache magic (not a cache file)");
     if (get_u32(bytes.data() + 4) != kFormatVersion)
-        return ignore(Status::Damaged, "the cache file has format version " + std::to_string(get_u32(bytes.data() + 4)) + ", this engine writes " +
+        return ignore(Status::Damaged, "the cache file has format version " +
+                                           std::to_string(get_u32(bytes.data() + 4)) + ", this engine writes " +
                                            std::to_string(kFormatVersion));
     const std::uint32_t keyLen = get_u32(bytes.data() + 8);
     if (keyLen > kMaxKeyBytes || std::size_t(12) + keyLen + 8 + kDigestChars > bytes.size())
@@ -136,22 +139,30 @@ BlobCache::Status BlobCache::load(std::string_view name, std::vector<std::uint8_
     p += kDigestChars;
     const std::size_t have = std::size_t(bytes.data() + bytes.size() - p);
     if (payloadSize > kMaxBlobBytes || payloadSize != have)
-        return ignore(Status::Damaged, "the cache file is cut short or has extra bytes (its header says " + std::to_string(payloadSize) +
-                                           " payload bytes, the file holds " + std::to_string(have) + ")");
-    if (sha256_hex(p, have) != digest) return ignore(Status::Damaged, "the checksum of the cache file does not match its bytes");
+        return ignore(Status::Damaged, "the cache file is cut short or has extra bytes (its header says " +
+                                           std::to_string(payloadSize) + " payload bytes, the file holds " +
+                                           std::to_string(have) + ")");
+    if (sha256_hex(p, have) != digest)
+        return ignore(Status::Damaged, "the checksum of the cache file does not match its bytes");
     out.assign(p, p + have);
     return Status::Hit;
 }
 
 Result<void> BlobCache::store(std::string_view name, std::span<const std::uint8_t> payload) const {
-    if (!enabled()) return make_error("The shader cache is off (no cache folder)", "Set fs::set_cache_dir() or the FA_CACHE_DIR environment variable.");
+    if (!enabled())
+        return make_error("The shader cache is off (no cache folder)",
+                          "Set fs::set_cache_dir() or the FA_CACHE_DIR environment variable.");
     if (!valid_name(name))
-        return make_error("Cache name '" + std::string(name) + "' is not allowed", "Use 1..128 letters, digits, '.', '_' or '-'.");
+        return make_error("Cache name '" + std::string(name) + "' is not allowed",
+                          "Use 1..128 letters, digits, '.', '_' or '-'.");
     if (payload.size() > kMaxBlobBytes)
-        return make_error("The blob '" + std::string(name) + "' is " + std::to_string(payload.size()) + " bytes", "A cache blob holds at most 64 MiB.");
+        return make_error("The blob '" + std::string(name) + "' is " + std::to_string(payload.size()) + " bytes",
+                          "A cache blob holds at most 64 MiB.");
     std::error_code ec;
     stdfs::create_directories(fs::os_path(dir_), ec);
-    if (ec) return make_error("Cannot create the cache folder " + fs::path_to_utf8(dir_) + ": " + ec.message(), "Is the disk full or the folder read-only? The game runs without the cache.");
+    if (ec)
+        return make_error("Cannot create the cache folder " + fs::path_to_utf8(dir_) + ": " + ec.message(),
+                          "Is the disk full or the folder read-only? The game runs without the cache.");
     const std::vector<std::uint8_t> bytes = encode(key_, payload);
     const stdfs::path target = file_for(name);
     static std::atomic<unsigned> counter{0};
@@ -164,12 +175,15 @@ Result<void> BlobCache::store(std::string_view name, std::span<const std::uint8_
     tmp += ".tmp" + std::to_string(pid) + "_" + std::to_string(counter++);
     {
         std::ofstream out(fs::os_path(tmp), std::ios::binary | std::ios::trunc);
-        if (!out) return make_error("Cannot open " + fs::path_to_utf8(tmp) + " for writing", "Is the cache folder read-only?");
+        if (!out)
+            return make_error("Cannot open " + fs::path_to_utf8(tmp) + " for writing",
+                              "Is the cache folder read-only?");
         out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
         out.close();
         if (!out) {
             std::error_code ignored;
-            fs::remove_file(fs::os_path(tmp), ignored);  // retries while an AV scanner or indexer still holds it (Windows)
+            fs::remove_file(fs::os_path(tmp),
+                            ignored);  // retries while an AV scanner or indexer still holds it (Windows)
             return make_error("Failed while writing " + fs::path_to_utf8(tmp), "Is the disk full?");
         }
     }
@@ -177,8 +191,9 @@ Result<void> BlobCache::store(std::string_view name, std::span<const std::uint8_
     if (ec) {
         std::error_code ignored;
         fs::remove_file(fs::os_path(tmp), ignored);
-        return make_error("Cannot replace " + fs::path_to_utf8(target) + ": " + ec.message(),
-                          "Another program may hold it open; the old file stays and the game runs without the new one.");
+        return make_error(
+            "Cannot replace " + fs::path_to_utf8(target) + ": " + ec.message(),
+            "Another program may hold it open; the old file stays and the game runs without the new one.");
     }
     return {};
 }

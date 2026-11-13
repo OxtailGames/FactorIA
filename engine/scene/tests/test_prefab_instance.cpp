@@ -15,8 +15,9 @@ struct TempProject {
     std::filesystem::path dir, oldRoot;
     TempProject() {
         oldRoot = fs::project_root();
-        dir = std::filesystem::temp_directory_path() /
-              ("fa_test_prefab_instance_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        dir =
+            std::filesystem::temp_directory_path() /
+            ("fa_test_prefab_instance_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::create_directories(dir);
         fs::set_project_root(dir);
     }
@@ -126,7 +127,7 @@ TEST_CASE("prefab instances: an edit saves only that override, and editing it ba
         "components":{"Transform":{"position":[3,4,0]},"Sprite":{"layer":9}},
         "overrides":{"title":{"components":{"Text":{"text":"Edited"}}}}})"));
 
-    w.get<Sprite>(a)->layer = 1;                 // the prefab's value again
+    w.get<Sprite>(a)->layer = 1;  // the prefab's value again
     w.get<Transform>(a)->position = Vec3{0, 0, 0};
     w.get<Text>(w.find_by_id("title"))->text = "Hello";
     CHECK(saved_entity(w, "a") == Json::parse(R"({"id":"a","prefab":"prefabs/panel.prefab.json"})"));
@@ -136,7 +137,9 @@ TEST_CASE("prefab instances: an edit saves only that override, and editing it ba
     CHECK(saved_entity(w, "a")["components"]["Shape2D"] == Json::parse(R"({"layer":4})"));
     w.remove<Shape2D>(a);
     const std::string savedBefore = saved_text(w);
-    REQUIRE(fs::write_text("prefabs/panel.prefab.json", std::string(kPanel).replace(std::string(kPanel).find("\"layer\": 1"), 10, "\"layer\": 5")).ok());
+    REQUIRE(fs::write_text("prefabs/panel.prefab.json",
+                           std::string(kPanel).replace(std::string(kPanel).find("\"layer\": 1"), 10, "\"layer\": 5"))
+                .ok());
     World after;
     load(after, savedBefore);
     CHECK(after.get<Sprite>(after.find_by_id("a"))->layer == 5);
@@ -178,7 +181,8 @@ TEST_CASE("prefab instances: what an instance cannot say is written inline and r
     CHECK(again.children(again.find_by_id("b")).size() == 2);
 }
 
-TEST_CASE("prefab instances: a part whose id differs from the prefab's stays an instance unless a string elsewhere names it") {
+TEST_CASE("prefab instances: a part whose id differs from the prefab's stays an instance unless a string elsewhere "
+          "names it") {
     TempProject p;
     write_panel();
     const char* withTwo = R"({"format":"factoria.scene/1","entities":[
@@ -224,7 +228,8 @@ TEST_CASE("prefab instances: diff_entity_with_prefab compares an entity built by
     INFO(d.reason);
     REQUIRE(d.expressible);
     CHECK(d.changes == 1);  // the Sprite layer
-    CHECK(d.entry == Json::parse(R"({"id":"copy","prefab":"prefabs/panel.prefab.json","components":{"Sprite":{"layer":2}}})"));
+    CHECK(d.entry ==
+          Json::parse(R"({"id":"copy","prefab":"prefabs/panel.prefab.json","components":{"Sprite":{"layer":2}}})"));
 
     PrefabDiff none = diff_entity_with_prefab(w, w.find_by_id("copy"), "prefabs/nope.prefab.json");
     CHECK_FALSE(none.expressible);
@@ -249,7 +254,7 @@ TEST_CASE("prefab instances: an instance added as a child of an instance stays a
       ]})";
     World w;
     load(w, scene);
-    CHECK(w.children(w.find_by_id("host")).size() == 4);   // title, Row, inner, bare
+    CHECK(w.children(w.find_by_id("host")).size() == 4);  // title, Row, inner, bare
     std::vector<PrefabExpanded> expanded;
     const std::string want = dump_scene_json(Json::parse(scene)["entities"]);
     CHECK(saved_entities_text(w, &expanded) == want);

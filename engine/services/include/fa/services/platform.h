@@ -44,7 +44,8 @@ struct PlatformEntry {
 
 struct PlatformAchievement : PlatformEntry {
     std::string name, description;
-    std::string nameKey, descriptionKey;  // locale keys (locales/<language>.json); when set they win over the plain text
+    std::string nameKey,
+        descriptionKey;  // locale keys (locales/<language>.json); when set they win over the plain text
     bool hidden = false;
 };
 struct PlatformStat : PlatformEntry {
@@ -52,7 +53,7 @@ struct PlatformStat : PlatformEntry {
 };
 struct PlatformLeaderboard : PlatformEntry {
     std::string name;
-    std::string nameKey;  // locale key; when set it wins over the plain text
+    std::string nameKey;               // locale key; when set it wins over the plain text
     std::string order = "descending";  // "descending": higher is better; "ascending": lower is better (times)
     // "allTime" (never starts over), "daily" (a board per calendar day of game.today()) or "weekly" (per week, Monday to Sunday).
     std::string period = "allTime";
@@ -66,7 +67,7 @@ struct PlatformProduct : PlatformEntry {
     std::string type;  // "consumable" | "nonConsumable" | "subscription"
     std::string title, description;
     std::string titleKey, descriptionKey;  // locale keys; when set they win over the plain text
-    double price = 0.0;  // only the fake backend uses it: real stores give their own
+    double price = 0.0;                    // only the fake backend uses it: real stores give their own
     std::string currency = "USD";
 };
 
@@ -192,14 +193,16 @@ struct PlatformEvent {
 // How long a request may stay unanswered before the engine answers it itself (docs/PLATFORM.md, "Deadlines"): the answer is
 // the error "network" ("no answer from the <backend> backend in <N> s"), and a late answer from the backend is ignored, except a
 // late SUCCESSFUL purchases.buy / purchases.restore: money was taken, so it reaches the game as a `purchase` event instead.
-inline constexpr double kPlatformDefaultTimeoutSeconds = 30.0;      // every method that does not wait for the player
-inline constexpr double kPlatformInteractiveTimeoutSeconds = 300.0;  // purchases.buy / .restore, ads.showRewarded / .privacyOptions, player.signIn
+inline constexpr double kPlatformDefaultTimeoutSeconds = 30.0;  // every method that does not wait for the player
+inline constexpr double kPlatformInteractiveTimeoutSeconds =
+    300.0;  // purchases.buy / .restore, ads.showRewarded / .privacyOptions, player.signIn
 // ads.consent / ads.available / ads.setUnderAge: the ads plugins wait for the consent flow (a form the player fills in) up to 120 s, for
 // as long as the player is busy with it, and then up to 30 s for an ad to load; the engine's deadline must stay above that.
 inline constexpr double kPlatformAdsFlowTimeoutSeconds = 600.0;
 // How many purchases.buy / .restore requests the engine gave up on are remembered, to deliver a late successful answer as an event.
 inline constexpr std::size_t kPlatformMaxWatchedPurchases = 64;
-inline constexpr double kPlatformHttpGraceSeconds = 5.0;  // http.fetch: its own `timeout` argument (default 15 s) plus this
+inline constexpr double kPlatformHttpGraceSeconds =
+    5.0;  // http.fetch: its own `timeout` argument (default 15 s) plus this
 // The most events kept for the game between two take_events() calls: past it the OLDEST are dropped (counted, one warning), the
 // overlay, player and remotePlay events before any `purchase` (a purchase is money: it goes only when nothing else is left to drop).
 inline constexpr std::size_t kPlatformMaxQueuedEvents = 1024;
@@ -224,7 +227,8 @@ public:
     bool alive() const;  // false once the PlatformServices (or its backend) is gone
 
     struct State;
-    PlatformSink(std::weak_ptr<State> state, std::uint64_t generation) : state_(std::move(state)), generation_(generation) {}
+    PlatformSink(std::weak_ptr<State> state, std::uint64_t generation)
+        : state_(std::move(state)), generation_(generation) {}
 
 private:
     std::weak_ptr<State> state_;

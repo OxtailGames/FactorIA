@@ -71,7 +71,9 @@ AviInfo parse_avi(const stdfs::path& file) {
     AviInfo a;
     std::ifstream in(file, std::ios::binary);
     std::vector<std::uint8_t> b((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (b.size() < 12 || std::string(b.begin(), b.begin() + 4) != "RIFF" || std::string(b.begin() + 8, b.begin() + 12) != "AVI ") return a;
+    if (b.size() < 12 || std::string(b.begin(), b.begin() + 4) != "RIFF" ||
+        std::string(b.begin() + 8, b.begin() + 12) != "AVI ")
+        return a;
     if (le32(b, 4) + 8 != b.size()) return a;  // the RIFF size is the file size
     auto id = [&](std::size_t at) { return std::string(b.begin() + at, b.begin() + at + 4); };
     std::size_t at = 12;
@@ -91,7 +93,8 @@ AviInfo parse_avi(const stdfs::path& file) {
                         a.height = int(le32(b, q + 8 + 36));
                     } else if (t == "LIST") {  // strl: LIST, size, "strl", "strh", size, fccType...
                         const std::size_t strh = q + 20;
-                        if (id(q + 12) == "strh" && id(strh) == "auds") a.audioRate = le32(b, strh + 24) / 4;  // dwRate / block align
+                        if (id(q + 12) == "strh" && id(strh) == "auds")
+                            a.audioRate = le32(b, strh + 24) / 4;  // dwRate / block align
                     }
                     q += 8 + s + (s & 1);
                 }
@@ -120,8 +123,18 @@ std::string tone_wav() {  // 0.4 s of a 440 Hz sine, 16-bit mono 44.1 kHz
     auto le = [&](std::uint32_t v, int bytes) {
         for (int i = 0; i < bytes; ++i) d.push_back(char(v >> (8 * i)));
     };
-    d += "RIFF"; le(36 + n * 2, 4); d += "WAVEfmt "; le(16, 4); le(1, 2); le(1, 2); le(44100, 4); le(88200, 4); le(2, 2); le(16, 2);
-    d += "data"; le(n * 2, 4);
+    d += "RIFF";
+    le(36 + n * 2, 4);
+    d += "WAVEfmt ";
+    le(16, 4);
+    le(1, 2);
+    le(1, 2);
+    le(44100, 4);
+    le(88200, 4);
+    le(2, 2);
+    le(16, 2);
+    d += "data";
+    le(n * 2, 4);
     for (int i = 0; i < n; ++i) le(std::uint16_t(std::int16_t(12000 * std::sin(i * 6.2831853 * 440 / 44100))), 2);
     return d;
 }
@@ -224,5 +237,7 @@ TEST_CASE("run_headless: --record-video keeps memory flat (every frame goes to t
     };
     REQUIRE_MESSAGE(run_headless(c, o, &report) == 0, report.dump());
     REQUIRE(report["videoFrames"] == 150);
-    if (at20 > 0 && atEnd > 0) CHECK_MESSAGE(atEnd < at20 + 150ull * 1024 * 1024, "memory grew from " << at20 / 1048576 << " to " << atEnd / 1048576 << " MB");
+    if (at20 > 0 && atEnd > 0)
+        CHECK_MESSAGE(atEnd < at20 + 150ull * 1024 * 1024,
+                      "memory grew from " << at20 / 1048576 << " to " << atEnd / 1048576 << " MB");
 }

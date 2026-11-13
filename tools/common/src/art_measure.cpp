@@ -19,13 +19,17 @@ constexpr int kCacheVersion = 1;
 constexpr int kMaxColours = 512;
 constexpr double kOutlineTolerance = 48;
 
-std::uint32_t pack(std::uint8_t r, std::uint8_t g, std::uint8_t b) { return (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b; }
+std::uint32_t pack(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    return (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b;
+}
 
 double distance(const ArtColour& a, const ArtColour& b) {
     const double dr = double(a.r) - b.r, dg = double(a.g) - b.g, db = double(a.b) - b.b;
     return std::sqrt(dr * dr + dg * dg + db * db);
 }
-double luminance(std::uint8_t r, std::uint8_t g, std::uint8_t b) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0; }
+double luminance(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+}
 
 struct Bin {
     double r = 0, g = 0, b = 0;
@@ -37,12 +41,14 @@ std::vector<ArtColour> top_bins(const std::unordered_map<std::uint32_t, Bin>& bi
     std::vector<std::pair<std::uint32_t, const Bin*>> order;
     order.reserve(bins.size());
     for (const auto& [key, bin] : bins) order.push_back({key, &bin});
-    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.second->n != b.second->n ? a.second->n > b.second->n : a.first < b.first; });
+    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+        return a.second->n != b.second->n ? a.second->n > b.second->n : a.first < b.first;
+    });
     std::vector<ArtColour> out;
     for (std::size_t i = 0; i < order.size() && i < n; ++i) {
         const Bin& b = *order[i].second;
-        out.push_back({std::uint8_t(std::lround(b.r / double(b.n))), std::uint8_t(std::lround(b.g / double(b.n))), std::uint8_t(std::lround(b.b / double(b.n))),
-                       std::uint32_t(b.n)});
+        out.push_back({std::uint8_t(std::lround(b.r / double(b.n))), std::uint8_t(std::lround(b.g / double(b.n))),
+                       std::uint8_t(std::lround(b.b / double(b.n))), std::uint32_t(b.n)});
     }
     return out;
 }
@@ -78,16 +84,22 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
             ++exact[pack(p[0], p[1], p[2])];
             const std::uint32_t key = pack(p[0] >> 3, p[1] >> 3, p[2] >> 3);
             Bin& bin = bins[key];
-            bin.r += p[0]; bin.g += p[1]; bin.b += p[2]; ++bin.n;
+            bin.r += p[0];
+            bin.g += p[1];
+            bin.b += p[2];
+            ++bin.n;
             const int mx = std::max({p[0], p[1], p[2]}), mn = std::min({p[0], p[1], p[2]});
             ++valueHist[std::size_t(mx)];
             saturationSum += mx > 0 ? double(mx - mn) / mx : 0.0;
-            const bool ring = (x > 0 && !visible_at(x - 1, y)) || (x + 1 < w && !visible_at(x + 1, y)) || (y > 0 && !visible_at(x, y - 1)) ||
-                              (y + 1 < h && !visible_at(x, y + 1));
+            const bool ring = (x > 0 && !visible_at(x - 1, y)) || (x + 1 < w && !visible_at(x + 1, y)) ||
+                              (y > 0 && !visible_at(x, y - 1)) || (y + 1 < h && !visible_at(x, y + 1));
             if (ring) {
                 ++m.ringPixels;
                 Bin& rb = ringBins[key];
-                rb.r += p[0]; rb.g += p[1]; rb.b += p[2]; ++rb.n;
+                rb.r += p[0];
+                rb.g += p[1];
+                rb.b += p[2];
+                ++rb.n;
             }
         }
     }
@@ -101,15 +113,24 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
         bool lowDone = false;
         for (int v = 0; v < 256; ++v) {
             acc += valueHist[std::size_t(v)];
-            if (!lowDone && acc >= lowAt) { m.valueLow = v / 255.0; lowDone = true; }
-            if (acc >= highAt) { m.valueHigh = v / 255.0; break; }
+            if (!lowDone && acc >= lowAt) {
+                m.valueLow = v / 255.0;
+                lowDone = true;
+            }
+            if (acc >= highAt) {
+                m.valueHigh = v / 255.0;
+                break;
+            }
         }
     }
     if (exact.size() <= std::size_t(kMaxColours)) {
         m.exact = true;
         std::vector<std::pair<std::uint32_t, std::uint32_t>> order(exact.begin(), exact.end());
-        std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
-        for (const auto& [key, n] : order) m.colours.push_back({std::uint8_t(key >> 16), std::uint8_t(key >> 8), std::uint8_t(key), n});
+        std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+            return a.second != b.second ? a.second > b.second : a.first < b.first;
+        });
+        for (const auto& [key, n] : order)
+            m.colours.push_back({std::uint8_t(key >> 16), std::uint8_t(key >> 8), std::uint8_t(key), n});
     } else {
         m.exact = false;
         m.colours = top_bins(bins, kMaxColours);
@@ -129,13 +150,20 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
             for (int x = 0; x < w; ++x) {
                 if (!near_dom(x, y)) continue;
                 int dx = 0, dy = 0;  // inward: away from the transparent neighbour
-                if (x > 0 && !visible_at(x - 1, y)) dx = 1;
-                else if (x + 1 < w && !visible_at(x + 1, y)) dx = -1;
-                else if (y > 0 && !visible_at(x, y - 1)) dy = 1;
-                else if (y + 1 < h && !visible_at(x, y + 1)) dy = -1;
-                else continue;
+                if (x > 0 && !visible_at(x - 1, y))
+                    dx = 1;
+                else if (x + 1 < w && !visible_at(x + 1, y))
+                    dx = -1;
+                else if (y > 0 && !visible_at(x, y - 1))
+                    dy = 1;
+                else if (y + 1 < h && !visible_at(x, y + 1))
+                    dy = -1;
+                else
+                    continue;
                 int run = 0;
-                for (int cx = x, cy = y; cx >= 0 && cy >= 0 && cx < w && cy < h && near_dom(cx, cy) && run < 64; cx += dx, cy += dy) ++run;
+                for (int cx = x, cy = y; cx >= 0 && cy >= 0 && cx < w && cy < h && near_dom(cx, cy) && run < 64;
+                     cx += dx, cy += dy)
+                    ++run;
                 ++runs[std::size_t(run)];
                 ++counted;
             }
@@ -143,7 +171,10 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
             std::uint32_t acc = 0;
             for (std::size_t k = 0; k < runs.size(); ++k) {
                 acc += runs[k];
-                if (acc * 2 >= counted) { m.ringWidth = double(k); break; }
+                if (acc * 2 >= counted) {
+                    m.ringWidth = double(k);
+                    break;
+                }
             }
         }
     }
@@ -160,16 +191,25 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
                     for (int x = cx0; x < x1; ++x) {
                         const std::uint8_t* p = px(x, y);
                         if (p[3] < 128) continue;
-                        ++n; mx += x; my += y; ml += luminance(p[0], p[1], p[2]);
+                        ++n;
+                        mx += x;
+                        my += y;
+                        ml += luminance(p[0], p[1], p[2]);
                     }
                 if (n < 16) continue;
-                mx /= n; my /= n; ml /= n;
+                mx /= n;
+                my /= n;
+                ml /= n;
                 for (int y = cy0; y < y1; ++y)
                     for (int x = cx0; x < x1; ++x) {
                         const std::uint8_t* p = px(x, y);
                         if (p[3] < 128) continue;
                         const double dl = luminance(p[0], p[1], p[2]) - ml;
-                        sxx += (x - mx) * (x - mx); syy += (y - my) * (y - my); sll += dl * dl; sxl += (x - mx) * dl; syl += (y - my) * dl;
+                        sxx += (x - mx) * (x - mx);
+                        syy += (y - my) * (y - my);
+                        sll += dl * dl;
+                        sxl += (x - mx) * dl;
+                        syl += (y - my) * dl;
                     }
             }
         const double count = double(m.visible);
@@ -189,8 +229,14 @@ ArtMeasure measure_art(const Image& img, int cellWidth, int cellHeight) {
             bool same = true;
             for (int y = 0; y < h && same; ++y)
                 for (int x = 0; x < w; ++x)
-                    if (std::memcmp(px(x, y), px(x - x % k, y - y % k), 4) != 0) { same = false; break; }
-            if (same) { m.blockSize = k; break; }
+                    if (std::memcmp(px(x, y), px(x - x % k, y - y % k), 4) != 0) {
+                        same = false;
+                        break;
+                    }
+            if (same) {
+                m.blockSize = k;
+                break;
+            }
         }
     }
     return m;
@@ -209,7 +255,8 @@ bool colours_from(const Json& j, std::vector<ArtColour>& out) {
     if (!j.is_array()) return false;
     for (const Json& c : j) {
         if (!c.is_array() || c.size() != 4) return false;
-        out.push_back({std::uint8_t(c[0].get<int>()), std::uint8_t(c[1].get<int>()), std::uint8_t(c[2].get<int>()), c[3].get<std::uint32_t>()});
+        out.push_back({std::uint8_t(c[0].get<int>()), std::uint8_t(c[1].get<int>()), std::uint8_t(c[2].get<int>()),
+                       c[3].get<std::uint32_t>()});
     }
     return true;
 }
@@ -217,13 +264,25 @@ bool colours_from(const Json& j, std::vector<ArtColour>& out) {
 }  // namespace
 
 Json ArtMeasure::to_json() const {
-    return Json::object({{"version", kCacheVersion},     {"width", width},           {"height", height},
-                         {"visible", visible},           {"partialShare", partialShare}, {"distinct", distinct},
-                         {"exact", exact},               {"colours", colours_json(colours)},
-                         {"valueLow", valueLow},         {"valueHigh", valueHigh},   {"saturationMean", saturationMean},
-                         {"ringPixels", ringPixels},     {"ringColours", colours_json(ringColours)},
-                         {"ringWidth", ringWidth},       {"lightDegrees", lightDegrees}, {"lightStrength", lightStrength},
-                         {"blockSize", blockSize},       {"cellWidth", cellWidth},   {"cellHeight", cellHeight}});
+    return Json::object({{"version", kCacheVersion},
+                         {"width", width},
+                         {"height", height},
+                         {"visible", visible},
+                         {"partialShare", partialShare},
+                         {"distinct", distinct},
+                         {"exact", exact},
+                         {"colours", colours_json(colours)},
+                         {"valueLow", valueLow},
+                         {"valueHigh", valueHigh},
+                         {"saturationMean", saturationMean},
+                         {"ringPixels", ringPixels},
+                         {"ringColours", colours_json(ringColours)},
+                         {"ringWidth", ringWidth},
+                         {"lightDegrees", lightDegrees},
+                         {"lightStrength", lightStrength},
+                         {"blockSize", blockSize},
+                         {"cellWidth", cellWidth},
+                         {"cellHeight", cellHeight}});
 }
 
 std::optional<ArtMeasure> ArtMeasure::from_json(const Json& j) {
@@ -236,7 +295,8 @@ std::optional<ArtMeasure> ArtMeasure::from_json(const Json& j) {
         m.partialShare = j.at("partialShare").get<double>();
         m.distinct = j.at("distinct").get<int>();
         m.exact = j.at("exact").get<bool>();
-        if (!colours_from(j.at("colours"), m.colours) || !colours_from(j.at("ringColours"), m.ringColours)) return std::nullopt;
+        if (!colours_from(j.at("colours"), m.colours) || !colours_from(j.at("ringColours"), m.ringColours))
+            return std::nullopt;
         m.valueLow = j.at("valueLow").get<double>();
         m.valueHigh = j.at("valueHigh").get<double>();
         m.saturationMean = j.at("saturationMean").get<double>();
@@ -258,7 +318,9 @@ Result<ArtMeasure> measure_art_file(const std::string& projectDir, const std::st
     namespace stdfs = std::filesystem;
     const stdfs::path file = stdfs::path(projectDir) / rel;
     auto bytes = tooling_detail::read_file(file);
-    if (!bytes) return make_error("'" + rel + "' cannot be read.", "Use a project-relative path of an existing image, e.g. assets/hero.png.");
+    if (!bytes)
+        return make_error("'" + rel + "' cannot be read.",
+                          "Use a project-relative path of an existing image, e.g. assets/hero.png.");
 
     // The cells of a sheet only matter to the light measurement; they are part of the cache key.
     std::shared_ptr<const assets::Sheet> sheet;
@@ -267,7 +329,9 @@ Result<ArtMeasure> measure_art_file(const std::string& projectDir, const std::st
         sheet = assets::sheet(rel);
     }
     const std::string key = sha256_hex(bytes->data(), bytes->size()) +
-                            (sheet ? std::format("-c{}r{}f{}x{}p{}", sheet->columns, sheet->rows, sheet->frameWidth, sheet->frameHeight, sheet->padding) : "");
+                            (sheet ? std::format("-c{}r{}f{}x{}p{}", sheet->columns, sheet->rows, sheet->frameWidth,
+                                                 sheet->frameHeight, sheet->padding)
+                                   : "");
     const stdfs::path cacheFile = stdfs::path(projectDir) / ".factoria" / "art-cache" / (key + ".json");
     if (auto text = tooling_detail::read_file(cacheFile)) {
         Json parsed = Json::parse(*text, nullptr, false);

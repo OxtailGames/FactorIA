@@ -42,7 +42,9 @@ stdfs::path xcframework_slice(const stdfs::path& xcframework, bool simulator) {
     for (stdfs::directory_iterator it(os_path(xcframework), ec), end; !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         if (name.rfind("ios-", 0) != 0 || !it->is_directory(ec)) continue;
-        const auto ends = [&](const std::string& tail) { return name.size() >= tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0; };
+        const auto ends = [&](const std::string& tail) {
+            return name.size() >= tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
+        };
         if (ends("-maccatalyst")) continue;
         if (ends("-simulator") == simulator) return it->path();
     }
@@ -74,14 +76,17 @@ bool is_static_library(const stdfs::path& binary) {
     };
     auto be = [](const std::string& b, std::size_t at, std::size_t size) {
         std::uint64_t v = 0;
-        for (std::size_t i = 0; i < size && at + i < b.size(); ++i) v = (v << 8) | static_cast<unsigned char>(b[at + i]);
+        for (std::size_t i = 0; i < size && at + i < b.size(); ++i)
+            v = (v << 8) | static_cast<unsigned char>(b[at + i]);
         return v;
     };
     const std::string kArchive = "!<arch>\n";
     const std::string head = read(0, 32);
     if (head.compare(0, kArchive.size(), kArchive) == 0) return true;
     // Fat header (big endian): magic 0xCAFEBABE (32-bit offsets) or 0xCAFEBABF (64-bit), count, then one entry per architecture.
-    if (head.size() < 24 || be(head, 0, 3) != 0xCAFEBA || (be(head, 3, 1) != 0xBE && be(head, 3, 1) != 0xBF) || be(head, 4, 4) == 0) return false;
+    if (head.size() < 24 || be(head, 0, 3) != 0xCAFEBA || (be(head, 3, 1) != 0xBE && be(head, 3, 1) != 0xBF) ||
+        be(head, 4, 4) == 0)
+        return false;
     const std::uint64_t offset = be(head, 3, 1) == 0xBE ? be(head, 16, 4) : be(head, 16, 8);
     return read(offset, kArchive.size()) == kArchive;
 }
@@ -90,9 +95,12 @@ bool is_static_library(const stdfs::path& binary) {
 std::string strings_escape(const std::string& text) {
     std::string out;
     for (char c : text) {
-        if (c == '\\' || c == '"') out += '\\', out += c;
-        else if (c == '\n') out += "\\n";
-        else out += c;
+        if (c == '\\' || c == '"')
+            out += '\\', out += c;
+        else if (c == '\n')
+            out += "\\n";
+        else
+            out += c;
     }
     return out;
 }
@@ -108,7 +116,8 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
     for (const auto& [from, to] : kFiles) {
         auto data = bundled_read(from);
         if (!data)
-            return err(std::string("export: this factoria has no built-in iOS template ") + from, "this is an engine bug; report it");
+            return err(std::string("export: this factoria has no built-in iOS template ") + from,
+                       "this is an engine bug; report it");
         if (auto r = write_text(outRoot / to, *data); !r.ok()) return r;
     }
     std::error_code ec;
@@ -117,8 +126,11 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
         for (stdfs::directory_iterator it(setup.libs / slice, ec), end; !ec && it != end; it.increment(ec)) {
             if (it->path().extension() != ".a") continue;
             std::error_code ec2;
-            stdfs::copy_file(it->path(), os_path(outRoot / "lib" / slice / it->path().filename()), stdfs::copy_options::overwrite_existing, ec2);
-            if (ec2) return err("export: cannot copy the prebuilt iOS library " + generic(it->path()) + ": " + ec2.message());
+            stdfs::copy_file(it->path(), os_path(outRoot / "lib" / slice / it->path().filename()),
+                             stdfs::copy_options::overwrite_existing, ec2);
+            if (ec2)
+                return err("export: cannot copy the prebuilt iOS library " + generic(it->path()) + ": " +
+                           ec2.message());
         }
     }
     return {};
@@ -141,13 +153,16 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         const stdfs::path dest = outRoot / "plugins" / plugin.name;
         std::error_code ec;
         stdfs::create_directories(os_path(dest), ec);
-        stdfs::copy(os_path(plugin.build), os_path(dest), stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
-        if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " + generic(dest) +
-                           ": " + ec.message());
+        stdfs::copy(os_path(plugin.build), os_path(dest),
+                    stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
+        if (ec)
+            return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " +
+                       generic(dest) + ": " + ec.message());
         pluginNames += (pluginNames.empty() ? "" : ";") + plugin.name;
         auto manifest = read_plugin_manifest(plugin.build);
         if (!manifest.ok())
-            return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message, manifest.error().hint);
+            return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message,
+                       manifest.error().hint);
         manifests.push_back({plugin.name, manifest.value()});
     }
     auto merged = merge_plugin_manifests(manifests);
@@ -155,7 +170,8 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const PluginManifest& needs = merged.value();
     const bool hasEntitlements = !needs.entitlements.empty();
     if (hasEntitlements)
-        if (auto r = write_text(outRoot / kIosEntitlementsFile, entitlements_plist(needs.entitlements)); !r.ok()) return r;
+        if (auto r = write_text(outRoot / kIosEntitlementsFile, entitlements_plist(needs.entitlements)); !r.ok())
+            return r;
     // Vendored XCFrameworks (the ads plugin's Google SDK, ...): they must be in the copied plugin; a static one is linked into
     // the app, a dynamic one is also embedded in it (platforms/ios/plugins.cmake picks the slice of the SDK it builds for).
     std::vector<std::string> embedXcframeworks;
@@ -164,10 +180,13 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         const stdfs::path path = outRoot / "plugins" / xcframework;
         std::error_code ec;
         if (!stdfs::is_directory(os_path(path), ec))
-            return err("export: the plugin '" + plugin + "' lists the XCFramework " + xcframework.substr(plugin.size() + 1) +
+            return err("export: the plugin '" + plugin + "' lists the XCFramework " +
+                           xcframework.substr(plugin.size() + 1) +
                            " in its ios/plugin.json but the plugin's ios/ folder does not have it",
-                       "Put the .xcframework there. A vendor SDK is a download that the repository never holds: for the admob plugin run "
-                       "`factoria call platform.add_backend '{\"backend\":\"admob\",\"sdk\":\"<the Google Mobile Ads SDK zip or folder>\"}'` "
+                       "Put the .xcframework there. A vendor SDK is a download that the repository never holds: for "
+                       "the admob plugin run "
+                       "`factoria call platform.add_backend '{\"backend\":\"admob\",\"sdk\":\"<the Google Mobile Ads "
+                       "SDK zip or folder>\"}'` "
                        "(docs/PLATFORM.md, \"Ads on iOS\"), which copies it in");
         const stdfs::path device = xcframework_slice(path, false);
         const stdfs::path simulator = xcframework_slice(path, true);
@@ -176,12 +195,15 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                        "Use the XCFramework built for iOS, not a macOS-only one");
         for (const auto& [slice, name] : {std::pair{device, "iPhone"}, std::pair{simulator, "iOS Simulator"}})
             if (slice.empty())
-                report.warnings.push_back(xcframework + " has no slice for the " + name + ": " +
-                                          (std::string(name) == "iPhone" ? "a device build" : "./build_ios.sh --simulator") + " will fail to link it");
+                report.warnings.push_back(
+                    xcframework + " has no slice for the " + name + ": " +
+                    (std::string(name) == "iPhone" ? "a device build" : "./build_ios.sh --simulator") +
+                    " will fail to link it");
         const stdfs::path binary = xcframework_binary(device.empty() ? simulator : device);
         if (binary.empty())
-            return err("export: " + xcframework + " has no .framework or lib*.a in its iOS slice",
-                       "An XCFramework holds <Name>.framework (or lib<Name>.a) in each ios-* folder; download it again");
+            return err(
+                "export: " + xcframework + " has no .framework or lib*.a in its iOS slice",
+                "An XCFramework holds <Name>.framework (or lib<Name>.a) in each ios-* folder; download it again");
         if (!is_static_library(binary)) embedXcframeworks.push_back(xcframework);
     }
     // The Info.plist keys of the plugins (plugin.json "infoPlist") plus the ones the export writes for the ads plugin: Google's
@@ -190,11 +212,10 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const AdsIosSettings ads = ads_ios_settings(generic(p.dir), o.release);
     Json plist = needs.infoPlist.is_object() ? needs.infoPlist : Json::object();
     if (ads.present) {
-        std::vector<std::pair<std::string, Json>> adsKeys = {
-            {"GADApplicationIdentifier", ads.appId},
-            {"FactoriaAdsTest", ads.test},
-            {"FactoriaAdsAudience", ads.audience},
-            {"FactoriaAdsTrackingPrompt", ads.trackingPrompt}};
+        std::vector<std::pair<std::string, Json>> adsKeys = {{"GADApplicationIdentifier", ads.appId},
+                                                             {"FactoriaAdsTest", ads.test},
+                                                             {"FactoriaAdsAudience", ads.audience},
+                                                             {"FactoriaAdsTrackingPrompt", ads.trackingPrompt}};
         if (ads.trackingPrompt) adsKeys.push_back({"NSUserTrackingUsageDescription", ads.trackingDescription});
         if (!ads.trackingDescriptions.empty()) {
             Json languages = Json::array();
@@ -203,8 +224,10 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         }
         for (auto& [key, value] : adsKeys) {
             if (plist.contains(key))
-                return err("export: " + key + " is in the infoPlist of a plugin and the export writes it for the ads plugin too",
-                           "Remove it from the plugin's ios/plugin.json \"infoPlist\": the export takes it from factoria.json (platform.ads)");
+                return err("export: " + key +
+                               " is in the infoPlist of a plugin and the export writes it for the ads plugin too",
+                           "Remove it from the plugin's ios/plugin.json \"infoPlist\": the export takes it from "
+                           "factoria.json (platform.ads)");
             plist[key] = value;
         }
     }
@@ -219,7 +242,8 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                 !r.ok())
                 return r;
     if (o.release)
-        for (const AdsIssue& i : check_ads(generic(p.dir), "ios")) report.warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
+        for (const AdsIssue& i : check_ads(generic(p.dir), "ios"))
+            report.warnings.push_back("factoria.json#" + i.pointer + ": " + i.message + ". " + i.hint);
     // The catalog's products as Products.storekit, whether or not the Apple plugin is declared or built (the plugin only matters
     // for the scheme): Xcode sells them to a run from Xcode without App Store Connect (build_ios.sh wires it into the scheme).
     // One localization per language of the game, from the products' titleKey / descriptionKey.
@@ -231,10 +255,12 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
             if (!catalog.products.empty()) {
                 auto script = bundled_read("platforms/ios/storekit_scheme.cmake");
                 if (!script)
-                    return err("export: this factoria has no built-in platforms/ios/storekit_scheme.cmake", "this is an engine bug; report it");
+                    return err("export: this factoria has no built-in platforms/ios/storekit_scheme.cmake",
+                               "this is an engine bug; report it");
                 std::vector<StoreKitLanguage> languages;
-                const LocalizationSettings localization =
-                    project->contains("localization") ? parse_localization((*project)["localization"]).settings : LocalizationSettings{};
+                const LocalizationSettings localization = project->contains("localization")
+                                                              ? parse_localization((*project)["localization"]).settings
+                                                              : LocalizationSettings{};
                 if (localization.enabled()) {
                     auto read_strings = [&](const std::string& tag) {
                         std::map<std::string, std::string> out;
@@ -243,8 +269,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                         if (!doc.ok()) return out;
                         auto table = parse_string_table(*doc, tag, file);
                         if (!table.ok()) return out;
-                        for (const auto& [key, entry] : table->entries)
-                            out[key] = entry.fallback_text();
+                        for (const auto& [key, entry] : table->entries) out[key] = entry.fallback_text();
                         return out;
                     };
                     const auto base = read_strings(localization.defaultLanguage);
@@ -254,7 +279,9 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                         languages.push_back(std::move(lang));
                     }
                 }
-                if (auto r = write_text(outRoot / kStoreKitFileName, dump_json(storekit_configuration(catalog, "apple", p.name, p.id, languages))); !r.ok())
+                if (auto r = write_text(outRoot / kStoreKitFileName,
+                                        dump_json(storekit_configuration(catalog, "apple", p.name, p.id, languages)));
+                    !r.ok())
                     return r;
                 if (auto r = write_text(outRoot / "storekit_scheme.cmake", *script); !r.ok()) return r;
                 hasStoreKit = true;
@@ -267,7 +294,10 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const IosExportSettings& ios = p.settings.ios;
     const bool hasIcon = !icon.empty();
     if (hasIcon)
-        if (auto r = write_ios_app_icon(generic(outRoot / "Assets.xcassets"), icon, icon_color_from_hex(ios.iconBackground)); !r.ok()) return r;
+        if (auto r =
+                write_ios_app_icon(generic(outRoot / "Assets.xcassets"), icon, icon_color_from_hex(ios.iconBackground));
+            !r.ok())
+            return r;
     // The privacy manifest next to build_ios.sh, which hands it to CMake (-DFA_GAME_PRIVACY_MANIFEST) so that it lands in the app
     // bundle: App Store Connect rejects an upload whose app uses required-reason APIs without declaring them.
     // A game with an "analytics" section sends usage events once the player agrees (docs/ANALYTICS.md): the manifest declares
@@ -277,18 +307,23 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     {
         auto project = load_json_file(generic(p.dir / "factoria.json"));
         if (project.ok() && project->is_object() && project->contains(kAnalyticsKey)) {
-            const NetworkParse network = parse_network(project->contains(kNetworkKey) ? (*project)[kNetworkKey] : Json());
+            const NetworkParse network =
+                parse_network(project->contains(kNetworkKey) ? (*project)[kNetworkKey] : Json());
             const AnalyticsParse analytics = parse_analytics((*project)[kAnalyticsKey], network.policy);
             const auto lists = [&](const IosPrivacyCollectedData& d) {
-                return d.type == "ProductInteraction" && std::find(d.purposes.begin(), d.purposes.end(), "Analytics") != d.purposes.end();
+                return d.type == "ProductInteraction" &&
+                       std::find(d.purposes.begin(), d.purposes.end(), "Analytics") != d.purposes.end();
             };
-            if (analytics.settings.configured && std::none_of(privacy.collectedData.begin(), privacy.collectedData.end(), lists)) {
+            if (analytics.settings.configured &&
+                std::none_of(privacy.collectedData.begin(), privacy.collectedData.end(), lists)) {
                 IosPrivacyCollectedData d;
                 d.type = "ProductInteraction";
                 d.purposes = {"Analytics"};
                 privacy.collectedData.push_back(std::move(d));
-                report.nextSteps.push_back("PrivacyInfo.xcprivacy declares the analytics events (ProductInteraction, purpose Analytics, not linked, no tracking): "
-                                       "the game has an \"analytics\" section. Answer \"Product Interaction\" under Usage Data in App Store Connect (docs/LEGAL.md).");
+                report.nextSteps.push_back("PrivacyInfo.xcprivacy declares the analytics events (ProductInteraction, "
+                                           "purpose Analytics, not linked, no tracking): "
+                                           "the game has an \"analytics\" section. Answer \"Product Interaction\" "
+                                           "under Usage Data in App Store Connect (docs/LEGAL.md).");
             }
         }
     }
@@ -296,20 +331,27 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     // The team id is 10 letters/digits (validated with the settings): it goes into the script as it is, inside "${VAR:-...}" where
     // single quotes would be kept literally.
     std::string team;
-    for (char c : ios.teamId) if (std::isalnum(static_cast<unsigned char>(c))) team += c;
-    const std::string buildNumber = safe_version_name(p.settings.ios_build_number().empty() ? p.version : p.settings.ios_build_number());
+    for (char c : ios.teamId)
+        if (std::isalnum(static_cast<unsigned char>(c))) team += c;
+    const std::string buildNumber =
+        safe_version_name(p.settings.ios_build_number().empty() ? p.version : p.settings.ios_build_number());
     const std::string config = o.release ? "Release" : "Debug";
     std::string s;
     s += "#!/usr/bin/env bash\n";
-    s += "# Generated by `factoria export --platform ios` for \"" + replace_all(p.name, "\n", " ") + "\" (mode: " + report.mode + ").\n";
-    s += setup.prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine is linked from the prebuilt\n"
-                    "# libraries in ./lib, so no engine source is needed.\n"
-                  : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in ./game bundled.\n";
+    s += "# Generated by `factoria export --platform ios` for \"" + replace_all(p.name, "\n", " ") +
+         "\" (mode: " + report.mode + ").\n";
+    s += setup.prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine "
+                          "is linked from the prebuilt\n"
+                          "# libraries in ./lib, so no engine source is needed.\n"
+                        : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in "
+                          "./game bundled.\n";
     s += "#   ./build_ios.sh                    Xcode project for a device, then opens it\n";
     s += "#   ./build_ios.sh --simulator        same for the iOS Simulator\n";
-    s += "#   ./build_ios.sh --build            also compile (" + config + "). A device build needs a team (FA_IOS_DEVELOPMENT_TEAM" +
+    s += "#   ./build_ios.sh --build            also compile (" + config +
+         "). A device build needs a team (FA_IOS_DEVELOPMENT_TEAM" +
          (team.empty() ? std::string() : ", default " + team + " from export.ios.teamId of factoria.json") + ") and\n";
-    s += "#                                     the iPhone/iPad connected (FA_IOS_DEVICE=<udid> picks one): the first build\n";
+    s += "#                                     the iPhone/iPad connected (FA_IOS_DEVICE=<udid> picks one): the first "
+         "build\n";
     s += "#                                     for a team registers it there. Simulator builds are not signed.\n";
     s += "#   ./build_ios.sh [--simulator] --run   build, install and start the game, its console in this terminal\n";
     s += "#   ./build_ios.sh --build -- <args>  everything after -- goes to xcodebuild\n";
@@ -322,43 +364,67 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     s += "CMAKE=\"${FACTORIA_CMAKE:-}\"\n";
     s += "if [ -z \"$CMAKE\" ]; then\n  for c in " + (cmake.empty() ? std::string() : sh_quote(cmake) + " ") +
          "cmake; do if command -v \"$c\" >/dev/null 2>&1; then CMAKE=\"$c\"; break; fi; done\nfi\n";
-    s += "[ -n \"$CMAKE\" ] || { echo \"CMake 3.24+ not found: run \\`factoria setup cmake\\` (or install CMake), or set FACTORIA_CMAKE\" >&2; exit 1; }\n";
+    s += "[ -n \"$CMAKE\" ] || { echo \"CMake 3.24+ not found: run \\`factoria setup cmake\\` (or install CMake), or "
+         "set FACTORIA_CMAKE\" >&2; exit 1; }\n";
     if (!setup.prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup.engine) + "}\"\n";
     s += "SYSROOT=iphoneos\nBUILD=0\nRUN=0\nXCODE_ARGS=()\n";
-    s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 ;;\n"
+    s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 "
+         ";;\n"
          "    --run) BUILD=1; RUN=1 ;;\n"
          "    --) shift; XCODE_ARGS=(\"$@\"); break ;;\n"
-         "    *) echo \"unknown option: $1 (options: --simulator, --build, --run, -- <xcodebuild arguments>)\" >&2; exit 2 ;;\n"
+         "    *) echo \"unknown option: $1 (options: --simulator, --build, --run, -- <xcodebuild arguments>)\" >&2; "
+         "exit 2 ;;\n"
          "  esac\n  shift\ndone\n";
     if (!setup.prebuilt)
-        s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
-    s += std::string("\"$CMAKE\" -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
+        s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set "
+             "FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
+    s += std::string("\"$CMAKE\" -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") +
+         " -B \"$HERE/build\" -G Xcode \\\n"
          "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n" +
          (setup.prebuilt ? "" : "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n") +
          "  -DFA_GAME_PROJECT_DIR=\"$HERE/game\" \\\n"
-         "  -DFA_GAME_BUNDLE_ID=" + sh_quote(p.id) + " \\\n"
-         "  -DFA_GAME_NAME=" + sh_quote(p.name) + " \\\n"
-         "  -DFA_GAME_VERSION=" + sh_quote(safe_version_name(p.version)) + " \\\n"
-         "  -DFA_GAME_BUILD=" + sh_quote(buildNumber) + " \\\n"
-         "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n" +
+         "  -DFA_GAME_BUNDLE_ID=" +
+         sh_quote(p.id) +
+         " \\\n"
+         "  -DFA_GAME_NAME=" +
+         sh_quote(p.name) +
+         " \\\n"
+         "  -DFA_GAME_VERSION=" +
+         sh_quote(safe_version_name(p.version)) +
+         " \\\n"
+         "  -DFA_GAME_BUILD=" +
+         sh_quote(buildNumber) +
+         " \\\n"
+         "  -DFA_GAME_ORIENTATION=" +
+         sh_quote(p.orientation) + " \\\n" +
          (hasIcon ? "  -DFA_GAME_ASSET_CATALOG=\"$HERE/Assets.xcassets\" \\\n" : "") +
          "  -DFA_GAME_PRIVACY_MANIFEST=\"$HERE/" + kIosPrivacyManifestFile + "\" \\\n" +
          (ios.usesNonExemptEncryption ? "  -DFA_GAME_NON_EXEMPT_ENCRYPTION=ON \\\n" : "") +
-         (pluginNames.empty() ? "" : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
-         (needs.frameworks.empty() ? "" : "  -DFA_GAME_PLUGIN_FRAMEWORKS=" + sh_quote(join(needs.frameworks, ";")) + " \\\n") +
+         (pluginNames.empty()
+              ? ""
+              : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
+         (needs.frameworks.empty()
+              ? ""
+              : "  -DFA_GAME_PLUGIN_FRAMEWORKS=" + sh_quote(join(needs.frameworks, ";")) + " \\\n") +
          (needs.swift ? "  -DFA_GAME_PLUGIN_SWIFT=ON \\\n" : "") +
          (needs.xcframeworks.empty() ? ""
                                      : "  -DFA_GAME_PLUGIN_XCFRAMEWORKS=" + sh_quote(join(needs.xcframeworks, ";")) +
-                                           (embedXcframeworks.empty() ? "" : " -DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS=" + sh_quote(join(embedXcframeworks, ";"))) +
+                                           (embedXcframeworks.empty() ? ""
+                                                                      : " -DFA_GAME_PLUGIN_EMBED_XCFRAMEWORKS=" +
+                                                                            sh_quote(join(embedXcframeworks, ";"))) +
                                            " \\\n") +
-         (hasInfoPlistExtra ? std::string("  -DFA_GAME_INFO_PLIST_EXTRA=\"$HERE/") + kIosInfoPlistExtraFile + "\" \\\n" : "") +
-         (hasLocalizedStrings ? std::string("  -DFA_GAME_LOCALIZED_STRINGS=\"$HERE/") + kIosLocalizedStringsDir + "\" \\\n" : "") +
+         (hasInfoPlistExtra ? std::string("  -DFA_GAME_INFO_PLIST_EXTRA=\"$HERE/") + kIosInfoPlistExtraFile + "\" \\\n"
+                            : "") +
+         (hasLocalizedStrings
+              ? std::string("  -DFA_GAME_LOCALIZED_STRINGS=\"$HERE/") + kIosLocalizedStringsDir + "\" \\\n"
+              : "") +
          (hasEntitlements ? std::string("  -DFA_GAME_ENTITLEMENTS=\"$HERE/") + kIosEntitlementsFile + "\" \\\n" : "") +
          (hasStoreKit ? "  -DFA_GAME_STOREKIT=ON \\\n" : "") +
          "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n" +
-         (hasStoreKit ? std::string("# Running the project from Xcode sells the products of ") + kStoreKitFileName + " (no App Store Connect needed).\n"
-                        "\"$CMAKE\" -DPROJECT=\"$HERE/build/FactorIA.xcodeproj\" -DSTOREKIT=\"$HERE/" + kStoreKitFileName +
-                        "\" -P \"$HERE/storekit_scheme.cmake\"\n"
+         (hasStoreKit ? std::string("# Running the project from Xcode sells the products of ") + kStoreKitFileName +
+                            " (no App Store Connect needed).\n"
+                            "\"$CMAKE\" -DPROJECT=\"$HERE/build/FactorIA.xcodeproj\" -DSTOREKIT=\"$HERE/" +
+                            kStoreKitFileName + "\" -P \"$HERE/storekit_scheme.cmake\"\n"
                       : "");
     std::string build = R"SH(if [ "$BUILD" = 0 ]; then
   echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."
@@ -437,18 +503,28 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
         "On a Mac with Xcode and CMake 3.24+, copy or open this folder: cd '" + generic(outRoot) + "'",
         "./build_ios.sh --simulator --run   builds the game, starts it in the iOS Simulator and shows its console",
         "On an iPhone/iPad (connected, unlocked, Developer Mode on): " +
-            std::string(team.empty() ? "FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run (or set export.ios.teamId in factoria.json). "
-                                     : "./build_ios.sh --run (team " + team + " from export.ios.teamId in factoria.json; "
-                                       "FA_IOS_DEVELOPMENT_TEAM overrides it). ") +
-            "Or ./build_ios.sh creates build/FactorIA.xcodeproj and opens it: select the 'factoria_player' scheme, set a "
-            "Team under Signing & Capabilities (bundle id " + p.id + "), then Run",
-        std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup.libs) + " (no engine source needed). "
+            std::string(team.empty() ? "FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run (or set "
+                                       "export.ios.teamId in factoria.json). "
+                                     : "./build_ios.sh --run (team " + team +
+                                           " from export.ios.teamId in factoria.json; "
+                                           "FA_IOS_DEVELOPMENT_TEAM overrides it). ") +
+            "Or ./build_ios.sh creates build/FactorIA.xcodeproj and opens it: select the 'factoria_player' scheme, set "
+            "a "
+            "Team under Signing & Capabilities (bundle id " +
+            p.id + "), then Run",
+        std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " +
+                                         generic(setup.libs) + " (no engine source needed). "
                                    : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
-            "Build number (CFBundleVersion) " + buildNumber + (hasIcon ? ", app icon from Assets.xcassets" : ", no app icon (set `icon` in factoria.json)") +
+            "Build number (CFBundleVersion) " + buildNumber +
+            (hasIcon ? ", app icon from Assets.xcassets" : ", no app icon (set `icon` in factoria.json)") +
             ". Details and App Store notes: docs/MOBILE.md"};
-    report.nextSteps.push_back(std::string(kIosPrivacyManifestFile) + " is the app's privacy manifest (the engine's required-reason APIs; nothing collected, no tracking) and Info.plist says "
-                               "ITSAppUsesNonExemptEncryption " + (ios.usesNonExemptEncryption ? "true" : "false") +
-                               ". If the game or a plugin collects data, tracks or calls more required-reason APIs, add export.ios.privacy in factoria.json "
+    report.nextSteps.push_back(std::string(kIosPrivacyManifestFile) +
+                               " is the app's privacy manifest (the engine's required-reason APIs; nothing collected, "
+                               "no tracking) and Info.plist says "
+                               "ITSAppUsesNonExemptEncryption " +
+                               (ios.usesNonExemptEncryption ? "true" : "false") +
+                               ". If the game or a plugin collects data, tracks or calls more required-reason APIs, "
+                               "add export.ios.privacy in factoria.json "
                                "(docs/MOBILE.md, \"Store privacy forms\")");
     if (hasEntitlements) {
         std::vector<std::string> names;
@@ -456,41 +532,57 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
         report.nextSteps.push_back(
             "The plugins ask for capabilities (" + join(names, ", ") + "): " + std::string(kIosEntitlementsFile) +
             " is the app's entitlements file, so Xcode's automatic signing turns them on for the App ID of " + p.id +
-            " (a device build needs the Team). They need the matching services set up in App Store Connect: docs/PLATFORM.md");
+            " (a device build needs the Team). They need the matching services set up in App Store Connect: "
+            "docs/PLATFORM.md");
     }
     if (!needs.xcframeworks.empty()) {
         std::string linked;
-        for (const std::string& x : needs.xcframeworks) linked += (linked.empty() ? "" : ", ") + x.substr(x.find('/') + 1);
-        report.nextSteps.push_back("The plugins bring XCFrameworks (" + linked + "), copied to plugins/ with them: build_ios.sh links them into the app" +
-                                   (embedXcframeworks.empty() ? " (all static, so none is embedded)"
-                                                              : " and embeds the dynamic ones (" + std::to_string(embedXcframeworks.size()) + ") in Frameworks/"));
+        for (const std::string& x : needs.xcframeworks)
+            linked += (linked.empty() ? "" : ", ") + x.substr(x.find('/') + 1);
+        report.nextSteps.push_back(
+            "The plugins bring XCFrameworks (" + linked +
+            "), copied to plugins/ with them: build_ios.sh links them into the app" +
+            (embedXcframeworks.empty()
+                 ? " (all static, so none is embedded)"
+                 : " and embeds the dynamic ones (" + std::to_string(embedXcframeworks.size()) + ") in Frameworks/"));
     }
     if (ads.present && ads.trackingPrompt && !ios.privacy.tracking)
-        report.warnings.push_back("platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not: PrivacyInfo.xcprivacy says the app does not "
-                                  "track while the app shows the \"Allow tracking\" sheet. Set \"export\": {\"ios\": {\"privacy\": {\"tracking\": true, "
+        report.warnings.push_back("platform.ads.trackingPrompt is true but export.ios.privacy.tracking is not: "
+                                  "PrivacyInfo.xcprivacy says the app does not "
+                                  "track while the app shows the \"Allow tracking\" sheet. Set \"export\": {\"ios\": "
+                                  "{\"privacy\": {\"tracking\": true, "
                                   "\"trackingDomains\": [...]}}} (docs/MOBILE.md, \"Store privacy forms\")");
     if (ads.present) {
         report.nextSteps.push_back(
             "The ads plugin: Info.plist carries GADApplicationIdentifier " + ads.appId +
-            (o.release ? (ads.appId == kAdmobSampleAppIdIos ? " (Google's sample: set platform.ads.appIds.ios, a release shows test ads that earn nothing)" : "")
-                       : " (Google's sample app: a development export always shows test ads; export with --release and platform.ads.appIds.ios for real ones)") +
+            (o.release
+                 ? (ads.appId == kAdmobSampleAppIdIos
+                        ? " (Google's sample: set platform.ads.appIds.ios, a release shows test ads that earn nothing)"
+                        : "")
+                 : " (Google's sample app: a development export always shows test ads; export with --release and "
+                   "platform.ads.appIds.ios for real ones)") +
             (ads.trackingPrompt
                  ? ", and NSUserTrackingUsageDescription is the sentence of the \"Allow tracking\" sheet" +
                        std::string(hasLocalizedStrings ? " (one InfoPlist.strings per language of the game)" : "") +
                        ": the plugin shows it after Google's consent form. " +
-                       std::string(ios.privacy.tracking
-                                       ? "PrivacyInfo.xcprivacy says the app tracks (export.ios.privacy.tracking) and lists " +
-                                             std::to_string(ios.privacy.trackingDomains.size()) +
-                                             " tracking domain(s): the ad network's go in export.ios.privacy.trackingDomains. Answer \"Data Used to Track You\" in App Store Connect"
-                                       : "An app that asks to track declares it: export.ios.privacy.tracking true and the tracking domains, and "
-                                         "\"Data Used to Track You\" in App Store Connect")
-                 : ". platform.ads.trackingPrompt is off: the app never asks to track, so Google's SDK gets no advertising identifier"));
+                       std::string(
+                           ios.privacy.tracking
+                               ? "PrivacyInfo.xcprivacy says the app tracks (export.ios.privacy.tracking) and lists " +
+                                     std::to_string(ios.privacy.trackingDomains.size()) +
+                                     " tracking domain(s): the ad network's go in export.ios.privacy.trackingDomains. "
+                                     "Answer \"Data Used to Track You\" in App Store Connect"
+                               : "An app that asks to track declares it: export.ios.privacy.tracking true and the "
+                                 "tracking domains, and "
+                                 "\"Data Used to Track You\" in App Store Connect")
+                 : ". platform.ads.trackingPrompt is off: the app never asks to track, so Google's SDK gets no "
+                   "advertising identifier"));
     }
     if (hasStoreKit)
-        report.nextSteps.push_back(std::string("Running the project from Xcode sells the products of ") + kStoreKitFileName +
-                                   " (generated from factoria.json's platform.products), no App Store Connect needed; if the scheme "
-                                   "shows StoreKit Configuration: None, pick the file under Product > Scheme > Edit Scheme > Run > Options. "
-                                   "./build_ios.sh --run (simctl launch) does not use it");
+        report.nextSteps.push_back(
+            std::string("Running the project from Xcode sells the products of ") + kStoreKitFileName +
+            " (generated from factoria.json's platform.products), no App Store Connect needed; if the scheme "
+            "shows StoreKit Configuration: None, pick the file under Product > Scheme > Edit Scheme > Run > Options. "
+            "./build_ios.sh --run (simctl launch) does not use it");
     return {};
 }
 

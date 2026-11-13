@@ -36,11 +36,12 @@ struct SettingsChoice {
     const char* label;  // what the combo shows
     const char* note;   // one line about it (the combo's tooltip)
 };
-const std::vector<SettingsChoice>& android_formats();      // apk, aab, gradle
-const std::vector<SettingsChoice>& windows_formats();      // folder, msix
-const std::vector<SettingsChoice>& mac_game_categories();  // public.app-category.games and the *-games ones
+const std::vector<SettingsChoice>& android_formats();        // apk, aab, gradle
+const std::vector<SettingsChoice>& windows_formats();        // folder, msix
+const std::vector<SettingsChoice>& mac_game_categories();    // public.app-category.games and the *-games ones
 const std::vector<SettingsChoice>& linux_game_categories();  // the freedesktop Game categories, for "Add"
-const SettingsChoice* find_choice(const std::vector<SettingsChoice>& list, const std::string& value);  // nullptr when absent
+const SettingsChoice* find_choice(const std::vector<SettingsChoice>& list,
+                                  const std::string& value);  // nullptr when absent
 
 // A path as factoria.json stores it: no blanks around it, forward slashes.
 std::string clean_project_path(const std::string& path);
@@ -63,7 +64,8 @@ struct IconCheck {
     std::vector<std::string> warnings;  // each "message hint"
 };
 // `relPath` is project-relative; `recommendedSize` is 512 for icons and 432 for the Android adaptive layers.
-IconCheck check_icon(const std::string& projectDir, const std::string& relPath, int recommendedSize = kRecommendedIconSize);
+IconCheck check_icon(const std::string& projectDir, const std::string& relPath,
+                     int recommendedSize = kRecommendedIconSize);
 
 // A picked image file as the project-relative path factoria.json stores. A file inside the project is used where it is. A
 // file outside is copied into <project>/assets/ (icons must be inside the project; the export reads them from there): the
@@ -71,7 +73,7 @@ IconCheck check_icon(const std::string& projectDir, const std::string& relPath, 
 struct IconImport {
     std::string relPath;  // "assets/icon.png"
     bool copied = false;
-    std::string note;     // "Copied icon.png into the project: assets/icon.png" when copied, else empty
+    std::string note;  // "Copied icon.png into the project: assets/icon.png" when copied, else empty
 };
 Result<IconImport> import_icon_file(const std::string& projectDir, const std::string& picked);
 
@@ -97,8 +99,8 @@ private:
 // A signing key the editor creates with the JDK's keytool. One password is used for the keystore and for the key: a
 // PKCS12 keystore (the default of JDK 9 and newer) has just one.
 struct KeystoreRequest {
-    std::string jdk;           // folder of the JDK that holds bin/keytool
-    std::string path;          // absolute path of the keystore file to create
+    std::string jdk;   // folder of the JDK that holds bin/keytool
+    std::string path;  // absolute path of the keystore file to create
     std::string alias = "upload";
     std::string password;      // at least 6 characters (keytool's own minimum)
     std::string name;          // CN: you or your studio
@@ -108,18 +110,19 @@ struct KeystoreRequest {
 };
 // What the Create keystore... window holds while it is open.
 struct KeystoreForm {
-    std::string path;                // as typed: project-relative or absolute
+    std::string path;  // as typed: project-relative or absolute
     std::string alias = "upload";
     std::string password, repeat;
     std::string name, organization, country;
-    bool remember = true;            // keep the password on this computer (export.json, written by Save)
-    bool gitignore = true;           // keep the keystore out of git when it is inside the project
+    bool remember = true;   // keep the password on this computer (export.json, written by Save)
+    bool gitignore = true;  // keep the keystore out of git when it is inside the project
 };
 // keys/upload.keystore (keys/upload-2.keystore... when that file exists).
 KeystoreForm default_keystore_form(const std::string& projectDir);
 // The form as a request: the path made absolute against the project, the passwords compared, everything checked. The Error
 // says what to fix.
-Result<KeystoreRequest> make_keystore_request(const KeystoreForm& form, const std::string& projectDir, const std::string& jdk);
+Result<KeystoreRequest> make_keystore_request(const KeystoreForm& form, const std::string& projectDir,
+                                              const std::string& jdk);
 // The first thing wrong with the request, in words that say how to fix it; "" when it can run.
 std::string check_keystore_request(const KeystoreRequest& request);
 // "CN=Jane Doe, O=My Studio, C=ES" with the characters that are special in a distinguished name escaped.
@@ -180,7 +183,7 @@ public:
     // Reads factoria.json and the machine settings (`machineConfigPath` "" = machine_export_config_path()). Never fails:
     // what could not be read is in fileError / parseErrors / machineError and the fields keep their defaults.
     void load(const std::string& projectDir, const std::string& machineConfigPath = {});
-    void clear();                 // no project: nothing to edit
+    void clear();  // no project: nothing to edit
     bool loaded() const { return !projectDir_.empty(); }
     const std::string& project_dir() const { return projectDir_; }
     const std::string& machine_path() const { return machinePath_; }
@@ -193,10 +196,10 @@ public:
     // factoria.json's own keys, read-only.
     ProjectInfo info;
     // What was wrong when the file was read (a hand-edited file): shown at the top; the window still opens.
-    std::string fileError;                          // not JSON / unreadable: nothing in the file can be saved
-    std::vector<ExportSettingsIssue> parseErrors;   // wrong types or values in icon / export
-    std::vector<ExportSettingsIssue> parseWarnings; // unknown keys...
-    std::string machineError;                       // export.json could not be read
+    std::string fileError;                           // not JSON / unreadable: nothing in the file can be saved
+    std::vector<ExportSettingsIssue> parseErrors;    // wrong types or values in icon / export
+    std::vector<ExportSettingsIssue> parseWarnings;  // unknown keys...
+    std::string machineError;                        // export.json could not be read
 
     // `project` with the fields that mean "the default" filled in (an empty category is the default one), paths with
     // forward slashes and no blanks: what Save writes and what validation checks.

@@ -11,8 +11,8 @@
 
 namespace fa::rig_skin_detail {
 
-void solve_heat(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones, double locality, std::vector<Infl>& out,
-                HeatStats& stats) {
+void solve_heat(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones,
+                double locality, std::vector<Infl>& out, HeatStats& stats) {
     const std::size_t nn = weld.nodes();
     out.assign(nn, {});
     if (nn == 0 || bones.empty()) return;

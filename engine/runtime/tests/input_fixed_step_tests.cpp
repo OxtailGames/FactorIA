@@ -44,16 +44,23 @@ struct FixedStepProject {
                                    "input":{"actions":{"jump":["J"],"confirm":["GamepadA"]}}})");
         std::string entities = R"({"id":"cam","components":{"Camera":{}}})";
         for (const Counter& c : kCounters) {
-            entities += std::string(R"(,{"id":")") + c.id + R"(","components":{"Transform":{},"Script":{"path":")" + c.id + R"(.js"}}})";
+            entities += std::string(R"(,{"id":")") + c.id + R"(","components":{"Transform":{},"Script":{"path":")" +
+                        c.id + R"(.js"}}})";
             const std::string p = std::string("(") + c.press + ")", r = std::string("(") + c.release + ")";
             write((std::string(c.id) + ".js").c_str(),
                   ("import { Behaviour, input } from 'factoria';\n"
                    "export default class C extends Behaviour {\n"
-                   "  onFixedUpdate() { const p = this.entity.position; p.x += Number(" + p + "); p.z += Number(" + r + "); }\n"
-                   "  onUpdate() { const p = this.entity.position; p.y += Number(" + p + "); }\n"
-                   "}\n").c_str());
+                   "  onFixedUpdate() { const p = this.entity.position; p.x += Number(" +
+                   p + "); p.z += Number(" + r +
+                   "); }\n"
+                   "  onUpdate() { const p = this.entity.position; p.y += Number(" +
+                   p +
+                   "); }\n"
+                   "}\n")
+                      .c_str());
         }
-        write("main.scene.json", (std::string(R"({"format":"factoria.scene/1","entities":[)") + entities + "]}").c_str());
+        write("main.scene.json",
+              (std::string(R"({"format":"factoria.scene/1","entities":[)") + entities + "]}").c_str());
     }
     ~FixedStepProject() {
         std::error_code ec;
@@ -279,7 +286,8 @@ namespace {
 
 double position_of(const Json& state, const char* id, int axis) {
     for (const Json& ent : state.at("entities"))
-        if (ent.value("id", "") == id) return ent.at("components").at("Transform").at("position").at(std::size_t(axis)).get<double>();
+        if (ent.value("id", "") == id)
+            return ent.at("components").at("Transform").at("position").at(std::size_t(axis)).get<double>();
     FAIL("no entity " << id << " in the state");
     return -1.0;
 }
@@ -295,8 +303,8 @@ TEST_CASE("input per fixed step: a recording made with frames of any dt replays 
         double dt;
         int act;  // 0 nothing, 1 press everything, 2 release everything
     };
-    const Frame frames[] = {{0.05, 1},   {0.002, 0},  {0.0167, 2}, {0.09, 1},  {0.001, 0},   {0.034, 2},
-                            {0.0005, 1}, {0.0005, 0}, {0.0005, 2}, {0.2, 1},   {0.0167, 0},  {0.0167, 2}};
+    const Frame frames[] = {{0.05, 1},   {0.002, 0},  {0.0167, 2}, {0.09, 1}, {0.001, 0},  {0.034, 2},
+                            {0.0005, 1}, {0.0005, 0}, {0.0005, 2}, {0.2, 1},  {0.0167, 0}, {0.0167, 2}};
     int count = 0;
     for (const Frame& f : frames) {
         if (f.act == 1) {

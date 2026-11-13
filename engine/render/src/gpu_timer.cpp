@@ -42,7 +42,9 @@ struct GpuTimer::State {
     std::size_t next = 0;
 
     ID3D11Device* device() const { return static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device())); }
-    ID3D11DeviceContext* context() const { return static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context())); }
+    ID3D11DeviceContext* context() const {
+        return static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
+    }
 
     void init() {
         if (tried) return;
@@ -97,12 +99,14 @@ struct GpuTimer::State {
         while (!pending.empty()) {
             Slot& s = slots[std::size_t(pending.front())];
             D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj{};
-            if (context()->GetData(s.disjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;  // not yet: later
+            if (context()->GetData(s.disjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+                return;  // not yet: later
             UINT64 t0 = 0, t1 = 0;
             if (context()->GetData(s.start, &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
             if (context()->GetData(s.end, &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
             pending.pop_front();
-            if (!dj.Disjoint && dj.Frequency > 0 && t1 >= t0) out.push_back(double(t1 - t0) * 1000.0 / double(dj.Frequency));
+            if (!dj.Disjoint && dj.Frequency > 0 && t1 >= t0)
+                out.push_back(double(t1 - t0) * 1000.0 / double(dj.Frequency));
         }
     }
     ~State() { release(); }

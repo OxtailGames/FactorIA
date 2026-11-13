@@ -25,10 +25,10 @@ namespace fa {
 
 namespace {
 
-using net::Socket;
-using net::kNoSocket;
 using net::close_socket;
+using net::kNoSocket;
 using net::send_all;
+using net::Socket;
 
 constexpr std::size_t kMaxHeader = 64 * 1024;
 
@@ -45,8 +45,10 @@ Received receive(Socket s, std::string& buf) {
 
 std::string size_text(std::size_t bytes) {
     char out[32];
-    if (bytes < 1024 * 1024) std::snprintf(out, sizeof out, "%.1f KiB", static_cast<double>(bytes) / 1024.0);
-    else std::snprintf(out, sizeof out, "%.1f MiB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    if (bytes < 1024 * 1024)
+        std::snprintf(out, sizeof out, "%.1f KiB", static_cast<double>(bytes) / 1024.0);
+    else
+        std::snprintf(out, sizeof out, "%.1f MiB", static_cast<double>(bytes) / (1024.0 * 1024.0));
     return out;
 }
 
@@ -54,7 +56,8 @@ std::string size_text(std::size_t bytes) {
 bool reply(Socket s, int status, const char* reason, const std::string& body, bool keepAlive, const char* extra = "") {
     std::string out = "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\n";
     if (!body.empty()) out += "Content-Type: application/json\r\n";
-    if (status != 204) out += "Content-Length: " + std::to_string(body.size()) + "\r\n";  // 204 has no body and no length
+    if (status != 204)
+        out += "Content-Length: " + std::to_string(body.size()) + "\r\n";  // 204 has no body and no length
     out += extra;
     if (!keepAlive) out += "Connection: close\r\n";
     out += "\r\n" + body;
@@ -105,7 +108,7 @@ struct McpHttpServer::Impl {
     std::uint16_t port = 0;
     std::optional<net::SocketRuntime> sockets;  // Windows: WSAStartup for as long as the server runs
     std::thread acceptThread;
-    std::mutex mu;  // guards everything below
+    std::mutex mu;                     // guards everything below
     std::condition_variable slotFree;  // a connection ended, or stop()
     bool stopping = false;
     int active = 0;  // connections being served
@@ -143,7 +146,8 @@ struct McpHttpServer::Impl {
     void close_oldest_idle_locked() {
         auto oldest = connections.end();
         for (auto it = connections.begin(); it != connections.end(); ++it)
-            if (it->second.idle && (oldest == connections.end() || it->second.idleSince < oldest->second.idleSince)) oldest = it;
+            if (it->second.idle && (oldest == connections.end() || it->second.idleSince < oldest->second.idleSince))
+                oldest = it;
         if (oldest == connections.end()) return;
         oldest->second.idle = false;                  // closed once
         oldest->second.evicted = true;                // a request its recv() already got is dropped, never run
@@ -203,32 +207,33 @@ struct McpHttpServer::Impl {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
-            const int timeoutMs = static_cast<int>(std::min<long long>(options.receiveTimeout.count(), 24LL * 3600 * 1000));
+            const int timeoutMs =
+                static_cast<int>(std::min<long long>(options.receiveTimeout.count(), 24LL * 3600 * 1000));
             net::set_io_timeouts(c, timeoutMs, timeoutMs);  // a silent or stuck client frees its slot
             const std::uint64_t id = nextConnection++;
             connections[id].socket = c;
             ++active;
             if (active > options.maxConnections) close_oldest_idle_locked();
             threads.emplace(id, std::thread([this, c, id] {
-                std::string buf;
-                bool answered = false, lingering = false;
-                while (serve_one(c, id, answered, buf, lingering)) answered = true;
-                // The server ends the connection after an answer: stop sending (the client reads the answer to its end),
-                // then read what the client still sends. Closing a socket with unread input makes Windows and macOS send an
-                // RST, which can wipe the answer from the client's receive queue (the client then reads 0 bytes, a reset).
-                if (lingering) net::linger_close(c);
-                {
-                    std::lock_guard<std::mutex> lock(mu);
-                    connections.erase(id);  // stop() must not touch its socket any more
-                }
-                close_socket(c);
-                {
-                    std::lock_guard<std::mutex> lock(mu);
-                    --active;
-                    finished.push_back(id);
-                }
-                slotFree.notify_all();
-            }));
+                                std::string buf;
+                                bool answered = false, lingering = false;
+                                while (serve_one(c, id, answered, buf, lingering)) answered = true;
+                                // The server ends the connection after an answer: stop sending (the client reads the answer to its end),
+                                // then read what the client still sends. Closing a socket with unread input makes Windows and macOS send an
+                                // RST, which can wipe the answer from the client's receive queue (the client then reads 0 bytes, a reset).
+                                if (lingering) net::linger_close(c);
+                                {
+                                    std::lock_guard<std::mutex> lock(mu);
+                                    connections.erase(id);  // stop() must not touch its socket any more
+                                }
+                                close_socket(c);
+                                {
+                                    std::lock_guard<std::mutex> lock(mu);
+                                    --active;
+                                    finished.push_back(id);
+                                }
+                                slotFree.notify_all();
+                            }));
         }
     }
 
@@ -253,20 +258,24 @@ struct McpHttpServer::Impl {
                 idle = false;
                 if (!set_idle(id, false)) return false;  // evicted while it waited: the request is not run
             }
-            if (got == Received::Failed && !buf.empty()) return final_reply(408, "Request Timeout", "");  // half a request
+            if (got == Received::Failed && !buf.empty())
+                return final_reply(408, "Request Timeout", "");  // half a request
             if (got != Received::Data) return false;
         }
         const std::vector<std::string> lines = split(std::string_view(buf).substr(0, headEnd), '\n');
-        const std::vector<std::string> request = lines.empty() ? std::vector<std::string>{} : split(trim(lines[0]), ' ');
+        const std::vector<std::string> request =
+            lines.empty() ? std::vector<std::string>{} : split(trim(lines[0]), ' ');
         if (request.size() != 3) return final_reply(400, "Bad Request", "");
         std::map<std::string, std::string> headers;  // lowercase names
         for (std::size_t i = 1; i < lines.size(); ++i) {
             if (const auto colon = lines[i].find(':'); colon != std::string::npos)
-                headers[to_lower(lines[i].substr(0, colon))] = std::string(trim(std::string_view(lines[i]).substr(colon + 1)));
+                headers[to_lower(lines[i].substr(0, colon))] =
+                    std::string(trim(std::string_view(lines[i]).substr(colon + 1)));
         }
         const std::string& method = request[0];
         if (request[1] != path) return final_reply(404, "Not Found", "");
-        if (method != "POST") return final_reply(405, "Method Not Allowed", "", "Allow: POST\r\n");  // no SSE stream, no session
+        if (method != "POST")
+            return final_reply(405, "Method Not Allowed", "", "Allow: POST\r\n");  // no SSE stream, no session
         const auto len = headers.find("content-length");
         if (len == headers.end()) return final_reply(411, "Length Required", "");
         const unsigned long long declared = std::strtoull(len->second.c_str(), nullptr, 10);
@@ -277,12 +286,16 @@ struct McpHttpServer::Impl {
                 {{"jsonrpc", "2.0"},
                  {"id", nullptr},
                  {"error",
-                  Json::object({{"code", -32600},
-                                {"message", "The request is " + size_text(static_cast<std::size_t>(std::min<unsigned long long>(declared, SIZE_MAX))) +
-                                                ", over the " + size_text(options.maxBody) + " a request to this MCP endpoint may carry."},
-                                {"data", Json::object({{"hint", "Do not send a big file's bytes through a tool call (fs.write with "
-                                                                "base64): put the file into the project folder another way (a CLI "
-                                                                "agent copies it with its shell), or send it in smaller parts."}})}})}});
+                  Json::object(
+                      {{"code", -32600},
+                       {"message",
+                        "The request is " +
+                            size_text(static_cast<std::size_t>(std::min<unsigned long long>(declared, SIZE_MAX))) +
+                            ", over the " + size_text(options.maxBody) + " a request to this MCP endpoint may carry."},
+                       {"data",
+                        Json::object({{"hint", "Do not send a big file's bytes through a tool call (fs.write with "
+                                               "base64): put the file into the project folder another way (a CLI "
+                                               "agent copies it with its shell), or send it in smaller parts."}})}})}});
             return final_reply(413, "Content Too Large", error.dump());
         }
         const std::size_t size = static_cast<std::size_t>(declared);
@@ -339,13 +352,15 @@ struct McpHttpServer::Impl {
                 call->cv.wait(lock, [&] { return call->done; });
             } else {
                 lock.unlock();
-                bool open = send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
-                                        "Connection: close\r\n\r\n");
+                bool open =
+                    send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
+                                "Connection: close\r\n\r\n");
                 lock.lock();
                 for (;;) {
                     if (!open) call->closed = true;
                     if (call->out.empty() && !call->done)
-                        if (!call->cv.wait_for(lock, std::chrono::seconds(15), [&] { return call->done || !call->out.empty(); })) {
+                        if (!call->cv.wait_for(lock, std::chrono::seconds(15),
+                                               [&] { return call->done || !call->out.empty(); })) {
                             lock.unlock();
                             open = open && send_all(c, ": working\n\n");
                             lock.lock();
@@ -355,13 +370,15 @@ struct McpHttpServer::Impl {
                     batch.swap(call->out);
                     const bool callDone = call->done;
                     lock.unlock();
-                    for (const std::string& m : batch) open = open && send_all(c, "event: message\ndata: " + m + "\n\n");
+                    for (const std::string& m : batch)
+                        open = open && send_all(c, "event: message\ndata: " + m + "\n\n");
                     lock.lock();
                     if (callDone && call->out.empty()) break;
                 }
                 lock.unlock();
                 pending.get();  // stop() needs the handler done anyway
-                if (open && call->response) send_all(c, "event: message\ndata: " + std::string(trim(*call->response)) + "\n\n");
+                if (open && call->response)
+                    send_all(c, "event: message\ndata: " + std::string(trim(*call->response)) + "\n\n");
                 lingering = open;  // a client that is gone has nothing to lose to a reset
                 return false;      // the stream ends with the connection
             }
@@ -401,7 +418,8 @@ std::size_t McpHttpServer::connection_threads() const {
 }
 
 Result<std::string> McpHttpServer::start(Handler handler, std::chrono::milliseconds streamAfter) {
-    return start(StreamHandler([h = std::move(handler)](std::string_view m, const Notify&) { return h(m); }), streamAfter);
+    return start(StreamHandler([h = std::move(handler)](std::string_view m, const Notify&) { return h(m); }),
+                 streamAfter);
 }
 
 Result<std::string> McpHttpServer::start(StreamHandler handler, std::chrono::milliseconds streamAfter) {
@@ -452,7 +470,8 @@ void McpHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(m.mu);
         m.stopping = true;
-        for (const auto& [id, conn] : m.connections) net::shutdown_socket(conn.socket);  // wakes threads blocked in recv()
+        for (const auto& [id, conn] : m.connections)
+            net::shutdown_socket(conn.socket);  // wakes threads blocked in recv()
     }
     m.slotFree.notify_all();  // an accept loop waiting for a free slot
     // The accept loop polls the listener and sees `stopping` within 100 ms: no connection is needed to wake it, so a full
@@ -464,7 +483,7 @@ void McpHttpServer::stop() {
         threads.swap(m.threads);
     }
     for (auto& [id, t] : threads) t.join();  // each closes its own socket
-    m.finished.clear();  // every thread has ended: nothing else touches it
+    m.finished.clear();                      // every thread has ended: nothing else touches it
     close_socket(m.listener);
     m.listener = kNoSocket;
     m.active = 0;

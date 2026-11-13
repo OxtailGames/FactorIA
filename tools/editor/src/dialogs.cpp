@@ -25,7 +25,8 @@ static void scan_projects(std::vector<std::string>& out) {
                 int n = 0;
                 for (auto& d : stdfs::directory_iterator(sub, ec)) {
                     if (++n > 200) break;
-                    if (d.is_directory(ec) && stdfs::exists(d.path() / kProjectFileName, ec)) out.push_back(d.path().string());
+                    if (d.is_directory(ec) && stdfs::exists(d.path() / kProjectFileName, ec))
+                        out.push_back(d.path().string());
                 }
             }
         } else {
@@ -40,16 +41,21 @@ static void scan_projects(std::vector<std::string>& out) {
 // "" or what went wrong.
 static std::string delete_project_folder(const std::string& dir) {
     std::error_code ec;
-    if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) return "'" + dir + "' is not a FactorIA project (no " + std::string(kProjectFileName) + "); nothing was deleted.";
+    if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec))
+        return "'" + dir + "' is not a FactorIA project (no " + std::string(kProjectFileName) +
+               "); nothing was deleted.";
     if (fs::remove_tree(dir, ec) == static_cast<std::uintmax_t>(-1) || ec) {
         // Read-only files (a .git folder's objects) stop remove_all on Windows: make them writable and try again.
         std::error_code ec2;
-        for (auto it = stdfs::recursive_directory_iterator(dir, ec2); !ec2 && it != stdfs::recursive_directory_iterator(); it.increment(ec2))
+        for (auto it = stdfs::recursive_directory_iterator(dir, ec2);
+             !ec2 && it != stdfs::recursive_directory_iterator(); it.increment(ec2))
             stdfs::permissions(it->path(), stdfs::perms::owner_write, stdfs::perm_options::add, ec2);
         ec.clear();
         fs::remove_tree(dir, ec);
     }
-    if (ec) return "Could not delete everything in '" + dir + "': " + ec.message() + ". Close the programs using files in it (a terminal, an editor, the game) and delete it again.";
+    if (ec)
+        return "Could not delete everything in '" + dir + "': " + ec.message() +
+               ". Close the programs using files in it (a terminal, an editor, the game) and delete it again.";
     return {};
 }
 
@@ -65,7 +71,8 @@ void Editor::draw_project_dialog() {
         // editor was started from Explorer).
         if (std::string h = home_dir(); dlgNewParent_.empty()) {
             stdfs::path docs = stdfs::path(h) / "Documents";
-            dlgNewParent_ = !h.empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
+            dlgNewParent_ =
+                !h.empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
         }
         if (dlgOpenPath_.empty() && !recentProjects_.empty()) dlgOpenPath_ = recentProjects_.front();
     }
@@ -73,13 +80,17 @@ void Editor::draw_project_dialog() {
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(620, 0), ImGuiCond_Appearing);
     bool open = true;
-    ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-    if (!ImGui::Begin(forced ? "Welcome to FactorIA###projectdlg" : "Open or create a project###projectdlg", forced ? nullptr : &open, flags)) {
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+    if (!ImGui::Begin(forced ? "Welcome to FactorIA###projectdlg" : "Open or create a project###projectdlg",
+                      forced ? nullptr : &open, flags)) {
         ImGui::End();
         if (!open) showProjectDialog_ = false;
         return;
     }
-    if (forced) ImGui::TextWrapped("No project is open. Open an existing FactorIA project folder (it contains factoria.json) or create a new one from a template.");
+    if (forced)
+        ImGui::TextWrapped("No project is open. Open an existing FactorIA project folder (it contains factoria.json) "
+                           "or create a new one from a template.");
     if (!dlgError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", dlgError_.c_str());
     ImGui::SeparatorText("Open project");
     ImGui::SetNextItemWidth(-264);
@@ -88,7 +99,10 @@ void Editor::draw_project_dialog() {
     bool openNow = false;
     if (ImGui::Button("Browse...##open", ImVec2(80, 0))) {
         std::string p = pick_folder("Open a FactorIA project (the folder with factoria.json)", dlgOpenPath_);
-        if (!p.empty()) { dlgOpenPath_ = p; openNow = true; }
+        if (!p.empty()) {
+            dlgOpenPath_ = p;
+            openNow = true;
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Open", ImVec2(80, 0)) || openNow) {
@@ -98,8 +112,13 @@ void Editor::draw_project_dialog() {
             std::string root = find_project_root(dir);
             if (!root.empty()) dir = root;
         }
-        if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) dlgError_ = "No " + std::string(kProjectFileName) + " in '" + dir + "'. Pick the project's root folder, or create a new project below.";
-        else { dlgError_.clear(); open_project(dir); }
+        if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec))
+            dlgError_ = "No " + std::string(kProjectFileName) + " in '" + dir +
+                        "'. Pick the project's root folder, or create a new project below.";
+        else {
+            dlgError_.clear();
+            open_project(dir);
+        }
     }
     ImGui::SameLine();
     {
@@ -109,14 +128,16 @@ void Editor::draw_project_dialog() {
         if (ImGui::Button("Delete...", ImVec2(80, 0))) dlgDelete_ = dlgOpenPath_;
         at_track("project:delete");
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it." : "Delete the selected project from disk (asks first).");
+        ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it."
+                                     : "Delete the selected project from disk (asks first).");
     }
     if (!recentProjects_.empty() || !detectedProjects_.empty()) {
         ImGui::BeginChild("##proj_list", ImVec2(0, 96), ImGuiChildFlags_Borders);
         // The folder name; the full path in the tooltip.
         auto project_row = [&](const std::string& r) {
             ImGui::PushID(r.c_str());
-            if (ImGui::Selectable(stdfs::path(r).filename().string().c_str(), dlgOpenPath_ == r, ImGuiSelectableFlags_AllowDoubleClick)) {
+            if (ImGui::Selectable(stdfs::path(r).filename().string().c_str(), dlgOpenPath_ == r,
+                                  ImGuiSelectableFlags_AllowDoubleClick)) {
                 dlgOpenPath_ = r;
                 if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
             }
@@ -130,7 +151,8 @@ void Editor::draw_project_dialog() {
     }
     ImGui::SeparatorText("New project from template");
     static std::vector<TemplateInfo> templates = list_templates();
-    if (templates.empty()) ImGui::TextDisabled("No templates found.");
+    if (templates.empty())
+        ImGui::TextDisabled("No templates found.");
     else {
         dlgTemplate_ = std::clamp(dlgTemplate_, 0, int(templates.size()) - 1);
         ImGui::SetNextItemWidth(220);
@@ -158,8 +180,12 @@ void Editor::draw_project_dialog() {
         ScaffoldOptions so;
         so.name = dlgNewName_;
         auto r = create_project(target.string(), templates[size_t(dlgTemplate_)].name, so);
-        if (!r) dlgError_ = r.error().to_string();
-        else { dlgError_.clear(); open_project(r->dir); }
+        if (!r)
+            dlgError_ = r.error().to_string();
+        else {
+            dlgError_.clear();
+            open_project(r->dir);
+        }
     }
     ImGui::EndDisabled();
     if (!forced && ImGui::Button("Close")) open = false;
@@ -168,7 +194,8 @@ void Editor::draw_project_dialog() {
     if (ImGui::BeginPopupModal("Delete project?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Delete the project '%s'?", stdfs::path(dlgDelete_).filename().string().c_str());
         ImGui::TextDisabled("%s", dlgDelete_.c_str());
-        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "The folder and everything in it are deleted from disk. This cannot be undone.");
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1),
+                           "The folder and everything in it are deleted from disk. This cannot be undone.");
         const bool cancel = ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
         ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
@@ -198,17 +225,23 @@ void Editor::draw_validation_window() {
     ImGui::SetNextWindowSize(ImVec2(640, 360), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Validation report", &showValidation_)) {
         const auto& v = validation_;
-        ImGui::TextColored(v.ok ? ImVec4(0.5f, 0.9f, 0.55f, 1) : ImVec4(1, 0.45f, 0.4f, 1), v.ok ? "Project is valid" : "Project has errors");
+        ImGui::TextColored(v.ok ? ImVec4(0.5f, 0.9f, 0.55f, 1) : ImVec4(1, 0.45f, 0.4f, 1),
+                           v.ok ? "Project is valid" : "Project has errors");
         ImGui::SameLine();
-        ImGui::TextDisabled("%zu error(s), %zu warning(s)%s, %d scene(s), %d script(s) checked", v.errors.size(), v.warnings.size(),
-                            v.notes.empty() ? "" : (", " + std::to_string(v.notes.size()) + " note(s)").c_str(), v.scenesChecked, v.scriptsChecked);
+        ImGui::TextDisabled("%zu error(s), %zu warning(s)%s, %d scene(s), %d script(s) checked", v.errors.size(),
+                            v.warnings.size(),
+                            v.notes.empty() ? "" : (", " + std::to_string(v.notes.size()) + " note(s)").c_str(),
+                            v.scenesChecked, v.scriptsChecked);
         if (ImGui::Button("Re-run")) validation_ = validate_project(projectDir_);
         ImGui::Separator();
         ImGui::BeginChild("##vr");
         ImGui::PushTextWrapPos(0);
-        for (const auto& i : v.errors) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "error  %s", i.to_string().c_str());
-        for (const auto& i : v.warnings) ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "warn   %s", i.to_string().c_str());
-        for (const auto& i : v.notes) ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.95f, 1), "note   %s", i.to_string().c_str());
+        for (const auto& i : v.errors)
+            ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "error  %s", i.to_string().c_str());
+        for (const auto& i : v.warnings)
+            ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "warn   %s", i.to_string().c_str());
+        for (const auto& i : v.notes)
+            ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.95f, 1), "note   %s", i.to_string().c_str());
         if (v.errors.empty() && v.warnings.empty() && v.notes.empty()) ImGui::TextDisabled("Nothing to report.");
         ImGui::PopTextWrapPos();
         ImGui::EndChild();
@@ -226,14 +259,21 @@ static void draw_markdown(const std::string& text) {
         std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
         pos = nl == std::string::npos ? text.size() + 1 : nl + 1;
         if (!line.empty() && line.back() == '\r') line.pop_back();  // GitHub release notes use CRLF
-        if (line.rfind("```", 0) == 0) { code = !code; continue; }
-        if (code) ImGui::TextColored(ImVec4(0.7f, 0.85f, 0.7f, 1), "  %s", line.c_str());
+        if (line.rfind("```", 0) == 0) {
+            code = !code;
+            continue;
+        }
+        if (code)
+            ImGui::TextColored(ImVec4(0.7f, 0.85f, 0.7f, 1), "  %s", line.c_str());
         else if (line.rfind("#", 0) == 0) {
             size_t k = line.find_first_not_of('#');
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s", line.substr(k == std::string::npos ? 0 : k).c_str());
-        } else if (line.empty()) ImGui::Spacing();
-        else ImGui::TextUnformatted(line.c_str());
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s",
+                               line.substr(k == std::string::npos ? 0 : k).c_str());
+        } else if (line.empty())
+            ImGui::Spacing();
+        else
+            ImGui::TextUnformatted(line.c_str());
     }
     ImGui::PopTextWrapPos();
 }
@@ -256,7 +296,8 @@ void Editor::draw_update_popup() {
     if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+        return;
     auto close = [&] {
         updateStage_ = UpdateStage::Idle;
         ImGui::CloseCurrentPopup();
@@ -302,7 +343,8 @@ void Editor::draw_update_popup() {
 void Editor::draw_toasts() {
     for (Toast& t : toasts_)  // a toast with a button stays while the mouse is over it
         if (!t.actionLabel.empty() && t.expires < time_ && toastHover_) t.expires = time_ + 1.0;
-    toasts_.erase(std::remove_if(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.expires < time_; }), toasts_.end());
+    toasts_.erase(std::remove_if(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.expires < time_; }),
+                  toasts_.end());
     toastHover_ = false;
     if (toasts_.empty()) return;
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -312,13 +354,17 @@ void Editor::draw_toasts() {
     for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it, ++i) {
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, y), ImGuiCond_Always, ImVec2(0.5f, 0));
         ImGui::SetNextWindowBgAlpha(0.92f);
-        ImGui::PushStyleColor(ImGuiCol_Border, it->level >= 2 ? ImVec4(1, 0.4f, 0.38f, 1) : it->level == 1 ? ImVec4(1, 0.75f, 0.3f, 1) : ImVec4(0.3f, 0.55f, 0.95f, 1));
+        ImGui::PushStyleColor(ImGuiCol_Border, it->level >= 2   ? ImVec4(1, 0.4f, 0.38f, 1)
+                                               : it->level == 1 ? ImVec4(1, 0.75f, 0.3f, 1)
+                                                                : ImVec4(0.3f, 0.55f, 0.95f, 1));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 6));
         std::string name = "##toast" + std::to_string(i);
         ImGui::Begin(name.c_str(), nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | (it->actionLabel.empty() ? ImGuiWindowFlags_NoInputs : 0) | ImGuiWindowFlags_NoDocking);
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                         ImGuiWindowFlags_NoNav | (it->actionLabel.empty() ? ImGuiWindowFlags_NoInputs : 0) |
+                         ImGuiWindowFlags_NoDocking);
         // In front of every window without taking the focus: the toast windows are reused by index, so one made before a window that
         // took the focus later (the Level generator after a pick) would stay behind it, and a click on its button would land on that
         // window instead. Not while a modal popup is open: the modal is in front of everything then, and a toast raised above it would
@@ -365,7 +411,8 @@ bool Editor::disk_update_due() {
 std::string Editor::disk_restart_blocker() {
     // Nothing is stopped silently: what cannot be picked up again on the other side keeps the button off, with the reason.
     if (ai_busy() || ai_running())
-        return "An AI run is in progress. Restarting would stop it: wait for it to finish, or stop it from the AI Assistant.";
+        return "An AI run is in progress. Restarting would stop it: wait for it to finish, or stop it from the AI "
+               "Assistant.";
     if (play_ != PlayState::Edit) return "A play session is running. Stop it first.";
     if (exportJob_.running()) return "An export is running. Wait for it to finish or cancel it from the Export window.";
     if (setupJob_.running()) return "An installation of Set Up This Computer is running. Wait for it to finish.";
@@ -387,8 +434,8 @@ void Editor::draw_disk_update_notice() {
     UpdateWatch& watch = disk_watch();
     const std::string blocker = disk_restart_blocker();
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 34), ImGuiCond_Always,
-                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 34),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.96f);
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.55f, 0.95f, 1));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
@@ -397,8 +444,8 @@ void Editor::draw_disk_update_notice() {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking);
     ImGui::PushTextWrapPos(560);
-    ImGui::Text("FactorIA was updated on disk (%s -> %s). Restart the editor to use it.", watch.running().label().c_str(),
-                watch.on_disk().label().c_str());
+    ImGui::Text("FactorIA was updated on disk (%s -> %s). Restart the editor to use it.",
+                watch.running().label().c_str(), watch.on_disk().label().c_str());
     ImGui::PopTextWrapPos();
     at_track("update:disk");
     ImGui::BeginDisabled(!blocker.empty());

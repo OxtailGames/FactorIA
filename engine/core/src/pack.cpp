@@ -96,12 +96,12 @@ std::uint32_t pack_checksum(std::span<const std::uint8_t> data) { return xxh32(d
 Codec pack_default_codec(std::string_view path, std::span<const std::uint8_t> head) {
     const std::string ext = fs::extension(path);
     static const std::unordered_set<std::string> stored = {
-        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".heic", ".basis", ".ogg", ".oga", ".opus", ".mp3", ".qoa",
-        ".flac", ".m4a", ".aac", ".mp4", ".m4v", ".webm", ".mov", ".woff", ".woff2", ".zip", ".gz", ".zst", ".lz4",
-        ".7z", ".xz", ".bz2", ".pak"};
-    static const std::unordered_set<std::string> zstd = {".ttf", ".otf", ".ttc", ".txt", ".md", ".csv", ".tsv", ".xml",
-                                                         ".svg", ".html", ".htm", ".glsl", ".wgsl", ".hlsl", ".metal", ".po",
-                                                         ".pot", ".yaml", ".yml", ".ini", ".fnt"};
+        ".png",  ".jpg",   ".jpeg", ".webp", ".gif", ".avif", ".heic", ".basis", ".ogg",  ".oga",
+        ".opus", ".mp3",   ".qoa",  ".flac", ".m4a", ".aac",  ".mp4",  ".m4v",   ".webm", ".mov",
+        ".woff", ".woff2", ".zip",  ".gz",   ".zst", ".lz4",  ".7z",   ".xz",    ".bz2",  ".pak"};
+    static const std::unordered_set<std::string> zstd = {".ttf",   ".otf", ".ttc",  ".txt",  ".md",   ".csv",  ".tsv",
+                                                         ".xml",   ".svg", ".html", ".htm",  ".glsl", ".wgsl", ".hlsl",
+                                                         ".metal", ".po",  ".pot",  ".yaml", ".yml",  ".ini",  ".fnt"};
     if (ext == ".ktx2") {
         // The header's supercompressionScheme (u32 at byte 44): 0 = the mip levels are raw texels, which compress.
         if (head.size() >= 48 && get_le(head.data() + 44, 4) == 0) return Codec::Lz4;
@@ -118,8 +118,9 @@ Result<void> PackWriter::check_path(const std::string& path) const {
     auto n = fs::normalize_checked(path);
     if (!n.ok()) return n.error();
     if (path.empty() || n.value() != path || fs::is_absolute(path) || path.size() > 0xffff)
-        return make_error("Cannot pack '" + path + "': pack paths are normalized and project-relative",
-                          "Use forward slashes and no '.', '..' or leading '/', e.g. 'assets/hero.png' (at most 65535 bytes).");
+        return make_error(
+            "Cannot pack '" + path + "': pack paths are normalized and project-relative",
+            "Use forward slashes and no '.', '..' or leading '/', e.g. 'assets/hero.png' (at most 65535 bytes).");
     return {};
 }
 
@@ -176,7 +177,8 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
             return make_error("Cannot write the pack: '" + sorted[i]->path + "' was added twice",
                               "Each path can be in a pack once; add the file under one name.");
     if (sorted.size() > 0xffffffffu)
-        return make_error("Cannot write the pack: " + std::to_string(sorted.size()) + " files are more than a pack holds",
+        return make_error("Cannot write the pack: " + std::to_string(sorted.size()) +
+                              " files are more than a pack holds",
                           "A pack holds at most 4294967295 files.");
 
     // The data order: set_order's paths first, then the rest by path.
@@ -234,7 +236,9 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
         fs::ReadStream in;
         if (!item->source.empty()) {
             in.open(fs::os_path(item->source), std::ios::binary);
-            if (!in) return fail("Cannot pack '" + item->path + "': cannot open " + quoted(item->source), "Check that the file can be read.");
+            if (!in)
+                return fail("Cannot pack '" + item->path + "': cannot open " + quoted(item->source),
+                            "Check that the file can be read.");
         }
         bool anyCompressed = false;
         std::uint64_t done = 0, keptRaw = 0;
@@ -246,9 +250,9 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
             } else {
                 in.read(reinterpret_cast<char*>(raw.data()), std::streamsize(want));
                 if (std::size_t(in.gcount()) != want)
-                    return fail("Cannot pack '" + item->path + "': " + quoted(item->source) + " changed while the pack was written (" +
-                                    std::to_string(item->size) + " bytes expected, " + std::to_string(done + std::uint64_t(in.gcount())) +
-                                    " read)",
+                    return fail("Cannot pack '" + item->path + "': " + quoted(item->source) +
+                                    " changed while the pack was written (" + std::to_string(item->size) +
+                                    " bytes expected, " + std::to_string(done + std::uint64_t(in.gcount())) + " read)",
                                 "Do not edit the game's files during an export; export again.");
                 block = raw.data();
             }
@@ -276,7 +280,8 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
             if (!file) return fail("Cannot write " + quoted(tmp), "Is the disk full?");
         }
         if (!item->source.empty() && in.peek() != std::char_traits<char>::eof())
-            return fail("Cannot pack '" + item->path + "': " + quoted(item->source) + " grew while the pack was written",
+            return fail("Cannot pack '" + item->path + "': " + quoted(item->source) +
+                            " grew while the pack was written",
                         "Do not edit the game's files during an export; export again.");
         // Not one block saved enough: the file is recorded as stored (a reader then never runs the decoder for it).
         w.codec = anyCompressed ? item->codec : Codec::Store;
@@ -296,7 +301,8 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
     std::vector<std::uint8_t> index;
     std::uint64_t blockCount = 0;
     for (const Item* item : sorted) blockCount += written[item].blockStored.size();
-    if (blockCount > 0xffffffffu) return fail("Cannot write the pack: it would have more than 4294967295 blocks", "Split the game's data.");
+    if (blockCount > 0xffffffffu)
+        return fail("Cannot write the pack: it would have more than 4294967295 blocks", "Split the game's data.");
     put_u32(index, std::uint32_t(sorted.size()));
     put_u32(index, kPackBlockSize);
     put_u32(index, std::uint32_t(blockCount));
@@ -332,11 +338,12 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
     // The readers refuse a file bigger than this pack may hold (pack_max_file_size): never write one.
     for (const Item* item : sorted)
         if (item->size > pack_max_file_size(position))
-            return fail("Cannot pack '" + item->path + "': its " + std::to_string(item->size) +
-                            " bytes compress to so little that a pack of " + std::to_string(position) +
-                            " bytes may not hold it (a file may be at most 64 times its pack's size, or 256 MiB)",
-                        "Store that file as it is: give its extension the codec \"store\" in factoria.json, export.pack.codecs "
-                        "(docs/EXPORTING.md).");
+            return fail(
+                "Cannot pack '" + item->path + "': its " + std::to_string(item->size) +
+                    " bytes compress to so little that a pack of " + std::to_string(position) +
+                    " bytes may not hold it (a file may be at most 64 times its pack's size, or 256 MiB)",
+                "Store that file as it is: give its extension the codec \"store\" in factoria.json, export.pack.codecs "
+                "(docs/EXPORTING.md).");
 
     fs::replace_file(osTmp, fs::os_path(out), ec);
     bool held = ec && fs::is_sharing_violation(ec) && ec != std::errc::permission_denied;  // the emulation's code
@@ -347,10 +354,13 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
 #endif
     if (held)
         return fail("Cannot replace " + quoted(out) + ": it is open in another program (" + ec.message() + ")",
-                    "A running copy of the game has its pack open (Windows does not let a program replace a file another one has "
-                    "open). Close the game, and any program that has " + fs::path_to_utf8(out.filename()) +
-                        " open, then export again. The old pack was not changed.");
-    if (ec) return fail("Cannot move the finished pack to " + quoted(out) + ": " + ec.message(), "Is a file of that name open in another program?");
+                    "A running copy of the game has its pack open (Windows does not let a program replace a file "
+                    "another one has "
+                    "open). Close the game, and any program that has " +
+                        fs::path_to_utf8(out.filename()) + " open, then export again. The old pack was not changed.");
+    if (ec)
+        return fail("Cannot move the finished pack to " + quoted(out) + ": " + ec.message(),
+                    "Is a file of that name open in another program?");
     return stats;
 }
 
@@ -360,7 +370,8 @@ PackReader::~PackReader() {
     if (!inMemory_) detail::pack_unmap(map_, mapSize_, mapping_);  // open_memory's bytes are not a mapping
     detail::pack_close(native_);
     // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
-    if (!registered_.empty()) fs::detail::unregister_open_file(registered_, /*sharesDelete=*/map_ == nullptr);  // as registered
+    if (!registered_.empty())
+        fs::detail::unregister_open_file(registered_, /*sharesDelete=*/map_ == nullptr);  // as registered
 }
 
 bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) const {
@@ -400,21 +411,24 @@ Result<std::shared_ptr<const PackReader>> PackReader::open_memory(std::vector<st
     return finish_open(std::move(pack), "'" + name + "'", size, nullptr, {});
 }
 
-Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_ptr<PackReader> pack, const std::string& name,
-                                                                  std::uint64_t fileSize, const stdfs::path* file,
+Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_ptr<PackReader> pack,
+                                                                  const std::string& name, std::uint64_t fileSize,
+                                                                  const stdfs::path* file,
                                                                   const PackOpenOptions& options) {
     const std::string again = kAgain;
     std::uint8_t header[kHeaderSize];
     if (fileSize < kHeaderSize + kFooterSize || !pack->read_at(0, header, kHeaderSize))
-        return make_error("The game pack " + name + " is too small to be a pack (" + std::to_string(fileSize) + " bytes)",
+        return make_error("The game pack " + name + " is too small to be a pack (" + std::to_string(fileSize) +
+                              " bytes)",
                           "It was probably cut short while it was copied or downloaded. " + again);
     if (std::memcmp(header, kHeaderMagic, 8) != 0)
-        return make_error("The file " + name + " is not a FactorIA game pack (it does not start with the pack signature)",
+        return make_error("The file " + name +
+                              " is not a FactorIA game pack (it does not start with the pack signature)",
                           "Pass the game.pak that `factoria export --release` wrote, or a game folder.");
     const auto version = std::uint32_t(get_le(header + 8, 4));
     if (version != 1 && version != kPackFormatVersion)
-        return make_error("The game pack " + name + " has format version " + std::to_string(version) + "; this FactorIA reads versions 1 and " +
-                              std::to_string(kPackFormatVersion),
+        return make_error("The game pack " + name + " has format version " + std::to_string(version) +
+                              "; this FactorIA reads versions 1 and " + std::to_string(kPackFormatVersion),
                           again);
     pack->version_ = version;
     std::uint8_t footer[kFooterSize];
@@ -427,7 +441,9 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
         indexSize != fileSize - kFooterSize - indexOffset)
         return make_error("The game pack " + name + " is damaged (its index is outside the file)", again);
     if (indexSize > std::uint64_t(SIZE_MAX / 2))
-        return make_error("The game pack " + name + " has an index too big for this device (" + std::to_string(indexSize) + " bytes)", again);
+        return make_error("The game pack " + name + " has an index too big for this device (" +
+                              std::to_string(indexSize) + " bytes)",
+                          again);
 
     std::vector<std::uint8_t> index;
     index.resize(std::size_t(indexSize));
@@ -443,14 +459,17 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
         const std::size_t body = index.size() - 4;
         if (xxh32(index.data(), body) != read32(index.data() + body))
             return make_error("The game pack " + name + " is damaged (its index does not match its checksum)",
-                              "The file changed after it was written (a bad copy, a damaged drive or download). " + again);
+                              "The file changed after it was written (a bad copy, a damaged drive or download). " +
+                                  again);
         index.resize(body);
         count = get_le(index.data(), 4);
         pack->blockSize_ = read32(index.data() + 4);
         blockTotal = get_le(index.data() + 8, 4);
         at = 12;
         if (pack->blockSize_ < kMinBlockSize || pack->blockSize_ > kMaxBlockSize)
-            return make_error("The game pack " + name + " is damaged (its block size " + std::to_string(pack->blockSize_) + " is not possible)", again);
+            return make_error("The game pack " + name + " is damaged (its block size " +
+                                  std::to_string(pack->blockSize_) + " is not possible)",
+                              again);
     }
     pack->entries_.reserve(std::size_t(std::min<std::uint64_t>(count, indexSize / 18)));
     const std::uint64_t entryTail = version == 1 ? 16 : 29;  // the bytes after the path
@@ -469,8 +488,8 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
         } else {
             const std::uint8_t codec = index[at];
             if (codec > std::uint8_t(Codec::Zstd))
-                return make_error("The game pack " + name + " stores '" + e.path + "' with codec " + std::to_string(codec) +
-                                      ", which this FactorIA does not know",
+                return make_error("The game pack " + name + " stores '" + e.path + "' with codec " +
+                                      std::to_string(codec) + ", which this FactorIA does not know",
                                   again);
             e.codec = Codec(codec);
             e.size = get_le(&index[at + 1], 8);
@@ -479,12 +498,15 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
             e.firstBlock = read32(&index[at + 25]);
             // Before anything trusts the size: a hostile index must not make a read allocate gigabytes (pack.h).
             if (e.size > pack_max_file_size(fileSize))
-                return make_error("The game pack " + name + " is damaged ('" + e.path + "' claims " + std::to_string(e.size) +
-                                      " bytes, more than a pack of " + std::to_string(fileSize) + " bytes may hold)",
+                return make_error("The game pack " + name + " is damaged ('" + e.path + "' claims " +
+                                      std::to_string(e.size) + " bytes, more than a pack of " +
+                                      std::to_string(fileSize) + " bytes may hold)",
                                   again);
             const std::uint64_t blocks = e.size / pack->blockSize_ + (e.size % pack->blockSize_ != 0 ? 1 : 0);
             if (e.firstBlock != nextBlock || blocks > blockTotal - std::min(blockTotal, nextBlock))
-                return make_error("The game pack " + name + " is damaged (the blocks of '" + e.path + "' are not in its block table)", again);
+                return make_error("The game pack " + name + " is damaged (the blocks of '" + e.path +
+                                      "' are not in its block table)",
+                                  again);
             e.blockCount = std::uint32_t(blocks);
             nextBlock += blocks;
         }
@@ -492,14 +514,17 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
         if (e.offset < kHeaderSize || e.offset > indexOffset || e.stored > indexOffset - e.offset)
             return make_error("The game pack " + name + " is damaged ('" + e.path + "' lies outside the file)", again);
         if (!pack->entries_.empty() && !(pack->entries_.back().path < e.path))
-            return make_error("The game pack " + name + " is damaged (its index is not sorted at '" + e.path + "')", again);
+            return make_error("The game pack " + name + " is damaged (its index is not sorted at '" + e.path + "')",
+                              again);
         pack->entries_.push_back(std::move(e));
     }
     if (version == 1) {
-        if (at != index.size()) return make_error("The game pack " + name + " is damaged (its index has bytes after the last file)", again);
+        if (at != index.size())
+            return make_error("The game pack " + name + " is damaged (its index has bytes after the last file)", again);
     } else {
         if (nextBlock != blockTotal || index.size() - at != blockTotal * 8)
-            return make_error("The game pack " + name + " is damaged (its block table does not match its files)", again);
+            return make_error("The game pack " + name + " is damaged (its block table does not match its files)",
+                              again);
         pack->blocks_.resize(std::size_t(blockTotal));
         for (const Entry& e : pack->entries_) {
             std::uint64_t offset = e.offset, sum = 0;
@@ -511,20 +536,24 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
                 b.raw = (word & kRawBit) != 0;
                 b.stored = word & ~kRawBit;
                 b.offset = offset;
-                const std::uint64_t decoded = std::min<std::uint64_t>(pack->blockSize_, e.size - std::uint64_t(k) * pack->blockSize_);
+                const std::uint64_t decoded =
+                    std::min<std::uint64_t>(pack->blockSize_, e.size - std::uint64_t(k) * pack->blockSize_);
                 // A compressed block must be smaller than what it decodes to, and able to hold it: checked here, so no
                 // read allocates or decodes a size the block could never give (a hostile index with a right checksum).
                 const bool fits = b.raw ? b.stored == decoded
-                                        : (b.stored > 0 && b.stored < decoded && decoded <= codec::max_decoded_size(e.codec, b.stored));
+                                        : (b.stored > 0 && b.stored < decoded &&
+                                           decoded <= codec::max_decoded_size(e.codec, b.stored));
                 if (!fits || (e.codec == Codec::Store && !b.raw))
-                    return make_error("The game pack " + name + " is damaged (block " + std::to_string(k + 1) + " of '" + e.path +
-                                          "' has an impossible size)",
+                    return make_error("The game pack " + name + " is damaged (block " + std::to_string(k + 1) +
+                                          " of '" + e.path + "' has an impossible size)",
                                       again);
                 offset += b.stored;
                 sum += b.stored;
             }
             if (sum != e.stored)
-                return make_error("The game pack " + name + " is damaged (the blocks of '" + e.path + "' do not add up to its size)", again);
+                return make_error("The game pack " + name + " is damaged (the blocks of '" + e.path +
+                                      "' do not add up to its size)",
+                                  again);
         }
     }
 
@@ -539,13 +568,15 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
 }
 
 const PackReader::Entry* PackReader::find(std::string_view path) const {
-    auto it = std::lower_bound(entries_.begin(), entries_.end(), path, [](const Entry& e, std::string_view p) { return e.path < p; });
+    auto it = std::lower_bound(entries_.begin(), entries_.end(), path,
+                               [](const Entry& e, std::string_view p) { return e.path < p; });
     return it != entries_.end() && it->path == path ? &*it : nullptr;
 }
 
 Result<const PackReader::Entry*> PackReader::find_file(std::string_view path) const {
     if (const Entry* e = find(path)) return e;
-    if (is_directory(path)) return make_error("'" + std::string(path) + "' is a directory, not a file", "Use fs.list to see its contents.");
+    if (is_directory(path))
+        return make_error("'" + std::string(path) + "' is a directory, not a file", "Use fs.list to see its contents.");
     return not_found(path, path);
 }
 
@@ -555,7 +586,8 @@ bool PackReader::is_directory(std::string_view path) const {
     if (path.empty()) return true;
     std::string prefix(path);
     prefix += '/';
-    auto it = std::lower_bound(entries_.begin(), entries_.end(), prefix, [](const Entry& e, const std::string& p) { return e.path < p; });
+    auto it = std::lower_bound(entries_.begin(), entries_.end(), prefix,
+                               [](const Entry& e, const std::string& p) { return e.path < p; });
     return it != entries_.end() && it->path.compare(0, prefix.size(), prefix) == 0;
 }
 
@@ -577,7 +609,8 @@ Codec PackReader::codec_of(std::string_view path) const {
 Error PackReader::damaged(const Entry& e, std::uint32_t block, const std::string& what) const {
     return make_error("The game pack " + quoted(file_) + " is damaged: block " + std::to_string(block + 1) + " of " +
                           std::to_string(e.blockCount) + " of '" + e.path + "' " + what,
-                      std::string("The file changed after it was written (a bad copy, a damaged drive or download). ") + kAgain);
+                      std::string("The file changed after it was written (a bad copy, a damaged drive or download). ") +
+                          kAgain);
 }
 
 void PackReader::count(std::uint64_t bytes, std::uint64_t stored) const {
@@ -597,7 +630,8 @@ Result<void> PackReader::decode_range(const Entry& e, std::uint64_t from, std::s
         return {};
     }
     const std::uint64_t B = blockSize_, end = from + out.size();
-    std::vector<std::uint8_t> storedBuf, decodedBuf;  // at most one block each, only when the block cannot go to `out` directly
+    std::vector<std::uint8_t> storedBuf,
+        decodedBuf;  // at most one block each, only when the block cannot go to `out` directly
     for (std::uint64_t k = from / B; k * B < end; ++k) {
         const Block& b = blocks_[std::size_t(e.firstBlock + k)];
         const std::uint64_t blockStart = k * B;
@@ -642,27 +676,31 @@ Result<std::vector<std::uint8_t>> PackReader::read(std::string_view path) const 
     return read_range(path, 0, e.value()->size);
 }
 
-Result<std::vector<std::uint8_t>> PackReader::read_range(std::string_view path, std::uint64_t offset, std::uint64_t size) const {
+Result<std::vector<std::uint8_t>> PackReader::read_range(std::string_view path, std::uint64_t offset,
+                                                         std::uint64_t size) const {
     auto found = find_file(path);
     if (!found.ok()) return found.error();
     const Entry& e = *found.value();
     offset = std::min(offset, e.size);
     size = std::min(size, e.size - offset);
     if (size > std::uint64_t(SIZE_MAX / 2))
-        return make_error("'" + e.path + "' is too big to read at once on this device (" + std::to_string(size) + " bytes)",
+        return make_error("'" + e.path + "' is too big to read at once on this device (" + std::to_string(size) +
+                              " bytes)",
                           "Read it in parts (fs streams, or a smaller range).");
     std::vector<std::uint8_t> data;
     try {
         data.resize(static_cast<std::size_t>(size));
     } catch (const std::bad_alloc&) {
-        return make_error("Out of memory reading '" + e.path + "' from the game pack (" + std::to_string(size) + " bytes)",
+        return make_error("Out of memory reading '" + e.path + "' from the game pack (" + std::to_string(size) +
+                              " bytes)",
                           "Close other programs, or read it in parts (fs streams, or a smaller range).");
     }
     if (auto r = decode_range(e, offset, data); !r.ok()) return r.error();
     std::uint64_t stored = size;
     if (e.blockCount > 0 && size > 0) {
         stored = 0;
-        for (std::uint64_t k = offset / blockSize_; k * blockSize_ < offset + size; ++k) stored += blocks_[std::size_t(e.firstBlock + k)].stored;
+        for (std::uint64_t k = offset / blockSize_; k * blockSize_ < offset + size; ++k)
+            stored += blocks_[std::size_t(e.firstBlock + k)].stored;
     }
     count(size, stored);
     return data;
@@ -690,7 +728,8 @@ std::vector<std::string> PackReader::data_order() const {
     byOffset.reserve(entries_.size());
     for (const Entry& e : entries_) byOffset.push_back(&e);
     // Equal offsets (empty files take no bytes): by path, as the writer placed them only relative to their neighbours.
-    std::stable_sort(byOffset.begin(), byOffset.end(), [](const Entry* a, const Entry* b) { return a->offset < b->offset; });
+    std::stable_sort(byOffset.begin(), byOffset.end(),
+                     [](const Entry* a, const Entry* b) { return a->offset < b->offset; });
     std::vector<std::string> out;
     out.reserve(byOffset.size());
     for (const Entry* e : byOffset) out.push_back(e->path);
@@ -698,14 +737,16 @@ std::vector<std::string> PackReader::data_order() const {
 }
 
 PackReader::Counters PackReader::counters() const {
-    return Counters{reads_.load(std::memory_order_relaxed), bytesRead_.load(std::memory_order_relaxed), storedRead_.load(std::memory_order_relaxed)};
+    return Counters{reads_.load(std::memory_order_relaxed), bytesRead_.load(std::memory_order_relaxed),
+                    storedRead_.load(std::memory_order_relaxed)};
 }
 
 std::vector<std::string> PackReader::list(std::string_view dir, bool recursive) const {
     std::string prefix(dir);
     if (!prefix.empty() && prefix.back() != '/') prefix += '/';
     std::vector<std::string> out;
-    auto it = std::lower_bound(entries_.begin(), entries_.end(), prefix, [](const Entry& e, const std::string& p) { return e.path < p; });
+    auto it = std::lower_bound(entries_.begin(), entries_.end(), prefix,
+                               [](const Entry& e, const std::string& p) { return e.path < p; });
     for (; it != entries_.end() && it->path.compare(0, prefix.size(), prefix) == 0; ++it) {
         if (!recursive && it->path.find('/', prefix.size()) != std::string::npos) continue;
         out.push_back(it->path);
@@ -714,7 +755,8 @@ std::vector<std::string> PackReader::list(std::string_view dir, bool recursive) 
 }
 
 Error PackReader::not_found(std::string_view requested, std::string_view normalized) const {
-    std::string hint = "Paths are relative to the project root and, inside " + fs::path_to_utf8(file_.filename()) + ", case-sensitive.";
+    std::string hint = "Paths are relative to the project root and, inside " + fs::path_to_utf8(file_.filename()) +
+                       ", case-sensitive.";
     const std::string dir = fs::parent(normalized);
     std::vector<std::string> names = list(dir, false);
     std::string match = closest_match(normalized, names);
@@ -724,8 +766,10 @@ Error PackReader::not_found(std::string_view requested, std::string_view normali
         for (const Entry& e : entries_) names.push_back(e.path);
         match = closest_match(normalized, names);
     }
-    if (!match.empty()) hint = "Did you mean '" + match + "'? " + hint;
-    else if (!dir.empty() && !is_directory(dir)) hint += " The folder '" + dir + "' is not in the pack.";
+    if (!match.empty())
+        hint = "Did you mean '" + match + "'? " + hint;
+    else if (!dir.empty() && !is_directory(dir))
+        hint += " The folder '" + dir + "' is not in the pack.";
     return make_error("File not found: '" + std::string(requested) + "'", hint);
 }
 

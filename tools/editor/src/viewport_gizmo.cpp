@@ -64,8 +64,10 @@ GizmoSpace make_space(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hud, bool th
 }
 
 ImU32 axis_color(int axis, bool bright) {
-    static const ImU32 normal[3] = {IM_COL32(225, 70, 70, 255), IM_COL32(90, 200, 90, 255), IM_COL32(90, 160, 255, 255)};
-    static const ImU32 light[3] = {IM_COL32(255, 150, 150, 255), IM_COL32(160, 255, 160, 255), IM_COL32(150, 185, 255, 255)};
+    static const ImU32 normal[3] = {IM_COL32(225, 70, 70, 255), IM_COL32(90, 200, 90, 255),
+                                    IM_COL32(90, 160, 255, 255)};
+    static const ImU32 light[3] = {IM_COL32(255, 150, 150, 255), IM_COL32(160, 255, 160, 255),
+                                   IM_COL32(150, 185, 255, 255)};
     if (axis < 0 || axis > 2) return bright ? IM_COL32(255, 235, 120, 255) : IM_COL32(235, 235, 235, 255);
     return bright ? light[axis] : normal[axis];
 }
@@ -73,12 +75,20 @@ ImU32 axis_color(int axis, bool bright) {
 }  // namespace
 
 void Editor::gizmo_toolbar_buttons() {
-    struct Row { GizmoMode mode; const char* label; const char* id; const char* tip; };
+    struct Row {
+        GizmoMode mode;
+        const char* label;
+        const char* id;
+        const char* tip;
+    };
     static const Row rows[] = {
         {GizmoMode::Select, " Select ", "toolbar:gizmo:select", "Select only: no handles in the viewport (Q)"},
-        {GizmoMode::Move, " Move ", "toolbar:gizmo:move", "Move the selected entity by dragging its arrows or the centre square (W). Hold Ctrl to snap."},
-        {GizmoMode::Rotate, " Rotate ", "toolbar:gizmo:rotate", "Rotate the selected entity by dragging a ring (E). Hold Ctrl to snap to 15 degrees."},
-        {GizmoMode::Scale, " Scale ", "toolbar:gizmo:scale", "Scale the selected entity by dragging a handle or the centre box (R). Hold Ctrl to snap to 0.1."},
+        {GizmoMode::Move, " Move ", "toolbar:gizmo:move",
+         "Move the selected entity by dragging its arrows or the centre square (W). Hold Ctrl to snap."},
+        {GizmoMode::Rotate, " Rotate ", "toolbar:gizmo:rotate",
+         "Rotate the selected entity by dragging a ring (E). Hold Ctrl to snap to 15 degrees."},
+        {GizmoMode::Scale, " Scale ", "toolbar:gizmo:scale",
+         "Scale the selected entity by dragging a handle or the centre box (R). Hold Ctrl to snap to 0.1."},
     };
     for (const Row& row : rows) {
         const bool on = gizmoMode_ == row.mode;
@@ -109,11 +119,13 @@ void Editor::gizmo_end_drag(bool cancel) {
     }
     // Esc: put the start value back and leave nothing behind, neither an undo step nor a dirty scene.
     const char* field = d.mode == GizmoMode::Move ? "position" : d.mode == GizmoMode::Rotate ? "rotation" : "scale";
-    const Vec3 v = d.mode == GizmoMode::Move ? d.start.position : d.mode == GizmoMode::Rotate ? d.start.rotation : d.start.scale;
+    const Vec3 v = d.mode == GizmoMode::Move     ? d.start.position
+                   : d.mode == GizmoMode::Rotate ? d.start.rotation
+                                                 : d.start.scale;
     if (lastEditKey_ == d.key) lastEditTime_ = time_;
     std::string err;
-    edit_command(d.key, "scene.set_component",
-                 field_edit_args(d.id, "Transform", field, Json::array({v.x, v.y, v.z})), &err);
+    edit_command(d.key, "scene.set_component", field_edit_args(d.id, "Transform", field, Json::array({v.x, v.y, v.z})),
+                 &err);
     if (play_ == PlayState::Edit && !undo_.empty()) {
         undo_.pop_back();
         redo_ = std::move(d.redoBefore);
@@ -172,7 +184,8 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
         frame.local[i] = length(a) > 1e-6f ? normalize(a) : unit_axis(i);
     }
     gizmoShapes_ = gizmo_layout(gizmoMode_, view, frame);
-    for (const GizmoShape& s : gizmoShapes_) at_track_at("gizmo:" + gizmo_handle_name(s.handle), gizmo_grab_point(s), true);
+    for (const GizmoShape& s : gizmoShapes_)
+        at_track_at("gizmo:" + gizmo_handle_name(s.handle), gizmo_grab_point(s), true);
 
     const Vec2 mouse{io.MousePos.x, io.MousePos.y};
     if (!d.active && hovered) gizmoHover_ = gizmo_hit(gizmoShapes_, mouse, kHitPx);
@@ -193,7 +206,9 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
         const Entity par = w.parent(sel);
         d.hasParent = !par.is_null();
         d.parentWorld = d.hasParent ? w.world_matrix(par) : Mat4::identity();
-        d.last = gizmoMode_ == GizmoMode::Move ? tr->position : gizmoMode_ == GizmoMode::Rotate ? tr->rotation : tr->scale;
+        d.last = gizmoMode_ == GizmoMode::Move     ? tr->position
+                 : gizmoMode_ == GizmoMode::Rotate ? tr->rotation
+                                                   : tr->scale;
         d.redoBefore = redo_;
         d.dirtyBefore = dirty_;
         if (d.handle.kind == GizmoKind::MovePlane) d.planeStart = space.on_plane(mouse, pivotW).value_or(pivotW);
@@ -248,16 +263,18 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                     const float l = std::sqrt(dir.x * dir.x + dir.y * dir.y);
                     if (l > 1e-6f) {
                         dir = {dir.x / l, dir.y / l};
-                        value = with_axis(value, i, scale_apply(axis_value(d.start.scale, i),
-                                                                scale_axis_factor(p0, dir, d.mouseStart, mouse), step));
+                        value = with_axis(value, i,
+                                          scale_apply(axis_value(d.start.scale, i),
+                                                      scale_axis_factor(p0, dir, d.mouseStart, mouse), step));
                     }
                 }
             }
             value = {round4(value.x), round4(value.y), round4(value.z)};
             if (value.x != d.last.x || value.y != d.last.y || value.z != d.last.z) {
                 std::string err;
-                CommandResult res = edit_command(d.key, "scene.set_component",
-                                                 field_edit_args(d.id, "Transform", field, Json::array({value.x, value.y, value.z})), &err);
+                CommandResult res = edit_command(
+                    d.key, "scene.set_component",
+                    field_edit_args(d.id, "Transform", field, Json::array({value.x, value.y, value.z})), &err);
                 if (!res.ok) {
                     notify("Could not change " + std::string(field) + ": " + err, 2);
                     d.active = false;
@@ -285,12 +302,15 @@ void Editor::gizmo_draw(ImDrawList* dl) {
                 dl->AddLine(im(s.from), im(s.to), IM_COL32(0, 0, 0, 120), thick + 2.0f);
                 dl->AddLine(im(s.from), im(s.to), col, thick);
                 if (s.tipBox) {
-                    dl->AddRectFilled(ImVec2(s.to.x - s.half, s.to.y - s.half), ImVec2(s.to.x + s.half, s.to.y + s.half), col);
-                    dl->AddRect(ImVec2(s.to.x - s.half, s.to.y - s.half), ImVec2(s.to.x + s.half, s.to.y + s.half), IM_COL32(0, 0, 0, 200));
+                    dl->AddRectFilled(ImVec2(s.to.x - s.half, s.to.y - s.half),
+                                      ImVec2(s.to.x + s.half, s.to.y + s.half), col);
+                    dl->AddRect(ImVec2(s.to.x - s.half, s.to.y - s.half), ImVec2(s.to.x + s.half, s.to.y + s.half),
+                                IM_COL32(0, 0, 0, 200));
                 } else {
                     const Vec2 n{-s.dir.y, s.dir.x};  // an arrow head at the tip
                     const ImVec2 tip(s.to.x + s.dir.x * 12, s.to.y + s.dir.y * 12);
-                    dl->AddTriangleFilled(tip, ImVec2(s.to.x + n.x * 6, s.to.y + n.y * 6), ImVec2(s.to.x - n.x * 6, s.to.y - n.y * 6), col);
+                    dl->AddTriangleFilled(tip, ImVec2(s.to.x + n.x * 6, s.to.y + n.y * 6),
+                                          ImVec2(s.to.x - n.x * 6, s.to.y - n.y * 6), col);
                 }
                 break;
             }

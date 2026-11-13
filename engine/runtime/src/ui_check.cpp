@@ -65,7 +65,9 @@ struct Issue {
 
 void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
-        {"ui.check_layout", "Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen.",
+        {"ui.check_layout",
+         "Load each screen in each language and text size and list every text that overflows its box, overlaps another "
+         "text or leaves the screen.",
          "For every scene (default: each scene with UI) and every case it loads the scene, switches the "
          "language, sets the text size, lets the scripts settle (a few frames) and reads ui.state. A text is "
          "reported when (1) `overflow`: it still does not fit its box at its effective size (the same test "
@@ -75,8 +77,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
          "`tooltip`: the `tooltip` of a visible widget is not a valid tooltip, or its box (the project's "
          "ui.tooltip style: maxWidth, font sizes, padding) is larger than the screen, so it cannot be placed "
          "inside it. Example: ui.check_layout "
-         "{\"textScales\":[1,2],\"uiScales\":[0.75,1,1.5],\"pseudo\":true}"
-         FA_COMMAND_DETAILS
+         "{\"textScales\":[1,2],\"uiScales\":[0.75,1,1.5],\"pseudo\":true}" FA_COMMAND_DETAILS
          "The cases are every language x every text scale x every interface scale (`uiScales`, default: the "
          "current ui.scale), plus (with `pseudo`) a pseudo-localized pass in the default language where each "
          "translation is lengthened (\"[\" + vowels doubled + \"]\", at least 40 % longer) to show where an "
@@ -110,12 +111,16 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
              "settleFrames":{"type":"integer","minimum":1,"maximum":120,"description":"Frames stepped after each change so scripts and layout settle. Default: 4."}}})"),
          false, "ui"},
         [&engine, &I](const Json& a) {
-            if (I.inFrame) throw CommandError("invalid_state", "ui.check_layout cannot run while a frame runs.", "Call it from the CLI, the editor or a test, not from a script.");
+            if (I.inFrame)
+                throw CommandError("invalid_state", "ui.check_layout cannot run while a frame runs.",
+                                   "Call it from the CLI, the editor or a test, not from a script.");
             const int settle = a.value("settleFrames", 4);
             const bool current = a.value("current", false);
             if (current && (a.contains("scenes") || a.contains("steps")))
-                throw CommandError("invalid_argument", "current: true measures the running scene as it is, so `scenes` and `steps` do not apply.",
-                                   "Leave them out, or leave `current` out to load the scenes.");
+                throw CommandError(
+                    "invalid_argument",
+                    "current: true measures the running scene as it is, so `scenes` and `steps` do not apply.",
+                    "Leave them out, or leave `current` out to load the scenes.");
 
             // Scenes.
             const std::vector<std::string> all = fs::list("scenes", true, ".json");
@@ -129,7 +134,8 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 for (const Json& s : a["scenes"]) {
                     std::string path = fs::normalize(s.get<std::string>());
                     if (std::find(all.begin(), all.end(), path) == all.end())
-                        throw CommandError("not_found", "Scene '" + path + "' not found. " + did_you_mean(path, all), "Use project.info to list scenes.");
+                        throw CommandError("not_found", "Scene '" + path + "' not found. " + did_you_mean(path, all),
+                                           "Use project.info to list scenes.");
                     scenes.push_back(path);
                 }
             } else {
@@ -140,12 +146,19 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             Json stepLists = Json::object();
             if (a.contains("steps")) {
                 if (!a["steps"].is_object())
-                    throw CommandError("invalid_argument", "steps must be an object of scene path -> list of steps.", "Example: {\"steps\":{\"scenes/menu.scene.json\":[{\"click\":\"options_button\"}]}}");
+                    throw CommandError(
+                        "invalid_argument", "steps must be an object of scene path -> list of steps.",
+                        "Example: {\"steps\":{\"scenes/menu.scene.json\":[{\"click\":\"options_button\"}]}}");
                 for (const auto& [k, v] : a["steps"].items()) {
                     const std::string path = fs::normalize(k);
                     if (std::find(all.begin(), all.end(), path) == all.end())
-                        throw CommandError("not_found", "steps: scene '" + path + "' not found. " + did_you_mean(path, all), "Use project.info to list scenes.");
-                    if (!v.is_array()) throw CommandError("invalid_argument", "steps['" + k + "'] must be a list of steps.", "Each step is {\"click\": name}, {\"key\": name}, {\"action\": name} or {\"frames\": n}.");
+                        throw CommandError("not_found",
+                                           "steps: scene '" + path + "' not found. " + did_you_mean(path, all),
+                                           "Use project.info to list scenes.");
+                    if (!v.is_array())
+                        throw CommandError(
+                            "invalid_argument", "steps['" + k + "'] must be a list of steps.",
+                            "Each step is {\"click\": name}, {\"key\": name}, {\"action\": name} or {\"frames\": n}.");
                     stepLists[path] = v;
                 }
             }
@@ -205,26 +218,33 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 }
                 if (const auto it = now.find(id); it != now.end()) {
                     j["text"] = it->second.text;
-                    j["rect"] = Json::array({it->second.rect.x, it->second.rect.y, it->second.rect.w, it->second.rect.h});
+                    j["rect"] =
+                        Json::array({it->second.rect.x, it->second.rect.y, it->second.rect.w, it->second.rect.h});
                 }
                 return j;
             };
-            auto add_issue = [&](const std::string& scene, const std::string& kind, const std::string& id, const std::string& other, const Case& c) {
+            auto add_issue = [&](const std::string& scene, const std::string& kind, const std::string& id,
+                                 const std::string& other, const Case& c) {
                 Issue* found = nullptr;
                 for (Issue& i : issues)
                     if (i.scene == scene && i.kind == kind && i.id == id && i.otherId == other) found = &i;
                 if (!found) {
-                    issues.push_back({scene, kind, id, other, describe(id), other.empty() ? Json(nullptr) : describe(other), Json::array()});
+                    issues.push_back({scene, kind, id, other, describe(id),
+                                      other.empty() ? Json(nullptr) : describe(other), Json::array()});
                     found = &issues.back();
                 }
-                found->cases.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"uiScale", c.uiScale}, {"pseudo", c.pseudo}}));
+                found->cases.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language},
+                                                     {"textScale", c.scale},
+                                                     {"uiScale", c.uiScale},
+                                                     {"pseudo", c.pseudo}}));
             };
 
             // One press and release over a frame each, like game.tapKey in tests.
             auto tap_named = [&](const std::string& name, const std::string& where) {
                 std::string e;
                 if (!I.inject_named(name, true, &e))
-                    throw CommandError("invalid_argument", where + ": " + e, "Use a key name (Enter, Space, A...) or an input action of factoria.json.");
+                    throw CommandError("invalid_argument", where + ": " + e,
+                                       "Use a key name (Enter, Space, A...) or an input action of factoria.json.");
                 engine.step(1);
                 I.inject_named(name, false, &e);
                 engine.step(1);
@@ -242,13 +262,23 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                             std::vector<std::string> names;
                             for (Entity w : I.world.entities())
                                 if (ui_kind(I.world, w) != UiKind::None) names.push_back(path_of(I.world, w));
-                            throw CommandError("not_found", where + ": click: no entity '" + name + "' in " + scene + ". " + did_you_mean(name, names), "Name a widget (an entity id or name) that exists after the earlier steps.");
+                            throw CommandError(
+                                "not_found",
+                                where + ": click: no entity '" + name + "' in " + scene + ". " +
+                                    did_you_mean(name, names),
+                                "Name a widget (an entity id or name) that exists after the earlier steps.");
                         }
                         const std::optional<Rect> r = ui_rect(I.world, e, screen);
                         const std::optional<Rect> clip = ui_clip_rect(I.world, e, screen);
-                        if (ui_kind(I.world, e) == UiKind::None || !I.world.active_in_hierarchy(e) || !r || !(r->w > 0) || !(r->h > 0) ||
+                        if (ui_kind(I.world, e) == UiKind::None || !I.world.active_in_hierarchy(e) || !r ||
+                            !(r->w > 0) || !(r->h > 0) ||
                             (clip && (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r))))
-                            throw CommandError("invalid_state", where + ": click: '" + name + "' (" + path_of(I.world, e) + ") is not a visible widget at this point (no widget, inactive, no area or scrolled out of its ScrollList).", "Click the button that opens it first, or add {\"frames\": n} so a script has time to show it.");
+                            throw CommandError("invalid_state",
+                                               where + ": click: '" + name + "' (" + path_of(I.world, e) +
+                                                   ") is not a visible widget at this point (no widget, inactive, no "
+                                                   "area or scrolled out of its ScrollList).",
+                                               "Click the button that opens it first, or add {\"frames\": n} so a "
+                                               "script has time to show it.");
                         const Rect box = clip ? ui_intersect(*r, *clip) : *r;
                         I.input.on_mouse_move({box.x + box.w / 2, box.y + box.h / 2});
                         I.input.on_mouse_button(MouseButton::Left, true);
@@ -262,7 +292,12 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                     } else if (st.contains("frames") && st["frames"].is_number_integer()) {
                         engine.step(st["frames"].get<int>());
                     } else {
-                        throw CommandError("invalid_argument", where + ": a step is {\"click\": name}, {\"key\": name}, {\"action\": name} or {\"frames\": n}, got " + st.dump() + ".", "Example: {\"click\":\"options_button\"}");
+                        throw CommandError("invalid_argument",
+                                           where +
+                                               ": a step is {\"click\": name}, {\"key\": name}, {\"action\": name} or "
+                                               "{\"frames\": n}, got " +
+                                               st.dump() + ".",
+                                           "Example: {\"click\":\"options_button\"}");
                     }
                     ++index;
                 }
@@ -299,7 +334,8 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 Json caseList = Json::array();
                 for (const Case& c : cases) {
                     I.i18n.set_pseudo(c.pseudo);
-                    if (!c.language.empty()) (void)I.switch_language(c.language);  // an unknown language keeps the current one
+                    if (!c.language.empty())
+                        (void)I.switch_language(c.language);  // an unknown language keeps the current one
                     I.apply_localization();
                     engine.set_text_scale(c.scale);
                     engine.set_ui_scale(c.uiScale);
@@ -318,10 +354,12 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                         it.rect = Rect{r[0].get<float>(), r[1].get<float>(), r[2].get<float>(), r[3].get<float>()};
                         // A widget in a ScrollList counts for the part the list shows; a row fully outside was skipped above.
                         if (const Entity own = I.world.find_by_id(it.id); own != kNullEntity)
-                            if (const std::optional<Rect> clip = ui_clip_rect(I.world, own, screen)) it.rect = ui_intersect(it.rect, *clip);
+                            if (const std::optional<Rect> clip = ui_clip_rect(I.world, own, screen))
+                                it.rect = ui_intersect(it.rect, *clip);
                         ++uiItems;
                         now[it.id] = it;
-                        const bool labelled = it.kind == "Text" || it.kind == "Button" || it.kind == "Toggle" || it.kind == "Slider" || it.kind == "TouchButton";
+                        const bool labelled = it.kind == "Text" || it.kind == "Button" || it.kind == "Toggle" ||
+                                              it.kind == "Slider" || it.kind == "TouchButton";
                         // A Text faded out to nothing (an intro the script fades in) covers nothing.
                         const Entity ent = I.world.find_by_id(it.id);
                         const Text* faded = ent != kNullEntity ? I.world.get<Text>(ent) : nullptr;
@@ -343,26 +381,37 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                         if (text->empty()) continue;
                         const float k = ui_scale_clamped(I.world.ui_scale());
                         const Vec2 size = ui_tooltip_size(*text, I.world.ui_tooltip_settings().style, I.measure()) * k;
-                        if (size.x > screen.x - 8.0f || size.y > screen.y - 8.0f) add_issue(scene, "tooltip", id, "", c);
+                        if (size.x > screen.x - 8.0f || size.y > screen.y - 8.0f)
+                            add_issue(scene, "tooltip", id, "", c);
                     }
                     for (const Item& it : items) {
-                        if (it.rect.x < -0.5f || it.rect.y < -0.5f || it.rect.x + it.rect.w > screen.x + 0.5f || it.rect.y + it.rect.h > screen.y + 0.5f)
+                        if (it.rect.x < -0.5f || it.rect.y < -0.5f || it.rect.x + it.rect.w > screen.x + 0.5f ||
+                            it.rect.y + it.rect.h > screen.y + 0.5f)
                             add_issue(scene, "offscreen", it.id, "", c);
                     }
                     for (std::size_t i = 0; i < items.size(); ++i)
                         for (std::size_t j = i + 1; j < items.size(); ++j) {
                             const Rect &p = items[i].rect, &q = items[j].rect;
-                            if (!(p.x < q.x + q.w - 0.5f && q.x < p.x + p.w - 0.5f && p.y < q.y + q.h - 0.5f && q.y < p.y + p.h - 0.5f)) continue;
+                            if (!(p.x < q.x + q.w - 0.5f && q.x < p.x + p.w - 0.5f && p.y < q.y + q.h - 0.5f &&
+                                  q.y < p.y + p.h - 0.5f))
+                                continue;
                             const Entity ea = I.world.find_by_id(items[i].id), eb = I.world.find_by_id(items[j].id);
-                            if (ea != kNullEntity && eb != kNullEntity && (is_ancestor(I.world, ea, eb) || is_ancestor(I.world, eb, ea))) continue;
+                            if (ea != kNullEntity && eb != kNullEntity &&
+                                (is_ancestor(I.world, ea, eb) || is_ancestor(I.world, eb, ea)))
+                                continue;
                             std::string x = items[i].id, y = items[j].id;
                             if (y < x) std::swap(x, y);
                             add_issue(scene, "overlap", x, y, c);
                         }
-                    caseList.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language}, {"textScale", c.scale}, {"uiScale", c.uiScale}, {"pseudo", c.pseudo}}));
+                    caseList.push_back(Json::object({{"language", c.pseudo ? "pseudo" : c.language},
+                                                     {"textScale", c.scale},
+                                                     {"uiScale", c.uiScale},
+                                                     {"pseudo", c.pseudo}}));
                 }
-                if (uiItems == 0 && !explicitScenes) skipped.push_back(scene);
-                else checked.push_back(Json::object({{"scene", scene}, {"cases", caseList}}));
+                if (uiItems == 0 && !explicitScenes)
+                    skipped.push_back(scene);
+                else
+                    checked.push_back(Json::object({{"scene", scene}, {"cases", caseList}}));
             }
 
             // Back to how the game was.
@@ -377,15 +426,19 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                 j["cases"] = i.cases;
                 out.push_back(std::move(j));
             }
-            Json result = Json::object({{"ok", out.empty()}, {"checked", checked}, {"skipped", skipped}, {"issueCount", out.size()}, {"issues", out}});
+            Json result = Json::object({{"ok", out.empty()},
+                                        {"checked", checked},
+                                        {"skipped", skipped},
+                                        {"issueCount", out.size()},
+                                        {"issues", out}});
             if (!loadProblems.empty()) result["loadProblems"] = loadProblems;
             return result;
         });
 
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
-        {"ui.check_layout", capability_sets::changes_state()},
-    });
+                                                 {"ui.check_layout", capability_sets::changes_state()},
+                                             });
 }
 
 }  // namespace fa

@@ -116,7 +116,8 @@ TEST_CASE("perf_compare: a sub-millisecond p95 at 3.8x its baseline warns and pa
     CHECK(perf_compare(cur, base, PerfTolerance{}, true).status == "fail");
 }
 
-TEST_CASE("perf_compare: a baseline without a median stands its average in; a provisional one enforces only the counters") {
+TEST_CASE(
+    "perf_compare: a baseline without a median stands its average in; a provisional one enforces only the counters") {
     PerfSample base = sample(5, 8, 100, 40, 200);
     base.cpuMsMedian = -1;  // a baseline file from before the median
     PerfSample cur = sample(5, 8, 100, 40, 200);
@@ -161,7 +162,8 @@ TEST_CASE("perf_compare: a baseline lowered below the measurement is a regressio
     const PerfSample measured = sample(5, 8, 100, 40, 200);
     PerfSample lowered = measured;
     lowered.peakMemoryMB = 20;
-    lowered.drawCalls = 10;  // 100 MB against 20 MB is past the band (52 MB) and 40 draw calls against 10 is more than the counter
+    lowered.drawCalls =
+        10;  // 100 MB against 20 MB is past the band (52 MB) and 40 draw calls against 10 is more than the counter
     CHECK(perf_compare(measured, lowered, PerfTolerance{}, false).status == "fail");
 }
 
@@ -219,9 +221,10 @@ TEST_CASE("perf tolerances: overrides, and problems teach") {
     const PerfTolerance t = perf_tolerance_from_json(Json::parse(R"({"memory":0.5,"cpuAvg":3})"), &problems);
     CHECK(problems.empty());
     CHECK(t.memory == doctest::Approx(0.5));
-    CHECK(t.cpuMedian == doctest::Approx(3));  // "cpuAvg" is the old name of "cpuMedian"
+    CHECK(t.cpuMedian == doctest::Approx(3));    // "cpuAvg" is the old name of "cpuMedian"
     CHECK(t.drawCalls == doctest::Approx(0.0));  // untouched: a counter is exact
-    CHECK(perf_tolerance_from_json(Json::parse(R"({"cpuAvg":3,"cpuMedian":2})")).cpuMedian == doctest::Approx(2));  // the new name wins
+    CHECK(perf_tolerance_from_json(Json::parse(R"({"cpuAvg":3,"cpuMedian":2})")).cpuMedian ==
+          doctest::Approx(2));  // the new name wins
     perf_tolerance_from_json(Json::parse(R"({"memry":0.5,"drawCalls":-1})"), &problems);
     REQUIRE(problems.size() == 2);
     CHECK(problems[0].find("memory") != std::string::npos);  // did you mean
@@ -234,7 +237,8 @@ TEST_CASE("perf samples round-trip through JSON") {
     CHECK(r.frames == 300);
     CHECK(r.cpuMsAvg == doctest::Approx(1.5));
     CHECK(r.cpuMsMedian == doctest::Approx(1.5));
-    CHECK(perf_sample_from_json(Json::parse(R"({"cpuMsAvg":2})")).cpuMsMedian < 0);  // an old baseline file: not recorded
+    CHECK(perf_sample_from_json(Json::parse(R"({"cpuMsAvg":2})")).cpuMsMedian <
+          0);  // an old baseline file: not recorded
     PerfSample withSlow = s;
     withSlow.slowestFrames = {{12, 1924.5}, {3, 20.25}};
     CHECK(perf_sample_json(withSlow)["slowestFrames"][0]["frame"] == 12);
@@ -261,7 +265,7 @@ TEST_CASE("perf samples: the audio memory is reported by a measurement and never
     const Json baseline = perf_sample_json(s, false);
     CHECK_FALSE(baseline.contains("audioDecodedMB"));
     CHECK_FALSE(baseline.contains("musicMB"));
-    CHECK_FALSE(perf_sample_json(sample(1, 1, 1, 1, 1)).contains("musicMB"));   // not recorded: not invented
+    CHECK_FALSE(perf_sample_json(sample(1, 1, 1, 1, 1)).contains("musicMB"));  // not recorded: not invented
 }
 
 TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
@@ -270,7 +274,8 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
 #else
     unsetenv("FACTORIA_PERF_RUNNER");
 #endif
-    const std::string warp = perf_runner_id("D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)");
+    const std::string warp =
+        perf_runner_id("D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)");
     CHECK(warp.find("d3d11-warp") != std::string::npos);
     // A CI runner without a graphics card gets WARP as its "hardware" adapter: the same runner id.
     CHECK(perf_runner_id("D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)") == warp);
@@ -282,7 +287,8 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
 #if defined(NDEBUG)
     CHECK_FALSE(id.ends_with("-debug"));
 #else
-    CHECK(id.ends_with("-nogpu-debug"));  // a Debug build is a kind of its own: it never meets a release build's baseline
+    CHECK(
+        id.ends_with("-nogpu-debug"));  // a Debug build is a kind of its own: it never meets a release build's baseline
 #endif
 #if defined(_WIN32)
     CHECK(id.rfind("windows-msvc-", 0) == 0);
@@ -290,7 +296,8 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
     CHECK(perf_runner_id("none") == "my-box");
     _putenv_s("FACTORIA_PERF_RUNNER", "");
 #else
-    CHECK((id.rfind("linux-", 0) == 0 || id.rfind("macos-", 0) == 0 || id.rfind("android-", 0) == 0 || id.rfind("web-", 0) == 0));
+    CHECK((id.rfind("linux-", 0) == 0 || id.rfind("macos-", 0) == 0 || id.rfind("android-", 0) == 0 ||
+           id.rfind("web-", 0) == 0));
     setenv("FACTORIA_PERF_RUNNER", "my-box", 1);
     CHECK(perf_runner_id("none") == "my-box");
     unsetenv("FACTORIA_PERF_RUNNER");
@@ -420,7 +427,8 @@ TEST_CASE("perf.check: the report names the slowest frames, and a provisional en
     CHECK(p.result["message"].get<std::string>().find("provisional") != std::string::npos);
     for (const Json& r : p.result["rows"]) {
         const std::string metric = r["metric"].get<std::string>();
-        CHECK((metric == "drawCalls" || metric == "entities" || metric == "triangles" || metric == "lights" || metric == "maxStartupMs"));  // the template's absolute cap is not the baseline
+        CHECK((metric == "drawCalls" || metric == "entities" || metric == "triangles" || metric == "lights" ||
+               metric == "maxStartupMs"));  // the template's absolute cap is not the baseline
     }
 
     // ...and a counter that is one off fails it, naming the entry as provisional.
@@ -438,20 +446,24 @@ TEST_CASE("perf.profile: where the time goes, on a small project with two behavi
     auto made = create_project(t.str(), "2d-empty");
     REQUIRE(made.ok());
     const std::filesystem::path dir(t.str());
-    REQUIRE(fs::write_text((dir / "scripts/heavy.js").generic_string(),
-                           "import { Behaviour } from \"factoria\";\n"
-                           "export default class Heavy extends Behaviour {\n"
-                           "  onUpdate(dt) { let x = 0; for (let i = 0; i < 150000; i++) x += Math.sqrt(i); this.x = x; }\n}\n").ok());
+    REQUIRE(fs::write_text(
+                (dir / "scripts/heavy.js").generic_string(),
+                "import { Behaviour } from \"factoria\";\n"
+                "export default class Heavy extends Behaviour {\n"
+                "  onUpdate(dt) { let x = 0; for (let i = 0; i < 150000; i++) x += Math.sqrt(i); this.x = x; }\n}\n")
+                .ok());
     REQUIRE(fs::write_text((dir / "scripts/light.js").generic_string(),
                            "import { Behaviour } from \"factoria\";\n"
-                           "export default class Light extends Behaviour {\n  onUpdate(dt) {}\n}\n").ok());
+                           "export default class Light extends Behaviour {\n  onUpdate(dt) {}\n}\n")
+                .ok());
     REQUIRE(fs::write_text((dir / "scenes/main.scene.json").generic_string(), R"({
       "format": "factoria.scene/1",
       "entities": [
         { "id": "cam", "components": { "Camera": { "primary": true } } },
         { "id": "heavy", "components": { "Script": { "path": "scripts/heavy.js" } } },
         { "id": "light", "components": { "Script": { "path": "scripts/light.js" } } }
-      ] })").ok());
+      ] })")
+                .ok());
     CommandRegistry reg;
     register_tooling_commands(reg, t.str());
     REQUIRE(reg.has("perf.profile"));
@@ -481,7 +493,8 @@ TEST_CASE("perf.profile: where the time goes, on a small project with two behavi
 TEST_CASE("perf.profile and perf.measure from an engine that owns the GPU: a teaching error, not an abort") {
     TempDir t;
     REQUIRE(create_project(t.str(), "2d-empty").ok());
-    Engine host;  // stands for the editor / a window: this process now owns a graphics device (when the machine has one)
+    Engine
+        host;  // stands for the editor / a window: this process now owns a graphics device (when the machine has one)
     EngineConfig cfg;
     cfg.projectDir = t.str();
     cfg.headless = true;
@@ -533,7 +546,8 @@ TEST_CASE("perf.check: a triangle budget fails when the scene goes over it") {
     CHECK(triangles == 26);
     CHECK(sample["lights"] == 1);
     REQUIRE(fs::write_text((root / "perf.json").generic_string(),
-                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxTriangles":26,"maxLights":1}})").ok());
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxTriangles":26,"maxLights":1}})")
+                .ok());
     CommandResult ok = reg.call("perf.check", Json::object());  // no baseline for this runner: the caps still apply
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     CHECK(ok.result["status"] == "no_baseline");
@@ -585,7 +599,8 @@ TEST_CASE("perf.measure counts the Light2D lights of a 2D scene in `lights`, the
     if (sample.value("drawCalls", 0) == 0) return;  // no GPU on this machine: nothing is drawn
     CHECK(sample["lights"] == 3);
     REQUIRE(fs::write_text((root / "perf.json").generic_string(),
-                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxLights":2}})").ok());
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxLights":2}})")
+                .ok());
     CommandResult over = reg.call("perf.check", Json::object());
     REQUIRE_FALSE(over.ok);
     CHECK(over.error["code"] == "perf_budget_exceeded");
@@ -606,7 +621,8 @@ TEST_CASE("perf.startup: the budget rows are timing rows, a baseline without sta
     CHECK(perf_budget_rows(m, b)[0].exceeded);
 
     std::vector<std::string> problems;
-    const PerfBudgets parsed = perf_budgets_from_json(Json::parse(R"({"maxStartupMs":1500,"maxStartup":1})"), &problems);
+    const PerfBudgets parsed =
+        perf_budgets_from_json(Json::parse(R"({"maxStartupMs":1500,"maxStartup":1})"), &problems);
     CHECK(parsed.maxStartupMs == doctest::Approx(1500));
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].find("maxStartupMs") != std::string::npos);  // did you mean
@@ -631,7 +647,8 @@ TEST_CASE("perf.startup: the budget rows are timing rows, a baseline without sta
     CHECK(perf_startup_advice().find("docs/PERFORMANCE.md") != std::string::npos);
 }
 
-TEST_CASE("perf.check: the startup budget passes with room, warns outside CI and fails in CI with a message that teaches") {
+TEST_CASE(
+    "perf.check: the startup budget passes with room, warns outside CI and fails in CI with a message that teaches") {
     TempDir t;
     auto made = create_project(t.str(), "2d-empty");
     REQUIRE(made.ok());
@@ -645,7 +662,8 @@ TEST_CASE("perf.check: the startup budget passes with room, warns outside CI and
 
     // A cap far above any machine: passes (the no-baseline status, since the file has no runners).
     REQUIRE(fs::write_text((root / "perf.json").generic_string(),
-                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxStartupMs":600000}})").ok());
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxStartupMs":600000}})")
+                .ok());
     CommandResult ok = reg.call("perf.check", Json::object({{"strictTime", true}}));
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     CHECK(ok.result["status"] == "no_baseline");
@@ -678,7 +696,8 @@ TEST_CASE("perf.baseline: the budget file stays inside the project for MCP and a
     CommandRegistry reg;
     register_tooling_commands(reg, t.str());
     CommandCapabilityScope mcp(capability_sets::mcp());
-    for (const std::string& bad : {std::string("../perf.json"), (other.path / "perf.json").generic_string(), std::string(".factoria/perf.json")}) {
+    for (const std::string& bad : {std::string("../perf.json"), (other.path / "perf.json").generic_string(),
+                                   std::string(".factoria/perf.json")}) {
         CAPTURE(bad);
         auto r = reg.call("perf.baseline", Json::object({{"file", bad}, {"frames", 1}}));
         REQUIRE_FALSE(r.ok);

@@ -33,9 +33,9 @@ constexpr int kAutoN = 1, kAutoNE = 2, kAutoE = 4, kAutoSE = 8, kAutoS = 16, kAu
 
 enum class AutotileMode { Basic16, Blob47 };
 
-const char* autotile_mode_name(AutotileMode mode);                  // "basic16" / "blob47"
+const char* autotile_mode_name(AutotileMode mode);  // "basic16" / "blob47"
 bool autotile_mode_from_name(const std::string& name, AutotileMode& out);
-int autotile_tile_count(AutotileMode mode);                         // 16 / 47
+int autotile_tile_count(AutotileMode mode);  // 16 / 47
 // The raw masks (N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128) that stand for each slot, ascending: for blob47 the 47 masks
 // that survive autotile_reduce(), for basic16 the 16 combinations of N, E, S and W.
 const std::vector<int>& autotile_masks(AutotileMode mode);
@@ -53,9 +53,9 @@ struct Terrain {
     std::string name;
     AutotileMode mode = AutotileMode::Blob47;
     std::int64_t seed = 0;
-    bool outsideIsTerrain = false;               // cells beyond the map edge count as this terrain
-    std::vector<std::string> joins;              // other terrains this one connects to (their cells count as neighbours)
-    std::vector<std::vector<int>> slots;         // per slot: the tile values to pick from (at least one), flags included
+    bool outsideIsTerrain = false;        // cells beyond the map edge count as this terrain
+    std::vector<std::string> joins;       // other terrains this one connects to (their cells count as neighbours)
+    std::vector<std::vector<int>> slots;  // per slot: the tile values to pick from (at least one), flags included
 };
 
 // Parses and checks Tilemap.terrains; every problem carries its JSON pointer (relative to the component, "/terrains/0/tiles")
@@ -72,16 +72,16 @@ struct TerrainChange {
     int to = -1;
 };
 struct TerrainPaintResult {
-    std::vector<TerrainChange> changes;          // every cell whose tile changed (painted cells and re-tiled neighbours)
-    int painted = 0;                             // cells inside the map that were set to the terrain (or erased)
-    int outside = 0;                             // cells that were outside the map and skipped
+    std::vector<TerrainChange> changes;  // every cell whose tile changed (painted cells and re-tiled neighbours)
+    int painted = 0;                     // cells inside the map that were set to the terrain (or erased)
+    int outside = 0;                     // cells that were outside the map and skipped
 };
 
 // Sets the cells to `terrainName` (or empties them when `erase` is true) and re-tiles them and the 8 cells around each
 // one that belong to a terrain. Writes through set_tilemap_tile(), so 2D physics, navigation and the renderer see it.
 // Errors: unknown terrain (did-you-mean), invalid rules, no map.
-Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrainName, const std::vector<std::pair<int, int>>& cells,
-                                         bool erase = false);
+Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrainName,
+                                         const std::vector<std::pair<int, int>>& cells, bool erase = false);
 // Re-tiles every cell that belongs to a terrain from its neighbours (after rules or tiles were set by hand).
 Result<TerrainPaintResult> retile_terrains(Tilemap& tm);
 

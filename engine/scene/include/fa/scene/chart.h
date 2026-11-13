@@ -19,11 +19,11 @@ std::vector<std::vector<double>> chart_series(const Chart& c);
 Color chart_series_color(const Chart& c, int i);
 
 struct ChartLayout {
-    Rect plot;               // where the samples are drawn
-    double lo = 0, hi = 1;   // the value axis (hi > lo)
-    int slots = 0;           // samples the plot has room for
-    int first = 0;           // slot of the first value: slots - longest series (the values are right-aligned)
-    int count = 0;           // length of the longest series
+    Rect plot;              // where the samples are drawn
+    double lo = 0, hi = 1;  // the value axis (hi > lo)
+    int slots = 0;          // samples the plot has room for
+    int first = 0;          // slot of the first value: slots - longest series (the values are right-aligned)
+    int count = 0;          // length of the longest series
     int series = 0;
     bool line = false;
     float barGap = 0.2f;
@@ -44,13 +44,14 @@ ChartLayout chart_layout(const Chart& c, const std::vector<std::vector<double>>&
 
 struct ChartSample {
     int series = 0;
-    int index = 0;    // position in the series (0 = its oldest value)
+    int index = 0;  // position in the series (0 = its oldest value)
     double value = 0;
 };
 // The sample under the point `p` (UI units, same space as `r`): nullopt outside the box or when there are no values. A bar chart
 // answers with the column p is in (series: the bar of that column p is over, or the nearest); a line chart with the point closest
 // to p horizontally (series: the closest vertically). A slot with no value (the empty room of right-aligned values) has no sample.
-std::optional<ChartSample> chart_sample_at(const Chart& c, const std::vector<std::vector<double>>& series, const Rect& r, Vec2 p);
+std::optional<ChartSample> chart_sample_at(const Chart& c, const std::vector<std::vector<double>>& series,
+                                           const Rect& r, Vec2 p);
 
 // The text of an axis label in `language` (a BCP 47 tag, "" = English): the number with Chart.decimals digits.
 std::string chart_label(const Chart& c, double value, const std::string& language);

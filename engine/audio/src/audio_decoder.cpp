@@ -20,7 +20,7 @@ namespace fa::audio_detail {
 
 namespace {
 
-constexpr std::size_t kSrcFrames = 2048;     // decoded source frames a Resampler holds
+constexpr std::size_t kSrcFrames = 2048;  // decoded source frames a Resampler holds
 
 class WavDecoder final : public Decoder {
 public:
@@ -82,7 +82,8 @@ bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
     int index = 0;  // 0 = identification header, 1 = comment header
     bool done = false;
     while (!done) {
-        if (pos + 27 > n || std::memcmp(d + pos, "OggS", 4) != 0) return index == 0;  // not Ogg at all: stb_vorbis says so; the file ends before the comments: damaged
+        if (pos + 27 > n || std::memcmp(d + pos, "OggS", 4) != 0)
+            return index == 0;  // not Ogg at all: stb_vorbis says so; the file ends before the comments: damaged
         const std::size_t segments = d[pos + 26];
         if (pos + 27 + segments > n) return false;
         std::size_t at = pos + 27 + segments;
@@ -105,10 +106,11 @@ bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
         pos = at;
     }
     auto u32 = [&](std::size_t from) {
-        return std::uint64_t(packet[from]) | std::uint64_t(packet[from + 1]) << 8 | std::uint64_t(packet[from + 2]) << 16 |
-               std::uint64_t(packet[from + 3]) << 24;
+        return std::uint64_t(packet[from]) | std::uint64_t(packet[from + 1]) << 8 |
+               std::uint64_t(packet[from + 2]) << 16 | std::uint64_t(packet[from + 3]) << 24;
     };
-    if (packet.size() < 7 || packet[0] != 3 || std::memcmp(packet.data() + 1, "vorbis", 6) != 0) return true;  // stb_vorbis refuses it
+    if (packet.size() < 7 || packet[0] != 3 || std::memcmp(packet.data() + 1, "vorbis", 6) != 0)
+        return true;  // stb_vorbis refuses it
     std::size_t p = 7;
     if (p + 4 > packet.size()) return false;
     const std::uint64_t vendor = u32(p);
@@ -144,9 +146,7 @@ public:
         return n > 0 ? std::size_t(n) : 0;
     }
     bool rewind() override { return fa_vorbis_rewind(v_) != 0; }
-    bool seek(std::uint64_t frame) override {
-        return frame <= 0x7fffffffu && fa_vorbis_seek(v_, unsigned(frame)) != 0;
-    }
+    bool seek(std::uint64_t frame) override { return frame <= 0x7fffffffu && fa_vorbis_seek(v_, unsigned(frame)) != 0; }
 
     // open() failed because the comment header is over 16 MB (big embedded cover art), not because the file is damaged
     bool comments_too_big() const { return commentsTooBig_; }
@@ -190,7 +190,8 @@ public:
 private:
     bool next_frame() {
         unsigned int frameLen = 0;
-        const unsigned int used = qoa_decode_frame(data_ + offset_, unsigned(size_ - offset_), &desc_, pcm_.data(), &frameLen);
+        const unsigned int used =
+            qoa_decode_frame(data_ + offset_, unsigned(size_ - offset_), &desc_, pcm_.data(), &frameLen);
         if (!used || !frameLen) return false;
         offset_ += used;
         len_ = frameLen;
@@ -215,23 +216,33 @@ std::unique_ptr<Decoder> opened(const std::uint8_t* data, std::size_t size, cons
 
 }  // namespace
 
-bool is_audio_extension(std::string_view ext) { return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa"; }
+bool is_audio_extension(std::string_view ext) {
+    return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa";
+}
 
-std::unique_ptr<Decoder> open_decoder(const std::uint8_t* data, std::size_t size, std::string_view ext, std::string* error) {
+std::unique_ptr<Decoder> open_decoder(const std::uint8_t* data, std::size_t size, std::string_view ext,
+                                      std::string* error) {
     std::unique_ptr<Decoder> d;
-    if (ext == ".wav") d = opened<WavDecoder>(data, size, "is not a valid WAV file (hint: use 8/16/24/32-bit PCM or float WAV)", error);
+    if (ext == ".wav")
+        d = opened<WavDecoder>(data, size, "is not a valid WAV file (hint: use 8/16/24/32-bit PCM or float WAV)",
+                               error);
     else if (ext == ".ogg") {
         auto ogg = std::make_unique<OggDecoder>();
-        if (ogg->open(data, size)) d = std::move(ogg);
+        if (ogg->open(data, size))
+            d = std::move(ogg);
         else if (ogg->comments_too_big())
-            *error = "has a comment header over 16 MB, more than the engine reads (a very large embedded cover picture); "
-                     "remove the metadata, e.g. `ffmpeg -i in.ogg -map_metadata -1 -c:a copy out.ogg`";
-        else *error = "is not a valid OGG Vorbis file";
-    }
-    else if (ext == ".mp3") d = opened<Mp3Decoder>(data, size, "is not a valid MP3 file", error);
-    else if (ext == ".qoa") d = opened<QoaDecoder>(data, size, "is not a valid QOA file", error);
+            *error =
+                "has a comment header over 16 MB, more than the engine reads (a very large embedded cover picture); "
+                "remove the metadata, e.g. `ffmpeg -i in.ogg -map_metadata -1 -c:a copy out.ogg`";
+        else
+            *error = "is not a valid OGG Vorbis file";
+    } else if (ext == ".mp3")
+        d = opened<Mp3Decoder>(data, size, "is not a valid MP3 file", error);
+    else if (ext == ".qoa")
+        d = opened<QoaDecoder>(data, size, "is not a valid QOA file", error);
     else {
-        *error = "has unsupported extension '" + std::string(ext) + "' (hint: supported formats: .wav, .ogg, .mp3, .qoa)";
+        *error =
+            "has unsupported extension '" + std::string(ext) + "' (hint: supported formats: .wav, .ogg, .mp3, .qoa)";
         return nullptr;
     }
     // A header can claim 65535 channels, and a reader allocates a block of frames for every channel: refuse what no game plays.

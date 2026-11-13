@@ -27,7 +27,21 @@ constexpr float kMaxUiScale = 3.0f;
 // The scale to use for arithmetic: 1 when `k` is not a usable number (NaN, <= 0), else `k` clamped to the range above.
 float ui_scale_clamped(float k);
 
-enum class UiKind : std::int32_t { None, Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions, Video, Chart, CameraView };
+enum class UiKind : std::int32_t {
+    None,
+    Panel,
+    Button,
+    Toggle,
+    Slider,
+    TextField,
+    ScrollList,
+    TouchStick,
+    TouchButton,
+    Captions,
+    Video,
+    Chart,
+    CameraView
+};
 const char* ui_kind_name(UiKind k);  // "Panel", "Button"... ("" for None)
 
 // The widget component of `e` (the first of Button, Toggle, Slider, TextField, ScrollList, Panel, TouchStick,
@@ -36,7 +50,9 @@ UiKind ui_kind(const World& w, Entity e);
 // Its shared geometry and background, nullptr if `e` is no widget.
 const UiBox* ui_box(const World& w, Entity e);
 // Button, Toggle, Slider and TextField can be focused, hovered and clicked; Panel and ScrollList cannot.
-inline bool ui_is_control(UiKind k) { return k == UiKind::Button || k == UiKind::Toggle || k == UiKind::Slider || k == UiKind::TextField; }
+inline bool ui_is_control(UiKind k) {
+    return k == UiKind::Button || k == UiKind::Toggle || k == UiKind::Slider || k == UiKind::TextField;
+}
 // The interactive part (font, colours, focused / hovered / pressed) of such a widget; nullptr for any other entity.
 const UiControl* ui_control(const World& w, Entity e);
 

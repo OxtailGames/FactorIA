@@ -60,10 +60,14 @@ ModelEvalOptions model_project_eval_options(const std::string& projectDir) {
         const StyleParse style = load_style_guide(projectDir);
         if (style.guide.texelsPerUnit) options.defaultTexelsPerMeter = float(*style.guide.texelsPerUnit);
         if (style.guide.palette)
-            for (const auto& c : *style.guide.palette) options.stylePalette.push_back(Vec4{c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, 1.0f});  // the "style" palette of `vertexColors`
+            for (const auto& c : *style.guide.palette)
+                options.stylePalette.push_back(
+                    Vec4{c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, 1.0f});  // the "style" palette of `vertexColors`
     }
     options.text = [](const ModelTextRequest& r) -> Result<ModelTextOutline> {
-        const TextAnchor anchor = r.anchor == "start" ? TextAnchor::Start : r.anchor == "end" ? TextAnchor::End : TextAnchor::Middle;
+        const TextAnchor anchor = r.anchor == "start" ? TextAnchor::Start
+                                  : r.anchor == "end" ? TextAnchor::End
+                                                      : TextAnchor::Middle;
         auto outline = outline_text(r.text, r.font, 1.0f, anchor, r.letterSpacing, r.lineSpacing);
         if (!outline.ok()) return outline.error();
         ModelTextOutline out;
@@ -123,7 +127,9 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
         for (const std::string& e : model_expected_extras(doc, status.output)) extras.insert(e);
         for (const std::string& e : model_texture_detail::layer_files(doc, status.output)) extras.insert(e);
         const Json recorded = manifest_entry(projectDir, status.output);
-        const Json list = recorded.is_object() && recorded.value("provenance", Json()).is_object() ? recorded["provenance"].value("extras", Json()) : Json();
+        const Json list = recorded.is_object() && recorded.value("provenance", Json()).is_object()
+                              ? recorded["provenance"].value("extras", Json())
+                              : Json();
         if (list.is_array())
             for (const Json& e : list)
                 if (e.is_string()) extras.insert(e.get<std::string>());
@@ -131,13 +137,15 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
             auto path = resolve_project_path(projectDir, e);
             if (!path.ok() || !stdfs::is_regular_file(*path, ec)) {
                 status.state = ModelBakeState::Missing;
-                status.reason = "'" + e + "' (made with '" + status.output + "' by the gameReady or texturing settings) has not been baked yet.";
+                status.reason = "'" + e + "' (made with '" + status.output +
+                                "' by the gameReady or texturing settings) has not been baked yet.";
                 return status;
             }
         }
     }
     const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, status.output));
-    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand || recipe["args"].value("path", std::string()) != rel) {
+    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand ||
+        recipe["args"].value("path", std::string()) != rel) {
         status.state = ModelBakeState::Unrecorded;
         status.reason = "'" + status.output + "' exists, but assets.json does not say it was baked from '" + rel + "'.";
         return status;
@@ -145,7 +153,8 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
     const assets_detail::RecipeCheck check = assets_detail::check_recipe(projectDir, recipe);
     if (!check.changed.empty() || !check.missing.empty()) {
         status.state = ModelBakeState::Stale;
-        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ") : "no longer readable: " + join(check.missing, ", ");
+        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ")
+                                               : "no longer readable: " + join(check.missing, ", ");
         return status;
     }
     if (doc.texturing) {
@@ -153,9 +162,14 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
         const std::string texDoc = model_texture_detail::document_path(doc, status.output);
         const ImageBakeStatus tex = image_bake_status(projectDir, texDoc);
         if (tex.state != ImageBakeState::Fresh) {
-            status.state = tex.state == ImageBakeState::Missing ? ModelBakeState::Missing : tex.state == ImageBakeState::Broken ? ModelBakeState::Broken : ModelBakeState::Stale;
-            status.reason = "the texture '" + texDoc + "' is " + image_bake_state_name(tex.state) + ": " + tex.reason + " model.bake draws it again.";
-            if (status.state == ModelBakeState::Broken) status.hint = "Fix the texture document (image.* commands report its problems), or delete it: the next model bake writes a new one.";
+            status.state = tex.state == ImageBakeState::Missing  ? ModelBakeState::Missing
+                           : tex.state == ImageBakeState::Broken ? ModelBakeState::Broken
+                                                                 : ModelBakeState::Stale;
+            status.reason = "the texture '" + texDoc + "' is " + image_bake_state_name(tex.state) + ": " + tex.reason +
+                            " model.bake draws it again.";
+            if (status.state == ModelBakeState::Broken)
+                status.hint = "Fix the texture document (image.* commands report its problems), or delete it: the next "
+                              "model bake writes a new one.";
             return status;
         }
     }
@@ -164,10 +178,12 @@ ModelBakeStatus model_bake_status(const std::string& projectDir, const std::stri
     return status;
 }
 
-Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const std::string& relIn, const ModelBakeOptions& options) {
+Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const std::string& relIn,
+                                            const ModelBakeOptions& options) {
     const std::string rel = normalized(relIn);
     if (!ends_with(rel, kModelDocSuffix))
-        return make_error("'" + rel + "' is not a model document (its name must end in " + kModelDocSuffix + ").", "Name it like \"assets/models/door.model.json\".");
+        return make_error("'" + rel + "' is not a model document (its name must end in " + kModelDocSuffix + ").",
+                          "Name it like \"assets/models/door.model.json\".");
     ModelDoc doc;
     ModelBakeStatus status;
     if (!load_for_bake(projectDir, rel, doc, status)) return make_error(status.reason, status.hint);
@@ -176,7 +192,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     result.output = status.output;
     if (options.onlyIfNeeded && model_bake_status(projectDir, rel).state == ModelBakeState::Fresh) return result;
     if (!starts_with(result.output, "assets/"))
-        return make_error(rel + ": the model would be written to '" + result.output + "', outside assets/.", "Put it under assets/, e.g. \"output\": {\"path\": \"assets/models/door.glb\"}.");
+        return make_error(rel + ": the model would be written to '" + result.output + "', outside assets/.",
+                          "Put it under assets/, e.g. \"output\": {\"path\": \"assets/models/door.glb\"}.");
 
     auto outPath = assets_detail::project_write_path(projectDir, result.output);
     if (!outPath.ok()) return make_error(outPath.error().message, outPath.error().hint);
@@ -185,7 +202,9 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         if (stdfs::exists(*outPath, ec)) {
             const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, result.output));
             if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand)
-                return make_error("'" + result.output + "' already exists and was not baked by a model document.", "Pass overwrite: true to replace it, or set another \"output\": {\"path\"} in the document.");
+                return make_error(
+                    "'" + result.output + "' already exists and was not baked by a model document.",
+                    "Pass overwrite: true to replace it, or set another \"output\": {\"path\"} in the document.");
         }
     }
 
@@ -200,7 +219,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             const Json before = manifest_entry(projectDir, result.output);
             const Json beforeProv = before.is_object() ? before.value("provenance", Json()) : Json();
             std::string layout;
-            if (beforeProv.is_object() && beforeProv.value("texture", Json()).is_object()) layout = beforeProv["texture"].value("layout", std::string());
+            if (beforeProv.is_object() && beforeProv.value("texture", Json()).is_object())
+                layout = beforeProv["texture"].value("layout", std::string());
             auto tb = model_texture_detail::bake_model_texture(projectDir, doc, *build, result.output, layout);
             if (!tb.ok()) return make_error(rel + ": " + tb.error().message, tb.error().hint);
             texture = std::move(*tb);
@@ -214,7 +234,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
     if (!ready.ok()) return make_error(rel + ": " + ready.error().message, ready.error().hint);
     result.gameReady = ready->report;
     auto bytes = mesh_to_glb(ready->mesh, result.output);
-    if (!bytes.ok()) return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
+    if (!bytes.ok())
+        return make_error(rel + ": cannot write '" + result.output + "': " + bytes.error().message, bytes.error().hint);
     result.sha256 = sha256_hex(bytes->data(), bytes->size());
     result.bytes = bytes->size();
 
@@ -234,7 +255,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         const Json prov = entry.is_object() ? entry.value("provenance", Json()) : Json();
         if (!prov.is_object()) continue;
         ai = ai || prov.value("ai", false);
-        if (prov.contains("license") && prov["license"].is_string()) licenses.insert(prov["license"].get<std::string>());
+        if (prov.contains("license") && prov["license"].is_string())
+            licenses.insert(prov["license"].get<std::string>());
         if (prov.contains("author") && prov["author"].is_string()) authors.insert(prov["author"].get<std::string>());
     }
 
@@ -246,13 +268,16 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         bool same = false;
         const std::string_view view(reinterpret_cast<const char*>(bytes->data()), bytes->size());
         if (auto old = tooling_detail::read_file(*outPath)) same = *old == view;
-        if (!same && !tooling_detail::write_file(*outPath, view, &err)) return make_error("Cannot write '" + result.output + "': " + err, "Check that the folder is writable.");
+        if (!same && !tooling_detail::write_file(*outPath, view, &err))
+            return make_error("Cannot write '" + result.output + "': " + err, "Check that the folder is writable.");
         result.written = true;
 
         // the extra files: written only when their bytes changed, recorded like the main one, and the ones the last bake made that this one
         // does not (fewer LODs, another collider) are removed
         std::vector<std::pair<std::string, std::string>> extraFiles;  // path, text
-        for (auto& g : ready->glbs) extraFiles.emplace_back(g.first, std::string(reinterpret_cast<const char*>(g.second.data()), g.second.size()));
+        for (auto& g : ready->glbs)
+            extraFiles.emplace_back(g.first,
+                                    std::string(reinterpret_cast<const char*>(g.second.data()), g.second.size()));
         if (!ready->prefabPath.empty()) extraFiles.emplace_back(ready->prefabPath, ready->prefabText);
         std::set<std::string> now;
         for (const auto& f : extraFiles) now.insert(f.first);
@@ -267,7 +292,8 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             if (!path.ok()) return make_error(path.error().message, path.error().hint);
             bool unchanged = false;
             if (auto old = tooling_detail::read_file(*path)) unchanged = *old == f.second;
-            if (!unchanged && !tooling_detail::write_file(*path, f.second, &err)) return make_error("Cannot write '" + f.first + "': " + err, "Check that the folder is writable.");
+            if (!unchanged && !tooling_detail::write_file(*path, f.second, &err))
+                return make_error("Cannot write '" + f.first + "': " + err, "Check that the folder is writable.");
             result.extras.push_back(f.first);
         }
         if (texture)
@@ -283,15 +309,23 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             (void)cleared;
         }
 
-        const bool madeHere = previousProv.is_object() && previousProv.value("provider", std::string()) == "factoria model.bake";
-        std::string license = licenses.empty() ? "CC0-1.0" : join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
-        if (madeHere && previousProv.contains("license") && previousProv["license"].is_string()) license = previousProv["license"].get<std::string>();
-        std::string author = authors.empty() ? "factoria" : join(std::vector<std::string>(authors.begin(), authors.end()), "; ");
-        if (madeHere && previousProv.contains("author") && previousProv["author"].is_string()) author = previousProv["author"].get<std::string>();
+        const bool madeHere =
+            previousProv.is_object() && previousProv.value("provider", std::string()) == "factoria model.bake";
+        std::string license =
+            licenses.empty() ? "CC0-1.0" : join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
+        if (madeHere && previousProv.contains("license") && previousProv["license"].is_string())
+            license = previousProv["license"].get<std::string>();
+        std::string author =
+            authors.empty() ? "factoria" : join(std::vector<std::string>(authors.begin(), authors.end()), "; ");
+        if (madeHere && previousProv.contains("author") && previousProv["author"].is_string())
+            author = previousProv["author"].get<std::string>();
         std::vector<std::string> partNames;
         for (const ModelPartInfo& p : build->parts)
-            if (!p.part.empty() && std::find(partNames.begin(), partNames.end(), p.part) == partNames.end()) partNames.push_back(p.part);
-        std::string notes = std::format("Built from the model document '{}': {} triangles, {} submesh{}", rel, build->stats.triangles, build->parts.size(), build->parts.size() == 1 ? "" : "es");
+            if (!p.part.empty() && std::find(partNames.begin(), partNames.end(), p.part) == partNames.end())
+                partNames.push_back(p.part);
+        std::string notes =
+            std::format("Built from the model document '{}': {} triangles, {} submesh{}", rel, build->stats.triangles,
+                        build->parts.size(), build->parts.size() == 1 ? "" : "es");
         if (!partNames.empty()) notes += "; parts: " + join(partNames, ", ");
         notes += ".";
         Json prov = Json::object({{"origin", ai ? "generated" : "original"},
@@ -307,10 +341,18 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
         // a `uv` section that leaves the texel density to the style guide depends on it: the bake is stale when the style changes it
         if (doc.uv && !doc.uv->texelsPerUnit)
             assets_detail::add_style_texels_context(prov["recipe"], assets_detail::style_texels_per_unit(projectDir));
-        if (doc.vertexColors && doc.vertexColors->style) assets_detail::add_style_palette_context(prov["recipe"], assets_detail::style_palette_colors(projectDir));
+        if (doc.vertexColors && doc.vertexColors->style)
+            assets_detail::add_style_palette_context(prov["recipe"], assets_detail::style_palette_colors(projectDir));
         if (texture) {
-            prov["texture"] = Json::object({{"document", texture->document}, {"image", texture->png}, {"size", texture->size}, {"layout", texture->layout}});
-            result.texture = Json::object({{"document", texture->document}, {"image", texture->png}, {"layers", texture->files}, {"created", texture->documentCreated}, {"report", model_texture_detail::report_json(texture->report)}});
+            prov["texture"] = Json::object({{"document", texture->document},
+                                            {"image", texture->png},
+                                            {"size", texture->size},
+                                            {"layout", texture->layout}});
+            result.texture = Json::object({{"document", texture->document},
+                                           {"image", texture->png},
+                                           {"layers", texture->files},
+                                           {"created", texture->documentCreated},
+                                           {"report", model_texture_detail::report_json(texture->report)}});
         }
         if (!result.extras.empty()) {
             Json list = Json::array();
@@ -322,19 +364,31 @@ Result<ModelBakeResult> bake_model_document(const std::string& projectDir, const
             Json extraProv = prov;
             extraProv.erase("extras");
             const bool picture = ends_with(e, ".png");
-            extraProv["notes"] = picture ? "A layer or map of the texture of '" + result.output + "', made from the model document '" + rel + "' (texturing settings). The texture's image document composes the layers."
-                                         : "Made with '" + result.output + "' from the model document '" + rel + "' (gameReady settings).";
+            extraProv["notes"] =
+                picture
+                    ? "A layer or map of the texture of '" + result.output + "', made from the model document '" + rel +
+                          "' (texturing settings). The texture's image document composes the layers."
+                    : "Made with '" + result.output + "' from the model document '" + rel + "' (gameReady settings).";
             extraProv.erase("texture");
-            if (picture) extraProv["kind"] = "image";
-            else if (!ends_with(e, ".glb")) extraProv["kind"] = "prefab";
-            auto done = assets::update_entry(e, [&](Json& en) { en.erase("analysis"); en["provenance"] = extraProv; });
-            if (!done.ok()) return make_error("'" + e + "' was written, but assets.json was not updated: " + done.error().message, done.error().hint);
+            if (picture)
+                extraProv["kind"] = "image";
+            else if (!ends_with(e, ".glb"))
+                extraProv["kind"] = "prefab";
+            auto done = assets::update_entry(e, [&](Json& en) {
+                en.erase("analysis");
+                en["provenance"] = extraProv;
+            });
+            if (!done.ok())
+                return make_error("'" + e + "' was written, but assets.json was not updated: " + done.error().message,
+                                  done.error().hint);
         }
         auto updated = assets::update_entry(result.output, [&](Json& e) {
             e.erase("analysis");
             e["provenance"] = prov;
         });
-        if (!updated.ok()) return make_error("The model was written, but assets.json was not updated: " + updated.error().message, updated.error().hint);
+        if (!updated.ok())
+            return make_error("The model was written, but assets.json was not updated: " + updated.error().message,
+                              updated.error().hint);
     } catch (const CommandError& e) {
         return make_error(e.what(), e.hint);
     }
@@ -346,12 +400,14 @@ std::vector<std::string> list_model_documents(const std::string& projectDir) {
     std::vector<std::string> out;
     const stdfs::path root(projectDir);
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         const std::string rel = it->path().lexically_relative(root).generic_string();
         std::error_code e2;
         if (it->is_directory(e2)) {
-            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build") it.disable_recursion_pending();
+            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build")
+                it.disable_recursion_pending();
             continue;
         }
         if (ends_with(name, kModelDocSuffix)) out.push_back(rel);

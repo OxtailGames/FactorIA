@@ -112,8 +112,8 @@ struct Project {
 struct FakeShdc {
     int calls = 0;
     std::vector<std::vector<std::string>> argvs;
-    std::string reflection;   // the YAML to write
-    std::string stderrText;   // when set, the run fails with exit code 10 and this stderr
+    std::string reflection;  // the YAML to write
+    std::string stderrText;  // when set, the run fails with exit code 10 and this stderr
     ProcessRunner runner() {
         return [this](const ProcessOptions& o) -> Result<ProcessResult> {
             ++calls;
@@ -129,7 +129,8 @@ struct FakeShdc {
             }
             testing::write_all(work / "out/m_fa_mat_reflection.yaml", reflection);
             static const std::regex path(R"(\n\s*path: (\S+))");
-            for (auto it = std::sregex_iterator(reflection.begin(), reflection.end(), path); it != std::sregex_iterator(); ++it)
+            for (auto it = std::sregex_iterator(reflection.begin(), reflection.end(), path);
+                 it != std::sregex_iterator(); ++it)
                 testing::write_all(work / (*it)[1].str(), "// generated source " + (*it)[1].str() + "\n");
             r.exitCode = 0;
             return r;
@@ -137,7 +138,9 @@ struct FakeShdc {
     }
     SetupContext context(const std::string& home) {
         SetupContext c;
-        c.env = [](const std::string& n) { return n == "SOKOL_SHDC" ? std::string("/fake/sokol-shdc") : std::string(); };
+        c.env = [](const std::string& n) {
+            return n == "SOKOL_SHDC" ? std::string("/fake/sokol-shdc") : std::string();
+        };
         c.home = home;
         c.host = "linux";
         c.run = runner();
@@ -158,11 +161,14 @@ const ShaderIssue* find_issue(const std::vector<ShaderIssue>& v, const std::stri
     return nullptr;
 }
 
-MaterialParse parse(const char* json, const std::string& dir = {}) { return parse_material(Json::parse(json), dir, "materials/x.material.json"); }
+MaterialParse parse(const char* json, const std::string& dir = {}) {
+    return parse_material(Json::parse(json), dir, "materials/x.material.json");
+}
 
 bool has_error(const MaterialParse& p, const std::string& pointer, const std::string& text = {}) {
     return std::any_of(p.errors.begin(), p.errors.end(), [&](const MaterialIssue& e) {
-        return e.pointer == pointer && (e.message.find(text) != std::string::npos || e.hint.find(text) != std::string::npos);
+        return e.pointer == pointer &&
+               (e.message.find(text) != std::string::npos || e.hint.find(text) != std::string::npos);
     });
 }
 
@@ -267,25 +273,35 @@ TEST_CASE("material: names are GLSL identifiers that are not fa_ names or keywor
     CHECK(has_error(tooMany, "/textures", "GLES3 and WebGL2"));
 
     // texture sampler and doc
-    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"a":{"sampler":"linearRepeet"},"b":{"doc":"d","default":"textures/none.png"}}})");
+    bad = parse(
+        R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"a":{"sampler":"linearRepeet"},"b":{"doc":"d","default":"textures/none.png"}}})");
     CHECK(has_error(bad, "/textures/a/sampler", "linearRepeat"));
     CHECK(has_error(bad, "/textures/a/doc"));
 }
 
 TEST_CASE("material: the shader path is relative to the project root and must exist") {
     Project p;
-    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"/etc/x.glsl"})", p.str()), "/shader", "relative to the project root"));
-    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"../x.glsl"})", p.str()), "/shader", "relative to the project root"));
-    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"shaders\\x.glsl"})", p.str()), "/shader", "forward slashes"));
-    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"shaders/gem.surface.gls"})", p.str()), "/shader", "Did you mean 'shaders/gem.surface.glsl'?"));
-    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"shaders/gem.surface.glsl","textures":{"t":{"doc":"d","default":"textures/wave.png"}}})", p.str()),
-                    "/textures/t/default", "Did you mean 'textures/waves.png'?"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"/etc/x.glsl"})", p.str()), "/shader",
+                    "relative to the project root"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"../x.glsl"})", p.str()), "/shader",
+                    "relative to the project root"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"shaders\\x.glsl"})", p.str()), "/shader",
+                    "forward slashes"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"shaders/gem.surface.gls"})", p.str()), "/shader",
+                    "Did you mean 'shaders/gem.surface.glsl'?"));
+    CHECK(has_error(
+        parse(
+            R"({"format":"factoria.material/1","shader":"shaders/gem.surface.glsl","textures":{"t":{"doc":"d","default":"textures/wave.png"}}})",
+            p.str()),
+        "/textures/t/default", "Did you mean 'textures/waves.png'?"));
     // a file that is not JSON: one error with line and column
     p.write("materials/broken.material.json", "{\n  \"format\": ,\n}");
     const MaterialParse broken = read_material(p.str(), "materials/broken.material.json");
     REQUIRE_FALSE(broken.ok());
     CHECK(broken.errors[0].message.find("broken.material.json") != std::string::npos);
-    CHECK(find_material_files(p.str()) == std::vector<std::string>{"materials/bad.material.json", "materials/broken.material.json", "materials/gem.material.json", "materials/wave.material.json"});
+    CHECK(find_material_files(p.str()) ==
+          std::vector<std::string>{"materials/bad.material.json", "materials/broken.material.json",
+                                   "materials/gem.material.json", "materials/wave.material.json"});
 }
 
 TEST_CASE("shader dialects: one set per platform, as the design's table says") {
@@ -305,7 +321,8 @@ TEST_CASE("shader dialects: one set per platform, as the design's table says") {
 // The generator
 // ---------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("generator: the top file has the material block, textures, guarded entry points and the programs of the design") {
+TEST_CASE(
+    "generator: the top file has the material block, textures, guarded entry points and the programs of the design") {
     Project p;
     const MaterialDef gem = read_material(p.str(), "materials/gem.material.json").material;
     const GeneratedShader g = generate_material_shader(gem, kGemSnippet);
@@ -327,7 +344,8 @@ TEST_CASE("generator: the top file has the material block, textures, guarded ent
     CHECK(g.top.find("@program mesh vs fs") != std::string::npos);
     CHECK(g.top.find("@program mesh_skin vs_skin fs") != std::string::npos);
     CHECK(g.top.find("@program shadow ") == std::string::npos);
-    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvoid surface(") != std::string::npos);  // surface() only in the fragment stage
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvoid surface(") !=
+          std::string::npos);  // surface() only in the fragment stage
     // The table says where the snippet is: line 6 of the snippet is `void surface(`.
     const int top = top_line_of(g, 6);
     REQUIRE(top > 0);
@@ -356,16 +374,20 @@ TEST_CASE("generator: vertex() and alphaMode clip add the shadow programs; comme
     // Only comments mention vertex(): not a vertex material, and a commented surface() is no surface().
     MaterialDef plain = wave;
     plain.alphaMode = "opaque";
-    const GeneratedShader c = generate_material_shader(plain, "// void vertex(inout VertexData v) {}\n/* void surface(in SurfaceInput i, inout Surface s) {} */\nvoid helper() {}\n");
+    const GeneratedShader c =
+        generate_material_shader(plain, "// void vertex(inout VertexData v) {}\n/* void surface(in SurfaceInput i, "
+                                        "inout Surface s) {} */\nvoid helper() {}\n");
     CHECK_FALSE(c.hasVertex);
     CHECK_FALSE(c.hasSurface);
     CHECK(c.programs == std::vector<std::string>{"mesh", "mesh_skin"});
     // clip alone is enough for the shadow programs
-    const GeneratedShader clipOnly = generate_material_shader(wave, "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    const GeneratedShader clipOnly =
+        generate_material_shader(wave, "void surface(in SurfaceInput i, inout Surface s) {}\n");
     CHECK(clipOnly.programs.size() == 4);
     CHECK(clipOnly.defines == std::vector<std::string>{"FA_ALPHA_CLIP"});
     // CRLF snippets keep their line numbers
-    const GeneratedShader crlf = generate_material_shader(wave, "float a;\r\nvoid surface(in SurfaceInput i, inout Surface s) {}\r\n");
+    const GeneratedShader crlf =
+        generate_material_shader(wave, "float a;\r\nvoid surface(in SurfaceInput i, inout Surface s) {}\r\n");
     CHECK(top_line_of(crlf, 2) > 0);
 }
 
@@ -439,7 +461,8 @@ TEST_CASE("yaml: scalars, inline sequence items and the errors of what is not so
 // Compiling with an injected sokol-shdc
 // ---------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("compile: the twins carry the engine, template, dialect, params and one entry per program; the second run starts no process") {
+TEST_CASE("compile: the twins carry the engine, template, dialect, params and one entry per program; the second run "
+          "starts no process") {
     Project p;
     FakeShdc shdc;
     shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
@@ -526,17 +549,21 @@ TEST_CASE("compile: vertex() and clip make the shadow programs and define FA_HAS
     CHECK(r->twins.at("glsl300es")["params"] == Json::parse(R"(["alphaCutoff","amp"])"));
 }
 
-TEST_CASE("compile: an error in a helper both stages compile is reported once, at the line of the snippet, with the line quoted") {
+TEST_CASE("compile: an error in a helper both stages compile is reported once, at the line of the snippet, with the "
+          "line quoted") {
     Project p;
     FakeShdc shdc;
     ShaderCompileOptions options;
     options.setup = shdc.context(p.str());
     options.dialects = {"hlsl5"};
-    const GeneratedShader g = generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet);
     const int top = top_line_of(g, 7);
     REQUIRE(top > 0);
     const std::string err = "top.glsl:" + std::to_string(top) + ":0: error: 'tnt' : undeclared identifier\n";
-    const std::string followOn = "top.glsl:" + std::to_string(top) + ":0: error: '*' :  wrong operand types: no operation '*' exists that takes a left-hand operand of type ' temp float' and a right operand of type ' temp float'\n";
+    const std::string followOn = "top.glsl:" + std::to_string(top) +
+                                 ":0: error: '*' :  wrong operand types: no operation '*' exists that takes a "
+                                 "left-hand operand of type ' temp float' and a right operand of type ' temp float'\n";
     shdc.stderrText = err + followOn + err + followOn;  // the vertex stage and the fragment stage both fail
     auto r = compile_material(p.str(), "materials/bad.material.json", options);
     REQUIRE(r.ok());
@@ -566,7 +593,8 @@ TEST_CASE("compile: hints for the frequent mistakes") {
     auto compile_with = [&](const std::string& snippetLine, const std::string& glslangMessage) {
         const std::string snippet = "void surface(in SurfaceInput i, inout Surface s) {\n" + snippetLine + "\n}\n";
         p.write("shaders/gem.surface.glsl", snippet);
-        const GeneratedShader g = generate_material_shader(read_material(p.str(), "materials/gem.material.json").material, snippet);
+        const GeneratedShader g =
+            generate_material_shader(read_material(p.str(), "materials/gem.material.json").material, snippet);
         shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: " + glslangMessage + "\n";
         auto r = compile_material(p.str(), "materials/gem.material.json", options);
         REQUIRE(r.ok());
@@ -609,7 +637,8 @@ TEST_CASE("compile: hints for the frequent mistakes") {
     CHECK(e.hint.find("materials/other.material.json") != std::string::npos);
 }
 
-TEST_CASE("compile: errors outside the snippet say so and name the rule; a missing surface() and fa_ declarations are found without a compiler") {
+TEST_CASE("compile: errors outside the snippet say so and name the rule; a missing surface() and fa_ declarations are "
+          "found without a compiler") {
     Project p;
     FakeShdc shdc;
     ShaderCompileOptions options;
@@ -636,7 +665,8 @@ TEST_CASE("compile: errors outside the snippet say so and name the rule; a missi
     CHECK(r->errors[0].hint.find("owns main()") != std::string::npos);
 
     // no surface(): found before any process starts
-    p.write("shaders/gem.surface.glsl", "// void surface(in SurfaceInput i, inout Surface s) {}\nfloat helper() { return 1.0; }\n");
+    p.write("shaders/gem.surface.glsl",
+            "// void surface(in SurfaceInput i, inout Surface s) {}\nfloat helper() { return 1.0; }\n");
     const int calls = shdc.calls;
     r = compile_material(p.str(), "materials/gem.material.json", options);
     REQUIRE(r.ok());
@@ -646,7 +676,9 @@ TEST_CASE("compile: errors outside the snippet say so and name the rule; a missi
     CHECK(shdc.calls == calls);
 
     // a snippet declaring an fa_ name: the prefix rule, at its line
-    p.write("shaders/gem.surface.glsl", "float fa_foo = 1.0;\nfloat fa_bar(float x) { return x; }\nvoid surface(in SurfaceInput i, inout Surface s) {\n    s.roughness = fa_time.x;\n    return fa_foo;\n}\n");
+    p.write("shaders/gem.surface.glsl",
+            "float fa_foo = 1.0;\nfloat fa_bar(float x) { return x; }\nvoid surface(in SurfaceInput i, inout Surface "
+            "s) {\n    s.roughness = fa_time.x;\n    return fa_foo;\n}\n");
     r = compile_material(p.str(), "materials/gem.material.json", options);
     REQUIRE(r.ok());
     REQUIRE(r->errors.size() == 2);  // fa_foo and fa_bar; `fa_time.x` is a use and `return fa_foo` too
@@ -675,7 +707,8 @@ TEST_CASE("compile: a material file with errors is reported with its JSON pointe
     CHECK(shdc.calls == 0);
 }
 
-TEST_CASE("compile: without sokol-shdc the error names `factoria setup shaders` and SOKOL_SHDC, unless the cache has the twin") {
+TEST_CASE("compile: without sokol-shdc the error names `factoria setup shaders` and SOKOL_SHDC, unless the cache has "
+          "the twin") {
     Project p;
     FakeShdc shdc;
     shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
@@ -739,13 +772,15 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     CHECK(info.result["compile"]["state"] == "not_compiled");
     CHECK(info.result["compile"]["dialect"] == "glsl430");
     CHECK(info.result["compile"]["toolFound"] == true);
-    auto wave = registry.call("material.info", Json::parse(R"({"material":"materials/wave"})"));  // the suffix may be left out
+    auto wave =
+        registry.call("material.info", Json::parse(R"({"material":"materials/wave"})"));  // the suffix may be left out
     REQUIRE(wave.ok);
     CHECK(wave.result["programs"].size() == 4);
     CHECK(wave.result["params"][0]["implicit"] == true);
 
     // compile for two platforms; the dialects come back in the table's order
-    auto c = registry.call("shader.compile", Json::parse(R"({"material":"materials/gem.material.json","platforms":["linux","windows"]})"));
+    auto c = registry.call(
+        "shader.compile", Json::parse(R"({"material":"materials/gem.material.json","platforms":["linux","windows"]})"));
     REQUIRE(c.ok);
     CHECK(c.result["ok"] == true);
     CHECK(c.result["dialects"] == Json::parse(R"(["hlsl5","glsl430"])"));
@@ -753,7 +788,8 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     CHECK(shdc.calls == 1);
     info = registry.call("material.info", Json::parse(R"({"material":"materials/gem.material.json"})"));
     CHECK(info.result["compile"]["state"] == "compiled");  // linux host: glsl430 is in the cache now
-    c = registry.call("shader.compile", Json::parse(R"({"material":"materials/gem.material.json","platforms":["windows"]})"));
+    c = registry.call("shader.compile",
+                      Json::parse(R"({"material":"materials/gem.material.json","platforms":["windows"]})"));
     REQUIRE(c.ok);
     CHECK(c.result["cached"] == 1);
     CHECK(shdc.calls == 1);
@@ -762,15 +798,20 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     c = registry.call("shader.compile", Json::parse(R"({"material":"materials/gam.material.json"})"));
     CHECK_FALSE(c.ok);
     CHECK(c.error["hint"].get<std::string>().find("Did you mean 'materials/gem.material.json'?") != std::string::npos);
-    c = registry.call("shader.compile", Json::parse(R"({"material":"materials/gem.material.json","platforms":["windos"]})"));
+    c = registry.call("shader.compile",
+                      Json::parse(R"({"material":"materials/gem.material.json","platforms":["windos"]})"));
     CHECK_FALSE(c.ok);  // the schema's enum refuses it
     c = registry.call("shader.compile", Json::parse(R"({"material":"../outside.material.json"})"));
     CHECK_FALSE(c.ok);
 
     // a broken snippet comes back as data, with the report
-    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet), 7)) +
-                      ":0: error: 'tnt' : undeclared identifier\n";
-    c = registry.call("shader.compile", Json::parse(R"({"material":"materials/bad.material.json","platforms":["windows"]})"));
+    shdc.stderrText =
+        "top.glsl:" +
+        std::to_string(top_line_of(
+            generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet), 7)) +
+        ":0: error: 'tnt' : undeclared identifier\n";
+    c = registry.call("shader.compile",
+                      Json::parse(R"({"material":"materials/bad.material.json","platforms":["windows"]})"));
     REQUIRE(c.ok);
     CHECK(c.result["ok"] == false);
     CHECK(c.result["errors"][0]["file"] == "shaders/bad.surface.glsl");
@@ -791,7 +832,8 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     CHECK(c.error["hint"].get<std::string>().find("SOKOL_SHDC") != std::string::npos);
 }
 
-TEST_CASE("validate: every material is checked and compiled; without sokol-shdc a warning says the snippets were not compiled") {
+TEST_CASE("validate: every material is checked and compiled; without sokol-shdc a warning says the snippets were not "
+          "compiled") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const std::string dir = tmp.sub("game");
@@ -810,7 +852,9 @@ TEST_CASE("validate: every material is checked and compiled; without sokol-shdc 
     ValidationReport report = validate_project(dir, none);
     CHECK(report.ok);
     CHECK(report.materialsChecked == 1);
-    const auto warning = std::find_if(report.warnings.begin(), report.warnings.end(), [](const ValidationIssue& w) { return w.message.find("not compiled") != std::string::npos; });
+    const auto warning = std::find_if(report.warnings.begin(), report.warnings.end(), [](const ValidationIssue& w) {
+        return w.message.find("not compiled") != std::string::npos;
+    });
     REQUIRE(warning != report.warnings.end());
     CHECK(warning->hint.find("factoria setup shaders") != std::string::npos);
     CHECK(warning->hint.find("SOKOL_SHDC") != std::string::npos);
@@ -818,16 +862,21 @@ TEST_CASE("validate: every material is checked and compiled; without sokol-shdc 
     none.shaderContext.host = "windows";
     const auto winWarning = [&] {
         ValidationReport r = validate_project(dir, none);
-        return std::find_if(r.warnings.begin(), r.warnings.end(), [](const ValidationIssue& w) { return w.message.find("not compiled") != std::string::npos; })->hint;
+        return std::find_if(
+                   r.warnings.begin(), r.warnings.end(),
+                   [](const ValidationIssue& w) { return w.message.find("not compiled") != std::string::npos; })
+            ->hint;
     }();
     CHECK(winWarning.find("Windows Defender may have quarantined sokol-shdc.exe") != std::string::npos);
     none.shaderContext.host = "linux";
 
     // a material file with a mistake is an error even without a compiler
-    testing::write_all(stdfs::path(dir) / "materials/bad.material.json", R"({"format":"factoria.material/1","shader":"shaders/gem.surface.glsl","lighting":"pbs"})");
+    testing::write_all(stdfs::path(dir) / "materials/bad.material.json",
+                       R"({"format":"factoria.material/1","shader":"shaders/gem.surface.glsl","lighting":"pbs"})");
     report = validate_project(dir, none);
     CHECK_FALSE(report.ok);
-    const auto err = std::find_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& e) { return e.file == "materials/bad.material.json"; });
+    const auto err = std::find_if(report.errors.begin(), report.errors.end(),
+                                  [](const ValidationIssue& e) { return e.file == "materials/bad.material.json"; });
     REQUIRE(err != report.errors.end());
     CHECK(err->pointer == "/lighting");
     stdfs::remove(stdfs::path(dir) / "materials/bad.material.json");
@@ -839,12 +888,15 @@ TEST_CASE("validate: every material is checked and compiled; without sokol-shdc 
     testing::write_all(stdfs::path(dir) / "shaders/bad.surface.glsl", kBadSnippet);
     stdfs::remove(stdfs::path(dir) / "materials/gem.material.json");
     stdfs::remove(stdfs::path(dir) / "shaders/gem.surface.glsl");
-    const GeneratedShader g = generate_material_shader(parse_material(Json::parse(kBadMaterial), dir, "materials/bad.material.json").material, kBadSnippet);
+    const GeneratedShader g = generate_material_shader(
+        parse_material(Json::parse(kBadMaterial), dir, "materials/bad.material.json").material, kBadSnippet);
     shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 7)) + ":0: error: 'tnt' : undeclared identifier\n";
     failing.shaderContext.run = shdc.runner();
     report = validate_project(dir, failing);
     CHECK_FALSE(report.ok);
-    const auto shaderError = std::find_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& e) { return e.file == "shaders/bad.surface.glsl"; });
+    const auto shaderError = std::find_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& e) {
+        return e.file == "shaders/bad.surface.glsl";
+    });
     REQUIRE(shaderError != report.errors.end());
     CHECK(shaderError->message.find("line 7, column 27") != std::string::npos);
     CHECK(shaderError->message.find("tnt") != std::string::npos);
@@ -861,14 +913,16 @@ bool real_tool(SetupContext& context) {
     context = SetupContext{};
     if (find_sokol_shdc(context).empty()) {
         FA_FAIL_IF_SHDC_REQUIRED();
-        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the real-compiler tests are skipped here and run in CI");
+        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the "
+                "real-compiler tests are skipped here and run in CI");
         return false;
     }
     return true;
 }
 }  // namespace
 
-TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and the twins list the shadow programs only with vertex() or clip") {
+TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and the twins list the shadow programs only "
+          "with vertex() or clip") {
     SetupContext context;
     if (!real_tool(context)) return;
     Project p;
@@ -997,10 +1051,11 @@ TEST_CASE("real sokol-shdc: an hlsl-only error is found by compiling every diale
     if (!real_tool(context)) return;
     // A texture read in vertex() has no vertex-stage binding: refused with the reason.
     Project p;
-    p.write("shaders/wave.surface.glsl",
-            "void vertex(inout VertexData v) {\n    v.world_pos.y += texture(sampler2D(h, h_smp), v.uv).r;\n}\nvoid surface(in SurfaceInput i, inout Surface s) {}\n");
-    p.write("materials/wave.material.json",
-            R"({"format":"factoria.material/1","shader":"shaders/wave.surface.glsl","textures":{"h":{"doc":"Height map (r)."}}})");
+    p.write("shaders/wave.surface.glsl", "void vertex(inout VertexData v) {\n    v.world_pos.y += texture(sampler2D(h, "
+                                         "h_smp), v.uv).r;\n}\nvoid surface(in SurfaceInput i, inout Surface s) {}\n");
+    p.write(
+        "materials/wave.material.json",
+        R"({"format":"factoria.material/1","shader":"shaders/wave.surface.glsl","textures":{"h":{"doc":"Height map (r)."}}})");
     ShaderCompileOptions options;
     options.setup = context;
     options.dialects = {"glsl430"};
@@ -1020,7 +1075,8 @@ TEST_CASE("engine compiler: returns the twin, and an error with every issue's fi
     REQUIRE(twin.ok());
     CHECK((*twin)["slang"] == "hlsl5");
 
-    const GeneratedShader g = generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet);
     const int top = top_line_of(g, 7);
     shdc.stderrText = "top.glsl:" + std::to_string(top) + ":0: error: 'tnt' : undeclared identifier\n";
     auto bad = compiler("materials/bad.material.json", "hlsl5");

@@ -37,11 +37,17 @@ std::string package_name(const std::string& os) {
 
 stdfs::path players_root(const SetupContext& ctx) { return stdfs::path(ctx.home_dir()) / "players" / ctx.version(); }
 
-std::string player_file_name(const std::string& os) { return os == "windows" ? "factoria_player.exe" : "factoria_player"; }
+std::string player_file_name(const std::string& os) {
+    return os == "windows" ? "factoria_player.exe" : "factoria_player";
+}
 
-stdfs::path player_path(const SetupContext& ctx, const std::string& os) { return players_root(ctx) / os / player_file_name(os); }
+stdfs::path player_path(const SetupContext& ctx, const std::string& os) {
+    return players_root(ctx) / os / player_file_name(os);
+}
 
-bool web_complete(const stdfs::path& web) { return is_file(web / "factoria_player.js") && is_file(web / "factoria_player.wasm"); }
+bool web_complete(const stdfs::path& web) {
+    return is_file(web / "factoria_player.js") && is_file(web / "factoria_player.wasm");
+}
 
 bool android_libs_complete(const stdfs::path& mobile) {
     for (const char* abi : kAndroidAbis)
@@ -58,9 +64,7 @@ bool ios_libs_complete(const stdfs::path& mobile) {
 // A mobile/ folder with the libraries of both mobile platforms.
 bool mobile_complete(const stdfs::path& mobile) { return android_libs_complete(mobile) && ios_libs_complete(mobile); }
 
-stdfs::path exe_mobile_dir(const SetupContext& ctx) {
-    return exe_dir(ctx) / "mobile";
-}
+stdfs::path exe_mobile_dir(const SetupContext& ctx) { return exe_dir(ctx) / "mobile"; }
 
 struct Selection {
     std::vector<std::string> desktop;  // OSes whose player is wanted
@@ -72,7 +76,8 @@ struct Selection {
 // one), so the Android-only mobile/ of a Windows or Linux download plus an installed iOS half is enough.
 bool mobile_covered(const SetupContext& ctx) {
     const stdfs::path next = exe_mobile_dir(ctx), installed = players_root(ctx) / "mobile";
-    return (android_libs_complete(next) || android_libs_complete(installed)) && (ios_libs_complete(next) || ios_libs_complete(installed));
+    return (android_libs_complete(next) || android_libs_complete(installed)) &&
+           (ios_libs_complete(next) || ios_libs_complete(installed));
 }
 
 Selection default_selection(const SetupContext& ctx) {
@@ -132,8 +137,10 @@ SetupComponent players_status(const SetupContext& ctx) {
     // The mobile libraries: the folder next to factoria (the download), else the installed one.
     const bool nextOk = mobile_complete(mobileNext);
     const bool installedOk = mobile_complete(mobileInstalled);
-    if (nextOk) c.paths.emplace_back("mobile", mobileNext.string());
-    else if (installedOk) c.paths.emplace_back("mobile", mobileInstalled.string());
+    if (nextOk)
+        c.paths.emplace_back("mobile", mobileNext.string());
+    else if (installedOk)
+        c.paths.emplace_back("mobile", mobileInstalled.string());
     if (!nextOk) {
         ++wanted;
         if (mobile_covered(ctx)) {
@@ -154,8 +161,11 @@ SetupComponent players_status(const SetupContext& ctx) {
     if (wanted == 0 && lack.empty()) c.state = "installed";
     c.details = (have.empty() ? std::string() : "Have: " + have + ". ") +
                 (lack.empty() ? std::string("Nothing else is needed to export for the other platforms.")
-                              : "Missing: " + lack + ". The install downloads them from the GitHub release v" + ctx.version() + " of " + kSetupReleaseRepo + ".");
-    if (!lack.empty()) c.problems.push_back("Exporting for another operating system, or Android/iOS without the engine source, needs: " + lack + ".");
+                              : "Missing: " + lack + ". The install downloads them from the GitHub release v" +
+                                    ctx.version() + " of " + kSetupReleaseRepo + ".");
+    if (!lack.empty())
+        c.problems.push_back(
+            "Exporting for another operating system, or Android/iOS without the engine source, needs: " + lack + ".");
     return c;
 }
 
@@ -175,10 +185,14 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             if (p == "win" || p == "win32") p = "windows";
             if (p == "mac" || p == "osx") p = "macos";
             if (std::find(valid.begin(), valid.end(), p) == valid.end())
-                return in.fail("invalid_argument", make_error("Unknown platform '" + raw + "' for the players.", did_you_mean(raw, valid)));
-            if (p == "mobile") sel.mobile = true;
-            else if (p == "web") sel.web = true;
-            else if (std::find(sel.desktop.begin(), sel.desktop.end(), p) == sel.desktop.end()) sel.desktop.push_back(p);
+                return in.fail("invalid_argument",
+                               make_error("Unknown platform '" + raw + "' for the players.", did_you_mean(raw, valid)));
+            if (p == "mobile")
+                sel.mobile = true;
+            else if (p == "web")
+                sel.web = true;
+            else if (std::find(sel.desktop.begin(), sel.desktop.end(), p) == sel.desktop.end())
+                sel.desktop.push_back(p);
         }
     }
     std::vector<std::string> needDesktop;
@@ -223,7 +237,8 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             s.id = "players";
             s.title = "Players";
             s.outcome = "skipped";
-            s.detail = "nothing to install: the players this machine needs are there (the mobile libraries come with the download, next to factoria)";
+            s.detail = "nothing to install: the players this machine needs are there (the mobile libraries come with "
+                       "the download, next to factoria)";
             in.add_step(s);
         }
         in.report.paths = {{"players", root.string()}};
@@ -233,13 +248,15 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     // ---- the release of this version
     const std::string tag = "v" + version;
     const std::string api = std::string("https://api.github.com/repos/") + kSetupReleaseRepo;
-    const std::vector<std::string> headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
+    const std::vector<std::string> headers = {"Accept: application/vnd.github+json",
+                                              "X-GitHub-Api-Version: 2022-11-28"};
     ctx.say("Looking up the release " + tag + " of " + kSetupReleaseRepo + "...");
     std::string text;
     int status = 0;
     bool fellBack = false;  // a development build: the players are the newest release's, not this build's
     std::optional<ReleaseInfo> release;
-    if (auto f = fetch_text(ctx, api + "/releases/tags/" + tag, "the release " + tag, in.staging(), text, &status, headers)) {
+    if (auto f = fetch_text(ctx, api + "/releases/tags/" + tag, "the release " + tag, in.staging(), text, &status,
+                            headers)) {
         if (status != 404) return in.fail(*f);
         // This version was never released: a development build ahead of the last release. Its players cannot exist, so the
         // newest release's are offered (they run, but their build fingerprint is not this factoria's).
@@ -250,19 +267,28 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             }
         }
         if (!release)
-            return in.fail("no_release",
-                           make_error("This factoria (" + version + ") has no release " + tag + " on GitHub (a development build ahead of the last release), so there are no players to download for it.",
-                                      "Build the player on the other OS (see docs/BUILDING.md) and pass it with `factoria export --player <path>`, or use a factoria downloaded from https://github.com/" +
-                                          std::string(kSetupReleaseRepo) + "/releases."));
+            return in.fail(
+                "no_release",
+                make_error("This factoria (" + version + ") has no release " + tag +
+                               " on GitHub (a development build ahead of the last release), so there are no players to "
+                               "download for it.",
+                           "Build the player on the other OS (see docs/BUILDING.md) and pass it with `factoria export "
+                           "--player <path>`, or use a factoria downloaded from https://github.com/" +
+                               std::string(kSetupReleaseRepo) + "/releases."));
         fellBack = true;
-        const std::string note = "This factoria (" + version + ") is a development build with no release " + tag + ": the players come from the newest release, " + release->tag +
-                                 ". Their build fingerprint will not match this factoria's, so an export that uses them needs allowPlayerMismatch (--allow-player-mismatch)"
-                                 " until you build the players from this checkout (`factoria setup webplayer` for the web; docs/BUILDING.md for the others).";
+        const std::string note = "This factoria (" + version + ") is a development build with no release " + tag +
+                                 ": the players come from the newest release, " + release->tag +
+                                 ". Their build fingerprint will not match this factoria's, so an export that uses "
+                                 "them needs allowPlayerMismatch (--allow-player-mismatch)"
+                                 " until you build the players from this checkout (`factoria setup webplayer` for the "
+                                 "web; docs/BUILDING.md for the others).";
         ctx.say(note);
         in.report.warnings.push_back(note);
     } else {
         auto json = parse_json(text, api);
-        if (!json.ok()) return in.fail("failed", make_error("GitHub's answer for " + tag + " is not JSON: " + json.error().message, "Try again later."));
+        if (!json.ok())
+            return in.fail("failed", make_error("GitHub's answer for " + tag + " is not JSON: " + json.error().message,
+                                                "Try again later."));
         auto parsed = parse_github_release(*json);
         if (!parsed.ok()) return in.fail("failed", parsed.error());
         release = *parsed;
@@ -270,25 +296,33 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
 
     // ---- one package per OS: the OSes asked for, plus the macOS one for the mobile libraries (the only package with the iOS ones)
     std::vector<std::string> packages = needDesktop;
-    if (needMobile && std::find(packages.begin(), packages.end(), "macos") == packages.end()) packages.push_back("macos");
+    if (needMobile && std::find(packages.begin(), packages.end(), "macos") == packages.end())
+        packages.push_back("macos");
     // The web player is in every package: this machine's own is the one to take it from.
-    if (needWeb && std::find(packages.begin(), packages.end(), ctx.host_os()) == packages.end()) packages.push_back(ctx.host_os());
+    if (needWeb && std::find(packages.begin(), packages.end(), ctx.host_os()) == packages.end())
+        packages.push_back(ctx.host_os());
     for (const std::string& os : packages) {
         StepTimer timer;
         const std::string name = package_name(os);
         const ReleaseAsset* asset = release->find(name);
         if (!asset)
-            return in.fail("no_release", make_error("The release " + release->tag + " has no " + name + " package (yet).",
-                                                     "Its packages may still be uploading: try again in a few minutes."));
+            return in.fail("no_release",
+                           make_error("The release " + release->tag + " has no " + name + " package (yet).",
+                                      "Its packages may still be uploading: try again in a few minutes."));
         const stdfs::path archive = in.staging() / name;
         std::uint64_t bytes = 0;
-        if (auto f = download_file(ctx, asset->url, archive, "FactorIA " + release->tag + " for " + os, asset->size, &bytes)) return in.fail(*f);
+        if (auto f =
+                download_file(ctx, asset->url, archive, "FactorIA " + release->tag + " for " + os, asset->size, &bytes))
+            return in.fail(*f);
         if (!asset->sha256.empty()) {
             if (auto f = verify_checksum(archive, "sha256", asset->sha256, name)) return in.fail(*f);
         } else {
             in.report.warnings.push_back("GitHub lists no checksum for " + name + ", so only its size was compared.");
             if (asset->size && bytes != asset->size)
-                return in.fail("checksum_mismatch", make_error("The download of " + name + " has " + std::to_string(bytes) + " bytes but the release lists " + std::to_string(asset->size) + ".", "Run it again."));
+                return in.fail("checksum_mismatch",
+                               make_error("The download of " + name + " has " + std::to_string(bytes) +
+                                              " bytes but the release lists " + std::to_string(asset->size) + ".",
+                                          "Run it again."));
         }
         const stdfs::path unpacked = in.make_staging_subdir("pkg-" + os);
         if (auto f = extract_archive(ctx, archive, unpacked)) return in.fail(*f);
@@ -300,12 +334,17 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end()) {
             const stdfs::path src = top / player_file_name(os);
             if (!is_file(src))
-                return in.fail("failed", make_error("The package " + name + " has no " + player_file_name(os) + " inside.", "Report this: the release " + release->tag + " is broken."));
+                return in.fail("failed",
+                               make_error("The package " + name + " has no " + player_file_name(os) + " inside.",
+                                          "Report this: the release " + release->tag + " is broken."));
             const stdfs::path tmp = root / (".tmp-" + os);
             stdfs::remove_all(tmp, ec);
             stdfs::create_directories(tmp, ec);
             stdfs::copy_file(src, tmp / player_file_name(os), stdfs::copy_options::overwrite_existing, ec);
-            if (ec) return in.fail("failed", make_error("Cannot copy " + src.string() + " into " + tmp.string() + ": " + ec.message(), "Check the free disk space."));
+            if (ec)
+                return in.fail("failed",
+                               make_error("Cannot copy " + src.string() + " into " + tmp.string() + ": " + ec.message(),
+                                          "Check the free disk space."));
             make_executable(tmp / player_file_name(os));
             if (auto f = replace_dir(tmp, root / os)) return in.fail(*f);
             SetupStep s;
@@ -321,8 +360,10 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (needMobile && os == "macos") {
             const stdfs::path src = top / "mobile";
             if (!is_dir(src) || !mobile_complete(src))
-                return in.fail("failed", make_error("The package " + name + " has no mobile/android/jniLibs and mobile/ios libraries inside.",
-                                                     "Report this: the release " + release->tag + " is broken."));
+                return in.fail("failed",
+                               make_error("The package " + name +
+                                              " has no mobile/android/jniLibs and mobile/ios libraries inside.",
+                                          "Report this: the release " + release->tag + " is broken."));
             if (auto f = replace_dir(src, root / "mobile")) return in.fail(*f);
             SetupStep s;
             s.id = "mobile";
@@ -330,16 +371,22 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             s.outcome = "installed";
             s.detail = "Android and iOS libraries from " + name;
             s.path = (root / "mobile").string();
-            s.downloadedBytes = (std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end()) ? 0 : bytes;
+            s.downloadedBytes =
+                (std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end()) ? 0 : bytes;
             s.seconds = timer.seconds();
             in.add_step(s);
         }
         if (needWeb && os == ctx.host_os()) {
             const stdfs::path src = top / "web";
             if (!web_complete(src))
-                return in.fail("failed", make_error("The package " + name + " has no web/factoria_player.js and web/factoria_player.wasm inside.",
-                                                     "Report this: the release " + release->tag + " is broken, or too old to carry the web player (use a newer FactorIA, or build the "
-                                                     "web player yourself, see docs/BUILDING.md, and pass it with `factoria export --platform web --player <folder>`)."));
+                return in.fail(
+                    "failed",
+                    make_error("The package " + name +
+                                   " has no web/factoria_player.js and web/factoria_player.wasm inside.",
+                               "Report this: the release " + release->tag +
+                                   " is broken, or too old to carry the web player (use a newer FactorIA, or build the "
+                                   "web player yourself, see docs/BUILDING.md, and pass it with `factoria export "
+                                   "--platform web --player <folder>`)."));
             if (auto f = replace_dir(src, root / "web")) return in.fail(*f);
             SetupStep s;
             s.id = "web";
@@ -347,7 +394,8 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             s.outcome = "installed";
             s.detail = "from " + name + " of the release " + release->tag;
             s.path = (root / "web").string();
-            const bool shared = std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end() || (needMobile && os == "macos");
+            const bool shared = std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end() ||
+                                (needMobile && os == "macos");
             s.downloadedBytes = shared ? 0 : bytes;  // the step that owns the download reports its size
             s.seconds = timer.seconds();
             in.add_step(s);
@@ -356,9 +404,12 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     in.report.paths = {{"players", root.string()}};
     if (needMobile) in.report.paths.emplace_back("mobile", (root / "mobile").string());
     if (needWeb) in.report.paths.emplace_back("web", (root / "web").string());
-    in.report.nextSteps.push_back("`factoria export --platform <windows|linux|macos|android|ios>` now finds these players without --player or --mobile-dir.");
+    in.report.nextSteps.push_back("`factoria export --platform <windows|linux|macos|android|ios>` now finds these "
+                                  "players without --player or --mobile-dir.");
     if (fellBack)
-        in.report.nextSteps.push_back("These players are from " + release->tag + ", not from this development build: pass allowPlayerMismatch (--allow-player-mismatch) to `factoria export`.");
+        in.report.nextSteps.push_back("These players are from " + release->tag +
+                                      ", not from this development build: pass allowPlayerMismatch "
+                                      "(--allow-player-mismatch) to `factoria export`.");
     return in.finish();
 }
 

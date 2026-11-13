@@ -56,15 +56,17 @@ struct ModelFieldInfo {
     std::string doc;
     bool required = false;
     std::optional<double> min, max;  // numbers and integers; for size3 / count3 / count2 / vec3 each entry
-    std::optional<Json> def;         // the default; absent when the field has none (left out = the kernel's own rule, said in `doc`)
+    std::optional<Json>
+        def;  // the default; absent when the field has none (left out = the kernel's own rule, said in `doc`)
     std::vector<std::string> choices;
     std::optional<int> minItems, maxItems;            // points2, points3, rings: how many entries
     std::optional<int> innerMinItems, innerMaxItems;  // rings: how many points in each section
 };
 struct ModelOpInfo {
     std::string op;
-    std::string kind;  // "primitive" (makes geometry; takes `align`), "modifier" (changes the mesh of its `children`), "group", "sdf" (meshes its signed-distance children; takes `align`), "sdf_group" or "sdf_shape" (the nodes inside an sdf)
-    std::string doc;   // what it makes, with its orientation and size
+    std::string
+        kind;  // "primitive" (makes geometry; takes `align`), "modifier" (changes the mesh of its `children`), "group", "sdf" (meshes its signed-distance children; takes `align`), "sdf_group" or "sdf_shape" (the nodes inside an sdf)
+    std::string doc;                     // what it makes, with its orientation and size
     std::vector<ModelFieldInfo> fields;  // the fields of this operation (not the common ones)
 };
 // Every operation the format knows, primitives first, in the order the docs describe them.
@@ -80,7 +82,7 @@ Json model_doc_schema();
 // is present only when the document gave it); vec fields are normalised to arrays ([x, y, z]).
 struct ModelNode {
     std::string op;
-    std::string id;       // "" = none; unique in the document when given
+    std::string id;  // "" = none; unique in the document when given
     std::string note;
     bool enabled = true;
     std::optional<std::string> part;      // the part this node and the nodes below it belong to
@@ -89,22 +91,25 @@ struct ModelNode {
     Vec3 position{0, 0, 0};
     Vec3 rotation{0, 0, 0};  // degrees, Euler (pitch x, yaw y, roll z), applied roll, pitch, then yaw
     Vec3 scale{1, 1, 1};
-    std::string align = "center";         // primitives: "center", "bottom" or "top"
+    std::string align = "center";  // primitives: "center", "bottom" or "top"
     Json params = Json::object();
-    std::vector<ModelNode> children;      // groups and modifiers
-    std::string pointer;                  // where it is in the document: "/nodes/0/children/1"
+    std::vector<ModelNode> children;  // groups and modifiers
+    std::string pointer;              // where it is in the document: "/nodes/0/children/1"
 };
 
 struct ModelDoc {
     std::string doc;
     std::string outputPath;  // where bake writes the .glb (project-relative); "" = next to the document
-    Json gameReady;          // the "gameReady" object, checked and with its defaults filled in (null = the document has none); read it with parse_game_ready (model_game_ready.h)
+    Json
+        gameReady;  // the "gameReady" object, checked and with its defaults filled in (null = the document has none); read it with parse_game_ready (model_game_ready.h)
     std::vector<std::pair<std::string, MeshMaterial>> materials;  // in document order; the key is the material's name
     std::vector<ModelNode> nodes;
-    std::optional<ModelUvSettings> uv;  // the `uv` section (model_uv.h): none = every primitive keeps its own uvs
-    std::optional<ModelTexturing> texturing;         // the `texturing` section (model_texture.h): none = no texture is baked
-    std::optional<ModelVertexColors> vertexColors;   // the `vertexColors` section (model_texture.h): none = the nodes' own colours
-    std::vector<std::pair<std::string, ModelMaterialTexturing>> materialTexturing;  // per material of `materials`, same order: mapping, textureScale...
+    std::optional<ModelUvSettings> uv;        // the `uv` section (model_uv.h): none = every primitive keeps its own uvs
+    std::optional<ModelTexturing> texturing;  // the `texturing` section (model_texture.h): none = no texture is baked
+    std::optional<ModelVertexColors>
+        vertexColors;  // the `vertexColors` section (model_texture.h): none = the nodes' own colours
+    std::vector<std::pair<std::string, ModelMaterialTexturing>>
+        materialTexturing;  // per material of `materials`, same order: mapping, textureScale...
     const ModelMaterialTexturing* texturing_of(const std::string& material) const;  // nullptr for "" or an unknown name
 };
 
@@ -116,13 +121,15 @@ Json model_uv_schema();
 
 // Reads a document. Every problem found is listed in `issues` (not only the first), each with its JSON pointer, what is wrong and the
 // fix, and "did you mean" for names. `file` only names the document in the message of the error that is returned for the first.
-Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file = {}, std::vector<ModelIssue>* issues = nullptr);
+Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file = {},
+                                 std::vector<ModelIssue>* issues = nullptr);
 // parse_model_doc of a file read through the VFS (project-relative).
 Result<ModelDoc> load_model_doc(std::string_view path, std::vector<ModelIssue>* issues = nullptr);
 
 // The node at `ref` in a document's JSON: a node id ("door_frame"), or a JSON pointer ("/nodes/0/children/1"). nullptr when nothing is
 // there; `why` (optional) gets the teaching message, with the ids that exist.
-Json* find_model_node(Json& documentJson, std::string_view ref, std::string* pointer = nullptr, std::string* why = nullptr);
+Json* find_model_node(Json& documentJson, std::string_view ref, std::string* pointer = nullptr,
+                      std::string* why = nullptr);
 // The ids of the nodes of a document's JSON, in document order, with their pointers.
 std::vector<std::pair<std::string, std::string>> model_node_ids(const Json& documentJson);
 
@@ -146,26 +153,31 @@ struct ModelEditContext {
     std::vector<std::string> partNames;
     std::vector<std::string> materialNames;  // the document's materials
     Mat4 toModel = Mat4::identity();
-    std::function<std::uint32_t(std::uint32_t source, const std::optional<std::string>& part, const std::optional<std::string>& material)> group_with;
+    std::function<std::uint32_t(std::uint32_t source, const std::optional<std::string>& part,
+                                const std::optional<std::string>& material)>
+        group_with;
 };
 
 // What a selection matched, for the AI that wrote it to check (model.info lists one per edit node, model.select answers it for a query).
 struct ModelSelectionReport {
-    std::string pointer;       // the node ("" for model.select)
+    std::string pointer;  // the node ("" for model.select)
     std::string op;
-    std::string select;        // "faces" or "edges"
-    std::size_t matched = 0;   // faces or edges selected
-    std::size_t total = 0;     // faces or edges the mesh had at that point
-    double measure = 0;        // their area (faces, m2) or length (edges, m)
-    Vec3 bmin{}, bmax{};       // bounds of what matched, in the node's space
-    std::vector<std::pair<std::string, std::size_t>> parts;  // faces per part name ("" = no part); for edges the faces beside them
+    std::string select;       // "faces" or "edges"
+    std::size_t matched = 0;  // faces or edges selected
+    std::size_t total = 0;    // faces or edges the mesh had at that point
+    double measure = 0;       // their area (faces, m2) or length (edges, m)
+    Vec3 bmin{}, bmax{};      // bounds of what matched, in the node's space
+    std::vector<std::pair<std::string, std::size_t>>
+        parts;                          // faces per part name ("" = no part); for edges the faces beside them
     std::vector<std::string> warnings;  // empty selection and the like, each with what to try
 };
 
 struct ModelEvalOptions {
     ModelTextSource text;  // none: a `text` node fails with an error saying the evaluator has no font source
-    std::vector<Vec4> stylePalette;   // the project's style palette, for a `vertexColors` section with "palette": "style" (empty: the project has none)
-    float defaultTexelsPerMeter = 0;  // the texel density of a `uv` section that gives none (the project's style guide); 0 = 128
+    std::vector<Vec4>
+        stylePalette;  // the project's style palette, for a `vertexColors` section with "palette": "style" (empty: the project has none)
+    float defaultTexelsPerMeter =
+        0;  // the texel density of a `uv` section that gives none (the project's style guide); 0 = 128
     // Called for every enabled node that reaches its operation, with the mesh the operation receives (the merged children of a group or
     // modifier, or the mesh a primitive made) and its place in the tree. model.select uses it to try a query on the mesh at a node.
     std::function<void(const ModelNode& node, const ModelMesh& input, const ModelEditContext& context)> probe;
@@ -180,14 +192,16 @@ struct ModelPartInfo {
 };
 
 struct ModelBuild {
-    MeshData data;                    // ready for MeshStore / mesh_to_glb; one submesh per entry of `parts`, in the same order
+    MeshData data;  // ready for MeshStore / mesh_to_glb; one submesh per entry of `parts`, in the same order
     std::vector<ModelPartInfo> parts;
-    ModelMeshStats stats;             // vertices, triangles, bounds, welded surface checks (closed, volume...)
+    ModelMeshStats stats;  // vertices, triangles, bounds, welded surface checks (closed, volume...)
     std::vector<std::string> warnings;
-    std::vector<ModelSelectionReport> edits;  // one per edit node (extrude_faces...), in evaluation order: what its selection matched
+    std::vector<ModelSelectionReport>
+        edits;  // one per edit node (extrude_faces...), in evaluation order: what its selection matched
     std::vector<std::string> inputs;  // project files the evaluation read (fonts, material textures), sorted
     std::optional<ModelUvReport> uv;  // the measurements of the document's `uv` section; none when it has none
-    std::optional<ModelVertexColorReport> vertexColors;  // what the document's `vertexColors` section did; none when it has none
+    std::optional<ModelVertexColorReport>
+        vertexColors;  // what the document's `vertexColors` section did; none when it has none
 };
 
 // Evaluates the tree in document order. Fails (with the node's pointer in the message) when a text node cannot be made, or the mesh has

@@ -26,7 +26,11 @@ void feed(Sha256& h, float v) {
     std::memcpy(&bits, &v, sizeof bits);
     h.update(&bits, sizeof bits);
 }
-void feed(Sha256& h, Vec3 v) { feed(h, v.x); feed(h, v.y); feed(h, v.z); }
+void feed(Sha256& h, Vec3 v) {
+    feed(h, v.x);
+    feed(h, v.y);
+    feed(h, v.z);
+}
 void feed(Sha256& h, std::uint64_t v) { h.update(&v, sizeof v); }
 
 // Starts the pool for one run and stops it at the end; `threads` -1 is inline mode and kNoPool leaves the pool stopped.
@@ -74,13 +78,20 @@ void build_basin_2d(World& w, int n) {
     for (int i = 0; i < n; ++i) {
         Entity e = w.create("b" + std::to_string(i), "b" + std::to_string(i));
         const int col = i % 25, row = i / 25;
-        w.get<Transform>(e)->position = {-360.0f + 29.0f * float(col) + (row % 2 ? 6.0f : 0.0f), 80.0f + 27.0f * float(row), 0};
+        w.get<Transform>(e)->position = {-360.0f + 29.0f * float(col) + (row % 2 ? 6.0f : 0.0f),
+                                         80.0f + 27.0f * float(row), 0};
         w.get<Transform>(e)->rotation = {0, 0, float((i * 37) % 90)};
         Collider2D& c = w.add<Collider2D>(e);
         switch (i % 3) {
-            case 0: c.shape = ColliderShape::Circle; c.radius = 11.0f; break;
+            case 0:
+                c.shape = ColliderShape::Circle;
+                c.radius = 11.0f;
+                break;
             case 1: c.size = {22, 18}; break;
-            default: c.shape = ColliderShape::Capsule; c.size = {16, 30}; break;
+            default:
+                c.shape = ColliderShape::Capsule;
+                c.size = {16, 30};
+                break;
         }
         c.restitution = (i % 7 == 0) ? 0.4f : 0.0f;
         w.add<RigidBody2D>(e);
@@ -118,8 +129,10 @@ std::string run_2d(int threads, int n, int frames, int* submitted = nullptr, boo
     World world;
     Physics physics;
     physics.init(PhysicsSettings{});
-    if (tied) build_tied_islands_2d(world, n);
-    else build_basin_2d(world, n);
+    if (tied)
+        build_tied_islands_2d(world, n);
+    else
+        build_basin_2d(world, n);
     Sha256 h;
     const std::vector<Entity> all = world.entities();
     const bool bench = std::getenv("FA_PHYSICS_BENCH") != nullptr;
@@ -198,9 +211,16 @@ void build_yard_3d(World& w, int n) {
         w.get<Transform>(e)->rotation = {float((i * 29) % 90), float((i * 53) % 90), float((i * 11) % 90)};
         Collider3D& c = w.add<Collider3D>(e);
         switch (i % 3) {
-            case 0: c.shape = ColliderShape3D::Sphere; c.radius = 0.5f; break;
+            case 0:
+                c.shape = ColliderShape3D::Sphere;
+                c.radius = 0.5f;
+                break;
             case 1: c.size = {0.9f, 0.7f, 0.8f}; break;
-            default: c.shape = ColliderShape3D::Capsule; c.radius = 0.3f; c.height = 1.2f; break;
+            default:
+                c.shape = ColliderShape3D::Capsule;
+                c.radius = 0.3f;
+                c.height = 1.2f;
+                break;
         }
         c.restitution = (i % 7 == 0) ? 0.3f : 0.0f;
         RigidBody3D& rb = w.add<RigidBody3D>(e);
@@ -282,7 +302,8 @@ TEST_CASE("physics jobs 2D: a big basin gives the same hash inline and with 1, 2
     CHECK(jobs8 == jobs1);
 }
 
-TEST_CASE("physics jobs 2D: tied islands that settle on the same step give the same hash with the pool stopped, inline and on 1 and 8 threads") {
+TEST_CASE("physics jobs 2D: tied islands that settle on the same step give the same hash with the pool stopped, inline "
+          "and on 1 and 8 threads") {
     const ScopedPhysicsJobThresholds lowered({64, 128});
     const int pairs = 90, frames = 200;  // 180 bodies: every task is cut into 4 pieces
     const std::string reference = run_2d(1, pairs, frames, nullptr, true);

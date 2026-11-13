@@ -58,7 +58,9 @@ public:
             };
             call("w1", "fs_write", R"({"path":"scripts/revert_old.js","content":"new\n"})");
             call("w2", "fs_write", R"({"path":"scripts/revert_new.js","content":"added by the run\n"})");
-            call("w3", "scene_spawn", R"({"name":"RevertCoin","position":[0,120],"components":{"Shape2D":{"shape":"circle","size":[28,28],"color":[1,0.85,0.1,1]}}})");
+            call(
+                "w3", "scene_spawn",
+                R"({"name":"RevertCoin","position":[0,120],"components":{"Shape2D":{"shape":"circle","size":[28,28],"color":[1,0.85,0.1,1]}}})");
             r.stopReason = ai::StopReason::ToolUse;
         } else {
             r.message.text = "Done.";
@@ -78,7 +80,8 @@ class SlowWorkerProvider : public ai::ChatProvider {
 public:
     explicit SlowWorkerProvider(int delayMs) : delayMs_(delayMs) {}
     std::string name() const override { return "mock"; }
-    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks,
+                                  const ai::CancelFlag* cancel) override {
         ai::ChatResponse r;
         r.message.role = ai::Role::Assistant;
         r.message.raw = Json::object();
@@ -102,7 +105,8 @@ private:
 class ConcurrentProvider : public ai::ChatProvider {
 public:
     std::string name() const override { return "mock"; }
-    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks,
+                                  const ai::CancelFlag* cancel) override {
         char marker = '?';
         for (const ai::Message& m : req.messages) {
             if (m.role != ai::Role::User) continue;
@@ -134,10 +138,13 @@ public:
                     c.input = input;
                     r.message.toolCalls.push_back(c);
                 };
-                call("w1", "fs_write", Json::object({{"path", "scripts/u_shared.js"}, {"content", "from " + upper + "\n"}}));
-                call("w2", "fs_write", Json::object({{"path", "scripts/u_" + lower + ".js"}, {"content", "only " + upper + "\n"}}));
+                call("w1", "fs_write",
+                     Json::object({{"path", "scripts/u_shared.js"}, {"content", "from " + upper + "\n"}}));
+                call("w2", "fs_write",
+                     Json::object({{"path", "scripts/u_" + lower + ".js"}, {"content", "only " + upper + "\n"}}));
                 call("w3", "scene_spawn",
-                     Json::parse("{\"name\":\"UCoin" + upper + "\",\"position\":[0,120],\"components\":{\"Shape2D\":{\"shape\":\"circle\","
+                     Json::parse("{\"name\":\"UCoin" + upper +
+                                 "\",\"position\":[0,120],\"components\":{\"Shape2D\":{\"shape\":\"circle\","
                                  "\"size\":[28,28],\"color\":[1,0.85,0.1,1]}}}"));
                 r.stopReason = ai::StopReason::ToolUse;
                 return r;
@@ -155,7 +162,8 @@ std::vector<std::string> g_reviewToolsOffered;
 class ReviewerProvider : public ai::ChatProvider {
 public:
     std::string name() const override { return "mock"; }
-    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks,
+                                  const ai::CancelFlag*) override {
         g_reviewToolsOffered.clear();
         for (const ai::ToolDef& t : req.tools) g_reviewToolsOffered.push_back(t.name);
         ai::ChatResponse r;
@@ -180,10 +188,12 @@ void Editor::at_section_O(AtScript& at) {
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
     // Play must wait meanwhile. Needs the fixture (the autotest runs from the repository root) and curl.
-    step(1, [this] {  // the background detection writes aiConfig_ once: it must be done before the swap below (O alone runs early)
-        atWaitCount_ = 0;
-        atWaitUntil_ = [this] { return aiDetected_.load(); };
-    });
+    step(
+        1,
+        [this] {  // the background detection writes aiConfig_ once: it must be done before the swap below (O alone runs early)
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load(); };
+        });
     step(2, [this] {
 #ifdef _WIN32
         stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
@@ -216,7 +226,8 @@ void Editor::at_section_O(AtScript& at) {
     step(2, [this] {
         if (!atSavedConfig_) return;
         at_check(!ai_running(), "the CLI agent finished");
-        at_check(!world().find("CliCoin").is_null(), "the CLI agent's tool call (scene_spawn over MCP) created the entity in the editor's world");
+        at_check(!world().find("CliCoin").is_null(),
+                 "the CLI agent's tool call (scene_spawn over MCP) created the entity in the editor's world");
         at_check(undo_depth() > atUndoBeforeAi_, "the CLI agent's edit recorded an undo step");
         undo();
         at_check(world().find("CliCoin").is_null(), "Ctrl+Z (undo) removes the entity the CLI agent created");
@@ -258,8 +269,8 @@ void Editor::at_section_P(AtScript& at) {
     });
     step(4, [this, project_file] {
         at_check(!ai_running(), "the scripted run finished");
-        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" && stdfs::exists(project_file("scripts/revert_new.js")) &&
-                     !world().find("RevertCoin").is_null(),
+        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" &&
+                     stdfs::exists(project_file("scripts/revert_new.js")) && !world().find("RevertCoin").is_null(),
                  "the run overwrote a script, added one and spawned an entity");
         const ChatItem* run = nullptr;
         for (const ChatItem& c : chat())
@@ -275,14 +286,18 @@ void Editor::at_section_P(AtScript& at) {
     snap("editor_ai_revert_confirm.png");
     click("ai:revert:confirm");
     step(6, [this, project_file] {
-        at_check(read_file(project_file("scripts/revert_old.js")) == "old\n", "Revert writes the overwritten script back");
+        at_check(read_file(project_file("scripts/revert_old.js")) == "old\n",
+                 "Revert writes the overwritten script back");
         at_check(!stdfs::exists(project_file("scripts/revert_new.js")), "Revert deletes the file the run added");
-        at_check(world().find("RevertCoin").is_null() && !dirty(), "Revert puts the scene back as it was before the run");
+        at_check(world().find("RevertCoin").is_null() && !dirty(),
+                 "Revert puts the scene back as it was before the run");
         bool sawRevert = false;
         for (const ChatItem& c : chat()) sawRevert = sawRevert || (c.kind == ChatItem::Kind::Revert && !c.isUndo);
-        at_check(sawRevert && at_visible("ai:undo-revert") && !at_visible("ai:revert"), "the transcript says so and offers Undo revert");
+        at_check(sawRevert && at_visible("ai:undo-revert") && !at_visible("ai:revert"),
+                 "the transcript says so and offers Undo revert");
         undo();
-        at_check(!world().find("RevertCoin").is_null(), "the scene went back as ONE Ctrl+Z step: Undo brings the coin back");
+        at_check(!world().find("RevertCoin").is_null(),
+                 "the scene went back as ONE Ctrl+Z step: Undo brings the coin back");
         redo();
         at_check(world().find("RevertCoin").is_null(), "...and Redo takes it away again");
     });
@@ -292,7 +307,8 @@ void Editor::at_section_P(AtScript& at) {
     step(4, [this] { at_check(at_visible("ai:revert:confirm"), "Undo revert asks first too"); });
     click("ai:revert:confirm");
     step(6, [this, project_file] {
-        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" && stdfs::exists(project_file("scripts/revert_new.js")),
+        at_check(read_file(project_file("scripts/revert_old.js")) == "new\n" &&
+                     stdfs::exists(project_file("scripts/revert_new.js")),
                  "Undo revert brings the run's files back");
         at_check(!world().find("RevertCoin").is_null(), "...and the run's scene");
         at_check(at_visible("ai:revert"), "...and the run can be reverted again");
@@ -376,8 +392,11 @@ void Editor::at_section_Q(AtScript& at) {
         if (atQFake_.empty()) return;
         const ChatItem* check = nullptr;
         for (const ChatItem& c : chat())
-            if ((c.kind == ChatItem::Kind::Info || c.kind == ChatItem::Kind::Error) && c.text.rfind("Activity check:", 0) == 0) check = &c;
-        at_check(check && check->text.find("Process:") != std::string::npos && check->text.find("Last event:") != std::string::npos,
+            if ((c.kind == ChatItem::Kind::Info || c.kind == ChatItem::Kind::Error) &&
+                c.text.rfind("Activity check:", 0) == 0)
+                check = &c;
+        at_check(check && check->text.find("Process:") != std::string::npos &&
+                     check->text.find("Last event:") != std::string::npos,
                  "Check activity writes a verdict with what it saw in the chat");
         at_check(!at_visible("ai:stuck"), "...and quiets the warning");
     });
@@ -425,11 +444,14 @@ void Editor::at_section_Q(AtScript& at) {
         if (atQFake_.empty()) return;
         {
             const AiRun* r = ai_run_of(chat_.current().id);
-            at_check(ai_running() && r && !r->running.load(), "the orchestrator's turn ended and the run goes on for the worker");
+            at_check(ai_running() && r && !r->running.load(),
+                     "the orchestrator's turn ended and the run goes on for the worker");
         }
         at_check(at_visible("ai:detached"), "the panel says a worker is still running");
         bool live = false;
-        for (const ChatItem& c : chat()) live = live || (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Making the coin") != std::string::npos);
+        for (const ChatItem& c : chat())
+            live = live || (c.kind == ChatItem::Kind::Assistant && c.depth == 1 &&
+                            c.text.find("Making the coin") != std::string::npos);
         at_check(live, "the worker's progress is in the chat while it runs, one level in");
         play();
         at_check(play_state() == PlayState::Edit, "Play waits for the worker");
@@ -445,18 +467,24 @@ void Editor::at_section_Q(AtScript& at) {
         at_check(!ai_running() && !ai_busy(), "the run ended after the continuation");
         int reports = 0, continued = 0;
         for (const ChatItem& c : chat()) {
-            if (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Worker report: coin done") != std::string::npos) ++reports;
-            if (c.kind == ChatItem::Kind::Info && c.text.find("continuing the orchestrator") != std::string::npos) ++continued;
+            if (c.kind == ChatItem::Kind::Assistant && c.depth == 1 &&
+                c.text.find("Worker report: coin done") != std::string::npos)
+                ++reports;
+            if (c.kind == ChatItem::Kind::Info && c.text.find("continuing the orchestrator") != std::string::npos)
+                ++continued;
         }
         at_check(reports == 1, "the worker's report is in the chat once");
         at_check(continued == 1, "the transcript says the orchestrator was continued");
         const std::string argv = read_file(atQArgv_);
         std::size_t stdins = 0, resumes = 0;
         for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
-        for (std::size_t at = argv.find("--resume"); at != std::string::npos; at = argv.find("--resume", at + 1)) ++resumes;
-        at_check(stdins == 2, "the orchestrator ran twice: its first turn and one continuation (" + std::to_string(stdins) + ")");
+        for (std::size_t at = argv.find("--resume"); at != std::string::npos; at = argv.find("--resume", at + 1))
+            ++resumes;
+        at_check(stdins == 2,
+                 "the orchestrator ran twice: its first turn and one continuation (" + std::to_string(stdins) + ")");
         at_check(resumes == 1, "the continuation resumed the same Claude Code session");
-        at_check(argv.find("Worker report: coin done") != std::string::npos, "the continuation carried the worker's report");
+        at_check(argv.find("Worker report: coin done") != std::string::npos,
+                 "the continuation carried the worker's report");
         // (3) Stop while the worker runs.
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
@@ -485,7 +513,8 @@ void Editor::at_section_Q(AtScript& at) {
         for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
         at_check(stdins == 1, "...and no continuation is sent");
         bool continued = false;
-        for (const ChatItem& c : chat()) continued = continued || c.text.find("continuing the orchestrator") != std::string::npos;
+        for (const ChatItem& c : chat())
+            continued = continued || c.text.find("continuing the orchestrator") != std::string::npos;
         at_check(!continued, "...and the transcript does not claim one");
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
@@ -506,7 +535,8 @@ void Editor::at_section_R(AtScript& at) {
     // The program is replaced on disk without the updater: a non-blocking notice offers Restart / Not now. The watch looks at a
     // fake program (two fingerprints written into files), so nothing real is replaced and Restart only records the click.
     {
-        auto fake_program = [](const std::string& path, const std::string& version, const std::string& fingerprint, std::size_t pad) {
+        auto fake_program = [](const std::string& path, const std::string& version, const std::string& fingerprint,
+                               std::size_t pad) {
             std::string bytes = "MZ fake program " + std::string(pad, '.');
             bytes += std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";";
             bytes += std::string("FA-ENGINE-") + "VERSION:" + version + ";";
@@ -527,25 +557,31 @@ void Editor::at_section_R(AtScript& at) {
             at_check(status.value("state", "") == "current" && status.value("restartDue", true) == false,
                      "engine.update_status says current: " + status.dump());
         });
-        step(2, [this, fake_program] {  // the new files arrive (a different size, so a different stamp even within one second)
-            fake_program(atOutDir_ + "/fake_factoria", "0.2.0", "bbbbbbbbbbbb", 400);
-            diskPollNow_ = true;
-            atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return at_visible("update:disk"); };  // seen twice alike (a second), then identified
-        });
+        step(2,
+             [this,
+              fake_program] {  // the new files arrive (a different size, so a different stamp even within one second)
+                 fake_program(atOutDir_ + "/fake_factoria", "0.2.0", "bbbbbbbbbbbb", 400);
+                 diskPollNow_ = true;
+                 atWaitCount_ = 0;
+                 atWaitUntil_ = [this] {
+                     return at_visible("update:disk");
+                 };  // seen twice alike (a second), then identified
+             });
         step(3, [this] {
             at_check(at_visible("update:disk"), "the notice appears when the program changed on disk");
             at_check(at_enabled("update:restart") && at_visible("update:disknotnow"), "...with Restart and Not now");
             Json status = update_status_json(disk_watch());
             at_check(status.value("state", "") == "updated_on_disk" && status.value("restartDue", false) &&
-                         status["onDisk"].value("version", "") == "0.2.0" && status["editor"].value("noticeShown", false),
+                         status["onDisk"].value("version", "") == "0.2.0" &&
+                         status["editor"].value("noticeShown", false),
                      "engine.update_status says an update is on disk and the notice is showing: " + status.dump());
             // A play session is not stopped silently: Restart is off, with the reason.
             play();
         });
         step(3, [this] {
             at_check(play_state() != PlayState::Edit, "a play session runs");
-            at_check(!at_enabled("update:restart") && !disk_restart_blocker().empty(), "Restart is off while a play session runs (" + disk_restart_blocker() + ")");
+            at_check(!at_enabled("update:restart") && !disk_restart_blocker().empty(),
+                     "Restart is off while a play session runs (" + disk_restart_blocker() + ")");
         });
         snap("editor_update_disk.png");
         step(2, [this] {
@@ -567,7 +603,8 @@ void Editor::at_section_R(AtScript& at) {
             atWaitUntil_ = [this] { return at_visible("update:disk"); };
         });
         step(3, [this] {
-            at_check(at_visible("update:disk") && disk_watch().on_disk().version == "0.3.0", "...and comes back when the file changes again");
+            at_check(at_visible("update:disk") && disk_watch().on_disk().version == "0.3.0",
+                     "...and comes back when the file changes again");
         });
         click("update:restart");
         step(3, [this] {
@@ -600,17 +637,22 @@ void Editor::at_section_U(AtScript& at) {
                 open_project(dir);
             }
             atWaitCount_ = 0;
-            atWaitUntil_ = [this, u0, viaWelcome] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && uiFrame_ >= u0 + 8 + (viaWelcome ? 10 : 0); };
+            atWaitUntil_ = [this, u0, viaWelcome] {
+                return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 &&
+                       uiFrame_ >= u0 + 8 + (viaWelcome ? 10 : 0);
+            };
         };
         step(2, [this, reopen_wait] {
             atIniSaved_ = iniPath_;
             iniPath_ = atOutDir_ + "/layout_test.ini";
             std::error_code ec;
             stdfs::remove(iniPath_, ec);
-            reopen_wait(false);  // no layout file yet: the default layout, and the file is written when the UI goes down
+            reopen_wait(
+                false);  // no layout file yet: the default layout, and the file is written when the UI goes down
         });
         step(2, [this] {
-            at_check(!panel_floating("Console") && panel_node("Console") != 0, "no layout file: Console starts docked (the default layout)");
+            at_check(!panel_floating("Console") && panel_node("Console") != 0,
+                     "no layout file: Console starts docked (the default layout)");
             at_check(panel_node("Project") == panel_node("Console"), "...in the same dock as Project");
             at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project is not with the Hierarchy");
             // The user's changes: Console floats, Project joins the Hierarchy and the left column gets wider.
@@ -619,12 +661,15 @@ void Editor::at_section_U(AtScript& at) {
             ImGui::DockContextQueueUndockWindow(&g, console);
             ImGuiWindow* hier = panel_window("Hierarchy");
             if (hier && hier->DockNode && panel_window("Project"))
-                ImGui::DockContextQueueDock(&g, hier->DockNode->HostWindow, hier->DockNode, panel_window("Project"), ImGuiDir_None, 0.0f, false);
+                ImGui::DockContextQueueDock(&g, hier->DockNode->HostWindow, hier->DockNode, panel_window("Project"),
+                                            ImGuiDir_None, 0.0f, false);
             if (hier && hier->DockNode) {
                 ImGuiDockNode* col = hier->DockNode->ParentNode;
                 while (col && col->ParentNode && col->ParentNode->SplitAxis != ImGuiAxis_X) col = col->ParentNode;
-                if (col && col->ParentNode) {  // the node of the left column inside the X split: take 200 px from its sibling
-                    ImGuiDockNode* sib = col->ParentNode->ChildNodes[0] == col ? col->ParentNode->ChildNodes[1] : col->ParentNode->ChildNodes[0];
+                if (col &&
+                    col->ParentNode) {  // the node of the left column inside the X split: take 200 px from its sibling
+                    ImGuiDockNode* sib = col->ParentNode->ChildNodes[0] == col ? col->ParentNode->ChildNodes[1]
+                                                                               : col->ParentNode->ChildNodes[0];
                     col->SizeRef.x += 200;
                     if (sib) sib->SizeRef.x = std::max(100.0f, sib->SizeRef.x - 200);
                 }
@@ -639,27 +684,37 @@ void Editor::at_section_U(AtScript& at) {
         });
         step(6, [this] {
             at_check(panel_floating("Console"), "the test floated Console");
-            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "the test moved Project next to the Hierarchy");
-            at_check(panel_width("Hierarchy") > atLayoutWidth_ + 100, "the test made the left column wider (" + std::to_string(atLayoutWidth_) + " -> " +
-                                                                        std::to_string(panel_width("Hierarchy")) + ")");
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0,
+                     "the test moved Project next to the Hierarchy");
+            at_check(panel_width("Hierarchy") > atLayoutWidth_ + 100,
+                     "the test made the left column wider (" + std::to_string(atLayoutWidth_) + " -> " +
+                         std::to_string(panel_width("Hierarchy")) + ")");
             atLayoutWidth_ = panel_width("Hierarchy");
         });
         step(2, [reopen_wait] { reopen_wait(false); });
         auto check_changed_layout = [this](const std::string& when) {
-            at_check(!showFeedback_ && showAudio_ && showConsole_, "the closed panel (Engine Feedback) is still closed and the opened one (Audio) still open " + when);
+            at_check(!showFeedback_ && showAudio_ && showConsole_,
+                     "the closed panel (Engine Feedback) is still closed and the opened one (Audio) still open " +
+                         when);
             at_check(panel_floating("Console"), "Console is still floating " + when);
             const ImGuiWindow* c = panel_window("Console");
-            at_check(c && std::fabs(c->Size.x - 420) < 3 && std::fabs(c->Size.y - 210) < 3, "...with the size the user gave it " + when);
-            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "Project is still next to the Hierarchy " + when);
+            at_check(c && std::fabs(c->Size.x - 420) < 3 && std::fabs(c->Size.y - 210) < 3,
+                     "...with the size the user gave it " + when);
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0,
+                     "Project is still next to the Hierarchy " + when);
             at_check(std::fabs(panel_width("Hierarchy") - atLayoutWidth_) < 6,
-                     "the left column keeps its width " + when + " (" + std::to_string(panel_width("Hierarchy")) + " vs " + std::to_string(atLayoutWidth_) + ")");
+                     "the left column keeps its width " + when + " (" + std::to_string(panel_width("Hierarchy")) +
+                         " vs " + std::to_string(atLayoutWidth_) + ")");
         };
         step(2, [check_changed_layout] { check_changed_layout("after the project is opened again"); });
-        step(2, [reopen_wait] { reopen_wait(true); });  // through the welcome screen: its context must not wipe the dock data
+        step(2, [reopen_wait] {
+            reopen_wait(true);
+        });  // through the welcome screen: its context must not wipe the dock data
         step(2, [check_changed_layout] { check_changed_layout("after a visit to the welcome screen"); });
         step(2, [this] { resetLayout_ = true; });
         step(4, [this] {
-            at_check(!panel_floating("Console") && panel_node("Console") == panel_node("Project"), "Reset layout puts Console back in the bottom dock");
+            at_check(!panel_floating("Console") && panel_node("Console") == panel_node("Project"),
+                     "Reset layout puts Console back in the bottom dock");
             at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project away from the Hierarchy");
             at_check(showFeedback_ && !showAudio_, "...and the panels that are open by default again");
         });
@@ -702,7 +757,8 @@ void Editor::at_section_V(AtScript& at) {
         focus_window("AI Assistant");
     });
     step(3, [this] {
-        at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
+        at_check(at_visible("ai:review:game") && at_visible("ai:review:art"),
+                 "the AI Assistant has an Art critique and a Game review button");
         at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
     });
     click("menu:ai");
@@ -743,12 +799,14 @@ void Editor::at_section_V(AtScript& at) {
     step(4, [this] {
         at_check(!aiReview_.active && !ai_running(), "the review finished");
         const auto saved = ai::list_reviews(projectDir_);
-        at_check(saved.size() == 1 && saved[0].role == ai::kRoleReviewer && saved[0].score == 7.5 && saved[0].persona == "all-rounder",
+        at_check(saved.size() == 1 && saved[0].role == ai::kRoleReviewer && saved[0].score == 7.5 &&
+                     saved[0].persona == "all-rounder",
                  "the report was saved with its score and persona (" + std::to_string(saved.size()) + " review(s))");
         at_check(saved.size() == 1 && stdfs::exists(saved[0].path) && saved[0].subScores.size() == 2 &&
                      saved[0].text.find("```") == std::string::npos,
                  "...with its sub-scores and the text without the score block");
-        const bool hasLook = std::ranges::find(g_reviewToolsOffered, "scene_list_entities") != g_reviewToolsOffered.end();
+        const bool hasLook =
+            std::ranges::find(g_reviewToolsOffered, "scene_list_entities") != g_reviewToolsOffered.end();
         bool hasEdit = false;
         for (const char* t : {"scene_spawn", "fs_write", "scene_set_component", "ai_run", "agent_delegate"})
             hasEdit = hasEdit || std::ranges::find(g_reviewToolsOffered, t) != g_reviewToolsOffered.end();
@@ -770,7 +828,8 @@ void Editor::at_section_V(AtScript& at) {
         const AiChat& cur = chat_.current();
         bool sent = false;
         for (const ChatItem& c : cur.items)
-            sent = sent || (c.kind == ChatItem::Kind::User && c.role != "review" && c.text.find("7.5") != std::string::npos);
+            sent = sent ||
+                   (c.kind == ChatItem::Kind::User && c.role != "review" && c.text.find("7.5") != std::string::npos);
         at_check(sent, "Send to orchestrator posts the report as a user message into an orchestrator chat");
         at_check(chat_.tabs.size() >= 2, "...in a new tab, because the active one was the review's own");
         std::error_code ec;
@@ -811,7 +870,9 @@ void Editor::at_section_W(AtScript& at) {
         auto info_warnings = [](const AiChat* c) {
             int n = 0;
             for (const ChatItem& it : c->items)
-                n += it.kind == ChatItem::Kind::Info && it.isError && it.text.find("also changed") != std::string::npos ? 1 : 0;
+                n += it.kind == ChatItem::Kind::Info && it.isError && it.text.find("also changed") != std::string::npos
+                         ? 1
+                         : 0;
             return n;
         };
         auto said = [](const AiChat* c, const std::string& text) {
@@ -826,7 +887,8 @@ void Editor::at_section_W(AtScript& at) {
         step(2, [this, v, project_file, reset_chats] {
             write_file(project_file("scripts/u_shared.js"), "old\n");
             std::error_code ec;
-            for (const char* f : {"scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js", "scripts/u_s.js"}) stdfs::remove(project_file(f), ec);
+            for (const char* f : {"scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js", "scripts/u_s.js"})
+                stdfs::remove(project_file(f), ec);
             aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
                 return std::shared_ptr<ai::ChatProvider>(std::make_shared<ConcurrentProvider>());
             };
@@ -852,9 +914,11 @@ void Editor::at_section_W(AtScript& at) {
             aiTabForce_ = 2;
         });
         step(3, [this, v] {
-            at_check(ai_run_count() == 2 && ai_chat_running(v->a) && ai_chat_running(v->b), "two chats run at the same time");
-            at_check(!ai_chat_running(v->c) && chat_.find(v->c) && chat_.find(v->c)->items.empty(),
-                     "a third chat is held back by limits.maxConcurrentRuns (it did not start, its message was not sent)");
+            at_check(ai_run_count() == 2 && ai_chat_running(v->a) && ai_chat_running(v->b),
+                     "two chats run at the same time");
+            at_check(
+                !ai_chat_running(v->c) && chat_.find(v->c) && chat_.find(v->c)->items.empty(),
+                "a third chat is held back by limits.maxConcurrentRuns (it did not start, its message was not sent)");
             play();
             at_check(play_state() == PlayState::Edit, "Play waits while the assistant edits");
             const std::string note = ai_editing_note();
@@ -877,8 +941,8 @@ void Editor::at_section_W(AtScript& at) {
                      "each chat has its own run's answer");
             at_check(a->usage.inputTokens > 0 && b->usage.inputTokens > 0, "each chat counted its own tokens");
             at_check(info_warnings(a) >= 1 && info_warnings(b) >= 1,
-                     "each chat is warned that the other changed the same file (" + std::to_string(info_warnings(a)) + ", " +
-                         std::to_string(info_warnings(b)) + ")");
+                     "each chat is warned that the other changed the same file (" + std::to_string(info_warnings(a)) +
+                         ", " + std::to_string(info_warnings(b)) + ")");
             auto names = [&](const AiChat* c, const char* other, const char* file) {
                 bool named = false, file_listed = false;
                 for (const ChatItem& it : c->items) {
@@ -896,12 +960,17 @@ void Editor::at_section_W(AtScript& at) {
                 if (it.kind == ChatItem::Kind::Run) ra = &it;
             for (const ChatItem& it : b->items)
                 if (it.kind == ChatItem::Kind::Run) rb = &it;
-            auto has = [](const std::vector<std::string>& list, const char* f) { return std::ranges::find(list, f) != list.end(); };
+            auto has = [](const std::vector<std::string>& list, const char* f) {
+                return std::ranges::find(list, f) != list.end();
+            };
             at_check(ra && rb && has(ra->added, "scripts/u_a.js") && has(ra->modified, "scripts/u_shared.js") &&
-                         !has(ra->added, "scripts/u_b.js") && has(rb->added, "scripts/u_b.js") && !has(rb->added, "scripts/u_a.js"),
+                         !has(ra->added, "scripts/u_b.js") && has(rb->added, "scripts/u_b.js") &&
+                         !has(rb->added, "scripts/u_a.js"),
                      "each Run item lists its own files, not the other chat's");
-            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(), "both runs' coins are in the scene");
-            at_check(!read_file(project_file("scripts/u_a.js")).empty() && !read_file(project_file("scripts/u_b.js")).empty(),
+            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(),
+                     "both runs' coins are in the scene");
+            at_check(!read_file(project_file("scripts/u_a.js")).empty() &&
+                         !read_file(project_file("scripts/u_b.js")).empty(),
                      "both runs' files are on disk");
             chat_.select(chat_.index_of(v->a));
             aiTabForce_ = 2;
@@ -917,7 +986,8 @@ void Editor::at_section_W(AtScript& at) {
         step(6, [this, v, project_file] {
             at_check(!stdfs::exists(project_file("scripts/u_a.js")), "Revert of A removes the file only A added");
             at_check(stdfs::exists(project_file("scripts/u_b.js")), "...and leaves the file B added");
-            at_check(read_file(project_file("scripts/u_shared.js")) != "old\n", "...and the file both changed stays as it is now");
+            at_check(read_file(project_file("scripts/u_shared.js")) != "old\n",
+                     "...and the file both changed stays as it is now");
             at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(),
                      "...and the scene stays too, since B edited it as well");
             const AiChat* a = chat_.find(v->a);
@@ -955,12 +1025,14 @@ void Editor::at_section_W(AtScript& at) {
         });
         step(3, [this, v, project_file, info_warnings, said] {
             const AiChat* b = chat_.find(v->b);
-            at_check(b && said(b, "Finished L") && info_warnings(b) == 0, "the other run finished with its own result and no false warning");
+            at_check(b && said(b, "Finished L") && info_warnings(b) == 0,
+                     "the other run finished with its own result and no false warning");
             at_check(read_file(project_file("scripts/u_l.js")) == "only L\n", "...and its file is on disk");
             at_check(!stdfs::exists(project_file("scripts/u_s.js")), "the stopped run wrote nothing");
             at_check(!ai_running() && !ai_busy(), "no run is left");
             std::error_code ec;
-            for (const char* f : {"scripts/u_shared.js", "scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js"}) stdfs::remove(project_file(f), ec);
+            for (const char* f : {"scripts/u_shared.js", "scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js"})
+                stdfs::remove(project_file(f), ec);
             aiFactory_ = nullptr;
             if (atSavedConfig_) {
                 std::lock_guard<std::mutex> lock(aiMu_);

@@ -16,7 +16,8 @@ namespace {
 std::vector<ValidationIssue> inline_copy_warnings(const ValidationReport& r) {
     std::vector<ValidationIssue> out;
     for (const ValidationIssue& i : r.warnings)
-        if (i.message.find("inline") != std::string::npos || i.message.find("prefab's own values") != std::string::npos) out.push_back(i);
+        if (i.message.find("inline") != std::string::npos || i.message.find("prefab's own values") != std::string::npos)
+            out.push_back(i);
     return out;
 }
 }  // namespace
@@ -34,7 +35,8 @@ TEST_CASE("validate: an inline copy of a prefab warns, an instance and an unlike
     auto& ents = (*scene)["entities"];
     ents.push_back(Json::parse(R"({"id":"copy","name":"Coin","components":{"Transform":{"position":[5,0,0]},
         "Shape2D":{"shape":"circle","size":[20,20],"color":"gold"},"Collider2D":{"shape":"circle","size":[20,20]}}})"));
-    ents.push_back(Json::parse(R"({"id":"inst","prefab":"prefabs/coin.prefab.json","components":{"Transform":{"position":[9,0,0]}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"inst","prefab":"prefabs/coin.prefab.json","components":{"Transform":{"position":[9,0,0]}}})"));
     ents.push_back(Json::parse(R"({"id":"other","name":"Coin","components":{"Transform":{},
         "Shape2D":{"shape":"rect","size":[300,10],"color":"red"},"Collider2D":{"shape":"box","size":[300,10],"isTrigger":true}}})"));
     REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
@@ -79,7 +81,8 @@ const char* kCoinCopy = R"({"name":"Coin","components":{"Transform":{"position":
     "Shape2D":{"shape":"circle","size":[20,20],"color":"gold"},"Collider2D":{"shape":"circle","size":[20,20]}}})";
 }  // namespace
 
-TEST_CASE("validate: copies without an id, with a duplicate id or inside children are found; a broken prefab does not abort") {
+TEST_CASE("validate: copies without an id, with a duplicate id or inside children are found; a broken prefab does not "
+          "abort") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const stdfs::path dir = tmp.path / "game";
@@ -94,7 +97,8 @@ TEST_CASE("validate: copies without an id, with a duplicate id or inside childre
     Json dupA = Json::parse(kCoinCopy), dupB = Json::parse(kCoinCopy);
     dupA["id"] = "twin";
     dupB["id"] = "twin";
-    dupB["components"]["Shape2D"] = Json::parse(R"({"shape":"rect","size":[300,10],"color":"red"})");  // not a copy (3 differences)
+    dupB["components"]["Shape2D"] =
+        Json::parse(R"({"shape":"rect","size":[300,10],"color":"red"})");  // not a copy (3 differences)
     ents.push_back(noId);
     ents.push_back(dupA);
     ents.push_back(dupB);
@@ -124,7 +128,8 @@ TEST_CASE("validate: many inline copies list the first five and count the rest; 
     const stdfs::path dir = tmp.path / "game";
     stdfs::create_directories(dir / "prefabs");
     REQUIRE(save_scene_json_file((dir / "prefabs/coin.prefab.json").string(), Json::parse(kCoinPrefab)).ok());
-    Json holder = Json::parse(R"({"format":"factoria.prefab/1","entity":{"name":"Holder","components":{"Transform":{}},"children":[]}})");
+    Json holder = Json::parse(
+        R"({"format":"factoria.prefab/1","entity":{"name":"Holder","components":{"Transform":{}},"children":[]}})");
     Json part = Json::parse(kCoinCopy);
     part["id"] = "part";
     holder["entity"]["children"].push_back(part);
@@ -161,13 +166,16 @@ TEST_CASE("validate: whether a part's id is named elsewhere is decided per scene
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const stdfs::path dir = tmp.path / "game";
     stdfs::create_directories(dir / "prefabs");
-    Json prefab = Json::parse(R"({"format":"factoria.prefab/1","entity":{"name":"Panel","components":{"Sprite":{"layer":1}},
+    Json prefab =
+        Json::parse(R"({"format":"factoria.prefab/1","entity":{"name":"Panel","components":{"Sprite":{"layer":1}},
         "children":[{"id":"title","name":"Title","components":{"Text":{"text":"Hello"}}}]}})");
     REQUIRE(save_scene_json_file((dir / "prefabs/panel.prefab.json").string(), prefab).ok());
     const auto write_scene = [&](const char* name, bool referenced) {
-        Json s = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"p","name":"Panel","components":{"Sprite":{"layer":1}},
+        Json s = Json::parse(
+            R"({"format":"factoria.scene/1","entities":[{"id":"p","name":"Panel","components":{"Sprite":{"layer":1}},
             "children":[{"id":"title_2","name":"Title","components":{"Text":{"text":"Hello"}}}]}]})");
-        if (referenced) s["entities"].push_back(Json::parse(R"({"id":"label","components":{"Text":{"text":"title_2"}}})"));
+        if (referenced)
+            s["entities"].push_back(Json::parse(R"({"id":"label","components":{"Text":{"text":"title_2"}}})"));
         REQUIRE(save_scene_json_file((dir / "scenes" / name).string(), s).ok());
     };
     write_scene("a_ref.scene.json", true);

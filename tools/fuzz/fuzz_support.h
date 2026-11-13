@@ -34,7 +34,8 @@ inline void quiet() { set_log_format(LogFormat::None); }
 // those older than a day: another fuzz process running now (a parallel ctest, a libFuzzer job) is never touched.
 inline void remove_stale_projects(const std::filesystem::path& parent) {
     std::error_code ec;
-    const std::filesystem::path prefix(u8"fa_fuzz_");  // compared as native text: no round trip through the ANSI code page
+    const std::filesystem::path prefix(
+        u8"fa_fuzz_");  // compared as native text: no round trip through the ANSI code page
     const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
     for (std::filesystem::directory_iterator it(parent, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code entryEc;

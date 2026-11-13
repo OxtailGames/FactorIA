@@ -30,7 +30,9 @@ void init_slots() {
 }
 
 bool button(const EmscriptenGamepadEvent& pad, int i) { return i < pad.numButtons && pad.digitalButton[i]; }
-float analog(const EmscriptenGamepadEvent& pad, int i) { return i < pad.numButtons ? float(pad.analogButton[i]) : 0.0f; }
+float analog(const EmscriptenGamepadEvent& pad, int i) {
+    return i < pad.numButtons ? float(pad.analogButton[i]) : 0.0f;
+}
 float axis(const EmscriptenGamepadEvent& pad, int i) { return i < pad.numAxes ? float(pad.axis[i]) : 0.0f; }
 
 // The browser's Gamepad.id is "Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)" in Chrome and
@@ -44,7 +46,10 @@ GamepadInfo info_of(const EmscriptenGamepadEvent& pad) {
         unsigned v = 0;
         for (size_t i = at; i < at + 4; ++i) {
             const char c = s[i];
-            const int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+            const int d = c >= '0' && c <= '9'   ? c - '0'
+                          : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                          : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                                 : -1;
             if (d < 0) return false;
             v = v * 16 + unsigned(d);
         }
@@ -58,7 +63,8 @@ GamepadInfo info_of(const EmscriptenGamepadEvent& pad) {
         hex4(raw, v + 8, info.vendor);
         hex4(raw, p + 9, info.product);
         info.name = raw.substr(0, raw.find(" ("));
-    } else if (raw.size() > 10 && raw[4] == '-' && raw[9] == '-' && hex4(raw, 0, info.vendor) && hex4(raw, 5, info.product)) {
+    } else if (raw.size() > 10 && raw[4] == '-' && raw[9] == '-' && hex4(raw, 0, info.vendor) &&
+               hex4(raw, 5, info.product)) {
         info.name = raw.substr(10);
     }
     info.type = gamepad_type_from_ids(info.vendor, raw);
@@ -69,11 +75,23 @@ GamepadInfo info_of(const EmscriptenGamepadEvent& pad) {
 void feed(Input& in, int slot, const EmscriptenGamepadEvent& pad) {
     in.set_gamepad_info(slot, info_of(pad));
     in.on_gamepad_connected(slot, true);
-    constexpr GamepadButton kButtons[] = {
-        GamepadButton::A, GamepadButton::B, GamepadButton::X, GamepadButton::Y, GamepadButton::LeftShoulder,
-        GamepadButton::RightShoulder, GamepadButton::Count /* 6: left trigger */, GamepadButton::Count /* 7: right trigger */,
-        GamepadButton::Back, GamepadButton::Start, GamepadButton::LeftThumb, GamepadButton::RightThumb, GamepadButton::DpadUp,
-        GamepadButton::DpadDown, GamepadButton::DpadLeft, GamepadButton::DpadRight, GamepadButton::Guide};
+    constexpr GamepadButton kButtons[] = {GamepadButton::A,
+                                          GamepadButton::B,
+                                          GamepadButton::X,
+                                          GamepadButton::Y,
+                                          GamepadButton::LeftShoulder,
+                                          GamepadButton::RightShoulder,
+                                          GamepadButton::Count /* 6: left trigger */,
+                                          GamepadButton::Count /* 7: right trigger */,
+                                          GamepadButton::Back,
+                                          GamepadButton::Start,
+                                          GamepadButton::LeftThumb,
+                                          GamepadButton::RightThumb,
+                                          GamepadButton::DpadUp,
+                                          GamepadButton::DpadDown,
+                                          GamepadButton::DpadLeft,
+                                          GamepadButton::DpadRight,
+                                          GamepadButton::Guide};
     for (int i = 0; i < int(sizeof(kButtons) / sizeof(kButtons[0])); ++i)
         if (kButtons[i] != GamepadButton::Count) in.on_gamepad_button(slot, kButtons[i], button(pad, i));
     in.on_gamepad_axis(slot, GamepadAxis::LeftX, axis(pad, 0));
@@ -91,7 +109,8 @@ void poll_gamepads(Input& in) {
     if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
         if (!g_unsupportedLogged) {
             g_unsupportedLogged = true;
-            FA_INFO("gamepad", "this browser has no Gamepad API: gamepads are not available (keyboard, mouse and touch work)");
+            FA_INFO("gamepad",
+                    "this browser has no Gamepad API: gamepads are not available (keyboard, mouse and touch work)");
         }
         return;
     }
@@ -119,14 +138,18 @@ void poll_gamepads(Input& in) {
         bool occupied[kMaxGamepads];
         for (int s = 0; s < kMaxGamepads; ++s) occupied[s] = g_slotOf[s] >= 0;
         const int free = in.choose_gamepad_slot(info_of(pads[b]).id, occupied);  // its old slot when that is free
-        if (free < 0) break;  // four pads already
+        if (free < 0) break;                                                     // four pads already
         g_slotOf[free] = b;
         FA_INFO("gamepad", "pad {} connected: {}{}", free, pads[b].id,
-                std::strcmp(pads[b].mapping, "standard") == 0 ? "" : " (not the browser's standard layout: buttons may be misplaced)");
+                std::strcmp(pads[b].mapping, "standard") == 0
+                    ? ""
+                    : " (not the browser's standard layout: buttons may be misplaced)");
     }
     for (int s = 0; s < kMaxGamepads; ++s) {
-        if (g_slotOf[s] >= 0) feed(in, s, pads[g_slotOf[s]]);
-        else in.on_gamepad_connected(s, false);
+        if (g_slotOf[s] >= 0)
+            feed(in, s, pads[g_slotOf[s]]);
+        else
+            in.on_gamepad_connected(s, false);
     }
 }
 

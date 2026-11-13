@@ -19,7 +19,7 @@ struct ShapedGlyph {
     std::uint32_t cluster = 0;  // index of the first code point it draws, in the decoded text (decode_text)
     float x = 0, y = 0;         // origin in pixels: x from the left end of the line, y up from the baseline
     float advance = 0;
-    int icon = -1;       // >= 0: not a glyph but the picture icons[icon] of the rich text (face is null), `advance` wide
+    int icon = -1;  // >= 0: not a glyph but the picture icons[icon] of the rich text (face is null), `advance` wide
     bool synth = false;  // draw it emboldened by the engine (no bold face has this character)
 };
 
@@ -48,17 +48,17 @@ ShapedText shape_text(std::string_view text, int px, float maxWidth, std::size_t
 // attr names an icon is shaped as a picture `iconAdvance[icon]` pixels wide (and as tall as the line).
 struct RichShaping {
     const std::vector<MarkupAttr>* attrs = nullptr;
-    std::vector<float> iconAdvance;                 // pixels, by attr.icon
+    std::vector<float> iconAdvance;  // pixels, by attr.icon
     // The face of `font` for a bold and/or italic character, or null when there is none. `boldDrawn` is set when the face
     // returned is drawn bold (otherwise a bold character is emboldened by the engine).
     std::function<FontFace*(FontFace*, bool bold, bool italic, bool& boldDrawn)> variantFace;
-    float syntheticExtra = 0.0f;                    // pixels a character emboldened by the engine is wider
+    float syntheticExtra = 0.0f;  // pixels a character emboldened by the engine is wider
 };
 
 // The same on code points already decoded (decode_text) and read as markup; `rich` may be null.
 ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chain, const RichShaping* rich, WordBreak wordBreak = WordBreak::Auto,
-                      TextDirection direction = TextDirection::Auto);
+                      const std::function<FontFace*(std::size_t)>& chain, const RichShaping* rich,
+                      WordBreak wordBreak = WordBreak::Auto, TextDirection direction = TextDirection::Auto);
 
 // The grapheme cluster each code point of `text` belongs to, counted from 0: a base character with its combining marks,
 // joiners, variation selectors and Hangul jamo, an emoji sequence, a flag and CR LF are one. What Text.visibleCharacters counts.

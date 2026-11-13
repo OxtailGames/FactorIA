@@ -20,7 +20,9 @@ namespace {
 using V = std::vector<std::string>;
 
 V claude_base() { return {"-p", "--model", "m", "--allowedTools", "mcp__factoria"}; }
-V codex_base() { return {"exec", "--json", "-m", "gpt-x", "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/p\"]", "-"}; }
+V codex_base() {
+    return {"exec", "--json", "-m", "gpt-x", "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/p\"]", "-"};
+}
 
 V run_mode(ProviderKind kind, bool builtIn, const std::string& mode, bool readOnly, V argv) {
     apply_permission_mode(kind, builtIn, mode, readOnly, argv);
@@ -64,7 +66,8 @@ TEST_CASE("permissionMode: read, written back, defaults per kind, and the table 
             CHECK(std::string(m.allows).size() > 20);
             hasDefault = hasDefault || default_permission_mode(k) == m.value;
             dangerous += m.dangerous ? 1 : 0;
-            CHECK(m.dangerous == (std::string(m.value) == "bypassPermissions" || std::string(m.value) == "danger-full-access"));
+            CHECK(m.dangerous ==
+                  (std::string(m.value) == "bypassPermissions" || std::string(m.value) == "danger-full-access"));
         }
         CHECK(hasDefault);
         CHECK(dangerous == 1);
@@ -73,7 +76,8 @@ TEST_CASE("permissionMode: read, written back, defaults per kind, and the table 
 }
 
 TEST_CASE("permissionMode: an unknown value or a provider without modes is an error with its JSON pointer and a fix") {
-    auto bad = parse_config(Json::parse(R"({"providers": {"claude-code": {"permissionMode": "acceptEdit"}}})"), "ai.json");
+    auto bad =
+        parse_config(Json::parse(R"({"providers": {"claude-code": {"permissionMode": "acceptEdit"}}})"), "ai.json");
     REQUIRE_FALSE(bad.ok());
     // the schema (checked first) already names the pointer and suggests
     const std::string all = bad.error().message + " " + bad.error().hint;
@@ -86,15 +90,18 @@ TEST_CASE("permissionMode: an unknown value or a provider without modes is an er
     CHECK(wrong.error().message.find("/providers/codex/permissionMode") != std::string::npos);
     CHECK_FALSE(parse_config(Json::parse(R"({"providers": {"codex": {"permissionMode": 3}}})"), "ai.json").ok());
     auto generic = parse_config(
-        Json::parse(R"({"providers": {"mine": {"type": "generic-cli", "command": "x", "permissionMode": "plan"}}})"), "ai.json");
+        Json::parse(R"({"providers": {"mine": {"type": "generic-cli", "command": "x", "permissionMode": "plan"}}})"),
+        "ai.json");
     REQUIRE_FALSE(generic.ok());
     CHECK(generic.error().message.find("/providers/mine/permissionMode") != std::string::npos);
     CHECK(generic.error().message.find("only claude-code and codex") != std::string::npos);
     // the schema rejects it too
-    CHECK_FALSE(validate_config_json(Json::parse(R"({"providers": {"claude-code": {"permissionMode": "everything"}}})")).empty());
+    CHECK_FALSE(validate_config_json(Json::parse(R"({"providers": {"claude-code": {"permissionMode": "everything"}}})"))
+                    .empty());
 }
 
-TEST_CASE("save_provider_permission_mode: writes one key, keeps the rest, refuses a bad value and leaves the file alone") {
+TEST_CASE(
+    "save_provider_permission_mode: writes one key, keeps the rest, refuses a bad value and leaves the file alone") {
     TempDir dir;
     const std::string path = (dir.path / "ai.json").string();
     REQUIRE(fs::write_text(path, R"({"defaultProvider": "claude-code", "inheritEnv": ["AWS_PROFILE"]})").ok());
@@ -141,7 +148,8 @@ TEST_CASE("parse_env_names: '*' alone and any whitespace are refused with a teac
     CHECK(*ok == std::vector<std::string>{"AWS_*", "HOME"});
 }
 
-TEST_CASE("apply_permission_mode: Claude Code gets the mode, the default when none, and a read-only role never runs loose") {
+TEST_CASE(
+    "apply_permission_mode: Claude Code gets the mode, the default when none, and a read-only role never runs loose") {
     // Built-in argv: always one flag; the default is what FactorIA always passed.
     CHECK(run_mode(ProviderKind::ClaudeCode, true, "", false, claude_base()) ==
           V{"-p", "--model", "m", "--allowedTools", "mcp__factoria", "--permission-mode", "acceptEdits"});
@@ -171,7 +179,8 @@ TEST_CASE("apply_permission_mode: Claude Code gets the mode, the default when no
     CHECK(run_mode(ProviderKind::GenericCli, false, "plan", false, claude_base()) == claude_base());
 }
 
-TEST_CASE("apply_permission_mode: Codex gets --sandbox before the stdin marker, none for default, read-only for a read-only role") {
+TEST_CASE("apply_permission_mode: Codex gets --sandbox before the stdin marker, none for default, read-only for a "
+          "read-only role") {
     CHECK(run_mode(ProviderKind::Codex, true, "", false, codex_base()) == codex_base());  // today's argv: no flag
     CHECK(run_mode(ProviderKind::Codex, true, "default", false, codex_base()) == codex_base());
     for (const char* mode : {"read-only", "workspace-write", "danger-full-access"}) {
@@ -206,14 +215,16 @@ TEST_CASE("apply_permission_mode: Codex gets --sandbox before the stdin marker, 
     }
     const V bare = {"exec", "-"};
     CHECK(run_mode(ProviderKind::Codex, false, "", false, bare) == bare);
-    CHECK(run_mode(ProviderKind::Codex, false, "workspace-write", false, bare) == V{"exec", "--sandbox", "workspace-write", "-"});
+    CHECK(run_mode(ProviderKind::Codex, false, "workspace-write", false, bare) ==
+          V{"exec", "--sandbox", "workspace-write", "-"});
 }
 
 #ifndef _WIN32  // the fake CLIs are shell scripts (fake_codex has no .cmd twin)
 TEST_CASE("permission mode reaches the program: the CLI is started with the mode of its provider") {
     TempDir dir, scratch;
     auto argv_of = [&](ProviderConfig cfg, const char* script_name, bool readOnly) {
-        const std::string argvFile = (scratch.path / (std::string(script_name) + std::to_string(readOnly) + ".txt")).string();
+        const std::string argvFile =
+            (scratch.path / (std::string(script_name) + std::to_string(readOnly) + ".txt")).string();
         std::error_code ec;
         std::filesystem::remove(argvFile, ec);
         cfg.command = std::string(FA_AI_FIXTURES) + "/" + script_name;
@@ -245,7 +256,8 @@ TEST_CASE("permission mode reaches the program: the CLI is started with the mode
 }
 #endif
 
-TEST_CASE("saving ai.json waits for the lock of its folder and, when another program keeps it, changes nothing and says why") {
+TEST_CASE("saving ai.json waits for the lock of its folder and, when another program keeps it, changes nothing and "
+          "says why") {
     TempDir dir;
     const std::string path = (dir.path / "ai.json").string();
     REQUIRE(fs::write_text(path, R"({"defaultProvider": "claude-code"})").ok());
@@ -291,5 +303,6 @@ TEST_CASE("saving ai.json waits for the lock of its folder and, when another pro
     REQUIRE(trust_project_ai_settings(extensions_trust_path(path), dir.str(), "abc").ok());
     CHECK(std::filesystem::exists(dir.path / "ai-trust.json"));
     CHECK_FALSE(std::filesystem::exists(dir.path / "ai-config.lock"));
-    CHECK_FALSE(std::filesystem::exists(dir.path / "feedback-share.lock"));  // the feedback sharing's lock is another file
+    CHECK_FALSE(
+        std::filesystem::exists(dir.path / "feedback-share.lock"));  // the feedback sharing's lock is another file
 }

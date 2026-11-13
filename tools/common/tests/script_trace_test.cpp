@@ -40,7 +40,8 @@ Json args(const Json& points, int frames = 10, int maxHits = 20, int depth = 1) 
 TEST_CASE("script.trace: a hit at player.js:17 records the function, the stack, the locals and a watch") {
     Platformer p;
     CHECK(p.reg.has("script.trace"));
-    CommandResult r = p.trace(args(Json::array({point(17, Json::object({{"watch", Json::array({"this.speed", "dt", "nope.x"})}}))}), 10));
+    CommandResult r = p.trace(
+        args(Json::array({point(17, Json::object({{"watch", Json::array({"this.speed", "dt", "nope.x"})}}))}), 10));
     REQUIRE(r.ok);
     const Json& out = r.result;
     CHECK(out["framesRun"] == 10);
@@ -91,7 +92,8 @@ TEST_CASE("script.trace: a condition filters, a logpoint writes logs and records
     REQUIRE(some.ok);
     CHECK(some.result["hits"].size() == 4);
 
-    CommandResult logp = p.trace(args(Json::array({point(17, Json::object({{"log", "speed={this.speed} jump={this.jumpSpeed}"}}))}), 3));
+    CommandResult logp =
+        p.trace(args(Json::array({point(17, Json::object({{"log", "speed={this.speed} jump={this.jumpSpeed}"}}))}), 3));
     REQUIRE(logp.ok);
     CHECK(logp.result["hits"].empty());
     REQUIRE(logp.result["logs"].size() == 3);
@@ -101,7 +103,8 @@ TEST_CASE("script.trace: a condition filters, a logpoint writes logs and records
     CHECK(logp.result["logs"][2]["frame"] == 2);
 
     // A condition that throws is reported, not swallowed.
-    CommandResult broken = p.trace(args(Json::array({point(17, Json::object({{"condition", "nothing.here > 1"}}))}), 2));
+    CommandResult broken =
+        p.trace(args(Json::array({point(17, Json::object({{"condition", "nothing.here > 1"}}))}), 2));
     REQUIRE(broken.ok);
     CHECK_FALSE(broken.result["errors"].empty());
 }

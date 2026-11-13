@@ -20,8 +20,10 @@ std::string strftime_of(const char* format, const std::tm& tm) {
 std::string one_decimal(double v) {
     const double r = std::round(v * 10.0) / 10.0;
     char buf[32];
-    if (r == std::floor(r)) std::snprintf(buf, sizeof buf, "%d", static_cast<int>(r));
-    else std::snprintf(buf, sizeof buf, "%.1f", r);
+    if (r == std::floor(r))
+        std::snprintf(buf, sizeof buf, "%d", static_cast<int>(r));
+    else
+        std::snprintf(buf, sizeof buf, "%.1f", r);
     return buf;
 }
 
@@ -121,7 +123,8 @@ double RunUsage::cost() const {
     return sum;
 }
 
-void RunUsage::settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage, double& chatCost, bool all) {
+void RunUsage::settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage,
+                                   double& chatCost, bool all) {
     chatUsage += finalUsage;
     chatCost += finalCost;
     runs_.erase("");

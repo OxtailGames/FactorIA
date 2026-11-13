@@ -24,12 +24,14 @@ std::string camera_tags_problem(const Json& value, const char* field) {
     for (std::size_t i = 0; i < value.size(); ++i) {
         const Json& j = value[i];
         if (!j.is_string()) return name + "[" + std::to_string(i) + "] is " + j.dump() + ", not a tag name (a string)";
-        if (j.get<std::string>().empty()) return name + "[" + std::to_string(i) + "] is an empty string, which no entity has as a tag";
+        if (j.get<std::string>().empty())
+            return name + "[" + std::to_string(i) + "] is an empty string, which no entity has as a tag";
     }
     return {};
 }
 
-CameraMask::CameraMask(const Camera& camera) : show_(camera_tag_list(camera.showTags)), hide_(camera_tag_list(camera.hideTags)) {}
+CameraMask::CameraMask(const Camera& camera)
+    : show_(camera_tag_list(camera.showTags)), hide_(camera_tag_list(camera.hideTags)) {}
 
 CameraMask CameraMask::of(const World& world, Entity camera) {
     if (camera == kNullEntity || !world.alive(camera)) return {};

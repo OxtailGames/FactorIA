@@ -61,9 +61,9 @@ double latest_time(const KeySet& keys);
 // ------------------------------------------------------------------------------------------------------------- the rows --
 // The dopesheet groups tracks by part (the track path): "arm_l/hand" is one group with its tracks under it.
 struct TrackGroup {
-    std::string part;                 // the track path as written ("" = the entity that plays the clip)
-    std::string title;                // what the row says: the path, or "(the entity)" for ""
-    std::vector<int> tracks;          // indices in ClipAsset::tracks, in clip order
+    std::string part;         // the track path as written ("" = the entity that plays the clip)
+    std::string title;        // what the row says: the path, or "(the entity)" for ""
+    std::vector<int> tracks;  // indices in ClipAsset::tracks, in clip order
 };
 std::vector<TrackGroup> group_tracks(const ClipAsset& clip);
 // A name that is not in `taken`: base, base2, base3...
@@ -86,14 +86,14 @@ ModelCall set_interp_call(const std::string& clipPath, const KeySet& keys, const
 std::vector<ModelCall> delete_keys_calls(const std::string& clipPath, const ClipAsset& clip, const KeySet& keys);
 // A key set to a bezier tangent: the slope (value units per second) of `channel` (0 for a one-channel track) on the arriving
 // (`in`) or leaving (`out`) side. Other channels keep the tangent they have.
-ModelCall set_tangent_call(const std::string& clipPath, const ClipTrack& track, const ClipKey& key, int trackIndex, int channel,
-                           bool outgoing, float slope);
+ModelCall set_tangent_call(const std::string& clipPath, const ClipTrack& track, const ClipKey& key, int trackIndex,
+                           int channel, bool outgoing, float slope);
 
 // Keys copied with their times relative to the earliest copied key.
 struct ClipboardKey {
-    Json track;      // track_ref_json
+    Json track;  // track_ref_json
     double rel = 0;
-    Json key;        // key_json at t = 0 (the time is set when pasted)
+    Json key;  // key_json at t = 0 (the time is set when pasted)
 };
 struct KeyClipboard {
     std::vector<ClipboardKey> keys;
@@ -109,12 +109,12 @@ KeySet pasted_selection(const ClipAsset& clip, const KeyClipboard& clipboard, do
 // ----------------------------------------------------------------------------------------------------------- record mode --
 // One animatable channel of a part that a gizmo or the Inspector changed.
 struct RecordKey {
-    std::string component;   // "Transform"
-    std::string field;       // as a track names it: "position.x", "rotation.z", "color.a", "visible", "region"
-    Json value;              // the new value (a number for a channel)
-    Json before;             // what the part had
-    std::string base;        // the field without a channel ("position"); equal to `field` for a whole-field value
-    Json wholeValue;         // the whole field after the change ([x, y, z]): what a track that animates the whole field takes
+    std::string component;  // "Transform"
+    std::string field;      // as a track names it: "position.x", "rotation.z", "color.a", "visible", "region"
+    Json value;             // the new value (a number for a channel)
+    Json before;            // what the part had
+    std::string base;       // the field without a channel ("position"); equal to `field` for a whole-field value
+    Json wholeValue;  // the whole field after the change ([x, y, z]): what a track that animates the whole field takes
     Json wholeBefore;
 };
 // The part's path from `owner` down ("" when it is the owner), or nullopt when `part` is not below `owner` or its name finds
@@ -123,7 +123,8 @@ std::optional<std::string> part_path_of(const World& world, Entity owner, Entity
 // What changed in `field` of a component when it goes from `live` to `newValue` (JSON as scene.set_component takes it): one
 // RecordKey per vector channel that differs, one for a whole-field value that differs; empty when nothing changed or the field
 // cannot be animated.
-std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& field, const void* live, const Json& newValue);
+std::vector<RecordKey> record_changes(const TypeInfo& type, const FieldInfo& field, const void* live,
+                                      const Json& newValue);
 // anim.set_keys calls (one per RecordKey) that write the changes as keys at `t`. A key already there keeps its interpolation. A
 // track the clip lacks starts with the old value at t=0 as well, when t is later, so the part stays as it was until the new key.
 std::vector<ModelCall> record_calls(const std::string& clipPath, const ClipAsset& clip, const std::string& part,

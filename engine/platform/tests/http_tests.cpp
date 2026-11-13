@@ -160,7 +160,8 @@ void run_suite(HttpClient& client) {
     SUBCASE("a response that is not UTF-8 reaches the caller as bytes (the runtime sanitizes it)") {
         HttpResponse r = fetch(client, get(server.url("/binary")));
         REQUIRE(r.ok);
-        CHECK(r.body == std::string("a\xFF" "b"));
+        CHECK(r.body == std::string("a\xFF"
+                                    "b"));
     }
 
     SUBCASE("a refused connection is an error with a hint") {
@@ -191,10 +192,12 @@ void run_suite(HttpClient& client) {
             auto p = std::make_shared<std::promise<HttpResponse>>();
             futures.push_back(p->get_future());
             promises.push_back(p);
-            client.send(get(server.url("/status/" + std::to_string(200 + i))), [p](HttpResponse r) { p->set_value(std::move(r)); });
+            client.send(get(server.url("/status/" + std::to_string(200 + i))),
+                        [p](HttpResponse r) { p->set_value(std::move(r)); });
         }
         for (int i = 0; i < 6; ++i) {
-            REQUIRE(futures[static_cast<std::size_t>(i)].wait_for(std::chrono::seconds(30)) == std::future_status::ready);
+            REQUIRE(futures[static_cast<std::size_t>(i)].wait_for(std::chrono::seconds(30)) ==
+                    std::future_status::ready);
             const HttpResponse r = futures[static_cast<std::size_t>(i)].get();
             REQUIRE(r.ok);
             CHECK(r.status == 200 + i);

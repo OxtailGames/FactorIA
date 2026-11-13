@@ -12,20 +12,23 @@ namespace fa {
 
 namespace {
 
-Error problem(const std::string& file, const std::string& pointer, const std::string& message, const std::string& hint) {
+Error problem(const std::string& file, const std::string& pointer, const std::string& message,
+              const std::string& hint) {
     return Error{file + (pointer.empty() ? "" : "#" + pointer) + ": " + message, hint};
 }
 
 bool framework_name(const std::string& s) {
     if (s.empty() || !std::isalpha(static_cast<unsigned char>(s[0]))) return false;
-    return std::all_of(s.begin(), s.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
+    return std::all_of(s.begin(), s.end(),
+                       [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
 }
 
 // com.apple.developer.game-center: letters, digits, dots, dashes, underscores.
 bool entitlement_key(const std::string& s) {
     if (s.empty()) return false;
-    return std::all_of(s.begin(), s.end(),
-                       [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_'; });
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_';
+    });
 }
 
 std::string xml_text(const std::string& s) {
@@ -91,7 +94,8 @@ Result<PluginManifest> parse_plugin_manifest(const std::string& text, const std:
     const Json& root = parsed.value();
     if (!root.is_object())
         return problem(file, "", "a plugin manifest is a JSON object",
-                       "Write {\"frameworks\": [\"StoreKit\"], \"swift\": true, \"entitlements\": {...}, \"xcframeworks\": [...], \"infoPlist\": {...}}; "
+                       "Write {\"frameworks\": [\"StoreKit\"], \"swift\": true, \"entitlements\": {...}, "
+                       "\"xcframeworks\": [...], \"infoPlist\": {...}}; "
                        "every key is optional.");
     static const std::vector<std::string> kKeys = {"frameworks", "swift", "entitlements", "xcframeworks", "infoPlist"};
     PluginManifest out;
@@ -108,10 +112,14 @@ Result<PluginManifest> parse_plugin_manifest(const std::string& text, const std:
                 const Json& f = (*it)[i];
                 const std::string at = pointer + "/" + std::to_string(i);
                 if (!f.is_string() || !framework_name(f.get<std::string>()))
-                    return problem(file, at, "a framework is its name as a string, such as \"StoreKit\" (got " + describe_json_value(f) + ")",
-                                   "Use the name of the system framework without the .framework suffix; letters, digits and underscores.");
+                    return problem(file, at,
+                                   "a framework is its name as a string, such as \"StoreKit\" (got " +
+                                       describe_json_value(f) + ")",
+                                   "Use the name of the system framework without the .framework suffix; letters, "
+                                   "digits and underscores.");
                 const std::string name = f.get<std::string>();
-                if (std::find(out.frameworks.begin(), out.frameworks.end(), name) == out.frameworks.end()) out.frameworks.push_back(name);
+                if (std::find(out.frameworks.begin(), out.frameworks.end(), name) == out.frameworks.end())
+                    out.frameworks.push_back(name);
             }
         } else if (key == "swift") {
             if (!it->is_boolean())
@@ -120,28 +128,36 @@ Result<PluginManifest> parse_plugin_manifest(const std::string& text, const std:
             out.swift = it->get<bool>();
         } else if (key == "xcframeworks") {
             if (!it->is_array())
-                return problem(file, pointer, "xcframeworks is a list of paths of .xcframework folders inside the plugin",
-                               "Write \"xcframeworks\": [\"frameworks/GoogleMobileAds.xcframework\"]: paths relative to the folder of this plugin.json.");
+                return problem(file, pointer,
+                               "xcframeworks is a list of paths of .xcframework folders inside the plugin",
+                               "Write \"xcframeworks\": [\"frameworks/GoogleMobileAds.xcframework\"]: paths relative "
+                               "to the folder of this plugin.json.");
             for (std::size_t i = 0; i < it->size(); ++i) {
                 const Json& f = (*it)[i];
                 const std::string at = pointer + "/" + std::to_string(i);
                 if (!f.is_string() || !xcframework_path(f.get<std::string>()))
                     return problem(file, at,
-                                   "an xcframework is the path of an .xcframework folder inside the plugin, such as \"frameworks/Vendor.xcframework\" (got " +
+                                   "an xcframework is the path of an .xcframework folder inside the plugin, such as "
+                                   "\"frameworks/Vendor.xcframework\" (got " +
                                        describe_json_value(f) + ")",
-                                   "Use a path relative to the folder of this plugin.json, with forward slashes, no '..' and ending in .xcframework.");
+                                   "Use a path relative to the folder of this plugin.json, with forward slashes, no "
+                                   "'..' and ending in .xcframework.");
                 const std::string path = f.get<std::string>();
-                if (std::find(out.xcframeworks.begin(), out.xcframeworks.end(), path) == out.xcframeworks.end()) out.xcframeworks.push_back(path);
+                if (std::find(out.xcframeworks.begin(), out.xcframeworks.end(), path) == out.xcframeworks.end())
+                    out.xcframeworks.push_back(path);
             }
         } else if (key == "infoPlist") {
             if (!it->is_object())
                 return problem(file, pointer, "infoPlist is an object of Info.plist key to value",
-                               "Write \"infoPlist\": {\"SKAdNetworkItems\": [{\"SKAdNetworkIdentifier\": \"cstr6suwn9.skadnetwork\"}]}.");
+                               "Write \"infoPlist\": {\"SKAdNetworkItems\": [{\"SKAdNetworkIdentifier\": "
+                               "\"cstr6suwn9.skadnetwork\"}]}.");
             for (auto e = it->begin(); e != it->end(); ++e) {
                 const std::string at = pointer + "/" + e.key();
                 if (e.key().empty() || !plist_value_ok(e.value()))
-                    return problem(file, at, "the value of an Info.plist entry is text, true/false, a number, or a list or object of those (got " +
-                                                 describe_json_value(e.value()) + ")",
+                    return problem(file, at,
+                                   "the value of an Info.plist entry is text, true/false, a number, or a list or "
+                                   "object of those (got " +
+                                       describe_json_value(e.value()) + ")",
                                    "null has no property-list form: leave the entry out.");
                 out.infoPlist[e.key()] = e.value();
             }
@@ -160,9 +176,12 @@ Result<PluginManifest> parse_plugin_manifest(const std::string& text, const std:
                     ok = std::all_of(v.begin(), v.end(), [](const Json& x) { return x.is_string(); });
                 }
                 if (!ok)
-                    return problem(file, at, "the value of an entitlement is true/false, a whole number, text or a list of text (got " +
-                                                 describe_json_value(v) + ")",
-                                   "Examples: true; \"$(TeamIdentifierPrefix)$(CFBundleIdentifier)\"; [\"group.com.example.game\"].");
+                    return problem(
+                        file, at,
+                        "the value of an entitlement is true/false, a whole number, text or a list of text (got " +
+                            describe_json_value(v) + ")",
+                        "Examples: true; \"$(TeamIdentifierPrefix)$(CFBundleIdentifier)\"; "
+                        "[\"group.com.example.game\"].");
                 out.entitlements[e.key()] = v;
             }
         }
@@ -185,11 +204,13 @@ Result<PluginManifest> merge_plugin_manifests(const std::vector<NamedManifest>& 
     std::map<std::string, std::string> infoOwner;  // Info.plist key -> the plugin that asked for it first
     for (const NamedManifest& n : manifests) {
         for (const std::string& f : n.manifest.frameworks)
-            if (std::find(out.frameworks.begin(), out.frameworks.end(), f) == out.frameworks.end()) out.frameworks.push_back(f);
+            if (std::find(out.frameworks.begin(), out.frameworks.end(), f) == out.frameworks.end())
+                out.frameworks.push_back(f);
         out.swift = out.swift || n.manifest.swift;
         for (const std::string& x : n.manifest.xcframeworks) {
             const std::string path = n.plugin + "/" + x;
-            if (std::find(out.xcframeworks.begin(), out.xcframeworks.end(), path) == out.xcframeworks.end()) out.xcframeworks.push_back(path);
+            if (std::find(out.xcframeworks.begin(), out.xcframeworks.end(), path) == out.xcframeworks.end())
+                out.xcframeworks.push_back(path);
         }
         for (auto it = n.manifest.infoPlist.begin(); it != n.manifest.infoPlist.end(); ++it) {
             auto have = out.infoPlist.find(it.key());
@@ -197,9 +218,10 @@ Result<PluginManifest> merge_plugin_manifests(const std::vector<NamedManifest>& 
                 out.infoPlist[it.key()] = it.value();
                 infoOwner[it.key()] = n.plugin;
             } else if (*have != it.value()) {
-                return Error{"the plugins '" + infoOwner[it.key()] + "' and '" + n.plugin + "' ask for the Info.plist entry " + it.key() +
-                                 " with different values",
-                             "Make both manifests (<plugin>/ios/plugin.json) agree, or drop the entry from the plugin that does not need it."};
+                return Error{"the plugins '" + infoOwner[it.key()] + "' and '" + n.plugin +
+                                 "' ask for the Info.plist entry " + it.key() + " with different values",
+                             "Make both manifests (<plugin>/ios/plugin.json) agree, or drop the entry from the plugin "
+                             "that does not need it."};
             }
         }
         for (auto it = n.manifest.entitlements.begin(); it != n.manifest.entitlements.end(); ++it) {
@@ -208,9 +230,11 @@ Result<PluginManifest> merge_plugin_manifests(const std::vector<NamedManifest>& 
                 out.entitlements[it.key()] = it.value();
                 owner[it.key()] = n.plugin;
             } else if (*have != it.value()) {
-                return Error{"the plugins '" + owner[it.key()] + "' and '" + n.plugin + "' ask for the entitlement " + it.key() +
-                                 " with different values (" + have->dump() + " and " + it.value().dump() + ")",
-                             "Make both manifests (<plugin>/ios/plugin.json) agree, or drop the entitlement from the plugin that does not need it."};
+                return Error{"the plugins '" + owner[it.key()] + "' and '" + n.plugin + "' ask for the entitlement " +
+                                 it.key() + " with different values (" + have->dump() + " and " + it.value().dump() +
+                                 ")",
+                             "Make both manifests (<plugin>/ios/plugin.json) agree, or drop the entitlement from the "
+                             "plugin that does not need it."};
             }
         }
     }
@@ -228,7 +252,8 @@ std::string info_plist_entries(const Json& entries) {
 
 std::string entitlements_plist(const Json& entitlements) {
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-           "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+           "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+           "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
            "<plist version=\"1.0\">\n<dict>\n" +
            info_plist_entries(entitlements) + "</dict>\n</plist>\n";
 }

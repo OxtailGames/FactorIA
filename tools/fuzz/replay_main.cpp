@@ -54,40 +54,40 @@ Bytes mutate(const Bytes& input, const std::vector<Bytes>& all, Rng& rng) {
     const int steps = 1 + int(rng.below(4));
     for (int i = 0; i < steps; ++i) {
         switch (rng.below(7)) {
-        case 0:
-            if (!b.empty()) b[rng.below(b.size())] ^= std::uint8_t(1u << rng.below(8));
-            break;
-        case 1:
-            if (!b.empty()) b[rng.below(b.size())] = std::uint8_t(rng.next());
-            break;
-        case 2:
-            b.insert(b.begin() + std::ptrdiff_t(rng.below(b.size() + 1)), std::uint8_t(rng.next()));
-            break;
-        case 3:
-            if (!b.empty()) b.erase(b.begin() + std::ptrdiff_t(rng.below(b.size())));
-            break;
-        case 4:  // copy a chunk somewhere else
-            if (!b.empty() && b.size() < kMaxLen) {
-                const std::size_t from = rng.below(b.size()), len = 1 + rng.below(std::min<std::size_t>(32, b.size() - from));
-                const Bytes chunk(b.begin() + std::ptrdiff_t(from), b.begin() + std::ptrdiff_t(from + len));
-                b.insert(b.begin() + std::ptrdiff_t(rng.below(b.size() + 1)), chunk.begin(), chunk.end());
-            }
-            break;
-        case 5:  // overwrite four bytes with a number that is often a boundary (sizes, counts, offsets)
-            if (b.size() >= 4) {
-                static const std::uint32_t kInteresting[] = {0, 1, 0x7f, 0x80, 0xff, 0x100, 0x7fff, 0x8000, 0xffff, 0x10000,
-                                                             0x7fffffff, 0x80000000u, 0xffffffffu, 0x40000000u};
-                const std::uint32_t v = kInteresting[rng.below(std::size(kInteresting))];
-                std::memcpy(&b[rng.below(b.size() - 3)], &v, 4);
-            }
-            break;
-        default:  // splice: the start of this input and the end of another one
-            if (!all.empty()) {
-                const Bytes& other = all[rng.below(all.size())];
-                b.resize(rng.below(b.size() + 1));
-                b.insert(b.end(), other.begin() + std::ptrdiff_t(rng.below(other.size() + 1)), other.end());
-            }
-            break;
+            case 0:
+                if (!b.empty()) b[rng.below(b.size())] ^= std::uint8_t(1u << rng.below(8));
+                break;
+            case 1:
+                if (!b.empty()) b[rng.below(b.size())] = std::uint8_t(rng.next());
+                break;
+            case 2: b.insert(b.begin() + std::ptrdiff_t(rng.below(b.size() + 1)), std::uint8_t(rng.next())); break;
+            case 3:
+                if (!b.empty()) b.erase(b.begin() + std::ptrdiff_t(rng.below(b.size())));
+                break;
+            case 4:  // copy a chunk somewhere else
+                if (!b.empty() && b.size() < kMaxLen) {
+                    const std::size_t from = rng.below(b.size()),
+                                      len = 1 + rng.below(std::min<std::size_t>(32, b.size() - from));
+                    const Bytes chunk(b.begin() + std::ptrdiff_t(from), b.begin() + std::ptrdiff_t(from + len));
+                    b.insert(b.begin() + std::ptrdiff_t(rng.below(b.size() + 1)), chunk.begin(), chunk.end());
+                }
+                break;
+            case 5:  // overwrite four bytes with a number that is often a boundary (sizes, counts, offsets)
+                if (b.size() >= 4) {
+                    static const std::uint32_t kInteresting[] = {
+                        0,      1,      0x7f,    0x80,       0xff,        0x100,       0x7fff,
+                        0x8000, 0xffff, 0x10000, 0x7fffffff, 0x80000000u, 0xffffffffu, 0x40000000u};
+                    const std::uint32_t v = kInteresting[rng.below(std::size(kInteresting))];
+                    std::memcpy(&b[rng.below(b.size() - 3)], &v, 4);
+                }
+                break;
+            default:  // splice: the start of this input and the end of another one
+                if (!all.empty()) {
+                    const Bytes& other = all[rng.below(all.size())];
+                    b.resize(rng.below(b.size() + 1));
+                    b.insert(b.end(), other.begin() + std::ptrdiff_t(rng.below(other.size() + 1)), other.end());
+                }
+                break;
         }
     }
     if (b.size() > kMaxLen) b.resize(kMaxLen);
@@ -122,7 +122,8 @@ int main(int argc, char** argv) {
     }
     std::sort(files.begin(), files.end());
     if (files.empty()) {
-        std::fprintf(stderr, "fuzz replay: no input files (usage: %s [--mutate N] [--seed S] <file or directory>...)\n", argv[0]);
+        std::fprintf(stderr, "fuzz replay: no input files (usage: %s [--mutate N] [--seed S] <file or directory>...)\n",
+                     argv[0]);
         return 2;
     }
 
@@ -145,7 +146,9 @@ int main(int argc, char** argv) {
             for (long k = 0; k < mutations; ++k) {
                 const Bytes m = mutate(inputs[n], inputs, rng);
                 // Written first, so the file a crash needs is on disk before the target runs.
-                if (const char* dump = std::getenv("FA_FUZZ_LAST_INPUT")) std::ofstream(dump, std::ios::binary | std::ios::trunc).write(reinterpret_cast<const char*>(m.data()), std::streamsize(m.size()));
+                if (const char* dump = std::getenv("FA_FUZZ_LAST_INPUT"))
+                    std::ofstream(dump, std::ios::binary | std::ios::trunc)
+                        .write(reinterpret_cast<const char*>(m.data()), std::streamsize(m.size()));
                 LLVMFuzzerTestOneInput(m.data(), m.size());
             }
         std::fprintf(stderr, "fuzz replay: %zu mutations ran\n", inputs.size() * std::size_t(mutations));

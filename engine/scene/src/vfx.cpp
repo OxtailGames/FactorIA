@@ -72,7 +72,8 @@ struct Parser {
 };
 
 // A finite number inside [lo, hi]; says what is wrong otherwise.
-bool read_number(Parser& p, const Json& obj, const char* key, const std::string& pointer, double lo, double hi, double& out, const char* what) {
+bool read_number(Parser& p, const Json& obj, const char* key, const std::string& pointer, double lo, double hi,
+                 double& out, const char* what) {
     auto it = obj.find(key);
     if (it == obj.end()) return true;
     if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() < lo || it->get<double>() > hi) {
@@ -86,7 +87,8 @@ bool read_number(Parser& p, const Json& obj, const char* key, const std::string&
 
 // The longest one particle of `em` can be seen: its lifetime plus its variance, plus the trail it leaves.
 double lifespan(const ParticleEmitter& em) {
-    const double life = double(std::max(em.lifetime, 0.0f)) * (1.0 + double(std::clamp(em.lifetimeVariance, 0.0f, 1.0f)));
+    const double life =
+        double(std::max(em.lifetime, 0.0f)) * (1.0 + double(std::clamp(em.lifetimeVariance, 0.0f, 1.0f)));
     return life + (em.trail != ParticleTrail::None ? double(std::max(em.trailTime, 0.0f)) : 0.0);
 }
 
@@ -95,15 +97,19 @@ double lifespan(const ParticleEmitter& em) {
 void check_lifespan(Parser& p, const std::string& ptr, const ParticleEmitter& em, const Json& emitterJson, int depth) {
     if (lifespan(em) > kVfxMaxLifespan)
         p.err(ptr + "/lifetime",
-              std::format("a particle of this emitter can be seen for {:.1f} s (lifetime with its lifetimeVariance, plus trailTime); an effect allows at most {:.0f} s",
+              std::format("a particle of this emitter can be seen for {:.1f} s (lifetime with its lifetimeVariance, "
+                          "plus trailTime); an effect allows at most {:.0f} s",
                           lifespan(em), kVfxMaxLifespan),
-              "Lower `lifetime` (a spark lives 0.2 to 2 s). A particle that must stay on screen for long is not an effect: put a ParticleEmitter on an entity of the scene.");
+              "Lower `lifetime` (a spark lives 0.2 to 2 s). A particle that must stay on screen for long is not an "
+              "effect: put a ParticleEmitter on an entity of the scene.");
     auto subs = emitterJson.find("subEmitters");
     if (depth >= kParticleSubDepth || subs == emitterJson.end() || !subs->is_object()) return;
     for (auto ev = subs->begin(); ev != subs->end(); ++ev) {
         std::vector<const Json*> links;
-        if (ev.value().is_object()) links.push_back(&ev.value());
-        else if (ev.value().is_array()) for (const Json& l : ev.value()) links.push_back(&l);
+        if (ev.value().is_object())
+            links.push_back(&ev.value());
+        else if (ev.value().is_array())
+            for (const Json& l : ev.value()) links.push_back(&l);
         std::size_t n = 0;
         for (const Json* l : links) {
             const std::size_t at = n++;
@@ -112,7 +118,10 @@ void check_lifespan(Parser& p, const std::string& ptr, const ParticleEmitter& em
             if (inner == l->end() || !inner->is_object()) continue;
             ParticleEmitter child;
             if (!object_patch_from_json(type_of_component<ParticleEmitter>(), &child, *inner)) continue;
-            check_lifespan(p, ptr + "/subEmitters/" + ev.key() + (ev.value().is_array() ? "/" + std::to_string(at) : std::string()) + "/emitter", child, *inner, depth + 1);
+            check_lifespan(p,
+                           ptr + "/subEmitters/" + ev.key() +
+                               (ev.value().is_array() ? "/" + std::to_string(at) : std::string()) + "/emitter",
+                           child, *inner, depth + 1);
         }
     }
 }
@@ -126,8 +135,9 @@ void unknown_keys(Parser& p, const Json& obj, const std::string& pointer, VfxPar
         for (VfxPartKind other : {VfxPartKind::Emitter, VfxPartKind::Light, VfxPartKind::Sound, VfxPartKind::Command}) {
             const auto& ks = keys_of(other);
             if (other != kind && std::find(ks.begin(), ks.end(), it.key()) != ks.end()) {
-                hint = "'" + it.key() + "' belongs to a part of type \"" + kind_name(other) + "\"; this part is \"" + kind_name(kind) +
-                       "\". Keys of a " + kind_name(kind) + " part: " + join(keys_of(kind), ", ") + ".";
+                hint = "'" + it.key() + "' belongs to a part of type \"" + kind_name(other) + "\"; this part is \"" +
+                       kind_name(kind) + "\". Keys of a " + kind_name(kind) + " part: " + join(keys_of(kind), ", ") +
+                       ".";
                 break;
             }
         }
@@ -145,15 +155,18 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
     static const std::vector<std::string> types = {"emitter", "light", "sound", "command"};
     VfxPart part;
     auto ti = j.find("type");
-    if (ti == j.end() || !ti->is_string() || std::find(types.begin(), types.end(), ti->get<std::string>()) == types.end()) {
+    if (ti == j.end() || !ti->is_string() ||
+        std::find(types.begin(), types.end(), ti->get<std::string>()) == types.end()) {
         p.err(ptr + "/type", ti == j.end() ? "a part needs a `type`" : "unknown part type " + describe_json_value(*ti),
               ti != j.end() && ti->is_string() ? did_you_mean(ti->get<std::string>(), types)
                                                : "type is one of: emitter, light, sound, command.");
         return;
     }
     const std::string type = ti->get<std::string>();
-    part.kind = type == "emitter" ? VfxPartKind::Emitter : type == "light" ? VfxPartKind::Light
-              : type == "sound" ? VfxPartKind::Sound : VfxPartKind::Command;
+    part.kind = type == "emitter" ? VfxPartKind::Emitter
+                : type == "light" ? VfxPartKind::Light
+                : type == "sound" ? VfxPartKind::Sound
+                                  : VfxPartKind::Command;
     unknown_keys(p, j, ptr, part.kind);
 
     read_number(p, j, "at", ptr, 0.0, kVfxMaxDuration, part.at, "a number of seconds from 0 to 30");
@@ -161,29 +174,42 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
     if (auto it = j.find("offset"); it != j.end()) {
         bool ok = it->is_array() && (it->size() == 2 || it->size() == 3);
         if (ok)
-            for (const Json& c : *it) ok = ok && c.is_number() && std::isfinite(c.get<double>()) && std::fabs(c.get<double>()) <= kMaxOffset;
-        if (!ok) p.err(ptr + "/offset", "offset must be [x, y] or [x, y, z] (finite numbers), got " + describe_json_value(*it),
-                       "Example: \"offset\": [0, 12] puts the part 12 units above the effect's position.");
-        else part.offset = {(*it)[0].get<float>(), (*it)[1].get<float>(), it->size() == 3 ? (*it)[2].get<float>() : 0.0f};
+            for (const Json& c : *it)
+                ok = ok && c.is_number() && std::isfinite(c.get<double>()) && std::fabs(c.get<double>()) <= kMaxOffset;
+        if (!ok)
+            p.err(ptr + "/offset",
+                  "offset must be [x, y] or [x, y, z] (finite numbers), got " + describe_json_value(*it),
+                  "Example: \"offset\": [0, 12] puts the part 12 units above the effect's position.");
+        else
+            part.offset = {(*it)[0].get<float>(), (*it)[1].get<float>(),
+                           it->size() == 3 ? (*it)[2].get<float>() : 0.0f};
     }
     part.name = std::string(kind_name(part.kind)) + std::to_string(index);
     if (auto it = j.find("name"); it != j.end()) {
         const std::string text = it->is_string() ? it->get<std::string>() : std::string();
-        const bool ok = !text.empty() &&
-                        std::all_of(text.begin(), text.end(), [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '-'; });
-        if (!ok) p.err(ptr + "/name", "name must be letters, digits, '_' or '-', got " + describe_json_value(*it),
-                       "The name is given to the entity an emitter or a light becomes. Example: \"name\": \"sparks\".");
-        else part.name = text;
+        const bool ok = !text.empty() && std::all_of(text.begin(), text.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '_' || c == '-';
+        });
+        if (!ok)
+            p.err(ptr + "/name", "name must be letters, digits, '_' or '-', got " + describe_json_value(*it),
+                  "The name is given to the entity an emitter or a light becomes. Example: \"name\": \"sparks\".");
+        else
+            part.name = text;
     }
     if (!names.insert(part.name).second)
-        p.err(ptr + "/name", "two parts are called '" + part.name + "'", "Give each part its own `name` (or leave it out).");
+        p.err(ptr + "/name", "two parts are called '" + part.name + "'",
+              "Give each part its own `name` (or leave it out).");
 
     switch (part.kind) {
         case VfxPartKind::Emitter: {
             auto it = j.find("emitter");
             if (it == j.end() || !it->is_object()) {
-                p.err(ptr + "/emitter", it == j.end() ? "an emitter part needs `emitter`" : "emitter must be an object of ParticleEmitter fields, got " + describe_json_value(*it),
-                      "Example: \"emitter\": {\"burst\": 14, \"lifetime\": 0.4, \"speed\": 90, \"spread\": 180} (docs/PARTICLES.md lists the fields).");
+                p.err(ptr + "/emitter",
+                      it == j.end()
+                          ? "an emitter part needs `emitter`"
+                          : "emitter must be an object of ParticleEmitter fields, got " + describe_json_value(*it),
+                      "Example: \"emitter\": {\"burst\": 14, \"lifetime\": 0.4, \"speed\": 90, \"spread\": 180} "
+                      "(docs/PARTICLES.md lists the fields).");
                 break;
             }
             part.emitter = *it;
@@ -194,71 +220,98 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
                 break;
             }
             for (const ParticleProblem& issue : particle_emitter_problems(scratch)) {
-                if (issue.error) p.err(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
-                else p.warn(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
+                if (issue.error)
+                    p.err(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
+                else
+                    p.warn(ptr + "/emitter" + issue.pointer, issue.message, issue.hint);
             }
             check_lifespan(p, ptr + "/emitter", scratch, *it, 0);
             for (const char* k : {"emitting", "autoDestroy"})
                 if (it->contains(k))
-                    p.warn(ptr + "/emitter/" + k, std::string("the effect sets `") + k + "` of its emitters itself, so this is ignored",
-                           "An emitter part emits its `burst` once, and its `rate` for `duration` seconds; the entity goes when its particles are gone.");
+                    p.warn(ptr + "/emitter/" + k,
+                           std::string("the effect sets `") + k + "` of its emitters itself, so this is ignored",
+                           "An emitter part emits its `burst` once, and its `rate` for `duration` seconds; the entity "
+                           "goes when its particles are gone.");
             if (scratch.burst <= 0 && (scratch.rate <= 0.0f || part.duration <= 0.0))
-                p.err(ptr + "/emitter", "this emitter part never emits a particle: its `burst` is 0 and it has no `rate` over a `duration`",
-                      "Set \"burst\": 12 in the emitter, or give the part \"duration\": 0.5 and the emitter a `rate`.");
+                p.err(
+                    ptr + "/emitter",
+                    "this emitter part never emits a particle: its `burst` is 0 and it has no `rate` over a `duration`",
+                    "Set \"burst\": 12 in the emitter, or give the part \"duration\": 0.5 and the emitter a `rate`.");
             else if (it->contains("rate") && scratch.rate > 0.0f && part.duration <= 0.0)
-                p.warn(ptr + "/emitter/rate", "`rate` does nothing while the part's `duration` is 0: only the `burst` is emitted",
+                p.warn(ptr + "/emitter/rate",
+                       "`rate` does nothing while the part's `duration` is 0: only the `burst` is emitted",
                        "Add \"duration\": 0.5 to the part (not to the emitter) to emit the `rate` for half a second.");
             break;
         }
         case VfxPartKind::Light: {
             if (j.contains("duration") == false) part.duration = 0.2;
-            if (part.duration <= 0.0) p.err(ptr + "/duration", "a light needs a duration above 0, it fades out over it", "Example: \"duration\": 0.15.");
+            if (part.duration <= 0.0)
+                p.err(ptr + "/duration", "a light needs a duration above 0, it fades out over it",
+                      "Example: \"duration\": 0.15.");
             if (auto it = j.find("is3D"); it != j.end()) {
-                if (!it->is_boolean()) p.err(ptr + "/is3D", "is3D must be true or false, got " + describe_json_value(*it), "true makes a 3D point light, false (default) a Light2D.");
-                else part.light3d = it->get<bool>();
+                if (!it->is_boolean())
+                    p.err(ptr + "/is3D", "is3D must be true or false, got " + describe_json_value(*it),
+                          "true makes a 3D point light, false (default) a Light2D.");
+                else
+                    part.light3d = it->get<bool>();
             }
             if (auto it = j.find("light"); it != j.end()) {
-                if (!it->is_object()) p.err(ptr + "/light", "light must be an object of " + std::string(part.light3d ? "Light" : "Light2D") + " fields, got " + describe_json_value(*it),
-                                           "Example: \"light\": {\"color\": \"#ffe9a0\", \"intensity\": 2, \"radius\": 160}.");
+                if (!it->is_object())
+                    p.err(ptr + "/light",
+                          "light must be an object of " + std::string(part.light3d ? "Light" : "Light2D") +
+                              " fields, got " + describe_json_value(*it),
+                          "Example: \"light\": {\"color\": \"#ffe9a0\", \"intensity\": 2, \"radius\": 160}.");
                 else {
                     part.light = *it;
                     if (part.light3d) {
                         Light scratch;
-                        if (auto r = object_patch_from_json(type_of_component<Light>(), &scratch, *it); !r) p.err(ptr + "/light", r.error().message, r.error().hint);
+                        if (auto r = object_patch_from_json(type_of_component<Light>(), &scratch, *it); !r)
+                            p.err(ptr + "/light", r.error().message, r.error().hint);
                     } else {
                         Light2D scratch;
-                        if (auto r = object_patch_from_json(type_of_component<Light2D>(), &scratch, *it); !r) p.err(ptr + "/light", r.error().message, r.error().hint);
+                        if (auto r = object_patch_from_json(type_of_component<Light2D>(), &scratch, *it); !r)
+                            p.err(ptr + "/light", r.error().message, r.error().hint);
                     }
                 }
             }
             if (auto it = j.find("fade"); it != j.end()) {
                 auto c = Curve::parse(*it, "fade");
-                if (!c) p.err(ptr + "/fade", c.error().message, c.error().hint);
-                else part.fade = *c;
+                if (!c)
+                    p.err(ptr + "/fade", c.error().message, c.error().hint);
+                else
+                    part.fade = *c;
             }
             break;
         }
         case VfxPartKind::Sound: {
             auto it = j.find("clip");
             if (it == j.end() || !it->is_string() || it->get<std::string>().empty())
-                p.err(ptr + "/clip", it == j.end() ? "a sound part needs `clip`" : "clip must be an audio file path, got " + describe_json_value(*it),
+                p.err(ptr + "/clip",
+                      it == j.end() ? "a sound part needs `clip`"
+                                    : "clip must be an audio file path, got " + describe_json_value(*it),
                       "Example: \"clip\": \"assets/sfx/hit.wav\" (sfx.bake and the audio tools write them).");
-            else part.clip = it->get<std::string>();
+            else
+                part.clip = it->get<std::string>();
             double v = part.volume, pi = part.pitch;
             read_number(p, j, "volume", ptr, 0.0, 1.0, v, "a number from 0 to 1");
             read_number(p, j, "pitch", ptr, 0.1, 4.0, pi, "a number from 0.1 to 4");
             part.volume = float(v);
             part.pitch = float(pi);
             if (auto b = j.find("bus"); b != j.end()) {
-                if (!b->is_string() || b->get<std::string>().empty()) p.err(ptr + "/bus", "bus must be the name of a mixer bus, got " + describe_json_value(*b), "\"sfx\" (default), \"music\" or \"ui\".");
-                else part.bus = b->get<std::string>();
+                if (!b->is_string() || b->get<std::string>().empty())
+                    p.err(ptr + "/bus", "bus must be the name of a mixer bus, got " + describe_json_value(*b),
+                          "\"sfx\" (default), \"music\" or \"ui\".");
+                else
+                    part.bus = b->get<std::string>();
             }
             break;
         }
         case VfxPartKind::Command: {
             auto it = j.find("command");
             if (it == j.end() || !it->is_string()) {
-                p.err(ptr + "/command", it == j.end() ? "a command part needs `command`" : "command must be a command name, got " + describe_json_value(*it),
+                p.err(ptr + "/command",
+                      it == j.end() ? "a command part needs `command`"
+                                    : "command must be a command name, got " + describe_json_value(*it),
                       "Example: \"command\": \"feel.shake\".");
                 break;
             }
@@ -266,10 +319,16 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
             if (!vfx_command_allowed(part.command))
                 p.err(ptr + "/command", "an effect may not call '" + part.command + "'",
                       did_you_mean(part.command, vfx_allowed_commands()) +
-                          " An effect calls only the game feel effects and the mixer's playback commands, so a file you did not write cannot write files, and the mixer commands change the runtime mix, never the player's saved settings.");
+                          " An effect calls only the game feel effects and the mixer's playback commands, so a file "
+                          "you did not write cannot write files, and the mixer commands change the runtime mix, never "
+                          "the player's saved settings.");
             if (auto a = j.find("args"); a != j.end()) {
-                if (!a->is_object()) p.err(ptr + "/args", "args must be an object of the command's arguments, got " + describe_json_value(*a), "Example: \"args\": {\"amount\": 0.5}.");
-                else part.args = *a;
+                if (!a->is_object())
+                    p.err(ptr + "/args",
+                          "args must be an object of the command's arguments, got " + describe_json_value(*a),
+                          "Example: \"args\": {\"amount\": 0.5}.");
+                else
+                    part.args = *a;
             }
             break;
         }
@@ -280,8 +339,9 @@ void parse_part(Parser& p, const Json& j, std::size_t index, VfxDoc& doc, std::s
 }  // namespace
 
 const std::vector<std::string>& vfx_allowed_commands() {
-    static const std::vector<std::string> names = {"feel.shake", "feel.hitStop", "feel.flash", "feel.knockback", "feel.squash",
-                                                   "feel.spawn", "feel.sound",   "audio.bus",   "audio.snapshot", "audio.music"};
+    static const std::vector<std::string> names = {"feel.shake",     "feel.hitStop", "feel.flash", "feel.knockback",
+                                                   "feel.squash",    "feel.spawn",   "feel.sound", "audio.bus",
+                                                   "audio.snapshot", "audio.music"};
     return names;
 }
 
@@ -290,7 +350,8 @@ bool vfx_command_allowed(std::string_view command) {
     return std::find(names.begin(), names.end(), command) != names.end();
 }
 
-Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view fileView, std::vector<VfxIssue>* issuesOut) {
+Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view fileView,
+                                                std::vector<VfxIssue>* issuesOut) {
     Parser p;
     p.file = std::string(fileView);
     auto doc = std::make_shared<VfxDoc>();
@@ -306,14 +367,16 @@ Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_vi
                 ++errors;
             }
         if (!first) return std::shared_ptr<const VfxDoc>(doc);
-        std::string msg = (p.file.empty() ? "<effect>" : p.file) + " " + (first->pointer.empty() ? "/" : first->pointer) + ": " + first->message;
+        std::string msg = (p.file.empty() ? "<effect>" : p.file) + " " +
+                          (first->pointer.empty() ? "/" : first->pointer) + ": " + first->message;
         if (errors > 1) msg += std::format(" (and {} more problem{})", errors - 1, errors == 2 ? "" : "s");
         return make_error(msg, first->hint);
     };
 
     if (!json.is_object()) {
         p.err("", "an effect file must be a JSON object, got " + describe_json_value(json),
-              "Start from {\"format\": \"factoria.vfx/1\", \"parts\": [{\"type\": \"emitter\", \"emitter\": {\"burst\": 12}}]} (schemas/vfx.schema.json).");
+              "Start from {\"format\": \"factoria.vfx/1\", \"parts\": [{\"type\": \"emitter\", \"emitter\": "
+              "{\"burst\": 12}}]} (schemas/vfx.schema.json).");
         return finish();
     }
     static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "duration", "parts"};
@@ -321,27 +384,37 @@ Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_vi
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             p.err("/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), topKeys));
     if (auto it = json.find("format"); it == json.end() || !it->is_string() || it->get<std::string>() != kFormat)
-        p.err("/format", it == json.end() ? "missing `format`" : "format is " + describe_json_value(*it) + ", expected \"factoria.vfx/1\"",
+        p.err("/format",
+              it == json.end() ? "missing `format`"
+                               : "format is " + describe_json_value(*it) + ", expected \"factoria.vfx/1\"",
               "Add \"format\": \"factoria.vfx/1\" at the top of the file.");
     if (auto it = json.find("doc"); it != json.end() && it->is_string()) doc->description = it->get<std::string>();
 
     double fileDuration = -1.0;
     if (auto it = json.find("duration"); it != json.end()) {
-        if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() <= 0.0 || it->get<double>() > kVfxMaxDuration)
-            p.err("/duration", "duration must be a number of seconds above 0 and up to 30, got " + describe_json_value(*it),
+        if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() <= 0.0 ||
+            it->get<double>() > kVfxMaxDuration)
+            p.err("/duration",
+                  "duration must be a number of seconds above 0 and up to 30, got " + describe_json_value(*it),
                   "Leave it out to end the effect when its last part has: \"duration\": 0.8.");
-        else fileDuration = it->get<double>();
+        else
+            fileDuration = it->get<double>();
     }
 
     auto parts = json.find("parts");
     if (parts == json.end() || !parts->is_array() || parts->empty()) {
-        p.err("/parts", parts == json.end() ? "missing `parts`" : parts->is_array() ? "an effect needs at least one part" : "parts must be an array, got " + describe_json_value(*parts),
-              "Example: \"parts\": [{\"type\": \"emitter\", \"at\": 0, \"emitter\": {\"burst\": 12}}, {\"type\": \"sound\", \"clip\": \"assets/sfx/hit.wav\"}].");
+        p.err("/parts",
+              parts == json.end() ? "missing `parts`"
+              : parts->is_array() ? "an effect needs at least one part"
+                                  : "parts must be an array, got " + describe_json_value(*parts),
+              "Example: \"parts\": [{\"type\": \"emitter\", \"at\": 0, \"emitter\": {\"burst\": 12}}, {\"type\": "
+              "\"sound\", \"clip\": \"assets/sfx/hit.wav\"}].");
         return finish();
     }
     if (parts->size() > std::size_t(kVfxMaxParts)) {
-        p.err("/parts", std::format("an effect has at most {} parts, this one has {}", kVfxMaxParts, parts->size()),
-              "Split it into two effects and play both (a command part cannot start another effect), or merge emitters.");
+        p.err(
+            "/parts", std::format("an effect has at most {} parts, this one has {}", kVfxMaxParts, parts->size()),
+            "Split it into two effects and play both (a command part cannot start another effect), or merge emitters.");
         return finish();
     }
     std::set<std::string> names;
@@ -364,16 +437,25 @@ Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_vi
         }
         if (fileDuration > 0.0 && part.at > fileDuration)
             p.err("/parts/" + std::to_string(i) + "/at",
-                  std::format("this part starts at {:.2f} s but the effect's duration is {:.2f} s, so it would never start", part.at, fileDuration),
+                  std::format(
+                      "this part starts at {:.2f} s but the effect's duration is {:.2f} s, so it would never start",
+                      part.at, fileDuration),
                   "Raise \"duration\" or leave it out (the effect then lasts until its last part has ended).");
     }
     if (emitters > kVfxMaxEmitters)
-        p.err("/parts", std::format("an effect has at most {} emitters, this one has {}", kVfxMaxEmitters, emitters), "Merge emitters, or use sub-emitters inside one (docs/PARTICLES.md).");
+        p.err("/parts", std::format("an effect has at most {} emitters, this one has {}", kVfxMaxEmitters, emitters),
+              "Merge emitters, or use sub-emitters inside one (docs/PARTICLES.md).");
     if (commands > kVfxMaxCommands)
-        p.err("/parts", std::format("an effect has at most {} command parts, this one has {}", kVfxMaxCommands, commands), "Fewer commands: one shake and one hit-stop are plenty.");
+        p.err("/parts",
+              std::format("an effect has at most {} command parts, this one has {}", kVfxMaxCommands, commands),
+              "Fewer commands: one shake and one hit-stop are plenty.");
     if (liveParticles > kVfxMaxLiveParticles)
-        p.warn("/parts", std::format("the emitters of this effect may hold up to {:.0f} live particles together", liveParticles),
-               std::format("Keep it under {}: lower `maxParticles` of its emitters, so a phone can play several of these at once.", kVfxMaxLiveParticles));
+        p.warn(
+            "/parts",
+            std::format("the emitters of this effect may hold up to {:.0f} live particles together", liveParticles),
+            std::format(
+                "Keep it under {}: lower `maxParticles` of its emitters, so a phone can play several of these at once.",
+                kVfxMaxLiveParticles));
     doc->duration = fileDuration > 0.0 ? fileDuration : end;
     return finish();
 }
@@ -409,8 +491,8 @@ std::int64_t now_ns() { return fs::file_time_ns(std::filesystem::file_time_type:
 
 }  // namespace
 
-VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry, std::int64_t entryMtime, std::int64_t entrySize,
-                          bool wantIssues) {
+VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry,
+                          std::int64_t entryMtime, std::int64_t entrySize, bool wantIssues) {
     if (!hasEntry || wantIssues || mtime != entryMtime || size != entrySize) return VfxCacheUse::Parse;
     // No time (-1: an APK asset, a backend without one) is never "settled": the text is compared, which costs a read and no parse.
     const bool settled = mtime >= 0 && nowNs - mtime > kSettleNs;
@@ -439,7 +521,8 @@ Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view pathView, std::v
     auto text = fs::read_text(path);
     if (!text)
         return make_error(path + ": cannot read the effect: " + text.error().message,
-                          text.error().hint.empty() ? "Effects are *.vfx.json files; check the path." : text.error().hint);
+                          text.error().hint.empty() ? "Effects are *.vfx.json files; check the path."
+                                                    : text.error().hint);
     const std::uint64_t hash = content_hash(*text);
     if (cached && hash == cachedHash) return cached;
     auto json = parse_json(*text, path);
@@ -497,11 +580,14 @@ double drain_bound(const World& w, const ParticleEmitter& em, int depth) {
     if (depth < kParticleSubDepth && spec.is_object()) {
         for (auto ev = spec.begin(); ev != spec.end(); ++ev) {
             std::vector<const Json*> links;
-            if (ev.value().is_object()) links.push_back(&ev.value());
-            else if (ev.value().is_array()) for (const Json& l : ev.value()) links.push_back(&l);
+            if (ev.value().is_object())
+                links.push_back(&ev.value());
+            else if (ev.value().is_array())
+                for (const Json& l : ev.value()) links.push_back(&l);
             for (const Json* l : links) {
                 if (!l->is_object()) continue;
-                double sub = kVfxMaxDuration;  // a sub-emitter that cannot be read now (it is tried again while the effect plays)
+                double sub =
+                    kVfxMaxDuration;  // a sub-emitter that cannot be read now (it is tried again while the effect plays)
                 ParticleEmitter child;
                 bool have = false;
                 if (auto it = l->find("emitter"); it != l->end()) {
@@ -616,8 +702,10 @@ void scale_sub_emitters(Json& spec, float k, bool world, int depth, bool& extern
     if (depth >= kParticleSubDepth || !spec.is_object()) return;
     for (auto ev = spec.begin(); ev != spec.end(); ++ev) {
         std::vector<Json*> links;
-        if (ev.value().is_object()) links.push_back(&ev.value());
-        else if (ev.value().is_array()) for (Json& l : ev.value()) links.push_back(&l);
+        if (ev.value().is_object())
+            links.push_back(&ev.value());
+        else if (ev.value().is_array())
+            for (Json& l : ev.value()) links.push_back(&l);
         for (Json* l : links) {
             if (!l->is_object()) continue;
             auto it = l->find("emitter");
@@ -648,7 +736,8 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
     const VfxPart& part = doc.parts[index];
     auto child = [&]() -> Entity {
         Entity c = w.create(part.name);
-        if (auto* info = w.get<EntityInfo>(c)) info->scriptSpawned = true;  // scene.save leaves it out: the effect makes it again
+        if (auto* info = w.get<EntityInfo>(c))
+            info->scriptSpawned = true;  // scene.save leaves it out: the effect makes it again
         w.set_parent(c, e, false);
         if (auto* t = w.get<Transform>(c)) t->position = part.offset;
         return c;
@@ -664,7 +753,8 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
                 scale_sub_emitters(pe.subEmitters, float(k), pe.worldSpace, 0, external);
                 if (external)
                     warn_once(doc.path + "|" + std::to_string(index) + "|scale-sub",
-                              std::format("{} /parts/{}/emitter/subEmitters: a sub-emitter given as a prefab or an entity keeps its own size when the effect is scaled",
+                              std::format("{} /parts/{}/emitter/subEmitters: a sub-emitter given as a prefab or an "
+                                          "entity keeps its own size when the effect is scaled",
                                           doc.path, index));
             }
             pe.autoDestroy = false;  // this system removes it, at the same game time on every machine (drain_bound)
@@ -699,7 +789,8 @@ void start_part(World& w, Entity e, Vfx& v, std::size_t index, const VfxHost& ho
         case VfxPartKind::Sound:
             if (host.play_sound && !host.play_sound(part.clip, part.volume, part.pitch, part.bus))
                 warn_once(doc.path + "|" + std::to_string(index) + "|sound",
-                          std::format("{} /parts/{}/clip: the sound '{}' could not be played (see the audio log)", doc.path, index, part.clip));
+                          std::format("{} /parts/{}/clip: the sound '{}' could not be played (see the audio log)",
+                                      doc.path, index, part.clip));
             break;
         case VfxPartKind::Command:
             if (host.call) {
@@ -731,8 +822,10 @@ void animate_children(World& w, Vfx& v) {
                 continue;
             }
             const float k = part.fade.empty() ? float(1.0 - std::max(0.0, t)) : part.fade.eval(float(std::max(0.0, t)));
-            if (auto* l2 = w.get<Light2D>(c.entity)) l2->intensity = c.baseIntensity * k;
-            else if (auto* l3 = w.get<Light>(c.entity)) l3->intensity = c.baseIntensity * k;
+            if (auto* l2 = w.get<Light2D>(c.entity))
+                l2->intensity = c.baseIntensity * k;
+            else if (auto* l3 = w.get<Light>(c.entity))
+                l3->intensity = c.baseIntensity * k;
         } else if (part.kind == VfxPartKind::Emitter) {
             if (double(v.time) >= part.at + part.duration) stop_emitter(w, c);
         }
@@ -744,7 +837,8 @@ void animate_children(World& w, Vfx& v) {
 // A looping effect starts a new round: the file may have changed since the last one, so it is read again (hot reload; a round that has
 // begun finishes the version it started with). A document that cannot be read now keeps the last good version.
 void reload_for_round(Vfx& v, const VfxHost& host) {
-    Result<std::shared_ptr<const VfxDoc>> doc = host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
+    Result<std::shared_ptr<const VfxDoc>> doc =
+        host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
     if (!doc || !*doc) return;
     v.rt.doc = *doc;
     v.duration = float(v.rt.doc->duration);
@@ -787,8 +881,11 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
             if (v.effect.empty()) {
                 v.playing = false;
             } else if (v.playing) {
-                Result<std::shared_ptr<const VfxDoc>> doc = host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
-                if (doc && !*doc) doc = make_error("the document '" + v.effect + "' is not available", "Check the path of the effect.");
+                Result<std::shared_ptr<const VfxDoc>> doc =
+                    host.load ? Result<std::shared_ptr<const VfxDoc>>(host.load(v.effect)) : load_vfx(v.effect);
+                if (doc && !*doc)
+                    doc =
+                        make_error("the document '" + v.effect + "' is not available", "Check the path of the effect.");
                 if (!doc) {
                     warn_once(v.effect + "|" + std::to_string(fs::modified_time(v.effect)) + "|load",
                               std::format("entity '{}' Vfx: {}{}", world.id_of(e), doc.error().message,
@@ -829,8 +926,10 @@ void update_vfx(World& world, float dt, const VfxHost& host) {
         }
         // The emitters of an ended play leave when their particles have had the time to die, with or without a renderer.
         if (!rt.children.empty()) drain_children(world, v, dt);
-        if (rt.finished && v.autoDestroy && rt.children.empty() && !world.pending_destroy(e)) world.destroy(e);
-        else if (v.playing || !rt.children.empty()) ++live;
+        if (rt.finished && v.autoDestroy && rt.children.empty() && !world.pending_destroy(e))
+            world.destroy(e);
+        else if (v.playing || !rt.children.empty())
+            ++live;
     }
     world.set_vfx_live(live);
 }
@@ -839,14 +938,22 @@ Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOpti
     auto doc = load_vfx(effect);
     if (!doc) return doc.error();
     if (!(o.speed >= 0.05f && o.speed <= 20.0f))
-        return make_error("speed must be between 0.05 and 20, got " + std::to_string(o.speed), "1 plays the effect as written, 2 twice as fast.");
+        return make_error("speed must be between 0.05 and 20, got " + std::to_string(o.speed),
+                          "1 plays the effect as written, 2 twice as fast.");
     if (!(o.scale > 0.0f && o.scale <= 1000.0f))
-        return make_error("scale must be above 0 and at most 1000, got " + std::to_string(o.scale), "1 is the size the effect was written for.");
+        return make_error("scale must be above 0 and at most 1000, got " + std::to_string(o.scale),
+                          "1 is the size the effect was written for.");
     if (!o.parent.is_null() && !usable(world, o.parent))
-        return make_error("the parent entity of the effect is gone (destroyed, or about to be) so the effect cannot follow it",
-                          "Pass an entity that is alive when vfx.play runs (a script checks entity.alive), or leave `entity` out to play the effect in world space at a position.");
+        return make_error(
+            "the parent entity of the effect is gone (destroyed, or about to be) so the effect cannot follow it",
+            "Pass an entity that is alive when vfx.play runs (a script checks entity.alive), or leave `entity` out to "
+            "play the effect in world space at a position.");
     if (vfx_playing_count(world) >= kVfxMaxPlaying) {
-        warn_once("vfx-budget", std::format("{} effects are playing already: further vfx.play calls are dropped until some end (kVfxMaxPlaying)", kVfxMaxPlaying));
+        warn_once(
+            "vfx-budget",
+            std::format(
+                "{} effects are playing already: further vfx.play calls are dropped until some end (kVfxMaxPlaying)",
+                kVfxMaxPlaying));
         return kNullEntity;
     }
     std::string name = std::string(effect);

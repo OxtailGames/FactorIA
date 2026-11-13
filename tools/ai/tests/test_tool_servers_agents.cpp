@@ -136,7 +136,8 @@ AiConfig claude_session_config(const std::string& argvFile, std::vector<std::str
 
 }  // namespace
 
-TEST_CASE("AgentSession with Claude Code: the server is allowed, named in the prompt, and its key file is gone after the run") {
+TEST_CASE("AgentSession with Claude Code: the server is allowed, named in the prompt, and its key file is gone after "
+          "the run") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     AiConfig cfg = claude_session_config(argvFile);
@@ -162,7 +163,8 @@ TEST_CASE("AgentSession with Claude Code: the server is allowed, named in the pr
     CHECK(leftovers == 0);
 }
 
-TEST_CASE("AgentSession with Claude Code: a server whose key is missing is skipped with a note, review roles need to be listed") {
+TEST_CASE("AgentSession with Claude Code: a server whose key is missing is skipped with a note, review roles need to "
+          "be listed") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     CommandRegistry registry = make_registry();
@@ -177,12 +179,14 @@ TEST_CASE("AgentSession with Claude Code: a server whose key is missing is skipp
         REQUIRE(s.run("Make a coin").ok);
         CHECK_FALSE(has(read_file(argvFile), "mcp__scenario"));
         bool noted = false;
-        for (const auto& t : info_texts(events)) noted = noted || (has(t, "'scenario' skipped") && has(t, "SCENARIO_KEY"));
+        for (const auto& t : info_texts(events))
+            noted = noted || (has(t, "'scenario' skipped") && has(t, "SCENARIO_KEY"));
         CHECK(noted);
     }
     for (bool listed : {false, true}) {
         std::filesystem::remove(argvFile);
-        AiConfig cfg = claude_session_config(argvFile, listed ? std::vector<std::string>{"reviewer"} : std::vector<std::string>{});
+        AiConfig cfg =
+            claude_session_config(argvFile, listed ? std::vector<std::string>{"reviewer"} : std::vector<std::string>{});
         SessionOptions so;
         so.projectDir = dir.str();
         so.role = "reviewer";
@@ -196,7 +200,8 @@ TEST_CASE("AgentSession with Claude Code: a server whose key is missing is skipp
     }
 }
 
-TEST_CASE("AgentSession with Codex: the servers become -c arguments before the stdin marker, the key stays out of them") {
+TEST_CASE(
+    "AgentSession with Codex: the servers become -c arguments before the stdin marker, the key stays out of them") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     AiConfig cfg = default_config();
@@ -219,7 +224,8 @@ TEST_CASE("AgentSession with Codex: the servers become -c arguments before the s
     CHECK(has(argv, "External tools"));
 }
 
-TEST_CASE("AgentSession with a generic CLI: {mcp_config} holds the servers during the run; without the placeholder a note says why") {
+TEST_CASE("AgentSession with a generic CLI: {mcp_config} holds the servers during the run; without the placeholder a "
+          "note says why") {
     TempDir dir, scratch;
     const std::string captured = (scratch.path / "config.json").string();
     AiConfig cfg = default_config();
@@ -288,7 +294,8 @@ bool has_tool(const ChatRequest& req, const std::string& name) {
 
 }  // namespace
 
-TEST_CASE("AgentSession with the built-in agent: the server's tools join the list and the model's calls reach the server") {
+TEST_CASE(
+    "AgentSession with the built-in agent: the server's tools join the list and the model's calls reach the server") {
     ChatRun h;
     h.cfg.toolServers.push_back(scenario_config());
     ToolCall call;
@@ -303,7 +310,8 @@ TEST_CASE("AgentSession with the built-in agent: the server's tools join the lis
     CHECK(has_tool(first, "scenario__tool_0"));
     CHECK(has_tool(first, "scenario__generate_image"));
     CHECK(has_tool(first, "scene_list_entities"));  // the engine's tools are still there
-    for (std::size_t i = 1; i < first.tools.size(); ++i) CHECK(first.tools[i - 1].name < first.tools[i].name);  // byte-stable order
+    for (std::size_t i = 1; i < first.tools.size(); ++i)
+        CHECK(first.tools[i - 1].name < first.tools[i].name);  // byte-stable order
     CHECK(has(first.system, "External tools"));
     CHECK(has(first.system, "scenario__"));
     CHECK(has(first.system, "AI game art."));
@@ -342,7 +350,8 @@ TEST_CASE("AgentSession with the built-in agent: a server that cannot be used on
         REQUIRE(r.ok);
         CHECK_FALSE(has_tool(h.provider->requests[0], "scenario__tool_0"));
         bool noted = false;
-        for (const auto& t : info_texts(h.events)) noted = noted || (has(t, "'scenario' not available") && has(t, "401"));
+        for (const auto& t : info_texts(h.events))
+            noted = noted || (has(t, "'scenario' not available") && has(t, "401"));
         CHECK(noted);
     }
 }

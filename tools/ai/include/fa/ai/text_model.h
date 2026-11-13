@@ -20,7 +20,8 @@ using TextModel = std::function<Result<std::string>(const std::string& system, c
 // API providers send them as image blocks of the user message (Anthropic `image` blocks, OpenAI-compatible `image_url` data
 // URLs, which also serve Gemini, Ollama and the other compatible endpoints). A CLI agent gets them inline when it reads
 // stream-json, else as files in its folder named in the prompt. With no images it is exactly a TextModel.
-using VisionModel = std::function<Result<std::string>(const std::string& system, const std::string& user, const std::vector<ImageData>& images)>;
+using VisionModel = std::function<Result<std::string>(const std::string& system, const std::string& user,
+                                                      const std::vector<ImageData>& images)>;
 
 struct TextModelOptions {
     // The role whose provider, model and effort answer. A role the user turned off falls back to the orchestrator, so a
@@ -42,7 +43,7 @@ struct TextModelOptions {
 };
 
 struct TextModelInfo {
-    std::string role;      // the role that answers (the requested one, or "orchestrator" when it is off)
+    std::string role;  // the role that answers (the requested one, or "orchestrator" when it is off)
     std::string provider;
     std::string model;
 };
@@ -52,7 +53,9 @@ struct TextModelInfo {
 // agents run read-only with every tool that changes things or reaches the network disallowed.
 // Same checks as make_text_model. A model the provider refuses because of the pictures gets a hint to point the role at a vision
 // model; a provider that only makes assets is refused up front.
-Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOptions& options = {}, TextModelInfo* info = nullptr);
-Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& options = {}, TextModelInfo* info = nullptr);
+Result<VisionModel> make_vision_model(const AiConfig& cfg, const TextModelOptions& options = {},
+                                      TextModelInfo* info = nullptr);
+Result<TextModel> make_text_model(const AiConfig& cfg, const TextModelOptions& options = {},
+                                  TextModelInfo* info = nullptr);
 
 }  // namespace fa::ai

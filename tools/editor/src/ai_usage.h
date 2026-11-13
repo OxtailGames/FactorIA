@@ -27,8 +27,8 @@ std::string format_date_time(i64 epoch);
 // A window as the panel draws it. A window whose reset time has passed has reset: it shows 0% used.
 struct LimitView {
     std::string label;
-    double used = 0;       // 0..1 (0 when unknown)
-    bool known = false;    // false: the CLI sent no percentage, only a reset time
+    double used = 0;     // 0..1 (0 when unknown)
+    bool known = false;  // false: the CLI sent no percentage, only a reset time
     bool wasReset = false;
     i64 resetsAt = 0;
 };
@@ -56,7 +56,8 @@ public:
     // The orchestrator's session ended with these final totals (its SessionResult): they replace its live ones and move
     // into `chatUsage` / `chatCost`. With `all` the sub-agents' totals move too and nothing stays; without it (a worker
     // outlived the orchestrator's turn and still spends) they stay, and `settle_all` moves what they spent later.
-    void settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage, double& chatCost, bool all);
+    void settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage, double& chatCost,
+                             bool all);
     void settle_all(ai::Usage& chatUsage, double& chatCost);
     void clear() { runs_.clear(); }
 

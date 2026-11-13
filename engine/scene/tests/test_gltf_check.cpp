@@ -44,7 +44,8 @@ Json mesh_doc(std::size_t vertices, std::size_t bufferVertices, int nodes) {
     doc["asset"] = {{"version", "2.0"}};
     doc["buffers"] = Json::array({Json{{"byteLength", bufferVertices * 12}}});
     doc["bufferViews"] = Json::array({Json{{"buffer", 0}, {"byteOffset", 0}, {"byteLength", bufferVertices * 12}}});
-    doc["accessors"] = Json::array({Json{{"bufferView", 0}, {"componentType", 5126}, {"count", vertices}, {"type", "VEC3"}}});
+    doc["accessors"] =
+        Json::array({Json{{"bufferView", 0}, {"componentType", 5126}, {"count", vertices}, {"type", "VEC3"}}});
     doc["meshes"] = Json::array({Json{{"primitives", Json::array({Json{{"attributes", {{"POSITION", 0}}}}})}}});
     Json list = Json::array();
     Json roots = Json::array();
@@ -59,7 +60,8 @@ Json mesh_doc(std::size_t vertices, std::size_t bufferVertices, int nodes) {
 
 }  // namespace
 
-TEST_CASE("gltf: a consistent file reads, and the same file with an accessor past its buffer is refused by every reader") {
+TEST_CASE(
+    "gltf: a consistent file reads, and the same file with an accessor past its buffer is refused by every reader") {
     const auto good = make_glb(mesh_doc(3, 3, 1), 36);
     auto mesh = read_gltf_mesh_bytes(good, "tri.glb");
     std::string err = mesh.ok() ? std::string() : mesh.error().to_string();

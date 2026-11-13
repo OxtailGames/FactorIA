@@ -13,7 +13,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-const ValidationIssue* find_issue(const std::vector<ValidationIssue>& list, const std::string& file, const std::string& pointer = {}) {
+const ValidationIssue* find_issue(const std::vector<ValidationIssue>& list, const std::string& file,
+                                  const std::string& pointer = {}) {
     for (const ValidationIssue& i : list)
         if (i.file == file && (pointer.empty() || i.pointer == pointer)) return &i;
     return nullptr;
@@ -55,7 +56,8 @@ TEST_CASE("validate: a valid assets.json adds no issue") {
     CHECK(r.warnings.size() == before.warnings.size());
 }
 
-TEST_CASE("validate: textures that are not multiples of 4 are warned about when platforms has android or ios, with the export's message") {
+TEST_CASE("validate: textures that are not multiples of 4 are warned about when platforms has android or ios, with the "
+          "export's message") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
@@ -93,7 +95,8 @@ TEST_CASE("validate: textures that are not multiples of 4 are warned about when 
     CHECK(find_issue(validate_project(dir).warnings, "assets/odd.png") == nullptr);
 }
 
-TEST_CASE("validate: export.exclude is checked, a glob that matches nothing is a warning and one that matches the main scene an error") {
+TEST_CASE("validate: export.exclude is checked, a glob that matches nothing is a warning and one that matches the main "
+          "scene an error") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
@@ -139,7 +142,8 @@ TEST_CASE("validate: a built-in font in a scene is the engine's, not a missing p
     })");
 
     const ValidationReport r = validate_project(dir);
-    for (const char* ok : {"/entities/0/components/Text/font", "/entities/1/components/Text/font", "/entities/2/components/Text/font"})
+    for (const char* ok :
+         {"/entities/0/components/Text/font", "/entities/1/components/Text/font", "/entities/2/components/Text/font"})
         CHECK(find_issue(r.errors, "scenes/fonts.scene.json", ok) == nullptr);
     const ValidationIssue* typo = find_issue(r.errors, "scenes/fonts.scene.json", "/entities/3/components/Text/font");
     REQUIRE(typo != nullptr);
@@ -147,12 +151,14 @@ TEST_CASE("validate: a built-in font in a scene is the engine's, not a missing p
     CHECK(typo->hint.find("Did you mean 'builtin:serif'?") != std::string::npos);
 }
 
-TEST_CASE("validate: SpriteAnimator.clip must be a clip of the sheet entry of the sprite's texture, with the clips listed") {
+TEST_CASE(
+    "validate: SpriteAnimator.clip must be a clip of the sheet entry of the sprite's texture, with the clips listed") {
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
     testing::write_png(stdfs::path(dir) / "assets/hero.png", testing::make_image(32, 16, {255, 0, 0, 255}));
-    testing::write_all(stdfs::path(dir) / "assets.json", R"({"format": "factoria.assets/1", "assets": {"assets/hero.png": {"sheet": {
+    testing::write_all(stdfs::path(dir) / "assets.json",
+                       R"({"format": "factoria.assets/1", "assets": {"assets/hero.png": {"sheet": {
       "columns": 2, "rows": 1, "frameWidth": 16, "frameHeight": 16, "frames": 2,
       "clips": [{"name": "walk", "firstFrame": 0, "lastFrame": 1, "fps": 8, "loop": true}]}}}})");
     testing::write_all(stdfs::path(dir) / "scenes/clips.scene.json", R"({
@@ -164,7 +170,8 @@ TEST_CASE("validate: SpriteAnimator.clip must be a clip of the sheet entry of th
     })");
     const ValidationReport r = validate_project(dir);
     CHECK(find_issue(r.errors, "scenes/clips.scene.json", "/entities/0/components/SpriteAnimator/clip") == nullptr);
-    const ValidationIssue* typo = find_issue(r.errors, "scenes/clips.scene.json", "/entities/1/components/SpriteAnimator/clip");
+    const ValidationIssue* typo =
+        find_issue(r.errors, "scenes/clips.scene.json", "/entities/1/components/SpriteAnimator/clip");
     REQUIRE(typo != nullptr);
     CHECK(typo->message.find("Its clips: walk") != std::string::npos);
     CHECK(typo->message.find("Did you mean") != std::string::npos);

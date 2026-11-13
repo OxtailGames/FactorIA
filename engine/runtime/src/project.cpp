@@ -52,11 +52,16 @@ bool parse_scale_mode(std::string_view text, ScaleMode& out) {
     std::string t;
     for (char c : text)
         if (c != '-' && c != '_' && c != ' ') t += char(std::tolower(static_cast<unsigned char>(c)));
-    if (t == "fit") out = ScaleMode::Fit;
-    else if (t == "stretch") out = ScaleMode::Stretch;
-    else if (t == "expand") out = ScaleMode::Expand;
-    else if (t == "pixelperfect") out = ScaleMode::PixelPerfect;
-    else return false;
+    if (t == "fit")
+        out = ScaleMode::Fit;
+    else if (t == "stretch")
+        out = ScaleMode::Stretch;
+    else if (t == "expand")
+        out = ScaleMode::Expand;
+    else if (t == "pixelperfect")
+        out = ScaleMode::PixelPerfect;
+    else
+        return false;
     return true;
 }
 
@@ -84,22 +89,28 @@ Json ProjectSettings::to_json() const {
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
-    if (!inputSchemes.empty()) input["schemes"] = inputSchemes;
-    else input.erase("schemes");
+    if (!inputSchemes.empty())
+        input["schemes"] = inputSchemes;
+    else
+        input.erase("schemes");
     j["input"] = input;
     if (uiScale != 1.0f || !uiMirrorRtl || (j.contains("ui") && j["ui"].is_object())) {
         Json ui = j.contains("ui") && j["ui"].is_object() ? j["ui"] : Json::object();
         ui["scale"] = uiScale;
-        if (!uiMirrorRtl) ui["mirrorRtl"] = false;
-        else ui.erase("mirrorRtl");
+        if (!uiMirrorRtl)
+            ui["mirrorRtl"] = false;
+        else
+            ui.erase("mirrorRtl");
         j["ui"] = ui;
     }
     Json plats = Json::array();
     for (const auto& p : platforms) plats.push_back(p);
     j["platforms"] = plats;
     j["feedbackFile"] = feedbackFile;
-    if (icon.empty()) j.erase("icon");
-    else j["icon"] = icon;
+    if (icon.empty())
+        j.erase("icon");
+    else
+        j["icon"] = icon;
     if (jobThreadsSet) {
         Json runtime = j.contains("runtime") && j["runtime"].is_object() ? j["runtime"] : Json::object();
         runtime["jobThreads"] = jobThreads.to_json();
@@ -145,7 +156,8 @@ std::string ProjectSettings::window_icon() const {
     const char* platform = runtime_platform();
     if (auto exp = raw.find("export"); exp != raw.end() && exp->is_object())
         if (auto plat = exp->find(platform); plat != exp->end() && plat->is_object())
-            if (auto own = plat->find("icon"); own != plat->end() && own->is_string() && !own->get<std::string>().empty())
+            if (auto own = plat->find("icon");
+                own != plat->end() && own->is_string() && !own->get<std::string>().empty())
                 return own->get<std::string>();
     return icon;
 }
@@ -154,7 +166,8 @@ namespace {
 
 std::string at(std::string_view pointer) { return std::string(kProjectFileName) + "#" + std::string(pointer); }
 
-Error field_error(std::string_view pointer, const std::string& expected, const Json& got, const std::string& hint = {}) {
+Error field_error(std::string_view pointer, const std::string& expected, const Json& got,
+                  const std::string& hint = {}) {
     return make_error(at(pointer) + ": expected " + expected + ", got " + describe_json_value(got),
                       hint.empty() ? "Fix the value in factoria.json (schema: schemas/project.schema.json)." : hint);
 }
@@ -205,38 +218,43 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
     return {};
 }
 
-#define FA_TRY(expr)                    \
-    do {                                \
-        Result<void> r_ = (expr);       \
-        if (!r_.ok()) return r_.error(); \
+#define FA_TRY(expr)                                                                                                   \
+    do {                                                                                                               \
+        Result<void> r_ = (expr);                                                                                      \
+        if (!r_.ok()) return r_.error();                                                                               \
     } while (0)
 
 // Names a plugin cannot take: the areas of the built-in commands (a plugin's commands are "<name>.<verb>") and the
 // names scripts already use.
 const std::vector<std::string>& reserved_plugin_names() {
     static const std::vector<std::string> names = {
-        "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
-        "feedback", "fs",  "game",   "i18n",    "input",   "jobs",    "level",   "math",    "mcp",     "nav",     "physics", "play",  "plugin", "plugins",
-        "platform", "prefab", "project", "scene", "script", "session", "settings", "setup", "test", "ui", "world"};
+        "ai",      "api",      "app",      "assets",  "audio",    "debug",  "docs",    "editor",   "engine",
+        "fa",      "factoria", "feedback", "fs",      "game",     "i18n",   "input",   "jobs",     "level",
+        "math",    "mcp",      "nav",      "physics", "play",     "plugin", "plugins", "platform", "prefab",
+        "project", "scene",    "script",   "session", "settings", "setup",  "test",    "ui",       "world"};
     return names;
 }
 
 bool is_plugin_name(const std::string& n) {
     if (n.empty() || n.size() > 64 || !(n[0] >= 'a' && n[0] <= 'z')) return false;
-    return std::all_of(n.begin(), n.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+    return std::all_of(n.begin(), n.end(),
+                       [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
 
 // One entry of "plugins": {"path": "...", "platforms": [...], "optional": false}.
 Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
     const std::string ptr = "/plugins/" + name;
     if (!is_plugin_name(name))
-        return make_error(at(ptr) + ": '" + name + "' is not a plugin name",
-                          "Use lower-case letters, digits and underscores, starting with a letter (at most 64), e.g. \"steam\" or "
-                          "\"play_billing\": scripts call plugins." + name + ".<function>() and its commands are <name>.<verb>.");
+        return make_error(
+            at(ptr) + ": '" + name + "' is not a plugin name",
+            "Use lower-case letters, digits and underscores, starting with a letter (at most 64), e.g. \"steam\" or "
+            "\"play_billing\": scripts call plugins." +
+                name + ".<function>() and its commands are <name>.<verb>.");
     const auto& reserved = reserved_plugin_names();
     if (std::find(reserved.begin(), reserved.end(), name) != reserved.end())
         return make_error(at(ptr) + ": '" + name + "' is a name the engine uses (its commands are " + name + ".*)",
-                          "Give the plugin another name, e.g. \"" + name + "_plugin\" or the name of the SDK it wraps.");
+                          "Give the plugin another name, e.g. \"" + name +
+                              "_plugin\" or the name of the SDK it wraps.");
     if (!v.is_object())
         return field_error(ptr, "an object like {\"path\": \"plugins/" + name + "\"}", v,
                            "\"path\" is the plugin's folder: project-relative, absolute, or with ${VARIABLE} parts.");
@@ -244,20 +262,24 @@ Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
     p.name = name;
     FA_TRY(read_string(v, "path", ptr, p.path));
     if (p.path.empty())
-        return make_error(at(ptr + "/path") + ": missing or empty",
-                          "Set the folder that holds the plugin's builds (windows/, macos/, linux/, android/, ios/), e.g. \"path\": "
-                          "\"plugins/" + name + "\" or \"${MY_SDK_PLUGINS}/" + name + "\" for a private folder outside the repository.");
+        return make_error(
+            at(ptr + "/path") + ": missing or empty",
+            "Set the folder that holds the plugin's builds (windows/, macos/, linux/, android/, ios/), e.g. \"path\": "
+            "\"plugins/" +
+                name + "\" or \"${MY_SDK_PLUGINS}/" + name + "\" for a private folder outside the repository.");
     if (auto it = v.find("platforms"); it != v.end() && !it->is_null()) {
         if (!it->is_array() || it->empty())
-            return field_error(ptr + "/platforms", "a non-empty array of platform names", *it,
-                               "List the platforms the plugin is built for, e.g. [\"windows\", \"android\"], or leave it out "
-                               "for every platform of the game.");
+            return field_error(
+                ptr + "/platforms", "a non-empty array of platform names", *it,
+                "List the platforms the plugin is built for, e.g. [\"windows\", \"android\"], or leave it out "
+                "for every platform of the game.");
         for (std::size_t k = 0; k < it->size(); ++k) {
             const Json& e = (*it)[k];
             const std::string name_k = e.is_string() ? e.get<std::string>() : std::string();
             const auto& all = platform_names();
             if (std::find(all.begin(), all.end(), name_k) == all.end())
-                return make_error(at(ptr + "/platforms/" + std::to_string(k)) + ": " + describe_json_value(e) + " is not a platform",
+                return make_error(at(ptr + "/platforms/" + std::to_string(k)) + ": " + describe_json_value(e) +
+                                      " is not a platform",
                                   "Use windows, macos, linux, ios or android. " + did_you_mean(name_k, all));
             p.platforms.push_back(name_k);
         }
@@ -278,7 +300,8 @@ bool is_project_root(std::string_view dir) {
 
 Result<std::string> read_project_text(std::string_view projectDir) {
     // A game pack (fs::mount_pack) holds the project: its factoria.json is in the pack, not next to it on disk.
-    if (fs::pack_mounted() && (projectDir.empty() || is_project_root(projectDir))) return fs::read_text(kProjectFileName);
+    if (fs::pack_mounted() && (projectDir.empty() || is_project_root(projectDir)))
+        return fs::read_text(kProjectFileName);
     if (!projectDir.empty()) {
         stdfs::path p = stdfs::path(std::string(projectDir)) / kProjectFileName;
         std::error_code ec;
@@ -318,22 +341,28 @@ LocalizationParse parse_localization(const Json& section) {
     };
     if (section.is_null()) return r;
     if (!section.is_object()) {
-        issue("", "expected an object like {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]}, got " + describe_json_value(section),
+        issue("",
+              "expected an object like {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]}, got " +
+                  describe_json_value(section),
               "Declare the game's languages; each has a string table locales/<language>.json (docs/LOCALIZATION.md).");
         return r;
     }
-    const std::string tagHint =
-        "Write BCP 47 tags with this case: language lower case, script capitalized, region upper case: \"en\", \"pt-BR\", \"zh-Hans\".";
+    const std::string tagHint = "Write BCP 47 tags with this case: language lower case, script capitalized, region "
+                                "upper case: \"en\", \"pt-BR\", \"zh-Hans\".";
     // A language tag at `pointer`, stored in `into` when it is written the canonical way.
     const auto read_tag = [&](const Json& value, const std::string& pointer, std::string& into) {
         if (!value.is_string()) {
-            issue(pointer, "expected a language tag such as \"en\" or \"pt-BR\", got " + describe_json_value(value), tagHint);
+            issue(pointer, "expected a language tag such as \"en\" or \"pt-BR\", got " + describe_json_value(value),
+                  tagHint);
             return false;
         }
         const std::string tag = value.get<std::string>();
         if (!is_language_tag(tag)) {
             const std::string fixed = normalize_language_tag(tag);
-            issue(pointer, "\"" + tag + "\" is not a language tag" + (fixed.empty() ? std::string() : ". Did you mean \"" + fixed + "\"?"), tagHint);
+            issue(pointer,
+                  "\"" + tag + "\" is not a language tag" +
+                      (fixed.empty() ? std::string() : ". Did you mean \"" + fixed + "\"?"),
+                  tagHint);
             return false;
         }
         into = tag;
@@ -356,7 +385,8 @@ LocalizationParse parse_localization(const Json& section) {
             const std::string path = fs::is_absolute(raw) ? std::string() : fs::normalize(raw);
             if (path.empty()) {
                 issue(where, "\"" + raw + "\" is not a path inside the project",
-                      "Copy the font into the project (assets/fonts/) and write its project-relative path with forward slashes.");
+                      "Copy the font into the project (assets/fonts/) and write its project-relative path with forward "
+                      "slashes.");
                 continue;
             }
             into.push_back(path);
@@ -366,13 +396,15 @@ LocalizationParse parse_localization(const Json& section) {
     static const std::vector<std::string> keys = {"defaultLanguage", "languages", "fallbackFonts", "languageFonts"};
     for (auto it = section.begin(); it != section.end(); ++it)
         if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
-            r.warnings.push_back({"/localization/" + it.key(),
-                                  "unknown key \"" + it.key() + "\" in \"localization\" (ignored). " + did_you_mean(it.key(), keys),
-                                  "Remove it or fix the spelling."});
+            r.warnings.push_back(
+                {"/localization/" + it.key(),
+                 "unknown key \"" + it.key() + "\" in \"localization\" (ignored). " + did_you_mean(it.key(), keys),
+                 "Remove it or fix the spelling."});
 
     std::string def;
     bool hasDefault = false;
-    if (auto it = section.find("defaultLanguage"); it != section.end() && !it->is_null()) hasDefault = read_tag(*it, "/defaultLanguage", def);
+    if (auto it = section.find("defaultLanguage"); it != section.end() && !it->is_null())
+        hasDefault = read_tag(*it, "/defaultLanguage", def);
     bool languagesBad = false;
     if (auto it = section.find("languages"); it != section.end() && !it->is_null()) {
         if (!it->is_array() || it->empty()) {
@@ -397,7 +429,8 @@ LocalizationParse parse_localization(const Json& section) {
         s.languages.push_back(def);  // a game with one language
     } else {
         issue("/languages", "missing: the section needs the languages of the game",
-              "Add \"languages\": [\"en\", \"es\"] (and a locales/<tag>.json for each), or remove the \"localization\" section.");
+              "Add \"languages\": [\"en\", \"es\"] (and a locales/<tag>.json for each), or remove the \"localization\" "
+              "section.");
         languagesBad = true;
     }
     if (hasDefault && !languagesBad && std::find(s.languages.begin(), s.languages.end(), def) == s.languages.end())
@@ -406,10 +439,12 @@ LocalizationParse parse_localization(const Json& section) {
     else if (!s.languages.empty())
         s.defaultLanguage = hasDefault ? def : s.languages.front();
 
-    if (auto it = section.find("fallbackFonts"); it != section.end() && !it->is_null()) read_fonts(*it, "/fallbackFonts", s.fallbackFonts);
+    if (auto it = section.find("fallbackFonts"); it != section.end() && !it->is_null())
+        read_fonts(*it, "/fallbackFonts", s.fallbackFonts);
     if (auto it = section.find("languageFonts"); it != section.end() && !it->is_null()) {
         if (!it->is_object()) {
-            issue("/languageFonts", "expected an object mapping a language to its fonts, got " + describe_json_value(*it),
+            issue("/languageFonts",
+                  "expected an object mapping a language to its fonts, got " + describe_json_value(*it),
                   "Example: \"languageFonts\": {\"zh-Hans\": [\"assets/fonts/NotoSansSC-Regular.ttf\"]}.");
         } else {
             for (auto lf = it->begin(); lf != it->end(); ++lf) {
@@ -419,7 +454,8 @@ LocalizationParse parse_localization(const Json& section) {
                     continue;
                 }
                 if (!languagesBad && std::find(s.languages.begin(), s.languages.end(), lf.key()) == s.languages.end()) {
-                    issue(pointer, "\"" + lf.key() + "\" is not one of \"languages\". " + did_you_mean(lf.key(), s.languages),
+                    issue(pointer,
+                          "\"" + lf.key() + "\" is not one of \"languages\". " + did_you_mean(lf.key(), s.languages),
                           "Use the tag as it is written in \"languages\".");
                     continue;
                 }
@@ -433,9 +469,10 @@ LocalizationParse parse_localization(const Json& section) {
 Result<ProjectSettings> load_project(std::string_view projectDir) {
     auto text = read_project_text(projectDir);
     if (!text.ok())
-        return make_error("Cannot read " + std::string(kProjectFileName) + " in '" + std::string(projectDir) +
-                              "': " + text.error().message,
-                          "Run from the project folder, pass --project <dir>, or create a project with `factoria new`.");
+        return make_error(
+            "Cannot read " + std::string(kProjectFileName) + " in '" + std::string(projectDir) +
+                "': " + text.error().message,
+            "Run from the project folder, pass --project <dir>, or create a project with `factoria new`.");
     auto parsed = parse_json(text.value(), (stdfs::path(std::string(projectDir)) / kProjectFileName).generic_string());
     if (!parsed.ok()) return parsed.error();
     const Json& j = parsed.value();
@@ -455,7 +492,10 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         if (dirName.empty() || dirName == ".") {
             // "" means the current directory; libstdc++'s absolute("") throws (MSVC's does not).
             std::error_code ec;
-            dirName = stdfs::absolute(stdfs::path(projectDir.empty() ? "." : std::string(projectDir)), ec).parent_path().filename().string();
+            dirName = stdfs::absolute(stdfs::path(projectDir.empty() ? "." : std::string(projectDir)), ec)
+                          .parent_path()
+                          .filename()
+                          .string();
         }
         if (!dirName.empty()) s.name = dirName;
     }
@@ -530,23 +570,27 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                                        "Example: \"" + ai.key() + "\": [\"Space\"]");
                 for (std::size_t k = 0; k < ai->size(); ++k)
                     if (!(*ai)[k].is_string())
-                        return field_error("/input/actions/" + ai.key() + "/" + std::to_string(k), "a binding name string",
-                                           (*ai)[k], "Binding names look like \"Space\", \"A\", \"MouseLeft\" or, with modifiers held, \"Ctrl+Z\", \"Shift+MouseLeft\".");
+                        return field_error("/input/actions/" + ai.key() + "/" + std::to_string(k),
+                                           "a binding name string", (*ai)[k],
+                                           "Binding names look like \"Space\", \"A\", \"MouseLeft\" or, with modifiers "
+                                           "held, \"Ctrl+Z\", \"Shift+MouseLeft\".");
             }
             s.inputActions = *a;
         }
         if (auto sc = it->find("schemes"); sc != it->end() && !sc->is_null()) {
             if (!sc->is_object())
                 return field_error("/input/schemes", "an object mapping scheme names to key sets", *sc,
-                                   "Example: \"schemes\": {\"arrows\": {\"extends\": \"right\"}}; the actions and key names are checked when the game starts.");
+                                   "Example: \"schemes\": {\"arrows\": {\"extends\": \"right\"}}; the actions and key "
+                                   "names are checked when the game starts.");
             s.inputSchemes = *sc;
         }
         if (auto d = it->find("deadzone"); d != it->end() && !d->is_null()) {
             if (!d->is_number()) return field_error("/input/deadzone", "a number from 0 to 0.95", *d);
             double v = d->get<double>();
             if (!(v >= 0.0 && v < 1.0))
-                return make_error(at("/input/deadzone") + ": value " + std::to_string(v) + " must be at least 0 and below 1",
-                                  "Typical values: 0.1 (precise sticks) to 0.3 (worn or drifting sticks); the default is 0.2.");
+                return make_error(
+                    at("/input/deadzone") + ": value " + std::to_string(v) + " must be at least 0 and below 1",
+                    "Typical values: 0.1 (precise sticks) to 0.3 (worn or drifting sticks); the default is 0.2.");
             s.inputDeadzone = v;
         }
     }
@@ -556,9 +600,10 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!sc->is_number()) return field_error("/ui/scale", "a number from 0.5 to 3", *sc);
             const double v = sc->get<double>();
             if (!(v >= 0.5 && v <= 3.0))
-                return make_error(at("/ui/scale") + ": value " + std::to_string(v) + " must be from 0.5 to 3",
-                                  "1 keeps the interface as authored; 1.25 makes every screen-space widget and its text 25% bigger "
-                                  "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
+                return make_error(
+                    at("/ui/scale") + ": value " + std::to_string(v) + " must be from 0.5 to 3",
+                    "1 keeps the interface as authored; 1.25 makes every screen-space widget and its text 25% bigger "
+                    "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
             s.uiScale = float(v);
         }
         if (auto mr = it->find("mirrorRtl"); mr != it->end() && !mr->is_null()) {
@@ -585,7 +630,8 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!plugin.ok()) return plugin.error();
             s.plugins.push_back(std::move(plugin.value()));
         }
-        std::sort(s.plugins.begin(), s.plugins.end(), [](const PluginSettings& a, const PluginSettings& b) { return a.name < b.name; });
+        std::sort(s.plugins.begin(), s.plugins.end(),
+                  [](const PluginSettings& a, const PluginSettings& b) { return a.name < b.name; });
     }
     if (auto it = j.find("localization"); it != j.end() && !it->is_null()) {
         LocalizationParse loc = parse_localization(*it);
@@ -593,7 +639,8 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             const LocalizationIssue& first = loc.issues.front();
             std::string more;
             if (loc.issues.size() > 1)
-                more = " (and " + std::to_string(loc.issues.size() - 1) + " more problem(s) in \"localization\"; `factoria validate` lists them all)";
+                more = " (and " + std::to_string(loc.issues.size() - 1) +
+                       " more problem(s) in \"localization\"; `factoria validate` lists them all)";
             return make_error(at(first.pointer) + ": " + first.message + more, first.hint);
         }
         s.localization = std::move(loc.settings);

@@ -17,7 +17,7 @@ namespace fa::editor {
 
 namespace {
 
-constexpr float kLeft = 230.0f;   // width of the track names
+constexpr float kLeft = 230.0f;  // width of the track names
 constexpr float kRow = 20.0f;
 constexpr float kRuler = 22.0f;
 constexpr float kLane = 18.0f;    // the event markers' strip under the ruler
@@ -82,13 +82,14 @@ void Editor::draw_animation_panel() {
         return;
     }
     AnimUi& u = anim_;
-    if (draw_animation_mode_row()) {   // the 3D bone clips (anim3d_panel.cpp)
+    if (draw_animation_mode_row()) {  // the 3D bone clips (anim3d_panel.cpp)
         draw_animation_panel_3d();
         ImGui::End();
         return;
     }
     if (play_ != PlayState::Edit) {
-        ImGui::TextDisabled("The game is running. Stop it to edit clips (a clip file is not part of the running scene).");
+        ImGui::TextDisabled(
+            "The game is running. Stop it to edit clips (a clip file is not part of the running scene).");
         ImGui::End();
         return;
     }
@@ -99,12 +100,15 @@ void Editor::draw_animation_panel() {
         if (sel.is_null()) {
             ImGui::TextDisabled("Select an entity that has an Animator, or one of its parts, to edit its clips.");
         } else {
-            ImGui::TextWrapped("'%s' and its parents have no Animator. An Animator plays the clips in anim/*.anim.json.",
-                               world().info(sel).name.c_str());
+            ImGui::TextWrapped(
+                "'%s' and its parents have no Animator. An Animator plays the clips in anim/*.anim.json.",
+                world().info(sel).name.c_str());
             if (ImGui::Button("Add an Animator to it")) {
                 std::string err;
-                const CommandResult r = edit_command("anim:addanimator:" + std::to_string(uiFrame_), "scene.set_component",
-                                                     Json::object({{"id", world().id_of(sel)}, {"component", "Animator"}, {"fields", Json::object()}}), &err);
+                const CommandResult r = edit_command(
+                    "anim:addanimator:" + std::to_string(uiFrame_), "scene.set_component",
+                    Json::object({{"id", world().id_of(sel)}, {"component", "Animator"}, {"fields", Json::object()}}),
+                    &err);
                 if (!r.ok) notify("Could not add an Animator: " + err, 2);
             }
             at_track("anim:addanimator");
@@ -117,14 +121,17 @@ void Editor::draw_animation_panel() {
     std::shared_ptr<const ClipAsset> clip;
     if (!path.empty()) {
         auto loaded = load_anim_clip(path);
-        if (loaded.ok()) clip = *loaded;
-        else u.error = loaded.error().to_string();
+        if (loaded.ok())
+            clip = *loaded;
+        else
+            u.error = loaded.error().to_string();
     }
     // The preview plays by moving the playhead; nothing runs in the engine.
     if (u.playing && clip) {
         double t = u.playhead + double(ImGui::GetIO().DeltaTime) * double(u.speed);
         if (t >= double(clip->duration)) {
-            if (u.loopPreview && clip->duration > 0) t = std::fmod(t, double(clip->duration));
+            if (u.loopPreview && clip->duration > 0)
+                t = std::fmod(t, double(clip->duration));
             else {
                 t = double(clip->duration);
                 u.playing = false;
@@ -134,8 +141,11 @@ void Editor::draw_animation_panel() {
         u.dirtyPose = true;
     }
     draw_anim_toolbar(clip, path);
-    if (clip) draw_anim_time_area(clip, path);
-    else ImGui::TextDisabled("This Animator has no clip yet. New clip makes anim/<name>.anim.json and lists it in Animator.clips.");
+    if (clip)
+        draw_anim_time_area(clip, path);
+    else
+        ImGui::TextDisabled(
+            "This Animator has no clip yet. New clip makes anim/<name>.anim.json and lists it in Animator.clips.");
     anim_event_popups(path);
     if (!u.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", u.error.c_str());
 
@@ -151,7 +161,9 @@ static void anim_flow(float width) {
     const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
     if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
 }
-static float anim_button_width(const char* label) { return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f; }
+static float anim_button_width(const char* label) {
+    return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+}
 static float anim_check_width(const char* label) {
     return ImGui::CalcTextSize(label).x + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x;
 }
@@ -195,7 +207,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
         ImGui::Checkbox("loops", &u.newClipLoop);
         if (ImGui::Button("Create")) {
             std::string err;
-            if (anim_new_clip(u.newClipName, double(std::max(0.1f, u.newClipDuration)), u.newClipLoop, &err)) ImGui::CloseCurrentPopup();
+            if (anim_new_clip(u.newClipName, double(std::max(0.1f, u.newClipDuration)), u.newClipLoop, &err))
+                ImGui::CloseCurrentPopup();
         }
         at_track("anim:newclip:create");
         if (!u.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", u.error.c_str());
@@ -209,7 +222,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
         u.playing = !u.playing;
     }
     at_track("anim:play");
-    ImGui::SetItemTooltip("Preview the clip in the viewport (Space). Nothing is saved: the entity goes back to its rest pose");
+    ImGui::SetItemTooltip(
+        "Preview the clip in the viewport (Space). Nothing is saved: the entity goes back to its rest pose");
     anim_flow(anim_button_width("|<"));
     if (ImGui::Button("|<")) {
         u.playing = false;
@@ -238,7 +252,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
         ImGui::EndCombo();
     }
     at_track("anim:fps");
-    ImGui::SetItemTooltip("The frame rate of the time grid. Clips are in seconds: this only sets where snapping puts keys");
+    ImGui::SetItemTooltip(
+        "The frame rate of the time grid. Clips are in seconds: this only sets where snapping puts keys");
     anim_flow(anim_check_width("Snap"));
     ImGui::Checkbox("Snap", &u.snap);
     at_track("anim:snap");
@@ -253,8 +268,9 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
     if (ImGui::Button(rec ? "REC (on)" : "REC")) u.recording = !u.recording;
     if (rec) ImGui::PopStyleColor(2);
     at_track("anim:record");
-    ImGui::SetItemTooltip("Record mode: moving, rotating or scaling a part with the gizmo, or changing an animatable field in the "
-                          "Inspector, writes a key at the playhead instead of changing the rest value");
+    ImGui::SetItemTooltip(
+        "Record mode: moving, rotating or scaling a part with the gizmo, or changing an animatable field in the "
+        "Inspector, writes a key at the playhead instead of changing the rest value");
     anim_flow(anim_check_width("Onion"));
     ImGui::Checkbox("Onion", &u.onion);
     at_track("anim:onion");
@@ -276,7 +292,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
     anim_flow(anim_check_width("Curves"));
     ImGui::Checkbox("Curves", &u.curves);
     at_track("anim:curves");
-    ImGui::SetItemTooltip("Edit the selected tracks as curves (bezier keys show tangent handles) instead of the dopesheet");
+    ImGui::SetItemTooltip(
+        "Edit the selected tracks as curves (bezier keys show tangent handles) instead of the dopesheet");
 
     // third line: the clip itself
     float dur = clip->duration;
@@ -287,12 +304,14 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
     ImGui::DragFloat("##animdur", &dur, 0.05f, 0.1f, 600.0f, "%.2fs");
     at_track("anim:duration");
     if (ImGui::IsItemDeactivatedAfterEdit())
-        (void)anim_edit("anim:duration", {{"anim.set_clip", Json::object({{"path", path}, {"duration", double(dur)}})}});
+        (void)anim_edit("anim:duration",
+                        {{"anim.set_clip", Json::object({{"path", path}, {"duration", double(dur)}})}});
     ImGui::SetItemTooltip("Length of the clip. Shorter than its last key or event is refused");
     anim_flow(anim_check_width("clip loops"));
     bool loops = clip->loop;
     if (ImGui::Checkbox("clip loops", &loops))
-        (void)anim_edit("anim:cliploop:" + std::to_string(uiFrame_), {{"anim.set_clip", Json::object({{"path", path}, {"loop", loops}})}});
+        (void)anim_edit("anim:cliploop:" + std::to_string(uiFrame_),
+                        {{"anim.set_clip", Json::object({{"path", path}, {"loop", loops}})}});
     at_track("anim:cliploop");
     ImGui::SetItemTooltip("The clip's own loop flag, the default of the Animator (a state's loop overrides it)");
     anim_flow(anim_button_width("Add event"));
@@ -304,7 +323,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
         ImGui::OpenPopup("##animevent");
     }
     at_track("anim:addevent");
-    ImGui::SetItemTooltip("Add a marker at the playhead: the Animator sends its name as an event and runs its game feel actions when the clip passes it");
+    ImGui::SetItemTooltip("Add a marker at the playhead: the Animator sends its name as an event and runs its game "
+                          "feel actions when the clip passes it");
     anim_flow(anim_button_width("Fit"));
     if (ImGui::Button("Fit")) u.fitNext = true;
     at_track("anim:fit");
@@ -312,7 +332,8 @@ void Editor::draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, con
     if (u.recording) {
         anim_flow(200.0f);
         ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(ImVec4(1, 0.4f, 0.35f, 1), "Recording: %d key%s written", u.recordedKeys, u.recordedKeys == 1 ? "" : "s");
+        ImGui::TextColored(ImVec4(1, 0.4f, 0.35f, 1), "Recording: %d key%s written", u.recordedKeys,
+                           u.recordedKeys == 1 ? "" : "s");
     }
 }
 
@@ -329,9 +350,11 @@ const FeelPreset kFeelPresets[] = {
     {"hitStop", R"({"action": "hitStop", "duration": 0.06})", "Freeze the game for a moment (a hit lands)"},
     {"shake", R"({"action": "shake", "amount": 0.35})", "Shake the camera (the clip's own entity when it is a camera)"},
     {"flash", R"({"action": "flash", "color": "#ffffff", "duration": 0.1})", "Flash the entity that plays the clip"},
-    {"push", R"({"action": "push", "direction": [1, 0], "speed": 6, "local": true})", "Knock the entity back (local: relative to its facing)"},
+    {"push", R"({"action": "push", "direction": [1, 0], "speed": 6, "local": true})",
+     "Knock the entity back (local: relative to its facing)"},
     {"squash", R"({"action": "squash", "amount": 0.25, "duration": 0.2})", "Squash and stretch the entity"},
-    {"spawn", R"({"action": "spawn", "prefab": "prefabs/effect.prefab.json", "lifetime": 1})", "Spawn a prefab at the entity; lifetime removes it"},
+    {"spawn", R"({"action": "spawn", "prefab": "prefabs/effect.prefab.json", "lifetime": 1})",
+     "Spawn a prefab at the entity; lifetime removes it"},
     {"sound", R"({"action": "sound", "path": "audio/hit.wav"})", "Play a sound"},
 };
 
@@ -357,7 +380,8 @@ void Editor::anim_event_popups(const std::string& path) {
     ImGui::SetNextItemWidth(200);
     const bool enter = ImGui::InputText("name", &u.eventName, ImGuiInputTextFlags_EnterReturnsTrue);
     at_track("anim:event:name");
-    ImGui::SetItemTooltip("The game event world.on(name, fn) and animator.on(name, fn) receive. Empty when the event only runs game feel actions");
+    ImGui::SetItemTooltip("The game event world.on(name, fn) and animator.on(name, fn) receive. Empty when the event "
+                          "only runs game feel actions");
     if (u.eventEditing < 0) {
         float at = float(u.eventAt);
         ImGui::SetNextItemWidth(200);
@@ -367,9 +391,11 @@ void Editor::anim_event_popups(const std::string& path) {
     ImGui::TextDisabled("Game feel actions (JSON, optional)");
     ImGui::InputTextMultiline("##animeventfeel", &u.eventFeel, ImVec2(300, ImGui::GetTextLineHeight() * 5.5f));
     at_track("anim:event:feel");
-    ImGui::SetItemTooltip("One action object or an array of them, run on the entity that plays the clip when the clip passes the event. "
-                          "Same form as feel.do; a typo is refused with the option names");
-    float rowUsed = 0;  // the preset buttons wrap inside the box's 300 px: the popup is as wide as its content, so the window's own width cannot decide
+    ImGui::SetItemTooltip(
+        "One action object or an array of them, run on the entity that plays the clip when the clip passes the event. "
+        "Same form as feel.do; a typo is refused with the option names");
+    float rowUsed =
+        0;  // the preset buttons wrap inside the box's 300 px: the popup is as wide as its content, so the window's own width cannot decide
     for (std::size_t i = 0; i < std::size(kFeelPresets); ++i) {
         ImGui::PushID(int(i));
         const float w = ImGui::CalcTextSize(kFeelPresets[i].action).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -382,8 +408,10 @@ void Editor::anim_event_popups(const std::string& path) {
         if (ImGui::SmallButton(kFeelPresets[i].action)) {
             Json arr = Json::array();
             if (auto cur = feel_box_value(u.eventFeel); cur.ok()) {
-                if (cur.value().is_array()) arr = cur.value();
-                else if (cur.value().is_object()) arr.push_back(cur.value());
+                if (cur.value().is_array())
+                    arr = cur.value();
+                else if (cur.value().is_object())
+                    arr.push_back(cur.value());
             }
             if (auto one = parse_json(kFeelPresets[i].json, "preset"); one.ok()) arr.push_back(one.value());
             u.eventFeel = arr.dump(2);
@@ -416,7 +444,10 @@ void Editor::anim_event_popups(const std::string& path) {
             if (popup_edit("anim:event:add:" + std::to_string(uiFrame_), {{"anim.add_event", args}}))
                 ImGui::CloseCurrentPopup();
         } else {
-            Json args = Json::object({{"path", path}, {"event", u.eventEditing}, {"name", u.eventName.empty() ? Json() : Json(u.eventName)}, {"feel", feel.value()}});
+            Json args = Json::object({{"path", path},
+                                      {"event", u.eventEditing},
+                                      {"name", u.eventName.empty() ? Json() : Json(u.eventName)},
+                                      {"feel", feel.value()}});
             if (popup_edit("anim:event:rename:" + std::to_string(uiFrame_), {{"anim.set_event", args}}))
                 ImGui::CloseCurrentPopup();
         }
@@ -461,7 +492,8 @@ void Editor::anim_key_menu(const std::shared_ptr<const ClipAsset>& clip, const s
         for (const std::string& n : clip_ease_names()) {
             if (n == "linear") continue;
             if (ImGui::MenuItem(n.c_str())) {
-                if (anim_edit("anim:interp:" + std::to_string(uiFrame_), {set_interp_call(path, u.selection, n)})) ImGui::CloseCurrentPopup();
+                if (anim_edit("anim:interp:" + std::to_string(uiFrame_), {set_interp_call(path, u.selection, n)}))
+                    ImGui::CloseCurrentPopup();
             }
             at_track("anim:menu:ease:" + n);
         }
@@ -474,11 +506,13 @@ void Editor::anim_key_menu(const std::shared_ptr<const ClipAsset>& clip, const s
     if (ImGui::MenuItem("Paste at playhead", "Ctrl+V", false, !u.clipboard.empty())) {
         const double at = u.snap ? snap_to_frames(u.playhead, u.fps) : u.playhead;
         const KeySet pasted = pasted_selection(*clip, u.clipboard, at);
-        if (anim_edit("anim:paste:" + std::to_string(uiFrame_), paste_keys_calls(path, u.clipboard, at))) u.selection = pasted;
+        if (anim_edit("anim:paste:" + std::to_string(uiFrame_), paste_keys_calls(path, u.clipboard, at)))
+            u.selection = pasted;
     }
     at_track("anim:menu:paste");
     if (ImGui::MenuItem("Delete", "Del", false, any)) {
-        if (anim_edit("anim:delete:" + std::to_string(uiFrame_), delete_keys_calls(path, *clip, u.selection))) u.selection.clear();
+        if (anim_edit("anim:delete:" + std::to_string(uiFrame_), delete_keys_calls(path, *clip, u.selection)))
+            u.selection.clear();
     }
     at_track("anim:menu:delete");
     ImGui::EndPopup();
@@ -509,7 +543,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
     // ---- drag in progress: update (the release is handled at the end)
     const ImVec2 mouse = io.MousePos;
     const double mouseT = anim_x_to_time(mouse.x);
-    if (u.drag != AnimUi::Drag::None && std::fabs(mouse.x - u.dragStartX) + std::fabs(mouse.y - u.dragStartY) > 3.0f) u.dragMoved = true;
+    if (u.drag != AnimUi::Drag::None && std::fabs(mouse.x - u.dragStartX) + std::fabs(mouse.y - u.dragStartY) > 3.0f)
+        u.dragMoved = true;
     switch (u.drag) {
         case AnimUi::Drag::Scrub:
             if (io.MouseDown[0]) {
@@ -519,28 +554,25 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
             break;
         case AnimUi::Drag::Keys:
         case AnimUi::Drag::Value:
-            u.dragOffset = u.dragMoved ? snapped_move_offset(u.selection, mouseT - u.dragPressT, u.snap ? u.fps : 0)
-                                       : 0.0;
+            u.dragOffset =
+                u.dragMoved ? snapped_move_offset(u.selection, mouseT - u.dragPressT, u.snap ? u.fps : 0) : 0.0;
             break;
         case AnimUi::Drag::Scale: {
             const double e = earliest_time(u.selection);
             const double den = u.dragPressT - e;
-            u.dragScale = (u.dragMoved && den > 0.02) ? snapped_scale(u.selection, (mouseT - e) / den, u.snap ? u.fps : 0) : 1.0;
+            u.dragScale =
+                (u.dragMoved && den > 0.02) ? snapped_scale(u.selection, (mouseT - e) / den, u.snap ? u.fps : 0) : 1.0;
             break;
         }
-        case AnimUi::Drag::Event:
-            u.dragEventTo = std::max(0.0, u.snap ? snap_to_frames(mouseT, u.fps) : mouseT);
-            break;
-        case AnimUi::Drag::Pan:
-            u.viewStart -= double(io.MouseDelta.x) / double(u.pps);
-            break;
-        default:
-            break;
+        case AnimUi::Drag::Event: u.dragEventTo = std::max(0.0, u.snap ? snap_to_frames(mouseT, u.fps) : mouseT); break;
+        case AnimUi::Drag::Pan: u.viewStart -= double(io.MouseDelta.x) / double(u.pps); break;
+        default: break;
     }
     if (u.drag == AnimUi::Drag::Pan && !io.MouseDown[2]) u.drag = AnimUi::Drag::None;
 
     // ---- zoom and pan with the mouse over the time area
-    const bool overTime = mouse.x >= x0 && mouse.x <= x1 && mouse.y >= yRuler && mouse.y <= yRows + rowsH && ImGui::IsWindowHovered();
+    const bool overTime =
+        mouse.x >= x0 && mouse.x <= x1 && mouse.y >= yRuler && mouse.y <= yRows + rowsH && ImGui::IsWindowHovered();
     if (overTime && io.MouseWheel != 0 && io.KeyCtrl) {
         const double at = anim_x_to_time(mouse.x);
         u.pps = std::clamp(u.pps * std::pow(1.15f, io.MouseWheel), 8.0f, 4000.0f);
@@ -606,14 +638,18 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
     wdl->AddText(ImVec2(origin.x + 6, yLane + 1), IM_COL32(150, 150, 160, 255), "Events");
     wdl->PushClipRect(ImVec2(x0, yLane), ImVec2(x1, yRows), true);
     for (std::size_t i = 0; i < clip.events.size(); ++i) {
-        const double te = (u.drag == AnimUi::Drag::Event && u.dragEvent == int(i)) ? u.dragEventTo : double(clip.events[i].t);
+        const double te =
+            (u.drag == AnimUi::Drag::Event && u.dragEvent == int(i)) ? u.dragEventTo : double(clip.events[i].t);
         const float x = anim_time_to_x(te);
         const bool sel = u.selectedEvent == int(i);
         const ImU32 col = sel ? kKeySelected : IM_COL32(120, 200, 255, 255);
         wdl->AddTriangleFilled(ImVec2(x - 5, yLane + 2), ImVec2(x + 5, yLane + 2), ImVec2(x, yLane + 13), col);
         wdl->AddLine(ImVec2(x, yLane + 13), ImVec2(x, yRows), col);
         const ClipEvent& evi = clip.events[i];
-        const std::string label = evi.feel.empty() ? evi.name : (evi.name.empty() ? std::string() : evi.name + " ") + "[" + evi.feel[0].value("action", std::string("feel")) + (evi.feel.size() > 1 ? "+" : "") + "]";
+        const std::string label = evi.feel.empty() ? evi.name
+                                                   : (evi.name.empty() ? std::string() : evi.name + " ") + "[" +
+                                                         evi.feel[0].value("action", std::string("feel")) +
+                                                         (evi.feel.size() > 1 ? "+" : "") + "]";
         wdl->AddText(ImVec2(x + 7, yLane + 1), col, label.c_str());
         at_track_at("anim:event:" + std::to_string(i), Vec2{x, yLane + 7});
     }
@@ -647,7 +683,9 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
     if (laneHover && ImGui::IsMouseDoubleClicked(0) && laneHit >= 0) {
         u.eventEditing = laneHit;
         u.eventName = clip.events[std::size_t(laneHit)].name;
-        u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty() ? std::string() : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
+        u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty()
+                          ? std::string()
+                          : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
         ImGui::OpenPopup("##animevent");
     }
     if (laneHover && ImGui::IsMouseClicked(1)) {
@@ -655,7 +693,9 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         if (laneHit >= 0) {
             u.eventEditing = laneHit;
             u.eventName = clip.events[std::size_t(laneHit)].name;
-            u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty() ? std::string() : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
+            u.eventFeel = clip.events[std::size_t(laneHit)].feel.empty()
+                              ? std::string()
+                              : Json(clip.events[std::size_t(laneHit)].feel).dump(2);
         } else {
             u.eventEditing = -1;
             u.eventName = "event";
@@ -664,7 +704,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         }
         ImGui::OpenPopup("##animevent");
     }
-    ImGui::SetItemTooltip("Event markers: drag to move, double-click to edit (name, game feel actions), right-click to add or delete");
+    ImGui::SetItemTooltip(
+        "Event markers: drag to move, double-click to edit (name, game feel actions), right-click to add or delete");
 
     // ---- rows: the parts and their tracks
     const std::vector<TrackGroup> groups = group_tracks(clip);
@@ -690,7 +731,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 c0 = ImGui::GetCursorScreenPos();
         const float width = curves ? kLeft : (x1 + 4.0f - origin.x);
-        ImGui::InvisibleButton("##animarea", ImVec2(width, std::max(totalH, rowsH - 2.0f)), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        ImGui::InvisibleButton("##animarea", ImVec2(width, std::max(totalH, rowsH - 2.0f)),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         const bool areaHover = ImGui::IsItemHovered();
         const bool leftClick = areaHover && ImGui::IsMouseClicked(0);
         const bool rightClick = areaHover && ImGui::IsMouseClicked(1);
@@ -704,13 +746,18 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
             const float y = c0.y + float(i) * kRow;
             if (y + kRow < clipMin.y || y > clipMax.y) continue;
             const bool header = row.track < 0;
-            const ImU32 bg = header ? IM_COL32(44, 47, 56, 255) : ((i & 1) ? IM_COL32(33, 35, 40, 255) : IM_COL32(37, 39, 45, 255));
+            const ImU32 bg =
+                header ? IM_COL32(44, 47, 56, 255) : ((i & 1) ? IM_COL32(33, 35, 40, 255) : IM_COL32(37, 39, 45, 255));
             dl->AddRectFilled(ImVec2(c0.x, y), ImVec2(curves ? c0.x + kLeft : x1, y + kRow), bg);
             const bool folded = u.collapsed.count(g.part) > 0;
             if (header) {
                 const float ax = c0.x + 8, ay = y + kRow * 0.5f;
-                if (folded) dl->AddTriangleFilled(ImVec2(ax - 3, ay - 5), ImVec2(ax - 3, ay + 5), ImVec2(ax + 4, ay), IM_COL32(200, 200, 210, 255));
-                else dl->AddTriangleFilled(ImVec2(ax - 5, ay - 3), ImVec2(ax + 5, ay - 3), ImVec2(ax, ay + 4), IM_COL32(200, 200, 210, 255));
+                if (folded)
+                    dl->AddTriangleFilled(ImVec2(ax - 3, ay - 5), ImVec2(ax - 3, ay + 5), ImVec2(ax + 4, ay),
+                                          IM_COL32(200, 200, 210, 255));
+                else
+                    dl->AddTriangleFilled(ImVec2(ax - 5, ay - 3), ImVec2(ax + 5, ay - 3), ImVec2(ax, ay + 4),
+                                          IM_COL32(200, 200, 210, 255));
                 dl->AddText(ImVec2(c0.x + 20, y + 3), IM_COL32(230, 230, 240, 255), g.title.c_str());
                 at_track_at("anim:group:" + std::to_string(row.group), Vec2{c0.x + 60, y + kRow * 0.5f});
             } else {
@@ -722,16 +769,23 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
             }
             if (leftClick && mouse.x < c0.x + kLeft && mouse.y >= y && mouse.y < y + kRow) {
                 if (header) {
-                    if (folded) u.collapsed.erase(g.part);
-                    else u.collapsed.insert(g.part);
+                    if (folded)
+                        u.collapsed.erase(g.part);
+                    else
+                        u.collapsed.insert(g.part);
                 } else if (curves) {
-                    if (u.curveTracks.count(row.track)) u.curveTracks.erase(row.track);
-                    else u.curveTracks.insert(row.track);
+                    if (u.curveTracks.count(row.track))
+                        u.curveTracks.erase(row.track);
+                    else
+                        u.curveTracks.insert(row.track);
                 } else {
                     KeySet pick;
-                    for (const ClipKey& k : clip.tracks[std::size_t(row.track)].keys) pick.insert(make_key_id(row.track, k.t));
-                    if (io.KeyShift) u.selection.insert(pick.begin(), pick.end());
-                    else u.selection = pick;
+                    for (const ClipKey& k : clip.tracks[std::size_t(row.track)].keys)
+                        pick.insert(make_key_id(row.track, k.t));
+                    if (io.KeyShift)
+                        u.selection.insert(pick.begin(), pick.end());
+                    else
+                        u.selection = pick;
                     u.selectedEvent = -1;
                 }
             }
@@ -745,7 +799,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
                     const long long f0 = std::max(0LL, (long long)std::floor(anim_x_to_time(x0) / frame));
                     for (long long f = f0; f * frame <= anim_x_to_time(x1); ++f) {
                         const float x = anim_time_to_x(double(f) * frame);
-                        dl->AddLine(ImVec2(x, clipMin.y), ImVec2(x, clipMax.y), (f % u.fps == 0) ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 8));
+                        dl->AddLine(ImVec2(x, clipMin.y), ImVec2(x, clipMax.y),
+                                    (f % u.fps == 0) ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 8));
                     }
                 }
             }
@@ -790,7 +845,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
                     for (const KeyId& gid : ghostSet)
                         if (gid.track == row.track) {
                             const ClipKey shape;
-                            draw_key(dl, ImVec2(anim_time_to_x(gid.t), y), shape, clip.tracks[std::size_t(row.track)].stepped, true, true);
+                            draw_key(dl, ImVec2(anim_time_to_x(gid.t), y), shape,
+                                     clip.tracks[std::size_t(row.track)].stepped, true, true);
                         }
             }
             dl->PopClipRect();
@@ -802,7 +858,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
                 dl->AddRect(a, b, IM_COL32(255, 190, 60, 200));
                 KeySet inside;
                 for (const Hit& h : hits)
-                    if (h.pos.x >= a.x && h.pos.x <= b.x && h.pos.y >= a.y && h.pos.y <= b.y) inside.insert(h.ids.begin(), h.ids.end());
+                    if (h.pos.x >= a.x && h.pos.x <= b.x && h.pos.y >= a.y && h.pos.y <= b.y)
+                        inside.insert(h.ids.begin(), h.ids.end());
                 u.selection = u.dragAdd ? u.dragBase : KeySet();
                 u.selection.insert(inside.begin(), inside.end());
             }
@@ -834,12 +891,16 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
                         u.selectedEvent = -1;
                         if (io.KeyShift) {
                             for (const KeyId& id : best->ids) {
-                                if (all) u.selection.erase(id);
-                                else u.selection.insert(id);
+                                if (all)
+                                    u.selection.erase(id);
+                                else
+                                    u.selection.insert(id);
                             }
                         } else {
                             u.dragBase.clear();
-                            if (all) u.dragBase.insert(best->ids.begin(), best->ids.end());  // a click without a drag narrows to this key
+                            if (all)
+                                u.dragBase.insert(best->ids.begin(),
+                                                  best->ids.end());  // a click without a drag narrows to this key
                             else {
                                 u.selection.clear();
                                 u.selection.insert(best->ids.begin(), best->ids.end());
@@ -908,18 +969,21 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
             if (!u.selection.empty()) {
-                if (anim_edit("anim:delete:" + std::to_string(uiFrame_), delete_keys_calls(path, clip, u.selection))) u.selection.clear();
+                if (anim_edit("anim:delete:" + std::to_string(uiFrame_), delete_keys_calls(path, clip, u.selection)))
+                    u.selection.clear();
             } else if (u.selectedEvent >= 0 && std::size_t(u.selectedEvent) < clip.events.size()) {
                 if (anim_edit("anim:event:delete:" + std::to_string(uiFrame_),
                               {{"anim.remove_event", Json::object({{"path", path}, {"event", u.selectedEvent}})}}))
                     u.selectedEvent = -1;
             }
         }
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C) && !u.selection.empty()) u.clipboard = copy_keys(clip, u.selection);
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C) && !u.selection.empty())
+            u.clipboard = copy_keys(clip, u.selection);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) && !u.clipboard.empty()) {
             const double at = u.snap ? snap_to_frames(u.playhead, u.fps) : u.playhead;
             const KeySet pasted = pasted_selection(clip, u.clipboard, at);
-            if (anim_edit("anim:paste:" + std::to_string(uiFrame_), paste_keys_calls(path, u.clipboard, at))) u.selection = pasted;
+            if (anim_edit("anim:paste:" + std::to_string(uiFrame_), paste_keys_calls(path, u.clipboard, at)))
+                u.selection = pasted;
         }
         if (u.drag != AnimUi::Drag::None && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             // nothing was written yet: the drag only showed a preview
@@ -944,16 +1008,20 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
         } else if (d == AnimUi::Drag::Event && u.dragEvent >= 0 && std::size_t(u.dragEvent) < clip.events.size() &&
                    std::fabs(u.dragEventTo - double(clip.events[std::size_t(u.dragEvent)].t)) > 1e-6) {
             const std::string name = clip.events[std::size_t(u.dragEvent)].name;
-            if (anim_edit(key, {{"anim.move_event", Json::object({{"path", path}, {"event", u.dragEvent}, {"to", clip_round_time(u.dragEventTo)}})}})) {
+            if (anim_edit(key, {{"anim.move_event", Json::object({{"path", path},
+                                                                  {"event", u.dragEvent},
+                                                                  {"to", clip_round_time(u.dragEventTo)}})}})) {
                 u.selectedEvent = -1;
                 if (auto again = load_anim_clip(path); again.ok())
                     for (std::size_t i = 0; i < (*again)->events.size(); ++i)
-                        if ((*again)->events[i].name == name && std::fabs((*again)->events[i].t - u.dragEventTo) < 1e-3) u.selectedEvent = int(i);
+                        if ((*again)->events[i].name == name && std::fabs((*again)->events[i].t - u.dragEventTo) < 1e-3)
+                            u.selectedEvent = int(i);
             }
         } else if (d == AnimUi::Drag::Tangent && u.dragTrack >= 0 && std::size_t(u.dragTrack) < clip.tracks.size()) {
             const ClipTrack& tr = clip.tracks[std::size_t(u.dragTrack)];
             if (const ClipKey* k = find_key_at(tr, u.dragKeyT))
-                (void)anim_edit(key, {set_tangent_call(path, tr, *k, u.dragTrack, u.dragChannel, u.dragOutgoing, u.dragSlope)});
+                (void)anim_edit(
+                    key, {set_tangent_call(path, tr, *k, u.dragTrack, u.dragChannel, u.dragOutgoing, u.dragSlope)});
         } else if (d == AnimUi::Drag::Value && !u.dragMoved && !u.dragBase.empty() && !io.KeyShift) {
             u.selection = u.dragBase;
         } else if (d == AnimUi::Drag::Value && u.dragTrack >= 0 && std::size_t(u.dragTrack) < clip.tracks.size()) {
@@ -961,9 +1029,13 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
             if (const ClipKey* k = find_key_at(tr, u.dragKeyT); k && u.dragMoved) {
                 std::vector<ModelCall> calls;
                 Json kj = key_json(tr, *k, double(k->t));
-                if (tr.channels == 1) kj["value"] = double(u.dragValue);
-                else if (kj["value"].is_array() && std::size_t(u.dragChannel) < kj["value"].size()) kj["value"][std::size_t(u.dragChannel)] = double(u.dragValue);
-                calls.push_back({"anim.set_keys", Json::object({{"path", path}, {"track", track_ref_json(tr)}, {"keys", Json::array({kj})}})});
+                if (tr.channels == 1)
+                    kj["value"] = double(u.dragValue);
+                else if (kj["value"].is_array() && std::size_t(u.dragChannel) < kj["value"].size())
+                    kj["value"][std::size_t(u.dragChannel)] = double(u.dragValue);
+                calls.push_back(
+                    {"anim.set_keys",
+                     Json::object({{"path", path}, {"track", track_ref_json(tr)}, {"keys", Json::array({kj})}})});
                 const double off = u.dragOffset;
                 const KeyId pressed = make_key_id(u.dragTrack, k->t);
                 KeySet after = u.selection;
@@ -984,7 +1056,8 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
 }
 
 // ------------------------------------------------------------------------------------------------------------ curves --
-void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, const std::string& path, ImVec2 origin, ImVec2 size) {
+void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, const std::string& path, ImVec2 origin,
+                              ImVec2 size) {
     (void)path;
     AnimUi& u = anim_;
     const ClipAsset& clip = *clipPtr;
@@ -1002,7 +1075,8 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
         std::set<int> fromSelection;
         for (const KeyId& id : u.selection) fromSelection.insert(id.track);
         for (int t : fromSelection)
-            if (t >= 0 && std::size_t(t) < clip.tracks.size() && !clip.tracks[std::size_t(t)].stepped) drawn.push_back(t);
+            if (t >= 0 && std::size_t(t) < clip.tracks.size() && !clip.tracks[std::size_t(t)].stepped)
+                drawn.push_back(t);
     }
     if (drawn.empty())
         for (std::size_t t = 0; t < clip.tracks.size(); ++t)
@@ -1043,15 +1117,18 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
             }
         for (float v = std::ceil(vmin / step) * step; v <= vmax; v += step) {
             const float y = y_of(v);
-            dl->AddLine(ImVec2(cx0, y), ImVec2(cx1, y), std::fabs(v) < step * 0.01f ? IM_COL32(255, 255, 255, 50) : IM_COL32(255, 255, 255, 16));
-            dl->AddText(ImVec2(cx0 + 3, y - 12), IM_COL32(150, 150, 160, 255), std::format("{:g}", std::round(v / step * 1000.0f) / 1000.0f * step).c_str());
+            dl->AddLine(ImVec2(cx0, y), ImVec2(cx1, y),
+                        std::fabs(v) < step * 0.01f ? IM_COL32(255, 255, 255, 50) : IM_COL32(255, 255, 255, 16));
+            dl->AddText(ImVec2(cx0 + 3, y - 12), IM_COL32(150, 150, 160, 255),
+                        std::format("{:g}", std::round(v / step * 1000.0f) / 1000.0f * step).c_str());
         }
         const double frame = 1.0 / double(std::max(1, u.fps));
         if (frame * double(u.pps) >= 8.0) {
             const long long f0 = std::max(0LL, (long long)std::floor(anim_x_to_time(cx0) / frame));
             for (long long f = f0; f * frame <= anim_x_to_time(cx1); ++f) {
                 const float x = anim_time_to_x(double(f) * frame);
-                dl->AddLine(ImVec2(x, cy0), ImVec2(x, cy1), (f % u.fps == 0) ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 8));
+                dl->AddLine(ImVec2(x, cy0), ImVec2(x, cy1),
+                            (f % u.fps == 0) ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 8));
             }
         }
     }
@@ -1089,7 +1166,8 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
                 float xx = x;
                 if (u.drag == AnimUi::Drag::Value && sel) {
                     xx = anim_time_to_x(double(k.t) + u.dragOffset);
-                    if (id.track == u.dragTrack && std::fabs(double(k.t) - u.dragKeyT) < 1e-4 && c == u.dragChannel) v = u.dragValue;
+                    if (id.track == u.dragTrack && std::fabs(double(k.t) - u.dragKeyT) < 1e-4 && c == u.dragChannel)
+                        v = u.dragValue;
                 }
                 const ImVec2 p(xx, y_of(v));
                 if (xx < cx0 - 8 || xx > cx1 + 8) continue;
@@ -1099,13 +1177,17 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
                 if (sel && k.interp == ClipInterp::Bezier) {
                     const float dt = kHandle / u.pps;
                     float slope = k.outTan[std::size_t(c)];
-                    if (u.drag == AnimUi::Drag::Tangent && u.dragTrack == ti && u.dragChannel == c && u.dragOutgoing && std::fabs(u.dragKeyT - double(k.t)) < 1e-4) slope = u.dragSlope;
+                    if (u.drag == AnimUi::Drag::Tangent && u.dragTrack == ti && u.dragChannel == c && u.dragOutgoing &&
+                        std::fabs(u.dragKeyT - double(k.t)) < 1e-4)
+                        slope = u.dragSlope;
                     handles.push_back({ImVec2(p.x + kHandle, p.y - slope * dt * pyv), p, ti, c, double(k.t), true});
                 }
                 if (sel && ki > 0 && tr.keys[ki - 1].interp == ClipInterp::Bezier) {
                     const float dt = kHandle / u.pps;
                     float slope = k.inTan[std::size_t(c)];
-                    if (u.drag == AnimUi::Drag::Tangent && u.dragTrack == ti && u.dragChannel == c && !u.dragOutgoing && std::fabs(u.dragKeyT - double(k.t)) < 1e-4) slope = u.dragSlope;
+                    if (u.drag == AnimUi::Drag::Tangent && u.dragTrack == ti && u.dragChannel == c && !u.dragOutgoing &&
+                        std::fabs(u.dragKeyT - double(k.t)) < 1e-4)
+                        slope = u.dragSlope;
                     handles.push_back({ImVec2(p.x - kHandle, p.y + slope * dt * pyv), p, ti, c, double(k.t), false});
                 }
             }
@@ -1115,7 +1197,9 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
         dl->AddLine(h.key, h.pos, IM_COL32(255, 190, 60, 160));
         dl->AddCircleFilled(h.pos, 4.0f, IM_COL32(255, 190, 60, 255));
         dl->AddCircle(h.pos, 4.0f, IM_COL32(20, 20, 24, 255));
-        at_track_at(std::format("anim:handle:{}:{}:{}:{}", h.track, ms_of(h.keyT), h.channel, h.outgoing ? "out" : "in"), Vec2{h.pos.x, h.pos.y});
+        at_track_at(
+            std::format("anim:handle:{}:{}:{}:{}", h.track, ms_of(h.keyT), h.channel, h.outgoing ? "out" : "in"),
+            Vec2{h.pos.x, h.pos.y});
     }
     const float px = anim_time_to_x(u.playhead);
     if (px >= cx0 && px <= cx1) dl->AddLine(ImVec2(px, cy0), ImVec2(px, cy1), kPlayhead, 1.5f);
@@ -1127,7 +1211,8 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
         dl->AddRect(a, b, IM_COL32(255, 190, 60, 200));
         KeySet inside;
         for (const Hit& h : hits)
-            if (h.pos.x >= a.x && h.pos.x <= b.x && h.pos.y >= a.y && h.pos.y <= b.y) inside.insert(h.ids.begin(), h.ids.end());
+            if (h.pos.x >= a.x && h.pos.x <= b.x && h.pos.y >= a.y && h.pos.y <= b.y)
+                inside.insert(h.ids.begin(), h.ids.end());
         u.selection = u.dragAdd ? u.dragBase : KeySet();
         u.selection.insert(inside.begin(), inside.end());
     }
@@ -1136,7 +1221,9 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
     if (u.drag == AnimUi::Drag::Tangent) {
         const float dt = kHandle / u.pps;
         // the key is at y_of(value): keep the pressed handle's key position
-        if (const ClipTrack* tr = (u.dragTrack >= 0 && std::size_t(u.dragTrack) < clip.tracks.size()) ? &clip.tracks[std::size_t(u.dragTrack)] : nullptr) {
+        if (const ClipTrack* tr = (u.dragTrack >= 0 && std::size_t(u.dragTrack) < clip.tracks.size())
+                                      ? &clip.tracks[std::size_t(u.dragTrack)]
+                                      : nullptr) {
             if (const ClipKey* k = find_key_at(*tr, u.dragKeyT)) {
                 const float ky = y_of(k->value[std::size_t(u.dragChannel)]);
                 const float dv = (u.dragOutgoing ? (ky - mouse.y) : (mouse.y - ky)) / pyv;
@@ -1198,8 +1285,10 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
                 } else {
                     u.selectedEvent = -1;
                     if (io.KeyShift) {
-                        if (all) u.selection.erase(best->ids[0]);
-                        else u.selection.insert(best->ids[0]);
+                        if (all)
+                            u.selection.erase(best->ids[0]);
+                        else
+                            u.selection.insert(best->ids[0]);
                     } else if (!all) {
                         u.selection.clear();
                         u.selection.insert(best->ids.begin(), best->ids.end());
@@ -1216,7 +1305,8 @@ void Editor::draw_anim_curves(const std::shared_ptr<const ClipAsset>& clipPtr, c
                         u.dragStartY = mouse.y;
                         u.dragMoved = false;
                         u.dragOffset = 0;
-                        if (const ClipKey* k = find_key_at(clip.tracks[std::size_t(u.dragTrack)], u.dragKeyT)) u.dragValue = k->value[std::size_t(u.dragChannel)];
+                        if (const ClipKey* k = find_key_at(clip.tracks[std::size_t(u.dragTrack)], u.dragKeyT))
+                            u.dragValue = k->value[std::size_t(u.dragChannel)];
                     }
                 }
             } else if (!right) {

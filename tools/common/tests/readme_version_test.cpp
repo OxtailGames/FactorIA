@@ -33,8 +33,10 @@ TEST_CASE("README.md states the version of CMakeLists.txt") {
     const std::string text = read_all(std::filesystem::path(FA_REPO_ROOT) / "README.md");
     std::smatch m;
     static const std::regex re(R"((?:^|\n)Version (\d+\.\d+)\b)");
-    REQUIRE_MESSAGE(std::regex_search(text, m, re), "README.md has no line starting with \"Version x.y\" (the Status section).");
-    CHECK_MESSAGE(m[1].str() == want, "README.md says Version " << m[1].str() << " but CMakeLists.txt VERSION is " << want
+    REQUIRE_MESSAGE(std::regex_search(text, m, re),
+                    "README.md has no line starting with \"Version x.y\" (the Status section).");
+    CHECK_MESSAGE(m[1].str() == want, "README.md says Version "
+                                          << m[1].str() << " but CMakeLists.txt VERSION is " << want
                                           << ".x. Update the \"Version x.y\" line of the Status section.");
 }
 
@@ -50,7 +52,8 @@ TEST_CASE("README.es.md says which version of README.md it follows") {
         MESSAGE("README.es.md states no version: nothing to compare.");
         return;
     }
-    CHECK_MESSAGE(m[1].str() == want, "README.es.md says " << m[1].str() << " but CMakeLists.txt VERSION is " << want
-                                          << ".x. Update the English README and this note together (the release step in "
-                                          << "docs/ARCHITECTURE.md, \"Versions\").");
+    CHECK_MESSAGE(m[1].str() == want,
+                  "README.es.md says " << m[1].str() << " but CMakeLists.txt VERSION is " << want
+                                       << ".x. Update the English README and this note together (the release step in "
+                                       << "docs/ARCHITECTURE.md, \"Versions\").");
 }

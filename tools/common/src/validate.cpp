@@ -68,21 +68,28 @@ struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
-    std::set<std::string> vfxEffects;      // the files scenes and prefabs name in a Vfx.effect (checked as effect documents)
-    bool artRules = false;                 // assets.json style sets a rule a picture can be measured against
-    ProjectArtUse artUse;                  // where the scenes draw each texture, for those rules (texelsPerUnit)
-    std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
-    std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
-    LocalizationParse localization;                           // the "localization" section of factoria.json
-    bool analyticsDeclared = false;                           // factoria.json "analytics" has an endpoint
-    bool networkDeclared = false;                             // factoria.json "network" lists at least one host
-    std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
-    bool projectFileRead = false;                             // factoria.json parsed as an object
-    RichTextStyle richStyle;                                  // the "text" section of factoria.json, for the markup checks
-    std::set<std::string> boldSuggested;                      // fonts already told to get a bold face (one warning per font)
-    std::set<std::string> entityTags;                         // every tag a scene or prefab entity carries, for Camera.showTags / hideTags
-    struct CameraTags { std::string file, pointer; std::vector<std::string> show, hide; };
-    std::vector<CameraTags> cameraTags;                       // the lists of every Camera in a scene or prefab
+    std::set<std::string>
+        vfxEffects;         // the files scenes and prefabs name in a Vfx.effect (checked as effect documents)
+    bool artRules = false;  // assets.json style sets a rule a picture can be measured against
+    ProjectArtUse artUse;   // where the scenes draw each texture, for those rules (texelsPerUnit)
+    std::map<std::string, Error>
+        videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
+    std::vector<localization_detail::SceneText>
+        sceneTexts;                  // what scenes and prefabs show, for the string-table and glyph checks
+    LocalizationParse localization;  // the "localization" section of factoria.json
+    bool analyticsDeclared = false;  // factoria.json "analytics" has an endpoint
+    bool networkDeclared = false;    // factoria.json "network" lists at least one host
+    std::vector<PlatformCatalog::TextKeyRef>
+        catalogKeys;                      // locale keys the "platform" catalog names, checked with the string tables
+    bool projectFileRead = false;         // factoria.json parsed as an object
+    RichTextStyle richStyle;              // the "text" section of factoria.json, for the markup checks
+    std::set<std::string> boldSuggested;  // fonts already told to get a bold face (one warning per font)
+    std::set<std::string> entityTags;     // every tag a scene or prefab entity carries, for Camera.showTags / hideTags
+    struct CameraTags {
+        std::string file, pointer;
+        std::vector<std::string> show, hide;
+    };
+    std::vector<CameraTags> cameraTags;  // the lists of every Camera in a scene or prefab
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -114,16 +121,20 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
     if (f.assetType == "texture" && path.rfind("target:", 0) == 0) {
         Camera probe;
         probe.renderTarget = path.substr(7);
-        const std::string problem = probe.renderTarget.empty() ? "it has no name after \"target:\"" : camera_render_target_problem(probe);
+        const std::string problem =
+            probe.renderTarget.empty() ? "it has no name after \"target:\"" : camera_render_target_problem(probe);
         if (!problem.empty())
             c.error(file, pointer, "The texture '" + path + "' names a render target, but " + problem + ".",
-                    "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to 64 characters, e.g. \"target:book\".");
+                    "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to "
+                    "64 characters, e.g. \"target:book\".");
         return;
     }
     if (f.assetType == "mesh" && MeshStore::is_id(path)) {
         // The ids of procedural meshes live in the World of a running scene only: a file that names one points to nothing.
-        c.error(file, pointer, "'" + path + "' is a procedural mesh id: it exists only while the scene that built it runs.",
-                "Set the mesh from a script (MeshRenderer.mesh = the id mesh.create returned), or write the mesh to a file with "
+        c.error(file, pointer,
+                "'" + path + "' is a procedural mesh id: it exists only while the scene that built it runs.",
+                "Set the mesh from a script (MeshRenderer.mesh = the id mesh.create returned), or write the mesh to a "
+                "file with "
                 "mesh.save(m, \"assets/models/name.glb\") (or the mesh.save command) and use that path here.");
         return;
     }
@@ -135,8 +146,8 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
         for (const BuiltinFont& b : builtin_fonts()) names.push_back(b.name);
         const std::string m = closest_match(family, names);
         c.error(file, pointer, "Unknown built-in font '" + path + "'.",
-                (m.empty() ? std::string() : "Did you mean '" + m + "'? ") + "The built-in fonts are " + builtin_font_list() +
-                    "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
+                (m.empty() ? std::string() : "Did you mean '" + m + "'? ") + "The built-in fonts are " +
+                    builtin_font_list() + "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
         return;
     }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
@@ -157,7 +168,8 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
         auto seen = c.videoProblems.find(path);
         if (seen == c.videoProblems.end()) {
             std::ifstream in(stdfs::path(c.dir) / path, std::ios::binary);
-            auto bytes = std::make_shared<const std::vector<std::uint8_t>>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            auto bytes = std::make_shared<const std::vector<std::uint8_t>>((std::istreambuf_iterator<char>(in)),
+                                                                           std::istreambuf_iterator<char>());
             auto decoder = VideoDecoder::open(bytes, path);
             seen = c.videoProblems.emplace(path, decoder.ok() ? Error{} : decoder.error()).first;
         }
@@ -196,16 +208,20 @@ void check_color_array(Ctx& c, const std::string& file, const std::string& point
         small = small || (ch[i] > 0.0 && ch[i] <= 1.0);
         largest = std::max(largest, ch[i]);
     }
-    const std::string glow = strengthField.empty()
-        ? std::string()
-        : " To glow brighter than white keep the colour in 0..1 and raise " + strengthField + " (an HDR multiplier, 1 = as written).";
+    const std::string glow = strengthField.empty() ? std::string()
+                                                   : " To glow brighter than white keep the colour in 0..1 and raise " +
+                                                         strengthField + " (an HDR multiplier, 1 = as written).";
     if (over && !small && largest <= 8.0) {  // [2, 2, 2]: nobody writes a 0..255 colour this dark on purpose
         std::array<double, 4> bytes = ch;
         for (std::size_t i = 0; i < v.size(); ++i) bytes[i] = ch[i] / 255.0;
         c.warn(file, pointer,
-               "The colour " + color_text(ch, v.size()) + " has a channel over 1, so the engine reads it as 0..255 and divides every "
-               "channel by 255: it is " + color_text(bytes, v.size()) + " (0..1), almost black. A colour in 0..1 cannot be brighter than white." + glow,
-               "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+               "The colour " + color_text(ch, v.size()) +
+                   " has a channel over 1, so the engine reads it as 0..255 and divides every "
+                   "channel by 255: it is " +
+                   color_text(bytes, v.size()) +
+                   " (0..1), almost black. A colour in 0..1 cannot be brighter than white." + glow,
+               "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use "
+               "\"#rrggbbaa\".");
         return;
     }
     if (!over || !small) return;
@@ -215,11 +231,15 @@ void check_color_array(Ctx& c, const std::string& file, const std::string& point
         unit[i] = std::min(1.0, ch[i]);
     }
     c.warn(file, pointer,
-           "The colour " + color_text(ch, v.size()) + " mixes channels over 1 with channels at most 1. The engine reads a colour as "
-           "0..255 when any channel is over 1, so every channel is divided by 255: it is " + color_text(bytes, v.size()) +
-           " (0..1). If you meant " + color_text(unit, v.size()) + " (the 0..1 reading of the small channels), it is not; if you "
-           "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine." + glow,
-           "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use \"#rrggbbaa\".");
+           "The colour " + color_text(ch, v.size()) +
+               " mixes channels over 1 with channels at most 1. The engine reads a colour as "
+               "0..255 when any channel is over 1, so every channel is divided by 255: it is " +
+               color_text(bytes, v.size()) + " (0..1). If you meant " + color_text(unit, v.size()) +
+               " (the 0..1 reading of the small channels), it is not; if you "
+               "meant bytes, a channel of 1 is 1/255, nearly zero, and this is fine." +
+               glow,
+           "Write every channel in 0..1 ([1, 1, 1, 1]) or every channel in 0..255 ([255, 255, 255, 255]), or use "
+           "\"#rrggbbaa\".");
 }
 
 bool has_field(const TypeInfo& t, const std::string& name) {
@@ -233,7 +253,10 @@ void check_component_assets(Ctx& c, const std::string& file, const std::string& 
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
     for (const FieldInfo& f : t->fields)
-        if (f.kind == FieldKind::Color && fields.contains(f.name)) check_color_array(c, file, pointer + "/" + f.name, fields[f.name], f.name == "emissive" && has_field(*t, "emissiveStrength") ? typeName + ".emissiveStrength" : std::string());
+        if (f.kind == FieldKind::Color && fields.contains(f.name))
+            check_color_array(c, file, pointer + "/" + f.name, fields[f.name],
+                              f.name == "emissive" && has_field(*t, "emissiveStrength") ? typeName + ".emissiveStrength"
+                                                                                        : std::string());
     for (const FieldInfo& f : t->fields) {
         if (f.kind != FieldKind::Asset || !fields.contains(f.name)) continue;
         check_asset_value(c, file, pointer + "/" + f.name, f, fields[f.name]);
@@ -243,11 +266,12 @@ void check_component_assets(Ctx& c, const std::string& file, const std::string& 
 // The structure of Tilemap data (tiles vs width*height, rows, solidTiles) is checked by the scene loader; here the tile
 // indices are compared with the tileset image, which needs the file. `fields` is the Tilemap object as written.
 void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& pointer, const Json& fields) {
-    if (!fields.is_object() || !fields.contains("tileset") || !fields["tileset"].is_string() || !fields.contains("tiles") ||
-        !fields["tiles"].is_array())
+    if (!fields.is_object() || !fields.contains("tileset") || !fields["tileset"].is_string() ||
+        !fields.contains("tiles") || !fields["tiles"].is_array())
         return;
     const std::string path = fields["tileset"].get<std::string>();
-    if (path.empty() || !stdfs::exists(stdfs::path(c.dir) / path)) return;  // a missing file is reported as a missing asset
+    if (path.empty() || !stdfs::exists(stdfs::path(c.dir) / path))
+        return;  // a missing file is reported as a missing asset
     auto img = load_image(path);
     if (!img.ok()) return;
     Tilemap tm;
@@ -263,7 +287,8 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
     std::string firstPointer;
     long long firstValue = 0, offenders = 0;
     auto visit = [&](const Json& v, const std::string& ptr) {
-        if (!v.is_number() || v.get<double>() < 0) return;  // empty (-1) or not a tile; flip / rotate flags are not part of the index
+        if (!v.is_number() || v.get<double>() < 0)
+            return;  // empty (-1) or not a tile; flip / rotate flags are not part of the index
         const long long index = static_cast<long long>(v.get<double>()) & kTileIndexMask;
         if (index < count) return;
         if (offenders++ == 0) {
@@ -274,45 +299,59 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
     const Json& tiles = fields["tiles"];
     for (std::size_t i = 0; i < tiles.size(); ++i) {
         if (tiles[i].is_array())
-            for (std::size_t k = 0; k < tiles[i].size(); ++k) visit(tiles[i][k], "/tiles/" + std::to_string(i) + "/" + std::to_string(k));
+            for (std::size_t k = 0; k < tiles[i].size(); ++k)
+                visit(tiles[i][k], "/tiles/" + std::to_string(i) + "/" + std::to_string(k));
         else
             visit(tiles[i], "/tiles/" + std::to_string(i));
     }
     if (offenders == 0) return;
     // `columns` unset (0) is derived from the image, so a mismatch can only come from an explicit value.
-    const Tilemap packed = [&] { Tilemap p = tm; p.columns = 0; return p; }();
+    const Tilemap packed = [&] {
+        Tilemap p = tm;
+        p.columns = 0;
+        return p;
+    }();
     const int tilesX = tileset_columns(packed, img->width);
     const int columns = tileset_columns(tm, img->width);
-    std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." + std::to_string(count - 1) + ".";
+    std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." +
+                       std::to_string(count - 1) + ".";
     if (tm.columns > 0 && tm.columns != tilesX && tilesX > 0)
-        hint += " The image has " + std::to_string(tilesX) + " tile columns but columns is " + std::to_string(tm.columns) +
-                ": remove \"columns\" (it is derived from the image) or set \"columns\": " + std::to_string(tilesX) + ".";
+        hint +=
+            " The image has " + std::to_string(tilesX) + " tile columns but columns is " + std::to_string(tm.columns) +
+            ": remove \"columns\" (it is derived from the image) or set \"columns\": " + std::to_string(tilesX) + ".";
     c.error(file, pointer + firstPointer,
-            "Tile index " + std::to_string(firstValue) + " is outside the tileset '" + path + "' (" + std::to_string(img->width) + "x" + std::to_string(img->height) +
-                " px, tileSize [" + std::to_string(int(tm.tileSize.x)) + ", " + std::to_string(int(tm.tileSize.y)) + "], columns " + std::to_string(columns) +
-                " = " + std::to_string(count) + " tiles)" + (offenders > 1 ? "; " + std::to_string(offenders - 1) + " more tile(s) are outside too" : ""),
+            "Tile index " + std::to_string(firstValue) + " is outside the tileset '" + path + "' (" +
+                std::to_string(img->width) + "x" + std::to_string(img->height) + " px, tileSize [" +
+                std::to_string(int(tm.tileSize.x)) + ", " + std::to_string(int(tm.tileSize.y)) + "], columns " +
+                std::to_string(columns) + " = " + std::to_string(count) + " tiles)" +
+                (offenders > 1 ? "; " + std::to_string(offenders - 1) + " more tile(s) are outside too" : ""),
             hint);
 }
 
 // A texture of an atlas group (import setting `atlas`) is drawn from the packed atlas once the game is exported, which
 // only 2D sprites and particles do: any other texture field (a tileset, a mesh texture) would show the whole atlas.
 // The VFS root is the project (its assets.json is the one asked).
-void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
+void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
+                     const Json& fields) {
     if (typeName != "Tilemap" && typeName != "MeshRenderer") return;  // the others draw through the atlas rectangle
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
     for (const FieldInfo& f : t->fields) {
-        if (f.kind != FieldKind::Asset || f.assetType != "texture" || !fields.contains(f.name) || !fields[f.name].is_string()) continue;
+        if (f.kind != FieldKind::Asset || f.assetType != "texture" || !fields.contains(f.name) ||
+            !fields[f.name].is_string())
+            continue;
         const std::string path = fields[f.name].get<std::string>();
         if (path.empty()) continue;
         const Json settings = assets::import_settings(path);
         const auto group = settings.find("atlas");
         if (group == settings.end() || !group->is_string() || group->get<std::string>().empty()) continue;
         c.warn(file, pointer + "/" + f.name,
-               "Texture '" + path + "' is in atlas group \"" + group->get<std::string>() + "\" (assets.json), but " + typeName + "." + f.name +
+               "Texture '" + path + "' is in atlas group \"" + group->get<std::string>() + "\" (assets.json), but " +
+                   typeName + "." + f.name +
                    " cannot draw from an atlas: an exported game would show the whole atlas image here.",
                "Set the \"atlas\" import setting of '" + path + "' to \"\" in assets.json, or point " + f.name +
-                   " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot be packed.");
+                   " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot "
+                   "be packed.");
     }
 }
 
@@ -334,15 +373,20 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
             for (const Json& n : v) ok = ok && n.is_number();
         if (ok) check_color_array(c, file, base + "/" + it.key(), v);
         if (!ok)
-            c.error(file, base + "/" + it.key(), "The colour of material '" + it.key() + "' must be [r, g, b] or [r, g, b, a] numbers.",
+            c.error(file, base + "/" + it.key(),
+                    "The colour of material '" + it.key() + "' must be [r, g, b] or [r, g, b, a] numbers.",
                     "Example: [0.2, 0.8, 0.7, 1].");
     }
     if (colors.empty()) return;
-    const std::string mesh = fields.contains("mesh") && fields["mesh"].is_string() ? fields["mesh"].get<std::string>() : "cube";
-    if (MeshStore::is_id(mesh)) return;  // a procedural mesh: its submesh material names are known at run time (reported as an id error)
+    const std::string mesh =
+        fields.contains("mesh") && fields["mesh"].is_string() ? fields["mesh"].get<std::string>() : "cube";
+    if (MeshStore::is_id(mesh))
+        return;  // a procedural mesh: its submesh material names are known at run time (reported as an id error)
     const std::string lower = to_lower(mesh);
     if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
-        c.warn(file, base, "materialColors only applies to a glTF model, and mesh '" + mesh + "' is a built-in shape: it is ignored.",
+        c.warn(file, base,
+               "materialColors only applies to a glTF model, and mesh '" + mesh +
+                   "' is a built-in shape: it is ignored.",
                "Use `color` to tint a built-in shape.");
         return;
     }
@@ -351,8 +395,7 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
     if (!names.ok()) return;  // the model itself is not valid; the mesh asset check and the renderer say why
     for (auto it = colors.begin(); it != colors.end(); ++it) {
         if (std::find(names->begin(), names->end(), it.key()) != names->end()) continue;
-        c.error(file, base + "/" + it.key(),
-                "Model '" + mesh + "' has no material named '" + it.key() + "'.",
+        c.error(file, base + "/" + it.key(), "Model '" + mesh + "' has no material named '" + it.key() + "'.",
                 names->empty() ? "The model's materials have no names; give them names in the modelling tool."
                                : did_you_mean(it.key(), *names));
     }
@@ -368,12 +411,15 @@ void check_fit_panels(Ctx& c, const std::string& file, World& world) {
     ui.layout(world, design, {});
     for (Entity e : world.entities_with(&World::type_of<Panel>())) {
         const Panel* p = world.get<Panel>(e);
-        if (!p || !p->fit || !world.active_in_hierarchy(e) || (p->size.x <= design.x + 0.5f && p->size.y <= design.y + 0.5f)) continue;
+        if (!p || !p->fit || !world.active_in_hierarchy(e) ||
+            (p->size.x <= design.x + 0.5f && p->size.y <= design.y + 0.5f))
+            continue;
         c.warn(file, "",
                "Panel '" + world.info(e).id + "' (fit) is " + std::to_string(int(std::ceil(p->size.x))) + " x " +
-                   std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) + " x " +
-                   std::to_string(int(design.y)) + " px screen at the design size.",
-               "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the free height.");
+                   std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) +
+                   " x " + std::to_string(int(design.y)) + " px screen at the design size.",
+               "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the "
+               "free height.");
     }
 }
 
@@ -406,13 +452,17 @@ void check_offscreen_widgets(Ctx& c, const std::string& file, World& world) {
         if (!r) continue;
         if (r->x + r->w > 0.0f && r->y + r->h > 0.0f && r->x < design.x && r->y < design.y) continue;
         c.warn(file, "",
-               std::string(ui_kind_name(ui_kind(world, e))) + " '" + world.info(e).id + "' lies completely outside the screen: it covers x " +
-                   num(r->x) + " to " + num(r->x + r->w) + ", y " + num(r->y) + " to " + num(r->y + r->h) + " (anchor " + pair(b->anchor) +
-                   ", pivot " + pair(b->pivot) + ", size " + pair(b->size) + "), and the screen at the design size is " + num(design.x) +
-                   " x " + num(design.y) + " px.",
-               "Anchor Y counts down from the top-left (0 top, 1 bottom) but pivot Y counts up (0 is the widget's bottom edge, 1 its top "
-               "edge): anchor [0.5, 1] with pivot [0.5, 0] sits on the bottom edge, with pivot [0.5, 1] it hangs below it. Fix the pivot "
-               "or the position, or turn `active` off if the widget is meant to be hidden (docs/MENUS.md, \"Anchors and pivots\").");
+               std::string(ui_kind_name(ui_kind(world, e))) + " '" + world.info(e).id +
+                   "' lies completely outside the screen: it covers x " + num(r->x) + " to " + num(r->x + r->w) +
+                   ", y " + num(r->y) + " to " + num(r->y + r->h) + " (anchor " + pair(b->anchor) + ", pivot " +
+                   pair(b->pivot) + ", size " + pair(b->size) + "), and the screen at the design size is " +
+                   num(design.x) + " x " + num(design.y) + " px.",
+               "Anchor Y counts down from the top-left (0 top, 1 bottom) but pivot Y counts up (0 is the widget's "
+               "bottom edge, 1 its top "
+               "edge): anchor [0.5, 1] with pivot [0.5, 0] sits on the bottom edge, with pivot [0.5, 1] it hangs below "
+               "it. Fix the pivot "
+               "or the position, or turn `active` off if the widget is meant to be hidden (docs/MENUS.md, \"Anchors "
+               "and pivots\").");
     }
 }
 
@@ -428,7 +478,8 @@ void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
     }
 }
 
-void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields);
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
+                         const Json& fields);
 
 // SpriteAnimator.clip must be a clip of the `sheet` entry of the texture of the Sprite on the same entity. An entity that
 // gets its Sprite from a prefab is not checked here (the prefab file is). The VFS root is the project.
@@ -437,14 +488,17 @@ void check_animator_clip(Ctx& c, const std::string& file, const std::string& poi
     const auto sprite = components.find("Sprite");
     if (anim == components.end() || sprite == components.end() || !anim->is_object() || !sprite->is_object()) return;
     if (!anim->contains("clip") || !(*anim)["clip"].is_string() || (*anim)["clip"].get<std::string>().empty()) return;
-    if (!sprite->contains("texture") || !(*sprite)["texture"].is_string() || (*sprite)["texture"].get<std::string>().empty()) return;
+    if (!sprite->contains("texture") || !(*sprite)["texture"].is_string() ||
+        (*sprite)["texture"].get<std::string>().empty())
+        return;
     const std::string texture = (*sprite)["texture"].get<std::string>(), clip = (*anim)["clip"].get<std::string>();
     const auto sheet = assets::sheet(texture);
     if (sheet && sheet->find(clip)) return;
     if (!stdfs::exists(stdfs::path(c.dir) / texture)) return;  // reported as a missing asset
     c.error(file, pointer + "/components/SpriteAnimator/clip", sprite_clip_error(texture, clip, sheet),
             sheet ? "Use one of the clips of the sheet, or empty the field to play the numeric firstFrame/lastFrame."
-                  : "Record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet, or drop `clip` and set columns, rows, firstFrame, lastFrame and fps.");
+                  : "Record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet, or drop `clip` "
+                    "and set columns, rows, firstFrame, lastFrame and fps.");
 }
 
 // A Camera's showTags / hideTags as written: a malformed list and a tag in both lists are errors here; whether the tags exist
@@ -457,15 +511,19 @@ void collect_camera_tags(Ctx& c, const std::string& file, const std::string& bas
         const std::string problem = camera_tags_problem(fields[field], field);
         if (!problem.empty()) {
             c.error(file, base + "/" + field, problem,
-                    std::string("Write an array of tag names, e.g. \"") + field + "\": [\"page\"]; tags are the \"tags\" of entities.");
+                    std::string("Write an array of tag names, e.g. \"") + field +
+                        "\": [\"page\"]; tags are the \"tags\" of entities.");
             continue;
         }
         (std::string(field) == "showTags" ? ref.show : ref.hide) = camera_tag_list(fields[field]);
     }
     for (const std::string& t : ref.show)
         if (std::find(ref.hide.begin(), ref.hide.end(), t) != ref.hide.end())
-            c.error(file, base, "The Camera lists the tag '" + t + "' in both showTags and hideTags, so it would draw nothing with that tag.",
-                    "Keep '" + t + "' in one list: showTags to draw only entities with it, hideTags to leave them out.");
+            c.error(file, base,
+                    "The Camera lists the tag '" + t +
+                        "' in both showTags and hideTags, so it would draw nothing with that tag.",
+                    "Keep '" + t +
+                        "' in one list: showTags to draw only entities with it, hideTags to leave them out.");
     if (!ref.show.empty() || !ref.hide.empty()) c.cameraTags.push_back(std::move(ref));
 }
 
@@ -478,9 +536,11 @@ void check_camera_tags(Ctx& c) {
             const bool show = std::string(field) == "showTags";
             for (const std::string& t : show ? ref.show : ref.hide) {
                 if (c.entityTags.count(t)) continue;
-                const std::string effect = show ? "this camera draws nothing in world space" : "hiding it changes nothing";
+                const std::string effect =
+                    show ? "this camera draws nothing in world space" : "hiding it changes nothing";
                 c.warn(ref.file, ref.pointer + "/" + field,
-                       "No entity in any scene or prefab has the tag '" + t + "', so " + effect + " (unless a script adds it with entity.addTag).",
+                       "No entity in any scene or prefab has the tag '" + t + "', so " + effect +
+                           " (unless a script adds it with entity.addTag).",
                        known.empty() ? "Add \"tags\": [\"" + t + "\"] to the entities this camera is about."
                                      : did_you_mean(t, known));
             }
@@ -497,7 +557,8 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("prefab") && entity["prefab"].is_string()) {
         std::string pf = entity["prefab"].get<std::string>();
         if (!stdfs::exists(stdfs::path(c.dir) / pf))
-            c.error(file, pointer + "/prefab", "Prefab '" + pf + "' does not exist.", "Create it under prefabs/ or fix the path.");
+            c.error(file, pointer + "/prefab", "Prefab '" + pf + "' does not exist.",
+                    "Create it under prefabs/ or fix the path.");
     }
     if (entity.contains("components") && entity["components"].is_object()) {
         check_animator_clip(c, file, pointer, entity["components"]);
@@ -505,24 +566,27 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             check_atlas_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             check_rich_text_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
-            if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
-                !it.value()["texture"].get<std::string>().empty())
+            if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") &&
+                it.value()["texture"].is_string() && !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());
             if (it.key() == "Camera") collect_camera_tags(c, file, pointer + "/components/Camera", it.value());
-            if (it.key() == "MeshRenderer") check_material_colors(c, file, pointer + "/components/MeshRenderer", it.value());
+            if (it.key() == "MeshRenderer")
+                check_material_colors(c, file, pointer + "/components/MeshRenderer", it.value());
             if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
-            if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
+            if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") &&
+                it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());
                 if (it.value().contains("props") && it.value()["props"].is_object() && !it.value()["props"].empty())
-                    c.propChecks.push_back({file, pointer + "/components/Script/props", it.value()["path"].get<std::string>(),
-                                            it.value()["props"]});
+                    c.propChecks.push_back({file, pointer + "/components/Script/props",
+                                            it.value()["path"].get<std::string>(), it.value()["props"]});
             }
         }
     }
     localization_detail::collect_scene_texts(file, pointer, entity, c.sceneTexts);
     if (entity.contains("children") && entity["children"].is_array()) {
         int i = 0;
-        for (const auto& ch : entity["children"]) check_entity_assets(c, file, pointer + "/children/" + std::to_string(i++), ch, scripts);
+        for (const auto& ch : entity["children"])
+            check_entity_assets(c, file, pointer + "/children/" + std::to_string(i++), ch, scripts);
     }
 }
 
@@ -571,7 +635,9 @@ Entity world_entity_of(const World& world, const Json& entry, const std::vector<
     const Entity e = siblings[index];
     if (entry.contains("id") && entry["id"].is_string()) {
         const std::string want = entry["id"].get<std::string>(), got = world.info(e).id;
-        if (got != want && !(got.size() > want.size() && got.compare(0, want.size(), want) == 0 && got[want.size()] == '_')) return kNullEntity;
+        if (got != want &&
+            !(got.size() > want.size() && got.compare(0, want.size(), want) == 0 && got[want.size()] == '_'))
+            return kNullEntity;
     }
     return e;
 }
@@ -580,7 +646,8 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
                               World& world, const std::vector<PrefabShape>& shapes, PrefabBaseCache& cache,
                               InlineCopyCount& count) {
     if (!entity.is_object()) return;
-    const bool hasComps = entity.contains("components") && entity["components"].is_object() && !entity["components"].empty();
+    const bool hasComps =
+        entity.contains("components") && entity["components"].is_object() && !entity["components"].empty();
     PrefabDiffOptions opts;
     opts.cache = &cache;
     if (e != kNullEntity && hasComps) {
@@ -593,19 +660,23 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
                 std::string list;
                 int repeated = 0;
                 for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it)
-                    if (!differing || !differing->contains(it.key())) { list += (repeated++ ? ", " : "") + it.key(); }
+                    if (!differing || !differing->contains(it.key())) {
+                        list += (repeated++ ? ", " : "") + it.key();
+                    }
                 // One component repeated is usually a single override that happens to equal the prefab (scene.import_ascii
                 // legends do that); two or more are the prefab's content written out again.
                 if (repeated >= 2)
                     c.warn(file, pointer + "/components",
                            "This instance of '" + entity["prefab"].get<std::string>() + "' also saves " + list +
                                " with the prefab's own values, so a later change of the prefab does not reach it.",
-                           "Delete the repeated component(s): an instance stores only what differs (scene.save writes it that way).");
+                           "Delete the repeated component(s): an instance stores only what differs (scene.save writes "
+                           "it that way).");
             }
         } else {
             const PrefabShape* best = nullptr;
             PrefabDiff bestDiff;
-            const std::string name = entity.contains("name") && entity["name"].is_string() ? entity["name"].get<std::string>() : "";
+            const std::string name =
+                entity.contains("name") && entity["name"].is_string() ? entity["name"].get<std::string>() : "";
             std::set<std::string> keys;
             for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) keys.insert(it.key());
             // At most three candidates are compared: the prefabs that share the entity's name first, then the ones with
@@ -622,7 +693,10 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
             for (const PrefabShape* sp : candidates) {
                 PrefabDiff d = diff_entity_with_prefab(world, e, sp->path, opts);
                 if (!d.expressible || d.changes > 2) continue;
-                if (!best || d.changes < bestDiff.changes) { best = sp; bestDiff = std::move(d); }
+                if (!best || d.changes < bestDiff.changes) {
+                    best = sp;
+                    bestDiff = std::move(d);
+                }
             }
             if (best) {
                 if (count.warned >= kInlineCopyListed) {
@@ -633,9 +707,11 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
                 const std::string id = world.info(e).id;
                 c.warn(file, pointer,
                        "Entity '" + id + "' repeats the components of '" + best->path + "' inline (" +
-                           std::to_string(bestDiff.changes) + " difference(s)), so it will not follow later changes of the prefab.",
+                           std::to_string(bestDiff.changes) +
+                           " difference(s)), so it will not follow later changes of the prefab.",
                        "Make it an instance: replace the entry with " + bestDiff.entry.dump() +
-                           " (scene.save keeps prefab instances in that form), or create it with scene.spawn {\"prefab\": \"" +
+                           " (scene.save keeps prefab instances in that form), or create it with scene.spawn "
+                           "{\"prefab\": \"" +
                            best->path + "\"} and delete this one.");
                 return;  // its children are the copy's parts
             }
@@ -657,10 +733,13 @@ void check_inline_prefab_copy(Ctx& c, const std::string& file, const std::string
     }
 }
 
-void note_unlisted_inline_copies(Ctx& c, const std::string& file, const std::string& pointer, const InlineCopyCount& count) {
+void note_unlisted_inline_copies(Ctx& c, const std::string& file, const std::string& pointer,
+                                 const InlineCopyCount& count) {
     if (count.unlisted == 0) return;
-    c.warn(file, pointer, std::to_string(count.unlisted) + " more entities of this file repeat the components of a prefab inline (the first " +
-                         std::to_string(kInlineCopyListed) + " are listed above).",
+    c.warn(file, pointer,
+           std::to_string(count.unlisted) +
+               " more entities of this file repeat the components of a prefab inline (the first " +
+               std::to_string(kInlineCopyListed) + " are listed above).",
            "Replace the copies with prefab instances, or create them with scene.spawn {\"prefab\": ...}.");
 }
 
@@ -679,8 +758,9 @@ void note_hand_formatted(ValidationReport& report, const std::vector<std::string
     for (std::size_t i = 0; i < files.size() && i < kListed; ++i) list += (i ? ", " : "") + files[i];
     if (files.size() > kListed) list += ", and " + std::to_string(files.size() - kListed) + " more";
     ValidationIssue n;  // no `file`: the message lists them
-    n.message = std::to_string(files.size()) + " scene/prefab file" + (files.size() == 1 ? " is" : "s are") + " formatted by hand: " + list +
-                " (" + (files.size() == 1 ? "it is" : "they are") + " valid; only whitespace differs from what scene.save writes).";
+    n.message = std::to_string(files.size()) + " scene/prefab file" + (files.size() == 1 ? " is" : "s are") +
+                " formatted by hand: " + list + " (" + (files.size() == 1 ? "it is" : "they are") +
+                " valid; only whitespace differs from what scene.save writes).";
     // A command the user can paste: the files themselves when there are a few, otherwise the whole project (which only
     // rewrites the files that are not canonical).
     std::string args = "{\"all\":true}";
@@ -689,8 +769,8 @@ void note_hand_formatted(ValidationReport& report, const std::vector<std::string
         for (std::size_t i = 0; i < files.size(); ++i) args += (i ? "," : "") + std::string("\"") + files[i] + "\"";
         args += "]}";
     }
-    n.hint = "Optional: `factoria call scene.format '" + args + "'` rewrites " + std::string(files.size() == 1 ? "it" : "them") +
-             " so later diffs stay small.";
+    n.hint = "Optional: `factoria call scene.format '" + args + "'` rewrites " +
+             std::string(files.size() == 1 ? "it" : "them") + " so later diffs stay small.";
     report.notes.push_back(std::move(n));
 }
 
@@ -702,7 +782,8 @@ void check_prefab_loads(Ctx& c, const std::string& rel) {
     World world;
     LoadReport lr;
     instantiate_prefab(world, rel, kNullEntity, lr);
-    const std::string note = " (entity expanded from prefab '" + rel + "')";  // the loader adds it to hints; here it is the file itself
+    const std::string note =
+        " (entity expanded from prefab '" + rel + "')";  // the loader adds it to hints; here it is the file itself
     for (const auto& m : lr.messages) {
         if (starts_with(m.message, "No entity with id")) continue;
         ValidationIssue issue{rel, m.pointer == "/prefab" ? std::string() : "/entity" + m.pointer, m.message, m.hint};
@@ -718,13 +799,15 @@ void check_binding(Ctx& c, const std::string& pointer, const std::string& bindin
 
 // An icon file named by factoria.json (`pointer` says which setting): it must exist and decode; a size or shape that
 // will look bad is a warning. `path` is "" when the setting is absent (or was rejected by parse_export_settings).
-void check_icon_file(Ctx& c, const std::string& pointer, const std::string& path, int recommendedSize = kRecommendedIconSize) {
+void check_icon_file(Ctx& c, const std::string& pointer, const std::string& path,
+                     int recommendedSize = kRecommendedIconSize) {
     if (path.empty()) return;
     std::vector<ExportSettingsIssue> warnings;
     auto img = load_icon_image(c.dir, path, pointer, &warnings, recommendedSize);
     if (!img.ok()) {
         std::string message = img.error().message;
-        const std::string prefix = std::string(kProjectFileName) + "#" + pointer + ": ";  // the report prints the location itself
+        const std::string prefix =
+            std::string(kProjectFileName) + "#" + pointer + ": ";  // the report prints the location itself
         if (starts_with(message, prefix)) message = message.substr(prefix.size());
         c.error(kProjectFileName, pointer, message, img.error().hint);
         return;
@@ -741,7 +824,8 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
     const ProjectExportSettings& s = parsed.settings;
     check_icon_file(c, "/icon", s.icon);
     check_icon_file(c, "/export/windows/icon", s.windows.icon);
-    if (s.windows.format == "msix") {  // the Store gives the identity; without it the package only installs on your own PC
+    if (s.windows.format ==
+        "msix") {  // the Store gives the identity; without it the package only installs on your own PC
         const WindowsMsixSettings& m = s.windows.msix;
         std::vector<std::string> missing;
         if (m.identityName.empty()) missing.push_back("identityName");
@@ -750,9 +834,12 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
         if (!missing.empty())
             c.warn(kProjectFileName, "/export/windows/msix",
                    "export.windows.format is \"msix\" but export.windows.msix has no " + join(missing, ", ") +
-                       ": the package gets a placeholder identity, which installs on your own PC but is rejected by the Microsoft Store.",
-                   "Copy identityName, publisher and publisherDisplayName from Partner Center > your app > Product management > Product identity "
-                   "(the Package/Identity/Name, Package/Identity/Publisher and Package/Properties/PublisherDisplayName values).");
+                       ": the package gets a placeholder identity, which installs on your own PC but is rejected by "
+                       "the Microsoft Store.",
+                   "Copy identityName, publisher and publisherDisplayName from Partner Center > your app > Product "
+                   "management > Product identity "
+                   "(the Package/Identity/Name, Package/Identity/Publisher and Package/Properties/PublisherDisplayName "
+                   "values).");
     }
     check_icon_file(c, "/export/macos/icon", s.macos.icon);
     check_icon_file(c, "/export/linux/icon", s.linux.icon);
@@ -761,7 +848,8 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
     constexpr int kLayerSize = 432;  // the xxxhdpi size of an adaptive icon layer
     check_icon_file(c, "/export/android/adaptiveIcon/foreground", s.android.adaptiveIcon.foreground, kLayerSize);
     const std::string& background = s.android.adaptiveIcon.background;
-    if (!background.empty() && background[0] != '#') check_icon_file(c, "/export/android/adaptiveIcon/background", background, kLayerSize);
+    if (!background.empty() && background[0] != '#')
+        check_icon_file(c, "/export/android/adaptiveIcon/background", background, kLayerSize);
     check_icon_file(c, "/export/android/adaptiveIcon/monochrome", s.android.adaptiveIcon.monochrome, kLayerSize);
 }
 
@@ -783,11 +871,15 @@ void check_export_exclude(Ctx& c, const std::vector<std::string>& globs, const s
         const std::string ptr = "/export/exclude/" + std::to_string(i);
         const std::vector<std::string> one{globs[i]};
         if (tooling_detail::export_excluded(one, mainScene))
-            c.error(kProjectFileName, ptr, "'" + globs[i] + "' excludes the main scene '" + mainScene + "', so the exported game cannot start.",
+            c.error(kProjectFileName, ptr,
+                    "'" + globs[i] + "' excludes the main scene '" + mainScene +
+                        "', so the exported game cannot start.",
                     "Narrow the glob, or change mainScene.");
-        else if (std::none_of(files.begin(), files.end(), [&](const std::string& f) { return tooling_detail::export_excluded(one, f); }))
+        else if (std::none_of(files.begin(), files.end(),
+                              [&](const std::string& f) { return tooling_detail::export_excluded(one, f); }))
             c.warn(kProjectFileName, ptr, "'" + globs[i] + "' matches no file of the project, so it excludes nothing.",
-                   "Globs are project-relative with forward slashes: '*' stays in one folder, '**' crosses folders (\"store/**\").");
+                   "Globs are project-relative with forward slashes: '*' stays in one folder, '**' crosses folders "
+                   "(\"store/**\").");
     }
 }
 
@@ -796,19 +888,24 @@ void check_export_exclude(Ctx& c, const std::vector<std::string>& globs, const s
 // schema's, which cannot suggest anything.
 void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) {
     for (const PlatformIssue& i : parsed.issues) {
-        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
-        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+        if (i.warning)
+            c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else
+            c.error(kProjectFileName, i.pointer, i.message, i.hint);
     }
     std::vector<std::string> declared;
     if (auto it = pj.find("plugins"); it != pj.end() && it->is_object())
         for (auto p = it->begin(); p != it->end(); ++p) declared.push_back(p.key());
     for (const PlatformCatalog::BackendRef& ref : parsed.catalog.backendRefs) {
         if (std::find(declared.begin(), declared.end(), ref.name) != declared.end()) continue;
-        c.error(kProjectFileName, ref.pointer, "\"" + ref.name + "\" is not a plugin of this game: factoria.json declares " +
+        c.error(kProjectFileName, ref.pointer,
+                "\"" + ref.name + "\" is not a plugin of this game: factoria.json declares " +
                     (declared.empty() ? std::string("no plugins") : "the plugins " + join(declared, ", ")),
-                declared.empty() ? "Declare the store plugin under \"plugins\" (`factoria call project.new_plugin`, docs/PLATFORM.md), or "
-                                   "remove \"backend\" to use \"auto\"."
-                                 : did_you_mean(ref.name, declared) + " Or use \"auto\" when only one plugin offers a backend.");
+                declared.empty()
+                    ? "Declare the store plugin under \"plugins\" (`factoria call project.new_plugin`, "
+                      "docs/PLATFORM.md), or "
+                      "remove \"backend\" to use \"auto\"."
+                    : did_you_mean(ref.name, declared) + " Or use \"auto\" when only one plugin offers a backend.");
     }
 }
 
@@ -816,8 +913,10 @@ void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) 
 // checks the shape too; where the section has errors its messages replace the schema's.
 void check_network(Ctx& c, const NetworkParse& parsed) {
     for (const NetworkIssue& i : parsed.issues) {
-        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
-        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+        if (i.warning)
+            c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else
+            c.error(kProjectFileName, i.pointer, i.message, i.hint);
     }
     c.networkDeclared = parsed.ok() && !parsed.policy.hosts.empty();
 }
@@ -825,12 +924,16 @@ void check_network(Ctx& c, const NetworkParse& parsed) {
 // The "analytics" and "remoteConfig" sections (docs/ANALYTICS.md): their URLs must be https and their hosts declared in "network".
 void check_services(Ctx& c, const AnalyticsParse& analytics, const RemoteConfigParse& remote) {
     for (const NetworkIssue& i : analytics.issues) {
-        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
-        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+        if (i.warning)
+            c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else
+            c.error(kProjectFileName, i.pointer, i.message, i.hint);
     }
     for (const NetworkIssue& i : remote.issues) {
-        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
-        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+        if (i.warning)
+            c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else
+            c.error(kProjectFileName, i.pointer, i.message, i.hint);
     }
     c.analyticsDeclared = analytics.settings.configured;
 }
@@ -857,21 +960,25 @@ void check_text_settings(Ctx& c, const TextSettingsParse& parsed) {
     if (!parsed.ok()) return;
     for (const auto& [name, icon] : parsed.style.icons)
         if (!stdfs::exists(stdfs::path(c.dir) / icon.texture))
-            c.error(kProjectFileName, "/text/icons/" + name + "/texture", "The texture '" + icon.texture + "' of icon '" + name + "' does not exist.",
+            c.error(kProjectFileName, "/text/icons/" + name + "/texture",
+                    "The texture '" + icon.texture + "' of icon '" + name + "' does not exist.",
                     "Fix the path or add the image to the project: [icon:" + name + "] draws nothing without it.");
     for (const auto& [font, bold] : parsed.style.boldFonts)
         if (bold.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / bold))
             c.error(kProjectFileName, "/text/fonts/" + font + "/bold", "The bold font '" + bold + "' does not exist.",
-                    "Fix the path or add the .ttf to the project; until then [b] and Text.bold emulate bold from the regular face.");
+                    "Fix the path or add the .ttf to the project; until then [b] and Text.bold emulate bold from the "
+                    "regular face.");
     for (const auto& [font, italic] : parsed.style.italicFonts)
         if (italic.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / italic))
-            c.error(kProjectFileName, "/text/fonts/" + font + "/italic", "The italic font '" + italic + "' does not exist.",
+            c.error(kProjectFileName, "/text/fonts/" + font + "/italic",
+                    "The italic font '" + italic + "' does not exist.",
                     "Fix the path or add the .ttf to the project; until then [i] text stays upright.");
 }
 
 // A Text, Button, Toggle, Slider or TouchButton that asks for markup or bold: the markup of its text must be clean, and a font
 // without a bold face in "text.fonts" is emboldened by the engine (it works, it looks worse than a drawn bold face).
-void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName,
+                         const Json& fields) {
     static const std::map<std::string, std::string> textField = {
         {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TouchButton", "text"}};
     const auto field = textField.find(typeName);
@@ -882,17 +989,23 @@ void check_rich_text_use(Ctx& c, const std::string& file, const std::string& poi
         if (const auto t = fields.find(field->second); t != fields.end() && t->is_string())
             for (const std::string& problem : markup_problems(t->get<std::string>(), &c.richStyle))
                 c.warn(file, pointer + "/" + field->second, "markup: " + problem,
-                       "Write [[ for a literal '['. Tags: [b]..[/b], [i]..[/i], [c:name]..[/c], [icon:name]; colours and icons are declared in factoria.json \"text\".");
-    std::string font = fields.contains("font") && fields["font"].is_string() ? fields["font"].get<std::string>() : std::string();
+                       "Write [[ for a literal '['. Tags: [b]..[/b], [i]..[/i], [c:name]..[/c], [icon:name]; colours "
+                       "and icons are declared in factoria.json \"text\".");
+    std::string font =
+        fields.contains("font") && fields["font"].is_string() ? fields["font"].get<std::string>() : std::string();
     if (font == "builtin") font.clear();
     if (c.richStyle.boldFonts.count(font) || c.boldSuggested.count(font)) return;
-    if (const BuiltinFont* family = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr; family && family->hasBold) return;  // its own bold face
+    if (const BuiltinFont* family = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr;
+        family && family->hasBold)
+        return;  // its own bold face
     c.boldSuggested.insert(font);
     const std::string shown = font.empty() ? "the built-in font" : "font '" + font + "'";
     c.warn(file, pointer + (markup ? "/markup" : "/bold"),
-           std::string(markup ? "markup" : "bold") + " is used with " + shown + ", which has no bold face in factoria.json \"text.fonts\": [b] and Text.bold "
+           std::string(markup ? "markup" : "bold") + " is used with " + shown +
+               ", which has no bold face in factoria.json \"text.fonts\": [b] and Text.bold "
                "emulate it by thickening the regular glyphs.",
-           "Add a bold file for it: \"text\": {\"fonts\": {\"" + font + "\": {\"bold\": \"assets/fonts/<Name>-Bold.ttf\"}}}.");
+           "Add a bold file for it: \"text\": {\"fonts\": {\"" + font +
+               "\": {\"bold\": \"assets/fonts/<Name>-Bold.ttf\"}}}.");
 }
 
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
@@ -904,7 +1017,8 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     }
     auto parsed = parse_json(*text, kProjectFileName);
     if (!parsed.ok()) {
-        c.error(kProjectFileName, "", parsed.error().message, parsed.error().hint.empty() ? "Fix the JSON syntax." : parsed.error().hint);
+        c.error(kProjectFileName, "", parsed.error().message,
+                parsed.error().hint.empty() ? "Fix the JSON syntax." : parsed.error().hint);
         return;
     }
     const Json& pj = parsed.value();
@@ -913,32 +1027,45 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
     const NetworkParse network = parse_network(pj.is_object() && pj.contains(kNetworkKey) ? pj[kNetworkKey] : Json());
-    const AnalyticsParse analytics = parse_analytics(pj.is_object() && pj.contains(kAnalyticsKey) ? pj[kAnalyticsKey] : Json(), network.policy);
-    const RemoteConfigParse remoteConfig =
-        parse_remote_config(pj.is_object() && pj.contains(kRemoteConfigKey) ? pj[kRemoteConfigKey] : Json(), network.policy);
-    const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
-    const AudioSettingsParse audio = parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
-    const TextSettingsParse textSettings = parse_text_settings(pj.is_object() && pj.contains("text") ? pj["text"] : Json());
+    const AnalyticsParse analytics =
+        parse_analytics(pj.is_object() && pj.contains(kAnalyticsKey) ? pj[kAnalyticsKey] : Json(), network.policy);
+    const RemoteConfigParse remoteConfig = parse_remote_config(
+        pj.is_object() && pj.contains(kRemoteConfigKey) ? pj[kRemoteConfigKey] : Json(), network.policy);
+    const LocalizationParse localization =
+        parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
+    const AudioSettingsParse audio =
+        parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
+    const TextSettingsParse textSettings =
+        parse_text_settings(pj.is_object() && pj.contains("text") ? pj["text"] : Json());
     if (textSettings.ok()) c.richStyle = textSettings.style;
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
-            if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
-            if (!network.ok() && (e.pointer == "/network" || e.pointer.rfind("/network/", 0) == 0)) continue;  // check_network says it better
-            if (!analytics.ok() && (e.pointer == "/analytics" || e.pointer.rfind("/analytics/", 0) == 0)) continue;  // check_services says it better
-            if (!remoteConfig.ok() && (e.pointer == "/remoteConfig" || e.pointer.rfind("/remoteConfig/", 0) == 0)) continue;
-            if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
-            if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0)) continue;  // check_audio too
-            if (!textSettings.ok() && (e.pointer == "/text" || e.pointer.rfind("/text/", 0) == 0)) continue;  // check_text_settings too
+            if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0))
+                continue;  // check_platform says it better
+            if (!network.ok() && (e.pointer == "/network" || e.pointer.rfind("/network/", 0) == 0))
+                continue;  // check_network says it better
+            if (!analytics.ok() && (e.pointer == "/analytics" || e.pointer.rfind("/analytics/", 0) == 0))
+                continue;  // check_services says it better
+            if (!remoteConfig.ok() && (e.pointer == "/remoteConfig" || e.pointer.rfind("/remoteConfig/", 0) == 0))
+                continue;
+            if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0))
+                continue;  // check_localization too
+            if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0))
+                continue;  // check_audio too
+            if (!textSettings.ok() && (e.pointer == "/text" || e.pointer.rfind("/text/", 0) == 0))
+                continue;  // check_text_settings too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
-            const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
-                                            std::any_of(publish.errors.begin(), publish.errors.end(), sameSpot);
+            const bool reportedBySettings =
+                std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
+                std::any_of(publish.errors.begin(), publish.errors.end(), sameSpot);
             if (!reportedBySettings) c.error(kProjectFileName, e.pointer, e.message, e.hint);
         }
     if (!pj.is_object()) return;
     check_export_settings(c, exportSettings);
-    for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
+    for (const auto& e : publish.errors)
+        c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
     if (platform.ok())
@@ -956,16 +1083,19 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         c.error(kProjectFileName, "/mainScene", "Main scene '" + mainScene + "' does not exist.",
                 "Create it or point mainScene at an existing scene (see scenes/).");
     check_export_exclude(c, exportSettings.settings.exclude, mainScene);
-    if (pj.contains("input") && pj["input"].is_object() && pj["input"].contains("actions") && pj["input"]["actions"].is_object()) {
+    if (pj.contains("input") && pj["input"].is_object() && pj["input"].contains("actions") &&
+        pj["input"]["actions"].is_object()) {
         for (auto it = pj["input"]["actions"].begin(); it != pj["input"]["actions"].end(); ++it) {
             if (!it.value().is_array()) continue;
             int i = 0;
             for (const auto& b : it.value()) {
-                if (b.is_string()) check_binding(c, "/input/actions/" + it.key() + "/" + std::to_string(i), b.get<std::string>());
+                if (b.is_string())
+                    check_binding(c, "/input/actions/" + it.key() + "/" + std::to_string(i), b.get<std::string>());
                 ++i;
             }
             if (it.value().empty())
-                c.warn(kProjectFileName, "/input/actions/" + it.key(), "Action '" + it.key() + "' has no bindings.", "Add at least one key, e.g. [\"Space\"].");
+                c.warn(kProjectFileName, "/input/actions/" + it.key(), "Action '" + it.key() + "' has no bindings.",
+                       "Add at least one key, e.g. [\"Space\"].");
         }
     }
 }
@@ -983,9 +1113,13 @@ void check_plugins(Ctx& c) {
                 message = message.substr(message.find(": ") + 2);  // the file and pointer go in their own fields
                 if (platform == runtime_platform() && p.optional)
                     c.warn(kProjectFileName, "/plugins/" + p.name,
-                           "optional plugin: the game runs without it on this computer (" + platform + "): " + message, build.error().hint);
-                else if (platform == runtime_platform()) c.error(kProjectFileName, "/plugins/" + p.name, message, build.error().hint);
-                else c.warn(kProjectFileName, "/plugins/" + p.name, "exporting for " + platform + " fails: " + message, build.error().hint);
+                           "optional plugin: the game runs without it on this computer (" + platform + "): " + message,
+                           build.error().hint);
+                else if (platform == runtime_platform())
+                    c.error(kProjectFileName, "/plugins/" + p.name, message, build.error().hint);
+                else
+                    c.warn(kProjectFileName, "/plugins/" + p.name, "exporting for " + platform + " fails: " + message,
+                           build.error().hint);
             }
 }
 
@@ -1029,7 +1163,8 @@ void check_skills(Ctx& c) {
     for (auto it = group->begin(); it != group->end(); ++it) {
         if (!it.value().is_object() || !it.value().contains("path") || !it.value()["path"].is_string()) continue;
         const std::string path = it.value()["path"].get<std::string>();
-        if (path.empty() || path.rfind("engine:", 0) == 0 || path[0] == '~' || stdfs::path(path).is_absolute()) continue;
+        if (path.empty() || path.rfind("engine:", 0) == 0 || path[0] == '~' || stdfs::path(path).is_absolute())
+            continue;
         const stdfs::path dir = (stdfs::path(c.dir) / path).lexically_normal();
         if (!stdfs::is_directory(dir, ec)) continue;
         if (stdfs::is_regular_file(dir / "SKILL.md", ec)) {
@@ -1062,12 +1197,17 @@ void check_feedback_file(Ctx& c, const std::string& file) {
         const Json& entries = (*doc)["entries"];
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const Json& e = entries[i];
-            if (!e.is_object() || e.value("status", std::string("open")) != "open" || e.value("claimCheck", std::string()) == "dismissed") continue;
+            if (!e.is_object() || e.value("status", std::string("open")) != "open" ||
+                e.value("claimCheck", std::string()) == "dismissed")
+                continue;
             const ClaimResult claim = check_feedback_entry_claim(e);
             if (!claim.refused()) continue;
             c.warn(file, "/entries/" + std::to_string(i),
-                   "Entry " + e.value("id", std::string("?")) + " (\"" + e.value("title", std::string()) + "\") says the engine lacks something it already has. " + claim.reason(),
-                   "Close it: `factoria feedback update " + e.value("id", std::string("ID")) + " --status rejected --reason \"...\"` (or `factoria feedback check --entries --reject` for all of them). If the feature really fails, rewrite the entry as a bug that says what you tried.");
+                   "Entry " + e.value("id", std::string("?")) + " (\"" + e.value("title", std::string()) +
+                       "\") says the engine lacks something it already has. " + claim.reason(),
+                   "Close it: `factoria feedback update " + e.value("id", std::string("ID")) +
+                       " --status rejected --reason \"...\"` (or `factoria feedback check --entries --reject` for all "
+                       "of them). If the feature really fails, rewrite the entry as a bug that says what you tried.");
         }
     }
 }
@@ -1097,7 +1237,8 @@ void check_assets_manifest(Ctx& c) {
         std::string m = closest_match(it.key(), siblings);
         c.warn(file, (Json::json_pointer("/assets") / it.key()).to_string(),
                "Entry for '" + it.key() + "', which does not exist (renamed or deleted?).",
-               m.empty() ? "Remove the entry, or restore the file." : "Did you mean '" + m + "'? Rename the key, or remove the entry.");
+               m.empty() ? "Remove the entry, or restore the file."
+                         : "Did you mean '" + m + "'? Rename the key, or remove the entry.");
     }
 }
 
@@ -1123,7 +1264,8 @@ void check_style_section(Ctx& c) {
         }
         for (const auto& [bus, lufs] : parsed.guide.audio->loudnessLufs) {
             if (std::find(buses.begin(), buses.end(), bus) != buses.end()) continue;
-            c.warn(file, "/style/audio/loudnessLufs/" + tooling_detail::escape_token(bus), "style.audio.loudnessLufs names the bus '" + bus + "', which the project does not have.",
+            c.warn(file, "/style/audio/loudnessLufs/" + tooling_detail::escape_token(bus),
+                   "style.audio.loudnessLufs names the bus '" + bus + "', which the project does not have.",
                    "Use a bus that exists (" + join(buses, ", ") + ")." + did_you_mean(bus, buses));
         }
     }
@@ -1152,7 +1294,13 @@ Json ValidationReport::to_json() const {
     for (const auto& i : notes) n.push_back(i.to_json());
     for (const auto& i : errors) e.push_back(i.to_json());
     for (const auto& i : warnings) w.push_back(i.to_json());
-    return Json::object({{"ok", ok}, {"errors", e}, {"warnings", w}, {"notes", n}, {"scenesChecked", scenesChecked}, {"scriptsChecked", scriptsChecked}, {"materialsChecked", materialsChecked}});
+    return Json::object({{"ok", ok},
+                         {"errors", e},
+                         {"warnings", w},
+                         {"notes", n},
+                         {"scenesChecked", scenesChecked},
+                         {"scriptsChecked", scriptsChecked},
+                         {"materialsChecked", materialsChecked}});
 }
 
 std::string ValidationReport::to_text() const {
@@ -1172,7 +1320,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     c.dir = stdfs::absolute(projectDir, ec).lexically_normal().string();
     if (!c.dir.empty() && (c.dir.back() == '/' || c.dir.back() == '\\')) c.dir.pop_back();
     if (!stdfs::is_directory(c.dir, ec)) {
-        c.error("", "", "Project directory '" + projectDir + "' does not exist.", "Pass the folder that contains factoria.json.");
+        c.error("", "", "Project directory '" + projectDir + "' does not exist.",
+                "Pass the folder that contains factoria.json.");
         c.report.ok = false;
         return std::move(c.report);
     }
@@ -1213,11 +1362,15 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             for (const auto& m : lr.messages) {
                 ValidationIssue issue{m.source.empty() ? rel : m.source, m.pointer, m.message, m.hint};
                 // Normalize absolute sources to project-relative.
-                if (stdfs::path(issue.file).is_absolute()) issue.file = stdfs::relative(issue.file, c.dir, ec).generic_string();
-                (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
+                if (stdfs::path(issue.file).is_absolute())
+                    issue.file = stdfs::relative(issue.file, c.dir, ec).generic_string();
+                (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings)
+                    .push_back(std::move(issue));
             }
             collect_if_not_canonical(handFormatted, rel);
-            world.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
+            world.each<Vfx>([&](Entity, Vfx& v) {
+                if (!v.effect.empty()) c.vfxEffects.insert(v.effect);
+            });
             if (c.artRules) collect_art_use(world, rel, c.artUse);
             check_fit_panels(c, rel, world);
             check_offscreen_widgets(c, rel, world);
@@ -1233,29 +1386,35 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
             // Entries and roots are matched by position: a scene where an entry is not an object, or whose entries and roots
             // differ in number (the loader dropped one), is not compared.
-            const bool alignedRoots = j.is_object() && j.contains("entities") && j["entities"].is_array() &&
-                                      std::all_of(j["entities"].begin(), j["entities"].end(), [](const Json& x) { return x.is_object(); }) &&
-                                      world.roots().size() == j["entities"].size();
+            const bool alignedRoots =
+                j.is_object() && j.contains("entities") && j["entities"].is_array() &&
+                std::all_of(j["entities"].begin(), j["entities"].end(), [](const Json& x) { return x.is_object(); }) &&
+                world.roots().size() == j["entities"].size();
             if (alignedRoots && !prefabShapes.empty()) {
                 const std::vector<Entity> roots = world.roots();
                 InlineCopyCount copies;
                 std::size_t i = 0;
                 for (const auto& e : j["entities"]) {
-                    check_inline_prefab_copy(c, rel, "/entities/" + std::to_string(i), e, world_entity_of(world, e, roots, i), world,
-                                             prefabShapes, prefabCache, copies);
+                    check_inline_prefab_copy(c, rel, "/entities/" + std::to_string(i), e,
+                                             world_entity_of(world, e, roots, i), world, prefabShapes, prefabCache,
+                                             copies);
                     ++i;
                 }
                 note_unlisted_inline_copies(c, rel, "/entities", copies);
             }
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
                 int i = 0;
-                for (const auto& e : j["entities"]) check_entity_assets(c, rel, "/entities/" + std::to_string(i++), e, scripts);
+                for (const auto& e : j["entities"])
+                    check_entity_assets(c, rel, "/entities/" + std::to_string(i++), e, scripts);
             }
         }
         for (const auto& rel : prefabFiles) {
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             auto parsed = text ? parse_json(*text, rel) : Result<Json>(make_error("cannot read " + rel));
-            if (!parsed.ok()) { c.error(rel, "", parsed.error().message, "Fix the JSON syntax."); continue; }
+            if (!parsed.ok()) {
+                c.error(rel, "", parsed.error().message, "Fix the JSON syntax.");
+                continue;
+            }
             collect_if_not_canonical(handFormatted, rel);
             check_prefab_loads(c, rel);
             {
@@ -1263,22 +1422,26 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 LoadReport ignored;
                 prefabCache.forget_world();
                 const Entity prefabRoot = instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
-                prefabWorld.each<Vfx>([&](Entity, Vfx& v) { if (!v.effect.empty()) c.vfxEffects.insert(v.effect); });
+                prefabWorld.each<Vfx>([&](Entity, Vfx& v) {
+                    if (!v.effect.empty()) c.vfxEffects.insert(v.effect);
+                });
                 if (c.artRules) collect_art_use(prefabWorld, rel, c.artUse);
                 validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
                 validate_detail::check_ik3d(rel, prefabWorld, parsed.value(), c.report);
                 // The prefab's own parts that repeat another prefab (the root is the prefab itself, not a copy).
                 const Json& pj = parsed.value();
-                if (!prefabShapes.empty() && !prefabRoot.is_null() && pj.is_object() && pj.contains("entity") && pj["entity"].is_object() &&
-                    pj["entity"].contains("children") && pj["entity"]["children"].is_array()) {
+                if (!prefabShapes.empty() && !prefabRoot.is_null() && pj.is_object() && pj.contains("entity") &&
+                    pj["entity"].is_object() && pj["entity"].contains("children") &&
+                    pj["entity"]["children"].is_array()) {
                     const std::vector<Entity>& kids = prefabWorld.children(prefabRoot);
                     const Json& entries = pj["entity"]["children"];
                     InlineCopyCount copies;
                     if (kids.size() == entries.size()) {
                         std::size_t i = 0;
                         for (const auto& ch : entries) {
-                            check_inline_prefab_copy(c, rel, "/entity/children/" + std::to_string(i), ch, world_entity_of(prefabWorld, ch, kids, i),
-                                                     prefabWorld, prefabShapes, prefabCache, copies);
+                            check_inline_prefab_copy(c, rel, "/entity/children/" + std::to_string(i), ch,
+                                                     world_entity_of(prefabWorld, ch, kids, i), prefabWorld,
+                                                     prefabShapes, prefabCache, copies);
                             ++i;
                         }
                     }
@@ -1298,7 +1461,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         else if (!mainScene.empty() && std::find(sceneFiles.begin(), sceneFiles.end(), mainScene) == sceneFiles.end() &&
                  stdfs::exists(stdfs::path(c.dir) / mainScene))
             c.warn(kProjectFileName, "/mainScene",
-                   "mainScene '" + mainScene + "' is not named *.scene.json (or is in a hidden or build folder), so it is not validated.",
+                   "mainScene '" + mainScene +
+                       "' is not named *.scene.json (or is in a hidden or build folder), so it is not validated.",
                    "Name it <something>.scene.json, e.g. scenes/main.scene.json.");
     }
 
@@ -1307,7 +1471,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
 
     // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
     if (c.projectFileRead && c.localization.ok())
-        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.catalogKeys, c.report);
+        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.catalogKeys,
+                                                        c.report);
 
     // Custom materials: the *.material.json files and their snippets (all dialects).
     validate_materials(c.dir, options.shaderContext, c.report);
@@ -1331,7 +1496,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             auto same = [&](const ValidationIssue& o) {
                 return o.file == issue.file && o.pointer == issue.pointer && o.message == issue.message;
             };
-            if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+            if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same))
+                c.report.errors.push_back(std::move(issue));
         }
     }
     // The scripts against the engine's API (a text scan: names, members, literal component names, project.* calls), then each
@@ -1359,7 +1525,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                     const auto tool = toolCommands.find(call.name);
                     if (tool == toolCommands.end()) continue;
                     c.warn(s, "", tooling_detail::tool_only_call_message(s, call, tool->second),
-                           "Tools are for working on the game and are not exported; move what the game needs into scripts/.");
+                           "Tools are for working on the game and are not exported; move what the game needs into "
+                           "scripts/.");
                 }
             }
         }
@@ -1371,12 +1538,16 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 failedScripts.insert(s);
                 ValidationIssue issue{s, "", loaded.error().message, loaded.error().hint};
                 // "scripts/util.js:12:5: ..." names the module that throws, which an importer shares: report it once.
-                if (const std::size_t colon = issue.message.find(':'); colon != std::string::npos && colon + 1 < issue.message.size() &&
-                                                                       std::isdigit(static_cast<unsigned char>(issue.message[colon + 1])))
+                if (const std::size_t colon = issue.message.find(':');
+                    colon != std::string::npos && colon + 1 < issue.message.size() &&
+                    std::isdigit(static_cast<unsigned char>(issue.message[colon + 1])))
                     issue.file = issue.message.substr(0, colon);
                 issue.message = "The module fails to load: " + issue.message;
-                auto same = [&](const ValidationIssue& o) { return o.file == issue.file && o.message == issue.message; };
-                if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+                auto same = [&](const ValidationIssue& o) {
+                    return o.file == issue.file && o.message == issue.message;
+                };
+                if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same))
+                    c.report.errors.push_back(std::move(issue));
             }
         }
     }
@@ -1385,8 +1556,10 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         for (const auto& s : scripts) {
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
             if (!text || text->find("http.fetch") == std::string::npos) continue;
-            c.warn(s, "", "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
-                   "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json (docs/NETWORKING.md).");
+            c.warn(s, "",
+                   "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
+                   "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json "
+                   "(docs/NETWORKING.md).");
             break;  // once per project is enough
         }
     }
@@ -1395,8 +1568,11 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         for (const auto& s : scripts) {
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
             if (!text || text->find("analytics.event(") == std::string::npos) continue;
-            c.warn(s, "", "this script calls analytics.event, but factoria.json has no \"analytics\" section with an endpoint: every call throws",
-                   "Add \"analytics\": {\"endpoint\": \"https://stats.example.com/events\"} and the host to \"network\".\"hosts\" (docs/ANALYTICS.md).");
+            c.warn(s, "",
+                   "this script calls analytics.event, but factoria.json has no \"analytics\" section with an "
+                   "endpoint: every call throws",
+                   "Add \"analytics\": {\"endpoint\": \"https://stats.example.com/events\"} and the host to "
+                   "\"network\".\"hosts\" (docs/ANALYTICS.md).");
             break;
         }
     }
@@ -1404,7 +1580,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         for (const PropsCheck& pc : c.propChecks) {
             if (!stdfs::exists(stdfs::path(c.dir) / pc.module) || failedScripts.count(pc.module)) continue;
             for (const std::string& msg : options.propsCheck(pc.module, pc.props))
-                c.warn(pc.file, pc.pointer, msg, "Fix the prop name, or declare the field in " + pc.module + " (props only set existing fields).");
+                c.warn(pc.file, pc.pointer, msg,
+                       "Fix the prop name, or declare the field in " + pc.module +
+                           " (props only set existing fields).");
         }
     }
     if (options.hooksCheck) {
@@ -1412,7 +1590,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             // tools/*.js export command objects, not behaviours
             if (s.rfind("tools/", 0) == 0 || failedScripts.count(s)) continue;
             for (const std::string& msg : options.hooksCheck(s))
-                c.warn(s, "", msg, "Rename the method to the suggested hook (all hooks: docs SCRIPTING.md, \"Lifecycle\").");
+                c.warn(s, "", msg,
+                       "Rename the method to the suggested hook (all hooks: docs SCRIPTING.md, \"Lifecycle\").");
         }
     }
     if (auto dts = tooling_detail::read_file(stdfs::path(c.dir) / "types" / "factoria.d.ts");
@@ -1420,7 +1599,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         c.warn("types/factoria.d.ts", "", "The script typings are a placeholder (everything is `any`).",
                "Run `factoria validate --fix-types` (or `factoria api --dts --project .`) to write the real typings.");
     if (!stdfs::exists(stdfs::path(c.dir) / "AGENTS.md"))
-        c.warn("AGENTS.md", "", "AGENTS.md is missing.", "AI agents rely on it; create it with `factoria new` or copy from templates/common/AGENTS.md.");
+        c.warn("AGENTS.md", "", "AGENTS.md is missing.",
+               "AI agents rely on it; create it with `factoria new` or copy from templates/common/AGENTS.md.");
     if (!stdfs::is_directory(stdfs::path(c.dir) / "tests", ec))
         c.warn("tests", "", "No tests/ folder.", "Add tests/*.test.js so `factoria test` can verify behaviour.");
 
@@ -1433,28 +1613,33 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
     info.name = "project.validate";
     info.category = "project";
     info.readOnly = true;
-    info.summary = "Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.";
-    info.description = "Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, "
-                       "scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. "
-                       "Example: {}" FA_COMMAND_DETAILS
-                       "Checks every *.scene.json and *.prefab.json of the project, wherever it is kept "
-                       "(scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, "
-                       "like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not "
-                       "disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown "
-                       "field or a value outside a field's range (\"Field 'sides': value 200 is outside the allowed range 3..64\"; "
-                       "the offending field keeps its default, nothing is clamped). "
-                       "Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in "
-                       "`notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, `warnings`, "
-                       "`notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports "
-                       "a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about a scene entity "
-                       "that repeats a prefab's components inline instead of being an instance of it (the copy does not follow later "
-                       "changes of the prefab; the hint gives the {id, prefab, differences} entry that replaces it), and about an "
-                       "instance that also saves two or more components with the prefab's own values. It looks at the entities of scenes "
-                       "(children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the rest "
-                       "in one more warning.";
+    info.summary =
+        "Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.";
+    info.description =
+        "Run after every batch of edits. Returns {ok, errors[], warnings[], notes[], scenesChecked, "
+        "scriptsChecked, materialsChecked}; each issue has file, JSON pointer, message and a fix hint. "
+        "Example: {}" FA_COMMAND_DETAILS
+        "Checks every *.scene.json and *.prefab.json of the project, wherever it is kept "
+        "(scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, "
+        "like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not "
+        "disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown "
+        "field or a value outside a field's range (\"Field 'sides': value 200 is outside the allowed range 3..64\"; "
+        "the offending field keeps its default, nothing is clamped). "
+        "Scene and prefab files whose whitespace differs from what scene.save writes are valid: they give ONE entry in "
+        "`notes` (informational, not a warning; optional fix: scene.format). The result has `ok`, `errors`, "
+        "`warnings`, "
+        "`notes`, `scenesChecked`, `scriptsChecked`, `materialsChecked`. It reports "
+        "a .json that a script imports and that is not valid JSON once, as that file with line and column. Warns about "
+        "a scene entity "
+        "that repeats a prefab's components inline instead of being an instance of it (the copy does not follow later "
+        "changes of the prefab; the hint gives the {id, prefab, differences} entry that replaces it), and about an "
+        "instance that also saves two or more components with the prefab's own values. It looks at the entities of "
+        "scenes "
+        "(children included) and at the parts of prefab files; it lists the first 5 copies of a file and counts the "
+        "rest "
+        "in one more warning.";
     registry.add(info, [projectDir](const Json&) { return validate_project(projectDir).to_json(); });
-    declare_command_capabilities(registry, {
-        {"project.validate", capability_sets::reads()}});
+    declare_command_capabilities(registry, {{"project.validate", capability_sets::reads()}});
 }
 
 }  // namespace fa

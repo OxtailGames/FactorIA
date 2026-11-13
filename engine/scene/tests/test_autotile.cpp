@@ -124,9 +124,9 @@ TEST_CASE("autotile: basic16 uses the four neighbours only") {
     Tilemap tm = grass_map(3, 3, R"([{"name":"wall","mode":"basic16","first":10}])");
     REQUIRE(paint_terrain(tm, "wall", rect(0, 0, 3, 3)).ok());
     CHECK(at(tm, 1, 1) == 10 + 15);
-    CHECK(at(tm, 0, 0) == 10 + 2 + 4);                // E and S
-    CHECK(at(tm, 2, 2) == 10 + 1 + 8);                // N and W
-    CHECK(at(tm, 1, 0) == 10 + 2 + 4 + 8);            // E, S, W
+    CHECK(at(tm, 0, 0) == 10 + 2 + 4);      // E and S
+    CHECK(at(tm, 2, 2) == 10 + 1 + 8);      // N and W
+    CHECK(at(tm, 1, 0) == 10 + 2 + 4 + 8);  // E, S, W
 }
 
 TEST_CASE("autotile: outside=terrain removes the border at the map edge; joins connect terrains") {
@@ -155,7 +155,8 @@ TEST_CASE("autotile: terrains without joins ignore each other") {
 }
 
 TEST_CASE("autotile: variations are picked by seed, column and row, always the same") {
-    const char* rules = R"([{"name":"grass","mode":"basic16","seed":3,"tiles":[[0,100,200],1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])";
+    const char* rules =
+        R"([{"name":"grass","mode":"basic16","seed":3,"tiles":[[0,100,200],1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])";
     Tilemap a = grass_map(16, 16, rules), b = grass_map(16, 16, rules);
     REQUIRE(paint_terrain(a, "grass", {{0, 0}}).ok());  // slot 0: alone
     // many lone cells (every other cell, so no neighbours) show all three variations
@@ -171,7 +172,9 @@ TEST_CASE("autotile: variations are picked by seed, column and row, always the s
     }
     CHECK(seen == std::set<int>{0, 100, 200});
     // another seed gives another picture
-    Tilemap c = grass_map(16, 16, R"([{"name":"grass","mode":"basic16","seed":4,"tiles":[[0,100,200],1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])");
+    Tilemap c = grass_map(
+        16, 16,
+        R"([{"name":"grass","mode":"basic16","seed":4,"tiles":[[0,100,200],1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])");
     REQUIRE(paint_terrain(c, "grass", lone).ok());
     bool differs = false;
     for (const auto& cell : lone) differs = differs || at(a, cell.first, cell.second) != at(c, cell.first, cell.second);
@@ -199,7 +202,8 @@ TEST_CASE("autotile: retile fixes a map whose tiles were written by hand") {
 }
 
 TEST_CASE("autotile: flip flags of a terrain tile are kept") {
-    Tilemap tm = grass_map(1, 1, R"([{"name":"g","mode":"basic16","tiles":[268435456,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])");
+    Tilemap tm =
+        grass_map(1, 1, R"([{"name":"g","mode":"basic16","tiles":[268435456,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}])");
     REQUIRE(paint_terrain(tm, "g", {{0, 0}}).ok());
     CHECK(at(tm, 0, 0) == kTileFlipX);
     CHECK(terrain_of_tile(*parse_terrains(tm.terrains), at(tm, 0, 0)).terrain == "g");
@@ -247,11 +251,12 @@ TEST_CASE("autotile: errors name the terrain, the pointer and the fix") {
     CHECK(issue(bad, "/terrains/2/jions"));
     CHECK(issue(bad, "/terrains/2/name"));  // duplicate
     CHECK(issue(bad, "/terrains/3/name"));
-    CHECK(issue(bad, "/terrains/4"));       // no tiles
+    CHECK(issue(bad, "/terrains/4"));  // no tiles
     CHECK(issue(bad, "/terrains/5/joins"));
     CHECK(issue(bad, "/terrains/6/first"));
 
-    auto shared = check_terrains(Json::parse(R"([{"name":"a","mode":"basic16","first":0},{"name":"b","mode":"basic16","first":10}])"));
+    auto shared = check_terrains(
+        Json::parse(R"([{"name":"a","mode":"basic16","first":0},{"name":"b","mode":"basic16","first":10}])"));
     REQUIRE(shared.size() == 1);
     CHECK(shared[0].pointer == "/terrains/1/tiles");
     CHECK(shared[0].message.find("belongs to both") != std::string::npos);

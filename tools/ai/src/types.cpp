@@ -39,8 +39,12 @@ Result<ImageData> load_image_data(const std::string& path) {
                           "Use a .png, .jpg, .jpeg, .gif or .webp file.");
     }
     // The path is UTF-8 (the editor passes what the OS dialog gave it); path(std::string) would read it as ANSI on Windows.
-    fa::fs::ReadStream in(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size())), std::ios::binary);
-    if (!in) return make_error("Cannot read the image '" + path + "'", "Does the file still exist, and can this user read it?");
+    fa::fs::ReadStream in(
+        std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size())),
+        std::ios::binary);
+    if (!in)
+        return make_error("Cannot read the image '" + path + "'",
+                          "Does the file still exist, and can this user read it?");
     const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     if (bytes.empty()) return make_error("The image '" + path + "' is empty", "Attach a different file.");
     return ImageData{mediaType, fa::base64_encode(bytes.data(), bytes.size())};
@@ -63,7 +67,8 @@ Json saved_message_json(const Message& m) {
             std::string content = r.content;
             Json rj = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}});
             if (!r.images.empty()) {
-                content += "\n[" + std::to_string(r.images.size()) + " image(s) returned here are not kept in the saved conversation]";
+                content += "\n[" + std::to_string(r.images.size()) +
+                           " image(s) returned here are not kept in the saved conversation]";
             }
             rj["content"] = std::move(content);
             results.push_back(std::move(rj));
@@ -202,7 +207,8 @@ ContextSplit estimate_context(const ChatRequest& req) {
         } else {
             for (const ToolCall& call : m.toolCalls) c.conversationBytes += call.name.size() + dump(call.input);
         }
-        for (const ToolResult& r : m.toolResults) c.conversationBytes += r.content.size() + r.images.size() * kImageBytes;
+        for (const ToolResult& r : m.toolResults)
+            c.conversationBytes += r.content.size() + r.images.size() * kImageBytes;
     }
     return c;
 }
@@ -220,7 +226,8 @@ double estimate_cost(const Usage& u, const Pricing& p) {
     if (!p.known) return 0;
     return (static_cast<double>(u.inputTokens) * p.input + static_cast<double>(u.outputTokens) * p.output +
             static_cast<double>(u.cacheReadTokens) * p.cacheRead +
-            static_cast<double>(u.cacheCreationTokens) * p.cacheWrite) / 1e6;
+            static_cast<double>(u.cacheCreationTokens) * p.cacheWrite) /
+           1e6;
 }
 
 }  // namespace fa::ai
@@ -236,7 +243,8 @@ std::string shorten(std::string text, std::size_t max) {
     text = first == std::string::npos ? std::string() : text.substr(first);
     if (text.size() > max) {
         std::size_t cut = max;
-        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;  // not inside a UTF-8 character
+        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
+            --cut;  // not inside a UTF-8 character
         text = text.substr(0, cut) + "...";
     }
     return text;
@@ -251,8 +259,10 @@ std::string describe_agent_event(const AgentEvent& e) {
             if (name.rfind("mcp__factoria__", 0) == 0) name = name.substr(15);  // "scene_spawn"
             std::string detail;
             if (e.toolInput.is_object()) {
-                for (const char* key : {"command", "description", "file_path", "path", "pattern", "url", "name", "task"}) {
-                    if (e.toolInput.contains(key) && e.toolInput[key].is_string() && !e.toolInput[key].get<std::string>().empty()) {
+                for (const char* key :
+                     {"command", "description", "file_path", "path", "pattern", "url", "name", "task"}) {
+                    if (e.toolInput.contains(key) && e.toolInput[key].is_string() &&
+                        !e.toolInput[key].get<std::string>().empty()) {
                         detail = shorten(e.toolInput[key].get<std::string>(), 60);
                         break;
                     }

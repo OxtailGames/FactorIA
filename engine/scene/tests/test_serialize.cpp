@@ -99,7 +99,7 @@ TEST_CASE("scene: save is canonical and round trips") {
     CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, -500]"));
     CHECK(saved["settings"].contains("gravity3D"));
     CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
-    CHECK(!saved["settings"].contains("ambientLight"));         // every other default is left out
+    CHECK(!saved["settings"].contains("ambientLight"));  // every other default is left out
     CHECK(!saved["settings"].contains("musicVolume"));
     // Field order is the reflected order, not the order the always-written keys were added in.
     std::vector<std::string> keys;
@@ -115,7 +115,7 @@ TEST_CASE("scene: save is canonical and round trips") {
     CHECK(!player["components"]["Sprite"].contains("flipX"));
     CHECK(player["children"][0]["id"] == "weapon");
     CHECK(!player["children"][0]["components"].contains("Transform") == false);  // weapon has a non-default Transform
-    CHECK(player["children"][0]["components"]["Sprite"].is_object());          // present even with all defaults
+    CHECK(player["children"][0]["components"]["Sprite"].is_object());            // present even with all defaults
     const Json& muzzle = player["children"][0]["children"][0];
     CHECK(muzzle["active"] == false);
     CHECK(!muzzle.contains("components"));
@@ -184,7 +184,8 @@ TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
     CHECK(has_message(r, kWarn, "#/entities/0/components/sprite: Component 'sprite' should be spelled 'Sprite'"));
     CHECK(has_message(r, kErr, "#/entities/0/components/Camera/fov: Field 'fov': expected a number"));
     CHECK(has_message(r, kErr, "#/entities/0/components/Camera/fvo: Unknown field 'fvo' on Camera"));
-    CHECK(has_message(r, kErr, "#/entities/0/components/Camera/projection: Field 'projection': unknown value \"perspectiv\""));
+    CHECK(has_message(r, kErr,
+                      "#/entities/0/components/Camera/projection: Field 'projection': unknown value \"perspectiv\""));
     CHECK(has_message(r, kErr, "Did you mean 'perspective'?"));
     CHECK(has_message(r, kWarn, "#/entities/0/colour: Unknown entity key 'colour'"));
     CHECK(has_message(r, kWarn, "put it under \"components\""));
@@ -192,8 +193,8 @@ TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
     CHECK(has_message(r, kErr, "Did you mean 'color'?"));
     Entity a = w.find_by_id("a");
     REQUIRE(!a.is_null());
-    CHECK(w.get<Sprite>(a)->layer == 2);          // the case-mismatched one was accepted
-    CHECK(w.get<Camera>(a)->fov == 60.0f);        // bad value keeps default
+    CHECK(w.get<Sprite>(a)->layer == 2);    // the case-mismatched one was accepted
+    CHECK(w.get<Camera>(a)->fov == 60.0f);  // bad value keeps default
     CHECK(w.get<Light>(a)->intensity == 2.0f);
     CHECK(r.summary().find("[error]") != std::string::npos);
     CHECK(r.error_count() >= 5);
@@ -213,13 +214,15 @@ TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos 
     LoadReport r = load_scene(w, Json::parse(text), "diamond.scene.json");
     CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/shape: Field 'shape': unknown value \"diamnd\""));
     CHECK(has_message(r, kErr, "Did you mean 'diamond'?"));
-    CHECK(has_message(r, kErr, "#/entities/3/components/Camera/bloomScreenSpce: Unknown field 'bloomScreenSpce' on Camera"));
+    CHECK(has_message(r, kErr,
+                      "#/entities/3/components/Camera/bloomScreenSpce: Unknown field 'bloomScreenSpce' on Camera"));
     CHECK(has_message(r, kErr, "Did you mean 'bloomScreenSpace'?"));
     REQUIRE(w.get<Shape2D>(w.find_by_id("gem")) != nullptr);
     CHECK(w.get<Shape2D>(w.find_by_id("gem"))->shape == ShapeType::Diamond);
     CHECK(w.get<Shape2D>(w.find_by_id("gem"))->size == Vec2{40, 60});
     CHECK(w.get<Camera>(w.find_by_id("cam"))->bloomScreenSpace == false);
-    CHECK(w.get<Camera>(w.find_by_id("plain"))->bloomScreenSpace == true);  // default: the whole frame glows (HUD included)
+    CHECK(w.get<Camera>(w.find_by_id("plain"))->bloomScreenSpace ==
+          true);  // default: the whole frame glows (HUD included)
     CHECK(Camera{}.bloomScreenSpace);
     CHECK(w.get<Shape2D>(w.find_by_id("typo"))->shape == ShapeType::Rectangle);  // bad value keeps the default
 
@@ -234,7 +237,8 @@ TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos 
     CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
 }
 
-TEST_CASE("scene: Camera.viewport defaults to the whole screen, round trips, and a bad rectangle is an error with a hint") {
+TEST_CASE(
+    "scene: Camera.viewport defaults to the whole screen, round trips, and a bad rectangle is an error with a hint") {
     const char* text = R"({
       "format": "factoria.scene/1",
       "entities": [
@@ -267,7 +271,8 @@ TEST_CASE("scene: a number outside a field's range() is an error at its pointer,
     TempProject p;
     REQUIRE(fs::write_text("prefabs/ball.prefab.json", R"({
       "format": "factoria.prefab/1",
-      "entity": { "id": "ball", "components": { "Shape2D": { "shape": "polygon", "sides": 200 } } }})").ok());
+      "entity": { "id": "ball", "components": { "Shape2D": { "shape": "polygon", "sides": 200 } } }})")
+                .ok());
     World w;
     LoadReport r = load_scene(w, Json::parse(R"({
       "format": "factoria.scene/1",
@@ -277,19 +282,28 @@ TEST_CASE("scene: a number outside a field's range() is an error at its pointer,
         { "id": "tiny", "components": { "Shape2D": { "shape": "star", "points": 2 } } },
         { "id": "fine", "components": { "Shape2D": { "shape": "polygon", "sides": 64 } } },
         { "prefab": "prefabs/ball.prefab.json" }
-      ]})"), "ranges.scene.json");
+      ]})"),
+                              "ranges.scene.json");
     INFO(r.summary());
     CHECK(!r.ok());
     CHECK(r.error_count() == 5);
 
     // File, JSON pointer, the value and the allowed range, and what to use instead.
-    CHECK(has_message(r, kErr, "ranges.scene.json#/entities/0/components/Shape2D/sides: Field 'sides': value 200 is outside the allowed range 3..64"));
+    CHECK(has_message(r, kErr,
+                      "ranges.scene.json#/entities/0/components/Shape2D/sides: Field 'sides': value 200 is outside the "
+                      "allowed range 3..64"));
     CHECK(has_message(r, kErr, "Use a value from 3 to 64 (both allowed); the nearest is 64."));
-    CHECK(has_message(r, kErr, "ranges.scene.json#/entities/0/components/Camera/fov: Field 'fov': value 0.5 is outside the allowed range 1..179"));
+    CHECK(has_message(r, kErr,
+                      "ranges.scene.json#/entities/0/components/Camera/fov: Field 'fov': value 0.5 is outside the "
+                      "allowed range 1..179"));
     CHECK(has_message(r, kErr, "the nearest is 1."));
-    CHECK(has_message(r, kErr, "#/entities/1/components/Shape2D/points: Field 'points': value 2 is outside the allowed range 3..64"));
-    CHECK(has_message(r, kErr, "#/settings/musicVolume: Field 'musicVolume': value 5 is outside the allowed range 0..1"));
-    CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/sides: Field 'sides': value 200 is outside the allowed range 3..64"));  // via a prefab
+    CHECK(has_message(
+        r, kErr, "#/entities/1/components/Shape2D/points: Field 'points': value 2 is outside the allowed range 3..64"));
+    CHECK(
+        has_message(r, kErr, "#/settings/musicVolume: Field 'musicVolume': value 5 is outside the allowed range 0..1"));
+    CHECK(has_message(r, kErr,
+                      "#/entities/3/components/Shape2D/sides: Field 'sides': value 200 is outside the allowed range "
+                      "3..64"));  // via a prefab
     CHECK(has_message(r, kErr, "expanded from prefab 'prefabs/ball.prefab.json'"));
     int mentions = 0;
     for (const auto& m : r.messages)
@@ -351,7 +365,11 @@ TEST_CASE("scene: structural problems are reported, not crashed on") {
     LoadReport r = load_scene(w, Json::parse(R"({"entities": {"a":1}})"), "x");
     CHECK(has_message(r, kWarn, "Missing \"format\""));
     CHECK(has_message(r, kErr, "'entities' must be an array"));
-    r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entties":[], "entities":[5, {"components":[{"type":"Sprite"}]}, {"tags":"x"}]})"), "x");
+    r = load_scene(
+        w,
+        Json::parse(
+            R"({"format":"factoria.scene/1","entties":[], "entities":[5, {"components":[{"type":"Sprite"}]}, {"tags":"x"}]})"),
+        "x");
     CHECK(has_message(r, kWarn, "Unknown top-level key 'entties'"));
     CHECK(has_message(r, kWarn, "Did you mean 'entities'"));
     CHECK(has_message(r, kErr, "#/entities/0: entity must be a JSON object"));
@@ -360,7 +378,8 @@ TEST_CASE("scene: structural problems are reported, not crashed on") {
     r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","settings":{"gravty2D":[0,0]},"entities":[]})"), "x");
     CHECK(has_message(r, kErr, "#/settings/gravty2D: Unknown scene setting"));
     CHECK(has_message(r, kErr, "Did you mean 'gravity2D'"));
-    r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[{"components":{"EntityInfo":{}}}]})"), "x");
+    r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[{"components":{"EntityInfo":{}}}]})"),
+                   "x");
     CHECK(has_message(r, kErr, "EntityInfo is not a component entry"));
     auto f = load_scene_file(w, "nope/missing.scene.json");
     CHECK(!f.ok());
@@ -369,7 +388,8 @@ TEST_CASE("scene: structural problems are reported, not crashed on") {
 
 TEST_CASE("scene: duplicate ids are renamed with a warning") {
     World w;
-    LoadReport r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"x"},{"id":"x"}]})"), "d");
+    LoadReport r =
+        load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"x"},{"id":"x"}]})"), "d");
     CHECK(r.ok());
     CHECK(has_message(r, kWarn, "id 'x' is already used; renamed to 'x_2'"));
     CHECK(!w.find_by_id("x_2").is_null());
@@ -377,7 +397,10 @@ TEST_CASE("scene: duplicate ids are renamed with a warning") {
 
 TEST_CASE("scene: Entity fields reference entities defined later") {
     // A test component with an Entity field.
-    struct Follow { Entity target; float speed = 1; };
+    struct Follow {
+        Entity target;
+        float speed = 1;
+    };
     auto& reg = TypeRegistry::global();
     if (!reg.of<Follow>()) {
         reg.add<Follow>("FollowTest", "Follows a target.", "Test")
@@ -395,7 +418,8 @@ TEST_CASE("scene: Entity fields reference entities defined later") {
         {"id":"lost","components":{"FollowTest":{"target":"prye"}}},
         {"id":"nullref","components":{"FollowTest":{"target":null}}},
         {"id":"bad","components":{"FollowTest":{"target":5}}}
-      ]})"), "e");
+      ]})"),
+                              "e");
     CHECK(has_message(r, kErr, "#/entities/2/components/FollowTest/target: No entity with id 'prye'"));
     CHECK(has_message(r, kErr, "Did you mean 'prey'"));
     CHECK(has_message(r, kErr, "#/entities/4/components/FollowTest/target"));
@@ -468,11 +492,16 @@ TEST_CASE("scene: component_to_json and entity_to_json options") {
 
 TEST_CASE("scene: additive load and parent option") {
     World w;
-    load_scene(w, Json::parse(R"({"format":"factoria.scene/1","settings":{"fogDensity":1},"entities":[{"id":"holder"}]})"), "a");
+    load_scene(w,
+               Json::parse(R"({"format":"factoria.scene/1","settings":{"fogDensity":1},"entities":[{"id":"holder"}]})"),
+               "a");
     SceneLoadOptions opts;
     opts.additive = true;
     opts.parent = w.find_by_id("holder");
-    LoadReport r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","settings":{"fogDensity":5},"entities":[{"id":"x"},{"id":"y"}]})"), "b", opts);
+    LoadReport r = load_scene(
+        w,
+        Json::parse(R"({"format":"factoria.scene/1","settings":{"fogDensity":5},"entities":[{"id":"x"},{"id":"y"}]})"),
+        "b", opts);
     CHECK(r.ok());
     CHECK(w.entity_count() == 3);
     CHECK(w.children(opts.parent).size() == 2);
@@ -495,13 +524,16 @@ TEST_CASE("scene: prefab instantiation with overrides") {
           "RigidBody2D": {}
         },
         "children": [ { "id": "eye", "components": { "Sprite": { "color": "red" } } } ]
-      }})").ok());
+      }})")
+                .ok());
 
     World w;
     LoadReport report;
     Entity a = instantiate_prefab(w, "prefabs/enemy.prefab.json", kNullEntity, report);
-    Entity b = instantiate_prefab(w, "prefabs/enemy.prefab.json", kNullEntity, report,
-                                  Json::parse(R"({"name":"Boss","components":{"Transform":{"position":[5,6,0]},"Sprite":{"layer":9}},"children":[{"id":"hat"}]})"));
+    Entity b = instantiate_prefab(
+        w, "prefabs/enemy.prefab.json", kNullEntity, report,
+        Json::parse(
+            R"({"name":"Boss","components":{"Transform":{"position":[5,6,0]},"Sprite":{"layer":9}},"children":[{"id":"hat"}]})"));
     INFO(report.summary());
     CHECK(report.ok());
     CHECK(report.messages.empty());  // id collisions from prefab instances are silent
@@ -529,7 +561,8 @@ TEST_CASE("scene: prefab instantiation with overrides") {
     World s;
     LoadReport r3 = load_scene(s, Json::parse(R"({"format":"factoria.scene/1","entities":[
         {"id":"g1","prefab":"prefabs/enemy.prefab.json","components":{"Sprite":{"layer":"top"}}},
-        {"id":"g2","prefab":"prefabs/nope.prefab.json"}]})"), "main.scene.json");
+        {"id":"g2","prefab":"prefabs/nope.prefab.json"}]})"),
+                               "main.scene.json");
     CHECK(has_message(r3, kErr, "#/entities/0/components/Sprite/layer"));
     CHECK(has_message(r3, kErr, "expanded from prefab 'prefabs/enemy.prefab.json'"));
     CHECK(has_message(r3, kErr, "#/entities/1/prefab: File not found"));
@@ -625,7 +658,7 @@ TEST_CASE("scene: set_parent puts a child at an index, also within the same pare
     CHECK(kids(w, p) == "b,d,a,c");
     // Ranges for callers that validate.
     CHECK(w.check_child_index(p, c, 0).empty());
-    CHECK(w.check_child_index(p, c, 3).empty());  // 3 other children
+    CHECK(w.check_child_index(p, c, 3).empty());            // 3 other children
     CHECK(w.check_child_index(p, kNullEntity, 4).empty());  // a new entity: 4 children, 4 = last
     CHECK(w.check_child_index(p, c, 4).find("0 to 3") != std::string::npos);
     CHECK(!w.check_child_index(p, c, -1).empty());
@@ -661,7 +694,8 @@ TEST_CASE("scene: a prefab reference overrides the prefab's children") {
           { "id": "title", "name": "Title", "components": { "Sprite": { "layer": 2, "texture": "assets/t.png" } } },
           { "name": "Row", "children": [ { "id": "ok", "name": "Ok", "components": { "Sprite": { "layer": 3 } } } ] }
         ]
-      }})").ok());
+      }})")
+                .ok());
     World w;
     LoadReport r = load_scene(w, Json::parse(R"({"format":"factoria.scene/1","entities":[
         { "id": "a", "prefab": "prefabs/panel.prefab.json",
@@ -669,7 +703,8 @@ TEST_CASE("scene: a prefab reference overrides the prefab's children") {
                          "Row/Ok": { "name": "Done", "components": { "Sprite": { "layer": 30 } } } } },
         { "id": "b", "prefab": "prefabs/panel.prefab.json", "overrides": { "Ok": { "components": { "Sprite": { "layer": 31 } } } } },
         { "id": "c", "prefab": "prefabs/panel.prefab.json" }
-      ]})"), "scene.json");
+      ]})"),
+                              "scene.json");
     INFO(r.summary());
     REQUIRE(r.ok());
     auto layer_under = [&](Entity root, const char* name) {
@@ -708,7 +743,8 @@ TEST_CASE("scene: a prefab reference overrides the prefab's children") {
         { "prefab": "prefabs/panel.prefab.json", "overrides": { "titel": { "components": { "Sprite": { "layer": 5 } } } } },
         { "prefab": "prefabs/panel.prefab.json", "overrides": { "title": { "component": {} } } },
         { "prefab": "prefabs/panel.prefab.json", "overrides": { "title": { "components": { "Sprite": { "layr": 5 } } } } }
-      ]})"), "bad.json");
+      ]})"),
+                                "bad.json");
     CHECK(!bad.ok());
     CHECK(has_message(bad, kErr, "/entities/0/overrides/titel"));
     CHECK(has_message(bad, kErr, "has no child 'titel'"));
@@ -736,7 +772,8 @@ TEST_CASE("serialize: nothing is created under a parent that is being destroyed"
     const std::size_t before = w.entities().size();
 
     LoadReport r;
-    Entity e = entity_from_json(w, Json::parse(R"({"id":"orphan","components":{"Transform":{"position":[5,0,0]}}})"), parent, r, "spawn");
+    Entity e = entity_from_json(w, Json::parse(R"({"id":"orphan","components":{"Transform":{"position":[5,0,0]}}})"),
+                                parent, r, "spawn");
     CHECK(e.is_null());
     REQUIRE_FALSE(r.ok());
     CHECK(r.messages[0].message.find("'parent'") != std::string::npos);

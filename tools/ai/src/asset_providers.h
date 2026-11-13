@@ -10,9 +10,12 @@ namespace fa::ai {
 // picture is priced at this size, not at the size the file ends up.
 const char* openai_image_size(const AssetRequest& req);
 
-Result<AssetResult> openai_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);
-Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);
-Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel);
+Result<AssetResult> openai_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                 const CancelFlag* cancel);
+Result<AssetResult> elevenlabs_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                     const CancelFlag* cancel);
+Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                const CancelFlag* cancel);
 Result<AssetResult> fake_asset(const AssetRequest& req);
 Result<AssetResult> command_asset(const ProviderConfig& cfg, const AssetRequest& req, const CancelFlag* cancel);
 
@@ -22,6 +25,7 @@ Result<std::string> asset_api_key(const ProviderConfig& cfg, const ProviderRunti
 
 // One request of a provider, with the retries of the chat providers. A non-2xx answer is an Error with the provider's own
 // message. Generation costs money, so a transient failure is retried twice at most.
-Result<HttpResponse> asset_request(const ProviderConfig& cfg, HttpRequest request, const ProviderRuntime& rt, const CancelFlag* cancel);
+Result<HttpResponse> asset_request(const ProviderConfig& cfg, HttpRequest request, const ProviderRuntime& rt,
+                                   const CancelFlag* cancel);
 
 }  // namespace fa::ai

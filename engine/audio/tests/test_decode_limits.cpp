@@ -82,7 +82,8 @@ TEST_CASE("decode_audio: an OGG whose comment lengths lie is refused before stb_
     REQUIRE(decode_audio(good, ".ogg").ok());
     const std::size_t head = comment_header(good);
 
-    std::vector<std::uint8_t> vendor = good;  // a vendor string of 4 billion bytes (stb_vorbis reads -1: a write before its buffer)
+    std::vector<std::uint8_t> vendor =
+        good;  // a vendor string of 4 billion bytes (stb_vorbis reads -1: a write before its buffer)
     set32(vendor, head + 7, 0xFFFFFFFFu);
     CHECK_FALSE(decode_audio(vendor, ".ogg").ok());
 
@@ -95,7 +96,8 @@ TEST_CASE("decode_audio: an OGG whose comment lengths lie is refused before stb_
     set32(comments, head + 11 + vendorLen, 0x7FFFFFFFu);
     CHECK_FALSE(decode_audio(comments, ".ogg").ok());
 
-    const std::vector<std::uint8_t> cut(good.begin(), good.begin() + std::ptrdiff_t(head + 9));  // ends inside the vendor length
+    const std::vector<std::uint8_t> cut(good.begin(),
+                                        good.begin() + std::ptrdiff_t(head + 9));  // ends inside the vendor length
     CHECK_FALSE(decode_audio(cut, ".ogg").ok());
 }
 
@@ -153,8 +155,9 @@ void put16(std::vector<std::uint8_t>& b, std::size_t at, unsigned v) {
 TEST_CASE("Soundfont::from_memory: indices that point outside the SoundFont's tables are refused, not followed") {
     const std::vector<std::uint8_t> good = fa::testing::tiny_sf2();
     REQUIRE(Soundfont::from_memory(good, "good.sf2").ok());
-    const Table phdr = sf2_table(good, "phdr", 38), pbag = sf2_table(good, "pbag", 4), pgen = sf2_table(good, "pgen", 4),
-                inst = sf2_table(good, "inst", 22), igen = sf2_table(good, "igen", 4);
+    const Table phdr = sf2_table(good, "phdr", 38), pbag = sf2_table(good, "pbag", 4),
+                pgen = sf2_table(good, "pgen", 4), inst = sf2_table(good, "inst", 22),
+                igen = sf2_table(good, "igen", 4);
 
     auto refused = [&](const std::vector<std::uint8_t>& sf2, const char* name) {
         CAPTURE(name);
@@ -184,5 +187,6 @@ TEST_CASE("Soundfont::from_memory: indices that point outside the SoundFont's ta
 
     // Every cut of a good file is an error or a font, never a read outside the file.
     for (std::size_t cut = 0; cut < good.size(); cut += 37)
-        (void)Soundfont::from_memory(std::vector<std::uint8_t>(good.begin(), good.begin() + std::ptrdiff_t(cut)), "cut.sf2");
+        (void)Soundfont::from_memory(std::vector<std::uint8_t>(good.begin(), good.begin() + std::ptrdiff_t(cut)),
+                                     "cut.sf2");
 }

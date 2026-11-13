@@ -36,41 +36,71 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     std::vector<Item> file;
     file.push_back(menu::action("New Project...", [this] { showProjectDialog_ = true; }));
     file.push_back(menu::action("Open Project...", [this] { showProjectDialog_ = true; }));
-    file.push_back(menu::lazy_submenu("Recent Projects", [this] {
-        std::vector<Item> items;
-        for (const std::string& r : recentProjects_) items.push_back(menu::action(r, [this, r] { open_project(r); }));
-        return items;
-    }, !recentProjects_.empty()));
+    file.push_back(menu::lazy_submenu(
+        "Recent Projects",
+        [this] {
+            std::vector<Item> items;
+            for (const std::string& r : recentProjects_)
+                items.push_back(menu::action(r, [this, r] { open_project(r); }));
+            return items;
+        },
+        !recentProjects_.empty()));
     file.push_back(menu::separator());
     Item save = menu::action("Save Scene", [this] { save_scene_now(); }, editing);
     save.shortcut = "Ctrl+S";
     save.yieldsToText = true;
     file.push_back(std::move(save));
-    file.push_back(menu::action("Reload Scene", [this] { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }, have));
+    file.push_back(menu::action(
+        "Reload Scene",
+        [this] {
+            if (dirty_)
+                showReloadConfirm_ = true;
+            else
+                reload_scene_from_disk();
+        },
+        have));
     // The scene list is read from disk only when the submenu opens.
-    file.push_back(menu::lazy_submenu("Open Scene", [this] {
-        std::vector<Item> items;
-        for (const auto& f : fs::list("", true))
-            if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.') {
-                Item i = menu::action(f, [this, f] { if (dirty_) pendingScene_ = f; else open_scene(f); });
-                i.checked = f == scenePath_;
-                items.push_back(std::move(i));
-            }
-        return items;
-    }, have));
+    file.push_back(menu::lazy_submenu(
+        "Open Scene",
+        [this] {
+            std::vector<Item> items;
+            for (const auto& f : fs::list("", true))
+                if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.') {
+                    Item i = menu::action(f, [this, f] {
+                        if (dirty_)
+                            pendingScene_ = f;
+                        else
+                            open_scene(f);
+                    });
+                    i.checked = f == scenePath_;
+                    items.push_back(std::move(i));
+                }
+            return items;
+        },
+        have));
     file.push_back(menu::separator());
     file.push_back(menu::action("Open Screenshots Folder", [this] { open_screenshots_folder(); }, have));
-    file.push_back(with(menu::action("Export Game...", [this] { open_export_window(); }, have), "",
-                        "Package the game for Windows, macOS, Linux, Android or iOS"));
-    file.push_back(with(menu::action("Play on Phone...", [this] { open_phone_window(); }, have), "menu:play-phone",
-                        "Play the web build on a phone on the same Wi-Fi: its address as a QR code, rebuilt and reloaded when the project changes"));
-    file.push_back(with(menu::action("Platform Settings...", [this] { open_platform_settings(); }, have), "menu:platform-settings",
-                        "The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team..."));
-    file.push_back(with(menu::action("Feedback Settings...", [this] { open_share_settings(); }), "menu:feedback-settings",
-                        "Share what the engine lacked with its developers: the mode (Always, Ask me each time, Never), the GitHub sign-in "
+    file.push_back(with(menu::action(
+                            "Export Game...", [this] { open_export_window(); }, have),
+                        "", "Package the game for Windows, macOS, Linux, Android or iOS"));
+    file.push_back(with(menu::action(
+                            "Play on Phone...", [this] { open_phone_window(); }, have),
+                        "menu:play-phone",
+                        "Play the web build on a phone on the same Wi-Fi: its address as a QR code, rebuilt and "
+                        "reloaded when the project changes"));
+    file.push_back(with(menu::action(
+                            "Platform Settings...", [this] { open_platform_settings(); }, have),
+                        "menu:platform-settings",
+                        "The game icon and what each platform's export needs: Android version and signing key, macOS "
+                        "category, iOS team..."));
+    file.push_back(with(menu::action("Feedback Settings...", [this] { open_share_settings(); }),
+                        "menu:feedback-settings",
+                        "Share what the engine lacked with its developers: the mode (Always, Ask me each time, Never), "
+                        "the GitHub sign-in "
                         "and what waits to be sent"));
-    file.push_back(with(menu::action("Set Up This Computer...", [this] { open_setup_window(); }), "menu:setup",
-                        "Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode"));
+    file.push_back(
+        with(menu::action("Set Up This Computer...", [this] { open_setup_window(); }), "menu:setup",
+             "Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode"));
     if (!native) {  // on macOS Quit is in the app menu
         file.push_back(menu::separator());
         file.push_back(menu::action("Quit", [] { sapp_request_quit(); }));
@@ -89,10 +119,13 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     edit.push_back(std::move(redoItem));
     edit.push_back(menu::separator());
     const int lastRun = ai_last_revertable_run();
-    edit.push_back(with(menu::action("Revert Last AI Run", [this] { ai_revert_request(chat_.current().id, ai_last_revertable_run()); },
-                                     editing && !ai_chat_busy(chat_.current().id) && lastRun >= 0),
-                        "menu:revert-ai",
-                        "Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat."));
+    edit.push_back(
+        with(menu::action(
+                 "Revert Last AI Run", [this] { ai_revert_request(chat_.current().id, ai_last_revertable_run()); },
+                 editing && !ai_chat_busy(chat_.current().id) && lastRun >= 0),
+             "menu:revert-ai",
+             "Puts the project's files and the open scene back as they were before the last run of the AI Assistant in "
+             "this chat."));
 
     // ---- View
     std::vector<Item> view;
@@ -104,55 +137,82 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "The project's files: filter, search, drag onto the Inspector or the Viewport, open scenes"));
     view.push_back(toggle("AI Assistant", showAi_));
     view.push_back(toggle("Engine Feedback", showFeedback_));
-    view.push_back(with(toggle("Audio", showAudio_), "menu:audio",
-                        "The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded"));
+    view.push_back(with(
+        toggle("Audio", showAudio_), "menu:audio",
+        "The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded"));
     view.push_back(with(toggle("Profiler", showProfiler_), "menu:profiler",
-                        "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
-    view.push_back(with(toggle("Level generator", showLevelGen_), "menu:levelgen",
-                        "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
+                        "Where the time goes while the game plays: milliseconds per engine system and per script "
+                        "behaviour class, GPU time, memory"));
+    view.push_back(
+        with(toggle("Level generator", showLevelGen_), "menu:levelgen",
+             "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));
     view.push_back(with(toggle("Review", review_.show), "menu:review",
-                        "The review sheets: N candidates (images, levels, scenes...) as numbered thumbnails; pick one by its number and the others move to a drop folder"));
+                        "The review sheets: N candidates (images, levels, scenes...) as numbered thumbnails; pick one "
+                        "by its number and the others move to a drop folder"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
-                        "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
+                        "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, "
+                        "event markers and the onion skin"));
     view.push_back(with(toggle("Image", showImage_), "menu:image",
-                        "Paint and edit an image document (*.image.json): layers, brushes, selections, transform, adjustments and effects; Save bakes the PNG"));
+                        "Paint and edit an image document (*.image.json): layers, brushes, selections, transform, "
+                        "adjustments and effects; Save bakes the PNG"));
     view.push_back(with(toggle("Vector", showVector_), "menu:vector",
-                        "Draw and edit an SVG (*.svg): pen, node editing, shape tools, boolean buttons, layers and an inspector; every edit is a vector.* command"));
+                        "Draw and edit an SVG (*.svg): pen, node editing, shape tools, boolean buttons, layers and an "
+                        "inspector; every edit is a vector.* command"));
     view.push_back(with(toggle("Sound", showSound_), "menu:sound",
-                        "Look at and edit a sound: waveform, spectrogram, loudness, macro knobs, a patch inspector, the step chain of an audio document with loop points, variants and an A/B at the same loudness; every edit is a sfx.* or audio.* command"));
+                        "Look at and edit a sound: waveform, spectrogram, loudness, macro knobs, a patch inspector, "
+                        "the step chain of an audio document with loop points, variants and an A/B at the same "
+                        "loudness; every edit is a sfx.* or audio.* command"));
     view.push_back(with(toggle("Particles", showParticle_), "menu:particles",
-                        "Edit a particle effect document (*.vfx.json): emitters, lights, sounds and commands on one timeline with a time scrubber, a live preview played by the engine's own simulation, gradient and curve editors and an inspector; every edit is a vfx.edit command"));
+                        "Edit a particle effect document (*.vfx.json): emitters, lights, sounds and commands on one "
+                        "timeline with a time scrubber, a live preview played by the engine's own simulation, gradient "
+                        "and curve editors and an inspector; every edit is a vfx.edit command"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
-                        "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers and a mixer, played by the player a game's entity.music uses (an intensity slider fades the layers); every edit is a music.* command and Save bakes the song"));
+                        "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers "
+                        "and a mixer, played by the player a game's entity.music uses (an intensity slider fades the "
+                        "layers); every edit is a music.* command and Save bakes the song"));
     view.push_back(with(toggle("Model", showModeler_), "menu:model",
-                        "Edit a 3D model document (*.model.json): its operation tree, the parameters of the picked node as sliders and a live view of the mesh, with the picked part highlighted; every edit is a model.edit command and Save bakes the .glb"));
-    view.push_back(with(toggle("Bone tools", showBoneTools_), "menu:bonetools",
-                        "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
+                        "Edit a 3D model document (*.model.json): its operation tree, the parameters of the picked "
+                        "node as sliders and a live view of the mesh, with the picked part highlighted; every edit is "
+                        "a model.edit command and Save bakes the .glb"));
+    view.push_back(with(
+        toggle("Bone tools", showBoneTools_), "menu:bonetools",
+        "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
-    view.push_back(with(toggle("Show navmesh", showNav_), "",
-                        "Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on"));
+    view.push_back(
+        with(toggle("Show navmesh", showNav_), "",
+             "Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a "
+             "walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on"));
     view.push_back(toggle("Selection overlay", showOverlay_));
     view.push_back(menu::action("Reset layout", [this] { resetLayout_ = true; }));
 
     // ---- Play
     std::vector<Item> playMenu;
-    playMenu.push_back(with(menu::action("Let the AI Play", [this] { start_auto_play(); }, editing && !autoPlay_.running()), "menu:play-auto",
-                            "A bot plays the project from its start, faster than real time, and finds what is stuck or broken (play.auto). It runs in a\n"
-                            "separate process, so the editor stays free; the report opens in Play Sessions when it ends. Plays the project as saved on disk."));
-    playMenu.push_back(with(menu::action("Play Sessions...", [this] { open_play_sessions(); }, have), "menu:play-sessions",
-                            "The sessions you recorded with Play .. Stop and the ones the AI's bot played, with their reports"));
+    playMenu.push_back(with(menu::action(
+                                "Let the AI Play", [this] { start_auto_play(); }, editing && !autoPlay_.running()),
+                            "menu:play-auto",
+                            "A bot plays the project from its start, faster than real time, and finds what is stuck or "
+                            "broken (play.auto). It runs in a\n"
+                            "separate process, so the editor stays free; the report opens in Play Sessions when it "
+                            "ends. Plays the project as saved on disk."));
+    playMenu.push_back(
+        with(menu::action(
+                 "Play Sessions...", [this] { open_play_sessions(); }, have),
+             "menu:play-sessions",
+             "The sessions you recorded with Play .. Stop and the ones the AI's bot played, with their reports"));
 
     // ---- AI
     std::vector<Item> ai;
     ai.push_back(with(menu::action("AI Settings...", [this] { open_ai_settings(); }), "menu:ai-settings",
-                      "The roles (which provider and model plays the orchestrator, worker, artist, critics...), which service makes the\n"
+                      "The roles (which provider and model plays the orchestrator, worker, artist, critics...), which "
+                      "service makes the\n"
                       "AI's images, sounds and 3D models (with its key), and the websites it looks at for assets"));
     const bool detected = aiDetected_.load();
     Item roles = with(menu::action("Roles...", [this] { open_ai_settings(true); }, detected), "menu:ai-roles");
     roles.tooltipFn = [this, detected] {
         if (!detected) return std::string("Reading ai.json...");
-        return std::string("Choose the provider and model of each role (AI Settings, Roles tab). Takes effect with the next message.\n") +
+        return std::string("Choose the provider and model of each role (AI Settings, Roles tab). Takes effect with the "
+                           "next message.\n") +
                ai_roles_summary();
     };
     ai.push_back(std::move(roles));
@@ -171,8 +231,9 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     m.items.push_back(with(menu::submenu("AI", std::move(ai)), "menu:ai"));
     if (native) {
         // A system menu bar cannot hold a click item: Export is a menu of its own, with the shortcut.
-        Item exp = with(menu::action("Export Game...", [this] { open_export_window(); }, have), "menu:export",
-                        "Package the game for Windows, macOS, Linux, Android or iOS");
+        Item exp = with(menu::action(
+                            "Export Game...", [this] { open_export_window(); }, have),
+                        "menu:export", "Package the game for Windows, macOS, Linux, Android or iOS");
         exp.shortcut = "Ctrl+E";
         std::vector<Item> items;
         items.push_back(std::move(exp));
@@ -181,8 +242,11 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     m.items.push_back(menu::submenu("Help", std::move(help)));
     if (!native) {
         // Not a menu: a click on the bar itself, always in reach.
-        m.items.push_back(with(menu::action("Export Game", [this] { open_export_window(); }, have), "menu:export",
-                               "Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game... does the same)"));
+        m.items.push_back(
+            with(menu::action(
+                     "Export Game", [this] { open_export_window(); }, have),
+                 "menu:export",
+                 "Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game... does the same)"));
         // The engine version at the right end of the bar, so it is always clear which FactorIA is running.
         m.trailing = std::string("FactorIA ") + FA_ENGINE_VERSION;
         m.trailingTooltip = std::string("FactorIA ") + FA_ENGINE_VERSION + ", build " + build_fingerprint();

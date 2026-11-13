@@ -28,9 +28,7 @@ struct Vars {
     std::string name, id, version, date;
 };
 
-bool looks_binary(const std::string& s) {
-    return s.find('\0') != std::string::npos;
-}
+bool looks_binary(const std::string& s) { return s.find('\0') != std::string::npos; }
 
 std::string json_escape(const std::string& s) {
     std::string d = Json(s).dump();
@@ -86,7 +84,8 @@ Result<std::string> write_project_typings(const std::string& projectDir) {
         if (!engine.init(cfg, nullptr, &err)) {
             engine.shutdown();
             fs::set_project_root(savedRoot);
-            return make_error("Cannot generate typings: " + err, "Run `factoria validate` to see what is wrong with the project.");
+            return make_error("Cannot generate typings: " + err,
+                              "Run `factoria validate` to see what is wrong with the project.");
         }
         text = export_typescript(engine.scripts());
         engine.shutdown();
@@ -185,7 +184,8 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
     files[".mcp.json"] = dump_json(claude_code_mcp_config());
     files["types/factoria.d.ts"] = kDtsPlaceholder;
     if (!files.count("jsconfig.json"))
-        files["jsconfig.json"] = "{\n  \"compilerOptions\": {\"checkJs\": true, \"noEmit\": true},\n  \"include\": [\"**/*.js\", \"types/*.d.ts\"]\n}\n";
+        files["jsconfig.json"] = "{\n  \"compilerOptions\": {\"checkJs\": true, \"noEmit\": true},\n  \"include\": "
+                                 "[\"**/*.js\", \"types/*.d.ts\"]\n}\n";
     if (!files.count("factoria.json"))
         return make_error("Template '" + templateName + "' has no factoria.json.", "This is a bug in the template.");
 
@@ -201,7 +201,9 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
     for (const char* sub : {"scripts", "tests", "tools"}) stdfs::create_directories(dir / sub, ec);
     if (options.writeTypings) {
         auto t = write_project_typings(result.dir);
-        if (!t.ok()) FA_WARN("scaffold", "{} (types/factoria.d.ts stays a placeholder; run `factoria api --dts --project .`)", t.error().message);
+        if (!t.ok())
+            FA_WARN("scaffold", "{} (types/factoria.d.ts stays a placeholder; run `factoria api --dts --project .`)",
+                    t.error().message);
     }
     return result;
 }

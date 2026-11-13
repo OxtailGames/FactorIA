@@ -88,7 +88,8 @@ TEST_CASE("font bytes: a font cut short anywhere is an error or draws, never a c
         CHECK_FALSE(says(head).empty());
     }
     const Bytes font = read_font("tiny_composite.ttf");
-    const Bytes noTail(font.begin(), font.begin() + std::ptrdiff_t(table_at(font, "glyf") + 4));  // 'glyf' now ends outside the file
+    const Bytes noTail(font.begin(),
+                       font.begin() + std::ptrdiff_t(table_at(font, "glyf") + 4));  // 'glyf' now ends outside the file
     const std::string why = says(noTail);
     CHECK(has(why, "damaged"));
     CHECK(has(why, "truncated"));
@@ -134,7 +135,6 @@ TEST_CASE("font bytes: a composite glyph placed by matching points is unsafe (st
     set16(font, glyph + 10, flags & ~2u);
     loads_with_unsafe(font, {3}, "C");
 }
-
 
 TEST_CASE("font bytes: counts and offsets that point outside their tables are refused") {
     const Bytes good = read_font("tiny_composite.ttf");
@@ -182,11 +182,13 @@ TEST_CASE("font bytes: counts and offsets that point outside their tables are re
     REQUIRE(drawn.ok());
     CHECK(std::any_of(drawn->coverage.begin(), drawn->coverage.end(), [](std::uint8_t c) { return c > 0; }));
 
-    Bytes oddFormat = good;  // every cmap subtable is format 14 (variation selectors): stb_truetype asserts on it in each lookup
+    Bytes oddFormat =
+        good;  // every cmap subtable is format 14 (variation selectors): stb_truetype asserts on it in each lookup
     {
         const std::size_t cmap = table_at(oddFormat, "cmap");
         const std::uint32_t records = be16(oddFormat, cmap + 2);
-        for (std::uint32_t r = 0; r < records; ++r) set16(oddFormat, cmap + be32(oddFormat, cmap + 4 + 8 * std::size_t(r) + 4), 14);
+        for (std::uint32_t r = 0; r < records; ++r)
+            set16(oddFormat, cmap + be32(oddFormat, cmap + 4 + 8 * std::size_t(r) + 4), 14);
     }
     CHECK(has(says(oddFormat), "format 14"));
 
@@ -204,9 +206,9 @@ TEST_CASE("font bytes: a glyph that is one point off the curve loads, and is dra
     auto one_dot = [](Bytes& font, std::uint32_t g) {
         const std::size_t glyph = glyph_at(font, g);
         REQUIRE(std::int16_t(be16(font, glyph)) == 1);
-        set16(font, glyph + 10, 0);                                       // the contour ends at point 0
+        set16(font, glyph + 10, 0);                                         // the contour ends at point 0
         const std::size_t flags = glyph + 12 + 2 + be16(font, glyph + 12);  // after the instructions
-        font[flags] &= std::uint8_t(~1u);                                 // and point 0 is off the curve
+        font[flags] &= std::uint8_t(~1u);                                   // and point 0 is off the curve
     };
     Bytes oneDot = read_font("tiny_composite.ttf");
     one_dot(oneDot, 1);
@@ -218,7 +220,8 @@ TEST_CASE("font bytes: a glyph that is one point off the curve loads, and is dra
     CHECK(has(says(oneDot), ".notdef"));
 }
 
-TEST_CASE("font bytes: a format 4 cmap search header that differs from the specification loads when its search stays inside the segments") {
+TEST_CASE("font bytes: a format 4 cmap search header that differs from the specification loads when its search stays "
+          "inside the segments") {
     const Bytes good = read_font("tiny_composite.ttf");
     auto with_search = [&](std::uint32_t searchRange, std::uint32_t entrySelector, std::uint32_t rangeShift) {
         Bytes font = good;
@@ -243,20 +246,25 @@ TEST_CASE("font bytes: a format 4 cmap search header that differs from the speci
     // inside the subtable. Here the segment arrays are followed by the glyph array, so one entry more is inside.
     std::uint32_t segments = 0;
     for (std::uint32_t r = 0, n = be16(good, table_at(good, "cmap") + 2); r < n && !segments; ++r) {
-        const std::size_t sub = table_at(good, "cmap") + be32(good, table_at(good, "cmap") + 4 + 8 * std::size_t(r) + 4);
+        const std::size_t sub =
+            table_at(good, "cmap") + be32(good, table_at(good, "cmap") + 4 + 8 * std::size_t(r) + 4);
         if (be16(good, sub) == 4) segments = be16(good, sub + 6) / 2;
     }
     REQUIRE(segments > 0);
-    const Bytes pastSegments = with_search(0, 0, 2 * (segments + 1));  // reads entry `segments`, which the subtable does not hold
+    const Bytes pastSegments =
+        with_search(0, 0, 2 * (segments + 1));  // reads entry `segments`, which the subtable does not hold
     CHECK(has(says(pastSegments), "point past its end"));
     // The same header loads when the 'cmap' table goes on after the arrays: moved to the end of the file with 16 spare bytes.
     Bytes roomy = pastSegments;
     for (std::uint32_t i = 0, n = be16(roomy, 4); i < n; ++i) {
         const std::size_t rec = 12 + 16 * std::size_t(i);
-        if (!std::equal(pastSegments.begin() + std::ptrdiff_t(rec), pastSegments.begin() + std::ptrdiff_t(rec) + 4, "cmap")) continue;
+        if (!std::equal(pastSegments.begin() + std::ptrdiff_t(rec), pastSegments.begin() + std::ptrdiff_t(rec) + 4,
+                        "cmap"))
+            continue;
         const std::size_t from = be32(roomy, rec + 8), len = be32(roomy, rec + 12);
         const std::size_t to = roomy.size();
-        roomy.insert(roomy.end(), pastSegments.begin() + std::ptrdiff_t(from), pastSegments.begin() + std::ptrdiff_t(from + len));
+        roomy.insert(roomy.end(), pastSegments.begin() + std::ptrdiff_t(from),
+                     pastSegments.begin() + std::ptrdiff_t(from + len));
         roomy.insert(roomy.end(), 16, 0);
         set16(roomy, rec + 8, std::uint32_t(to >> 16));
         set16(roomy, rec + 10, std::uint32_t(to & 0xFFFF));
@@ -266,11 +274,13 @@ TEST_CASE("font bytes: a format 4 cmap search header that differs from the speci
     CHECK(says(roomy).empty());
 }
 
-TEST_CASE("font bytes: a chain of composites is unsafe from the level that is deeper than 32, wherever the walk starts") {
+TEST_CASE(
+    "font bytes: a chain of composites is unsafe from the level that is deeper than 32, wherever the walk starts") {
     // tiny_chain.ttf: glyph k+1 ('c<k>') is a composite of glyph k, so each glyph includes the one just before it in the file. A
     // walk that looked up its memo before its depth let such a chain reach any depth (stb_truetype recurses without a limit).
     const Bytes chain = read_font("tiny_chain.ttf");
-    loads_with_unsafe(chain, {34, 35, 36, 37, 38, 39, 40, 41}, "AB");  // 'c33'..'c40': more than 32 levels; 'c32' (glyph 33) is the last fine one
+    loads_with_unsafe(chain, {34, 35, 36, 37, 38, 39, 40, 41},
+                      "AB");  // 'c33'..'c40': more than 32 levels; 'c32' (glyph 33) is the last fine one
     auto c = rasterize_text("C", chain, 20.0f);  // 'C' is 'c40': drawn as the .notdef box
     REQUIRE(c.ok());
     CHECK(c->width > 0);

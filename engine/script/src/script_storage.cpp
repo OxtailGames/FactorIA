@@ -15,7 +15,8 @@ bool reserved_windows_name(const std::string& n) {
     static const char* const names[] = {"con", "prn", "aux", "nul"};
     for (const char* r : names)
         if (n == r) return true;
-    if (n.size() == 4 && (n.compare(0, 3, "com") == 0 || n.compare(0, 3, "lpt") == 0) && n[3] >= '0' && n[3] <= '9') return true;
+    if (n.size() == 4 && (n.compare(0, 3, "com") == 0 || n.compare(0, 3, "lpt") == 0) && n[3] >= '0' && n[3] <= '9')
+        return true;
     return false;
 }
 std::uint64_t fnv1a(const std::string& s) {
@@ -75,7 +76,8 @@ bool decode(const std::string& text, Decoded& out, std::string& problem) {
     }
     out.key = j["key"].get<std::string>();
     if (j.contains("z")) {
-        if (!j["z"].is_string() || j["z"].get<std::string>() != "zlib" || !j.contains("data") || !j["data"].is_string()) {
+        if (!j["z"].is_string() || j["z"].get<std::string>() != "zlib" || !j.contains("data") ||
+            !j["data"].is_string()) {
             problem = "its compressed value is not {\"z\": \"zlib\", \"data\": \"<base64>\"}";
             return false;
         }

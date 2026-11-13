@@ -38,11 +38,39 @@ inline constexpr const char* kImageDocFormat = "factoria.image/1";
 inline constexpr const char* kImageDocSuffix = ".image.json";
 inline constexpr int kImageDocMaxSide = 4096;
 
-enum class ImageLayerKind { Pixels, Fill, Gradient, Procedural, Svg, Text, Provider, Group, Adjustment, Indexed, Tileset };
+enum class ImageLayerKind {
+    Pixels,
+    Fill,
+    Gradient,
+    Procedural,
+    Svg,
+    Text,
+    Provider,
+    Group,
+    Adjustment,
+    Indexed,
+    Tileset
+};
 
 enum class ImageBlend {
-    Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight,
-    Difference, Exclusion, Add, Subtract, Hue, Saturation, Color, Luminosity
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Add,
+    Subtract,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity
 };
 
 // The JSON spelling ("colorDodge") of each, in the order above; null/empty for a name that is not one.
@@ -71,33 +99,33 @@ struct ImageGradientStop {
 };
 struct ImageGradient {
     bool radial = false;
-    float angle = 0;                // linear: degrees, 0 runs from the top to the bottom, 90 from the left to the right
-    Vec2 center{0.5f, 0.5f};        // radial: fractions of the layer's box
-    float radius = 1;               // radial: 1 reaches the corners of the box (half its diagonal from the centre)
+    float angle = 0;          // linear: degrees, 0 runs from the top to the bottom, 90 from the left to the right
+    Vec2 center{0.5f, 0.5f};  // radial: fractions of the layer's box
+    float radius = 1;         // radial: 1 reaches the corners of the box (half its diagonal from the centre)
     std::vector<ImageGradientStop> stops;
 };
 
 struct ImageMask {
     enum class Type { Pixels, Rect, Ellipse, Polygon, Path };
     Type type = Type::Pixels;
-    std::string pointer;            // "/layers/2/masks/0"
+    std::string pointer;  // "/layers/2/masks/0"
     bool invert = false;
-    float feather = 0;              // pixels of soft edge (a blur of the mask), 0 = hard
-    std::string source;             // pixels: a PNG of the project (white shows, black hides; its alpha counts too)
-    int x = 0, y = 0;               // pixels: where the PNG sits; rect and ellipse: the box (with width and height)
+    float feather = 0;   // pixels of soft edge (a blur of the mask), 0 = hard
+    std::string source;  // pixels: a PNG of the project (white shows, black hides; its alpha counts too)
+    int x = 0, y = 0;    // pixels: where the PNG sits; rect and ellipse: the box (with width and height)
     int width = 0, height = 0;
-    std::vector<Vec2> points;       // polygon
-    std::string path;               // SVG path data ("M10 10 L90 10 L50 80 Z"), coordinates in the layer's own pixels
+    std::vector<Vec2> points;  // polygon
+    std::string path;          // SVG path data ("M10 10 L90 10 L50 80 Z"), coordinates in the layer's own pixels
 };
 
 // A cel is what a pixels or indexed layer shows in one frame after the first. The layer's own `source` / `rows` / x / y is the cel of
 // frame 0; a frame with no cel of its own keeps showing the cel before it (it is HELD), so a layer that never changes needs none.
 struct ImageCel {
-    std::string pointer;            // "/layers/1/cels/0"
-    int frame = 1;                  // the frame it starts at (>= 1); cels are listed in increasing frame order
-    bool empty = false;             // the layer shows nothing from this frame
-    int link = -1;                  // >= 0: shows the same picture as the cel that is current at that earlier frame (a linked cel)
-    std::string source;             // pixels: a PNG of the project
+    std::string pointer;  // "/layers/1/cels/0"
+    int frame = 1;        // the frame it starts at (>= 1); cels are listed in increasing frame order
+    bool empty = false;   // the layer shows nothing from this frame
+    int link = -1;       // >= 0: shows the same picture as the cel that is current at that earlier frame (a linked cel)
+    std::string source;  // pixels: a PNG of the project
     std::vector<std::string> rows;  // indexed: the picture as text rows (fa/tooling/pixel_art.h)
     std::optional<int> x, y;        // where the cel's top-left corner lands; default: the layer's x and y
     float opacity = 1;              // multiplies the layer's opacity
@@ -105,12 +133,12 @@ struct ImageCel {
 
 // What a layer shows in one frame, resolved: held cels and links followed.
 struct ImageCelView {
-    bool empty = true;              // nothing is drawn (pixels: no source)
-    const std::string* source = nullptr;                // pixels
-    const std::vector<std::string>* rows = nullptr;     // indexed (null or empty: a blank layer)
+    bool empty = true;                               // nothing is drawn (pixels: no source)
+    const std::string* source = nullptr;             // pixels
+    const std::vector<std::string>* rows = nullptr;  // indexed (null or empty: a blank layer)
     int x = 0, y = 0;
     float opacity = 1;
-    int origin = 0;                 // the frame whose cel supplies it (frames with the same origin share one picture)
+    int origin = 0;  // the frame whose cel supplies it (frames with the same origin share one picture)
 };
 
 // One picture of a tileset part (docs/IMAGES.md, "Tiles"): a PNG of the project, indexed text rows (the document's palette) or one flat
@@ -123,11 +151,12 @@ struct TilesetPart {
 };
 // The settings of a `tileset` layer: a generated tile sheet built from a few parts (fa/tooling/image_tileset.h).
 struct TilesetSpec {
-    std::string mode = "blob47";    // "basic16" (4 neighbours, 16 tiles) or "blob47" (8 neighbours, 47 tiles)
-    std::string terrain;            // the terrain name in the rules file ("" = the layer's name, else "terrain")
-    int tileWidth = 0, tileHeight = 0;   // both even
-    int columns = 0;                // tiles per sheet row; 0 = 4 for basic16, 8 for blob47
-    int variations = 1;             // pictures per tile look (1 to 8): variation 0 is the canonical look, the others pick other variants of the parts by seed
+    std::string mode = "blob47";        // "basic16" (4 neighbours, 16 tiles) or "blob47" (8 neighbours, 47 tiles)
+    std::string terrain;                // the terrain name in the rules file ("" = the layer's name, else "terrain")
+    int tileWidth = 0, tileHeight = 0;  // both even
+    int columns = 0;                    // tiles per sheet row; 0 = 4 for basic16, 8 for blob47
+    int variations =
+        1;  // pictures per tile look (1 to 8): variation 0 is the canonical look, the others pick other variants of the parts by seed
     long long seed = 0;
     // part name -> variants, in the order of kTilesetParts (fa/tooling/image_tileset.h)
     std::vector<std::pair<std::string, std::vector<TilesetPart>>> parts;
@@ -140,13 +169,13 @@ struct TilesetSpec {
 
 struct ImageLayer {
     ImageLayerKind kind = ImageLayerKind::Fill;
-    std::string pointer;            // "/layers/2" or "/layers/1/layers/0"
+    std::string pointer;  // "/layers/2" or "/layers/1/layers/0"
     std::string name;
     bool visible = true;
     float opacity = 1;
     ImageBlend blend = ImageBlend::Normal;
-    int x = 0, y = 0;               // where the layer's own top-left corner lands on its parent (whole pixels, may be negative)
-    bool clip = false;              // clipped to the opaque part of the layer below
+    int x = 0, y = 0;   // where the layer's own top-left corner lands on its parent (whole pixels, may be negative)
+    bool clip = false;  // clipped to the opaque part of the layer below
     std::vector<ImageMask> masks;   // multiplied together; coordinates are the layer's own
     std::vector<Json> adjustments;  // colour operations on the layer's pixels, in order
     std::vector<Json> effects;      // footprint-changing operations, after the masks, in order
@@ -154,28 +183,29 @@ struct ImageLayer {
     // pixels and provider: a PNG. svg: a file, or the SVG text in `svg`.
     std::string source;
     std::string svg;
-    Json provenance;                // provider: the record as assets.json keeps it (provider, model, prompt, ai, ...)
+    Json provenance;  // provider: the record as assets.json keeps it (provider, model, prompt, ai, ...)
     // fill and gradient (and svg): the size of the layer's box; 0 = the canvas size (svg: fitted inside the canvas)
     int width = 0, height = 0;
-    Color color{0, 0, 0, 1};        // fill and text
+    Color color{0, 0, 0, 1};  // fill and text
     ImageGradient gradient;
-    Json texture;                   // procedural: the picture arguments of assets.generate_texture
+    Json texture;  // procedural: the picture arguments of assets.generate_texture
     // text
     std::string text;
-    std::string font;               // "" (DejaVu Sans), "builtin:pixel", ... or a project .ttf/.otf
-    float size = 16;                // em height in pixels
-    std::string align = "left";     // left, center or right of x
-    float lineHeight = 1.2f;        // line spacing, in ems
+    std::string font;                  // "" (DejaVu Sans), "builtin:pixel", ... or a project .ttf/.otf
+    float size = 16;                   // em height in pixels
+    std::string align = "left";        // left, center or right of x
+    float lineHeight = 1.2f;           // line spacing, in ems
     std::vector<ImageLayer> children;  // group: bottom first, like the document
     // indexed: the pixels as text rows, one character per pixel ('.' transparent, else a palette index: fa/tooling/pixel_art.h). Empty =
     // a blank layer of `width` x `height` (0 = the canvas size). The colours are the document's `palette`.
     std::vector<std::string> rows;
-    bool ai = false;                // indexed: the pixels were made from an AI-made picture (image.layer.convert records it), so the bake is AI-made
+    bool ai =
+        false;  // indexed: the pixels were made from an AI-made picture (image.layer.convert records it), so the bake is AI-made
     // pixels and indexed: the cels of the frames after the first (see ImageCel). A pixels layer with `cels` may have no `source`: it is
     // empty in frame 0.
     std::vector<ImageCel> cels;
-    bool hasCels = false;           // the JSON has a `cels` key (even an empty list)
-    TilesetSpec tileset;            // tileset: the sheet's settings and parts
+    bool hasCels = false;  // the JSON has a `cels` key (even an empty list)
+    TilesetSpec tileset;   // tileset: the sheet's settings and parts
 };
 
 // The cel `layer` shows in `frame` (0 = the layer's own content). Layers of other kinds show the same in every frame.
@@ -187,41 +217,42 @@ std::vector<std::string> image_tag_direction_names();
 
 // One frame of an animated document.
 struct ImageFrame {
-    int duration = 100;             // milliseconds
+    int duration = 100;  // milliseconds
 };
 // A named run of frames; the bake makes a SpriteAnimator clip of it.
 struct ImageTag {
-    std::string pointer;            // "/tags/0"
+    std::string pointer;  // "/tags/0"
     std::string name;
-    int from = 0, to = 0;           // first and last frame, inclusive
+    int from = 0, to = 0;  // first and last frame, inclusive
     ImageTagDirection direction = ImageTagDirection::Forward;
-    int repeat = 0;                 // how many times it plays; 0 = it loops for ever
+    int repeat = 0;  // how many times it plays; 0 = it loops for ever
 };
 inline constexpr int kImageMaxFrames = 1024;
 
 // Tile mode: the picture is a tile (or a sheet of tiles) that repeats, so drawing wraps around the edges of a tile.
 struct ImageTileMode {
     bool enabled = false;
-    int width = 0, height = 0;      // the tile in pixels (resolved: the canvas size when the document does not declare one)
+    int width = 0, height = 0;  // the tile in pixels (resolved: the canvas size when the document does not declare one)
 };
 
 struct ImageDocument {
-    std::string file;               // the project-relative path it was read from ("" when parsed from memory)
+    std::string file;  // the project-relative path it was read from ("" when parsed from memory)
     int width = 0, height = 0;
     std::optional<Color> background;
-    std::string output;             // the PNG it bakes to (project-relative); "" = next to the document
+    std::string output;  // the PNG it bakes to (project-relative); "" = next to the document
     std::string description;
     // The palette indexed layers are locked to (the document's `palette`, or the style palette of assets.json) and its colour ramps.
     // Empty when the document has no indexed layer and declares no palette.
     PixelPalette palette;
-    std::vector<ImageLayer> layers; // bottom first: later layers are drawn over earlier ones
-    ImageTileMode tile;             // `tile`: wrap-around editing (the image.* drawing commands) and the seam check (image.tile.check)
+    std::vector<ImageLayer> layers;  // bottom first: later layers are drawn over earlier ones
+    ImageTileMode
+        tile;  // `tile`: wrap-around editing (the image.* drawing commands) and the seam check (image.tile.check)
     // Animation. A document is animated when its JSON has `frames` or `tags`: the bake is then a sprite sheet (image_sheet below).
     bool animated = false;
-    std::vector<ImageFrame> frames; // empty = one frame (a document that is not animated)
+    std::vector<ImageFrame> frames;  // empty = one frame (a document that is not animated)
     std::vector<ImageTag> tags;
-    int sheetColumns = 0;           // `sheet.columns`: frames per row of the baked sheet; 0 = ceil(sqrt(cells))
-    Json json;                      // the document as written
+    int sheetColumns = 0;  // `sheet.columns`: frames per row of the baked sheet; 0 = ceil(sqrt(cells))
+    Json json;             // the document as written
 };
 // The number of frames (1 for a document with no `frames`).
 int image_frame_count(const ImageDocument& doc);
@@ -239,21 +270,22 @@ struct ImageIssue {
 Result<ImageDocument> parse_image_document(const Json& json, const std::string& file, const std::string& projectDir,
                                            std::vector<ImageIssue>* issues = nullptr);
 // The same for a project-relative file. A JSON syntax error is reported with its line and column.
-Result<ImageDocument> load_image_document(const std::string& projectDir, const std::string& rel, std::vector<ImageIssue>* issues = nullptr);
+Result<ImageDocument> load_image_document(const std::string& projectDir, const std::string& rel,
+                                          std::vector<ImageIssue>* issues = nullptr);
 
 // Onion skin: the frames around the one drawn, ghosted under it. A ghost is the frame with its colours pulled towards `beforeColor` /
 // `afterColor` (60%) and its alpha multiplied by `opacity`, by 1/2 for the second frame away, 1/3 for the third, and so on.
 struct ImageOnionSkin {
-    int before = 1, after = 1;      // how many frames before and after (0 to 8)
-    float opacity = 0.4f;           // of the nearest ghost
+    int before = 1, after = 1;  // how many frames before and after (0 to 8)
+    float opacity = 0.4f;       // of the nearest ghost
     Color beforeColor{1.0f, 0.25f, 0.25f, 1.0f};
     Color afterColor{0.25f, 0.5f, 1.0f, 1.0f};
-    bool loop = false;              // frames wrap around: the frame before 0 is the last one
+    bool loop = false;  // frames wrap around: the frame before 0 is the last one
 };
 
 struct ImageRenderOptions {
-    std::string projectDir;         // where project-relative files (PNGs, SVGs, fonts) are read
-    int frame = 0;                  // which frame to draw (0 to image_frame_count - 1)
+    std::string projectDir;               // where project-relative files (PNGs, SVGs, fonts) are read
+    int frame = 0;                        // which frame to draw (0 to image_frame_count - 1)
     std::optional<ImageOnionSkin> onion;  // ghost the neighbouring frames under it (a preview; never used by the bake)
     // Pictures that stand in for project files: a layer (or mask, or operation) that names a file found here as a key reads this picture
     // instead of the PNG on disk, and the file need not exist. The editor's Image panel shows a stroke being painted this way (the pixels
@@ -261,7 +293,7 @@ struct ImageRenderOptions {
     const std::map<std::string, Image>* pictures = nullptr;
 };
 struct ImageRender {
-    Image image;                    // width x height, straight-alpha RGBA8
+    Image image;                        // width x height, straight-alpha RGBA8
     std::vector<std::string> inputs;    // every project file read (sorted, no duplicates): what the recipe hashes
     std::vector<std::string> warnings;  // things that were ignored or clamped
 };
@@ -282,8 +314,8 @@ struct ImageSheetClip {
 };
 struct ImageSheetPlan {
     int columns = 1, rows = 1;
-    int cells = 0;                      // frames + the extra cells of the clips that need them
-    std::vector<int> cellFrame;         // the document frame drawn in each cell (cells 0 .. frames-1 are the frames in order)
+    int cells = 0;               // frames + the extra cells of the clips that need them
+    std::vector<int> cellFrame;  // the document frame drawn in each cell (cells 0 .. frames-1 are the frames in order)
     std::vector<ImageSheetClip> clips;
     std::vector<std::string> warnings;  // a duration that could not be kept exactly
     Json sheet;                         // the `sheet` entry of assets.json
@@ -292,7 +324,8 @@ struct ImageSheetPlan {
 // than a texture (16384 px on a side).
 Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc);
 // The sheet picture: every cell drawn (`plan.cellFrame`), left to right, top to bottom.
-Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan, const ImageRenderOptions& options);
+Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan,
+                                          const ImageRenderOptions& options);
 
 // ---- baking: the PNG next to the document -----------------------------------------------------------------------------
 
@@ -308,35 +341,37 @@ enum class ImageBakeState {
 };
 struct ImageBakeStatus {
     ImageBakeState state = ImageBakeState::Missing;
-    std::string output;             // the PNG (project-relative); "" when Broken
-    std::string reason;             // one sentence for a person
+    std::string output;  // the PNG (project-relative); "" when Broken
+    std::string reason;  // one sentence for a person
 };
 ImageBakeStatus image_bake_status(const std::string& projectDir, const std::string& rel);
 const char* image_bake_state_name(ImageBakeState state);
 
 struct ImageBakeOptions {
-    bool onlyIfNeeded = false;      // do nothing when the status is Fresh
+    bool onlyIfNeeded = false;  // do nothing when the status is Fresh
 };
 struct ImageBakeResult {
-    std::string document;           // project-relative
-    std::string output;             // the PNG, project-relative
+    std::string document;  // project-relative
+    std::string output;    // the PNG, project-relative
     int width = 0, height = 0;
-    bool written = false;           // false: it was Fresh and onlyIfNeeded was set
-    bool ai = false;                // recorded as AI-made (a provider layer, or a file whose provenance says so)
-    Json sheet;                     // animated document: the `sheet` entry written to assets.json (null otherwise)
-    std::string sha256;             // of the PNG's bytes
+    bool written = false;  // false: it was Fresh and onlyIfNeeded was set
+    bool ai = false;       // recorded as AI-made (a provider layer, or a file whose provenance says so)
+    Json sheet;            // animated document: the `sheet` entry written to assets.json (null otherwise)
+    std::string sha256;    // of the PNG's bytes
     std::vector<std::string> inputs;
     std::vector<std::string> warnings;
-    Json provenance;                // the record written to assets.json
+    Json provenance;  // the record written to assets.json
 };
 // Composites the document and writes the PNG (deterministic bytes; for an animated document, the sprite sheet of its frames plus the
 // SpriteAnimator clips of its tags in the `sheet` entry), then records provenance + recipe {command "image.bake",
 // args {path}, inputs: the document and every file it read} in assets.json. Keeps the license and author a person recorded.
-Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const std::string& rel, const ImageBakeOptions& options = {});
+Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const std::string& rel,
+                                            const ImageBakeOptions& options = {});
 
 // What an editor or command does on save: checks `document` (nothing is written when it has a problem), writes it to `rel`
 // as canonical JSON (2-space indent, trailing newline) and bakes it. `bake: false` only writes.
-Result<ImageBakeResult> save_image_document(const std::string& projectDir, const std::string& rel, const Json& document, bool bake = true);
+Result<ImageBakeResult> save_image_document(const std::string& projectDir, const std::string& rel, const Json& document,
+                                            bool bake = true);
 
 // Every *.image.json of the project (project-relative, sorted; hidden folders, node_modules and a top-level build/ skipped).
 std::vector<std::string> list_image_documents(const std::string& projectDir);

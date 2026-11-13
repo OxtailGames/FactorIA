@@ -40,9 +40,10 @@ static_assert(kAndroidKeyButtonA == AKEYCODE_BUTTON_A && kAndroidKeyButtonB == A
                   kAndroidKeyButtonY == AKEYCODE_BUTTON_Y && kAndroidKeyButtonZ == AKEYCODE_BUTTON_Z &&
                   kAndroidKeyButtonL1 == AKEYCODE_BUTTON_L1 && kAndroidKeyButtonR1 == AKEYCODE_BUTTON_R1 &&
                   kAndroidKeyButtonL2 == AKEYCODE_BUTTON_L2 && kAndroidKeyButtonR2 == AKEYCODE_BUTTON_R2 &&
-                  kAndroidKeyButtonThumbL == AKEYCODE_BUTTON_THUMBL && kAndroidKeyButtonThumbR == AKEYCODE_BUTTON_THUMBR &&
-                  kAndroidKeyButtonStart == AKEYCODE_BUTTON_START && kAndroidKeyButtonSelect == AKEYCODE_BUTTON_SELECT &&
-                  kAndroidKeyButtonMode == AKEYCODE_BUTTON_MODE,
+                  kAndroidKeyButtonThumbL == AKEYCODE_BUTTON_THUMBL &&
+                  kAndroidKeyButtonThumbR == AKEYCODE_BUTTON_THUMBR &&
+                  kAndroidKeyButtonStart == AKEYCODE_BUTTON_START &&
+                  kAndroidKeyButtonSelect == AKEYCODE_BUTTON_SELECT && kAndroidKeyButtonMode == AKEYCODE_BUTTON_MODE,
               "kAndroidKeyButton* must match android/keycodes.h");
 static_assert(kAndroidKeyButton1 == AKEYCODE_BUTTON_1 && kAndroidKeyButton16 == AKEYCODE_BUTTON_16 &&
                   AKEYCODE_BUTTON_16 - AKEYCODE_BUTTON_1 == 15,
@@ -50,7 +51,8 @@ static_assert(kAndroidKeyButton1 == AKEYCODE_BUTTON_1 && kAndroidKeyButton16 == 
 
 std::mutex g_mutex;  // the input callback and the frame callback share a thread today; this keeps it true to the letter
 AndroidGamepads g_pads;
-[[maybe_unused]] const bool g_waiting = (g_pads.wait_for_info(true), true);  // a pad is announced once its identity has been asked
+[[maybe_unused]] const bool g_waiting =
+    (g_pads.wait_for_info(true), true);  // a pad is announced once its identity has been asked
 
 bool has_source(int32_t source, int32_t flags) { return (source & flags) == flags; }
 
@@ -58,10 +60,12 @@ float axis(const AInputEvent* e, int32_t id) { return AMotionEvent_getAxisValue(
 
 // ---- JNI: android.view.InputDevice -------------------------------------------------------------------------------
 struct InputDeviceJni {
-    jclass cls = nullptr;               // global reference
-    jmethodID getDevice = nullptr;      // static InputDevice getDevice(int id): null when the device is gone
-    jmethodID getMotionRange = nullptr; // InputDevice.MotionRange getMotionRange(int axis): null when it has no such axis
-    jmethodID getName = nullptr, getDescriptor = nullptr;  // String getName(), String getDescriptor(): the device's name and its stable id
+    jclass cls = nullptr;           // global reference
+    jmethodID getDevice = nullptr;  // static InputDevice getDevice(int id): null when the device is gone
+    jmethodID getMotionRange =
+        nullptr;  // InputDevice.MotionRange getMotionRange(int axis): null when it has no such axis
+    jmethodID getName = nullptr,
+              getDescriptor = nullptr;  // String getName(), String getDescriptor(): the device's name and its stable id
     jmethodID getVendorId = nullptr, getProductId = nullptr;  // int, 0 = unknown
     bool ready = false, failed = false;
 };
@@ -121,7 +125,8 @@ GamepadInfo query_info(JNIEnv* env, jobject device, int deviceId) {
     const std::string descriptor = jni_string(env, device, g_jni.getDescriptor);
     if (info.name.empty()) info.name = "Gamepad";
     info.type = gamepad_type_from_ids(info.vendor, info.name);
-    info.id = make_gamepad_id(info.vendor, info.product, info.name, descriptor.empty() ? "device " + std::to_string(deviceId) : descriptor);
+    info.id = make_gamepad_id(info.vendor, info.product, info.name,
+                              descriptor.empty() ? "device " + std::to_string(deviceId) : descriptor);
     return info;
 }
 
@@ -171,19 +176,26 @@ void check_devices() {
     GamepadInfo infos[kMaxGamepads];
     if (JNIEnv* env = android_thread_env(); env && init_jni(env) && env->PushLocalFrame(32) == JNI_OK) {
         for (int i = 0; i < kMaxGamepads; ++i)
-            if (ids[i] >= 0) states[i] = query_device(env, ids[i], wantsLayout[i] ? &caps[i] : nullptr, wantsLayout[i] ? &infos[i] : nullptr);
+            if (ids[i] >= 0)
+                states[i] = query_device(env, ids[i], wantsLayout[i] ? &caps[i] : nullptr,
+                                         wantsLayout[i] ? &infos[i] : nullptr);
         env->PopLocalFrame(nullptr);
     }
 
     std::lock_guard<std::mutex> lock(g_mutex);
     for (int i = 0; i < kMaxGamepads; ++i) {
         if (ids[i] < 0) continue;
-        if (states[i] == DeviceState::Gone) g_pads.release_device(ids[i]);
+        if (states[i] == DeviceState::Gone)
+            g_pads.release_device(ids[i]);
         else if (wantsLayout[i]) {  // Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour
-            if (states[i] == DeviceState::Present) g_pads.set_info(ids[i], infos[i]);
+            if (states[i] == DeviceState::Present)
+                g_pads.set_info(ids[i], infos[i]);
             else  // no name, no ids: the pad is "a gamepad, Android device N"
-                g_pads.set_info(ids[i], GamepadInfo{make_gamepad_id(0, 0, "Gamepad", "device " + std::to_string(ids[i])), "Gamepad", 0, 0, GamepadType::Generic});
-            g_pads.set_layout(ids[i], states[i] == DeviceState::Present ? android_layout_for(caps[i]) : AndroidLayout{});
+                g_pads.set_info(ids[i],
+                                GamepadInfo{make_gamepad_id(0, 0, "Gamepad", "device " + std::to_string(ids[i])),
+                                            "Gamepad", 0, 0, GamepadType::Generic});
+            g_pads.set_layout(ids[i],
+                              states[i] == DeviceState::Present ? android_layout_for(caps[i]) : AndroidLayout{});
         }
     }
 }
@@ -202,7 +214,8 @@ bool android_gamepad_event(const void* nativeEvent) {
     if (type == AINPUT_EVENT_TYPE_KEY) {
         const int32_t action = AKeyEvent_getAction(e);
         const int code = AKeyEvent_getKeyCode(e);
-        if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP) return AndroidGamepads::is_gamepad_key(code);
+        if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP)
+            return AndroidGamepads::is_gamepad_key(code);
         std::lock_guard<std::mutex> lock(g_mutex);
         return g_pads.on_key(device, code, action == AKEY_EVENT_ACTION_DOWN);
     }

@@ -96,9 +96,9 @@ inline Error make_error(std::string message, std::string hint = {}) {
 }  // namespace fa
 
 // Assertions stay on in all builds: an AI debugging a game needs loud failures.
-#define FA_ASSERT(cond, msg)                                            \
-    do {                                                                \
-        if (!(cond)) ::fa::detail::assert_fail(#cond, msg, __FILE__, __LINE__); \
+#define FA_ASSERT(cond, msg)                                                                                           \
+    do {                                                                                                               \
+        if (!(cond)) ::fa::detail::assert_fail(#cond, msg, __FILE__, __LINE__);                                        \
     } while (0)
 
 namespace fa::detail {

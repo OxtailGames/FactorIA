@@ -16,8 +16,8 @@ namespace {
 // Names a person (or an AI) writes for where the light comes from, with the angle TOWARDS the light: counter-clockwise
 // from +x, so "right" is 0, "top" 90, "left" 180 and "bottom" 270 (the y axis of the picture points down, the angle does not).
 const std::vector<std::pair<std::string, double>> kLightNames = {
-    {"right", 0},       {"upper-right", 45},  {"top", 90},         {"upper-left", 135},
-    {"left", 180},      {"lower-left", 225},  {"bottom", 270},     {"lower-right", 315},
+    {"right", 0},  {"upper-right", 45}, {"top", 90},     {"upper-left", 135},
+    {"left", 180}, {"lower-left", 225}, {"bottom", 270}, {"lower-right", 315},
 };
 const std::vector<std::pair<std::string, double>> kLightAliases = {
     {"top-right", 45}, {"top-left", 135}, {"bottom-left", 225}, {"bottom-right", 315}, {"up", 90}, {"down", 270},
@@ -59,15 +59,17 @@ struct Parser {
     static std::string escape_json_token(const std::string& key) { return tooling_detail::escape_token(key); }
 
     // `v` as a number in [lo, hi], or a problem and false.
-    bool number(const Json& v, const std::string& pointer, double lo, double hi, const char* what, const std::string& example,
-                double& out_) {
+    bool number(const Json& v, const std::string& pointer, double lo, double hi, const char* what,
+                const std::string& example, double& out_) {
         if (!v.is_number()) {
-            problem(pointer, std::format("{} must be a number, got {}.", what, describe_json_value(v)), "Write it as " + example + ".");
+            problem(pointer, std::format("{} must be a number, got {}.", what, describe_json_value(v)),
+                    "Write it as " + example + ".");
             return false;
         }
         const double x = v.get<double>();
         if (!(x >= lo && x <= hi)) {
-            problem(pointer, std::format("{} is {}, outside {} to {}.", what, num(x), num(lo), num(hi)), "Write it as " + example + ".");
+            problem(pointer, std::format("{} is {}, outside {} to {}.", what, num(x), num(lo), num(hi)),
+                    "Write it as " + example + ".");
             return false;
         }
         out_ = x;
@@ -78,7 +80,8 @@ struct Parser {
         const std::string base = "/style/outline";
         const std::string example = R"({"color": "#1a1c2c", "width": 1})";
         if (!v.is_object()) {
-            problem(base, "style.outline must be an object, got " + describe_json_value(v), "Write it as " + example + ".");
+            problem(base, "style.outline must be an object, got " + describe_json_value(v),
+                    "Write it as " + example + ".");
             return;
         }
         unknown_keys(v, base, {"color", "width"});
@@ -88,18 +91,22 @@ struct Parser {
             problem(base, "style.outline needs a `color`.", "Write it as " + example + ".");
             ok = false;
         } else if (!v["color"].is_string()) {
-            problem(base + "/color", "style.outline.color must be a colour string, got " + describe_json_value(v["color"]),
+            problem(base + "/color",
+                    "style.outline.color must be a colour string, got " + describe_json_value(v["color"]),
                     "Write \"#rrggbb\" or a colour name.");
             ok = false;
         } else {
             o.colorText = v["color"].get<std::string>();
             if (!parse_color(o.colorText, o.color)) {
-                problem(base + "/color", "style.outline.color '" + o.colorText + "' is not a colour.", "Write \"#rrggbb\" or a colour name.");
+                problem(base + "/color", "style.outline.color '" + o.colorText + "' is not a colour.",
+                        "Write \"#rrggbb\" or a colour name.");
                 ok = false;
             }
         }
         if (v.contains("width")) {
-            if (!number(v["width"], base + "/width", 0.5, 64, "style.outline.width", R"({"color": "#000000", "width": 1})", o.width)) ok = false;
+            if (!number(v["width"], base + "/width", 0.5, 64, "style.outline.width",
+                        R"({"color": "#000000", "width": 1})", o.width))
+                ok = false;
         }
         if (ok) out.guide.outline = o;
     }
@@ -125,7 +132,8 @@ struct Parser {
                     did_you_mean(name, names) + " Or write degrees (0 = right, 90 = top, 180 = left, 270 = bottom).");
             return;
         }
-        problem(base, "style.lightDirection must be a name such as \"upper-left\" or degrees, got " + describe_json_value(v),
+        problem(base,
+                "style.lightDirection must be a name such as \"upper-left\" or degrees, got " + describe_json_value(v),
                 "Write \"upper-left\" or 135 (degrees towards the light, counter-clockwise from the right).");
     }
 
@@ -133,7 +141,8 @@ struct Parser {
         const std::string base = std::string("/style/") + key;
         const std::string example = std::string("{\"min\": 0.1, \"max\": 0.9}");
         if (!v.is_object()) {
-            problem(base, std::string("style.") + key + " must be an object, got " + describe_json_value(v), "Write it as " + example + ".");
+            problem(base, std::string("style.") + key + " must be an object, got " + describe_json_value(v),
+                    "Write it as " + example + ".");
             return;
         }
         unknown_keys(v, base, {"min", "max"});
@@ -142,15 +151,18 @@ struct Parser {
         for (const char* end : {"min", "max"}) {
             if (!v.contains(end)) continue;
             double x = 0;
-            if (!number(v[end], base + "/" + end, 0, 1, (std::string("style.") + key + "." + end).c_str(), example, x)) ok = false;
-            else (std::string(end) == "min" ? r.min : r.max) = x;
+            if (!number(v[end], base + "/" + end, 0, 1, (std::string("style.") + key + "." + end).c_str(), example, x))
+                ok = false;
+            else
+                (std::string(end) == "min" ? r.min : r.max) = x;
         }
         if (ok && !r.min && !r.max) {
             problem(base, std::string("style.") + key + " needs `min`, `max` or both.", "Write it as " + example + ".");
             ok = false;
         }
         if (ok && r.min && r.max && *r.min > *r.max) {
-            problem(base, std::format("style.{}.min ({}) is above max ({}).", key, num(*r.min), num(*r.max)), "Swap them, or write min below max.");
+            problem(base, std::format("style.{}.min ({}) is above max ({}).", key, num(*r.min), num(*r.max)),
+                    "Swap them, or write min below max.");
             ok = false;
         }
         if (ok) (std::string(key) == "value" ? out.guide.value : out.guide.saturation) = r;
@@ -160,7 +172,8 @@ struct Parser {
         const std::string base = "/style/audio";
         const std::string example = R"({"loudnessLufs": {"music": -18, "sfx": -14, "ui": -20}, "toleranceLu": 3})";
         if (!v.is_object()) {
-            problem(base, "style.audio must be an object, got " + describe_json_value(v), "Write it as " + example + ".");
+            problem(base, "style.audio must be an object, got " + describe_json_value(v),
+                    "Write it as " + example + ".");
             return;
         }
         unknown_keys(v, base, {"loudnessLufs", "toleranceLu"});
@@ -169,7 +182,8 @@ struct Parser {
         if (v.contains("loudnessLufs")) {
             const Json& l = v["loudnessLufs"];
             if (!l.is_object()) {
-                problem(base + "/loudnessLufs", "style.audio.loudnessLufs must be an object of bus name to LUFS, got " + describe_json_value(l),
+                problem(base + "/loudnessLufs",
+                        "style.audio.loudnessLufs must be an object of bus name to LUFS, got " + describe_json_value(l),
                         "Write it as " + example + ".");
                 ok = false;
             } else {
@@ -177,9 +191,11 @@ struct Parser {
                     double lufs = 0;
                     const std::string pointer = base + "/loudnessLufs/" + escape_json_token(it.key());
                     if (it.key().empty()) {
-                        problem(pointer, "A bus name is empty.", "Name the mixer bus: sfx, music, ui, master or a bus of factoria.json audio.buses.");
+                        problem(pointer, "A bus name is empty.",
+                                "Name the mixer bus: sfx, music, ui, master or a bus of factoria.json audio.buses.");
                         ok = false;
-                    } else if (number(it.value(), pointer, -70, 0, ("style.audio.loudnessLufs." + it.key()).c_str(), example, lufs)) {
+                    } else if (number(it.value(), pointer, -70, 0, ("style.audio.loudnessLufs." + it.key()).c_str(),
+                                      example, lufs)) {
                         a.loudnessLufs[it.key()] = lufs;
                     } else {
                         ok = false;
@@ -187,49 +203,69 @@ struct Parser {
                 }
             }
         }
-        if (v.contains("toleranceLu") && !number(v["toleranceLu"], base + "/toleranceLu", 0.5, 24, "style.audio.toleranceLu", example, a.toleranceLu)) ok = false;
+        if (v.contains("toleranceLu") && !number(v["toleranceLu"], base + "/toleranceLu", 0.5, 24,
+                                                 "style.audio.toleranceLu", example, a.toleranceLu))
+            ok = false;
         if (ok) out.guide.audio = a;
     }
 
     void parse(const Json& style) {
-        static const std::vector<std::string> known = {"prompt",      "references", "palette",  "outline", "lightDirection", "texelsPerUnit",
-                                                       "pixelArt",    "value",      "saturation", "audio",  "ignore", "roles"};
+        static const std::vector<std::string> known = {"prompt",         "references",    "palette",  "outline",
+                                                       "lightDirection", "texelsPerUnit", "pixelArt", "value",
+                                                       "saturation",     "audio",         "ignore",   "roles"};
         if (!style.is_object()) {
-            problem("/style", "style must be an object, got " + describe_json_value(style), "See docs/ASSETS.md, \"House style\".");
+            problem("/style", "style must be an object, got " + describe_json_value(style),
+                    "See docs/ASSETS.md, \"House style\".");
             return;
         }
         unknown_keys(style, "/style", known);
         StyleGuide& g = out.guide;
         if (style.contains("prompt")) {
-            if (style["prompt"].is_string()) g.prompt = style["prompt"].get<std::string>();
-            else problem("/style/prompt", "style.prompt must be a string, got " + describe_json_value(style["prompt"]), "Write the text that is appended to every image prompt.");
+            if (style["prompt"].is_string())
+                g.prompt = style["prompt"].get<std::string>();
+            else
+                problem("/style/prompt", "style.prompt must be a string, got " + describe_json_value(style["prompt"]),
+                        "Write the text that is appended to every image prompt.");
         }
         if (style.contains("references")) {
             const Json& r = style["references"];
             if (!r.is_array()) {
-                problem("/style/references", "style.references must be a list of image paths, got " + describe_json_value(r),
+                problem("/style/references",
+                        "style.references must be a list of image paths, got " + describe_json_value(r),
                         "Write [\"assets/style/hero.png\"].");
             } else {
                 for (std::size_t i = 0; i < r.size(); ++i) {
-                    if (r[i].is_string()) g.references.push_back(r[i].get<std::string>());
-                    else problem("/style/references/" + std::to_string(i), "A reference must be a path string, got " + describe_json_value(r[i]), "Write [\"assets/style/hero.png\"].");
+                    if (r[i].is_string())
+                        g.references.push_back(r[i].get<std::string>());
+                    else
+                        problem("/style/references/" + std::to_string(i),
+                                "A reference must be a path string, got " + describe_json_value(r[i]),
+                                "Write [\"assets/style/hero.png\"].");
                 }
             }
         }
         if (style.contains("palette")) {
             auto palette = load_palette(style["palette"]);
-            if (palette) g.palette = std::move(*palette);
-            else problem("/style/palette", "style.palette: " + palette.error().message, palette.error().hint);
+            if (palette)
+                g.palette = std::move(*palette);
+            else
+                problem("/style/palette", "style.palette: " + palette.error().message, palette.error().hint);
         }
         if (style.contains("outline")) parse_outline(style["outline"]);
         if (style.contains("lightDirection")) parse_light(style["lightDirection"]);
         if (style.contains("texelsPerUnit")) {
             double x = 0;
-            if (number(style["texelsPerUnit"], "/style/texelsPerUnit", 0.01, 4096, "style.texelsPerUnit", "16 (texture pixels per world unit)", x)) g.texelsPerUnit = x;
+            if (number(style["texelsPerUnit"], "/style/texelsPerUnit", 0.01, 4096, "style.texelsPerUnit",
+                       "16 (texture pixels per world unit)", x))
+                g.texelsPerUnit = x;
         }
         if (style.contains("pixelArt")) {
-            if (style["pixelArt"].is_boolean()) g.pixelArt = style["pixelArt"].get<bool>();
-            else problem("/style/pixelArt", "style.pixelArt must be true or false, got " + describe_json_value(style["pixelArt"]), "Write \"pixelArt\": true.");
+            if (style["pixelArt"].is_boolean())
+                g.pixelArt = style["pixelArt"].get<bool>();
+            else
+                problem("/style/pixelArt",
+                        "style.pixelArt must be true or false, got " + describe_json_value(style["pixelArt"]),
+                        "Write \"pixelArt\": true.");
         }
         if (style.contains("value")) parse_range(style["value"], "value");
         if (style.contains("saturation")) parse_range(style["saturation"], "saturation");
@@ -240,13 +276,16 @@ struct Parser {
                 problem("/style/ignore", "style.ignore must be a list of paths, got " + describe_json_value(r),
                         "Write [\"assets/ui/\", \"assets/fx/spark.png\"] (a folder ends in a slash).");
             } else {
-                for (std::size_t i = 0; i < r.size(); ++i) parse_ignore_entry(r[i], "/style/ignore/" + std::to_string(i));
+                for (std::size_t i = 0; i < r.size(); ++i)
+                    parse_ignore_entry(r[i], "/style/ignore/" + std::to_string(i));
             }
         }
         if (style.contains("roles")) parse_roles(style["roles"]);
     }
 
-    static std::string normalized_pattern(const std::string& text) { return fs::normalize(text) + (ends_with(text, "/") ? "/" : ""); }
+    static std::string normalized_pattern(const std::string& text) {
+        return fs::normalize(text) + (ends_with(text, "/") ? "/" : "");
+    }
 
     // "assets/ui/" (every rule), or {"path": "assets/fx/spark.png", "rules": ["texelsPerUnit", "outline"]} (only those).
     void parse_ignore_entry(const Json& e, const std::string& pointer) {
@@ -257,12 +296,15 @@ struct Parser {
         }
         const std::string example = R"("assets/ui/" or {"path": "assets/fx/spark.png", "rules": ["texelsPerUnit"]})";
         if (!e.is_object()) {
-            problem(pointer, "An ignored path must be a string or {path, rules}, got " + describe_json_value(e), "Write " + example + ".");
+            problem(pointer, "An ignored path must be a string or {path, rules}, got " + describe_json_value(e),
+                    "Write " + example + ".");
             return;
         }
         unknown_keys(e, pointer, {"path", "rules"});
         if (!e.contains("path") || !e["path"].is_string() || e["path"].get<std::string>().empty()) {
-            problem(pointer + "/path", "An ignore entry needs a `path` (a file, a folder ending in a slash, or a glob).", "Write " + example + ".");
+            problem(pointer + "/path",
+                    "An ignore entry needs a `path` (a file, a folder ending in a slash, or a glob).",
+                    "Write " + example + ".");
             return;
         }
         StyleIgnoreRule rule;
@@ -271,15 +313,19 @@ struct Parser {
         if (e.contains("rules")) {
             const Json& rs = e["rules"];
             if (!rs.is_array()) {
-                problem(pointer + "/rules", "`rules` must be a list of rule names, got " + describe_json_value(rs), "Write \"rules\": [\"texelsPerUnit\"]; leave it out to skip every rule.");
+                problem(pointer + "/rules", "`rules` must be a list of rule names, got " + describe_json_value(rs),
+                        "Write \"rules\": [\"texelsPerUnit\"]; leave it out to skip every rule.");
                 ok = false;
             } else {
                 for (std::size_t i = 0; i < rs.size(); ++i) {
                     const std::string at = pointer + "/rules/" + std::to_string(i);
                     if (!rs[i].is_string()) {
-                        problem(at, "A rule name must be a string, got " + describe_json_value(rs[i]), "Write \"texelsPerUnit\".");
+                        problem(at, "A rule name must be a string, got " + describe_json_value(rs[i]),
+                                "Write \"texelsPerUnit\".");
                         ok = false;
-                    } else if (const std::string name = rs[i].get<std::string>(); std::find(style_rule_names().begin(), style_rule_names().end(), name) == style_rule_names().end()) {
+                    } else if (const std::string name = rs[i].get<std::string>();
+                               std::find(style_rule_names().begin(), style_rule_names().end(), name) ==
+                               style_rule_names().end()) {
                         problem(at, "Unknown style rule '" + name + "'.", did_you_mean(name, style_rule_names()));
                         ok = false;
                     } else {
@@ -289,22 +335,27 @@ struct Parser {
             }
         }
         if (!ok) return;
-        if (rule.rules.empty()) g.ignore.push_back(rule.path);
-        else g.ignoreRules.push_back(std::move(rule));
+        if (rule.rules.empty())
+            g.ignore.push_back(rule.path);
+        else
+            g.ignoreRules.push_back(std::move(rule));
     }
 
     // "roles": {"assets/ui/**": "ui", "assets/fx/*.png": "effect"}
     void parse_roles(const Json& v) {
         if (!v.is_object()) {
-            problem("/style/roles", "style.roles must be an object of path pattern to role, got " + describe_json_value(v),
+            problem("/style/roles",
+                    "style.roles must be an object of path pattern to role, got " + describe_json_value(v),
                     R"(Write {"assets/ui/**": "ui"}; roles: ui, icon, effect.)");
             return;
         }
         for (auto it = v.begin(); it != v.end(); ++it) {
             const std::string pointer = "/style/roles/" + escape_json_token(it.key());
             if (!it.value().is_string()) {
-                problem(pointer, "A role must be a string, got " + describe_json_value(it.value()), "Use ui, icon or effect.");
-            } else if (const std::string role = it.value().get<std::string>(); std::find(style_roles().begin(), style_roles().end(), role) == style_roles().end()) {
+                problem(pointer, "A role must be a string, got " + describe_json_value(it.value()),
+                        "Use ui, icon or effect.");
+            } else if (const std::string role = it.value().get<std::string>();
+                       std::find(style_roles().begin(), style_roles().end(), role) == style_roles().end()) {
                 problem(pointer, "Unknown role '" + role + "'.", did_you_mean(role, style_roles()));
             } else {
                 out.guide.roles.emplace_back(normalized_pattern(it.key()), role);
@@ -353,9 +404,10 @@ const std::vector<std::string>& style_roles() {
 }
 
 const std::vector<std::string>& style_rule_names() {
-    static const std::vector<std::string> names = {"outline",       "outline.color",   "outline.width",   "value",       "value.min",     "value.max",
-                                                   "saturation",    "saturation.min",  "saturation.max",  "lightDirection", "texelsPerUnit", "pixelArt",
-                                                   "pixelArt.edges", "pixelArt.colours", "palette",        "palette.offShare"};
+    static const std::vector<std::string> names = {
+        "outline",        "outline.color",    "outline.width",  "value",           "value.min",     "value.max",
+        "saturation",     "saturation.min",   "saturation.max", "lightDirection",  "texelsPerUnit", "pixelArt",
+        "pixelArt.edges", "pixelArt.colours", "palette",        "palette.offShare"};
     return names;
 }
 
@@ -367,7 +419,8 @@ std::vector<std::string> style_role_skips(const std::string& role) {
 }
 
 bool style_rule_matches(const std::string& name, const std::string& rule) {
-    return rule == name || (rule.size() > name.size() && rule.compare(0, name.size(), name) == 0 && rule[name.size()] == '.');
+    return rule == name ||
+           (rule.size() > name.size() && rule.compare(0, name.size(), name) == 0 && rule[name.size()] == '.');
 }
 
 StyleParse parse_style(const Json& style) {

@@ -8,7 +8,8 @@
 
 namespace fa::editor {
 
-ChildCommandOutcome child_command_outcome(const ProcessResult& run, const std::string& stdoutText, const std::string& command) {
+ChildCommandOutcome child_command_outcome(const ProcessResult& run, const std::string& stdoutText,
+                                          const std::string& command) {
     ChildCommandOutcome out;
     if (run.cancelled) {
         out.cancelled = true;
@@ -17,15 +18,17 @@ ChildCommandOutcome child_command_outcome(const ProcessResult& run, const std::s
     }
     if (run.timedOut) {
         out.error = command + " did not finish in time and was stopped.";
-        out.hint = "Ask for less (fewer or smaller items), or run it from a terminal to watch it: factoria call " + command + " ...";
+        out.hint = "Ask for less (fewer or smaller items), or run it from a terminal to watch it: factoria call " +
+                   command + " ...";
         return out;
     }
     auto parsed = parse_json(stdoutText, "<" + command + " in a child process>");
     if (!parsed.ok() || !parsed.value().is_object()) {
         const std::string& err = run.stderrText;
         const std::string tail = err.size() > 400 ? err.substr(err.size() - 400) : err;
-        out.error = std::format("The child process that runs {} (exit code {}) printed no result. Its error output ended with: {}", command,
-                                run.exitCode, tail.empty() ? std::string("(nothing)") : tail);
+        out.error = std::format(
+            "The child process that runs {} (exit code {}) printed no result. Its error output ended with: {}", command,
+            run.exitCode, tail.empty() ? std::string("(nothing)") : tail);
         out.hint = "Run it from a terminal to see why: factoria call --project <dir> " + command + " '<arguments>'.";
         return out;
     }
@@ -49,7 +52,8 @@ ChildCommandOutcome child_command_outcome(const ProcessResult& run, const std::s
     return out;
 }
 
-bool ChildCommandJob::start(const std::filesystem::path& projectDir, const std::string& command, const Json& args, double timeoutSeconds) {
+bool ChildCommandJob::start(const std::filesystem::path& projectDir, const std::string& command, const Json& args,
+                            double timeoutSeconds) {
     if (running_) return false;
     wait();  // the previous run's thread has finished: join it
     const std::string exe = factoria_executable();
@@ -62,8 +66,11 @@ bool ChildCommandJob::start(const std::filesystem::path& projectDir, const std::
     started_ = std::chrono::steady_clock::now();
     if (exe.empty()) {
         ChildCommandOutcome out;
-        out.error = "The factoria command line tool was not found next to the editor, so " + command + " has nothing to run in.";
-        out.hint = "Reinstall FactorIA (the editor is started by the `factoria` next to it), or run it from a terminal: factoria call " + command + " ...";
+        out.error = "The factoria command line tool was not found next to the editor, so " + command +
+                    " has nothing to run in.";
+        out.hint = "Reinstall FactorIA (the editor is started by the `factoria` next to it), or run it from a "
+                   "terminal: factoria call " +
+                   command + " ...";
         std::lock_guard<std::mutex> lock(mu_);
         result_ = std::move(out);
         return true;
@@ -72,7 +79,14 @@ bool ChildCommandJob::start(const std::filesystem::path& projectDir, const std::
     // UTF-8 for the child (process_win32 widens argv and the working directory as UTF-8): the path object carries the real name.
     const std::string projectUtf8 = fs::path_to_utf8(projectDir);
     // replace: text that is not valid UTF-8 (a note cut inside a character) becomes U+FFFD instead of throwing on the UI thread.
-    po.argv = {exe, "call", "--project", projectUtf8, "--no-graphics", "--json", command, args.dump(-1, ' ', false, Json::error_handler_t::replace)};
+    po.argv = {exe,
+               "call",
+               "--project",
+               projectUtf8,
+               "--no-graphics",
+               "--json",
+               command,
+               args.dump(-1, ' ', false, Json::error_handler_t::replace)};
     po.workingDir = projectUtf8;
     po.cancel = &cancel_;
     po.timeoutSeconds = timeoutSeconds;

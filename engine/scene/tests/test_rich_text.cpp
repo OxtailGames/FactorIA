@@ -65,7 +65,8 @@ TEST_CASE("markup: a mistake never hides the sentence, and is reported with wher
     CHECK_FALSE(parse("[c:]a").problems.empty());
     CHECK_FALSE(parse("[icon:]a").problems.empty());
     // the icon character is the engine's: a literal one is replaced
-    const MarkupText fffc = parse("a\xEF\xBF\xBC" "b");
+    const MarkupText fffc = parse("a\xEF\xBF\xBC"
+                                  "b");
     CHECK(fffc.text[1] == kReplacementChar);
     CHECK(fffc.attrs[1].icon == -1);
 }
@@ -124,8 +125,8 @@ TEST_CASE("text settings: colours, icons and bold fonts of the project, every mi
     };
     CHECK(has_pointer("/text/colors/good"));
     CHECK(has_pointer("/text/colors/bad name"));
-    CHECK(has_pointer("/text/icons/fish"));           // no region
-    CHECK(has_pointer("/text/icons/coin/region"));    // zero width
+    CHECK(has_pointer("/text/icons/fish"));         // no region
+    CHECK(has_pointer("/text/icons/coin/region"));  // zero width
     CHECK(has_pointer("/text/icons/gem"));
     CHECK(has_pointer("/text/fonts/a.ttf/bold"));
     CHECK(has_pointer("/text/fonts/b.ttf"));

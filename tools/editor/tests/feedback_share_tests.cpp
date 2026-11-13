@@ -12,7 +12,9 @@ using namespace fa::editor;
 namespace {
 Json entry_with(const Json& shared) {
     Json e = Json::object({{"id", "FB-0001"}, {"status", "open"}, {"title", "t"}});
-    e["share"] = Json::object({{"title", "No one-way platforms"}, {"missing", "Colliders cannot be one-way, so a player cannot jump up through a platform."}});
+    e["share"] =
+        Json::object({{"title", "No one-way platforms"},
+                      {"missing", "Colliders cannot be one-way, so a player cannot jump up through a platform."}});
     if (!shared.is_null()) e["shared"] = shared;
     return e;
 }
@@ -25,10 +27,12 @@ TEST_CASE("share column: one word per state, the reason as tooltip") {
     CHECK(share_column(entry_with(Json())).label == "not sent");
     CHECK(share_column(entry_with(Json::object({{"status", "pending"}}))).kind == ShareKind::Waiting);
     CHECK(share_column(entry_with(Json::object({{"status", "sent"}}))).label == "sent");
-    const ShareColumn rej = share_column(entry_with(Json::object({{"status", "rejected"}, {"reason", "title is too short"}})));
+    const ShareColumn rej =
+        share_column(entry_with(Json::object({{"status", "rejected"}, {"reason", "title is too short"}})));
     CHECK(rej.kind == ShareKind::Rejected);
     CHECK(rej.tooltip == "title is too short");
-    const ShareColumn skip = share_column(entry_with(Json::object({{"status", "skipped"}, {"reason", "you chose Don't send"}})));
+    const ShareColumn skip =
+        share_column(entry_with(Json::object({{"status", "skipped"}, {"reason", "you chose Don't send"}})));
     CHECK(skip.kind == ShareKind::Skipped);
     CHECK(skip.tooltip == "you chose Don't send");
 }
@@ -64,11 +68,13 @@ TEST_CASE("suggest share: engine words stay, the project's names and quotes go, 
     engine.lower = {"collider2d", "onewayplatform"};
     ProjectNames project;
     project.names = {"Moonlit Heist"};
-    Json e = Json::object({{"id", "FB-0002"}, {"status", "open"},
-                           {"title", "Collider2D cannot be one-way in Moonlit Heist"},
-                           {"missing", "Collider2D has no way to let a player jump up through a platform in Moonlit Heist."},
-                           {"suggestion", "Add Collider2D.oneWay"},
-                           {"workaround", "I moved the platform in level_3.scene.json"}});
+    Json e =
+        Json::object({{"id", "FB-0002"},
+                      {"status", "open"},
+                      {"title", "Collider2D cannot be one-way in Moonlit Heist"},
+                      {"missing", "Collider2D has no way to let a player jump up through a platform in Moonlit Heist."},
+                      {"suggestion", "Add Collider2D.oneWay"},
+                      {"workaround", "I moved the platform in level_3.scene.json"}});
     const ShareSuggestion s = suggest_share(e, engine, project);
     REQUIRE(s.ok);
     CHECK(s.fields.title.find("Moonlit") == std::string::npos);
@@ -108,8 +114,14 @@ EngineNames send_engine() {
 }
 Json open_entry(const std::string& id, const std::string& title, const std::string& missing, const Json& share = Json(),
                 const Json& shared = Json()) {
-    Json e = Json::object({{"id", id}, {"status", "open"}, {"category", "physics"}, {"severity", "major"}, {"occurrences", 1},
-                           {"title", title}, {"missing", missing}, {"suggestion", "Add Collider2D.oneWay"}});
+    Json e = Json::object({{"id", id},
+                           {"status", "open"},
+                           {"category", "physics"},
+                           {"severity", "major"},
+                           {"occurrences", 1},
+                           {"title", title},
+                           {"missing", missing},
+                           {"suggestion", "Add Collider2D.oneWay"}});
     if (!share.is_null()) e["share"] = share;
     if (!shared.is_null()) e["shared"] = shared;
     return e;
@@ -120,14 +132,15 @@ Json doc_of(std::initializer_list<Json> entries) {
     for (const Json& e : entries) doc["entries"].push_back(e);
     return doc;
 }
-const std::string kLongMissing = "Collider2D cannot be one-way, so a player cannot jump up through a platform and land on it.";
+const std::string kLongMissing =
+    "Collider2D cannot be one-way, so a player cannot jump up through a platform and land on it.";
 }  // namespace
 
 TEST_CASE("send plan: lists the entries that would be sent, all checked, with the text that leaves") {
     Json shareOk = Json::object({{"title", "No one-way platforms"}, {"missing", kLongMissing}});
     const Json doc = doc_of({
-        open_entry("FB-0001", "Collider2D has no one-way option", kLongMissing),                        // AI entry without a share
-        open_entry("FB-0002", "Camera2D has no shake", kLongMissing, shareOk),                          // with its own share
+        open_entry("FB-0001", "Collider2D has no one-way option", kLongMissing),  // AI entry without a share
+        open_entry("FB-0002", "Camera2D has no shake", kLongMissing, shareOk),    // with its own share
         open_entry("FB-0003", "Closed one", kLongMissing, shareOk),
     });
     Json closed = doc;
@@ -152,7 +165,8 @@ TEST_CASE("send plan: lists the entries that would be sent, all checked, with th
     CHECK(rows[0].category == "physics");
 }
 
-TEST_CASE("send plan: sent, rejected and queued entries stay out; hit again after a send goes once more; left out is unchecked") {
+TEST_CASE("send plan: sent, rejected and queued entries stay out; hit again after a send goes once more; left out is "
+          "unchecked") {
     Json shareOk = Json::object({{"title", "No one-way platforms"}, {"missing", kLongMissing}});
     Json sent = Json::object({{"status", "sent"}, {"occurrences", 1}});
     Json rejected = Json::object({{"status", "rejected"}, {"reason", "too vague"}});
@@ -206,8 +220,9 @@ TEST_CASE("send plan: an entry no text can be made from is a disabled row with t
 TEST_CASE("send plan: the project's names never leave in the text made from the entry") {
     ProjectNames project;
     project.names = {"Moonlit Heist"};
-    const Json doc = doc_of({open_entry("FB-0001", "Collider2D cannot be one-way in Moonlit Heist",
-                                        "Collider2D has no way to let a player jump up through a platform in Moonlit Heist.")});
+    const Json doc =
+        doc_of({open_entry("FB-0001", "Collider2D cannot be one-way in Moonlit Heist",
+                           "Collider2D has no way to let a player jump up through a platform in Moonlit Heist.")});
     const std::vector<SendRow> rows = plan_send(doc, {}, send_engine(), project);
     REQUIRE(rows.size() == 1);
     REQUIRE(rows[0].canSend);
@@ -273,7 +288,9 @@ struct SendFixture {
     std::string file;
     SendFixture() {
         const std::string home = ((dir / "home")).generic_string();
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.now = [] { return std::int64_t(1'800'000'000); };
         env.makeUuid = [] { return std::string("11111111-2222-4333-8444-555555555555"); };
         env.defaultEndpoint = "https://feedback.example.test";
@@ -309,7 +326,8 @@ struct SendFixture {
 };
 }  // namespace
 
-TEST_CASE("send apply: the checked rows get their text stored and are queued, the unchecked are left out; nothing is sent") {
+TEST_CASE(
+    "send apply: the checked rows get their text stored and are queued, the unchecked are left out; nothing is sent") {
     SendFixture f;
     REQUIRE(set_share_mode(f.env, ShareMode::Always).ok());
     auto doc = load_feedback(f.file);
@@ -330,10 +348,10 @@ TEST_CASE("send apply: the checked rows get their text stored and are queued, th
     auto after = load_feedback(f.file);
     REQUIRE(after.ok());
     const Json& e1 = (*after)["entries"][0];
-    CHECK(e1["share"]["title"] == rows[0].fields.title);   // stored on Send
+    CHECK(e1["share"]["title"] == rows[0].fields.title);  // stored on Send
     CHECK(e1["shared"]["status"] == "pending");
     const Json& e2 = (*after)["entries"][1];
-    CHECK(!e2.contains("share"));                           // the unchecked one stored nothing
+    CHECK(!e2.contains("share"));  // the unchecked one stored nothing
     CHECK(e2["shared"]["status"] == "skipped");
 
     const Outbox box = load_outbox(f.env);

@@ -38,16 +38,19 @@ int main(int argc, char** argv) {
         out << "call\n";
         for (int i = 1; i < argc; ++i) out << "arg: " << argv[i] << "\n";
         std::stringstream names(env("FA_FAKE_TOOL_ENV"));
-        for (std::string name; std::getline(names, name, ',');) out << "env: " << name << "=" << env(name.c_str()) << "\n";
+        for (std::string name; std::getline(names, name, ',');)
+            out << "env: " << name << "=" << env(name.c_str()) << "\n";
         out << "end\n";
     }
     std::printf("fake store tool: call %d with %d argument(s)\n", call, argc - 1);
     if (!env("FA_FAKE_TOOL_PRINT_ARGS").empty())
         for (int i = 1; i < argc; ++i) std::printf("argument %d: %s\n", i, argv[i]);
-    if (const std::string echo = env("FA_FAKE_TOOL_ECHO"); !echo.empty()) std::printf("echo %s=%s\n", echo.c_str(), env(echo.c_str()).c_str());
+    if (const std::string echo = env("FA_FAKE_TOOL_ECHO"); !echo.empty())
+        std::printf("echo %s=%s\n", echo.c_str(), env(echo.c_str()).c_str());
     std::fprintf(stderr, "fake store tool: a line on stderr\n");
     std::fflush(stdout);
-    if (const std::string failCall = env("FA_FAKE_TOOL_FAIL_CALL"); !failCall.empty() && std::atoi(failCall.c_str()) == call) {
+    if (const std::string failCall = env("FA_FAKE_TOOL_FAIL_CALL");
+        !failCall.empty() && std::atoi(failCall.c_str()) == call) {
         const std::string code = env("FA_FAKE_TOOL_FAIL_CODE");
         return code.empty() ? 7 : std::atoi(code.c_str());
     }

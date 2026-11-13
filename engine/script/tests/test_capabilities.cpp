@@ -18,7 +18,8 @@ bool contains(const std::string& s, const char* part) { return s.find(part) != s
 
 // Stand-ins for commands of every kind, each declaring what the real ones of its kind declare.
 void add_fake_commands(TestHost& h, int& counter) {
-    const Json anyObject = Json::object({{"type", "object"}, {"properties", Json::object()}, {"additionalProperties", true}});
+    const Json anyObject =
+        Json::object({{"type", "object"}, {"properties", Json::object()}, {"additionalProperties", true}});
     auto add = [&](const char* name, CapabilitySet caps) {
         h.cmds.add({name, "builtin", "", anyObject, false, "fake"}, [&counter](const Json&) {
             ++counter;
@@ -58,7 +59,8 @@ Json probe_results(TestHost& h) {
 void run_probe(TestHost& h, std::optional<ScriptSystem::GameRole> role = std::nullopt) {
     h.file("scripts/probe.js", kProbe);
     h.file("scenes/main.scene.json", kScene);
-    h.file("tools/mem.js", "export default { name: 'mem', summary: 's', capabilities: ['read', 'state'], run() { return 1; } };");
+    h.file("tools/mem.js",
+           "export default { name: 'mem', summary: 's', capabilities: ['read', 'state'], run() { return 1; } };");
     if (role) h.scripts.set_game_role(*role);
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
@@ -247,7 +249,8 @@ export default { name: 'sneak', summary: 's', capabilities: ['read', 'state'], r
     }
     // A narrower caller narrows the tool's calls too.
     {
-        CommandCapabilityScope projectOnly(CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+        CommandCapabilityScope projectOnly(
+            CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
         auto r = h.cmds.call("project.try");
         REQUIRE(r.ok);
         CHECK(r.result["fake.write"] == "ok");
@@ -291,11 +294,15 @@ TEST_CASE("capabilities: eval runs with the caller's set") {
     CHECK_FALSE(denied.ok());
 }
 
-TEST_CASE("capabilities: a tool with `capabilities: []` is refused, and readOnly next to more than read is warned about") {
+TEST_CASE(
+    "capabilities: a tool with `capabilities: []` is refused, and readOnly next to more than read is warned about") {
     TestHost h("cap_tool_empty");
     h.file("tools/empty.js", "export default { name: 'empty', summary: 's', capabilities: [], run() { return 1; } };");
-    h.file("tools/loud.js", "export default { name: 'loud', summary: 's', readOnly: true, capabilities: ['read', 'state'], run() { return 1; } };");
-    h.file("tools/quiet.js", "export default { name: 'quiet', summary: 's', readOnly: true, capabilities: ['read'], run() { return 1; } };");
+    h.file("tools/loud.js", "export default { name: 'loud', summary: 's', readOnly: true, capabilities: ['read', "
+                            "'state'], run() { return 1; } };");
+    h.file(
+        "tools/quiet.js",
+        "export default { name: 'quiet', summary: 's', readOnly: true, capabilities: ['read'], run() { return 1; } };");
     std::vector<std::string> warnings;
     const int sink = add_log_sink([&](const LogEntry& e) {
         if (e.level == LogLevel::Warn && e.category == "script") warnings.push_back(e.message);
@@ -305,7 +312,9 @@ TEST_CASE("capabilities: a tool with `capabilities: []` is refused, and readOnly
     CHECK_FALSE(h.cmds.has("project.empty"));
     bool taught = false;
     for (const auto& e : h.scripts.errors())
-        if (contains(e.message, "tool 'empty'") && contains(e.message, "at least \"read\"") && contains(e.message, "/capabilities")) taught = true;
+        if (contains(e.message, "tool 'empty'") && contains(e.message, "at least \"read\"") &&
+            contains(e.message, "/capabilities"))
+            taught = true;
     CHECK(taught);
     // readOnly is derived from the set: the loud tool is not read-only, and its warning names it.
     REQUIRE(h.cmds.has("project.loud"));
@@ -448,7 +457,8 @@ test("a module compiled earlier by check_syntax runs its top level as game code"
     CHECK(rep.passed == 1);
 }
 
-TEST_CASE("capabilities: a test's static imports may reach JSON and glob data modules, also after a reload bumps versions") {
+TEST_CASE(
+    "capabilities: a test's static imports may reach JSON and glob data modules, also after a reload bumps versions") {
     TestHost h("cap_import_glob_data");
     // Two test files: run_tests bumps the module versions between them, so the second one's pre-pass imports the data
     // modules by a versioned name ("data/t/*.json?v=N"), which the glob rule must not read as part of the extension.

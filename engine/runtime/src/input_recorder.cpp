@@ -23,18 +23,28 @@ const char* InputRecorder::button_name(MouseButton b) {
     return b == MouseButton::Left ? "left" : b == MouseButton::Right ? "right" : "middle";
 }
 
-Json& InputRecorder::entry(std::uint64_t frame) { return frames_[std::to_string(frame >= start_ ? frame - start_ : 0)]; }
+Json& InputRecorder::entry(std::uint64_t frame) {
+    return frames_[std::to_string(frame >= start_ ? frame - start_ : 0)];
+}
 
 void InputRecorder::key(std::uint64_t frame, Key k, bool down) {
     if (k == Key::Unknown) return;
-    if (down) keys_.insert(k); else keys_.erase(k);
+    if (down)
+        keys_.insert(k);
+    else
+        keys_.erase(k);
     entry(frame)["keys"][key_name(k)] = down;
 }
 
-void InputRecorder::mouse_position(std::uint64_t frame, Vec2 p) { entry(frame)["mouse"]["position"] = Json::array({p.x, p.y}); }
+void InputRecorder::mouse_position(std::uint64_t frame, Vec2 p) {
+    entry(frame)["mouse"]["position"] = Json::array({p.x, p.y});
+}
 
 void InputRecorder::mouse_button(std::uint64_t frame, MouseButton b, bool down) {
-    if (down) buttons_.insert(b); else buttons_.erase(b);
+    if (down)
+        buttons_.insert(b);
+    else
+        buttons_.erase(b);
     entry(frame)["mouse"][button_name(b)] = down;
 }
 
@@ -44,14 +54,17 @@ void InputRecorder::pad_event(std::uint64_t frame, int index, const char* group,
     const bool mergeable = std::string(group) != "connected";
     if (mergeable && !list.empty()) {
         Json& last = list.back();
-        if (last["index"] == index && !last.contains("connected") && !(last.contains(group) && last[group].contains(name))) {
+        if (last["index"] == index && !last.contains("connected") &&
+            !(last.contains(group) && last[group].contains(name))) {
             last[group][name] = std::move(value);
             return;
         }
     }
     Json e = Json::object({{"index", index}});
-    if (mergeable) e[group][name] = std::move(value);
-    else e[group] = std::move(value);
+    if (mergeable)
+        e[group][name] = std::move(value);
+    else
+        e[group] = std::move(value);
     list.push_back(std::move(e));
 }
 
@@ -91,8 +104,9 @@ void InputRecorder::touch_begin(std::uint64_t frame, std::uint64_t id, Vec2 p) {
 }
 
 void InputRecorder::touch_move(std::uint64_t frame, std::uint64_t id, Vec2 p) {
-    if (!fingers_.count(id)) return;  // a move of a finger nobody put down does nothing: it must not begin one in the replay
-    touch_begin(frame, id, p);        // "down" on a known id moves it
+    if (!fingers_.count(id))
+        return;                 // a move of a finger nobody put down does nothing: it must not begin one in the replay
+    touch_begin(frame, id, p);  // "down" on a known id moves it
 }
 
 void InputRecorder::touch_end(std::uint64_t frame, std::uint64_t id) {
@@ -105,7 +119,10 @@ void InputRecorder::touch_end(std::uint64_t frame, std::uint64_t id) {
 void InputRecorder::back(std::uint64_t frame) { entry(frame)["back"] = true; }
 
 void InputRecorder::action(std::uint64_t frame, const std::string& name, bool down) {
-    if (down) actions_.insert(name); else actions_.erase(name);
+    if (down)
+        actions_.insert(name);
+    else
+        actions_.erase(name);
     entry(frame)["actions"][name] = down;
 }
 
@@ -120,9 +137,7 @@ void InputRecorder::http(std::uint64_t frame, const Json& answer) {
     list.push_back(answer);
 }
 
-void InputRecorder::load_units(std::uint64_t frame, int units) {
-    entry(frame)["loadUnits"] = units;
-}
+void InputRecorder::load_units(std::uint64_t frame, int units) { entry(frame)["loadUnits"] = units; }
 
 void InputRecorder::release_all(std::uint64_t frame) {
     for (Key k : std::set<Key>(keys_)) key(frame, k, false);
@@ -154,18 +169,44 @@ Json InputRecorder::input() const {
     return j;
 }
 
-void InputRecorder::observe_key(Key k, bool down) { if (active_) key(now(), k, down); }
-void InputRecorder::observe_mouse_move(Vec2 p) { if (active_) mouse_position(now(), p); }
-void InputRecorder::observe_mouse_button(MouseButton b, bool down) { if (active_) mouse_button(now(), b, down); }
-void InputRecorder::observe_touch_begin(std::uint64_t id, Vec2 p) { if (active_) touch_begin(now(), id, p); }
-void InputRecorder::observe_touch_move(std::uint64_t id, Vec2 p) { if (active_) touch_move(now(), id, p); }
-void InputRecorder::observe_touch_end(std::uint64_t id) { if (active_) touch_end(now(), id); }
-void InputRecorder::observe_gamepad_connected(int index, bool connected) { if (active_) gamepad_connected(now(), index, connected); }
-void InputRecorder::observe_gamepad_button(int index, GamepadButton b, bool down) { if (active_) gamepad_button(now(), index, b, down); }
-void InputRecorder::observe_gamepad_axis(int index, GamepadAxis a, float value) { if (active_) gamepad_axis(now(), index, a, value); }
-void InputRecorder::observe_action(const std::string& name, bool down) { if (active_) action(now(), name, down); }
-void InputRecorder::observe_back() { if (active_) back(now()); }
-void InputRecorder::observe_release_all() { if (active_) release_all(now()); }
-void InputRecorder::clipboard_read(const std::string& text) { if (active_) clipboard(now(), text); }
+void InputRecorder::observe_key(Key k, bool down) {
+    if (active_) key(now(), k, down);
+}
+void InputRecorder::observe_mouse_move(Vec2 p) {
+    if (active_) mouse_position(now(), p);
+}
+void InputRecorder::observe_mouse_button(MouseButton b, bool down) {
+    if (active_) mouse_button(now(), b, down);
+}
+void InputRecorder::observe_touch_begin(std::uint64_t id, Vec2 p) {
+    if (active_) touch_begin(now(), id, p);
+}
+void InputRecorder::observe_touch_move(std::uint64_t id, Vec2 p) {
+    if (active_) touch_move(now(), id, p);
+}
+void InputRecorder::observe_touch_end(std::uint64_t id) {
+    if (active_) touch_end(now(), id);
+}
+void InputRecorder::observe_gamepad_connected(int index, bool connected) {
+    if (active_) gamepad_connected(now(), index, connected);
+}
+void InputRecorder::observe_gamepad_button(int index, GamepadButton b, bool down) {
+    if (active_) gamepad_button(now(), index, b, down);
+}
+void InputRecorder::observe_gamepad_axis(int index, GamepadAxis a, float value) {
+    if (active_) gamepad_axis(now(), index, a, value);
+}
+void InputRecorder::observe_action(const std::string& name, bool down) {
+    if (active_) action(now(), name, down);
+}
+void InputRecorder::observe_back() {
+    if (active_) back(now());
+}
+void InputRecorder::observe_release_all() {
+    if (active_) release_all(now());
+}
+void InputRecorder::clipboard_read(const std::string& text) {
+    if (active_) clipboard(now(), text);
+}
 
 }  // namespace fa

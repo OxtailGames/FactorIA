@@ -86,12 +86,18 @@ FontFace* FontSet::variant_face(FontFace* regular, bool bold, bool italic, bool&
         return f->ok ? f : nullptr;
     };
     if (bold && italic) {
-        if (FontFace* f = builtin(true, true)) { boldDrawn = true; return f; }
+        if (FontFace* f = builtin(true, true)) {
+            boldDrawn = true;
+            return f;
+        }
     }
     if (bold) {
         FontFace* f = from_map(style_.boldFonts);
         if (!f) f = builtin(true, false);
-        if (f) { boldDrawn = true; return f; }
+        if (f) {
+            boldDrawn = true;
+            return f;
+        }
     }
     if (italic) {
         FontFace* f = from_map(style_.italicFonts);
@@ -150,8 +156,8 @@ TextPrep FontSet::prepare(const Text& t, float fontSize, float pixelsPerUnit) {
     if (!primary || !primary->ok) return out;
     out.primary = primary;
     out.px = text_raster_px(fontSize, pixelsPerUnit);
-    out.unitsPerPx = fontSize / float(out.px);                                  // local units per raster pixel
-    out.maxW = t.maxWidth > 0 ? t.maxWidth / out.unitsPerPx : 0.0f;             // in raster pixels
+    out.unitsPerPx = fontSize / float(out.px);                       // local units per raster pixel
+    out.maxW = t.maxWidth > 0 ? t.maxWidth / out.unitsPerPx : 0.0f;  // in raster pixels
     const int px = out.px;
 
     // The chain: the Text's font, the project's fallback fonts, the built-in DejaVu Sans last.
@@ -190,7 +196,9 @@ TextPrep FontSet::prepare(const Text& t, float fontSize, float pixelsPerUnit) {
     if (out.rich) {
         shaping.attrs = &out.attrs;
         shaping.syntheticExtra = synthetic_bold_extra(px);
-        shaping.variantFace = [this](FontFace* f, bool bold, bool italic, bool& boldDrawn) { return variant_face(f, bold, italic, boldDrawn); };
+        shaping.variantFace = [this](FontFace* f, bool bold, bool italic, bool& boldDrawn) {
+            return variant_face(f, bold, italic, boldDrawn);
+        };
         for (std::size_t i = 0; i < mk.icons.size(); ++i) {
             float aspect = 1.0f;
             if (const auto it = style_.icons.find(mk.icons[i]); it != style_.icons.end()) {
@@ -205,20 +213,25 @@ TextPrep FontSet::prepare(const Text& t, float fontSize, float pixelsPerUnit) {
             if (rich_color(style_, mk.colors[i], out.palette[i])) out.colorSlot[i + 1] = int(i) + 1;
     }
 
-    out.shaped = shape_text(out.text, px, out.maxW, chainSize, chain, out.rich ? &shaping : nullptr, t.wordBreak, t.direction);
+    out.shaped =
+        shape_text(out.text, px, out.maxW, chainSize, chain, out.rich ? &shaping : nullptr, t.wordBreak, t.direction);
     float boxW = 0;
     for (const ShapedLine& l : out.shaped.lines) boxW = std::max(boxW, l.width);
     const float boxH = out.lineH * float(out.shaped.lines.size());
     out.size = {boxW * out.unitsPerPx, boxH * out.unitsPerPx};  // the widest line: what measuring and ui.overflowed see
 
-    if (!out.shaped.missing.empty() && warnedMissing_.insert(primary->key).second) warn_missing_glyphs(primary, t.text, out.shaped.missing);
+    if (!out.shaped.missing.empty() && warnedMissing_.insert(primary->key).second)
+        warn_missing_glyphs(primary, t.text, out.shaped.missing);
     return out;
 }
 
 std::optional<Vec2> FontSet::measure(const Text& t, float fontSize, float pixelsPerUnit) {
     FontFace* primary = face(t.font);
     if (!primary || !primary->ok) return std::nullopt;
-    struct KeyHead { float fontSize, maxWidth; int px, flags, wordBreak, direction; } head{};
+    struct KeyHead {
+        float fontSize, maxWidth;
+        int px, flags, wordBreak, direction;
+    } head{};
     head.fontSize = fontSize;
     head.maxWidth = t.maxWidth;
     head.px = text_raster_px(fontSize, pixelsPerUnit);
@@ -247,7 +260,9 @@ void FontSet::warn_markup(const std::string& source) {
         const std::u32string cps = utf8_decode(source);
         for (std::size_t i = 0; i < cps.size() && i < 40; ++i) utf8_append(excerpt, cps[i]);
         if (cps.size() > 40) excerpt += "...";
-        FA_WARN("render", "markup in text \"{}\": {} (Text.markup is on: docs/TEXT.md \"Rich text\"; reported once per text.)", excerpt, p);
+        FA_WARN("render",
+                "markup in text \"{}\": {} (Text.markup is on: docs/TEXT.md \"Rich text\"; reported once per text.)",
+                excerpt, p);
     }
 }
 
@@ -255,7 +270,8 @@ void FontSet::warn_markup(const std::string& source) {
 // characters, and what to do: a font already in use that has them, else the kind of font that does.
 void FontSet::warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing) {
     std::string chars;
-    for (char32_t cp : missing) chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", unsigned(cp), utf8_encode(cp));
+    for (char32_t cp : missing)
+        chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", unsigned(cp), utf8_encode(cp));
     std::string excerpt;
     const std::u32string cps = utf8_decode(text);
     for (std::size_t i = 0; i < cps.size() && i < 24; ++i) utf8_append(excerpt, cps[i]);
@@ -267,8 +283,9 @@ void FontSet::warn_missing_glyphs(FontFace* f, const std::string& text, const st
         label += ")";
     }
     // The fix that suits every Text of the game: the font lists of factoria.json. A Text's own "font" works for one Text.
-    const std::string project = "list it in factoria.json (localization.fallbackFonts, or localization.languageFonts for one language: "
-                                "docs/TEXT.md) or set the Text's \"font\" to it";
+    const std::string project =
+        "list it in factoria.json (localization.fallbackFonts, or localization.languageFonts for one language: "
+        "docs/TEXT.md) or set the Text's \"font\" to it";
     std::string hint;
     for (const auto& [key, other] : faces_) {
         if (other.get() == f || !other->ok) continue;
@@ -281,15 +298,21 @@ void FontSet::warn_missing_glyphs(FontFace* f, const std::string& text, const st
     }
     if (hint.empty()) {
         if (std::any_of(missing.begin(), missing.end(), is_cjk))
-            hint = "Chinese, Japanese and Korean need a font that covers them, such as Noto Sans SC, JP or KR (SIL Open Font "
-                   "License): put its .ttf in assets/fonts/ and " + project + ". The built-in fonts cover Latin, Greek, Cyrillic, "
+            hint = "Chinese, Japanese and Korean need a font that covers them, such as Noto Sans SC, JP or KR (SIL "
+                   "Open Font "
+                   "License): put its .ttf in assets/fonts/ and " +
+                   project +
+                   ". The built-in fonts cover Latin, Greek, Cyrillic, "
                    "Hebrew and Arabic.";
         else if (std::any_of(missing.begin(), missing.end(), is_emoji))
             hint = "Colour emoji fonts are not supported (only TrueType outlines): draw emoji as sprites.";
         else
-            hint = "Use a .ttf that covers them (the Noto fonts have one per script): put it in assets/fonts/ and " + project + ".";
+            hint = "Use a .ttf that covers them (the Noto fonts have one per script): put it in assets/fonts/ and " +
+                   project + ".";
     }
-    FA_WARN("render", "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once per font.)",
+    FA_WARN("render",
+            "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once "
+            "per font.)",
             excerpt, label, chars, hint);
 }
 

@@ -256,7 +256,8 @@ test("a rejection somebody handles is no script error", async () => {
     CHECK(h.scripts.errors().empty());
 }
 
-TEST_CASE("platform api: without delayFrames the fake answers inside the call, the promise settles in the next microtask") {
+TEST_CASE(
+    "platform api: without delayFrames the fake answers inside the call, the promise settles in the next microtask") {
     TestHost h("platform_timing", settings());
     h.file("tests/timing.test.js", R"(
 import { test, expect, game } from "factoria:test";
@@ -483,7 +484,8 @@ test("the none backend answers unavailable", async () => {
     CHECK(rep.passed == 8);
 }
 
-TEST_CASE("platform api: the age of the player reaches the ad network, and the privacy options show only when required") {
+TEST_CASE(
+    "platform api: the age of the player reaches the ad network, and the privacy options show only when required") {
     Json mixed = settings();
     mixed["platform"]["ads"]["audience"] = "mixed";
     TestHost h("platform_ads_age", mixed);

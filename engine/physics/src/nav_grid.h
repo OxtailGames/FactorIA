@@ -32,8 +32,8 @@ struct NavParams {
 class NavGrid {
 public:
     struct Span {
-        float y = 0.0f;       // height of the walkable surface (a multiple of cellHeight)
-        float ceil = 1e30f;   // underside of whatever is above (1e30 = open sky)
+        float y = 0.0f;      // height of the walkable surface (a multiple of cellHeight)
+        float ceil = 1e30f;  // underside of whatever is above (1e30 = open sky)
         std::int32_t cell = 0;
         std::int32_t region = 0;  // 1-based walkable area; 0 = eroded
         std::int32_t block = 0;   // how many obstacles (or walkable bodies over it) cover this span now
@@ -58,13 +58,18 @@ public:
     void build(const NavParams& params, std::vector<NavEntry>& entries);
 
     const NavParams& params() const { return p_; }
-    int span_count() const { return int(spans_.size()); }          // baked (static) spans
-    int total_count() const { return int(spans_.size() + dyn_.size()); }  // static + dynamic slots (free ones are not usable)
+    int span_count() const { return int(spans_.size()); }  // baked (static) spans
+    int total_count() const {
+        return int(spans_.size() + dyn_.size());
+    }  // static + dynamic slots (free ones are not usable)
     int static_count() const { return int(spans_.size()); }
     int walkable_count() const { return walkable_; }  // spans that survived erosion
     int region_count() const { return regions_; }
     const Span& span(int s) const { return sp(s); }
-    bool usable(int s) const { const Span& a = sp(s); return a.alive && !a.eroded && a.block == 0; }
+    bool usable(int s) const {
+        const Span& a = sp(s);
+        return a.alive && !a.eroded && a.block == 0;
+    }
     Vec3 center(int s) const;  // world position of the span's surface at the cell centre
     int cell_x(int cell) const { return cell % p_.nx; }
     int cell_z(int cell) const { return cell / p_.nx; }
@@ -76,7 +81,8 @@ public:
     int find_span(Vec3 p, float reachDown, float reachUp, bool staticOnly = false) const;
     // The nearest usable span (horizontal distance, then lowest index) within `maxDist` whose surface is in the same
     // vertical window. -1 if none.
-    int nearest_span(Vec3 p, float reachDown, float reachUp, float maxDist, float* dist = nullptr, bool staticOnly = false) const;
+    int nearest_span(Vec3 p, float reachDown, float reachUp, float maxDist, float* dist = nullptr,
+                     bool staticOnly = false) const;
     // The nearest usable span anywhere (3D distance); -1 if the grid has none.
     int nearest_anywhere(Vec3 p, float* dist = nullptr) const;
 
@@ -124,7 +130,7 @@ private:
     NavParams p_;
     std::vector<std::int32_t> cellFirst_;  // spans of cell c: [cellFirst_[c], cellFirst_[c + 1])
     std::vector<Span> spans_;
-    std::vector<std::int32_t> links_;      // 8 per span: neighbour span or -1
+    std::vector<std::int32_t> links_;  // 8 per span: neighbour span or -1
     int walkable_ = 0, regions_ = 0;
     struct Ref {
         std::int32_t span = 0, gen = 0;
@@ -136,25 +142,27 @@ private:
         std::int32_t span = -1;  // the dynamic span holding it
     };
     struct Walk {
-        std::vector<DynSpec> specs;          // sorted by (cell, y)
-        std::vector<std::int32_t> blocked;   // static spans under or in it, sorted
+        std::vector<DynSpec> specs;         // sorted by (cell, y)
+        std::vector<std::int32_t> blocked;  // static spans under or in it, sorted
     };
     std::map<std::uint64_t, Walk> walk_;
-    std::vector<Span> dyn_;                   // dynamic spans: id = spans_.size() + index
-    std::vector<std::int32_t> dynFree_;       // free slots (lowest used first)
-    std::vector<std::int32_t> dynHead_;       // per cell: first dynamic span (lazily allocated)
-    std::vector<std::int32_t> dirty_;         // cells whose spans changed since the last refresh
+    std::vector<Span> dyn_;              // dynamic spans: id = spans_.size() + index
+    std::vector<std::int32_t> dynFree_;  // free slots (lowest used first)
+    std::vector<std::int32_t> dynHead_;  // per cell: first dynamic span (lazily allocated)
+    std::vector<std::int32_t> dirty_;    // cells whose spans changed since the last refresh
     int dynLive_ = 0;
-    std::vector<LinkEdge> links_edges_;       // sorted by `from`
-    std::vector<std::int32_t> linkFirst_;     // per static span: first edge in links_edges_ (size spans + 1)
-    std::vector<float> edist_;                // erosion scratch (by span), valid where edistStamp_ == edistNow_
+    std::vector<LinkEdge> links_edges_;    // sorted by `from`
+    std::vector<std::int32_t> linkFirst_;  // per static span: first edge in links_edges_ (size spans + 1)
+    std::vector<float> edist_;             // erosion scratch (by span), valid where edistStamp_ == edistNow_
     std::vector<std::int32_t> edistStamp_;
     std::int32_t edistNow_ = 0;
-    std::vector<std::uint8_t> cellMark_;      // erosion scratch (by cell)
+    std::vector<std::uint8_t> cellMark_;  // erosion scratch (by cell)
     // Search scratch of the plain search() (one query at a time), reset by a stamp instead of clearing.
     mutable Scratch scratch_;
 
-    Span& sp(int s) { return std::size_t(s) < spans_.size() ? spans_[std::size_t(s)] : dyn_[std::size_t(s) - spans_.size()]; }
+    Span& sp(int s) {
+        return std::size_t(s) < spans_.size() ? spans_[std::size_t(s)] : dyn_[std::size_t(s) - spans_.size()];
+    }
     const Span& sp(int s) const {
         return std::size_t(s) < spans_.size() ? spans_[std::size_t(s)] : dyn_[std::size_t(s) - spans_.size()];
     }

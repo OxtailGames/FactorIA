@@ -24,15 +24,21 @@ public:
     std::string hint(const CapabilityDenial& d) const override {
         std::string who = editorPlay_ ? "Scripts of the game running in the editor's Play get " : "Game scripts get ";
         std::string out = who + granted_.to_string() +
-                          ": they can change the running game but not write files, reach the network or start programs, so a shipped game "
-                          "cannot do to a player's machine what a tool does to a project. Do " + d.command.name +
-                          " from the editor, from a project tool (tools/*.js, which runs with the permissions of whoever starts it) or "
+                          ": they can change the running game but not write files, reach the network or start "
+                          "programs, so a shipped game "
+                          "cannot do to a player's machine what a tool does to a project. Do " +
+                          d.command.name +
+                          " from the editor, from a project tool (tools/*.js, which runs with the permissions of "
+                          "whoever starts it) or "
                           "with `factoria call`";
-        if (!d.missing.has(Capability::WriteAnywhere) && !d.missing.has(Capability::Network) && !d.missing.has(Capability::Process) &&
-            !d.missing.has(Capability::Spend) && !d.missing.has(Capability::Publish))
-            out += "; a test of the game can ask for it with test(name, fn, { capabilities: [" + quoted_list(d.missing) + "] })";
+        if (!d.missing.has(Capability::WriteAnywhere) && !d.missing.has(Capability::Network) &&
+            !d.missing.has(Capability::Process) && !d.missing.has(Capability::Spend) &&
+            !d.missing.has(Capability::Publish))
+            out += "; a test of the game can ask for it with test(name, fn, { capabilities: [" +
+                   quoted_list(d.missing) + "] })";
         else
-            out += "; a test can ask for " + quoted_list(d.missing) + " with test(name, fn, { capabilities: [...] }) only when whoever runs the tests has it";
+            out += "; a test can ask for " + quoted_list(d.missing) +
+                   " with test(name, fn, { capabilities: [...] }) only when whoever runs the tests has it";
         return out + ".";
     }
 
@@ -45,10 +51,14 @@ private:
 class TestHint final : public CapabilityHintProvider {
 public:
     std::string hint(const CapabilityDenial& d) const override {
-        return "This test is granted " + d.granted.to_string() + " (read and state, plus what the test asks for). Ask for more with the "
-               "`capabilities` option of the test: test('name', () => { ... }, { capabilities: [" + quoted_list(d.missing) +
-               "] }). A test can only get what whoever runs it has: `factoria test` has every capability; a run over MCP never gets "
-               "writeAnywhere and a read-only MCP server runs no test that writes. Game scripts called by the test keep {read, state}.";
+        return "This test is granted " + d.granted.to_string() +
+               " (read and state, plus what the test asks for). Ask for more with the "
+               "`capabilities` option of the test: test('name', () => { ... }, { capabilities: [" +
+               quoted_list(d.missing) +
+               "] }). A test can only get what whoever runs it has: `factoria test` has every capability; a run over "
+               "MCP never gets "
+               "writeAnywhere and a read-only MCP server runs no test that writes. Game scripts called by the test "
+               "keep {read, state}.";
     }
 };
 

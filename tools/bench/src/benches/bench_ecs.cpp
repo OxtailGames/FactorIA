@@ -33,7 +33,8 @@ std::shared_ptr<World> make_populated_world() {
 Bench ecs_each() {
     Bench b;
     b.name = "ecs.each";
-    b.summary = "World::each over 20000 entities: all of them (2 components), a quarter of them (3 components), a quarter by its smallest pool";
+    b.summary = "World::each over 20000 entities: all of them (2 components), a quarter of them (3 components), a "
+                "quarter by its smallest pool";
     b.make = [] {
         auto w = make_populated_world();
         Prepared p;
@@ -43,9 +44,11 @@ Bench ecs_each() {
             double sum = 0;
             for (int pass = 0; pass < 16; ++pass) {
                 w->each<Transform, Sprite>([&](Entity, Transform& t, Sprite& s) { sum += t.position.x * s.color.a; });
-                w->each<Sprite, RigidBody2D, Transform>(
-                    [&](Entity, Sprite& s, RigidBody2D& rb, Transform& t) { sum += rb.gravityScale + s.color.a + t.position.y; });
-                w->each<RigidBody2D, Collider2D>([&](Entity, RigidBody2D& rb, Collider2D& c) { sum += rb.gravityScale + c.friction; });
+                w->each<Sprite, RigidBody2D, Transform>([&](Entity, Sprite& s, RigidBody2D& rb, Transform& t) {
+                    sum += rb.gravityScale + s.color.a + t.position.y;
+                });
+                w->each<RigidBody2D, Collider2D>(
+                    [&](Entity, RigidBody2D& rb, Collider2D& c) { sum += rb.gravityScale + c.friction; });
             }
             return sum;
         };
@@ -57,7 +60,8 @@ Bench ecs_each() {
 Bench ecs_entities_with() {
     Bench b;
     b.name = "ecs.entities_with";
-    b.summary = "World::entities_with(type) 200 times for a pool of 20000 and 200 times for one of 2500 (the snapshot is a copy)";
+    b.summary = "World::entities_with(type) 200 times for a pool of 20000 and 200 times for one of 2500 (the snapshot "
+                "is a copy)";
     b.make = [] {
         auto w = make_populated_world();
         Prepared p;

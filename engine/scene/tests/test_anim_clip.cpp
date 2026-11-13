@@ -43,12 +43,14 @@ struct TempProject {
 };
 
 // {"path": ..., "component": ..., "field": ..., "keys": [...]} with `keys` written by the caller.
-std::string track(const std::string& path, const std::string& component, const std::string& field, const std::string& keys) {
-    return "{\"path\":\"" + path + "\",\"component\":\"" + component + "\",\"field\":\"" + field + "\",\"keys\":" + keys + "}";
+std::string track(const std::string& path, const std::string& component, const std::string& field,
+                  const std::string& keys) {
+    return "{\"path\":\"" + path + "\",\"component\":\"" + component + "\",\"field\":\"" + field +
+           "\",\"keys\":" + keys + "}";
 }
 std::string clip(float duration, bool loop, const std::string& tracks, const std::string& events = "[]") {
-    return "{\"format\":\"factoria.anim/1\",\"duration\":" + std::to_string(duration) + ",\"loop\":" + (loop ? "true" : "false") +
-           ",\"tracks\":[" + tracks + "],\"events\":" + events + "}";
+    return "{\"format\":\"factoria.anim/1\",\"duration\":" + std::to_string(duration) +
+           ",\"loop\":" + (loop ? "true" : "false") + ",\"tracks\":[" + tracks + "],\"events\":" + events + "}";
 }
 
 std::shared_ptr<const ClipAsset> parse(const std::string& text) {
@@ -108,14 +110,15 @@ int count(const std::vector<std::string>& v, const std::string& name) {
 
 TEST_CASE("anim clip: linear, step and keys outside the range") {
     TempProject p;
-    const std::string keys = R"([{"t":0,"value":0},{"t":2,"value":10},{"t":4,"value":10,"interp":"step"},{"t":6,"value":-5}])";
+    const std::string keys =
+        R"([{"t":0,"value":0},{"t":2,"value":10},{"t":4,"value":10,"interp":"step"},{"t":6,"value":-5}])";
     CHECK(value_at(keys, 0.0f) == doctest::Approx(0.0f));
     CHECK(value_at(keys, 1.0f) == doctest::Approx(5.0f));
     CHECK(value_at(keys, 2.0f) == doctest::Approx(10.0f));
     CHECK(value_at(keys, 3.0f) == doctest::Approx(10.0f));
-    CHECK(value_at(keys, 5.0f) == doctest::Approx(10.0f));    // step: holds the key until the next one
+    CHECK(value_at(keys, 5.0f) == doctest::Approx(10.0f));  // step: holds the key until the next one
     CHECK(value_at(keys, 6.0f) == doctest::Approx(-5.0f));
-    CHECK(value_at(keys, 9.0f) == doctest::Approx(-5.0f));    // past the last key: held
+    CHECK(value_at(keys, 9.0f) == doctest::Approx(-5.0f));                     // past the last key: held
     CHECK(value_at(R"([{"t":1,"value":3}])", 0.0f) == doctest::Approx(3.0f));  // before the first key: held
 }
 
@@ -146,12 +149,17 @@ TEST_CASE("anim clip: bezier follows the tangents of the keys, and builds smooth
     CHECK(value_at(keys, 0.0f) == doctest::Approx(0.0f));
     CHECK(value_at(keys, 1.0f) == doctest::Approx(10.0f));
     // auto tangents: zero slope at the ends, the neighbours' slope inside -> an S curve through the keys
-    const std::string autoKeys = R"([{"t":0,"value":0,"interp":"bezier"},{"t":1,"value":10,"interp":"bezier"},{"t":2,"value":10}])";
+    const std::string autoKeys =
+        R"([{"t":0,"value":0,"interp":"bezier"},{"t":1,"value":10,"interp":"bezier"},{"t":2,"value":10}])";
     CHECK(value_at(autoKeys, 1.0f) == doctest::Approx(10.0f));
-    CHECK(value_at(autoKeys, 0.5f) == doctest::Approx(0.5f * 0.0f + 0.125f * 0.0f + 0.5f * 10.0f - 0.125f * 5.0f));  // in slope (10-0)/2 = 5
+    CHECK(value_at(autoKeys, 0.5f) ==
+          doctest::Approx(0.5f * 0.0f + 0.125f * 0.0f + 0.5f * 10.0f - 0.125f * 5.0f));  // in slope (10-0)/2 = 5
     CHECK(value_at(autoKeys, 0.5f) > 0.0f);
     // vector tangents
-    auto c = parse(clip(1, true, track("", "Transform", "position", R"([{"t":0,"value":[0,0,0],"interp":"bezier","out":[10,0,0]},{"t":1,"value":[10,5,0],"in":[0,0,0]}])")));
+    auto c = parse(clip(
+        1, true,
+        track("", "Transform", "position",
+              R"([{"t":0,"value":[0,0,0],"interp":"bezier","out":[10,0,0]},{"t":1,"value":[10,5,0],"in":[0,0,0]}])")));
     std::array<float, 4> out{};
     sample_clip_track(c->tracks[0], 0.5f, out, nullptr);
     CHECK(out[0] == doctest::Approx(6.25f));
@@ -160,20 +168,25 @@ TEST_CASE("anim clip: bezier follows the tangents of the keys, and builds smooth
 
 TEST_CASE("anim clip: vectors, colours and one channel of a vector interpolate; bool, int, enum and asset only step") {
     TempProject p;
-    auto c = parse(clip(1, true,
-                        track("", "Transform", "position", R"([{"t":0,"value":[0,0,0]},{"t":1,"value":[10,20,30]}])") + "," +
-                            track("", "Sprite", "color", R"([{"t":0,"value":[1,0,0,1]},{"t":1,"value":[0,0,1,0]}])") + "," +
-                            track("", "Transform", "scale.y", R"([{"t":0,"value":1},{"t":1,"value":0.5}])") + "," +
-                            track("", "Sprite", "flipX", R"([{"t":0,"value":false},{"t":0.5,"value":true}])") + "," +
-                            track("", "Sprite", "layer", R"([{"t":0,"value":1},{"t":0.5,"value":4}])") + "," +
-                            track("", "Sprite", "blend", R"([{"t":0,"value":"alpha"},{"t":0.5,"value":"additive"}])") + "," +
-                            track("", "Sprite", "texture", R"([{"t":0,"value":"a.png"},{"t":0.5,"value":"b.png"}])")));
+    auto c =
+        parse(clip(1, true,
+                   track("", "Transform", "position", R"([{"t":0,"value":[0,0,0]},{"t":1,"value":[10,20,30]}])") + "," +
+                       track("", "Sprite", "color", R"([{"t":0,"value":[1,0,0,1]},{"t":1,"value":[0,0,1,0]}])") + "," +
+                       track("", "Transform", "scale.y", R"([{"t":0,"value":1},{"t":1,"value":0.5}])") + "," +
+                       track("", "Sprite", "flipX", R"([{"t":0,"value":false},{"t":0.5,"value":true}])") + "," +
+                       track("", "Sprite", "layer", R"([{"t":0,"value":1},{"t":0.5,"value":4}])") + "," +
+                       track("", "Sprite", "blend", R"([{"t":0,"value":"alpha"},{"t":0.5,"value":"additive"}])") + "," +
+                       track("", "Sprite", "texture", R"([{"t":0,"value":"a.png"},{"t":0.5,"value":"b.png"}])")));
     REQUIRE(c->tracks.size() == 7);
     std::array<float, 4> v{};
     sample_clip_track(c->tracks[0], 0.5f, v, nullptr);
-    CHECK(v[0] == doctest::Approx(5)); CHECK(v[1] == doctest::Approx(10)); CHECK(v[2] == doctest::Approx(15));
+    CHECK(v[0] == doctest::Approx(5));
+    CHECK(v[1] == doctest::Approx(10));
+    CHECK(v[2] == doctest::Approx(15));
     sample_clip_track(c->tracks[1], 0.5f, v, nullptr);
-    CHECK(v[0] == doctest::Approx(0.5)); CHECK(v[2] == doctest::Approx(0.5)); CHECK(v[3] == doctest::Approx(0.5));
+    CHECK(v[0] == doctest::Approx(0.5));
+    CHECK(v[2] == doctest::Approx(0.5));
+    CHECK(v[3] == doctest::Approx(0.5));
     CHECK(c->tracks[2].channel == 1);
     sample_clip_track(c->tracks[2], 1.0f, v, nullptr);
     CHECK(v[0] == doctest::Approx(0.5));
@@ -217,32 +230,38 @@ TEST_CASE("anim clip errors: file, JSON pointer, what is wrong and how to fix it
         CHECK(is[0].hint.find("Animatable fields of Animator") != std::string::npos);
     }
     SUBCASE("a misspelled field and component") {
-        auto is = issues_of(clip(1, true, track("", "Transform", "rotaton.z", R"([{"t":0,"value":0}])") + "," +
-                                             track("", "Sprit", "color", R"([{"t":0,"value":[1,1,1,1]}])")));
+        auto is = issues_of(clip(1, true,
+                                 track("", "Transform", "rotaton.z", R"([{"t":0,"value":0}])") + "," +
+                                     track("", "Sprit", "color", R"([{"t":0,"value":[1,1,1,1]}])")));
         CHECK(has_issue(is, "/tracks/0/field", "rotation"));
         CHECK(has_issue(is, "/tracks/1/component", "Sprite"));
     }
     SUBCASE("a value of the wrong type") {
-        auto is = issues_of(clip(1, true, track("", "Transform", "rotation.z", R"([{"t":0,"value":"high"}])") + "," +
-                                             track("", "Sprite", "color", R"([{"t":0,"value":[1,2]}])") + "," +
-                                             track("", "Sprite", "layer", R"([{"t":0,"value":1.5}])") + "," +
-                                             track("", "Sprite", "blend", R"([{"t":0,"value":"glowy"}])")));
+        auto is = issues_of(clip(1, true,
+                                 track("", "Transform", "rotation.z", R"([{"t":0,"value":"high"}])") + "," +
+                                     track("", "Sprite", "color", R"([{"t":0,"value":[1,2]}])") + "," +
+                                     track("", "Sprite", "layer", R"([{"t":0,"value":1.5}])") + "," +
+                                     track("", "Sprite", "blend", R"([{"t":0,"value":"glowy"}])")));
         CHECK(has_issue(is, "/tracks/0/keys/0/value", "expected a number"));
         CHECK(has_issue(is, "/tracks/1/keys/0/value", "array"));
         CHECK(has_issue(is, "/tracks/2/keys/0/value", "integer"));
         CHECK(has_issue(is, "/tracks/3/keys/0/value", "additive"));  // did you mean / the valid names
     }
     SUBCASE("keys out of order, equal times and keys past the duration") {
-        auto is = issues_of(clip(2, true, track("", "Transform", "rotation.z", R"([{"t":1,"value":0},{"t":0.5,"value":1},{"t":3,"value":2},{"t":1,"value":4}])")));
+        auto is =
+            issues_of(clip(2, true,
+                           track("", "Transform", "rotation.z",
+                                 R"([{"t":1,"value":0},{"t":0.5,"value":1},{"t":3,"value":2},{"t":1,"value":4}])")));
         CHECK(has_issue(is, "/tracks/0/keys/1/t", "ascending"));
         CHECK(has_issue(is, "/tracks/0/keys/2/t", "duration"));
         CHECK(has_issue(is, "/tracks/0/keys/3/t", "ascending"));
     }
     SUBCASE("two tracks on the same channel") {
-        auto is = issues_of(clip(1, true, track("", "Transform", "position", R"([{"t":0,"value":[0,0,0]}])") + "," +
-                                             track("", "Transform", "position.x", R"([{"t":0,"value":1}])") + "," +
-                                             track("", "Transform", "rotation.z", R"([{"t":0,"value":1}])") + "," +
-                                             track("", "Transform", "rotation.x", R"([{"t":0,"value":1}])")));
+        auto is = issues_of(clip(1, true,
+                                 track("", "Transform", "position", R"([{"t":0,"value":[0,0,0]}])") + "," +
+                                     track("", "Transform", "position.x", R"([{"t":0,"value":1}])") + "," +
+                                     track("", "Transform", "rotation.z", R"([{"t":0,"value":1}])") + "," +
+                                     track("", "Transform", "rotation.x", R"([{"t":0,"value":1}])")));
         REQUIRE(is.size() == 1);
         CHECK(is[0].pointer == "/tracks/1/field");
         CHECK(is[0].message.find("already driven") != std::string::npos);
@@ -260,8 +279,9 @@ TEST_CASE("anim clip errors: file, JSON pointer, what is wrong and how to fix it
         CHECK(has_issue(reserved, "/events/0/data/time", "Rename"));
     }
     SUBCASE("the error names the file, the pointer and how many more problems there are") {
-        auto r = parse_anim_clip(Json::parse(clip(1, true, track("", "Transform", "rotaton", R"([{"t":0,"value":0}])") + "," +
-                                                               track("", "Transform", "rotaton", R"([{"t":0,"value":0}])"))),
+        auto r = parse_anim_clip(Json::parse(clip(1, true,
+                                                  track("", "Transform", "rotaton", R"([{"t":0,"value":0}])") + "," +
+                                                      track("", "Transform", "rotaton", R"([{"t":0,"value":0}])"))),
                                  "anim/x.anim.json");
         REQUIRE_FALSE(r.ok());
         const std::string m = r.error().message;
@@ -290,8 +310,9 @@ TEST_CASE("anim clip paths: names below the entity, and a path that is wrong tea
     auto deep = resolve_clip_path(rig.world, rig.hero, "arm");   // exists, but one level down
     REQUIRE_FALSE(deep.ok());
     CHECK(deep.error().hint.find("body/arm") != std::string::npos);
-    auto c = parse(clip(1, true, track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":0}])") + "," +
-                                     track("nope", "Transform", "rotation.z", R"([{"t":0,"value":0}])")));
+    auto c = parse(clip(1, true,
+                        track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":0}])") + "," +
+                            track("nope", "Transform", "rotation.z", R"([{"t":0,"value":0}])")));
     auto bad = check_clip_paths(rig.world, rig.hero, *c);
     REQUIRE(bad.size() == 1);
     CHECK(bad[0].pointer == "/tracks/1/path");
@@ -316,8 +337,8 @@ TEST_CASE("animator 2D clips: the clip drives the fields of the entity and its c
     CHECK(rig.a->time == doctest::Approx(0.25f));
     rig.step(0.25f);
     CHECK(rig.bodyT().rotation.z == doctest::Approx(45.0f));
-    CHECK(rig.armS().flipX);                       // the step key at 0.5
-    rig.step(0.5f);                                // t = 1: the loop wrapped to 0
+    CHECK(rig.armS().flipX);  // the step key at 0.5
+    rig.step(0.5f);           // t = 1: the loop wrapped to 0
     CHECK(rig.bodyT().rotation.z == doctest::Approx(0.0f));
     CHECK(rig.armS().color.a == doctest::Approx(1.0f));
     CHECK_FALSE(rig.armS().flipX);
@@ -363,8 +384,9 @@ TEST_CASE("animator 2D clips: clip events fire once per loop, anim.finished once
     p.write("anim/step.anim.json",
             clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
                  R"([{"t":0.5,"name":"footstep","data":{"foot":"left"}},{"t":1,"name":"lap"}])"));
-    p.write("anim/once.anim.json", clip(1, false, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
-                                        R"([{"t":0.75,"name":"mid"}])"));
+    p.write("anim/once.anim.json",
+            clip(1, false, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
+                 R"([{"t":0.75,"name":"mid"}])"));
     Rig rig;
     rig.clips(R"({"step":"anim/step.anim.json","once":"anim/once.anim.json"})");
     rig.a->clip = "step";
@@ -403,7 +425,8 @@ TEST_CASE("animator 2D clips: clip events fire once per loop, anim.finished once
 
 TEST_CASE("animator 2D clips: a clip's own loop:false applies unless the Animator or a state decides") {
     TempProject p;
-    p.write("anim/once.anim.json", clip(1, false, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    p.write("anim/once.anim.json",
+            clip(1, false, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
     Rig rig;
     rig.clips(R"({"once":"anim/once.anim.json"})");
     rig.a->clip = "once";
@@ -417,7 +440,8 @@ TEST_CASE("animator 2D clips: a clip's own loop:false applies unless the Animato
     CHECK(loopy.world.get<Transform>(loopy.hero)->position.x == doctest::Approx(2.5f));
 }
 
-TEST_CASE("animator 2D clips: a cross-fade lerps the values, takes the short way round an angle and switches steps halfway") {
+TEST_CASE(
+    "animator 2D clips: a cross-fade lerps the values, takes the short way round an angle and switches steps halfway") {
     TempProject p;
     p.write("anim/a.anim.json", clip(1, true,
                                      track("body", "Transform", "rotation.z", R"([{"t":0,"value":350}])") + "," +
@@ -435,13 +459,13 @@ TEST_CASE("animator 2D clips: a cross-fade lerps the values, takes the short way
     CHECK(animator_play(rig.world, rig.hero, "b", 1.0f).ok());
     rig.step(0.25f);
     CHECK(rig.bodyT().position.x == doctest::Approx(25.0f));
-    CHECK(rig.bodyT().rotation.z == doctest::Approx(355.0f));   // 350 -> 370 the short way, not 350 -> 10 backwards
+    CHECK(rig.bodyT().rotation.z == doctest::Approx(355.0f));  // 350 -> 370 the short way, not 350 -> 10 backwards
     CHECK_FALSE(rig.bodyS().flipX);
     rig.step(0.25f);
     CHECK(rig.bodyT().rotation.z == doctest::Approx(360.0f));
     CHECK(rig.bodyT().position.x == doctest::Approx(50.0f));
-    CHECK(rig.bodyS().flipX);                                    // at half the fade
-    rig.step(0.6f);                                              // the fade is over
+    CHECK(rig.bodyS().flipX);  // at half the fade
+    rig.step(0.6f);            // the fade is over
     CHECK(rig.bodyT().position.x == doctest::Approx(100.0f));
     CHECK(std::remainder(rig.bodyT().rotation.z - 10.0f, 360.0f) == doctest::Approx(0.0f).epsilon(1e-3));
 }
@@ -465,7 +489,7 @@ TEST_CASE("animator 2D clips: a field the current clip does not drive goes back 
     CHECK(rig.bodyT().rotation.z == doctest::Approx(0.0f));
     CHECK(rig.bodyT().position.x == doctest::Approx(7.0f));
     rig.step(0.1f);
-    CHECK(rig.bodyT().rotation.z == doctest::Approx(0.0f));    // stopped: nothing plays
+    CHECK(rig.bodyT().rotation.z == doctest::Approx(0.0f));  // stopped: nothing plays
     CHECK_FALSE(rig.a->playing);
 }
 
@@ -478,15 +502,15 @@ TEST_CASE("animator 2D clips: a layer with a mask blends only the parts under it
                                             track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":0}])")));
     p.write("anim/wave.anim.json", clip(1, true,
                                         track("body", "Transform", "position.x", R"([{"t":0,"value":100}])") + "," +
-                                            track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":40}])") + "," +
-                                            track("body/arm", "Sprite", "color.a", R"([{"t":0,"value":0.5}])")));
+                                            track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":40}])") +
+                                            "," + track("body/arm", "Sprite", "color.a", R"([{"t":0,"value":0.5}])")));
     Rig rig;
     rig.clips(R"({"base":"anim/base.anim.json","wave":"anim/wave.anim.json"})");
     rig.a->clip = "base";
     rig.a->layers = Json::parse(R"([{"name":"arms","clip":"wave","weight":0.5,"mask":["body/arm"]}])");
     rig.step(0.1f);
-    CHECK(rig.bodyT().position.x == doctest::Approx(10.0f));    // outside the mask
-    CHECK(rig.armT().rotation.z == doctest::Approx(20.0f));     // half way to the layer
+    CHECK(rig.bodyT().position.x == doctest::Approx(10.0f));                  // outside the mask
+    CHECK(rig.armT().rotation.z == doctest::Approx(20.0f));                   // half way to the layer
     CHECK(rig.armS().color.a == doctest::Approx(1.0f * 0.5f + 0.5f * 0.5f));  // the base does not drive it: rest is 1
     CHECK(animator_set_layer_weight(rig.world, rig.hero, "arms", 1.0f).ok());
     rig.step(0.1f);
@@ -504,15 +528,17 @@ TEST_CASE("animator 2D clips: a layer with a mask blends only the parts under it
 TEST_CASE("animator 2D clips: an additive layer adds the change from its first pose") {
     TempProject p;
     p.write("anim/base.anim.json", clip(1, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":10}])")));
-    p.write("anim/bob.anim.json", clip(1, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":100},{"t":1,"value":130}])") + "," +
-                                                    track("body", "Sprite", "flipX", R"([{"t":0,"value":true}])")));
+    p.write("anim/bob.anim.json",
+            clip(1, true,
+                 track("body", "Transform", "rotation.z", R"([{"t":0,"value":100},{"t":1,"value":130}])") + "," +
+                     track("body", "Sprite", "flipX", R"([{"t":0,"value":true}])")));
     Rig rig;
     rig.clips(R"({"base":"anim/base.anim.json","bob":"anim/bob.anim.json"})");
     rig.a->clip = "base";
     rig.a->layers = Json::parse(R"([{"name":"bob","clip":"bob","mode":"additive","weight":1}])");
     rig.step(0.5f);
     CHECK(rig.bodyT().rotation.z == doctest::Approx(10.0f + 15.0f));  // 100 -> 115 is +15, not +115
-    CHECK_FALSE(rig.bodyS().flipX);                                    // a field that only steps is not added
+    CHECK_FALSE(rig.bodyS().flipX);                                   // a field that only steps is not added
     CHECK(animator_set_layer_weight(rig.world, rig.hero, "bob", 0.5f).ok());
     rig.step(0.0f + 0.25f);
     CHECK(rig.bodyT().rotation.z == doctest::Approx(10.0f + 0.5f * 22.5f));
@@ -520,9 +546,11 @@ TEST_CASE("animator 2D clips: an additive layer adds the change from its first p
 
 TEST_CASE("animator 2D clips: a layer plays and fades a clip of its own, and a layer at weight 0 is not playing") {
     TempProject p;
-    p.write("anim/hold.anim.json", clip(2, true, track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":0},{"t":2,"value":20}])"),
-                                        R"([{"t":0.5,"name":"layer.mark"}])"));
-    p.write("anim/point.anim.json", clip(2, true, track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":90}])")));
+    p.write("anim/hold.anim.json",
+            clip(2, true, track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":0},{"t":2,"value":20}])"),
+                 R"([{"t":0.5,"name":"layer.mark"}])"));
+    p.write("anim/point.anim.json",
+            clip(2, true, track("body/arm", "Transform", "rotation.z", R"([{"t":0,"value":90}])")));
     Rig rig;
     rig.clips(R"({"hold":"anim/hold.anim.json","point":"anim/point.anim.json"})");
     rig.a->layers = Json::parse(R"([{"name":"arm","clip":"hold","weight":0}])");
@@ -530,7 +558,7 @@ TEST_CASE("animator 2D clips: a layer plays and fades a clip of its own, and a l
     CHECK(rig.armT().rotation.z == doctest::Approx(0.0f));
     CHECK(animator_set_layer_weight(rig.world, rig.hero, "arm", 1.0f).ok());
     int marks = 0;
-    for (int i = 0; i < 3; ++i) marks += count(rig.step(0.25f), "layer.mark");   // starts from its first pose
+    for (int i = 0; i < 3; ++i) marks += count(rig.step(0.25f), "layer.mark");  // starts from its first pose
     CHECK(marks == 1);
     CHECK(rig.armT().rotation.z == doctest::Approx(0.75f * 10.0f));
     CHECK(animator_play_layer(rig.world, rig.hero, "arm", "point", 1.0f).ok());
@@ -548,11 +576,13 @@ TEST_CASE("animator 2D clips: the state machine runs on file clips") {
     TempProject p;
     p.write("anim/idle.anim.json", clip(1, true, track("body", "Transform", "position.x", R"([{"t":0,"value":1}])")));
     p.write("anim/run.anim.json", clip(1, true, track("body", "Transform", "position.x", R"([{"t":0,"value":5}])")));
-    p.write("anim/hit.anim.json", clip(0.5f, false, track("body", "Transform", "position.x", R"([{"t":0,"value":9}])")));
+    p.write("anim/hit.anim.json",
+            clip(0.5f, false, track("body", "Transform", "position.x", R"([{"t":0,"value":9}])")));
     Rig rig;
     rig.clips(R"({"idle":"anim/idle.anim.json","run":"anim/run.anim.json","hit":"anim/hit.anim.json"})");
     rig.a->params = Json::parse(R"({"speed":0})");
-    rig.a->states = Json::parse(R"({"idle":{"clip":"idle","onEnter":"state.idle"},"run":{"clip":"run","speed":2},"hit":{"clip":"hit"}})");
+    rig.a->states = Json::parse(
+        R"({"idle":{"clip":"idle","onEnter":"state.idle"},"run":{"clip":"run","speed":2},"hit":{"clip":"hit"}})");
     rig.a->transitions = Json::parse(R"([
         {"from":"*","to":"hit","when":"hit","fade":0},
         {"from":"hit","to":"idle","onFinish":true,"fade":0},
@@ -598,16 +628,17 @@ TEST_CASE("animator 2D clips: a layer can run its own states from the shared par
 
 TEST_CASE("animator 2D clips: sample() poses without playing") {
     TempProject p;
-    p.write("anim/walk.anim.json", clip(1, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":0},{"t":1,"value":90}])")));
+    p.write("anim/walk.anim.json",
+            clip(1, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":0},{"t":1,"value":90}])")));
     Rig rig;
     rig.clips(R"({"walk":"anim/walk.anim.json"})");
     CHECK(animator_sample(rig.world, rig.hero, "walk", 0.5f).ok());
     CHECK(rig.bodyT().rotation.z == doctest::Approx(45.0f));
     CHECK_FALSE(rig.a->playing);
     for (int i = 0; i < 3; ++i) rig.step(0.25f);
-    CHECK(rig.bodyT().rotation.z == doctest::Approx(45.0f));    // it stays posed
+    CHECK(rig.bodyT().rotation.z == doctest::Approx(45.0f));  // it stays posed
     CHECK(animator_sample(rig.world, rig.hero, "walk", 9.0f).ok());
-    CHECK(rig.bodyT().rotation.z == doctest::Approx(90.0f));    // clamped to the clip
+    CHECK(rig.bodyT().rotation.z == doctest::Approx(90.0f));  // clamped to the clip
     CHECK_FALSE(animator_sample(rig.world, rig.hero, "wlk", 0.0f).ok());
     // a glTF animator has no 2D clips
     World w;
@@ -619,10 +650,11 @@ TEST_CASE("animator 2D clips: sample() poses without playing") {
 
 TEST_CASE("animator 2D clips: the pose is a runtime state, scene.save and prefabs write where the fields rested") {
     TempProject p;
-    p.write("anim/walk.anim.json", clip(1, true,
-                                        track("body", "Transform", "rotation.z", R"([{"t":0,"value":30},{"t":1,"value":90}])") + "," +
-                                            track("body/arm", "Sprite", "color", R"([{"t":0,"value":[1,0,0,1]}])") + "," +
-                                            track("body/arm", "Sprite", "flipX", R"([{"t":0,"value":true}])")));
+    p.write("anim/walk.anim.json",
+            clip(1, true,
+                 track("body", "Transform", "rotation.z", R"([{"t":0,"value":30},{"t":1,"value":90}])") + "," +
+                     track("body/arm", "Sprite", "color", R"([{"t":0,"value":[1,0,0,1]}])") + "," +
+                     track("body/arm", "Sprite", "flipX", R"([{"t":0,"value":true}])")));
     Rig rig;
     rig.bodyT().rotation = {0, 0, 5};
     rig.armS().color = Color(0.2f, 0.4f, 0.6f, 1.0f);
@@ -643,9 +675,11 @@ TEST_CASE("animator 2D clips: the pose is a runtime state, scene.save and prefab
     CHECK(rig.bodyT().rotation.z == doctest::Approx(60.0f));
     // a field that no clip drives is written as it is
     rig.bodyT().position.x = 3.0f;
-    CHECK(save_scene(rig.world)["entities"][0]["children"][0]["components"]["Transform"]["position"][0].get<float>() == doctest::Approx(3.0f));
+    CHECK(save_scene(rig.world)["entities"][0]["children"][0]["components"]["Transform"]["position"][0].get<float>() ==
+          doctest::Approx(3.0f));
     // entity.get style output (no PoseRest) shows what the field holds now
-    CHECK(entity_to_json(rig.world, rig.body)["components"]["Transform"]["rotation"][2].get<float>() == doctest::Approx(60.0f));
+    CHECK(entity_to_json(rig.world, rig.body)["components"]["Transform"]["rotation"][2].get<float>() ==
+          doctest::Approx(60.0f));
     // copying an Animator copies its settings, not the pose bookkeeping of the original tree
     Animator copy = *rig.a;
     CHECK(copy.rt.clip.get() == nullptr);
@@ -681,11 +715,12 @@ TEST_CASE("animator 2D clips: a clip file that changes on disk is played from th
 
 TEST_CASE("animator 2D clips: parts that appear later are found, and parts that go away do not crash") {
     TempProject p;
-    p.write("anim/c.anim.json", clip(1, true, track("body/hand", "Transform", "position.x", R"([{"t":0,"value":10}])")));
+    p.write("anim/c.anim.json",
+            clip(1, true, track("body/hand", "Transform", "position.x", R"([{"t":0,"value":10}])")));
     Rig rig;
     rig.clips(R"({"c":"anim/c.anim.json"})");
     rig.a->clip = "c";
-    rig.step(0.1f);                                   // no 'hand' yet: a warning, nothing else
+    rig.step(0.1f);  // no 'hand' yet: a warning, nothing else
     Entity hand = rig.world.create("hand", "hand");
     rig.world.set_parent(hand, rig.body);
     for (int i = 0; i < 20; ++i) rig.step(0.01f);
@@ -697,11 +732,20 @@ TEST_CASE("animator 2D clips: parts that appear later are found, and parts that 
 
 TEST_CASE("animator 2D clips: the same steps give the same poses and events") {
     TempProject p;
-    p.write("anim/a.anim.json", clip(1.3f, true,
-                                     track("body", "Transform", "rotation.z", R"([{"t":0,"value":0,"interp":"bezier"},{"t":0.7,"value":80,"interp":"backOut"},{"t":1.3,"value":10}])") + "," +
-                                         track("body/arm", "Sprite", "color", R"([{"t":0,"value":[1,0,0,1],"interp":"quadInOut"},{"t":1,"value":[0,1,0,1]}])"),
-                                     R"([{"t":0.4,"name":"e1"},{"t":1.3,"name":"e2"}])"));
-    p.write("anim/b.anim.json", clip(0.8f, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":300},{"t":0.8,"value":20}])")));
+    p.write(
+        "anim/a.anim.json",
+        clip(
+            1.3f, true,
+            track(
+                "body", "Transform", "rotation.z",
+                R"([{"t":0,"value":0,"interp":"bezier"},{"t":0.7,"value":80,"interp":"backOut"},{"t":1.3,"value":10}])") +
+                "," +
+                track("body/arm", "Sprite", "color",
+                      R"([{"t":0,"value":[1,0,0,1],"interp":"quadInOut"},{"t":1,"value":[0,1,0,1]}])"),
+            R"([{"t":0.4,"name":"e1"},{"t":1.3,"name":"e2"}])"));
+    p.write(
+        "anim/b.anim.json",
+        clip(0.8f, true, track("body", "Transform", "rotation.z", R"([{"t":0,"value":300},{"t":0.8,"value":20}])")));
     auto run = [&] {
         Rig rig;
         rig.clips(R"({"a":"anim/a.anim.json","b":"anim/b.anim.json"})");
@@ -735,7 +779,8 @@ TEST_CASE("schemas/anim.schema.json lists what the loader accepts") {
     CHECK(top == std::set<std::string>{"$schema", "format", "doc", "duration", "loop", "tracks", "events"});
     // the easing names of the schema are the ones tween() and the loader know
     std::set<std::string> eases;
-    for (const Json& n : schema["$defs"]["key"]["properties"]["interp"]["anyOf"][1]["enum"]) eases.insert(n.get<std::string>());
+    for (const Json& n : schema["$defs"]["key"]["properties"]["interp"]["anyOf"][1]["enum"])
+        eases.insert(n.get<std::string>());
     std::set<std::string> known(clip_ease_names().begin() + 1, clip_ease_names().end());
     CHECK(eases == known);
     std::set<std::string> keys;
@@ -749,16 +794,17 @@ TEST_CASE("schemas/anim.schema.json lists what the loader accepts") {
     CHECK(events == std::set<std::string>{"t", "name", "data", "feel"});
 }
 
-
 // ======================================================================================= game feel actions in events ======
 
-TEST_CASE("clip events with feel actions: the file loads them as data, with or without a name, and a typo is found at load") {
+TEST_CASE(
+    "clip events with feel actions: the file loads them as data, with or without a name, and a typo is found at load") {
     TempProject p;
-    auto c = parse(clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
-                        R"([{"t":0.5,"feel":[{"action":"sound","path":"audio/hit.wav"},{"action":"flash","duration":0.1}]},
+    auto c =
+        parse(clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
+                   R"([{"t":0.5,"feel":[{"action":"sound","path":"audio/hit.wav"},{"action":"flash","duration":0.1}]},
                             {"t":0.25,"name":"swing","feel":{"action":"hitStop","duration":0.05}}])"));
     REQUIRE(c->events.size() == 2);
-    CHECK(c->events[0].name == "swing");  // sorted by t
+    CHECK(c->events[0].name == "swing");   // sorted by t
     CHECK(c->events[0].feel.size() == 1);  // one object = a list of one
     CHECK(c->events[1].name.empty());
     CHECK(c->events[1].feel.size() == 2);
@@ -766,18 +812,22 @@ TEST_CASE("clip events with feel actions: the file loads them as data, with or w
 
     auto typo = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"flsh"}}])"));
     CHECK(has_issue(typo, "/events/0/feel", "flash"));  // did you mean
-    auto second = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":[{"action":"shake"},{"action":"hitStop","duration":-1}]}])"));
+    auto second =
+        issues_of(clip(1, true, "", R"([{"t":0.1,"feel":[{"action":"shake"},{"action":"hitStop","duration":-1}]}])"));
     CHECK(has_issue(second, "/events/0/feel/1", "duration"));
     CHECK_FALSE(has_issue(second, "/events/0/feel/0", "shake"));
     auto key = issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"shake","amout":0.3}}])"));
     CHECK(has_issue(key, "/events/0/feel", "amount"));
     CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"feel":5}])")), "/events/0/feel", "action object"));
     CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"name":"x","feel":[]}])")), "/events/0/feel", "empty"));
-    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1}])")), "/events/0/name", "feel"));  // neither name nor feel
-    CHECK(has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"sound"}}])")), "/events/0/feel", "path"));
+    CHECK(
+        has_issue(issues_of(clip(1, true, "", R"([{"t":0.1}])")), "/events/0/name", "feel"));  // neither name nor feel
+    CHECK(
+        has_issue(issues_of(clip(1, true, "", R"([{"t":0.1,"feel":{"action":"sound"}}])")), "/events/0/feel", "path"));
 }
 
-TEST_CASE("clip events with feel actions: they run once per loop on the entity that plays the clip, a nameless event sends no game event") {
+TEST_CASE("clip events with feel actions: they run once per loop on the entity that plays the clip, a nameless event "
+          "sends no game event") {
     TempProject p;
     p.write("anim/hit.anim.json",
             clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])"),
@@ -801,7 +851,8 @@ TEST_CASE("clip events with feel actions: they run once per loop on the entity t
 
 TEST_CASE("clip events with feel actions: the Animator's inline events carry them too, and a seek fires nothing") {
     TempProject p;
-    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    p.write("anim/walk.anim.json",
+            clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
     Rig rig;
     rig.clips(R"({"walk":"anim/walk.anim.json"})");
     rig.a->clip = "walk";
@@ -811,31 +862,40 @@ TEST_CASE("clip events with feel actions: the Animator's inline events carry the
     const std::vector<FeelSound> sounds = feel_take_sounds(rig.world);
     REQUIRE(sounds.size() == 2);
     CHECK(sounds[1].options.path == "audio/step.wav");  // another clip's event never fires
-    rig.a->time = 0.9f;  // a seek past the event
+    rig.a->time = 0.9f;                                 // a seek past the event
     rig.step(0.05f);
     CHECK(feel_take_sounds(rig.world).empty());
 }
 
 TEST_CASE("clip events with feel actions: a failing action is logged once and the rest of the event still runs") {
     TempProject p;
-    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    p.write("anim/walk.anim.json",
+            clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
     Rig rig;
     rig.clips(R"({"walk":"anim/walk.anim.json"})");
     rig.a->clip = "walk";
     // written by hand into the scene: not checked at load, so the playback must cope with it
-    rig.a->events = Json::parse(R"([{"clip":"walk","time":0.5,"feel":[{"action":"flsh"},{"action":"sound","path":"audio/a.wav"}]}])");
+    rig.a->events = Json::parse(
+        R"([{"clip":"walk","time":0.5,"feel":[{"action":"flsh"},{"action":"sound","path":"audio/a.wav"}]}])");
     for (int i = 0; i < 4; ++i) rig.step(0.25f);
     CHECK(feel_take_sounds(rig.world).size() == 1);
     CHECK(rig.world.feel().warnedClipActions.size() == 1);
 }
 
-TEST_CASE("feel actions as data: push local follows the facing, spawn instantiates at the entity and lifetime removes it, sound queues") {
+TEST_CASE("feel actions as data: push local follows the facing, spawn instantiates at the entity and lifetime removes "
+          "it, sound queues") {
     TempProject p;
-    p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    p.write("prefabs/spark.prefab.json",
+            R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
     Rig rig;
     rig.world.get<Transform>(rig.hero)->position = {10, 0, 0};
     rig.world.get<Transform>(rig.hero)->scale = {-2, 2, 1};  // facing left, drawn twice as big
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","offset":[1,2,0],"local":true,"lifetime":0.5})")).ok());
+    CHECK(
+        feel_apply_action(
+            rig.world, rig.hero,
+            Json::parse(
+                R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","offset":[1,2,0],"local":true,"lifetime":0.5})"))
+            .ok());
     CHECK(rig.world.feel().spawns.size() == 1);  // queued: nothing is created inside the caller's iteration
     CHECK(rig.world.find_by_id("spark").is_null());
     feel_update(rig.world, 0.1, 0.1);
@@ -849,18 +909,25 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     CHECK(rig.world.find_by_id("spark").is_null());
     CHECK(rig.world.feel().lifetimes.empty());
     // a missing prefab is logged once, never thrown
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
+    CHECK(
+        feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})"))
+            .ok());
     feel_update(rig.world, 0.1, 0.1);
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})")).ok());
+    CHECK(
+        feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/none.prefab.json"})"))
+            .ok());
     feel_update(rig.world, 0.1, 0.1);
     CHECK(rig.world.feel().warnedClipActions.size() == 1);
 
     // a prefab that loads only in part (its child has a component that does not exist) leaves nothing behind
-    p.write("prefabs/half.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"half","components":{"Transform":{}},
+    p.write("prefabs/half.prefab.json",
+            R"({"format":"factoria.prefab/1","entity":{"id":"half","components":{"Transform":{}},
         "children":[{"id":"half_child","components":{"NoSuchComponent":{}}}]}})");
-    rig.world.flush();   // the children of the spark that ended above go on the second flush
+    rig.world.flush();  // the children of the spark that ended above go on the second flush
     const std::size_t before = rig.world.entity_count();
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/half.prefab.json"})")).ok());
+    CHECK(
+        feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/half.prefab.json"})"))
+            .ok());
     feel_update(rig.world, 0.1, 0.1);
     rig.world.flush();
     CHECK(rig.world.find_by_id("half").is_null());
@@ -868,8 +935,13 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     CHECK(rig.world.entity_count() == before);
 
     // sound: validated, queued, taken once; the queue is bounded
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","volume":0.5,"pitch":1.2,"pan":-1,"bus":"ui"})")).ok());
-    CHECK_FALSE(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","pan":3})")).ok());
+    CHECK(feel_apply_action(
+              rig.world, rig.hero,
+              Json::parse(R"({"action":"sound","path":"audio/hit.wav","volume":0.5,"pitch":1.2,"pan":-1,"bus":"ui"})"))
+              .ok());
+    CHECK_FALSE(
+        feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"sound","path":"audio/hit.wav","pan":3})"))
+            .ok());
     const std::vector<FeelSound> taken = feel_take_sounds(rig.world);
     REQUIRE(taken.size() == 1);
     CHECK(taken[0].options.bus == "ui");
@@ -880,7 +952,9 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     CHECK(feel_take_sounds(rig.world).size() == kMaxQueuedSounds);
 
     // push is knockback; local turns the direction with the entity (a body-less entity slides in the pushed direction)
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"push","direction":[1,0],"speed":5,"local":true})")).ok());
+    CHECK(feel_apply_action(rig.world, rig.hero,
+                            Json::parse(R"({"action":"push","direction":[1,0],"speed":5,"local":true})"))
+              .ok());
     const auto rec = rig.world.feel().entities.find(rig.hero.bits());
     REQUIRE(rec != rig.world.feel().entities.end());
     REQUIRE(rec->second.knock);
@@ -894,9 +968,11 @@ TEST_CASE("feel actions as data: push local follows the facing, spawn instantiat
     CHECK(bad.error().message.find("sound") != std::string::npos);
 }
 
-TEST_CASE("inline Animator events with the wrong JSON types never throw in the frame loop: said once, skipped, the rest still fire") {
+TEST_CASE("inline Animator events with the wrong JSON types never throw in the frame loop: said once, skipped, the "
+          "rest still fire") {
     TempProject p;
-    p.write("anim/walk.anim.json", clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
+    p.write("anim/walk.anim.json",
+            clip(1, true, track("", "Transform", "position.x", R"([{"t":0,"value":0},{"t":1,"value":10}])")));
     Rig rig;
     rig.clips(R"({"walk":"anim/walk.anim.json"})");
     rig.a->clip = "walk";
@@ -927,13 +1003,16 @@ TEST_CASE("inline Animator events with the wrong JSON types never throw in the f
     CHECK(pointer);
     CHECK(hint);
     // feel_run_clip_actions itself copes with an action that is not a string
-    CHECK_NOTHROW(feel_run_clip_actions(rig.world, rig.hero, {Json::parse(R"({"action":5})"), Json(7), Json::object()}, "test"));
+    CHECK_NOTHROW(
+        feel_run_clip_actions(rig.world, rig.hero, {Json::parse(R"({"action":5})"), Json(7), Json::object()}, "test"));
 }
 
 TEST_CASE("check_animator_events: the pointer, the field and the fix of every mistake") {
-    const auto issues = check_animator_events(Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"},{"clip":"walk","time":-1,"name":"b"},
+    const auto issues = check_animator_events(
+        Json::parse(R"([{"clip":"walk","time":0.1,"name":"a"},{"clip":"walk","time":-1,"name":"b"},
         {"clip":"walk","time":"x","name":"c"},{"time":0.1,"name":"d"},{"clip":"walk","time":0.1},{"clip":"walk","time":0.1,"name":5},
-        {"clip":"walk","tme":0.1,"name":"e"},{"clip":"walk","time":0.1,"feel":{"action":5}},"x"])"), "/events");
+        {"clip":"walk","tme":0.1,"name":"e"},{"clip":"walk","time":0.1,"feel":{"action":5}},"x"])"),
+        "/events");
     auto has = [&](const std::string& pointer, const std::string& text) {
         for (const ClipIssue& i : issues)
             if (i.pointer == pointer && (i.message + " " + i.hint).find(text) != std::string::npos) return true;
@@ -953,13 +1032,18 @@ TEST_CASE("check_animator_events: the pointer, the field and the fix of every mi
 
 TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest are refused with an error") {
     TempProject p;
-    p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    p.write("prefabs/spark.prefab.json",
+            R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
     Rig rig;
     for (std::size_t i = 0; i < kMaxQueuedSpawns; ++i)
-        CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})")).ok());
+        CHECK(feel_apply_action(rig.world, rig.hero,
+                                Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})"))
+                  .ok());
     for (int i = 0; i < 10; ++i) {
-        const auto refused = feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})"));
-        REQUIRE_FALSE(refused.ok());   // the caller is told: a script's feel.spawn throws, a clip event logs it
+        const auto refused =
+            feel_apply_action(rig.world, rig.hero,
+                              Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json","lifetime":1})"));
+        REQUIRE_FALSE(refused.ok());  // the caller is told: a script's feel.spawn throws, a clip event logs it
         CHECK(refused.error().message.find("already waiting") != std::string::npos);
         CHECK_FALSE(refused.error().hint.empty());
     }
@@ -968,6 +1052,8 @@ TEST_CASE("spawn actions: at most kMaxQueuedSpawns wait for a frame, the rest ar
     CHECK(rig.world.feel().spawns.empty());
     CHECK(rig.world.feel().lifetimes.size() == kMaxQueuedSpawns);
     // a new frame has room again
-    CHECK(feel_apply_action(rig.world, rig.hero, Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json"})")).ok());
+    CHECK(feel_apply_action(rig.world, rig.hero,
+                            Json::parse(R"({"action":"spawn","prefab":"prefabs/spark.prefab.json"})"))
+              .ok());
     CHECK(rig.world.feel().spawns.size() == 1);
 }

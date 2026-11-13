@@ -28,23 +28,25 @@ namespace fa {
 
 // What one bake produced (the `nav.bake` result). No timing: the result is the same on every run.
 struct NavBakeStats {
-    std::string mesh;             // id of the entity with the NavMesh3D
-    int cellsX = 0, cellsZ = 0;   // grid size
-    int cells = 0;                // cellsX * cellsZ
-    int spans = 0;                // walkable surfaces before erosion by the agent's radius
-    int walkableCells = 0;        // surfaces the agent can stand on (after erosion)
-    int regions = 0;              // separate walkable areas (no path between two of them)
-    int obstacles = 0;            // moving obstacles (Collider3D.navObstacle) blocking cells right now
-    int links = 0;                // NavLink3D joined to walkable cells on both ends
-    int walkableBodies = 0;       // moving bodies (Collider3D.navWalkable) whose top surface is part of the mesh right now
+    std::string mesh;            // id of the entity with the NavMesh3D
+    int cellsX = 0, cellsZ = 0;  // grid size
+    int cells = 0;               // cellsX * cellsZ
+    int spans = 0;               // walkable surfaces before erosion by the agent's radius
+    int walkableCells = 0;       // surfaces the agent can stand on (after erosion)
+    int regions = 0;             // separate walkable areas (no path between two of them)
+    int obstacles = 0;           // moving obstacles (Collider3D.navObstacle) blocking cells right now
+    int links = 0;               // NavLink3D joined to walkable cells on both ends
+    int walkableBodies = 0;  // moving bodies (Collider3D.navWalkable) whose top surface is part of the mesh right now
     Json to_json() const;
 };
 
 struct NavPathOptions {
-    float radius = -1.0f;   // agent radius of this query; < 0 = the mesh's. Larger than NavMesh3D.agentRadius is an error.
-    float snap = -1.0f;     // how far (meters) a start or goal off the walkable cells is moved onto the nearest one; < 0 = default
-    bool closest = false;   // goal unreachable: return the path to the reachable point nearest to it (complete = false)
-    std::string mesh;       // id of the entity with the NavMesh3D to use; empty = the first enabled one that fits
+    float radius =
+        -1.0f;  // agent radius of this query; < 0 = the mesh's. Larger than NavMesh3D.agentRadius is an error.
+    float snap =
+        -1.0f;  // how far (meters) a start or goal off the walkable cells is moved onto the nearest one; < 0 = default
+    bool closest = false;  // goal unreachable: return the path to the reachable point nearest to it (complete = false)
+    std::string mesh;      // id of the entity with the NavMesh3D to use; empty = the first enabled one that fits
 };
 
 // Many queries in one call (`nav.find_paths`, `nav.findPaths`): run as jobs when there are at least kNavBatchMinQueries of them
@@ -72,28 +74,28 @@ struct NavPathLink {
 };
 
 struct NavPath {
-    bool found = false;      // points holds a path
-    bool complete = true;    // false: only a path to the reachable point nearest the goal (options.closest)
-    std::vector<Vec3> points;  // from the start to the goal on the walkable surface; few corners (string pulled)
+    bool found = false;              // points holds a path
+    bool complete = true;            // false: only a path to the reachable point nearest the goal (options.closest)
+    std::vector<Vec3> points;        // from the start to the goal on the walkable surface; few corners (string pulled)
     std::vector<NavPathLink> links;  // the off-mesh links the path takes, in order
-    float length = 0.0f;     // meters along the points
-    Vec3 from, to;           // the start and goal as snapped onto the walkable surface
-    std::string mesh;        // id of the NavMesh3D entity used
+    float length = 0.0f;             // meters along the points
+    Vec3 from, to;                   // the start and goal as snapped onto the walkable surface
+    std::string mesh;                // id of the NavMesh3D entity used
     // When !found:
-    std::string reason;      // no_navmesh, start_off_mesh, goal_off_mesh or disconnected
-    std::string message;     // what is wrong, with numbers
-    std::string hint;        // how to fix it
-    Vec3 nearest;            // reason start/goal_off_mesh: the nearest walkable point
+    std::string reason;   // no_navmesh, start_off_mesh, goal_off_mesh or disconnected
+    std::string message;  // what is wrong, with numbers
+    std::string hint;     // how to fix it
+    Vec3 nearest;         // reason start/goal_off_mesh: the nearest walkable point
     float nearestDistance = -1.0f;
     Json to_json() const;
 };
 
 // One walkable cell of a mesh (debug draw in the editor).
 struct NavCell {
-    Vec3 center;          // on the walkable surface
-    float size = 0.25f;   // cell width
-    bool blocked = false; // covered by a moving obstacle right now
-    bool moving = false;  // top surface of a walkable moving body (Collider3D.navWalkable)
+    Vec3 center;           // on the walkable surface
+    float size = 0.25f;    // cell width
+    bool blocked = false;  // covered by a moving obstacle right now
+    bool moving = false;   // top surface of a walkable moving body (Collider3D.navWalkable)
     int region = 0;
 };
 
@@ -112,12 +114,15 @@ struct NavLinkDraw {
 
 struct NavTileGrid {
     int width = 0, height = 0;
-    std::vector<float> cost;   // width * height, row-major: the cost of ENTERING the cell (>= 0); < 0 = blocked
-    Vec2 origin{0, 0};         // local position of the grid's top-left corner
-    Vec2 cellSize{1, 1};       // cell (col, row) is centred at origin + ((col + 0.5) * cellSize.x, -(row + 0.5) * cellSize.y)
-    bool isometric = false;    // diamond cells (an isometric Tilemap): the centre is origin + ((col - row) * cellSize.x / 2,
-                               // -(col + row + 1) * cellSize.y / 2); cellSize.y is the ground height of the diamond
-    float minOpenCost = -1.0f; // the cheapest open cell when the owner keeps it (NavCostGrid); < 0 = sweep the cells to find it
+    std::vector<float> cost;  // width * height, row-major: the cost of ENTERING the cell (>= 0); < 0 = blocked
+    Vec2 origin{0, 0};        // local position of the grid's top-left corner
+    Vec2 cellSize{1,
+                  1};  // cell (col, row) is centred at origin + ((col + 0.5) * cellSize.x, -(row + 0.5) * cellSize.y)
+    bool isometric =
+        false;  // diamond cells (an isometric Tilemap): the centre is origin + ((col - row) * cellSize.x / 2,
+                // -(col + row + 1) * cellSize.y / 2); cellSize.y is the ground height of the diamond
+    float minOpenCost =
+        -1.0f;  // the cheapest open cell when the owner keeps it (NavCostGrid); < 0 = sweep the cells to find it
 };
 
 // A cost of +infinity is NOT blocked here: the cell can be entered at an infinite price (a path through it reports the cost
@@ -127,21 +132,21 @@ struct NavTileGrid {
 float nav_tile_min_open_cost(const NavTileGrid& grid);
 
 struct NavTileOptions {
-    bool diagonals = false;          // 8 neighbours instead of 4; a diagonal step costs sqrt(2) times the cell entered, and
-                                     // never cuts a corner: both cells it passes between must be open
-    int maxNodes = 100000;           // cells the search may expand before it gives up (reason too_far)
-    bool closest = false;            // goal unreachable: return the path to the reachable cell nearest to it (complete = false)
-    bool allowBlockedGoal = false;   // a goal cell that is blocked can still be entered (at its cost, or 1 when blocked)
+    bool diagonals = false;  // 8 neighbours instead of 4; a diagonal step costs sqrt(2) times the cell entered, and
+                             // never cuts a corner: both cells it passes between must be open
+    int maxNodes = 100000;   // cells the search may expand before it gives up (reason too_far)
+    bool closest = false;    // goal unreachable: return the path to the reachable cell nearest to it (complete = false)
+    bool allowBlockedGoal = false;  // a goal cell that is blocked can still be entered (at its cost, or 1 when blocked)
 };
 
 struct NavTilePath {
     bool found = false;
-    bool complete = true;                      // false: only the path to the cell nearest the goal (options.closest)
-    std::vector<std::pair<int, int>> cells;    // (col, row) from the start to the end, both included
-    float cost = 0.0f;                         // summed entering costs along the path
-    float length = 0.0f;                       // distance along the cell centres (grid local units; for an isometric map the
-                                               // straight lines between the diamonds' centres, not the grid steps)
-    std::string reason;                        // when !found: start_off_map, goal_off_map, goal_blocked, blocked or too_far
+    bool complete = true;                    // false: only the path to the cell nearest the goal (options.closest)
+    std::vector<std::pair<int, int>> cells;  // (col, row) from the start to the end, both included
+    float cost = 0.0f;                       // summed entering costs along the path
+    float length = 0.0f;  // distance along the cell centres (grid local units; for an isometric map the
+                          // straight lines between the diamonds' centres, not the grid steps)
+    std::string reason;   // when !found: start_off_map, goal_off_map, goal_blocked, blocked or too_far
     std::string message, hint;
 };
 
@@ -172,7 +177,8 @@ Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, con
 
 // Resolves the `tilemap` (entity id) or `grid` ({width, height, cost, origin?, cellSize?}) argument of the tile commands
 // into a cost grid. `toWorld` and `worldPoints` are set for a Tilemap (its cell centres are placed by the entity's transform).
-Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld, bool& worldPoints);
+Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld,
+                          bool& worldPoints);
 
 // The `nav.flow_field` command: `args` = a map (as nav_tile_query), goals: [[col,row]...], diagonals?, costs?, from?. The
 // result is {width, height, distance: [width * height numbers, row-major, null where no goal can be reached]} and, with
@@ -190,8 +196,9 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs);
 // that has to agree with `nav.find_tile_path` on a map it has not placed yet (the level generator's reachability check) builds its
 // grid through this type and nav_tile_grid_from_tiles, so there is one rule and not two copies of it.
 struct NavTileRules {
-    std::vector<int> solid;                      // tile indexes that block (tile_index(): flip flags already stripped)
-    std::vector<std::pair<int, float>> costs;    // tile index -> cost; < 0 blocks; ascending by index (call sort_costs() after adding)
+    std::vector<int> solid;  // tile indexes that block (tile_index(): flip flags already stripped)
+    std::vector<std::pair<int, float>>
+        costs;  // tile index -> cost; < 0 blocks; ascending by index (call sort_costs() after adding)
     void sort_costs() { std::sort(costs.begin(), costs.end()); }
     // The cost of ENTERING a tile index (-1 = the empty cell): solid tiles block (-1), every other cell costs 1, and an entry
     // of `costs` overrides either rule.
@@ -201,7 +208,6 @@ struct NavTileRules {
 // The cost grid of `tiles` (width * height tile VALUES, row-major, -1 = empty): each cell costs rules.cost(tile_index(value)).
 // The grid has no origin or cell size (the caller sets them when it needs cell centres).
 NavTileGrid nav_tile_grid_from_tiles(const std::vector<int>& tiles, int width, int height, const NavTileRules& rules);
-
 
 // ---------------------------------------------------------------------------------------------------------------------
 // A cost grid that a script keeps (`nav.createGrid`) and flow fields over it (`nav.flowField`).

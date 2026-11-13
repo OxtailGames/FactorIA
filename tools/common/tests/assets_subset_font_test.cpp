@@ -39,9 +39,11 @@ TEST_CASE("assets.subset_font: keeps the characters of the tables plus Latin and
     REQUIRE(create_project(dir, "2d-empty").ok());
     auto j = load_json_file(dir + "/factoria.json");
     REQUIRE(j.ok());
-    (*j)["localization"] = Json::parse(R"({"defaultLanguage":"ja","languages":["ja"],"languageFonts":{"ja":["assets/fonts/ja.ttf"]}})");
+    (*j)["localization"] =
+        Json::parse(R"({"defaultLanguage":"ja","languages":["ja"],"languageFonts":{"ja":["assets/fonts/ja.ttf"]}})");
     REQUIRE(save_json_file(dir + "/factoria.json", *j).ok());
-    write_all(dir + "/locales/ja.json", R"({"$name":"日本語","menu":{"play":"日本"},"coins":{"one":"{n}語","other":"{n}本語"}})");
+    write_all(dir + "/locales/ja.json",
+              R"({"$name":"日本語","menu":{"play":"日本"},"coins":{"one":"{n}語","other":"{n}本語"}})");
 
     CommandRegistry registry;
     register_asset_commands(registry, dir);
@@ -49,7 +51,8 @@ TEST_CASE("assets.subset_font: keeps the characters of the tables plus Latin and
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["written"] == true);
     CHECK(r.result["bytes"].get<long>() < r.result["sourceBytes"].get<long>());
-    CHECK(has_text(r.result["missing"], "n"));  // the test font is itself a subset with no Latin letters: the {n} of the strings is missing
+    CHECK(has_text(r.result["missing"],
+                   "n"));  // the test font is itself a subset with no Latin letters: the {n} of the strings is missing
 
     const std::set<std::uint32_t> source = unicodes_of(read_all(kSource));
     const std::set<std::uint32_t> kept = unicodes_of(read_all(dir + "/assets/fonts/ja.ttf"));
@@ -69,7 +72,9 @@ TEST_CASE("assets.subset_font: keeps the characters of the tables plus Latin and
     for (const auto& e : report.errors) CHECK_MESSAGE(false, e.file << ": " << e.message);
 
     // again: the same bytes are not written twice
-    CHECK(registry.call("assets.subset_font", {{"source", kSource}, {"out", "assets/fonts/ja.ttf"}}).result["written"] == false);
+    CHECK(
+        registry.call("assets.subset_font", {{"source", kSource}, {"out", "assets/fonts/ja.ttf"}}).result["written"] ==
+        false);
 }
 
 TEST_CASE("assets.subset_font: `keep`, characters the source lacks, and the mistakes it teaches about") {

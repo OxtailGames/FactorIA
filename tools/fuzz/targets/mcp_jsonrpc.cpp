@@ -36,7 +36,8 @@ struct Setup {
             i.name = "test.echo_value";
             i.summary = "Echo the value.";
             i.description = "Example: {\"value\": 3}";
-            i.inputSchema = fa::Json::parse(R"({"type":"object","properties":{"value":{"type":"integer"}},"required":["value"]})");
+            i.inputSchema =
+                fa::Json::parse(R"({"type":"object","properties":{"value":{"type":"integer"}},"required":["value"]})");
             registry.add(i, [](const fa::Json& a) { return fa::Json::object({{"echo", a["value"]}}); });
         }
         {

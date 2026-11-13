@@ -29,10 +29,12 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
-thread_local std::shared_ptr<const CapabilityHintProvider> t_hint;  // CommandCapabilityScope: who words capability_denied hints
-std::atomic<std::uint32_t> g_capability_floor{CapabilitySet::all().bits()};  // CommandCapabilityFloor: the process-wide maximum
-std::mutex g_floor_words_mutex;                                                // guards the hint below (read on a refusal only)
-std::shared_ptr<const CapabilityHintProvider> g_floor_hint;                    // the floor's hint provider (null = none)
+thread_local std::shared_ptr<const CapabilityHintProvider>
+    t_hint;  // CommandCapabilityScope: who words capability_denied hints
+std::atomic<std::uint32_t> g_capability_floor{
+    CapabilitySet::all().bits()};                            // CommandCapabilityFloor: the process-wide maximum
+std::mutex g_floor_words_mutex;                              // guards the hint below (read on a refusal only)
+std::shared_ptr<const CapabilityHintProvider> g_floor_hint;  // the floor's hint provider (null = none)
 
 CapabilitySet set_from_bits(std::uint32_t bits) {
     CapabilitySet s = CapabilitySet::all();
@@ -52,10 +54,12 @@ std::string capability_denied_hint(const CommandInfo& info, CapabilitySet missin
     }
     if (provider) hint = provider->hint(CapabilityDenial{info, missing, granted});
     if (hint.empty())
-        hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without `--read-only` grants all "
-               "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its test options "
-               "(docs/SCRIPTING.md). Ask the user to run `factoria call " + info.name +
-                   "` in their own terminal, or to start the tool with that capability.";
+        hint = "Capabilities are granted by who calls: the CLI user has all of them; `factoria mcp` without "
+               "`--read-only` grants all "
+               "but writeAnywhere; a game script gets {read, state}; a test can ask for it with `capabilities` in its "
+               "test options "
+               "(docs/SCRIPTING.md). Ask the user to run `factoria call " +
+               info.name + "` in their own terminal, or to start the tool with that capability.";
     return hint;
 }
 
@@ -69,8 +73,9 @@ CommandResult capability_denied(const CommandInfo& info, CapabilitySet missing) 
         first = false;
         message += "capability '" + n + "' (" + capability_doc(*capability_from_name(n)) + ")";
     }
-    message += ", which " + std::string(command_caller_name(command_caller())) + " is not granted here. Granted: " + granted.to_string() +
-               "; the command needs " + info.capabilities.to_string() + ".";
+    message += ", which " + std::string(command_caller_name(command_caller())) +
+               " is not granted here. Granted: " + granted.to_string() + "; the command needs " +
+               info.capabilities.to_string() + ".";
     CommandResult r = fail("capability_denied", std::move(message), capability_denied_hint(info, missing, granted));
     r.error["data"] = Json::object({{"command", info.name},
                                     {"missing", missing.to_json()},
@@ -96,7 +101,8 @@ CommandProgressScope::CommandProgressScope(CommandProgressSink sink) : previous_
 CommandProgressScope::~CommandProgressScope() { t_progress_sink = std::move(previous_); }
 
 CommandCallerScope::CommandCallerScope(CommandCaller caller) : previous_(t_caller), previousGranted_(t_granted) {
-    if (command_caller() == CommandCaller::User) t_caller = caller;  // never loosened: an agent inside an MCP call stays refused
+    if (command_caller() == CommandCaller::User)
+        t_caller = caller;  // never loosened: an agent inside an MCP call stays refused
     t_granted = t_granted.intersect(capabilities_for_caller(caller));  // nor are the capabilities
 }
 
@@ -114,7 +120,8 @@ CapabilitySet capabilities_for_caller(CommandCaller caller) {
     return capability_sets::cli_user();
 }
 
-CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint)
+CommandCapabilityScope::CommandCapabilityScope(CapabilitySet granted,
+                                               std::shared_ptr<const CapabilityHintProvider> hint)
     : previous_(t_granted), previousHint_(t_hint) {
     t_granted = t_granted.intersect(granted);
     if (hint) t_hint = std::move(hint);
@@ -126,12 +133,14 @@ CommandCapabilityScope::~CommandCapabilityScope() {
 }
 
 CapabilitySet caller_capabilities() {
-    return t_granted.intersect(capabilities_for_caller(command_caller())).intersect(set_from_bits(g_capability_floor.load()));
+    return t_granted.intersect(capabilities_for_caller(command_caller()))
+        .intersect(set_from_bits(g_capability_floor.load()));
 }
 
 CommandContext command_context() { return CommandContext{command_caller(), caller_capabilities(), t_hint}; }
 
-CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint) {
+CommandCapabilityFloor::CommandCapabilityFloor(CapabilitySet granted,
+                                               std::shared_ptr<const CapabilityHintProvider> hint) {
     std::lock_guard<std::mutex> lock(g_floor_words_mutex);
     previous_ = set_from_bits(g_capability_floor.load());
     previousHint_ = g_floor_hint;
@@ -153,7 +162,9 @@ std::optional<CapabilitySet> command_capabilities_from_env_value(const char* val
     return *parsed;
 }
 
-std::optional<CapabilitySet> command_capabilities_from_env() { return command_capabilities_from_env_value(std::getenv(kCapabilitiesEnvVar)); }
+std::optional<CapabilitySet> command_capabilities_from_env() {
+    return command_capabilities_from_env_value(std::getenv(kCapabilitiesEnvVar));
+}
 
 std::string capabilities_env_value(CapabilitySet set) {
     if (set.empty()) return "none";
@@ -162,7 +173,8 @@ std::string capabilities_env_value(CapabilitySet set) {
     return out;
 }
 
-CommandCallerFloor::CommandCallerFloor(CommandCaller floor) : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
+CommandCallerFloor::CommandCallerFloor(CommandCaller floor)
+    : previous_(static_cast<CommandCaller>(g_caller_floor.load())) {
     if (static_cast<int>(floor) > static_cast<int>(previous_)) g_caller_floor.store(static_cast<int>(floor));
 }
 
@@ -174,7 +186,9 @@ std::optional<CommandCaller> command_caller_from_env_value(const char* value) {
     return CommandCaller::Agent;
 }
 
-std::optional<CommandCaller> command_caller_from_env() { return command_caller_from_env_value(std::getenv(kCallerEnvVar)); }
+std::optional<CommandCaller> command_caller_from_env() {
+    return command_caller_from_env_value(std::getenv(kCallerEnvVar));
+}
 
 CommandCaller command_caller() {
     return static_cast<CommandCaller>(std::max(static_cast<int>(t_caller), g_caller_floor.load()));
@@ -210,13 +224,18 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
         if (info.details.empty()) {
             info.details = info.description.substr(cut + 1);
             info.description.resize(cut);
-            while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n')) info.description.pop_back();
+            while (!info.description.empty() && (info.description.back() == ' ' || info.description.back() == '\n'))
+                info.description.pop_back();
         } else {
             // `details` is already set: the description keeps all its text (nothing is lost), without the control character
             // a client would send. Set one of the two, not both.
-            FA_WARN("command", "{}: the description holds FA_COMMAND_DETAILS but `details` is set too; the marker was removed, so the "
-                               "whole description is sent. Use one of the two.", name);
-            info.description.erase(std::remove(info.description.begin(), info.description.end(), kCommandDetailsMark), info.description.end());
+            FA_WARN(
+                "command",
+                "{}: the description holds FA_COMMAND_DETAILS but `details` is set too; the marker was removed, so the "
+                "whole description is sent. Use one of the two.",
+                name);
+            info.description.erase(std::remove(info.description.begin(), info.description.end(), kCommandDetailsMark),
+                                   info.description.end());
         }
     }
     // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
@@ -229,9 +248,11 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // A command declares by setting capabilitiesDeclared (declare_capabilities does). A set that differs from the one readOnly
     // implies counts as declared even without the flag (a hand-built info); a set equal to it is what add() derived itself
     // (the editor re-adds copies of registered infos), so the flag alone decides and the copy stays "not declared".
-    const CapabilitySet derived = info.readOnly ? CapabilitySet{Capability::Read}
-                                                : CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
-    if (!info.capabilitiesDeclared && !info.capabilities.empty() && info.capabilities != derived) info.capabilitiesDeclared = true;
+    const CapabilitySet derived = info.readOnly
+                                      ? CapabilitySet{Capability::Read}
+                                      : CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject};
+    if (!info.capabilitiesDeclared && !info.capabilities.empty() && info.capabilities != derived)
+        info.capabilitiesDeclared = true;
     if (!info.capabilitiesDeclared) info.capabilities = derived;
     commands_[name] = Entry{std::move(info), std::move(handler)};
 }
@@ -240,8 +261,10 @@ bool CommandRegistry::declare_capabilities(std::string_view name, CapabilitySet 
     auto it = commands_.find(name);
     if (it == commands_.end()) return false;
     if (capabilities.empty()) {  // refused like a JS tool's `capabilities: []`: the command keeps what it had
-        FA_ERROR("command", "capabilities declared for '{}' are empty, which is not allowed: a command needs at least \"read\" "
-                            "(use capability_sets::reads() for a command that only reads)", name);
+        FA_ERROR("command",
+                 "capabilities declared for '{}' are empty, which is not allowed: a command needs at least \"read\" "
+                 "(use capability_sets::reads() for a command that only reads)",
+                 name);
         return false;
     }
     it->second.info.capabilities = capabilities;
@@ -255,7 +278,9 @@ void declare_command_capabilities(CommandRegistry& registry, std::initializer_li
         if (registry.declare_capabilities(r.name, r.capabilities)) continue;
         // An empty set was already reported by declare_capabilities; only a missing command is left to say.
         if (!registry.has(r.name))
-            FA_ERROR("command", "capabilities declared for '{}', which is not a registered command (renamed? conditional?)", r.name);
+            FA_ERROR("command",
+                     "capabilities declared for '{}', which is not a registered command (renamed? conditional?)",
+                     r.name);
     }
 }
 
@@ -298,7 +323,8 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
     // beforeCall_ reloads the commands is not known yet here, so a call refused only by call_inner's check has already
     // been seen by `before`.
     if (auto it = commands_.find(name); it != commands_.end()) {
-        if (const CapabilitySet missing = it->second.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
+        if (const CapabilitySet missing = it->second.info.capabilities.missing_from(caller_capabilities());
+            !missing.empty())
             return capability_denied(it->second.info, missing);
     }
     Json args = argsIn.is_null() ? Json::object() : argsIn;
@@ -308,7 +334,8 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
     const auto t0 = std::chrono::steady_clock::now();
     CommandResult result = call_inner(name, args);
     if (interceptor->after) {
-        interceptor->after(name, args, result, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+        interceptor->after(name, args, result,
+                           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     }
     return result;
 }
@@ -338,8 +365,10 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
         std::replace(alt.begin(), alt.end(), '_', '.');
         auto altIt = commands_.find(alt);
         std::string hint;
-        if (altIt != commands_.end()) hint = "Did you mean '" + alt + "'? Command names use '.' between area and verb.";
-        else hint = did_you_mean(name, names, 15) + " Use the command list (describe) to see all commands.";
+        if (altIt != commands_.end())
+            hint = "Did you mean '" + alt + "'? Command names use '.' between area and verb.";
+        else
+            hint = did_you_mean(name, names, 15) + " Use the command list (describe) to see all commands.";
         return fail("unknown_command", "Unknown command '" + std::string(name) + "'", hint);
     }
     const Entry& entry = it->second;
@@ -351,7 +380,8 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
     const Json& schema = entry.info.inputSchema;
     if (args.is_object()) {
         // MCP and other transports may add their own bookkeeping key to the arguments: it is not an argument.
-        if (args.contains("_meta") && !(schema.contains("properties") && schema["properties"].contains("_meta"))) args.erase("_meta");
+        if (args.contains("_meta") && !(schema.contains("properties") && schema["properties"].contains("_meta")))
+            args.erase("_meta");
         apply_schema_defaults(schema, args);
     }
     std::vector<SchemaError> errors = validate_json(schema, args);
@@ -359,7 +389,8 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
         std::string message = "Invalid arguments for '" + entry.info.name + "': ";
         for (std::size_t i = 0; i < errors.size() && i < 5; ++i) {
             if (i) message += "; ";
-            message += (errors[i].pointer.empty() ? std::string("(root)") : errors[i].pointer) + ": " + errors[i].message;
+            message +=
+                (errors[i].pointer.empty() ? std::string("(root)") : errors[i].pointer) + ": " + errors[i].message;
         }
         if (errors.size() > 5) message += "; ... (" + std::to_string(errors.size() - 5) + " more)";
         std::string hint = errors.front().hint;
@@ -421,8 +452,8 @@ void require_capability(Capability needed, std::string_view command, std::string
             hint += " `dryRun: true` needs no writeProject: it writes nothing and shows what would be written.";
     }
     throw CommandError("capability_denied",
-                       "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" + name + "' (" +
-                           capability_doc(needed) + "), which " + command_caller_name(command_caller()) +
+                       "'" + std::string(command) + "' was not run: " + std::string(reason) + " needs capability '" +
+                           name + "' (" + capability_doc(needed) + "), which " + command_caller_name(command_caller()) +
                            " is not granted here. Granted: " + granted.to_string() + ".",
                        hint,
                        Json::object({{"command", std::string(command)},
@@ -432,7 +463,8 @@ void require_capability(Capability needed, std::string_view command, std::string
 
 std::string resolve_caller_write_path(std::string_view path, std::string_view command) {
     require_capability(Capability::WriteProject, command, "writing to the `path` you gave");
-    auto resolved = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+    auto resolved =
+        fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
     if (!resolved.ok()) {
         const std::string code(fs::path_error_code(resolved.error()));
         throw CommandError(code.empty() ? "invalid_argument" : code, resolved.error().message, resolved.error().hint);

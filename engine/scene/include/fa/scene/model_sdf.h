@@ -43,12 +43,13 @@ enum class ModelSdfBlend : std::uint8_t { Union, Subtract, Intersect };
 // The numbers of one shape, in its own space (centred on its origin, axis along Y, like the mesh primitives). Fields a shape does not use are ignored.
 struct ModelSdfShapeParams {
     ModelSdfShape shape = ModelSdfShape::Sphere;
-    float radius = 0.5f;      // Sphere, Capsule (the bottom ball), Cylinder, Cone (the base), Torus (of the ring)
-    float radiusTop = -1;     // Capsule (the top ball) and Cone (the top circle); < 0: same as `radius` for a capsule, 0 for a cone
-    float height = 1;         // Capsule: tip to tip; Cylinder, Cone
-    float round = 0;          // Box, Cylinder: radius of the rounded edges
-    float tube = 0.15f;       // Torus: radius of the tube
-    Vec3 size{1, 1, 1};       // Box: full size; Ellipsoid: the three radii
+    float radius = 0.5f;  // Sphere, Capsule (the bottom ball), Cylinder, Cone (the base), Torus (of the ring)
+    float radiusTop =
+        -1;  // Capsule (the top ball) and Cone (the top circle); < 0: same as `radius` for a capsule, 0 for a cone
+    float height = 1;                              // Capsule: tip to tip; Cylinder, Cone
+    float round = 0;                               // Box, Cylinder: radius of the rounded edges
+    float tube = 0.15f;                            // Torus: radius of the tube
+    Vec3 size{1, 1, 1};                            // Box: full size; Ellipsoid: the three radii
     std::shared_ptr<const ModelSdfVolume> volume;  // Volume: the sampled field (shared, never null for that shape)
 };
 
@@ -63,7 +64,8 @@ class ModelSdf {
 public:
     // Adds a shape / a group of already added nodes and returns its index. `local` is the node's transform relative to its parent (scale, rotation,
     // position as the tree writes them); `blend` and `smooth` (metres, 0 = a hard edge) say how it joins the nodes before it in its parent.
-    int add_shape(const ModelSdfShapeParams& shape, const Mat4& local, ModelSdfBlend blend, float smooth, std::uint32_t group, std::optional<Vec4> color);
+    int add_shape(const ModelSdfShapeParams& shape, const Mat4& local, ModelSdfBlend blend, float smooth,
+                  std::uint32_t group, std::optional<Vec4> color);
     // `mirror` -1 none, 0, 1, 2: the group's local space is folded across the plane x = 0 / y = 0 / z = 0, so what is on the positive side is repeated on the other.
     int add_group(const std::vector<int>& children, const Mat4& local, ModelSdfBlend blend, float smooth, int mirror);
     void set_root(int node) { root_ = node; }
@@ -85,15 +87,15 @@ private:
         bool leaf = true;
         ModelSdfBlend blend = ModelSdfBlend::Union;
         float smooth = 0;
-        float distScale = 1;      // the smallest |scale|: the node's distance is the local one times this
-        float inv[12] = {};       // the 3x4 affine from the parent's space to this node's
-        float fwd[12] = {};       // and back
+        float distScale = 1;  // the smallest |scale|: the node's distance is the local one times this
+        float inv[12] = {};   // the 3x4 affine from the parent's space to this node's
+        float fwd[12] = {};   // and back
         ModelSdfShapeParams shape;
         std::uint32_t group = 0;
         Vec4 color{1, 1, 1, 1};
         std::vector<int> children;
         int mirror = -1;
-        float capsuleLen = 0;     // Capsule: distance between the ball centres, precomputed
+        float capsuleLen = 0;  // Capsule: distance between the ball centres, precomputed
     };
     std::vector<Node> nodes_;
     int root_ = -1;
@@ -118,35 +120,36 @@ inline constexpr std::size_t kModelSdfMaxCost = 300000000;
 inline constexpr std::size_t kModelSdfMaxRawTriangles = 3000000;
 
 struct ModelSdfMeshParams {
-    float voxelSize = 0;        // > 0: the size of a sampling cell, metres. 0: `cells` decides.
-    int cells = 96;             // cells along the longest side of the shape's bounding box (when voxelSize is 0)
+    float voxelSize = 0;  // > 0: the size of a sampling cell, metres. 0: `cells` decides.
+    int cells = 96;       // cells along the longest side of the shape's bounding box (when voxelSize is 0)
     // Seeded noise added to the field (the surface moves by about amplitude * noise, along its normal): rock. amplitude 0 = none.
     float noiseAmplitude = 0;
-    float noiseFrequency = 3;   // features per metre
+    float noiseFrequency = 3;  // features per metre
     int noiseOctaves = 1;
     int noiseSeed = 0;
     // Decimation (model_decimate.h). targetTriangles 0 = no target. maxError < 0: when there is no target, a quarter of the voxel; with a target,
     // no limit. maxError 0 with no target: not decimated. Both: whichever is reached first.
     std::size_t targetTriangles = 0;
     float maxError = -1;
-    bool uvs = true;            // a box projection in world units (1 uv per metre); false: all (0, 0)
+    bool uvs = true;  // a box projection in world units (1 uv per metre); false: all (0, 0)
 };
 
 struct ModelSdfMeshInfo {
     float voxelSize = 0;
-    int gridX = 0, gridY = 0, gridZ = 0;   // sampled points
+    int gridX = 0, gridY = 0, gridZ = 0;  // sampled points
     std::size_t samples = 0;
-    std::size_t rawTriangles = 0;          // before decimation
-    std::size_t triangles = 0;             // the result
-    float maxErrorUsed = 0;                // the decimation's error limit (0: none)
-    bool touchedEdge = false;              // the shape reached the edge of the sampled box and was cut there (should not happen)
-    Vec3 boundsMin{}, boundsMax{};         // the sampled box
+    std::size_t rawTriangles = 0;  // before decimation
+    std::size_t triangles = 0;     // the result
+    float maxErrorUsed = 0;        // the decimation's error limit (0: none)
+    bool touchedEdge = false;  // the shape reached the edge of the sampled box and was cut there (should not happen)
+    Vec3 boundsMin{}, boundsMax{};  // the sampled box
 };
 
 // Samples the field on a grid, extracts the iso-surface 0 as a closed triangle mesh (marching tetrahedra on the Kuhn subdivision of the grid: every
 // vertex on a cell edge, moved onto the exact zero of the field), decimates it, and fills normals (the gradient of the field), uvs and colours.
 // The mesh has `triParts` set from the owning leaf's group. Empty mesh (not an error) when the field has no surface.
-Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& params, ModelSdfMeshInfo* info = nullptr);
+Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& params,
+                                 ModelSdfMeshInfo* info = nullptr);
 
 // The noise the meshing adds to the field, exposed so tests and tools evaluate the same function: seeded fractal value noise in about -1..1.
 float model_sdf_noise(Vec3 p, float frequency, int octaves, int seed);

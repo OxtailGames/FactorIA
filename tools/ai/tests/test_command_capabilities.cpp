@@ -88,7 +88,8 @@ TEST_CASE("tools/ai commands: every one declares exactly the capabilities of wha
         const CommandInfo* info = w.reg.info(name);
         // vfx.review and a few others register in the same call; every name here must exist
         REQUIRE(info != nullptr);
-        CHECK_MESSAGE(info->capabilities == caps, name, ": declared ", info->capabilities.to_string(), ", expected ", caps.to_string());
+        CHECK_MESSAGE(info->capabilities == caps, name, ": declared ", info->capabilities.to_string(), ", expected ",
+                      caps.to_string());
     }
 }
 
@@ -100,7 +101,8 @@ TEST_CASE("tools/ai commands: a {read, state} scope is refused ai.run and ai.set
         const CommandResult run = w.reg.call("ai.run", Json::object({{"task", "code"}, {"role", "worker"}}));
         REQUIRE_FALSE(run.ok);
         CHECK(run.error["code"] == "capability_denied");
-        const CommandResult set = w.reg.call("ai.settings.set", Json::object({{"scope", "project"}, {"pointer", "/limits/maxTurns"}, {"value", 20}}));
+        const CommandResult set = w.reg.call(
+            "ai.settings.set", Json::object({{"scope", "project"}, {"pointer", "/limits/maxTurns"}, {"value", 20}}));
         REQUIRE_FALSE(set.ok);
         CHECK(set.error["code"] == "capability_denied");
         CHECK(w.provider->requests.empty());
@@ -112,16 +114,19 @@ TEST_CASE("tools/ai commands: a {read, state} scope is refused ai.run and ai.set
         CommandCapabilityScope caps(role_capabilities(kRoleOrchestrator));
         w.provider->script = {text_response("done")};
         CHECK(w.reg.call("ai.run", Json::object({{"task", "code"}, {"role", "worker"}})).ok);
-        const CommandResult install = w.reg.call("ai.plugin_install", Json::object({{"plugin", "x@y"}, {"dryRun", true}}));
+        const CommandResult install =
+            w.reg.call("ai.plugin_install", Json::object({{"plugin", "x@y"}, {"dryRun", true}}));
         REQUIRE_FALSE(install.ok);
         CHECK(install.error["code"] == "capability_denied");
-        const CommandResult user = w.reg.call("skills.new", Json::object({{"name", "enemy-design"}, {"scope", "user"}}));
+        const CommandResult user =
+            w.reg.call("skills.new", Json::object({{"name", "enemy-design"}, {"scope", "user"}}));
         REQUIRE_FALSE(user.ok);
         CHECK(user.error["code"] == "capability_denied");
     }
 }
 
-TEST_CASE("ai.providers and ai.tool_servers: the plain listing is read-only, doctor and test:true need Process (and Network)") {
+TEST_CASE("ai.providers and ai.tool_servers: the plain listing is read-only, doctor and test:true need Process (and "
+          "Network)") {
     World w;
     // What a critic and `factoria mcp --read-only` hold.
     CommandCallerScope caller(CommandCaller::Mcp);
@@ -149,7 +154,8 @@ TEST_CASE("ai.settings.set: scope user is refused for the user without writeAnyw
     World w;
     CommandCallerScope caller(CommandCaller::User);
     CommandCapabilityScope caps(CapabilitySet{C::Read, C::WriteProject});
-    const CommandResult set = w.reg.call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/limits/maxTurns"}, {"value", 20}}));
+    const CommandResult set = w.reg.call(
+        "ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/limits/maxTurns"}, {"value", 20}}));
     REQUIRE_FALSE(set.ok);
     CHECK(set.error["code"] == "capability_denied");
 }

@@ -166,7 +166,8 @@ std::string format_help(const Command& cmd, const std::string& cmdPath) {
         for (const auto& f : specs) {
             if (f.hidden) continue;
             std::string l = label(f);
-            o << "  " << l << std::string(w - l.size() + 2, ' ') << f.help << (f.repeatable ? " (repeatable)" : "") << "\n";
+            o << "  " << l << std::string(w - l.size() + 2, ' ') << f.help << (f.repeatable ? " (repeatable)" : "")
+              << "\n";
         }
     }
     if (!cmd.examples.empty()) {

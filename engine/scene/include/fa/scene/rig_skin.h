@@ -47,14 +47,15 @@ struct RigSkinPartReport {
 
 struct RigSkinReport {
     std::size_t vertices = 0;
-    std::size_t unweighted = 0;   // vertices the method gave nothing for (they follow the nearest bone)
-    int maxInfluences = 0;        // the most bones any vertex follows
+    std::size_t unweighted = 0;  // vertices the method gave nothing for (they follow the nearest bone)
+    int maxInfluences = 0;       // the most bones any vertex follows
     double meanInfluences = 0;
-    std::size_t farBlends = 0;    // vertices that blend two bones more than `maxHops` bones apart in the hierarchy
+    std::size_t farBlends = 0;  // vertices that blend two bones more than `maxHops` bones apart in the hierarchy
     std::size_t editsApplied = 0;
     std::size_t mirrorUnmatched = 0;  // vertices a mirror edit found no partner for (left as they were)
     std::vector<RigSkinPartReport> parts;
-    std::vector<std::pair<std::string, std::size_t>> boneVertices;  // vertices whose strongest bone it is, in bone order (bones with none included)
+    std::vector<std::pair<std::string, std::size_t>>
+        boneVertices;  // vertices whose strongest bone it is, in bone order (bones with none included)
     std::vector<std::string> idleBones;  // bones that are the strongest of no vertex
     std::vector<std::string> warnings;   // each says what was noticed and what to change
     int heatComponents = 0, heatFailed = 0, heatIterations = 0;
@@ -79,7 +80,8 @@ struct RigBonePose {
     float degrees = 0;
 };
 // The model's positions (3 floats per vertex) deformed by linear blend skinning with `poses`; the rest pose with none.
-std::vector<float> rig_skin_pose(const RigFit& fit, const RigWeights& weights, const std::vector<float>& positions, const std::vector<RigBonePose>& poses);
+std::vector<float> rig_skin_pose(const RigFit& fit, const RigWeights& weights, const std::vector<float>& positions,
+                                 const std::vector<RigBonePose>& poses);
 
 // How many bones apart two bones are in the hierarchy (0 = the same bone).
 int rig_bone_hops(const RigFit& fit, int a, int b);

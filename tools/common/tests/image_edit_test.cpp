@@ -34,7 +34,8 @@ Image baked(const AssetsProject& p, const std::string& png) { return read_png(p.
 Json read_doc(const AssetsProject& p, const std::string& rel) { return parse_json(read_all(p.file(rel)), rel).value(); }
 
 bool near_rgb(Rgba c, Rgba want, int tol = 2) {
-    return std::abs(int(c.r) - want.r) <= tol && std::abs(int(c.g) - want.g) <= tol && std::abs(int(c.b) - want.b) <= tol;
+    return std::abs(int(c.r) - want.r) <= tol && std::abs(int(c.g) - want.g) <= tol &&
+           std::abs(int(c.b) - want.b) <= tol;
 }
 
 std::string art(AssetsProject& p, const std::string& name, const std::string& bytes) {
@@ -43,7 +44,9 @@ std::string art(AssetsProject& p, const std::string& name, const std::string& by
     return path.string();
 }
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 constexpr const char* kDoc = "assets/art/t.image.json";
 constexpr const char* kPng = "assets/art/t.png";
@@ -51,14 +54,19 @@ constexpr const char* kPng = "assets/art/t.png";
 // A 16x16 document: a blue background and a 6x6 red box at (4,4).
 void make_scene(const AssetsProject& p) {
     p.ok("image.create", create_args(kDoc, 16, 16, Json::array({fill_layer("bg", "#0000ff")})));
-    p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "fill"}, {"name", "box"}, {"color", "#ff0000"}, {"x", 4}, {"y", 4}, {"width", 6}, {"height", 6}}}});
+    p.ok(
+        "image.layer.add",
+        {{"path", kDoc},
+         {"layer",
+          {{"kind", "fill"}, {"name", "box"}, {"color", "#ff0000"}, {"x", 4}, {"y", 4}, {"width", 6}, {"height", 6}}}});
 }
 
 }  // namespace
 
 TEST_CASE("image.create, image.info and image.export") {
     AssetsProject p;
-    const Json r = p.ok("image.create", create_args(kDoc, 8, 8, Json::array({fill_layer("bg", "#00ff00")}), {{"description", "test"}}));
+    const Json r = p.ok("image.create",
+                        create_args(kDoc, 8, 8, Json::array({fill_layer("bg", "#00ff00")}), {{"description", "test"}}));
     CHECK(r["width"] == 8);
     CHECK(r.contains("$image"));
     CHECK(r["region"]["width"] == 8);
@@ -87,7 +95,11 @@ TEST_CASE("image.create, image.info and image.export") {
 TEST_CASE("image.layer.*: add, set, move, remove and addressing by name or index path") {
     AssetsProject p;
     make_scene(p);
-    p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "group"}, {"name", "grp"}, {"layers", Json::array({fill_layer("inner", "#ffff00", 0, 0, 2, 2)})}}}});
+    p.ok("image.layer.add", {{"path", kDoc},
+                             {"layer",
+                              {{"kind", "group"},
+                               {"name", "grp"},
+                               {"layers", Json::array({fill_layer("inner", "#ffff00", 0, 0, 2, 2)})}}}});
 
     Json info = p.ok("image.info", {{"path", kDoc}});
     CHECK(info["layers"].size() == 3);
@@ -108,7 +120,8 @@ TEST_CASE("image.layer.*: add, set, move, remove and addressing by name or index
     CommandResult badIndex = p.call("image.layer.remove", {{"path", kDoc}, {"layer", "7"}});
     REQUIRE_FALSE(badIndex.ok);
     CHECK(error_of(badIndex).find("bg") != std::string::npos);
-    CommandResult badSet = p.call("image.layer.set", {{"path", kDoc}, {"layer", "box"}, {"set", {{"blend", "multiplyy"}}}});
+    CommandResult badSet =
+        p.call("image.layer.set", {{"path", kDoc}, {"layer", "box"}, {"set", {{"blend", "multiplyy"}}}});
     REQUIRE_FALSE(badSet.ok);
     CHECK(error_of(badSet).find("multiply") != std::string::npos);
     CHECK(read_doc(p, kDoc)["layers"][1].contains("blend") == false);  // nothing written on error
@@ -129,7 +142,9 @@ TEST_CASE("image.layer.*: add, set, move, remove and addressing by name or index
 TEST_CASE("image.select: colour, shapes, shaping, combining and persistence") {
     AssetsProject p;
     make_scene(p);
-    Json r = p.ok("image.select", {{"path", kDoc}, {"name", "red"}, {"by", "color"}, {"at", {5, 5}}, {"contiguous", true}, {"tolerance", 10}});
+    Json r = p.ok(
+        "image.select",
+        {{"path", kDoc}, {"name", "red"}, {"by", "color"}, {"at", {5, 5}}, {"contiguous", true}, {"tolerance", 10}});
     CHECK(r["selected"] == 36);
     CHECK(r["region"]["x"] == 4);
     CHECK(r["region"]["width"] == 6);
@@ -144,22 +159,39 @@ TEST_CASE("image.select: colour, shapes, shaping, combining and persistence") {
     CHECK(r["selected"].get<int>() < 36);
     CHECK(r["selected"].get<int>() > 0);
 
-    p.ok("image.select", {{"path", kDoc}, {"name", "r"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 8}});
-    r = p.ok("image.select", {{"path", kDoc}, {"name", "r"}, {"mode", "subtract"}, {"by", "ellipse"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 8}});
+    p.ok("image.select",
+         {{"path", kDoc}, {"name", "r"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 8}});
+    r = p.ok("image.select", {{"path", kDoc},
+                              {"name", "r"},
+                              {"mode", "subtract"},
+                              {"by", "ellipse"},
+                              {"x", 0},
+                              {"y", 0},
+                              {"width", 8},
+                              {"height", 8}});
     CHECK(r["selected"].get<int>() > 0);
     CHECK(r["selected"].get<int>() < 64);
-    r = p.ok("image.select", {{"path", kDoc}, {"name", "poly"}, {"by", "polygon"}, {"points", {{0, 0}, {8, 0}, {0, 8}}}});
+    r = p.ok("image.select",
+             {{"path", kDoc}, {"name", "poly"}, {"by", "polygon"}, {"points", {{0, 0}, {8, 0}, {0, 8}}}});
     CHECK(r["selected"].get<int>() > 20);
     CHECK(r["selected"].get<int>() < 44);
     r = p.ok("image.select", {{"path", kDoc}, {"name", "poly"}, {"then", Json::array({{{"invert", true}}})}});
     CHECK(r["selected"].get<int>() > 200);
     r = p.ok("image.select", {{"path", kDoc}, {"name", "layer"}, {"by", "layer"}, {"layer", "box"}});
     CHECK(r["selected"] == 36);
-    r = p.ok("image.select", {{"path", kDoc}, {"name", "f"}, {"by", "rect"}, {"x", 2}, {"y", 2}, {"width", 8}, {"height", 8}, {"then", Json::array({{{"feather", 2}}})}});
+    r = p.ok("image.select", {{"path", kDoc},
+                              {"name", "f"},
+                              {"by", "rect"},
+                              {"x", 2},
+                              {"y", 2},
+                              {"width", 8},
+                              {"height", 8},
+                              {"then", Json::array({{{"feather", 2}}})}});
     CHECK(r["selected"].get<int>() > 0);
 
     // an unknown selection lists the stored ones
-    CommandResult bad = p.call("image.edit", {{"path", kDoc}, {"selection", "rd"}, {"layer", "box"}, {"action", {{"type", "delete"}}}});
+    CommandResult bad =
+        p.call("image.edit", {{"path", kDoc}, {"selection", "rd"}, {"layer", "box"}, {"action", {{"type", "delete"}}}});
     REQUIRE_FALSE(bad.ok);
     CHECK(error_of(bad).find("red") != std::string::npos);
     p.ok("image.select", {{"path", kDoc}, {"name", "red"}, {"clear", true}});
@@ -173,49 +205,70 @@ TEST_CASE("image.edit: fill, recolor, move, transform, delete, copy and cut") {
     p.ok("image.select", {{"path", kDoc}, {"name", "box"}, {"by", "layer"}, {"layer", "box"}});
 
     // a fill layer is rasterized with a warning
-    Json r = p.ok("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "recolor"}, {"hueShift", 120}}}});
+    Json r = p.ok(
+        "image.edit",
+        {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "recolor"}, {"hueShift", 120}}}});
     CHECK(has_warning(r, "pixels layer"));
     CHECK(r["region"]["x"] == 4);
     CHECK(r["region"]["width"] == 6);
     CHECK(get(baked(p, kPng), 5, 5) == Rgba{0, 255, 0, 255});
     CHECK(read_doc(p, kDoc)["layers"][1]["kind"] == "pixels");
 
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "recolor"}, {"from", "#00ff00"}, {"to", "#ffff00"}}}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"selection", "box"},
+                        {"layer", "box"},
+                        {"action", {{"type", "recolor"}, {"from", "#00ff00"}, {"to", "#ffff00"}}}});
     CHECK(get(baked(p, kPng), 5, 5) == Rgba{255, 255, 0, 255});
 
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "fill"}, {"color", "#000000"}, {"opacity", 0.5}}}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"selection", "box"},
+                        {"layer", "box"},
+                        {"action", {{"type", "fill"}, {"color", "#000000"}, {"opacity", 0.5}}}});
     CHECK(near_rgb(get(baked(p, kPng), 5, 5), {128, 128, 0}));
 
     // move 4 right: the selection moves along
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "move"}, {"dx", 4}, {"dy", 0}}}});
+    p.ok(
+        "image.edit",
+        {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "move"}, {"dx", 4}, {"dy", 0}}}});
     CHECK(get(baked(p, kPng), 5, 5) == Rgba{0, 0, 255, 255});
     CHECK(get(baked(p, kPng), 12, 5).a == 255);
     CHECK(get(baked(p, kPng), 12, 5) != Rgba{0, 0, 255, 255});
-    r = p.ok("image.select", {{"path", kDoc}, {"name", "box"}, {"then", Json::array({{{"invert", true}}, {{"invert", true}}})}});
+    r = p.ok("image.select",
+             {{"path", kDoc}, {"name", "box"}, {"then", Json::array({{{"invert", true}}, {{"invert", true}}})}});
     CHECK(r["region"]["x"] == 8);
 
     // transform: half size, nearest, around the middle of the pixels
-    r = p.ok("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "transform"}, {"scale", 0.5}, {"filter", "nearest"}}}});
+    r = p.ok("image.edit", {{"path", kDoc},
+                            {"selection", "box"},
+                            {"layer", "box"},
+                            {"action", {{"type", "transform"}, {"scale", 0.5}, {"filter", "nearest"}}}});
     CHECK(r["filter"] == "nearest");
     CHECK(get(baked(p, kPng), 11, 7).a == 255);
     CHECK(get(baked(p, kPng), 8, 5) == Rgba{0, 0, 255, 255});
-    CHECK_FALSE(p.call("image.edit", {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "transform"}}}}).ok);
+    CHECK_FALSE(p.call("image.edit",
+                       {{"path", kDoc}, {"selection", "box"}, {"layer", "box"}, {"action", {{"type", "transform"}}}})
+                    .ok);
 
     // copy to a new layer, cut to another, then delete both
     p.ok("image.select", {{"path", kDoc}, {"name", "all2"}, {"by", "layer"}, {"layer", "box"}});
-    r = p.ok("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
+    r = p.ok(
+        "image.edit",
+        {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
     CHECK(r["newLayer"]["name"] == "dup");
     CHECK(read_doc(p, kDoc)["layers"].size() == 3);
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "cut"}}}, {"name", "cutout"}});
+    p.ok("image.edit",
+         {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "cut"}}}, {"name", "cutout"}});
     CHECK(read_doc(p, kDoc)["layers"].size() == 4);
     p.ok("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "dup"}, {"action", {{"type", "delete"}}}});
     p.ok("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "cutout"}, {"action", {{"type", "delete"}}}});
     CHECK(get(baked(p, kPng), 11, 7) == Rgba{0, 0, 255, 255});
 
-    CommandResult badType = p.call("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "fil"}}}});
+    CommandResult badType =
+        p.call("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "box"}, {"action", {{"type", "fil"}}}});
     REQUIRE_FALSE(badType.ok);
     CHECK(error_of(badType).find("fill") != std::string::npos);
-    CommandResult badLayer = p.call("image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "bxo"}, {"action", {{"type", "delete"}}}});
+    CommandResult badLayer = p.call(
+        "image.edit", {{"path", kDoc}, {"selection", "all2"}, {"layer", "bxo"}, {"action", {{"type", "delete"}}}});
     REQUIRE_FALSE(badLayer.ok);
     CHECK(error_of(badLayer).find("box") != std::string::npos);
 }
@@ -224,18 +277,28 @@ TEST_CASE("image.edit: transform flips and rotates pixels exactly") {
     AssetsProject p;
     p.ok("image.create", create_args(kDoc, 8, 8));
     // a 2x1 sprite: red then green, two 1px dabs
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "px"}, {"create", true},
-                         {"strokes", Json::array({{{"points", {{2.5, 2.5}}}, {"size", 1}, {"color", "#ff0000"}}, {{"points", {{3.5, 2.5}}}, {"size", 1}, {"color", "#00ff00"}}})}});
+    p.ok("image.paint", {{"path", kDoc},
+                         {"layer", "px"},
+                         {"create", true},
+                         {"strokes", Json::array({{{"points", {{2.5, 2.5}}}, {"size", 1}, {"color", "#ff0000"}},
+                                                  {{"points", {{3.5, 2.5}}}, {"size", 1}, {"color", "#00ff00"}}})}});
     Image img = baked(p, kPng);
     REQUIRE(get(img, 2, 2) == Rgba{255, 0, 0, 255});
     REQUIRE(get(img, 3, 2) == Rgba{0, 255, 0, 255});
-    p.ok("image.select", {{"path", kDoc}, {"name", "s"}, {"by", "rect"}, {"x", 2}, {"y", 2}, {"width", 2}, {"height", 1}});
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "s"}, {"layer", "px"}, {"action", {{"type", "transform"}, {"flipH", true}, {"filter", "nearest"}}}});
+    p.ok("image.select",
+         {{"path", kDoc}, {"name", "s"}, {"by", "rect"}, {"x", 2}, {"y", 2}, {"width", 2}, {"height", 1}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"selection", "s"},
+                        {"layer", "px"},
+                        {"action", {{"type", "transform"}, {"flipH", true}, {"filter", "nearest"}}}});
     img = baked(p, kPng);
     CHECK(get(img, 2, 2) == Rgba{0, 255, 0, 255});
     CHECK(get(img, 3, 2) == Rgba{255, 0, 0, 255});
     // rotate 90 degrees clockwise: the row becomes a column (the left pixel goes to the top)
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "s"}, {"layer", "px"}, {"action", {{"type", "transform"}, {"rotate", 90}, {"filter", "nearest"}}}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"selection", "s"},
+                        {"layer", "px"},
+                        {"action", {{"type", "transform"}, {"rotate", 90}, {"filter", "nearest"}}}});
     img = baked(p, kPng);
     CHECK(get(img, 2, 2).a == 0);
     CHECK(get(img, 3, 1) == Rgba{0, 255, 0, 255});
@@ -245,9 +308,16 @@ TEST_CASE("image.edit: transform flips and rotates pixels exactly") {
 TEST_CASE("image.paint: deterministic strokes, erase, create and selections") {
     auto paint = [](AssetsProject& p) {
         p.ok("image.create", create_args(kDoc, 32, 32, Json::array({fill_layer("bg", "#ffffff")})));
-        return p.ok("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"create", true},
-                                    {"strokes", Json::array({{{"points", {{3, 3}, {28, 9}, {5, 27}}}, {"size", 5}, {"hardness", 0.5}, {"color", "#336699"}, {"opacity", 0.8}},
-                                                            {{"points", {{16, 16}}}, {"size", 9}, {"color", "#ff0000"}}})}});
+        return p.ok("image.paint",
+                    {{"path", kDoc},
+                     {"layer", "ink"},
+                     {"create", true},
+                     {"strokes", Json::array({{{"points", {{3, 3}, {28, 9}, {5, 27}}},
+                                               {"size", 5},
+                                               {"hardness", 0.5},
+                                               {"color", "#336699"},
+                                               {"opacity", 0.8}},
+                                              {{"points", {{16, 16}}}, {"size", 9}, {"color", "#ff0000"}}})}});
     };
     AssetsProject a, b;
     const Json r = paint(a);
@@ -260,18 +330,29 @@ TEST_CASE("image.paint: deterministic strokes, erase, create and selections") {
     CHECK(get(baked(a, kPng), 31, 31) == Rgba{255, 255, 255, 255});
 
     // erase through the middle; a selection limits painting
-    a.ok("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"strokes", Json::array({{{"points", {{16, 16}}}, {"size", 3}, {"erase", true}}})}});
+    a.ok("image.paint", {{"path", kDoc},
+                         {"layer", "ink"},
+                         {"strokes", Json::array({{{"points", {{16, 16}}}, {"size", 3}, {"erase", true}}})}});
     CHECK(get(baked(a, kPng), 16, 16) == Rgba{255, 255, 255, 255});
-    a.ok("image.select", {{"path", kDoc}, {"name", "left"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 32}});
-    a.ok("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"selection", "left"}, {"strokes", Json::array({{{"points", {{0, 20}, {31, 20}}}, {"size", 2}, {"color", "#00ff00"}}})}});
+    a.ok("image.select",
+         {{"path", kDoc}, {"name", "left"}, {"by", "rect"}, {"x", 0}, {"y", 0}, {"width", 8}, {"height", 32}});
+    a.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "ink"},
+          {"selection", "left"},
+          {"strokes", Json::array({{{"points", {{0, 20}, {31, 20}}}, {"size", 2}, {"color", "#00ff00"}}})}});
     CHECK(get(baked(a, kPng), 4, 20) == Rgba{0, 255, 0, 255});
     CHECK(get(baked(a, kPng), 20, 20) == Rgba{255, 255, 255, 255});
 
-    CommandResult noCreate = a.call("image.paint", {{"path", kDoc}, {"layer", "inkk"}, {"strokes", Json::array({{{"points", {{1, 1}}}, {"color", "red"}}})}});
+    CommandResult noCreate = a.call(
+        "image.paint",
+        {{"path", kDoc}, {"layer", "inkk"}, {"strokes", Json::array({{{"points", {{1, 1}}}, {"color", "red"}}})}});
     REQUIRE_FALSE(noCreate.ok);
     CHECK(error_of(noCreate).find("ink") != std::string::npos);
     CHECK(error_of(noCreate).find("create") != std::string::npos);
-    CHECK_FALSE(a.call("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"strokes", Json::array({{{"points", {{1, 1}}}}})}}).ok);  // no colour
+    CHECK_FALSE(
+        a.call("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"strokes", Json::array({{{"points", {{1, 1}}}}})}})
+            .ok);  // no colour
     CHECK_FALSE(a.call("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"strokes", Json::array()}}).ok);
 }
 
@@ -281,12 +362,24 @@ namespace {
 
 struct Be {
     std::vector<std::uint8_t> v;
-    Be& u8(unsigned x) { v.push_back(std::uint8_t(x)); return *this; }
+    Be& u8(unsigned x) {
+        v.push_back(std::uint8_t(x));
+        return *this;
+    }
     Be& u16(unsigned x) { return u8(x >> 8).u8(x & 255); }
     Be& u32(unsigned x) { return u16(x >> 16).u16(x & 0xffff); }
-    Be& tag(const char* s) { for (int i = 0; i < 4; ++i) u8(static_cast<unsigned char>(s[i])); return *this; }
-    Be& add(const Be& o) { v.insert(v.end(), o.v.begin(), o.v.end()); return *this; }
-    Be& zeros(int n) { v.insert(v.end(), std::size_t(n), 0); return *this; }
+    Be& tag(const char* s) {
+        for (int i = 0; i < 4; ++i) u8(static_cast<unsigned char>(s[i]));
+        return *this;
+    }
+    Be& add(const Be& o) {
+        v.insert(v.end(), o.v.begin(), o.v.end());
+        return *this;
+    }
+    Be& zeros(int n) {
+        v.insert(v.end(), std::size_t(n), 0);
+        return *this;
+    }
 };
 
 struct PsdTestLayer {
@@ -296,9 +389,9 @@ struct PsdTestLayer {
     const char* blend = "norm";
     int opacity = 255;
     bool hidden = false, rle = false;
-    int divider = 0;                       // lsct type
-    std::vector<std::uint8_t> mask;        // a layer mask over the whole layer rect (empty = none)
-    std::string unicodeName;               // luni
+    int divider = 0;                 // lsct type
+    std::vector<std::uint8_t> mask;  // a layer mask over the whole layer rect (empty = none)
+    std::string unicodeName;         // luni
 };
 
 Be channel_data(const std::vector<std::uint8_t>& plane, int w, int h, bool rle) {
@@ -314,9 +407,12 @@ Be channel_data(const std::vector<std::uint8_t>& plane, int w, int h, bool rle) 
         Be row;
         for (int x = 0; x < w;) {  // PackBits: a repeat when the next sample repeats, else a literal of one
             int run = 1;
-            while (x + run < w && run < 128 && plane[std::size_t(y * w + x + run)] == plane[std::size_t(y * w + x)]) ++run;
-            if (run > 1) row.u8(unsigned(257 - run)).u8(plane[std::size_t(y * w + x)]);
-            else row.u8(0).u8(plane[std::size_t(y * w + x)]);
+            while (x + run < w && run < 128 && plane[std::size_t(y * w + x + run)] == plane[std::size_t(y * w + x)])
+                ++run;
+            if (run > 1)
+                row.u8(unsigned(257 - run)).u8(plane[std::size_t(y * w + x)]);
+            else
+                row.u8(0).u8(plane[std::size_t(y * w + x)]);
             x += run;
         }
         d.u16(unsigned(row.v.size()));
@@ -343,12 +439,25 @@ std::vector<std::uint8_t> make_psd(int w, int h, const std::vector<PsdTestLayer>
             for (int id : {-1, 0, 1, 2}) chs.push_back({id, Be().u16(0)});
         }
         if (!l.mask.empty()) chs.push_back({-2, channel_data(l.mask, lw, lh, false)});
-        records.u32(unsigned(l.top)).u32(unsigned(l.left)).u32(unsigned(l.bottom)).u32(unsigned(l.right)).u16(unsigned(chs.size()));
+        records.u32(unsigned(l.top))
+            .u32(unsigned(l.left))
+            .u32(unsigned(l.bottom))
+            .u32(unsigned(l.right))
+            .u16(unsigned(chs.size()));
         for (const Ch& c : chs) records.u16(unsigned(c.id) & 0xffff).u32(unsigned(c.bytes.v.size()));
         records.tag("8BIM").tag(l.blend).u8(unsigned(l.opacity)).u8(0).u8(l.hidden ? 2 : 0).u8(0);
         Be extra;
-        if (!l.mask.empty()) extra.u32(20).u32(unsigned(l.top)).u32(unsigned(l.left)).u32(unsigned(l.bottom)).u32(unsigned(l.right)).u8(0).u8(0).u16(0);
-        else extra.u32(0);
+        if (!l.mask.empty())
+            extra.u32(20)
+                .u32(unsigned(l.top))
+                .u32(unsigned(l.left))
+                .u32(unsigned(l.bottom))
+                .u32(unsigned(l.right))
+                .u8(0)
+                .u8(0)
+                .u16(0);
+        else
+            extra.u32(0);
         extra.u32(0);  // blending ranges
         extra.u8(unsigned(l.name.size()));
         for (char c : l.name) extra.u8(static_cast<unsigned char>(c));
@@ -377,7 +486,9 @@ std::vector<std::uint8_t> make_psd(int w, int h, const std::vector<PsdTestLayer>
     return file.v;
 }
 
-std::vector<std::uint8_t> solid(int n, unsigned v) { return std::vector<std::uint8_t>(std::size_t(n), std::uint8_t(v)); }
+std::vector<std::uint8_t> solid(int n, unsigned v) {
+    return std::vector<std::uint8_t>(std::size_t(n), std::uint8_t(v));
+}
 
 }  // namespace
 
@@ -466,7 +577,8 @@ TEST_CASE("assets.import: a PSD with layers becomes an image document") {
             damaged[i] = 'X';
             break;
         }
-    const Json fb = p.ok("assets.import", {{"source", art(p, "damaged.psd", std::string(damaged.begin(), damaged.end()))}});
+    const Json fb =
+        p.ok("assets.import", {{"source", art(p, "damaged.psd", std::string(damaged.begin(), damaged.end()))}});
     CHECK(has_warning(fb, "flattened"));
     CHECK(fb["details"]["layersFlattened"] == true);
 }

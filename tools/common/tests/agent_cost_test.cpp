@@ -16,7 +16,8 @@ using namespace fa;
 
 namespace {
 std::string fixture() {
-    return testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "tools" / "common" / "tests" / "fixtures" / "agent-cost" / "claude-stream.jsonl");
+    return testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "tools" / "common" / "tests" / "fixtures" /
+                              "agent-cost" / "claude-stream.jsonl");
 }
 }  // namespace
 
@@ -38,7 +39,8 @@ TEST_CASE("agent cost: the report finds the first playable build, the engine err
     in.transcript = fixture();
     in.cli = "claude";
     in.model = "sonnet";
-    in.finalPlay = Json::parse(R"({"ended":"won","phases":[{"n":1,"name":"scenes/main.scene.json","kind":"scene","time":0.0,"screenshot":"phase-1.png"}]})");
+    in.finalPlay = Json::parse(
+        R"({"ended":"won","phases":[{"n":1,"name":"scenes/main.scene.json","kind":"scene","time":0.0,"screenshot":"phase-1.png"}]})");
     const Json r = agent_cost_report(in);
     CHECK(r["total"]["steps"] == 7);
     CHECK(r["total"]["costUsd"].get<double>() == doctest::Approx(0.64));
@@ -50,7 +52,8 @@ TEST_CASE("agent cost: the report finds the first playable build, the engine err
     CHECK(r["firstPlayable"]["step"] == 4);
     CHECK(r["firstPlayable"]["toolCalls"] == 4);
     CHECK(r["firstPlayable"]["tokens"] == (10 + 9 + 20 + 100) + (5 + 20 + 130) + (5 + 30 + 160) + (5 + 40 + 200));
-    CHECK(r["engineErrors"]["count"] == 1);  // the unknown command; `factoria run` that failed with no code is not counted
+    CHECK(r["engineErrors"]["count"] ==
+          1);  // the unknown command; `factoria run` that failed with no code is not counted
     CHECK(r["engineErrors"]["byCode"]["unknown_command"] == 1);
     CHECK_FALSE(r["engineErrors"]["byCode"].contains("none"));
     CHECK(r["engineErrors"]["first"][0]["step"] == 2);
@@ -71,12 +74,14 @@ TEST_CASE("agent cost: the CLI version and a real HOME are recorded") {
     for (const Json& n : r["notes"]) named = named || n.get<std::string>().find("real HOME") != std::string::npos;
     CHECK(named);
     in.homeIsolated = 1;
-    const Json isolated = agent_cost_report(in);  // a named value: a range-for over `report(in)["notes"]` reads a destroyed temporary
+    const Json isolated =
+        agent_cost_report(in);  // a named value: a range-for over `report(in)["notes"]` reads a destroyed temporary
     for (const Json& n : isolated["notes"]) CHECK(n.get<std::string>().find("real HOME") == std::string::npos);
 }
 
 TEST_CASE("agent cost: level names that only contain a menu word are levels") {
-    const Json r = agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/subtitle.scene.json","kind":"scene"},
+    const Json r =
+        agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/subtitle.scene.json","kind":"scene"},
         {"name":"scenes/twin.scene.json","kind":"scene"},{"name":"scenes/close.scene.json","kind":"scene"},{"name":"scenes/gloss.scene.json","kind":"scene"},
         {"name":"menu/level1.scene.json","kind":"scene"},{"name":"scenes/main_menu.scene.json","kind":"scene"}]})");
     CHECK(r["phases"] == 6);
@@ -84,7 +89,8 @@ TEST_CASE("agent cost: level names that only contain a menu word are levels") {
 }
 
 TEST_CASE("agent cost: PascalCase menu and end screens are not levels, a mark is read whole") {
-    const Json r = agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/MainMenu.scene.json","kind":"scene"},
+    const Json r =
+        agent_cost_read_play_auto(R"({"ended":"won","phases":[{"name":"scenes/MainMenu.scene.json","kind":"scene"},
         {"name":"scenes/LevelWin.scene.json","kind":"scene"},{"name":"scenes/TitleScreen.scene.json","kind":"scene"},
         {"name":"scenes/GameOver.scene.json","kind":"scene"},{"name":"scenes/Subtitle.scene.json","kind":"scene"},
         {"name":"menu/open","kind":"mark"}]})");
@@ -93,7 +99,8 @@ TEST_CASE("agent cost: PascalCase menu and end screens are not levels, a mark is
 }
 
 TEST_CASE("agent cost: a menu, a level and a win screen are one level, not three") {
-    const Json menu = agent_cost_read_play_auto(R"({"ended":"won","endedWhy":"scripts/autoplay.js ended the run with \"won\"\nsecond line","phases":[
+    const Json menu = agent_cost_read_play_auto(
+        R"({"ended":"won","endedWhy":"scripts/autoplay.js ended the run with \"won\"\nsecond line","phases":[
         {"n":1,"name":"scenes/menu.scene.json","kind":"scene"},{"n":2,"name":"scenes/main.scene.json","kind":"scene"},
         {"n":3,"name":"scenes/win.scene.json","kind":"scene"}]})");
     CHECK(menu["phases"] == 3);
@@ -101,15 +108,19 @@ TEST_CASE("agent cost: a menu, a level and a win screen are one level, not three
     CHECK(menu["endedWhy"] == "scripts/autoplay.js ended the run with \"won\"");
     AgentCostInput in;
     in.transcript = fixture();
-    in.finalPlay = Json::parse(R"({"ended":"won","phases":[{"name":"scenes/menu.scene.json","kind":"scene"},{"name":"scenes/main.scene.json","kind":"scene"},{"name":"scenes/win.scene.json","kind":"scene"}]})");
+    in.finalPlay = Json::parse(
+        R"({"ended":"won","phases":[{"name":"scenes/menu.scene.json","kind":"scene"},{"name":"scenes/main.scene.json","kind":"scene"},{"name":"scenes/win.scene.json","kind":"scene"}]})");
     CHECK(agent_cost_report(in)["finalGame"]["reachedLastLevel"] == false);
-    in.finalPlay = Json::parse(R"({"ended":"won","phases":[{"name":"scenes/main.scene.json","kind":"scene"},{"name":"scenes/level2.scene.json","kind":"scene"},{"name":"scenes/level3.scene.json","kind":"scene"}]})");
+    in.finalPlay = Json::parse(
+        R"({"ended":"won","phases":[{"name":"scenes/main.scene.json","kind":"scene"},{"name":"scenes/level2.scene.json","kind":"scene"},{"name":"scenes/level3.scene.json","kind":"scene"}]})");
     CHECK(agent_cost_report(in)["finalGame"]["reachedLastLevel"] == true);
 }
 
 TEST_CASE("agent cost: a run without a result line or a playable build says so") {
     AgentCostInput in;
-    in.transcript = R"({"type":"assistant","message":{"id":"m1","usage":{"output_tokens":4},"content":[{"type":"text","text":"hi"}]}})" "\n";
+    in.transcript =
+        R"({"type":"assistant","message":{"id":"m1","usage":{"output_tokens":4},"content":[{"type":"text","text":"hi"}]}})"
+        "\n";
     const Json r = agent_cost_report(in);
     CHECK(r["firstPlayable"]["reached"] == false);
     CHECK(r["notes"].size() == 2);
@@ -117,7 +128,8 @@ TEST_CASE("agent cost: a run without a result line or a playable build says so")
 }
 
 TEST_CASE("agent cost: a play.auto answer is read whole or cut") {
-    const Json whole = agent_cost_read_play_auto(R"(note {"ended":"won","phases":[{"n":1,"name":"scenes/a.scene.json","kind":"scene"},{"n":2,"name":"boss","kind":"mark"},{"n":3,"name":"boss","kind":"mark"}],"scriptErrors":[1,2]} end)");
+    const Json whole = agent_cost_read_play_auto(
+        R"(note {"ended":"won","phases":[{"n":1,"name":"scenes/a.scene.json","kind":"scene"},{"n":2,"name":"boss","kind":"mark"},{"n":3,"name":"boss","kind":"mark"}],"scriptErrors":[1,2]} end)");
     CHECK(whole["phases"] == 2);  // the same mark twice is one phase
     CHECK(whole["ended"] == "won");
     CHECK(whole["scriptErrors"] == 2);
@@ -125,6 +137,7 @@ TEST_CASE("agent cost: a play.auto answer is read whole or cut") {
     CHECK(cut["phases"] == 2);
     CHECK(cut["parsed"] == false);
     // Wrapped text: a "name" key outside the phases array is not a phase.
-    const Json wrapped = agent_cost_read_play_auto(R"(log "phases": [{"name":"a"},{"name":"b"}] and later "name":"zzz", "name":"yyy")");
+    const Json wrapped =
+        agent_cost_read_play_auto(R"(log "phases": [{"name":"a"},{"name":"b"}] and later "name":"zzz", "name":"yyy")");
     CHECK(wrapped["phases"] == 2);
 }

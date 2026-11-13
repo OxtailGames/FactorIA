@@ -59,7 +59,7 @@ test("reads", () => { expect([...game.screenSize]).toEqual([1024, 768]); });
 
 namespace {
 Json store() { return Json::parse(R"({"platform": {"achievements": [{"id": "first_win", "name": "First win"}]}})"); }
-}
+}  // namespace
 
 TEST_CASE("script values: a rejection a later microtask handles is not reported, a real one is, once") {
     TestHost h("values_reject", store());

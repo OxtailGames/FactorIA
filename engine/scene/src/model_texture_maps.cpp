@@ -32,11 +32,14 @@ Geo make_geo(const MeshData& mesh) {
     }
     if (mesh.colors.size() == n * 4) {
         g.col.resize(n);
-        for (std::size_t i = 0; i < n; ++i) g.col[i] = {mesh.colors[i * 4], mesh.colors[i * 4 + 1], mesh.colors[i * 4 + 2], mesh.colors[i * 4 + 3]};
+        for (std::size_t i = 0; i < n; ++i)
+            g.col[i] = {mesh.colors[i * 4], mesh.colors[i * 4 + 1], mesh.colors[i * 4 + 2], mesh.colors[i * 4 + 3]};
     }
     for (std::size_t s = 0; s < mesh.submeshes.size(); ++s) {
         const MeshSubmesh& sm = mesh.submeshes[s];
-        const std::size_t end = sm.count == kSubmeshToEnd ? mesh.indices.size() : std::min<std::size_t>(mesh.indices.size(), std::size_t(sm.start) + sm.count);
+        const std::size_t end = sm.count == kSubmeshToEnd
+                                    ? mesh.indices.size()
+                                    : std::min<std::size_t>(mesh.indices.size(), std::size_t(sm.start) + sm.count);
         for (std::size_t k = sm.start; k + 3 <= end; k += 3) {
             g.tri.push_back({mesh.indices[k], mesh.indices[k + 1], mesh.indices[k + 2]});
             g.sub.push_back(std::uint32_t(s));
@@ -93,8 +96,10 @@ Texels rasterize(const Geo& g, int size, int bleed) {
                 const float eps = -1e-4f;
                 if (w0 < eps || w1 < eps || w2 < eps) continue;
                 const std::size_t i = std::size_t(y) * std::size_t(size) + std::size_t(x);
-                if (claimed[i] == 1) claimed[i] = 2;
-                else if (claimed[i] == 0) claimed[i] = 1;
+                if (claimed[i] == 1)
+                    claimed[i] = 2;
+                else if (claimed[i] == 0)
+                    claimed[i] = 1;
                 t.tri[i] = std::int32_t(ti);
                 t.b1[i] = std::clamp(w1, 0.0f, 1.0f);
                 t.b2[i] = std::clamp(w2, 0.0f, 1.0f);
@@ -202,7 +207,8 @@ std::uint32_t Bvh::build_range(std::uint32_t first, std::uint32_t count) {
 
 float Bvh::nearest(Vec3 o, Vec3 d, float tmax, std::int32_t skip) const {
     if (nodes_.empty()) return -1;
-    const Vec3 inv{std::fabs(d.x) > 1e-12f ? 1.0f / d.x : 1e12f, std::fabs(d.y) > 1e-12f ? 1.0f / d.y : 1e12f, std::fabs(d.z) > 1e-12f ? 1.0f / d.z : 1e12f};
+    const Vec3 inv{std::fabs(d.x) > 1e-12f ? 1.0f / d.x : 1e12f, std::fabs(d.y) > 1e-12f ? 1.0f / d.y : 1e12f,
+                   std::fabs(d.z) > 1e-12f ? 1.0f / d.z : 1e12f};
     float best = tmax;
     bool hit = false;
     std::uint32_t stack[96];
@@ -352,7 +358,8 @@ void EdgeIndex::build(const Geo& g, float edgeAngleDeg, float maxWidth) {
     std::vector<std::uint32_t> weld(g.pos.size());
     std::vector<Vec3> wpos;
     for (std::size_t v = 0; v < g.pos.size(); ++v) {
-        const std::array<std::int64_t, 3> key = {std::llround(g.pos[v].x / q), std::llround(g.pos[v].y / q), std::llround(g.pos[v].z / q)};
+        const std::array<std::int64_t, 3> key = {std::llround(g.pos[v].x / q), std::llround(g.pos[v].y / q),
+                                                 std::llround(g.pos[v].z / q)};
         auto it = ids.find(key);
         if (it == ids.end()) {
             it = ids.emplace(key, std::uint32_t(wpos.size())).first;
@@ -374,7 +381,8 @@ void EdgeIndex::build(const Geo& g, float edgeAngleDeg, float maxWidth) {
             edges.push_back({std::min(wa, wb), std::max(wa, wb), std::uint32_t(t), (k + 2) % 3});
         }
     }
-    std::sort(edges.begin(), edges.end(), [](const E& l, const E& r) { return l.a != r.a ? l.a < r.a : (l.b != r.b ? l.b < r.b : l.tri < r.tri); });
+    std::sort(edges.begin(), edges.end(),
+              [](const E& l, const E& r) { return l.a != r.a ? l.a < r.a : (l.b != r.b ? l.b < r.b : l.tri < r.tri); });
     const float edgeRad = edgeAngleDeg * kDegToRad;
     std::vector<double> acc(wpos.size(), 0.0), areaAcc(wpos.size(), 0.0);
     for (std::size_t t = 0; t < g.tri.size(); ++t)
@@ -406,7 +414,8 @@ void EdgeIndex::build(const Geo& g, float edgeAngleDeg, float maxWidth) {
         i = j;
     }
     std::vector<float> wh(wpos.size(), 0.0f);
-    for (std::size_t v = 0; v < wpos.size(); ++v) wh[v] = areaAcc[v] > 1e-12 ? float(acc[v] / (4.0 * areaAcc[v])) : 0.0f;
+    for (std::size_t v = 0; v < wpos.size(); ++v)
+        wh[v] = areaAcc[v] > 1e-12 ? float(acc[v] / (4.0 * areaAcc[v])) : 0.0f;
     for (std::size_t v = 0; v < g.pos.size(); ++v) vertexH_[v] = wh[weld[v]];
 
     // a grid over the sharp edges
@@ -424,7 +433,8 @@ void EdgeIndex::build(const Geo& g, float edgeAngleDeg, float maxWidth) {
         for (int z = cell_of(mn.z, lo_.z, nz_); z <= cell_of(mx.z, lo_.z, nz_); ++z)
             for (int y = cell_of(mn.y, lo_.y, ny_); y <= cell_of(mx.y, lo_.y, ny_); ++y)
                 for (int x = cell_of(mn.x, lo_.x, nx_); x <= cell_of(mx.x, lo_.x, nx_); ++x)
-                    cells_[(std::size_t(z) * std::size_t(ny_) + std::size_t(y)) * std::size_t(nx_) + std::size_t(x)].push_back(std::uint32_t(s));
+                    cells_[(std::size_t(z) * std::size_t(ny_) + std::size_t(y)) * std::size_t(nx_) + std::size_t(x)]
+                        .push_back(std::uint32_t(s));
     }
 }
 
@@ -464,7 +474,8 @@ float value_noise(Vec3 p, int seed) {
     const std::int64_t ix = std::int64_t(fx), iy = std::int64_t(fy), iz = std::int64_t(fz);
     const float tx = smooth(p.x - fx), ty = smooth(p.y - fy), tz = smooth(p.z - fz);
     auto h = [&](std::int64_t x, std::int64_t y, std::int64_t z) {
-        std::uint64_t k = std::uint64_t(x) * 73856093ull ^ std::uint64_t(y) * 19349663ull ^ std::uint64_t(z) * 83492791ull ^ (std::uint64_t(std::uint32_t(seed)) << 40);
+        std::uint64_t k = std::uint64_t(x) * 73856093ull ^ std::uint64_t(y) * 19349663ull ^
+                          std::uint64_t(z) * 83492791ull ^ (std::uint64_t(std::uint32_t(seed)) << 40);
         return hash01(k);
     };
     float c[2][2][2];

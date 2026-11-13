@@ -143,7 +143,8 @@ TEST_CASE("schema: pointer escaping and defaults") {
 }
 
 TEST_CASE("schema: a pattern is compiled once and validation from several threads agrees") {
-    const Json schema = Json::parse(R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[a-z_]+[0-9]*$"}}})");
+    const Json schema =
+        Json::parse(R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[a-z_]+[0-9]*$"}}})");
     std::atomic<int> wrong{0};
     std::vector<std::thread> threads;
     for (int t = 0; t < 4; ++t)
@@ -192,5 +193,7 @@ TEST_CASE("schema: an invalid pattern is a teaching error, in the validation and
     std::sort(pointers.begin(), pointers.end());
     CHECK(pointers[0] == "/properties/default/pattern");
     CHECK(pointers[1] == "/properties/enum/pattern");
-    CHECK(check_schema_patterns(Json::parse(R"({"type":"object","default":{"pattern":"(open"},"enum":[{"pattern":"("}]})")).empty());
+    CHECK(check_schema_patterns(
+              Json::parse(R"({"type":"object","default":{"pattern":"(open"},"enum":[{"pattern":"("}]})"))
+              .empty());
 }

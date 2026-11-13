@@ -16,7 +16,8 @@ constexpr int kCalls = 20000;
 Bench command_call() {
     Bench b;
     b.name = "command.call";
-    b.summary = "CommandRegistry::call x20000 over 300 commands: schema validation, defaults, the handler; every 50th call is refused";
+    b.summary = "CommandRegistry::call x20000 over 300 commands: schema validation, defaults, the handler; every 50th "
+                "call is refused";
     b.make = [] {
         struct State {
             CommandRegistry reg;
@@ -45,7 +46,8 @@ Bench command_call() {
             info.inputSchema = schema;
             s->names.push_back(info.name);
             s->reg.add(info, [](const Json& args) {
-                return Json::object({{"sum", args["a"].get<double>() + args["b"].get<double>()}, {"mode", args["mode"]}});
+                return Json::object(
+                    {{"sum", args["a"].get<double>() + args["b"].get<double>()}, {"mode", args["mode"]}});
             });
         }
         for (int i = 0; i < 16; ++i)

@@ -23,11 +23,11 @@ namespace fa {
 class StartupTimeline {
 public:
     enum class Mark : int {
-        WindowReady,     // the window and its graphics context exist (the first frame callback)
-        FirstPresent,    // the first frame was presented: a clear frame, the game's files not read yet
-        InitBegin,       // Engine::init starts: the first game file is read after this
-        InitEnd,         // Engine::init returned: scenes, scripts, textures of the first scene and the shaders are loaded
-        WarmEnd,         // the pipelines the first scene draws with were made (after InitEnd, before the first game frame)
+        WindowReady,   // the window and its graphics context exist (the first frame callback)
+        FirstPresent,  // the first frame was presented: a clear frame, the game's files not read yet
+        InitBegin,     // Engine::init starts: the first game file is read after this
+        InitEnd,       // Engine::init returned: scenes, scripts, textures of the first scene and the shaders are loaded
+        WarmEnd,  // the pipelines the first scene draws with were made (after InitEnd, before the first game frame)
         FirstGameFrame,  // the first game frame (simulation + drawing) is done
         Count
     };

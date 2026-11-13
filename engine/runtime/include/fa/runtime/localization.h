@@ -15,7 +15,8 @@ namespace fa {
 //   2. When `followSystem` (a game in its own window or an exported game; not headless runs, tests, the MCP server, the editor):
 //      the best match of `systemLanguages` (fa::best_language_match).
 //   3. defaultLanguage. Headless runs end here, so their output never depends on the machine.
-std::string choose_start_language(const I18n& i18n, std::string_view configured, std::string_view environment, bool followSystem,
-                                  const std::vector<std::string>& systemLanguages, std::vector<std::string>* problems = nullptr);
+std::string choose_start_language(const I18n& i18n, std::string_view configured, std::string_view environment,
+                                  bool followSystem, const std::vector<std::string>& systemLanguages,
+                                  std::vector<std::string>* problems = nullptr);
 
 }  // namespace fa

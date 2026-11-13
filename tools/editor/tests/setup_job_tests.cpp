@@ -37,9 +37,13 @@ void put(const stdfs::path& p, const std::string& content = "x") {
 std::string repo_xml() {
     const std::string content(500, 'T');
     return "<sdk:sdk-repository>\n<license id=\"android-sdk-license\" type=\"text\">" + std::string(kLicenseText) +
-           "</license>\n<remotePackage path=\"cmdline-tools;latest\"><revision><major>23</major><minor>0</minor></revision><archives><archive><complete>"
-           "<size>" + std::to_string(content.size()) + "</size><checksum type=\"sha1\">" + sha1_hex(content) +
-           "</checksum><url>commandlinetools-mac_arm64-1_latest.zip</url></complete><host-os>macosx</host-os><host-arch>aarch64</host-arch>"
+           "</license>\n<remotePackage "
+           "path=\"cmdline-tools;latest\"><revision><major>23</major><minor>0</minor></"
+           "revision><archives><archive><complete>"
+           "<size>" +
+           std::to_string(content.size()) + "</size><checksum type=\"sha1\">" + sha1_hex(content) +
+           "</checksum><url>commandlinetools-mac_arm64-1_latest.zip</url></complete><host-os>macosx</"
+           "host-os><host-arch>aarch64</host-arch>"
            "</archive></archives></remotePackage></sdk:sdk-repository>";
 }
 
@@ -48,7 +52,7 @@ std::string repo_xml() {
 struct World {
     stdfs::path root, home, exeDir;
     std::map<std::string, std::string> served;  // url -> body
-    std::set<std::string> blocked;               // urls whose download waits until it is cancelled
+    std::set<std::string> blocked;              // urls whose download waits until it is cancelled
     std::mutex mu;
     std::vector<std::string> requested, ran;
 
@@ -71,7 +75,8 @@ struct World {
     void serve_cmake() {
         const std::string name = "cmake-3.31.6-macos-universal.tar.gz";
         const std::string content = "the cmake archive " + std::string(300, 'c');
-        served[std::string(kCmakeBase) + "cmake-3.31.6-SHA-256.txt"] = std::string(64, 'e') + "  cmake-3.31.6-files-v1.json\n" + sha256_hex(content) + "  " + name + "\n";
+        served[std::string(kCmakeBase) + "cmake-3.31.6-SHA-256.txt"] =
+            std::string(64, 'e') + "  cmake-3.31.6-files-v1.json\n" + sha256_hex(content) + "  " + name + "\n";
         served[std::string(kCmakeBase) + name] = content;
     }
 
@@ -105,7 +110,8 @@ struct World {
         DownloadResult r;
         if (blocked.count(rq.url)) {
             if (rq.onBytes) rq.onBytes(1);
-            for (int i = 0; i < 5000 && !is_cancelled(rq.cancel); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            for (int i = 0; i < 5000 && !is_cancelled(rq.cancel); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
             r.ok = false;
             r.cancelled = true;
             r.error = make_error("cancelled in the test");
@@ -141,7 +147,8 @@ struct World {
             }
             const std::string name = stdfs::path(archive).filename().string();
             if (name.rfind("cmake-", 0) != 0) return make_error("the test cannot unpack " + name);
-            put(stdfs::path(dest) / name.substr(0, name.find(".tar.gz")) / "CMake.app" / "Contents" / "bin" / "cmake", "cmake");
+            put(stdfs::path(dest) / name.substr(0, name.find(".tar.gz")) / "CMake.app" / "Contents" / "bin" / "cmake",
+                "cmake");
             return r;
         }
         if (exe == "cmake") {
@@ -156,7 +163,8 @@ struct World {
 
 void wait_for(SetupJob& job, int seconds = 20) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
-    while (job.running() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (job.running() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE_FALSE(job.running());
 }
 
@@ -257,7 +265,8 @@ TEST_CASE("setup words: states, sizes, what is installed") {
     CHECK(setup_what("players", {"mobile"}) == "mobile libraries");
     CHECK(setup_what("players", {"windows", "linux"}) == "Windows and Linux players");
     CHECK(setup_what("players", {"web"}) == "web player");
-    CHECK(setup_what("players", {"windows", "linux", "macos", "mobile"}) == "Windows, Linux and macOS players and mobile libraries");
+    CHECK(setup_what("players", {"windows", "linux", "macos", "mobile"}) ==
+          "Windows, Linux and macOS players and mobile libraries");
     CHECK(setup_what("players") == "players for the other platforms");
 }
 
@@ -270,7 +279,8 @@ TEST_CASE("setup progress: the percentage at the end of a line") {
     CHECK(parse_progress_percent("40% of the way there") == std::nullopt);  // only a trailing percentage counts
     CHECK(parse_progress_percent("%") == std::nullopt);
     CHECK(parse_progress_percent("") == std::nullopt);
-    CHECK(parse_progress_percent("Installing platform-tools, platform 36 and build-tools 35.0.0 (sdkmanager)...") == std::nullopt);
+    CHECK(parse_progress_percent("Installing platform-tools, platform 36 and build-tools 35.0.0 (sdkmanager)...") ==
+          std::nullopt);
     CHECK(parse_progress_percent("a 1234% b 12345%") == std::nullopt);
 }
 
@@ -321,7 +331,8 @@ TEST_CASE("setup action of a component: Install, Reinstall, Open App Store") {
 
 TEST_CASE("setup action of an Export row: android needs its toolchain") {
     SetupStatus st = bare_status();
-    const ExportStatus row = not_ready("export: cannot build the Android app on this computer: No JDK 17 or newer was found.");
+    const ExportStatus row =
+        not_ready("export: cannot build the Android app on this computer: No JDK 17 or newer was found.");
     auto actions = setup_actions_for_row("android", row, st);
     REQUIRE(actions.size() == 1);
     CHECK(actions[0].label == "Install Android build tools");
@@ -339,7 +350,8 @@ TEST_CASE("setup action of an Export row: android needs its toolchain") {
     CHECK(keys(setup_actions_for_row("android", row, st)) == std::vector<std::string>{"android"});
 
     // Without prebuilt players (and no engine checkout) the mobile libraries are what is missing.
-    const ExportStatus prebuilt = not_ready("export: cannot export for android: no prebuilt player (mobile/android not found) and no engine source checkout");
+    const ExportStatus prebuilt = not_ready("export: cannot export for android: no prebuilt player (mobile/android not "
+                                            "found) and no engine source checkout");
     comp(st, "android").paths = {{"jdk", "/jdk"}, {"sdk", "/sdk"}};
     actions = setup_actions_for_row("android", prebuilt, st);
     REQUIRE(actions.size() == 1);
@@ -352,7 +364,8 @@ TEST_CASE("setup action of an Export row: android needs its toolchain") {
 
     // Neither the toolchain nor the libraries: both, toolchain first.
     SetupStatus bare = bare_status();
-    actions = setup_actions_for_row("android", not_ready(prebuilt.error + "; cannot build the Android app on this computer"), bare);
+    actions = setup_actions_for_row(
+        "android", not_ready(prebuilt.error + "; cannot build the Android app on this computer"), bare);
     CHECK(keys(actions) == std::vector<std::string>{"android", "players-mobile"});
 
     // An unsupported or absent component is never offered.
@@ -367,7 +380,8 @@ TEST_CASE("setup action of an Export row: another OS needs its player") {
     REQUIRE_FALSE(other.empty());
     REQUIRE_FALSE(own.empty());
     SetupStatus st = bare_status();
-    const ExportStatus row = not_ready("export: cannot export for " + other + " without a player binary built for " + other);
+    const ExportStatus row =
+        not_ready("export: cannot export for " + other + " without a player binary built for " + other);
 
     auto actions = setup_actions_for_row(other, row, st);
     REQUIRE(actions.size() == 1);
@@ -381,12 +395,13 @@ TEST_CASE("setup action of an Export row: another OS needs its player") {
     CHECK(setup_actions_for_row(other, ready_row(), st).empty());  // a player was chosen (Choose player...): ready
     comp(st, "players").state = "partial";
     comp(st, "players").paths = {{"player-" + other, "/home/factoria/players/0.1.3/" + other + "/factoria_player"}};
-    CHECK(setup_actions_for_row(other, row, st).empty());          // it is installed: the reason is another one
+    CHECK(setup_actions_for_row(other, row, st).empty());  // it is installed: the reason is another one
     comp(st, "players").paths = {{"player-" + own, "/somewhere"}};
     CHECK(keys(setup_actions_for_row(other, row, st)) == std::vector<std::string>{"players-" + other});
 
     // This machine's own platform has its player next to the editor: no download for it.
-    CHECK(setup_actions_for_row(own, not_ready("export: factoria_player not found next to the factoria binary"), st).empty());
+    CHECK(setup_actions_for_row(own, not_ready("export: factoria_player not found next to the factoria binary"), st)
+              .empty());
 }
 
 TEST_CASE("setup action of an Export row: a web row that cannot run offers the web player") {
@@ -421,7 +436,8 @@ TEST_CASE("setup action of an Export row: iOS shows CMake and Xcode even when th
 
     // Not ready for want of the libraries: they come first.
     SetupStatus bare = bare_status();
-    actions = setup_actions_for_row("ios", not_ready("export: cannot export for ios: no prebuilt player (mobile/ios not found)"), bare);
+    actions = setup_actions_for_row(
+        "ios", not_ready("export: cannot export for ios: no prebuilt player (mobile/ios not found)"), bare);
     CHECK(keys(actions) == std::vector<std::string>{"players-mobile", "cmake", "xcode"});
 
     // Not a Mac: CMake and Xcode are not for this computer.
@@ -463,8 +479,10 @@ TEST_CASE("setup job: an install runs on a worker with its progress, and finishe
     CHECK_FALSE(job.take_result());  // once
 
     const std::vector<std::string> lines = job.recent_lines();
-    CHECK(std::any_of(lines.begin(), lines.end(), [](const std::string& l) { return l.find("Looking up the checksum") != std::string::npos; }));
-    CHECK(std::any_of(lines.begin(), lines.end(), [](const std::string& l) { return l.find("Downloading CMake 3.31.6") != std::string::npos; }));
+    CHECK(std::any_of(lines.begin(), lines.end(),
+                      [](const std::string& l) { return l.find("Looking up the checksum") != std::string::npos; }));
+    CHECK(std::any_of(lines.begin(), lines.end(),
+                      [](const std::string& l) { return l.find("Downloading CMake 3.31.6") != std::string::npos; }));
     {
         std::lock_guard<std::mutex> lock(outerMu);
         CHECK(outer.size() == lines.size());
@@ -511,9 +529,10 @@ TEST_CASE("setup job: lines are trimmed and capped, and a trailing percentage is
 TEST_CASE("setup job: Cancel stops the download and nothing is installed") {
     World w;
     const std::string name = "FactorIA-windows-x64.zip";
-    w.served[kTagsUrl] = R"({"tag_name":"v0.1.3","assets":[{"name":")" + name +
-                         R"(","size":1000,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/)" + name +
-                         R"(","digest":null}]})";
+    w.served[kTagsUrl] =
+        R"({"tag_name":"v0.1.3","assets":[{"name":")" + name +
+        R"(","size":1000,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/)" +
+        name + R"(","digest":null}]})";
     w.blocked.insert("https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/" + name);
     SetupJob job;
     SetupInstallOptions opt;
@@ -555,9 +574,10 @@ TEST_CASE("setup job: Cancel stops the download and nothing is installed") {
 TEST_CASE("setup job: a destructor cancels a running install instead of waiting for it") {
     World w;
     const std::string name = "FactorIA-windows-x64.zip";
-    w.served[kTagsUrl] = R"({"tag_name":"v0.1.3","assets":[{"name":")" + name +
-                         R"(","size":1000,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/)" + name +
-                         R"(","digest":null}]})";
+    w.served[kTagsUrl] =
+        R"({"tag_name":"v0.1.3","assets":[{"name":")" + name +
+        R"(","size":1000,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/)" +
+        name + R"(","digest":null}]})";
     w.blocked.insert("https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/" + name);
     const auto started = std::chrono::steady_clock::now();
     {
@@ -626,7 +646,9 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK_FALSE(cache.refreshing());
     const SetupStatus& st = cache.status();
     CHECK(st.home == w.home.string());
-    REQUIRE(st.components.size() == 10);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player and the app launcher (no editor button for the shader and web player ones yet)
+    REQUIRE(
+        st.components.size() ==
+        10);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player and the app launcher (no editor button for the shader and web player ones yet)
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");

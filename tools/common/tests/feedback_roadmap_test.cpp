@@ -43,7 +43,8 @@ const std::map<std::string, std::string>& prefixes() {
 std::string squash(const std::string& name) {
     std::string out;
     for (char c : name)
-        if (std::isalnum(static_cast<unsigned char>(c))) out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (std::isalnum(static_cast<unsigned char>(c)))
+            out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return out;
 }
 
@@ -98,8 +99,9 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
 
     const std::string roadmap = read_all(root / "feedback" / "ROADMAP.md");
     REQUIRE_MESSAGE(!roadmap.empty(), "feedback/ROADMAP.md is missing or empty.");
-    const std::string regen = "Regenerate the count with `factoria feedback collect examples/* --out feedback/ROADMAP.md` "
-                        "(it rewrites the whole file: put the status paragraph and the milestones section back).";
+    const std::string regen =
+        "Regenerate the count with `factoria feedback collect examples/* --out feedback/ROADMAP.md` "
+        "(it rewrites the whole file: put the status paragraph and the milestones section back).";
 
     // 1. The count line the generator wrote under the status paragraph.
     std::ostringstream want;
@@ -109,10 +111,12 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     static const std::regex countRe(R"((\d+) entries from (\d+) project\(s\), (\d+) distinct gap\(s\))");
     REQUIRE_MESSAGE(std::regex_search(roadmap, m, countRe),
                     "feedback/ROADMAP.md has no line \"N entries from M project(s), K distinct gap(s)\". " << regen);
-    CHECK_MESSAGE(m[0].str() == want.str(),
-                  "feedback/ROADMAP.md counts \"" << m[0].str() << "\" but `feedback collect examples/*` gives \"" << want.str()
-                                                  << "\". Triage the new or closed entries in the \"Next engine milestones\" part, then edit that line "
-                                                  << "(and the ranked list). " << regen);
+    CHECK_MESSAGE(
+        m[0].str() == want.str(),
+        "feedback/ROADMAP.md counts \""
+            << m[0].str() << "\" but `feedback collect examples/*` gives \"" << want.str()
+            << "\". Triage the new or closed entries in the \"Next engine milestones\" part, then edit that line "
+            << "(and the ranked list). " << regen);
 
     // 2. Every open entry is named below the generated list, as PREFIX/FB-nnnn (the list itself names all of them).
     const size_t cut = roadmap.find("\n# Next engine milestones");
@@ -132,17 +136,21 @@ TEST_CASE("feedback/ROADMAP.md counts and names what the examples have open") {
     }
     std::ostringstream unk;
     for (const auto& p : unknownProjects) unk << " \"" << p << "\"";
-    CHECK_MESSAGE(unknownProjects.empty(),
-                  "feedback/ROADMAP.md cites entries by a two-letter prefix, and these projects have none:"
-                      << unk.str() << ". Pick a two-letter prefix that no row of prefixes() in "
-                      << "tools/common/tests/feedback_roadmap_test.cpp uses, add the row, and cite the project's entries "
-                      << "with it in ROADMAP.md (e.g. XX/FB-0001); their citations are not checked until the project has one.");
+    CHECK_MESSAGE(
+        unknownProjects.empty(),
+        "feedback/ROADMAP.md cites entries by a two-letter prefix, and these projects have none:"
+            << unk.str() << ". Pick a two-letter prefix that no row of prefixes() in "
+            << "tools/common/tests/feedback_roadmap_test.cpp uses, add the row, and cite the project's entries "
+            << "with it in ROADMAP.md (e.g. XX/FB-0001); their citations are not checked until the project has one.");
     std::ostringstream o;
     for (const auto& c : missing) o << " " << c;
     CHECK_MESSAGE(missing.empty(),
                   "These open entries are named nowhere below \"# Next engine milestones\" in feedback/ROADMAP.md:"
-                      << o.str() << ". Triage each one (read the entry; say whether it is a package, docs only, a duplicate or held) and add a line "
+                      << o.str()
+                      << ". Triage each one (read the entry; say whether it is a package, docs only, a duplicate or "
+                         "held) and add a line "
                       << "naming it, e.g. \"- " << (missing.empty() ? "XX/FB-0001" : *missing.begin())
-                      << " (what it asks): package M101.n\" in the milestone it belongs to. Closing or rejecting an entry is a decision for "
+                      << " (what it asks): package M101.n\" in the milestone it belongs to. Closing or rejecting an "
+                         "entry is a decision for "
                       << "`factoria feedback update`, not for this test. Then update the count line: " << regen);
 }

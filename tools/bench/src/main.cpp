@@ -43,7 +43,8 @@ const char* kUsage =
     "  --baseline FILE        compare with this file instead\n"
     "  --baselines-dir DIR    where the baselines are (default: tools/bench/baselines, found from here upwards)\n"
     "  --require-baseline     a benchmark without a baseline entry fails the comparison (default: it only warns)\n"
-    "  --retries N            measure a benchmark that fails the comparison up to N more times, the best run counts (default 2)\n"
+    "  --retries N            measure a benchmark that fails the comparison up to N more times, the best run counts "
+    "(default 2)\n"
     "  --report FILE          write the comparison as JSON\n"
     "  --update-baseline      write the measurements into <baselines dir>/<runner>.json (the other entries stay)\n"
     "exit status: 0 = ok (also with warnings or no baseline), 1 = a benchmark got too slow, 2 = bad arguments\n";
@@ -69,8 +70,8 @@ bool parse_args(int argc, char** argv, Args& a, std::string& error) {
         char* end = nullptr;
         const long v = std::strtol(text, &end, 10);
         if (end == text || *end || v < lo || v > hi) {
-            error = std::string(flag) + " takes a whole number from " + std::to_string(lo) + " to " + std::to_string(hi) +
-                    ", got '" + text + "'";
+            error = std::string(flag) + " takes a whole number from " + std::to_string(lo) + " to " +
+                    std::to_string(hi) + ", got '" + text + "'";
             return false;
         }
         out = int(v);
@@ -79,22 +80,44 @@ bool parse_args(int argc, char** argv, Args& a, std::string& error) {
     for (int i = 1; i < argc; ++i) {
         const std::string f = argv[i];
         const char* v = nullptr;
-        if (f == "--list") a.list = true;
-        else if (f == "--json") a.json = true;
-        else if (f == "--compare") a.compare = true;
-        else if (f == "--require-baseline") a.requireBaseline = true;
-        else if (f == "--update-baseline") a.update = true;
-        else if (f == "--help" || f == "-h") a.help = true;
-        else if (f == "--filter") { if (!(v = need(i, "--filter"))) return false; for (auto& w : split(v, ',')) a.filters.push_back(w); }
-        else if (f == "--repeats") { if (!(v = need(i, f.c_str())) || !number("--repeats", v, 1, 1000, a.repeats)) return false; }
-        else if (f == "--warmup") { if (!(v = need(i, f.c_str())) || !number("--warmup", v, 0, 100, a.warmup)) return false; }
-        else if (f == "--retries") { if (!(v = need(i, f.c_str())) || !number("--retries", v, 0, 10, a.retries)) return false; }
-        else if (f == "--jobs") { if (!(v = need(i, f.c_str()))) return false; a.jobs = v; }
-        else if (f == "--out") { if (!(v = need(i, f.c_str()))) return false; a.out = v; }
-        else if (f == "--baseline") { if (!(v = need(i, f.c_str()))) return false; a.baseline = v; a.compare = true; }
-        else if (f == "--baselines-dir") { if (!(v = need(i, f.c_str()))) return false; a.baselinesDir = v; }
-        else if (f == "--report") { if (!(v = need(i, f.c_str()))) return false; a.report = v; }
-        else {
+        if (f == "--list")
+            a.list = true;
+        else if (f == "--json")
+            a.json = true;
+        else if (f == "--compare")
+            a.compare = true;
+        else if (f == "--require-baseline")
+            a.requireBaseline = true;
+        else if (f == "--update-baseline")
+            a.update = true;
+        else if (f == "--help" || f == "-h")
+            a.help = true;
+        else if (f == "--filter") {
+            if (!(v = need(i, "--filter"))) return false;
+            for (auto& w : split(v, ',')) a.filters.push_back(w);
+        } else if (f == "--repeats") {
+            if (!(v = need(i, f.c_str())) || !number("--repeats", v, 1, 1000, a.repeats)) return false;
+        } else if (f == "--warmup") {
+            if (!(v = need(i, f.c_str())) || !number("--warmup", v, 0, 100, a.warmup)) return false;
+        } else if (f == "--retries") {
+            if (!(v = need(i, f.c_str())) || !number("--retries", v, 0, 10, a.retries)) return false;
+        } else if (f == "--jobs") {
+            if (!(v = need(i, f.c_str()))) return false;
+            a.jobs = v;
+        } else if (f == "--out") {
+            if (!(v = need(i, f.c_str()))) return false;
+            a.out = v;
+        } else if (f == "--baseline") {
+            if (!(v = need(i, f.c_str()))) return false;
+            a.baseline = v;
+            a.compare = true;
+        } else if (f == "--baselines-dir") {
+            if (!(v = need(i, f.c_str()))) return false;
+            a.baselinesDir = v;
+        } else if (f == "--report") {
+            if (!(v = need(i, f.c_str()))) return false;
+            a.report = v;
+        } else {
             error = "unknown option '" + f + "'";
             return false;
         }
@@ -104,11 +127,13 @@ bool parse_args(int argc, char** argv, Args& a, std::string& error) {
 
 // tools/bench/baselines, looked for from the working directory upwards and then from the program's directory upwards.
 std::filesystem::path find_baselines_dir(const char* argv0) {
-    for (std::filesystem::path start : {std::filesystem::current_path(), std::filesystem::absolute(fs::path_from_utf8(argv0)).parent_path()}) {
+    for (std::filesystem::path start :
+         {std::filesystem::current_path(), std::filesystem::absolute(fs::path_from_utf8(argv0)).parent_path()}) {
         std::filesystem::path dir = start;
         for (int up = 0; up < 8 && !dir.empty(); ++up) {
             std::error_code ec;
-            if (std::filesystem::is_directory(dir / "tools" / "bench" / "baselines", ec)) return dir / "tools" / "bench" / "baselines";
+            if (std::filesystem::is_directory(dir / "tools" / "bench" / "baselines", ec))
+                return dir / "tools" / "bench" / "baselines";
             if (dir == dir.parent_path()) break;
             dir = dir.parent_path();
         }
@@ -116,7 +141,8 @@ std::filesystem::path find_baselines_dir(const char* argv0) {
     return {};
 }
 
-bool write_text_file(const std::filesystem::path& file, const std::string& text, std::string& error, bool append = false) {
+bool write_text_file(const std::filesystem::path& file, const std::string& text, std::string& error,
+                     bool append = false) {
     std::error_code ec;
     if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
     std::ofstream f(file, std::ios::binary | (append ? std::ios::app : std::ios::trunc));
@@ -143,14 +169,15 @@ std::optional<Json> read_json_file(const std::filesystem::path& file, std::strin
 }
 
 void print_table(const std::vector<Measurement>& ms) {
-    std::printf("%-26s %10s %8s %10s %10s %10s  %s\n", "benchmark", "median ms", "spread", "min ms", "max ms", "cpu ms", "per run");
+    std::printf("%-26s %10s %8s %10s %10s %10s  %s\n", "benchmark", "median ms", "spread", "min ms", "max ms", "cpu ms",
+                "per run");
     for (const Measurement& m : ms) {
         if (m.skipped) {
             std::printf("%-26s skipped: %s\n", m.name.c_str(), m.skipReason.c_str());
             continue;
         }
-        std::printf("%-26s %10.3f %7.0f%% %10.3f %10.3f %10.3f  %lld %s%s\n", m.name.c_str(), m.medianMs, m.spread * 100.0, m.minMs,
-                    m.maxMs, m.cpuMedianMs, static_cast<long long>(m.items), m.unit.c_str(),
+        std::printf("%-26s %10.3f %7.0f%% %10.3f %10.3f %10.3f  %lld %s%s\n", m.name.c_str(), m.medianMs,
+                    m.spread * 100.0, m.minMs, m.maxMs, m.cpuMedianMs, static_cast<long long>(m.items), m.unit.c_str(),
                     m.sameWork ? "" : "  (the repeats did different work!)");
     }
 }
@@ -164,24 +191,29 @@ bool selected(const Bench& b, const std::vector<std::string>& filters) {
 
 void github_annotations(const CompareReport& report) {
     for (const Comparison& c : report.rows) {
-        if (c.verdict == Verdict::Fail) std::printf("::error title=bench fail (%s)::%s\n", c.name.c_str(), c.message.c_str());
+        if (c.verdict == Verdict::Fail)
+            std::printf("::error title=bench fail (%s)::%s\n", c.name.c_str(), c.message.c_str());
         else if (c.verdict == Verdict::Warn || c.verdict == Verdict::Faster)
-            std::printf("::warning title=bench %s (%s)::%s\n", verdict_name(c.verdict), c.name.c_str(), c.message.c_str());
+            std::printf("::warning title=bench %s (%s)::%s\n", verdict_name(c.verdict), c.name.c_str(),
+                        c.message.c_str());
     }
-    if (!report.note.empty()) std::printf("::warning title=bench without baseline::%s\n", report.note.c_str());
+    if (!report.note.empty())
+        std::printf("::warning title=bench without baseline::%s\n", report.note.c_str());
     else if (report.count(Verdict::NoBaseline) > 0) {
         std::string names;
         for (const Comparison& c : report.rows)
             if (c.verdict == Verdict::NoBaseline) names += (names.empty() ? "" : ", ") + c.name;
-        std::printf("::warning title=bench without baseline::No baseline entry for runner %s: %s. %s\n", report.runner.c_str(),
-                    names.c_str(), update_hint(report.runner, report.baselineFile).c_str());
+        std::printf("::warning title=bench without baseline::No baseline entry for runner %s: %s. %s\n",
+                    report.runner.c_str(), names.c_str(), update_hint(report.runner, report.baselineFile).c_str());
     }
 }
 
 void github_summary(const CompareReport& report, const std::vector<Measurement>& ms) {
     const char* path = std::getenv("GITHUB_STEP_SUMMARY");
     if (!path || !*path) return;
-    std::string md = "### Microbenchmarks (" + report.runner + ")\n\n| benchmark | median ms | spread | baseline ms | ratio | result |\n|---|---|---|---|---|---|\n";
+    std::string md =
+        "### Microbenchmarks (" + report.runner +
+        ")\n\n| benchmark | median ms | spread | baseline ms | ratio | result |\n|---|---|---|---|---|---|\n";
     char base[32] = "-", ratio[32] = "-", line[320];
     for (std::size_t i = 0; i < report.rows.size() && i < ms.size(); ++i) {
         const Comparison& c = report.rows[i];
@@ -192,8 +224,8 @@ void github_summary(const CompareReport& report, const std::vector<Measurement>&
             std::snprintf(base, sizeof base, "-");
             std::snprintf(ratio, sizeof ratio, "-");
         }
-        std::snprintf(line, sizeof line, "| %s | %.3f | %.0f%% | %s | %s | %s |\n", c.name.c_str(), ms[i].medianMs, ms[i].spread * 100.0,
-                      base, ratio, verdict_name(c.verdict));
+        std::snprintf(line, sizeof line, "| %s | %.3f | %.0f%% | %s | %s | %s |\n", c.name.c_str(), ms[i].medianMs,
+                      ms[i].spread * 100.0, base, ratio, verdict_name(c.verdict));
         md += line;
     }
     std::string error;
@@ -247,12 +279,15 @@ int main(int argc, char** argv) {
 
     const std::string runner = runner_id();
     const bool github = std::getenv("GITHUB_ACTIONS") != nullptr;
-    std::filesystem::path baselinesDir = args.baselinesDir.empty() ? find_baselines_dir(argv[0]) : fs::path_from_utf8(args.baselinesDir);
+    std::filesystem::path baselinesDir =
+        args.baselinesDir.empty() ? find_baselines_dir(argv[0]) : fs::path_from_utf8(args.baselinesDir);
     std::filesystem::path baselinePath =
-        !args.baseline.empty() ? fs::path_from_utf8(args.baseline)
-                               : (baselinesDir.empty() ? std::filesystem::path() : baselinesDir / fs::path_from_utf8(runner + ".json"));
+        !args.baseline.empty()
+            ? fs::path_from_utf8(args.baseline)
+            : (baselinesDir.empty() ? std::filesystem::path() : baselinesDir / fs::path_from_utf8(runner + ".json"));
     if ((args.compare || args.update) && baselinePath.empty()) {
-        std::fprintf(stderr, "fa_bench: tools/bench/baselines was not found from here; run from the repository or give --baselines-dir DIR\n");
+        std::fprintf(stderr, "fa_bench: tools/bench/baselines was not found from here; run from the repository or give "
+                             "--baselines-dir DIR\n");
         return 2;
     }
 
@@ -294,8 +329,8 @@ int main(int argc, char** argv) {
             // A shared machine is slow for seconds at a time: measure what failed again, the best run counts.
             for (std::size_t i = 0; i < results.size(); ++i) {
                 if (report.rows[i].verdict != Verdict::Fail) continue;
-                std::fprintf(stderr, "%s was over its limit (%.3f ms); measuring it again (%d of %d) ...\n", results[i].name.c_str(),
-                             results[i].medianMs, attempt + 1, args.retries);
+                std::fprintf(stderr, "%s was over its limit (%.3f ms); measuring it again (%d of %d) ...\n",
+                             results[i].name.c_str(), results[i].medianMs, attempt + 1, args.retries);
                 for (const Bench* b : chosen) {
                     if (b->name != results[i].name) continue;
                     Measurement again = run_bench(*b, options);
@@ -306,10 +341,14 @@ int main(int argc, char** argv) {
         compared = true;
     }
 
-    if (args.json) std::printf("%s", dump_json(measurements_to_json(runner, jobsName, args.repeats, results)).c_str());
-    else print_table(results);
+    if (args.json)
+        std::printf("%s", dump_json(measurements_to_json(runner, jobsName, args.repeats, results)).c_str());
+    else
+        print_table(results);
     for (const Measurement& m : results)
-        if (!m.sameWork) std::printf("note: %s did different work in different repeats, so its numbers are not comparable.\n", m.name.c_str());
+        if (!m.sameWork)
+            std::printf("note: %s did different work in different repeats, so its numbers are not comparable.\n",
+                        m.name.c_str());
 
     if (compared) {
         if (!args.json) {
@@ -329,7 +368,8 @@ int main(int argc, char** argv) {
         }
     }
     if (!args.out.empty()) {
-        if (!write_text_file(fs::path_from_utf8(args.out), dump_json(measurements_to_json(runner, jobsName, args.repeats, results)), error)) {
+        if (!write_text_file(fs::path_from_utf8(args.out),
+                             dump_json(measurements_to_json(runner, jobsName, args.repeats, results)), error)) {
             std::fprintf(stderr, "fa_bench: %s\n", error.c_str());
             status = 2;
         }
@@ -341,7 +381,8 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "fa_bench: not updating, the old baseline cannot be read: %s\n", readError.c_str());
             status = 2;
         } else {
-            const Json merged = merge_baseline(existing ? &*existing : nullptr, runner, jobsName, args.repeats, results);
+            const Json merged =
+                merge_baseline(existing ? &*existing : nullptr, runner, jobsName, args.repeats, results);
             if (!write_text_file(baselinePath, dump_json(merged), error)) {
                 std::fprintf(stderr, "fa_bench: %s\n", error.c_str());
                 status = 2;

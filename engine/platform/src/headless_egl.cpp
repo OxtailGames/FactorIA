@@ -60,7 +60,8 @@ bool HeadlessGpu::init(std::string* error) {
     EGLint major = 0, minor = 0;
 #if !defined(__ANDROID__)
     {
-        auto getPlatformDisplay = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT"));
+        auto getPlatformDisplay =
+            reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT"));
         if (getPlatformDisplay) {
             EGLDisplay d = getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
             if (d != EGL_NO_DISPLAY && eglInitialize(d, &major, &minor)) {
@@ -75,10 +76,10 @@ bool HeadlessGpu::init(std::string* error) {
     if (m->display == EGL_NO_DISPLAY) {
         EGLDisplay d = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (d == EGL_NO_DISPLAY || !eglInitialize(d, &major, &minor)) {
-            return fail(
-                "No EGL display available (" + egl_error_name() + "). The headless renderer needs an OpenGL driver: "
-                "install Mesa (apt install libegl1 libgl1-mesa-dri libgles2) or run the command under "
-                "`xvfb-run -a -s \"-screen 0 1280x720x24\" <cmd>`.");
+            return fail("No EGL display available (" + egl_error_name() +
+                        "). The headless renderer needs an OpenGL driver: "
+                        "install Mesa (apt install libegl1 libgl1-mesa-dri libgles2) or run the command under "
+                        "`xvfb-run -a -s \"-screen 0 1280x720x24\" <cmd>`.");
         }
         m->display = d;
         how = "EGL pbuffer";
@@ -99,8 +100,19 @@ bool HeadlessGpu::init(std::string* error) {
     EGLint numConfigs = 0;
     bool havePbuffer = true;
     {
-        const EGLint attribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, renderable,
-                                  EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
+        const EGLint attribs[] = {EGL_SURFACE_TYPE,
+                                  EGL_PBUFFER_BIT,
+                                  EGL_RENDERABLE_TYPE,
+                                  renderable,
+                                  EGL_RED_SIZE,
+                                  8,
+                                  EGL_GREEN_SIZE,
+                                  8,
+                                  EGL_BLUE_SIZE,
+                                  8,
+                                  EGL_ALPHA_SIZE,
+                                  8,
+                                  EGL_NONE};
         if (!eglChooseConfig(m->display, attribs, &config, 1, &numConfigs) || numConfigs < 1) {
             // Surfaceless-only drivers: no pbuffer configs, rely on EGL_KHR_surfaceless_context.
             const EGLint attribs2[] = {EGL_RENDERABLE_TYPE, renderable, EGL_NONE};
@@ -123,8 +135,13 @@ bool HeadlessGpu::init(std::string* error) {
     std::string ctxVersion;
     const int versions[][2] = {{4, 3}, {4, 1}};
     for (const auto& v : versions) {
-        const EGLint ctxAttribs[] = {EGL_CONTEXT_MAJOR_VERSION, v[0], EGL_CONTEXT_MINOR_VERSION, v[1],
-                                     EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
+        const EGLint ctxAttribs[] = {EGL_CONTEXT_MAJOR_VERSION,
+                                     v[0],
+                                     EGL_CONTEXT_MINOR_VERSION,
+                                     v[1],
+                                     EGL_CONTEXT_OPENGL_PROFILE_MASK,
+                                     EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                                     EGL_NONE};
         m->context = eglCreateContext(m->display, config, EGL_NO_CONTEXT, ctxAttribs);
         if (m->context != EGL_NO_CONTEXT) {
             ctxVersion = std::format("GL {}.{} core", v[0], v[1]);
@@ -150,8 +167,8 @@ bool HeadlessGpu::init(std::string* error) {
 
     const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
-    m->description = std::format("{} / {} ({}, {})", how, renderer ? renderer : "unknown GPU", ctxVersion,
-                                 version ? version : "?");
+    m->description =
+        std::format("{} / {} ({}, {})", how, renderer ? renderer : "unknown GPU", ctxVersion, version ? version : "?");
     m->valid = true;
     impl_ = m;
     return true;

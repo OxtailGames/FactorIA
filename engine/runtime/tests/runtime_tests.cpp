@@ -108,8 +108,11 @@ TEST_CASE("project: defaults, scale modes, round trip") {
     CHECK(r->scaleMode == ScaleMode::Fit);
     CHECK(r->fixedHz == 60.0);
 
-    for (auto [text, mode] : {std::pair{"fit", ScaleMode::Fit}, {"STRETCH", ScaleMode::Stretch}, {"Expand", ScaleMode::Expand},
-                              {"pixel-perfect", ScaleMode::PixelPerfect}, {"pixelPerfect", ScaleMode::PixelPerfect}}) {
+    for (auto [text, mode] : {std::pair{"fit", ScaleMode::Fit},
+                              {"STRETCH", ScaleMode::Stretch},
+                              {"Expand", ScaleMode::Expand},
+                              {"pixel-perfect", ScaleMode::PixelPerfect},
+                              {"pixelPerfect", ScaleMode::PixelPerfect}}) {
         ScaleMode m;
         CHECK(parse_scale_mode(text, m));
         CHECK(m == mode);
@@ -240,14 +243,17 @@ TEST_CASE("engine: input actions, edges and replay-style injection") {
     e.shutdown();
 }
 
-TEST_CASE("game.input: a press injected while paused survives the editor's idle frames until the next simulated frame") {
+TEST_CASE(
+    "game.input: a press injected while paused survives the editor's idle frames until the next simulated frame") {
     TempProject p("engine_input_paused");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     e.set_paused(true);  // the editor: frame() only redraws, step() simulates
     e.frame(0.016);
-    auto idle_frames = [&](int n) { for (int i = 0; i < n; ++i) e.frame(0.016); };
+    auto idle_frames = [&](int n) {
+        for (int i = 0; i < n; ++i) e.frame(0.016);
+    };
 
     // actions, keys, mouse, gamepad, touch and Back: all keep their edge across idle frames
     auto r = e.commands().call("game.input", Json::parse(R"({"press":["jump"],"key":"F","down":true,
@@ -325,11 +331,18 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     CommandRegistry& c = e.commands();
 
-    for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
-                             "scene.destroy", "scene.set_parent", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
-                             "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "audio.log", "ui.state", "ui.set_text_scale", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
-                             "i18n.state", "i18n.set_language", "api.components", "api.commands", "api.scripting", "assets.list"}) {
+    for (const char* name : {"engine.info",        "project.info",        "scene.list_entities",
+                             "scene.get_entity",   "scene.spawn",         "scene.destroy",
+                             "scene.set_parent",   "scene.set_component", "scene.remove_component",
+                             "scene.load",         "scene.save",          "scene.reload",
+                             "game.step",          "game.input",          "game.screenshot",
+                             "game.state",         "game.logs",           "game.pause",
+                             "game.resume",        "audio.log",           "ui.state",
+                             "ui.set_text_scale",  "script.eval",         "script.errors",
+                             "script.reload",      "project.test",        "physics.raycast",
+                             "physics.shape_cast", "i18n.state",          "i18n.set_language",
+                             "api.components",     "api.commands",        "api.scripting",
+                             "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
         REQUIRE(info != nullptr);
@@ -343,7 +356,9 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     CHECK(r.result["total"] == 1);
     CHECK(r.result["entities"][0]["id"] == "ball");
 
-    r = c.call("scene.spawn", Json::parse(R"({"name":"Box","components":{"Shape2D":{"size":[40,40],"color":"red"}},"position":[50,10]})"));
+    r = c.call(
+        "scene.spawn",
+        Json::parse(R"({"name":"Box","components":{"Shape2D":{"size":[40,40],"color":"red"}},"position":[50,10]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     std::string id = r.result["id"];
     r = c.call("scene.get_entity", Json::parse(R"({"id":")" + id + R"("})"));
@@ -351,13 +366,15 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     CHECK(r.result["components"]["Transform"]["position"][0] == 50);
     CHECK(r.result["components"]["Shape2D"].contains("thickness"));  // defaults included
 
-    r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"transform","fields":{"position":[7,8,0]}})"));
+    r = c.call("scene.set_component",
+               Json::parse(R"({"id":")" + id + R"(","component":"transform","fields":{"position":[7,8,0]}})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["value"]["position"][0] == 7);
     r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"Sprit","fields":{}})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("Sprite") != std::string::npos);
-    r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"Shape2D","fields":{"sizee":[1,1]}})"));
+    r = c.call("scene.set_component",
+               Json::parse(R"({"id":")" + id + R"(","component":"Shape2D","fields":{"sizee":[1,1]}})"));
     CHECK_FALSE(r.ok);
 
     r = c.call("scene.get_entity", Json::parse(R"({"id":"bal"})"));
@@ -403,7 +420,8 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     r = c.call("game.screenshot", Json{{"path", shot}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["$image"]["mimeType"] == "image/png");
-    CHECK(stdfs::equivalent(stdfs::path(r.result["$image"]["path"].get<std::string>()), stdfs::path(shot)));  // the resolved (canonical) spelling
+    CHECK(stdfs::equivalent(stdfs::path(r.result["$image"]["path"].get<std::string>()),
+                            stdfs::path(shot)));  // the resolved (canonical) spelling
     CHECK(r.result["width"] == 320);
     auto img = load_image(shot);
     REQUIRE(img.ok());
@@ -471,7 +489,9 @@ TEST_CASE("engine: physics.raycast takes mask, ignore and ignoreTriggers like ph
         CHECK(info->inputSchema["properties"][prop] == c.info("physics.shape_cast")->inputSchema["properties"][prop]);
     }
     auto ray = [&](const char* json) { return c.call("physics.raycast", Json::parse(json)); };
-    auto entity = [](const CommandResult& r) { return r.result["hit"] == true ? r.result["entity"].get<std::string>() : std::string("none"); };
+    auto entity = [](const CommandResult& r) {
+        return r.result["hit"] == true ? r.result["entity"].get<std::string>() : std::string("none");
+    };
 
     // 2D: the trigger is skipped by default and hit with ignoreTriggers=false; ignore skips an entity; mask 0 hits nothing.
     auto r = ray(R"({"from":[0,200],"to":[0,-200]})");
@@ -497,7 +517,8 @@ TEST_CASE("engine: physics.raycast takes mask, ignore and ignoreTriggers like ph
     r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignoreTriggers":false})");
     CHECK(entity(r) == "zone");
     CHECK(r.result["distance"].get<double>() == doctest::Approx(6.0).epsilon(0.01));
-    r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignoreTriggers":false,"ignore":"zone"})");
+    r = ray(
+        R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignoreTriggers":false,"ignore":"zone"})");
     CHECK(entity(r) == "ground");
     r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignore":"ground"})");
     REQUIRE(r.ok);
@@ -525,7 +546,9 @@ TEST_CASE("engine: physics.shape_cast sweeps a shape, honours ignore and explain
     for (const char* prop : {"shape", "from", "to", "mask", "ignore", "ignoreTriggers"})
         CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
     auto call = [&](const char* json) { return c.call("physics.shape_cast", Json::parse(json)); };
-    auto text = [](const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error["hint"].dump(); };
+    auto text = [](const CommandResult& r) {
+        return r.error["message"].get<std::string>() + " " + r.error["hint"].dump();
+    };
     auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
 
     // a 20x20 box above the ground (top at y=-60) stops with its centre at y=-50
@@ -623,7 +646,8 @@ TEST_CASE("engine: screenshot scale draws the same frame natively larger") {
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     // A HUD block in the top-left corner (screen space: design pixels, top-left origin).
-    auto r = c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
+    auto r =
+        c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
         "pivot":[0,1],"size":[60,30],"color":"#ff0000"},"Transform":{"position":[20,10,0]}}})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     e.step(1);
@@ -639,7 +663,12 @@ TEST_CASE("engine: screenshot scale draws the same frame natively larger") {
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) {
                 Color px = img->pixel(x, y);
-                if (px.r > 0.9f && px.g < 0.2f && px.b < 0.2f) { x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y); }
+                if (px.r > 0.9f && px.g < 0.2f && px.b < 0.2f) {
+                    x0 = std::min(x0, x);
+                    y0 = std::min(y0, y);
+                    x1 = std::max(x1, x);
+                    y1 = std::max(y1, y);
+                }
             }
         REQUIRE(x1 >= 0);
         return std::array<double, 4>{double(x0) / w, double(y0) / h, double(x1 + 1) / w, double(y1 + 1) / h};
@@ -666,7 +695,8 @@ TEST_CASE("engine: Camera.colorFilter is part of the frame, game.screenshot simu
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     auto& c = e.commands();
-    auto r = c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
+    auto r =
+        c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
         "pivot":[0,1],"size":[60,30],"color":"#ff0000"},"Transform":{"position":[20,10,0]}}})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     e.step(1);
@@ -700,7 +730,8 @@ TEST_CASE("engine: Camera.colorFilter is part of the frame, game.screenshot simu
     CHECK(bad.error.dump().find("deuteranopia") != std::string::npos);
 
     // Camera.colorFilter is drawn into the frame: the screenshot shows it without any `simulate`.
-    r = c.call("scene.spawn", Json::parse(R"({"name":"FilterCam","components":{"Camera":{"depth":-100,"colorFilter":"greyscale"}}})"));
+    r = c.call("scene.spawn",
+               Json::parse(R"({"name":"FilterCam","components":{"Camera":{"depth":-100,"colorFilter":"greyscale"}}})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     e.step(1);
     Color filtered = shot("filtered.png", Json::object());
@@ -795,7 +826,8 @@ TEST_CASE("run_headless: replay, screenshots, state dump, report, exit codes") {
     CHECK(report["problems"][0].get<std::string>().find("bogus") != std::string::npos);
 
     // Misspelled fields, keys and action names warn with did-you-mean instead of being silently ignored.
-    p.write("typo.json", R"({"frames":{"0":{"pres":["jump"]},"1":{"press":["jmup"],"keys":{"Spacee":true},"mouse":{"lft":true}},
+    p.write("typo.json",
+            R"({"frames":{"0":{"pres":["jump"]},"1":{"press":["jmup"],"keys":{"Spacee":true},"mouse":{"lft":true}},
                                           "2":{"release":"jump"}}})");
     o.frames = 4;
     o.inputReplayPath = (p.dir / "typo.json").generic_string();
@@ -900,11 +932,11 @@ TEST_CASE("run_headless: gamepad and touch replay entries, with did-you-mean war
     CHECK(in["gamepads"][1]["buttonsDown"][0] == "Start");
     CHECK(has(in["actionsDown"], "move_left"));  // the stick is bound, and 1.0 is past the 0.3 deadzone
     CHECK_FALSE(has(in["actionsDown"], "jump"));
-    REQUIRE(in["touches"].size() == 1);          // finger 1 lifted at frame 3, finger 2 is still down
+    REQUIRE(in["touches"].size() == 1);  // finger 1 lifted at frame 3, finger 2 is still down
     CHECK(in["touches"][0]["id"] == 2);
     CHECK(in["touches"][0]["position"][0] == 50);
     CHECK(has(in["actionsDown"], "touching"));
-    CHECK(in["mouse"]["position"][0] == 30);     // the first finger drove the mouse and lifted at (30, 40)
+    CHECK(in["mouse"]["position"][0] == 30);  // the first finger drove the mouse and lifted at (30, 40)
 
     p.write("typo.json", R"({"frames":{
         "0":{"gamepad":{"buton":{"A":true}}},
@@ -917,8 +949,10 @@ TEST_CASE("run_headless: gamepad and touch replay entries, with did-you-mean war
     std::string all;
     for (const auto& pr : report["problems"]) all += pr.get<std::string>() + "\n";
     CAPTURE(all);
-    CHECK(all.find("replay frame 0: gamepad: unknown field 'buton' (ignored). Did you mean 'buttons'") != std::string::npos);
-    CHECK(all.find("replay frame 1: gamepad: unknown button 'Strat' (ignored). Did you mean 'Start'") != std::string::npos);
+    CHECK(all.find("replay frame 0: gamepad: unknown field 'buton' (ignored). Did you mean 'buttons'") !=
+          std::string::npos);
+    CHECK(all.find("replay frame 1: gamepad: unknown button 'Strat' (ignored). Did you mean 'Start'") !=
+          std::string::npos);
     CHECK(all.find("unknown axis 'LeftZ'") != std::string::npos);
     CHECK(all.find("axis 'LeftX' must be a number") != std::string::npos);
     CHECK(all.find("replay frame 2: gamepad: index must be an integer from 0 to 3") != std::string::npos);
@@ -942,7 +976,8 @@ TEST_CASE("game.input: gamepad and touch members drive actions, bad names teach"
     e.step(1);
 
     // Pad 1 through an array; a known finger id moves, down:false lifts.
-    r = e.commands().call("game.input", Json::parse(R"({"gamepad":[{"index":1,"connected":true},{"index":0,"axes":{"LeftX":0}}],
+    r = e.commands().call("game.input",
+                          Json::parse(R"({"gamepad":[{"index":1,"connected":true},{"index":0,"axes":{"LeftX":0}}],
                                                        "touch":[{"id":3,"position":[7,8]}]})"));
     REQUIRE(r.ok);
     CHECK(e.input().gamepad_connected(1));
@@ -987,7 +1022,8 @@ void write_icon_png(const stdfs::path& path, int w, int h, std::uint8_t r, std::
     img.width = w;
     img.height = h;
     img.rgba.resize(std::size_t(w) * h * 4);
-    for (std::size_t i = 0; i < img.rgba.size(); i += 4) img.rgba[i] = r, img.rgba[i + 1] = g, img.rgba[i + 2] = b, img.rgba[i + 3] = 255;
+    for (std::size_t i = 0; i < img.rgba.size(); i += 4)
+        img.rgba[i] = r, img.rgba[i + 1] = g, img.rgba[i + 2] = b, img.rgba[i + 3] = 255;
     REQUIRE(save_png(img, path.generic_string()).ok());
 }
 
@@ -1032,7 +1068,8 @@ TEST_CASE("make_app_desc: a non-square or small icon gives the sizes that fit, a
         write_icon_png(p.dir / "icon.png", 100, 60, 10, 20, 30);
         EngineConfig c;
         c.projectDir = p.path();
-        CHECK(icon_sizes(make_app_desc(c)) == std::vector<int>{16, 32, 48, 64});  // centered on a 100 px square, never enlarged
+        CHECK(icon_sizes(make_app_desc(c)) ==
+              std::vector<int>{16, 32, 48, 64});  // centered on a 100 px square, never enlarged
     }
     {
         TempProject p("app_icon_tiny", icon_project(R"(,"icon":"icon.png")").c_str(), nullptr);
@@ -1067,7 +1104,8 @@ TEST_CASE("make_app_desc: a non-square or small icon gives the sizes that fit, a
     }
 }
 
-TEST_CASE("make_app_desc: no icon, a missing file or a file that is not an image never fail: the window keeps the default icon") {
+TEST_CASE("make_app_desc: no icon, a missing file or a file that is not an image never fail: the window keeps the "
+          "default icon") {
     {
         TempProject p("app_icon_none", icon_project("").c_str(), nullptr);
         EngineConfig c;
@@ -1154,7 +1192,8 @@ TEST_CASE("engine: load_scene_json replaces the world but keeps the current scen
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     REQUIRE(e.world().entity_count() == 3);
-    Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"only","components":{"Transform":{"position":[1,2,0]}}}]})");
+    Json scene = Json::parse(
+        R"({"format":"factoria.scene/1","entities":[{"id":"only","components":{"Transform":{"position":[1,2,0]}}}]})");
     REQUIRE_MESSAGE(e.load_scene_json(scene, "snapshot", &err), err);
     CHECK(e.world().entity_count() == 1);
     CHECK(e.world().scene_path() == "scenes/main.scene.json");
@@ -1173,11 +1212,10 @@ TEST_CASE("engine: load_scene_json replaces the world but keeps the current scen
 
 TEST_CASE("engine: script.eval with module and call runs an exported function of a module, no scene needed") {
     TempProject p("eval_module", kProject, kScene);
-    p.write("scripts/rules.js",
-            "export function price(good, n) { return { good, total: n * 3 }; }\n"
-            "export default function main() { return 'main'; }\n"
-            "export async function later(x) { return x + 1; }\n"
-            "export const notAFunction = 5;\n");
+    p.write("scripts/rules.js", "export function price(good, n) { return { good, total: n * 3 }; }\n"
+                                "export default function main() { return 'main'; }\n"
+                                "export async function later(x) { return x + 1; }\n"
+                                "export const notAFunction = 5;\n");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
@@ -1218,10 +1256,25 @@ TEST_CASE("engine: audio.log lists played sounds with the scene frame, source an
     {  // 0.1 s of silence, 16-bit mono PCM
         const std::uint32_t n = 4410;
         std::string b;
-        auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-        auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-        b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-        b += "data"; u32(n * 2);
+        auto u32 = [&](std::uint32_t v) {
+            for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+        };
+        auto u16 = [&](std::uint16_t v) {
+            b.push_back(char(v & 0xff));
+            b.push_back(char(v >> 8));
+        };
+        b += "RIFF";
+        u32(36 + n * 2);
+        b += "WAVEfmt ";
+        u32(16);
+        u16(1);
+        u16(1);
+        u32(44100);
+        u32(88200);
+        u16(2);
+        u16(16);
+        b += "data";
+        u32(n * 2);
         b.append(std::size_t(n) * 2, '\0');
         p.write("assets/sfx/beep.wav", b);
     }
@@ -1230,7 +1283,10 @@ TEST_CASE("engine: audio.log lists played sounds with the scene frame, source an
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     CommandRegistry& c = e.commands();
     e.step(5);
-    REQUIRE(c.call("script.eval", Json::parse(R"({"code":"audio.play('assets/sfx/beep.wav', {bus: 'ui', volume: 0.25}); time.frame"})")).ok);
+    REQUIRE(
+        c.call("script.eval",
+               Json::parse(R"({"code":"audio.play('assets/sfx/beep.wav', {bus: 'ui', volume: 0.25}); time.frame"})"))
+            .ok);
 
     auto r = c.call("audio.log", Json::object());
     REQUIRE(r.ok);
@@ -1270,19 +1326,23 @@ std::string project_with_action(const char* action) {
 }
 }  // namespace
 
-TEST_CASE("engine: scene.reload re-imports edited scripts, clears script errors and re-reads factoria.json input actions") {
+TEST_CASE(
+    "engine: scene.reload re-imports edited scripts, clears script errors and re-reads factoria.json input actions") {
     TempProject p("engine_reload_disk");
     p.write("scripts/helper.js", "export const v = () => 1;\n");
-    p.write("scripts/game.js",
-            "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
-            "export default class G extends Behaviour { onStart() { globalThis.ver = v(); throw new Error('old boom'); } }\n");
-    p.write("scenes/main.scene.json",
-            R"({"format":"factoria.scene/1","entities":[{"id":"g","components":{"Script":{"path":"scripts/game.js"}}}]})");
+    p.write("scripts/game.js", "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
+                               "export default class G extends Behaviour { onStart() { globalThis.ver = v(); throw new "
+                               "Error('old boom'); } }\n");
+    p.write(
+        "scenes/main.scene.json",
+        R"({"format":"factoria.scene/1","entities":[{"id":"g","components":{"Script":{"path":"scripts/game.js"}}}]})");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
     CommandRegistry& c = e.commands();
-    auto ver = [&] { return c.call("script.eval", Json::parse(R"({"code":"globalThis.ver"})")).result["value"].get<int>(); };
+    auto ver = [&] {
+        return c.call("script.eval", Json::parse(R"({"code":"globalThis.ver"})")).result["value"].get<int>();
+    };
     auto error_count = [&] { return c.call("script.errors", Json::object()).result["count"].get<int>(); };
     e.step(1);
     CHECK(ver() == 1);
@@ -1290,9 +1350,8 @@ TEST_CASE("engine: scene.reload re-imports edited scripts, clears script errors 
 
     // Edit the module and its import and fix the exception; reload picks up both.
     p.write("scripts/helper.js", "export const v = () => 2;\n");
-    p.write("scripts/game.js",
-            "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
-            "export default class G extends Behaviour { onStart() { globalThis.ver = v(); } }\n");
+    p.write("scripts/game.js", "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
+                               "export default class G extends Behaviour { onStart() { globalThis.ver = v(); } }\n");
     bump_mtime(p, "scripts/helper.js");
     bump_mtime(p, "scripts/game.js");
     REQUIRE(c.call("scene.reload", Json::object()).ok);
@@ -1405,7 +1464,8 @@ TEST_CASE("engine: screenshot after a change without stepping shows the change")
     }
 }
 
-TEST_CASE("engine: a sprite frame event is handled in the frame its frame is shown, and the editor's edit mode fires none") {
+TEST_CASE(
+    "engine: a sprite frame event is handled in the frame its frame is shown, and the editor's edit mode fires none") {
     const char* scene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -1421,7 +1481,11 @@ TEST_CASE("engine: a sprite frame event is handled in the frame its frame is sho
         std::string err;
         REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
         auto num = [&](const char* code) { return e.scripts().eval(code).value().get<double>(); };
-        REQUIRE(e.scripts().eval("globalThis.hits = 0; world.find('flip').spriteAnimator.on('hit', () => { globalThis.hits++; }); 0").ok());
+        REQUIRE(
+            e.scripts()
+                .eval(
+                    "globalThis.hits = 0; world.find('flip').spriteAnimator.on('hit', () => { globalThis.hits++; }); 0")
+                .ok());
         int shownAt = -1, heardAt = -1;
         for (int i = 0; i < 12 && heardAt < 0; ++i) {
             e.step(1);
@@ -1429,7 +1493,7 @@ TEST_CASE("engine: a sprite frame event is handled in the frame its frame is sho
             if (num("globalThis.hits") > 0) heardAt = i;
         }
         REQUIRE(shownAt >= 0);
-        CHECK(heardAt == shownAt);   // not one frame later
+        CHECK(heardAt == shownAt);  // not one frame later
         e.shutdown();
     }
     SUBCASE("edit mode: the animation shows, no event is queued") {
@@ -1462,13 +1526,16 @@ TEST_CASE("engine: game.paused freezes physics, animators and onUpdate; runWhile
   ]
 })";
     TempProject p("pause", kProject, scene);
-    p.write("scripts/game.js", "import { Behaviour } from 'factoria';\n"
-                               "export default class Game extends Behaviour { updates = 0; onUpdate() { this.updates++; } }\n");
-    p.write("scripts/menu.js", "import { Behaviour, time } from 'factoria';\n"
-                               "export default class Menu extends Behaviour {\n"
-                               "  runWhilePaused = true; updates = 0; lastDt = 0; timeDt = -1; unscaled = 0;\n"
-                               "  onUpdate(dt) { this.updates++; this.lastDt = dt; this.timeDt = time.dt; this.unscaled = time.unscaledDt; }\n"
-                               "}\n");
+    p.write("scripts/game.js",
+            "import { Behaviour } from 'factoria';\n"
+            "export default class Game extends Behaviour { updates = 0; onUpdate() { this.updates++; } }\n");
+    p.write(
+        "scripts/menu.js",
+        "import { Behaviour, time } from 'factoria';\n"
+        "export default class Menu extends Behaviour {\n"
+        "  runWhilePaused = true; updates = 0; lastDt = 0; timeDt = -1; unscaled = 0;\n"
+        "  onUpdate(dt) { this.updates++; this.lastDt = dt; this.timeDt = time.dt; this.unscaled = time.unscaledDt; }\n"
+        "}\n");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
@@ -1480,10 +1547,10 @@ TEST_CASE("engine: game.paused freezes physics, animators and onUpdate; runWhile
     const double anim0 = num("world.find('flip').get('SpriteAnimator').time");
     REQUIRE(e.scripts().eval("game.paused = true").ok());
     e.step(30);
-    CHECK(entity_y(e.state(), "ball") == y0);                                     // physics frozen
-    CHECK(num("world.find('flip').get('SpriteAnimator').time") == anim0);         // animators frozen
-    CHECK(num("world.find('game').behaviour.updates") == 10);                     // gameplay onUpdate stopped
-    CHECK(num("world.find('menu').behaviour.updates") == 40);                     // runWhilePaused keeps going
+    CHECK(entity_y(e.state(), "ball") == y0);                                          // physics frozen
+    CHECK(num("world.find('flip').get('SpriteAnimator').time") == anim0);              // animators frozen
+    CHECK(num("world.find('game').behaviour.updates") == 10);                          // gameplay onUpdate stopped
+    CHECK(num("world.find('menu').behaviour.updates") == 40);                          // runWhilePaused keeps going
     CHECK(num("world.find('menu').behaviour.lastDt") == doctest::Approx(1.0 / 60.0));  // with the real dt
     CHECK(num("world.find('menu').behaviour.timeDt") == 0);
     CHECK(num("world.find('menu').behaviour.unscaled") == doctest::Approx(1.0 / 60.0));
@@ -1527,12 +1594,14 @@ TEST_CASE("engine: Animator advances in the fixed step, sends clip events to scr
 })";
     TempProject p("animator", kProject, scene);
     {
-        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf",
+                         std::ios::binary);
         std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         p.write("assets/rig.gltf", text);
     }
     p.write("scripts/game.js", "import { Behaviour, world } from 'factoria';\n"
-                               "export default class Game extends Behaviour { halves = []; onStart() { world.on('half', () => this.halves.push(world.frame)); } }\n");
+                               "export default class Game extends Behaviour { halves = []; onStart() { "
+                               "world.on('half', () => this.halves.push(world.frame)); } }\n");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
@@ -1648,7 +1717,8 @@ test('a new test file starts with no textures alive', () => {
     e.shutdown();
 }
 
-TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the focused TextField, and reads are logged") {
+TEST_CASE(
+    "clipboard: a replay's clipboard entry is pasted by Ctrl+V into the focused TextField, and reads are logged") {
     const char* scene = R"({"format":"factoria.scene/1","entities":[
       {"id":"cam","name":"Camera","components":{"Camera":{}}},
       {"id":"name","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":12,"autoFocus":true}}}]})";
@@ -1664,10 +1734,12 @@ TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the fo
     REQUIRE(e.ui()->set_focus(e.world(), field));
     e.step(2);
     std::vector<std::string> problems;
-    e.apply_input_entry(Json::parse(R"({"clipboard":"Bob\nSmith 1234567","keys":{"LeftControl":true,"V":true}})"), problems, 2);
+    e.apply_input_entry(Json::parse(R"({"clipboard":"Bob\nSmith 1234567","keys":{"LeftControl":true,"V":true}})"),
+                        problems, 2);
     CHECK(problems.empty());
     e.step(1);
-    CHECK(e.world().get<TextField>(field)->text == "AnnBobSmith ");  // 12 code points: the newline is dropped, the rest cut
+    CHECK(e.world().get<TextField>(field)->text ==
+          "AnnBobSmith ");  // 12 code points: the newline is dropped, the rest cut
     CHECK(e.take_clipboard_reads() == std::vector<std::string>{"Bob\nSmith 1234567"});
     CHECK(e.take_clipboard_reads().empty());
 
@@ -1678,7 +1750,8 @@ TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the fo
 }
 
 // M31.24: render.captureTexture, texture.toPNG, render.textureFromPNG.
-TEST_CASE("render.captureTexture: pixels of the screenshot, a PNG round trip through storage, and a Sprite that draws it") {
+TEST_CASE(
+    "render.captureTexture: pixels of the screenshot, a PNG round trip through storage, and a Sprite that draws it") {
     TempProject p("m31_24_capture");
     p.write("tests/capture.test.js", R"JS(
 import { test, expect, game } from 'factoria:test';
@@ -1768,7 +1841,8 @@ test('a new test file starts with no textures alive', () => {
     e.shutdown();
 }
 
-TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of the size asked, and the PNG still round trips") {
+TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of the size asked, and the PNG still round "
+          "trips") {
     TempProject p("m31_24_placeholder");
     EngineConfig c = headless_cfg(p);
     c.graphics = false;
@@ -1783,7 +1857,8 @@ TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of t
     };
     CHECK(js("render.captureTexture({ width: 40, height: 30 }).placeholder").get<bool>());
     CHECK(js("render.textureFromPNG(render.captureTexture({ width: 40, height: 30 }).toPNG()).width").get<int>() == 40);
-    CHECK_FALSE(js("render.textureFromPNG(render.captureTexture({ width: 8, height: 8 }).toPNG()).placeholder").get<bool>());
+    CHECK_FALSE(
+        js("render.textureFromPNG(render.captureTexture({ width: 8, height: 8 }).toPNG()).placeholder").get<bool>());
     e.shutdown();
 }
 

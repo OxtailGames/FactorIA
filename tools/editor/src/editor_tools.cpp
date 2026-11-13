@@ -45,13 +45,12 @@ std::size_t poll_audio_log(const CommandRegistry& commands, AudioLogState& state
     }
     state.after = std::max<std::uint64_t>(state.after, r.result.value("lastSeq", std::uint64_t(0)));
     if (state.plays.size() > AudioLogState::kMax)
-        state.plays.erase(state.plays.begin(), state.plays.begin() + static_cast<std::ptrdiff_t>(state.plays.size() - AudioLogState::kMax));
+        state.plays.erase(state.plays.begin(),
+                          state.plays.begin() + static_cast<std::ptrdiff_t>(state.plays.size() - AudioLogState::kMax));
     return added;
 }
 
-void clear_audio_log(AudioLogState& state) {
-    state.plays.clear();
-}
+void clear_audio_log(AudioLogState& state) { state.plays.clear(); }
 
 void reset_audio_log(AudioLogState& state) {
     state.plays.clear();
@@ -80,7 +79,8 @@ void ProfilerView::add_frame(const ProfFrame& f) {
         r.calls *= 1.0 - a;
     }
     for (const ProfClassSample& c : f.classes) {
-        auto it = std::find_if(rows.begin(), rows.end(), [&](const Row& r) { return r.className == c.className && r.path == c.path; });
+        auto it = std::find_if(rows.begin(), rows.end(),
+                               [&](const Row& r) { return r.className == c.className && r.path == c.path; });
         if (it == rows.end()) {
             rows.push_back(Row{c.className, c.path, 0, 0});
             it = rows.end() - 1;
@@ -88,8 +88,10 @@ void ProfilerView::add_frame(const ProfFrame& f) {
         it->ms += c.ms * a;
         it->calls += double(c.calls) * a;
     }
-    rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Row& r) { return r.ms < 1e-4 && r.calls < 0.01; }), rows.end());
-    std::sort(rows.begin(), rows.end(), [](const Row& x, const Row& y) { return x.ms != y.ms ? x.ms > y.ms : x.className < y.className; });
+    rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Row& r) { return r.ms < 1e-4 && r.calls < 0.01; }),
+               rows.end());
+    std::sort(rows.begin(), rows.end(),
+              [](const Row& x, const Row& y) { return x.ms != y.ms ? x.ms > y.ms : x.className < y.className; });
     // Threads: the frame's lanes in its order, carrying each one's smoothed numbers; lanes it no longer has fade out.
     std::vector<LaneRow> next;
     next.reserve(f.lanes.size() + lanes.size());
@@ -129,8 +131,9 @@ void ProfilerView::add_frame(const ProfFrame& f) {
         if (l.jobMs >= 1e-4 || l.jobs >= 0.01) next.push_back(std::move(l));
     }
     for (LaneRow& l : next) {
-        l.top.erase(std::remove_if(l.top.begin(), l.top.end(), [](const JobRow& j) { return j.ms < 1e-4 && j.count < 0.01; }),
-                    l.top.end());
+        l.top.erase(
+            std::remove_if(l.top.begin(), l.top.end(), [](const JobRow& j) { return j.ms < 1e-4 && j.count < 0.01; }),
+            l.top.end());
         std::sort(l.top.begin(), l.top.end(),
                   [](const JobRow& x, const JobRow& y) { return x.ms != y.ms ? x.ms > y.ms : x.name < y.name; });
     }

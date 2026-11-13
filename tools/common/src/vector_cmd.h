@@ -23,9 +23,11 @@ struct Ctx {
 using Body = std::function<Json(Ctx&)>;
 
 // ---- arguments (they throw CommandError with the pointer, what is wrong and how to fix it) ----------------------------------
-double num_arg(const Json& a, const char* cmd, const char* key, double lo, double hi, double def, const char* hint = "");
+double num_arg(const Json& a, const char* cmd, const char* key, double lo, double hi, double def,
+               const char* hint = "");
 int int_arg(const Json& a, const char* cmd, const char* key, int lo, int hi, int def);
-std::string enum_arg(const Json& a, const char* cmd, const char* key, const std::vector<std::string>& names, const std::string& def, bool required = false);
+std::string enum_arg(const Json& a, const char* cmd, const char* key, const std::vector<std::string>& names,
+                     const std::string& def, bool required = false);
 std::string str_arg(const Json& a, const char* cmd, const char* key, const std::string& def, const char* hint = "");
 bool point_arg(const Json& a, const char* cmd, const char* key, P& out, const char* meaning);
 bool valid_id(const std::string& id);
@@ -56,6 +58,7 @@ Json placement_props();  // id, parent, before, transform, fill, stroke, strokeW
 
 // The command: checks the arguments against `props`, reads the SVG, runs `body`, writes the result where the arguments say and adds the
 // preview `$image` (unless `preview` is false).
-Json run(const std::string& projectDir, const Json& a, const char* cmd, const Json& props, bool readOnly, const Body& body);
+Json run(const std::string& projectDir, const Json& a, const char* cmd, const Json& props, bool readOnly,
+         const Body& body);
 
 }  // namespace fa::vec::cmd

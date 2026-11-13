@@ -34,10 +34,10 @@ TEST_CASE("assets.draw_icon: draws a 1024 icon and a transparent adaptive foregr
     const Image icon = read_png(p.file("assets/icon.png"));
     REQUIRE(icon.width == 1024);
     REQUIRE(icon.height == 1024);
-    CHECK(get(icon, 5, 5) == Rgba{0x14, 0x14, 0x28, 255});    // backdrop
-    CHECK(get(icon, 512, 330) == Rgba{255, 204, 0, 255});    // disc, above the letter
-    CHECK(get(icon, 512, 1000) == Rgba{0, 255, 0, 255});     // ground strip (a background layer)
-    int dark = 0;  // the letter is black on the yellow disc
+    CHECK(get(icon, 5, 5) == Rgba{0x14, 0x14, 0x28, 255});  // backdrop
+    CHECK(get(icon, 512, 330) == Rgba{255, 204, 0, 255});   // disc, above the letter
+    CHECK(get(icon, 512, 1000) == Rgba{0, 255, 0, 255});    // ground strip (a background layer)
+    int dark = 0;                                           // the letter is black on the yellow disc
     for (int y = 380; y < 640; ++y)
         for (int x = 440; x < 590; ++x) dark += get(icon, x, y).r < 60 ? 1 : 0;
     CHECK(dark > 500);
@@ -70,20 +70,22 @@ TEST_CASE("assets.draw_icon: same description, same bytes") {
 
 TEST_CASE("assets.draw_icon: shapes, transparent backdrop, custom paths, no foreground") {
     AssetsProject p;
-    const Json r = p.ok("assets.draw_icon",
-                        {{"background", {{"shape", "transparent"}}},
-                         {"layers", Json::array({Json::parse(R"({"type":"polygon","points":[[10,10],[90,10],[50,90]],"fill":"red"})"),
-                                                 Json::parse(R"({"type":"roundRect","x":40,"y":2,"w":20,"h":6,"radius":3,"outline":"white"})"),
-                                                 Json::parse(R"({"type":"ellipse","x":50,"y":95,"rx":20,"ry":3,"fill":"blue","softness":2})")})},
-                         {"path", "assets/art/app.png"},
-                         {"foreground", false}});
+    const Json r = p.ok(
+        "assets.draw_icon",
+        {{"background", {{"shape", "transparent"}}},
+         {"layers",
+          Json::array({Json::parse(R"({"type":"polygon","points":[[10,10],[90,10],[50,90]],"fill":"red"})"),
+                       Json::parse(R"({"type":"roundRect","x":40,"y":2,"w":20,"h":6,"radius":3,"outline":"white"})"),
+                       Json::parse(R"({"type":"ellipse","x":50,"y":95,"rx":20,"ry":3,"fill":"blue","softness":2})")})},
+         {"path", "assets/art/app.png"},
+         {"foreground", false}});
     CHECK(r["icon"] == "assets/art/app.png");
     CHECK_FALSE(r.contains("foreground"));
     CHECK_FALSE(p.exists("assets/icon_fg.png"));
     const Image icon = read_png(p.file("assets/art/app.png"));
-    CHECK(get(icon, 2, 2).a == 0);                         // transparent backdrop
-    CHECK(get(icon, 512, 200) == Rgba{255, 0, 0, 255});    // inside the triangle
-    CHECK(get(icon, 100, 900).a == 0);                     // outside it
+    CHECK(get(icon, 2, 2).a == 0);                       // transparent backdrop
+    CHECK(get(icon, 512, 200) == Rgba{255, 0, 0, 255});  // inside the triangle
+    CHECK(get(icon, 100, 900).a == 0);                   // outside it
 }
 
 TEST_CASE("assets.draw_icon: unknown keys and types teach") {
@@ -101,7 +103,8 @@ TEST_CASE("assets.draw_icon: unknown keys and types teach") {
     REQUIRE_FALSE(r.ok);
     CHECK(message(r).find("triangle") != std::string::npos);
 
-    r = p.call("assets.draw_icon", {{"background", {{"color", "#fff"}, {"shape", "circel"}}}, {"layers", Json::array()}});
+    r = p.call("assets.draw_icon",
+               {{"background", {{"color", "#fff"}, {"shape", "circel"}}}, {"layers", Json::array()}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["hint"].get<std::string>().find("circle") != std::string::npos);
 
@@ -124,13 +127,15 @@ TEST_CASE("assets.draw_icon: the export settings find the files, and factoria.js
     auto icon = load_icon_image(p.dir, settings->icon_for("ios"), "/icon");
     REQUIRE(icon.ok());
     CHECK(icon->width == 1024);
-    auto fg = load_icon_image(p.dir, settings->android.adaptiveIcon.foreground, "/export/android/adaptiveIcon/foreground");
+    auto fg =
+        load_icon_image(p.dir, settings->android.adaptiveIcon.foreground, "/export/android/adaptiveIcon/foreground");
     REQUIRE(fg.ok());
     CHECK(fg->width == 432);
 
     // With the paths already in factoria.json, the command writes there.
-    write_all(p.file("factoria.json"),
-              R"({ "name": "Icon Game", "icon": "assets/logo.png", "export": { "android": { "adaptiveIcon": { "foreground": "assets/logo_fg.png" } } } })");
+    write_all(
+        p.file("factoria.json"),
+        R"({ "name": "Icon Game", "icon": "assets/logo.png", "export": { "android": { "adaptiveIcon": { "foreground": "assets/logo_fg.png" } } } })");
     const Json again = p.ok("assets.draw_icon", icon_spec());
     CHECK(again["icon"] == "assets/logo.png");
     CHECK(again["foreground"] == "assets/logo_fg.png");

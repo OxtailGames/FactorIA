@@ -44,7 +44,10 @@ Key find_key(const std::vector<float>& times, float time) {
     Key k;
     const std::size_t n = times.size();
     if (n == 0 || time <= times.front()) return k;
-    if (time >= times.back()) { k.i0 = k.i1 = n - 1; return k; }
+    if (time >= times.back()) {
+        k.i0 = k.i1 = n - 1;
+        return k;
+    }
     // First key later than time; the one before it starts the span.
     const std::size_t hi = std::size_t(std::upper_bound(times.begin(), times.end(), time) - times.begin());
     k.i0 = hi - 1;
@@ -78,7 +81,10 @@ void sample_channel(const AnimChannel& c, float time, float* out) {
     if (c.interp == AnimInterp::Linear) {
         if (comps == 4) {
             const Quat q = slerp(Quat{a[0], a[1], a[2], a[3]}, Quat{b[0], b[1], b[2], b[3]}, k.t);
-            out[0] = q.x; out[1] = q.y; out[2] = q.z; out[3] = q.w;
+            out[0] = q.x;
+            out[1] = q.y;
+            out[2] = q.z;
+            out[3] = q.w;
         } else {
             for (std::size_t j = 0; j < 3; ++j) out[j] = a[j] + (b[j] - a[j]) * k.t;
         }
@@ -90,10 +96,14 @@ void sample_channel(const AnimChannel& c, float time, float* out) {
     tangent_at(c, comps, k.i1, false, m1);
     const float t = k.t, t2 = t * t, t3 = t2 * t;
     const float h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
-    for (std::size_t j = 0; j < comps; ++j) out[j] = h00 * a[j] + h10 * k.span * m0[j] + h01 * b[j] + h11 * k.span * m1[j];
+    for (std::size_t j = 0; j < comps; ++j)
+        out[j] = h00 * a[j] + h10 * k.span * m0[j] + h01 * b[j] + h11 * k.span * m1[j];
     if (comps == 4) {
         const Quat q = normalize(Quat{out[0], out[1], out[2], out[3]});
-        out[0] = q.x; out[1] = q.y; out[2] = q.z; out[3] = q.w;
+        out[0] = q.x;
+        out[1] = q.y;
+        out[2] = q.z;
+        out[3] = q.w;
     }
 }
 
@@ -106,9 +116,12 @@ void sample_clip(const SkeletonAsset& sk, const AnimClip& clip, float time, Pose
         float v[4];
         sample_channel(c, time, v);
         const std::size_t n = std::size_t(c.node);
-        if (c.path == AnimPath::Translation) pose.translation[n] = {v[0], v[1], v[2]};
-        else if (c.path == AnimPath::Scale) pose.scale[n] = {v[0], v[1], v[2]};
-        else pose.rotation[n] = normalize(Quat{v[0], v[1], v[2], v[3]});
+        if (c.path == AnimPath::Translation)
+            pose.translation[n] = {v[0], v[1], v[2]};
+        else if (c.path == AnimPath::Scale)
+            pose.scale[n] = {v[0], v[1], v[2]};
+        else
+            pose.rotation[n] = normalize(Quat{v[0], v[1], v[2], v[3]});
     }
 }
 
@@ -125,8 +138,8 @@ Pose blend_poses(const Pose& a, const Pose& b, float w) {
 std::vector<Mat4> pose_globals(const SkeletonAsset& sk, const Pose& pose) {
     std::vector<Mat4> g(sk.nodes.size());
     for (int n : sk.order) {
-        const Mat4 local = Mat4::translate(pose.translation[std::size_t(n)]) * Mat4::from_quat(pose.rotation[std::size_t(n)]) *
-                           Mat4::scale(pose.scale[std::size_t(n)]);
+        const Mat4 local = Mat4::translate(pose.translation[std::size_t(n)]) *
+                           Mat4::from_quat(pose.rotation[std::size_t(n)]) * Mat4::scale(pose.scale[std::size_t(n)]);
         const int p = sk.nodes[std::size_t(n)].parent;
         g[std::size_t(n)] = p < 0 ? local : g[std::size_t(p)] * local;
     }
@@ -166,13 +179,22 @@ bool eval_term(const std::string& term, const Json& values, const std::vector<st
     for (const char* op : ops) {
         const std::size_t at = term.find(op);
         if (at == std::string::npos) continue;
-        const double l = value_of(values, std::string(trim(term.substr(0, at)))), r = value_of(values, std::string(trim(term.substr(at + std::strlen(op)))));
+        const double l = value_of(values, std::string(trim(term.substr(0, at)))),
+                     r = value_of(values, std::string(trim(term.substr(at + std::strlen(op)))));
         const std::string o = op;
-        return o == ">=" ? l >= r : o == "<=" ? l <= r : o == "==" ? l == r : o == "!=" ? l != r : o == ">" ? l > r : l < r;
+        return o == ">="   ? l >= r
+               : o == "<=" ? l <= r
+               : o == "==" ? l == r
+               : o == "!=" ? l != r
+               : o == ">"  ? l > r
+                           : l < r;
     }
     std::string name = term;
     bool negate = false;
-    if (!name.empty() && name[0] == '!') { negate = true; name = std::string(trim(std::string_view(name).substr(1))); }
+    if (!name.empty() && name[0] == '!') {
+        negate = true;
+        name = std::string(trim(std::string_view(name).substr(1)));
+    }
     const bool trig = std::find(triggers.begin(), triggers.end(), name) != triggers.end();
     return (trig || value_of(values, name) != 0.0) != negate;
 }
@@ -181,7 +203,8 @@ bool eval_condition(const std::string& expr, const Json& values, const std::vect
     std::size_t start = 0;
     while (true) {
         const std::size_t at = expr.find("&&", start);
-        const std::string term(trim(std::string_view(expr).substr(start, at == std::string::npos ? std::string::npos : at - start)));
+        const std::string term(
+            trim(std::string_view(expr).substr(start, at == std::string::npos ? std::string::npos : at - start)));
         if (!term.empty() && !eval_term(term, values, triggers)) return false;
         if (at == std::string::npos) return true;
         start = at + 2;
@@ -237,7 +260,9 @@ void sync_extra_clips(World& w, Entity e, Animator& a) {
     if (a.clips.is_object()) {
         for (auto it = a.clips.begin(); it != a.clips.end(); ++it) {
             if (!it.value().is_string() || it.value().get<std::string>().empty()) {
-                rt.clipWarnings.push_back(std::format("clip '{}': the value must be the path of a .anim.json file, got {}", it.key(), describe_json_value(it.value())));
+                rt.clipWarnings.push_back(
+                    std::format("clip '{}': the value must be the path of a .anim.json file, got {}", it.key(),
+                                describe_json_value(it.value())));
                 continue;
             }
             const std::string path = it.value().get<std::string>();
@@ -249,11 +274,13 @@ void sync_extra_clips(World& w, Entity e, Animator& a) {
             const Anim3DBinding binding = bind_anim3d(**loaded, *rt.skeleton);
             if (!binding.missing.empty()) {
                 std::string list;
-                for (std::size_t i = 0; i < binding.missing.size() && i < 6; ++i) list += (i ? ", " : "") + binding.missing[i];
+                for (std::size_t i = 0; i < binding.missing.size() && i < 6; ++i)
+                    list += (i ? ", " : "") + binding.missing[i];
                 if (binding.missing.size() > 6) list += std::format(" and {} more", binding.missing.size() - 6);
-                rt.clipWarnings.push_back(std::format("clip '{}' ({}) drives bones the model '{}' does not have ({}); those tracks are skipped. "
-                                                      "anim3d.retarget carries a clip over to another skeleton",
-                                                      it.key(), path, rt.skeletonPath, list));
+                rt.clipWarnings.push_back(std::format(
+                    "clip '{}' ({}) drives bones the model '{}' does not have ({}); those tracks are skipped. "
+                    "anim3d.retarget carries a clip over to another skeleton",
+                    it.key(), path, rt.skeletonPath, list));
             }
             rt.extraClips.push_back(anim3d_to_anim_clip(**loaded, binding, *rt.skeleton, it.key()));
         }
@@ -286,7 +313,8 @@ bool resolve_skeleton(World& w, Entity e, Animator& a, std::string* why = nullpt
         return true;
     }
     if (path == a.rt.skeletonPath && !a.rt.skeleton) return fail("the model '" + path + "' could not be loaded");
-    if (!ends_with(path, ".gltf") && !ends_with(path, ".glb")) return fail("'" + path + "' is not a .gltf/.glb file (a built-in shape has no skeleton)");
+    if (!ends_with(path, ".gltf") && !ends_with(path, ".glb"))
+        return fail("'" + path + "' is not a .gltf/.glb file (a built-in shape has no skeleton)");
     a.rt.skeletonPath = path;
     a.rt.skeleton = nullptr;
     a.rt.extraClips.clear();
@@ -312,8 +340,10 @@ Result<void> play_clip(World& w, Entity e, Animator& a, std::string_view clip, f
     const int idx = find_clip_index(rt, clip);
     if (idx < 0) {
         const std::vector<std::string> names = all_clip_names(rt);
-        std::string hint = names.empty() ? "The file contains no animations; add 3D clips with Animator.clips (anim3d.generate makes one)."
-                                         : did_you_mean(std::string(clip), names);
+        std::string hint =
+            names.empty()
+                ? "The file contains no animations; add 3D clips with Animator.clips (anim3d.generate makes one)."
+                : did_you_mean(std::string(clip), names);
         for (const std::string& m : rt.clipWarnings) hint += " " + m + ".";
         return make_error(std::format("'{}' has no animation clip '{}'", sk.path, clip), hint);
     }
@@ -336,7 +366,8 @@ Result<void> play_clip(World& w, Entity e, Animator& a, std::string_view clip, f
     rt.finished = false;
     a.time = rt.lastTime = 0.0f;
     a.playing = true;
-    if (clip_ref(rt, idx).loop >= 0 && !(a.states.is_object() && !a.states.empty())) a.loop = clip_ref(rt, idx).loop == 1;  // the clip file's own `loop`
+    if (clip_ref(rt, idx).loop >= 0 && !(a.states.is_object() && !a.states.empty()))
+        a.loop = clip_ref(rt, idx).loop == 1;  // the clip file's own `loop`
     return {};
 }
 
@@ -353,9 +384,11 @@ void enter_state(World& w, Entity e, Animator& a, const std::string& name, float
     const std::string clip = it->value("clip", "");
     if (!clip.empty()) {
         auto r = play_clip(w, e, a, clip, fade);
-        if (!r) warn_once(w, e, a, std::format("state '{}': {}", name, r.error().to_string()));
+        if (!r)
+            warn_once(w, e, a, std::format("state '{}': {}", name, r.error().to_string()));
         else if (!it->contains("loop") && a.rt.clipIndex >= 0 && clip_ref(a.rt, a.rt.clipIndex).loop >= 0)
-            a.loop = clip_ref(a.rt, a.rt.clipIndex).loop == 1;  // a clip file's `loop` is the default of a state that does not say
+            a.loop = clip_ref(a.rt, a.rt.clipIndex).loop ==
+                     1;  // a clip file's `loop` is the default of a state that does not say
     }
     const std::string onEnter = it->value("onEnter", "");
     if (!onEnter.empty()) emit(w, onEnter, e, Json::object({{"state", name}, {"from", prev}}));
@@ -387,7 +420,11 @@ void run_feel(World& w, Entity e, const std::vector<Json>& actions, const std::s
 }
 
 void fire_events(World& w, Entity e, Animator& a, float from, float to) {
-    struct Hit { float time; const Json* ev; const AnimClipEvent* own; };
+    struct Hit {
+        float time;
+        const Json* ev;
+        const AnimClipEvent* own;
+    };
     std::vector<Hit> hits;
     if (a.events.is_array())
         for (std::size_t index = 0; index < a.events.size(); ++index) {
@@ -491,7 +528,8 @@ void animator_apply_pose(Animator& a, const Pose& pose) {
         const SkelSkin& s = sk.skins[si];
         std::vector<Mat4>& out = a.skinPalettes[si];
         out.clear();
-        for (std::size_t j = 0; j < s.joints.size(); ++j) out.push_back(globals[std::size_t(s.joints[j])] * s.inverseBind[j]);
+        for (std::size_t j = 0; j < s.joints.size(); ++j)
+            out.push_back(globals[std::size_t(s.joints[j])] * s.inverseBind[j]);
     }
     a.palette = a.skinPalettes.empty() ? std::vector<Mat4>{} : a.skinPalettes[0];
 }
@@ -564,7 +602,9 @@ namespace animdetail {
 bool condition_holds(const std::string& expr, const Json& values, const std::vector<std::string>& triggers) {
     return fa::eval_condition(expr, values, triggers);
 }
-void emit_game_event(World& w, const std::string& name, Entity source, Json data) { fa::emit(w, name, source, std::move(data)); }
+void emit_game_event(World& w, const std::string& name, Entity source, Json data) {
+    fa::emit(w, name, source, std::move(data));
+}
 }  // namespace animdetail
 
 void update_animators(World& world, float dt) {
@@ -573,7 +613,8 @@ void update_animators(World& world, float dt) {
     std::size_t nodes = 0;
     world.each<Animator>([&](Entity e, Animator& a) {
         if (!world.active_in_hierarchy(e)) return;
-        if (clipanim::uses_clip_files(world, e, a)) clipanim::update(world, e, a, dt);
+        if (clipanim::uses_clip_files(world, e, a))
+            clipanim::update(world, e, a, dt);
         else if (update_one(world, e, a, dt)) {
             posed.push_back(e);
             nodes += a.rt.skeleton->nodes.size();
@@ -599,8 +640,10 @@ void update_animators(World& world, float dt) {
 namespace {
 Result<Animator*> animator_of(World& w, Entity e, const char* what) {
     Animator* a = w.get<Animator>(e);
-    if (!a) return make_error(std::format("{}: entity '{}' has no Animator component", what, w.alive(e) ? w.id_of(e) : "?"),
-                              "Add one: entity.add(\"Animator\", {clip: \"Idle\"}) next to a MeshRenderer with a skinned glTF.");
+    if (!a)
+        return make_error(
+            std::format("{}: entity '{}' has no Animator component", what, w.alive(e) ? w.id_of(e) : "?"),
+            "Add one: entity.add(\"Animator\", {clip: \"Idle\"}) next to a MeshRenderer with a skinned glTF.");
     return a;
 }
 }  // namespace
@@ -632,14 +675,16 @@ Result<void> animator_set(World& w, Entity e, std::string_view name, const Json&
     if (!a) return a.error();
     Animator& an = **a;
     if (!value.is_number() && !value.is_boolean())
-        return make_error(std::format("animator.set('{}', {}): parameters are numbers or booleans", name, describe_json_value(value)));
+        return make_error(std::format("animator.set('{}', {}): parameters are numbers or booleans", name,
+                                      describe_json_value(value)));
     if (!an.values.is_object() || an.values.empty()) an.values = an.params.is_object() ? an.params : Json::object();
     if (!an.values.contains(std::string(name))) {
         std::vector<std::string> declared;
         for (auto it = an.values.begin(); it != an.values.end(); ++it) declared.push_back(it.key());
         return make_error(std::format("the Animator has no parameter '{}'", name),
-                          declared.empty() ? "Declare it in the Animator's `params`, e.g. {\"" + std::string(name) + "\": 0}."
-                                           : did_you_mean(std::string(name), declared));
+                          declared.empty()
+                              ? "Declare it in the Animator's `params`, e.g. {\"" + std::string(name) + "\": 0}."
+                              : did_you_mean(std::string(name), declared));
     }
     an.values[std::string(name)] = value;
     return {};
@@ -659,7 +704,8 @@ Result<Json> animator_clips(World& w, Entity e) {
     std::string why;
     if (!resolve_skeleton(w, e, **a, &why)) return make_error("no clips: " + why);
     Json out = Json::array();
-    for (const AnimClip& c : (*a)->rt.skeleton->clips) out.push_back(Json::object({{"name", c.name}, {"duration", c.duration}}));
+    for (const AnimClip& c : (*a)->rt.skeleton->clips)
+        out.push_back(Json::object({{"name", c.name}, {"duration", c.duration}}));
     for (const AnimClip& c : (*a)->rt.extraClips) {  // 3D clip files
         Json o = Json::object({{"name", c.name}, {"duration", c.duration}});
         if (c.loop >= 0) o["loop"] = c.loop == 1;
@@ -668,7 +714,6 @@ Result<Json> animator_clips(World& w, Entity e) {
     }
     return out;
 }
-
 
 namespace {
 Result<Animator*> clip_animator_of(World& w, Entity e, const char* what) {

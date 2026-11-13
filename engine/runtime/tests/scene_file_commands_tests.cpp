@@ -98,7 +98,9 @@ struct Session {
         REQUIRE_MESSAGE(engine.init(c, nullptr, &err), err);
     }
     ~Session() { engine.shutdown(); }
-    CommandResult call(const std::string& cmd, const Json& args = Json::object()) { return engine.commands().call(cmd, args); }
+    CommandResult call(const std::string& cmd, const Json& args = Json::object()) {
+        return engine.commands().call(cmd, args);
+    }
 };
 
 std::string error_text(const CommandResult& r) {
@@ -228,7 +230,8 @@ TEST_CASE("prefab.save: an entity with a child round-trips through instantiate_p
     CHECK(instance == original);
 
     // scene.spawn places each instance itself.
-    auto spawned = s.call("scene.spawn", Json{{"prefab", "prefabs/squad.prefab.json"}, {"position", Json::parse("[300, -20]")}});
+    auto spawned =
+        s.call("scene.spawn", Json{{"prefab", "prefabs/squad.prefab.json"}, {"position", Json::parse("[300, -20]")}});
     REQUIRE_MESSAGE(spawned.ok, error_text(spawned));
     CHECK(spawned.result["created"] == 2);
     CHECK(w.world_position(w.find_by_id(spawned.result["id"].get<std::string>())).x == 300.0f);
@@ -240,7 +243,9 @@ TEST_CASE("prefab.save: refuses to overwrite unless overwrite is true") {
     REQUIRE(s.call("prefab.save", args).ok);
     const std::string first = s.project.read("prefabs/squad.prefab.json");
 
-    REQUIRE(s.call("scene.set_component", Json{{"id", "squad"}, {"component", "Shape2D"}, {"fields", Json{{"layer", 9}}}}).ok);
+    REQUIRE(
+        s.call("scene.set_component", Json{{"id", "squad"}, {"component", "Shape2D"}, {"fields", Json{{"layer", 9}}}})
+            .ok);
     auto refused = s.call("prefab.save", args);
     REQUIRE_FALSE(refused.ok);
     CHECK(refused.error["code"] == "already_exists");
@@ -249,7 +254,8 @@ TEST_CASE("prefab.save: refuses to overwrite unless overwrite is true") {
     CHECK(contains(error_text(refused), "prefabs/squad_2.prefab.json"));
     CHECK(s.project.read("prefabs/squad.prefab.json") == first);  // untouched
 
-    auto explicitFalse = s.call("prefab.save", Json{{"id", "squad"}, {"path", "prefabs/squad.prefab.json"}, {"overwrite", false}});
+    auto explicitFalse =
+        s.call("prefab.save", Json{{"id", "squad"}, {"path", "prefabs/squad.prefab.json"}, {"overwrite", false}});
     CHECK_FALSE(explicitFalse.ok);
 
     Json again = args;
@@ -291,7 +297,8 @@ TEST_CASE("prefab.save: bad paths and unknown ids explain the fix and write noth
     // An absolute path is the command-line user's to name (as for scene.save); an MCP client or an agent stays inside the project.
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
-        auto outside = save("squad", (stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json").generic_string());
+        auto outside =
+            save("squad", (stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json").generic_string());
         REQUIRE_FALSE(outside.ok);
         CHECK(outside.error["code"] == "absolute_path_denied");
         CHECK_FALSE(stdfs::exists(stdfs::temp_directory_path() / "fa_filecmd_outside.prefab.json"));
@@ -481,7 +488,8 @@ TEST_CASE("scene.format: invalid JSON is reported with file, line and column and
     const TempProject& p = s.project;
     p.write("scenes/main.scene.json", dump_scene_json(Json::parse(kScene)));
     p.write("scenes/messy.scene.json", kMessyScene);
-    const std::string broken = "{\n  \"format\": \"factoria.scene/1\",\n  \"entities\": [\n    { \"id\": \"a\", }\n  ]\n}\n";
+    const std::string broken =
+        "{\n  \"format\": \"factoria.scene/1\",\n  \"entities\": [\n    { \"id\": \"a\", }\n  ]\n}\n";
     p.write("scenes/broken.scene.json", broken);
     p.write("prefabs/list.prefab.json", "[1, 2]");
 
@@ -506,7 +514,8 @@ TEST_CASE("scene.format: invalid JSON is reported with file, line and column and
             CHECK(r.result["notCanonical"] == Json::parse(R"(["scenes/messy.scene.json"])"));
             CHECK(p.read("scenes/messy.scene.json") == kMessyScene);
         } else {
-            CHECK(r.result["formatted"] == Json::parse(R"(["scenes/messy.scene.json"])"));  // the others were still done
+            CHECK(r.result["formatted"] ==
+                  Json::parse(R"(["scenes/messy.scene.json"])"));  // the others were still done
             CHECK(p.read("scenes/messy.scene.json") == dump_scene_json(Json::parse(kMessyScene)));
         }
     }
@@ -527,10 +536,13 @@ TEST_CASE("scene.format: paths are files or folders; the default skips tool and 
     // One folder.
     auto folder = s.call("scene.format", Json{{"paths", Json::array({"prefabs"})}, {"check", true}});
     REQUIRE_MESSAGE(folder.ok, error_text(folder));
-    CHECK(folder.result["notCanonical"] == Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
+    CHECK(folder.result["notCanonical"] ==
+          Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
 
     // One file and an absolute path inside the project; the same file given twice counts once.
-    auto file = s.call("scene.format", Json{{"paths", Json::array({"scenes/a/messy.scene.json", (p.dir / "scenes/a/messy.scene.json").generic_string()})}});
+    auto file =
+        s.call("scene.format", Json{{"paths", Json::array({"scenes/a/messy.scene.json",
+                                                           (p.dir / "scenes/a/messy.scene.json").generic_string()})}});
     REQUIRE_MESSAGE(file.ok, error_text(file));
     CHECK(file.result["formatted"] == Json::parse(R"(["scenes/a/messy.scene.json"])"));
     CHECK(p.read("prefabs/coin.prefab.json") == kMessyPrefab);  // not selected, not touched
@@ -538,14 +550,16 @@ TEST_CASE("scene.format: paths are files or folders; the default skips tool and 
     // The default run: the project, without .factoria, node_modules, a top-level build/ and non-scene JSON.
     auto all = s.call("scene.format", Json{{"check", true}});
     REQUIRE_MESSAGE(all.ok, error_text(all));
-    CHECK(all.result["notCanonical"] == Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
+    CHECK(all.result["notCanonical"] ==
+          Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
     CHECK(all.result["unchanged"] == 2);
     CHECK(p.read("data/levels.json") == "{ \"a\":   [1,\n 2] }");
 
     // all = the same as the default used to be.
     auto everything = s.call("scene.format", Json{{"all", true}});
     REQUIRE_MESSAGE(everything.ok, error_text(everything));
-    CHECK(everything.result["formatted"] == Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
+    CHECK(everything.result["formatted"] ==
+          Json::parse(R"(["prefabs/coin.prefab.json", "prefabs/deep/coin2.prefab.json"])"));
     CHECK_FALSE(s.call("scene.format", Json{{"all", true}, {"paths", Json::array({"prefabs"})}}).ok);
 
     // A folder with no scenes says so.
@@ -560,7 +574,8 @@ TEST_CASE("scene.format: bad arguments are refused before any file is written") 
     const TempProject& p = s.project;
     p.write("scenes/messy.scene.json", kMessyScene);
 
-    auto typo = s.call("scene.format", Json{{"paths", Json::array({"scenes/messy.scene.json", "scenes/mesy.scene.json"})}});
+    auto typo =
+        s.call("scene.format", Json{{"paths", Json::array({"scenes/messy.scene.json", "scenes/mesy.scene.json"})}});
     REQUIRE_FALSE(typo.ok);
     CHECK(typo.error["code"] == "not_found");
     CHECK(contains(error_text(typo), "paths[1]"));
@@ -582,12 +597,15 @@ TEST_CASE("scene.format: bad arguments are refused before any file is written") 
         auto managed = s.call("scene.format", Json{{"paths", Json::array({".factoria/save/a.scene.json"})}});
         REQUIRE_FALSE(managed.ok);
         CHECK(managed.error["code"] == "managed_path_denied");
-        auto absolute = s.call("scene.format", Json{{"paths", Json::array({(stdfs::temp_directory_path() / "a.scene.json").generic_string()})}});
+        auto absolute =
+            s.call("scene.format",
+                   Json{{"paths", Json::array({(stdfs::temp_directory_path() / "a.scene.json").generic_string()})}});
         REQUIRE_FALSE(absolute.ok);
         CHECK(absolute.error["code"] == "absolute_path_denied");
     }
 
-    auto outside = s.call("scene.format", Json{{"paths", Json::array({stdfs::temp_directory_path().generic_string()})}});
+    auto outside =
+        s.call("scene.format", Json{{"paths", Json::array({stdfs::temp_directory_path().generic_string()})}});
     REQUIRE_FALSE(outside.ok);
     CHECK(contains(error_text(outside), "outside the project"));
 
@@ -649,7 +667,7 @@ TEST_CASE("scene.format: with neither paths, all nor check it writes nothing and
         CHECK(r.error["code"] == "paths_required");
         const std::string text = r.error["message"].get<std::string>() + " " + r.error["hint"].get<std::string>();
         CHECK(contains(text, "2 scene/prefab file(s) would change"));  // how many
-        CHECK(contains(text, "prefabs/coin.prefab.json"));              // which
+        CHECK(contains(text, "prefabs/coin.prefab.json"));             // which
         CHECK(contains(text, "scenes/messy.scene.json"));
         CHECK(contains(text, "paths"));
         CHECK(contains(text, "\"all\": true"));

@@ -62,7 +62,8 @@ std::string extension_name_problem(std::string_view name) {
         return "the name is longer than " + std::to_string(kMaxExtensionName) + " characters";
     for (char c : name) {
         const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
-        if (!ok) return std::string("the name has the character '") + c + "', only letters, digits, _ and - are allowed";
+        if (!ok)
+            return std::string("the name has the character '") + c + "', only letters, digits, _ and - are allowed";
     }
     return {};
 }
@@ -72,13 +73,17 @@ namespace {
 // Claude Code's hook events (docs.claude.com, "Hooks reference") and the two of FactorIA. Anything else is a typo or an event this version of
 // FactorIA has not heard of: the error lists these.
 const std::vector<std::string>& hook_events() {
-    static const std::vector<std::string> v = {
-        "SessionStart",  "SessionEnd",       "Setup",         "UserPromptSubmit", "UserPromptExpansion", "PreToolUse",
-        "PostToolUse",   "PostToolUseFailure", "PostToolBatch", "PermissionRequest", "PermissionDenied",   "Notification",
-        "SubagentStart", "SubagentStop",     "Stop",          "StopFailure",      "TeammateIdle",        "TaskCreated",
-        "TaskCompleted", "PreCompact",       "PostCompact",   "InstructionsLoaded", "ConfigChange",      "CwdChanged",
-        "FileChanged",   "WorktreeCreate",   "WorktreeRemove", "Elicitation",     "ElicitationResult",
-        "beforeCommand", "afterCommand"};  // the last two are FactorIA's own (hooks.h)
+    static const std::vector<std::string> v = {"SessionStart",       "SessionEnd",          "Setup",
+                                               "UserPromptSubmit",   "UserPromptExpansion", "PreToolUse",
+                                               "PostToolUse",        "PostToolUseFailure",  "PostToolBatch",
+                                               "PermissionRequest",  "PermissionDenied",    "Notification",
+                                               "SubagentStart",      "SubagentStop",        "Stop",
+                                               "StopFailure",        "TeammateIdle",        "TaskCreated",
+                                               "TaskCompleted",      "PreCompact",          "PostCompact",
+                                               "InstructionsLoaded", "ConfigChange",        "CwdChanged",
+                                               "FileChanged",        "WorktreeCreate",      "WorktreeRemove",
+                                               "Elicitation",        "ElicitationResult",   "beforeCommand",
+                                               "afterCommand"};  // the last two are FactorIA's own (hooks.h)
     return v;
 }
 
@@ -122,7 +127,10 @@ Result<void> validate_hooks(const Json& hooks, std::string_view atIn) {
         const std::string eventAt = at + "/" + it.key();
         if (std::find(hook_events().begin(), hook_events().end(), it.key()) == hook_events().end()) {
             std::string hint = fa::did_you_mean(it.key(), hook_events());
-            if (it.key() == "hooks") hint = "A {\"hooks\": {...}} wrapper goes around the events: paste only the events object, or paste the wrapper in AI settings > Extensions. " + hint;
+            if (it.key() == "hooks")
+                hint = "A {\"hooks\": {...}} wrapper goes around the events: paste only the events object, or paste "
+                       "the wrapper in AI settings > Extensions. " +
+                       hint;
             return err(eventAt + ": '" + it.key() + "' is not a Claude Code hook event",
                        hint + (hint.empty() ? "" : " ") + "Events: " + join(hook_events()) + ".");
         }
@@ -133,7 +141,8 @@ Result<void> validate_hooks(const Json& hooks, std::string_view atIn) {
         std::size_t gi = 0;
         for (const Json& group : it.value()) {
             const std::string groupAt = eventAt + "/" + std::to_string(gi++);
-            if (!group.is_object()) return err(groupAt + ": a group is an object {\"matcher\": \"...\", \"hooks\": [...]}", "");
+            if (!group.is_object())
+                return err(groupAt + ": a group is an object {\"matcher\": \"...\", \"hooks\": [...]}", "");
             for (auto g = group.begin(); g != group.end(); ++g) {
                 if (g.key() != "matcher" && g.key() != "match" && g.key() != "hooks") {
                     return err(groupAt + "/" + g.key() + ": unknown property '" + g.key() + "'",
@@ -144,40 +153,55 @@ Result<void> validate_hooks(const Json& hooks, std::string_view atIn) {
                 const Json* m = child(group, key);
                 if (!m) continue;
                 if (!m->is_string())
-                    return err(groupAt + "/" + key + ": the matcher is a string such as \"Edit|Write\" (tool names) or \"scene.*\" (command names)",
+                    return err(groupAt + "/" + key +
+                                   ": the matcher is a string such as \"Edit|Write\" (tool names) or \"scene.*\" "
+                                   "(command names)",
                                "Use \"\" or leave it out to match everything.");
                 if (const std::string problem = hook_matcher_problem(m->get<std::string>()); !problem.empty())
                     return err(groupAt + "/" + key + ": " + problem, "");
             }
             const Json* handlers = child(group, "hooks");
             if (!handlers || !handlers->is_array() || handlers->empty()) {
-                return err(groupAt + "/hooks: a group needs its list of hooks, [{\"type\": \"command\", \"command\": \"...\"}]", "");
+                return err(
+                    groupAt +
+                        "/hooks: a group needs its list of hooks, [{\"type\": \"command\", \"command\": \"...\"}]",
+                    "");
             }
             std::size_t hi = 0;
             for (const Json& h : *handlers) {
                 const std::string hookAt = groupAt + "/hooks/" + std::to_string(hi++);
-                if (!h.is_object()) return err(hookAt + ": a hook is an object {\"type\": \"command\", \"command\": \"...\"}", "");
+                if (!h.is_object())
+                    return err(hookAt + ": a hook is an object {\"type\": \"command\", \"command\": \"...\"}", "");
                 const std::string type = util::str(h, "type");
                 const std::vector<std::string> types = {"command", "js", "http", "prompt", "agent"};
                 if (type.empty() || std::find(types.begin(), types.end(), type) == types.end()) {
-                    return err(hookAt + "/type: " + (type.empty() ? "a hook needs its \"type\"" : "unknown hook type '" + type + "'"),
-                               type.empty() ? "Use \"command\" to run a program, or \"js\" for a JavaScript module of the hooks/ folder."
+                    return err(hookAt + "/type: " +
+                                   (type.empty() ? "a hook needs its \"type\"" : "unknown hook type '" + type + "'"),
+                               type.empty() ? "Use \"command\" to run a program, or \"js\" for a JavaScript module of "
+                                              "the hooks/ folder."
                                             : fa::did_you_mean(type, types));
                 }
-                if (const Json* t = child(h, "timeout"); t && (!t->is_number() || t->get<double>() <= 0 || t->get<double>() > kMaxHookTimeoutSeconds))
-                    return err(hookAt + "/timeout: seconds, a number above 0 and up to " + std::to_string(int(kMaxHookTimeoutSeconds)),
-                               "The default is " + std::to_string(int(kDefaultHookTimeoutSeconds)) + " seconds; leave \"timeout\" out to use it.");
+                if (const Json* t = child(h, "timeout");
+                    t && (!t->is_number() || t->get<double>() <= 0 || t->get<double>() > kMaxHookTimeoutSeconds))
+                    return err(hookAt + "/timeout: seconds, a number above 0 and up to " +
+                                   std::to_string(int(kMaxHookTimeoutSeconds)),
+                               "The default is " + std::to_string(int(kDefaultHookTimeoutSeconds)) +
+                                   " seconds; leave \"timeout\" out to use it.");
                 if (type == "js") {
                     const Json* module = child(h, "module");
                     if (!module || !module->is_string())
-                        return err(hookAt + "/module: a hook of type \"js\" needs its module, a file of the project's hooks/ folder", "Add \"module\": \"hooks/guard.js\".");
+                        return err(hookAt + "/module: a hook of type \"js\" needs its module, a file of the project's "
+                                            "hooks/ folder",
+                                   "Add \"module\": \"hooks/guard.js\".");
                     if (const std::string problem = hook_module_problem(module->get<std::string>()); !problem.empty())
                         return err(hookAt + "/module: " + problem, "See docs/HOOKS.md, \"JavaScript hooks\".");
                 }
                 if (type == "command" && util::str(h, "command").empty())
-                    return err(hookAt + "/command: a hook of type \"command\" needs the program to run", "Add \"command\": \"./check.sh\".");
+                    return err(hookAt + "/command: a hook of type \"command\" needs the program to run",
+                               "Add \"command\": \"./check.sh\".");
                 if (type == "http" && util::str(h, "url").empty())
-                    return err(hookAt + "/url: a hook of type \"http\" needs its address", "Add \"url\": \"https://...\".");
+                    return err(hookAt + "/url: a hook of type \"http\" needs its address",
+                               "Add \"url\": \"https://...\".");
             }
         }
     }
@@ -225,14 +249,19 @@ Result<Extension> parse_entry(ExtensionKind kind, const std::string& name, const
                    "Use a short name such as notes or log-edits (letters, digits, _ and -).");
     }
     if (!entry.is_object()) {
-        const char* example = kind == ExtensionKind::Plugin ? "{\"path\": \"~/plugins/notes\"}"
-                              : kind == ExtensionKind::Skill ? "{\"path\": \"~/skills/gdd\"}"
-                                                             : "{\"hooks\": {\"Stop\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"./done.sh\"}]}]}}";
+        const char* example =
+            kind == ExtensionKind::Plugin ? "{\"path\": \"~/plugins/notes\"}"
+            : kind == ExtensionKind::Skill
+                ? "{\"path\": \"~/skills/gdd\"}"
+                : "{\"hooks\": {\"Stop\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"./done.sh\"}]}]}}";
         return err(at + ": " + extension_kind_name(kind) + " '" + name + "' is an object, for example " + example,
                    "See docs/AI_PROVIDERS.md, \"Extensions\".");
     }
     std::vector<std::string> known = {"note", "roles", "enabled"};
-    if (kind == ExtensionKind::Plugin) { known.push_back("path"); known.push_back("plugin"); }
+    if (kind == ExtensionKind::Plugin) {
+        known.push_back("path");
+        known.push_back("plugin");
+    }
     if (kind == ExtensionKind::Skill) known.push_back("path");
     if (kind == ExtensionKind::Hooks) known.push_back("hooks");
     for (auto it = entry.begin(); it != entry.end(); ++it) {
@@ -249,7 +278,9 @@ Result<Extension> parse_entry(ExtensionKind kind, const std::string& name, const
     const bool project = source == "project";
     if (kind == ExtensionKind::Hooks) {
         const Json* h = child(entry, "hooks");
-        if (!h) return err(at + "/hooks: a hooks entry needs its \"hooks\" object", "Add \"hooks\": {\"PostToolUse\": [...]}.");
+        if (!h)
+            return err(at + "/hooks: a hooks entry needs its \"hooks\" object",
+                       "Add \"hooks\": {\"PostToolUse\": [...]}.");
         if (auto ok = validate_hooks(*h, at + "/hooks"); !ok) return ok.error();
         e.hooks = *h;
         return e;
@@ -259,7 +290,9 @@ Result<Extension> parse_entry(ExtensionKind kind, const std::string& name, const
     if (pathJson && !pathJson->is_string()) return err(at + "/path: the path is text", "");
     e.path = util::str(entry, "path");
     const bool hasPath = pathJson != nullptr;
-    if (hasPath && e.path.empty()) return err(at + "/path: the path is empty", "Write the folder of the " + std::string(extension_kind_name(kind)) + ".");
+    if (hasPath && e.path.empty())
+        return err(at + "/path: the path is empty",
+                   "Write the folder of the " + std::string(extension_kind_name(kind)) + ".");
 
     if (kind == ExtensionKind::Plugin) {
         const Json* refJson = child(entry, "plugin");
@@ -267,30 +300,39 @@ Result<Extension> parse_entry(ExtensionKind kind, const std::string& name, const
         e.plugin = util::str(entry, "plugin");
         const bool hasRef = refJson != nullptr;
         if (hasPath == hasRef) {
-            return err(at + ": a plugin sets " + (hasPath ? "only one of" : "one of") + " \"path\" (a directory or a .zip) or \"plugin\" (name@marketplace)",
-                       hasPath ? "Remove one of them." : "For a plugin you installed with `claude plugin install name@marketplace` write \"plugin\": \"name@marketplace\"; for a folder, \"path\".");
+            return err(at + ": a plugin sets " + (hasPath ? "only one of" : "one of") +
+                           " \"path\" (a directory or a .zip) or \"plugin\" (name@marketplace)",
+                       hasPath ? "Remove one of them."
+                               : "For a plugin you installed with `claude plugin install name@marketplace` write "
+                                 "\"plugin\": \"name@marketplace\"; for a folder, \"path\".");
         }
         if (hasRef && clean_plugin_ref(e.plugin).empty()) {
             return err(at + "/plugin: '" + e.plugin + "' is not name@marketplace",
-                       "Write the plugin name, an @ and the marketplace it came from, for example superpowers@claude-plugins-official "
+                       "Write the plugin name, an @ and the marketplace it came from, for example "
+                       "superpowers@claude-plugins-official "
                        "(`claude plugin list` shows them).");
         }
     } else if (!hasPath) {
-        return err(at + "/path: a skill needs the folder it lives in", "Add \"path\": \"~/skills/gdd\" (a folder with a SKILL.md, or a folder of skill folders).");
+        return err(at + "/path: a skill needs the folder it lives in",
+                   "Add \"path\": \"~/skills/gdd\" (a folder with a SKILL.md, or a folder of skill folders).");
     }
 
     if (kind == ExtensionKind::Skill && is_engine_skill_path(e.path)) {
         if (e.path.size() == kEngineSkillPrefix.size())
-            return err(at + "/path: '" + e.path + "' names no skill", "Write engine:<skill name>, for example \"engine:custom-shaders\" (skills.list shows the names).");
+            return err(
+                at + "/path: '" + e.path + "' names no skill",
+                "Write engine:<skill name>, for example \"engine:custom-shaders\" (skills.list shows the names).");
     } else if (hasPath) {
         if (!project && !path_is_absolute_or_home(e.path)) {
-            return err(at + "/path: '" + e.path + "' is relative, and ai.json is not inside any folder it could be relative to",
+            return err(at + "/path: '" + e.path +
+                           "' is relative, and ai.json is not inside any folder it could be relative to",
                        "Write the full path, or start with ~ for your home folder: \"~/" + e.path + "\".");
         }
         if (project && kind == ExtensionKind::Skill) {
             if (e.path.rfind("~", 0) == 0 || fsys::path(e.path).is_absolute() || has_dotdot(e.path)) {
                 return err(at + "/path: '" + e.path + "' leaves the project",
-                           "A skill of a project must live inside it: write a path relative to the project, such as \"skills/gdd\".");
+                           "A skill of a project must live inside it: write a path relative to the project, such as "
+                           "\"skills/gdd\".");
             }
         }
     }
@@ -305,7 +347,8 @@ Result<ExtensionsConfig> parse_extensions(const Json& section, std::string_view 
     const bool project = source == "project";
     if (!section.is_object()) {
         return err(at + ": \"extensions\" is an object with \"plugins\", \"skills\" and \"hooks\"",
-                   "For example {\"plugins\": {\"notes\": {\"path\": \"~/plugins/notes\"}}}. See docs/AI_PROVIDERS.md, \"Extensions\".");
+                   "For example {\"plugins\": {\"notes\": {\"path\": \"~/plugins/notes\"}}}. See docs/AI_PROVIDERS.md, "
+                   "\"Extensions\".");
     }
     std::vector<std::string> known = {"plugins", "skills", "hooks"};
     if (!project) known.push_back("inheritUserPlugins");
@@ -314,7 +357,8 @@ Result<ExtensionsConfig> parse_extensions(const Json& section, std::string_view 
         if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
         std::string hint = fa::did_you_mean(it.key(), known);
         if (project && it.key() == "inheritUserPlugins")
-            hint = "inheritUserPlugins is a setting of your own ai.json: a project cannot decide which of your extensions load.";
+            hint = "inheritUserPlugins is a setting of your own ai.json: a project cannot decide which of your "
+                   "extensions load.";
         return err(at + "/" + it.key() + ": unknown property '" + it.key() + "'", hint);
     }
     ExtensionsConfig cfg;
@@ -328,7 +372,8 @@ Result<ExtensionsConfig> parse_extensions(const Json& section, std::string_view 
         const Json* group = child(section, key);
         if (!group) continue;
         if (!group->is_object()) {
-            return err(at + "/" + key + ": \"" + key + "\" is an object with one entry per extension, keyed by its name",
+            return err(at + "/" + key + ": \"" + key +
+                           "\" is an object with one entry per extension, keyed by its name",
                        "For example {\"notes\": {...}}.");
         }
         for (auto it = group->begin(); it != group->end(); ++it) {
@@ -344,8 +389,10 @@ Json extension_to_json(const Extension& e) {
     Json j = Json::object();
     switch (e.kind) {
         case ExtensionKind::Plugin:
-            if (!e.plugin.empty()) j["plugin"] = e.plugin;
-            else j["path"] = e.path;
+            if (!e.plugin.empty())
+                j["plugin"] = e.plugin;
+            else
+                j["path"] = e.path;
             break;
         case ExtensionKind::Skill: j["path"] = e.path; break;
         case ExtensionKind::Hooks: j["hooks"] = e.hooks.is_object() ? e.hooks : Json::object(); break;
@@ -380,7 +427,8 @@ Result<void> check_writable(const std::vector<Extension>& entries) {
             return err("Cannot save the " + std::string(extension_kind_name(e.kind)) + " '" + e.name + "': " + problem,
                        "Use a short name such as notes (letters, digits, _ and -).");
         if (!seen.insert({static_cast<int>(e.kind), e.name}).second)
-            return err("Two " + std::string(extension_kind_name(e.kind)) + " entries are called '" + e.name + "'", "Give each its own name.");
+            return err("Two " + std::string(extension_kind_name(e.kind)) + " entries are called '" + e.name + "'",
+                       "Give each its own name.");
     }
     return {};
 }
@@ -398,7 +446,8 @@ Result<void> save_extensions(const ExtensionsConfig& cfg, std::string_view path)
         auto parsed = fa::parse_json(*text, path);
         if (!parsed) return parsed.error();
         if (!parsed->is_object()) {
-            return err("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the extensions again.");
+            return err("AI config '" + std::string(path) + "' is not a JSON object",
+                       "Fix or delete the file, then save the extensions again.");
         }
         j = std::move(*parsed);
     }
@@ -407,8 +456,10 @@ Result<void> save_extensions(const ExtensionsConfig& cfg, std::string_view path)
     for (const Extension& e : cfg.entries)
         if (!e.from_project()) user.entries.push_back(e);
     if (auto ok = check_writable(user.entries); !ok) return ok;
-    if (user.empty()) j.erase("extensions");
-    else j["extensions"] = extensions_to_json(user, true);
+    if (user.empty())
+        j.erase("extensions");
+    else
+        j["extensions"] = extensions_to_json(user, true);
     return write_private_file(path, dump_json(j));
 }
 
@@ -509,14 +560,16 @@ Result<void> lock_trust(std::optional<util::AiFileLock>& lock, std::string_view 
 }
 
 Result<void> write_trust(std::string_view trustPath, Json root) {
-    if (trustPath.empty()) return err("Cannot keep the trust: no place for it", "Set FACTORIA_AI_CONFIG or HOME so FactorIA knows where your ai.json lives.");
+    if (trustPath.empty())
+        return err("Cannot keep the trust: no place for it",
+                   "Set FACTORIA_AI_CONFIG or HOME so FactorIA knows where your ai.json lives.");
     return write_private_file(trustPath, dump_json(root));
 }
 
 }  // namespace
 
-bool project_extensions_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash, bool* dropped,
-                                bool dropStale, std::string_view claudeHash) {
+bool project_extensions_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
+                                bool* dropped, bool dropStale, std::string_view claudeHash) {
     if (dropped) *dropped = false;
     if (hash.empty() && claudeHash.empty()) return false;
     Json root = read_trust(trustPath);
@@ -548,7 +601,8 @@ bool project_extensions_trusted(std::string_view trustPath, std::string_view pro
 Result<void> trust_project_extensions(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
                                       std::string_view claudeHash) {
     if (hash.empty() && claudeHash.empty())
-        return err("This project has nothing to trust: no .factoria/extensions.json and nothing in .claude/settings*.json that needs trust",
+        return err("This project has nothing to trust: no .factoria/extensions.json and nothing in "
+                   ".claude/settings*.json that needs trust",
                    "Add extensions to the project first.");
     std::optional<util::AiFileLock> lock;
     if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
@@ -586,8 +640,8 @@ std::string ai_settings_trust_key(std::string_view projectDir) {
     return key;
 }
 
-bool project_ai_settings_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash, bool* dropped,
-                                 bool dropStale) {
+bool project_ai_settings_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
+                                 bool* dropped, bool dropStale) {
     if (dropped) *dropped = false;
     if (hash.empty()) return false;
     Json root = read_trust(trustPath);
@@ -618,7 +672,9 @@ bool project_ai_settings_trusted(std::string_view trustPath, std::string_view pr
 }
 
 Result<void> trust_project_ai_settings(std::string_view trustPath, std::string_view projectDir, std::string_view hash) {
-    if (hash.empty()) return err("This project has no AI settings file to trust", "Nothing to do: .factoria/ai/settings.json does not exist.");
+    if (hash.empty())
+        return err("This project has no AI settings file to trust",
+                   "Nothing to do: .factoria/ai/settings.json does not exist.");
     std::optional<util::AiFileLock> lock;
     if (auto locked = lock_trust(lock, trustPath); !locked) return locked;
     Json root = read_trust(trustPath);
@@ -652,7 +708,8 @@ std::string joined(const std::vector<std::string>& names, std::size_t most = 5) 
 }
 
 bool is_empty_value(const Json& v) {
-    return v.is_null() || (v.is_string() && v.get<std::string>().empty()) || ((v.is_object() || v.is_array()) && v.empty());
+    return v.is_null() || (v.is_string() && v.get<std::string>().empty()) ||
+           ((v.is_object() || v.is_array()) && v.empty());
 }
 
 // The rule for a project's Claude Code settings: a key counts (needs the user's trust) UNLESS it is known to run nothing, send
@@ -660,10 +717,24 @@ bool is_empty_value(const Json& v) {
 // adds needs the trust until it is added here. Display, text and housekeeping settings, and keys that only restrict.
 bool is_harmless_setting(const std::string& key) {
     static const char* const kHarmless[] = {
-        "$schema",           "model",                   "outputStyle",         "language",         "cleanupPeriodDays",
-        "includeCoAuthoredBy", "includeGitInstructions", "spinnerTipsEnabled", "alwaysThinkingEnabled", "disableAllHooks",
-        "respectGitignore",  "showTurnDuration",        "prefersReducedMotion", "companyAnnouncements", "attribution",
-        "forceLoginMethod",  "forceLoginOrgUUID",       "disabledMcpjsonServers",
+        "$schema",
+        "model",
+        "outputStyle",
+        "language",
+        "cleanupPeriodDays",
+        "includeCoAuthoredBy",
+        "includeGitInstructions",
+        "spinnerTipsEnabled",
+        "alwaysThinkingEnabled",
+        "disableAllHooks",
+        "respectGitignore",
+        "showTurnDuration",
+        "prefersReducedMotion",
+        "companyAnnouncements",
+        "attribution",
+        "forceLoginMethod",
+        "forceLoginOrgUUID",
+        "disabledMcpjsonServers",
     };
     for (const char* k : kHarmless)
         if (key == k) return true;
@@ -673,8 +744,19 @@ bool is_harmless_setting(const std::string& key) {
 // Keys settings_grants looks into itself (each can be harmless or not depending on its value).
 bool is_judged_setting(const std::string& key) {
     static const char* const kJudged[] = {
-        "hooks", "enabledPlugins", "extraKnownMarketplaces", "statusLine", "fileSuggestion", "apiKeyHelper", "awsAuthRefresh",
-        "awsCredentialExport", "otelHeadersHelper", "enableAllProjectMcpServers", "enabledMcpjsonServers", "env", "permissions",
+        "hooks",
+        "enabledPlugins",
+        "extraKnownMarketplaces",
+        "statusLine",
+        "fileSuggestion",
+        "apiKeyHelper",
+        "awsAuthRefresh",
+        "awsCredentialExport",
+        "otelHeadersHelper",
+        "enableAllProjectMcpServers",
+        "enabledMcpjsonServers",
+        "env",
+        "permissions",
     };
     for (const char* k : kJudged)
         if (key == k) return true;
@@ -721,7 +803,8 @@ std::vector<std::string> settings_grants(const Json& s) {
     // Servers of the project's .mcp.json run programs, and these settings approve them without asking.
     if (const Json* v = child(s, "enableAllProjectMcpServers"); v && v->is_boolean() && v->get<bool>())
         out.push_back("enableAllProjectMcpServers");
-    if (const Json* v = child(s, "enabledMcpjsonServers"); non_empty_container(v)) out.push_back("enabledMcpjsonServers");
+    if (const Json* v = child(s, "enabledMcpjsonServers"); non_empty_container(v))
+        out.push_back("enabledMcpjsonServers");
     if (const Json* env = child(s, "env"); non_empty_container(env) && env->is_object()) {
         std::vector<std::string> names;
         for (auto it = env->begin(); it != env->end(); ++it) names.push_back(it.key());
@@ -734,11 +817,13 @@ std::vector<std::string> settings_grants(const Json& s) {
                 if (r.is_string() && !r.get<std::string>().empty()) rules.push_back(r.get<std::string>());
             if (!rules.empty()) out.push_back("permissions.allow (" + joined(rules) + ")");
         }
-        if (const Json* mode = child(*perms, "defaultMode"); mode && !is_empty_value(*mode) &&
-                                                              !(mode->is_string() && mode->get<std::string>() == "default"))
-            out.push_back("permissions.defaultMode (" + (mode->is_string() ? mode->get<std::string>() : std::string("unrecognized value")) + ")");
+        if (const Json* mode = child(*perms, "defaultMode");
+            mode && !is_empty_value(*mode) && !(mode->is_string() && mode->get<std::string>() == "default"))
+            out.push_back("permissions.defaultMode (" +
+                          (mode->is_string() ? mode->get<std::string>() : std::string("unrecognized value")) + ")");
         if (const Json* dirs = child(*perms, "additionalDirectories"); dirs && !is_empty_value(*dirs))
-            out.push_back("permissions.additionalDirectories (" + (dirs->is_array() ? std::to_string(dirs->size()) : std::string("unrecognized value")) + ")");
+            out.push_back("permissions.additionalDirectories (" +
+                          (dirs->is_array() ? std::to_string(dirs->size()) : std::string("unrecognized value")) + ")");
         // Anything else under permissions is a key this version does not know.
         for (auto it = perms->begin(); it != perms->end(); ++it) {
             const std::string& key = it.key();

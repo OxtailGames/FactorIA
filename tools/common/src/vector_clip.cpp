@@ -23,7 +23,9 @@ Clipper2Lib::Paths64 to_clip(const std::vector<Poly>& rings, double scale) {
         p.reserve(r.size());
         for (const P& q : r) {
             if (!(std::fabs(q.x) * scale < 1e15) || !(std::fabs(q.y) * scale < 1e15))
-                throw CommandError("invalid_argument", "A coordinate (" + std::to_string(q.x) + ", " + std::to_string(q.y) + ") is too large for the polygon operations.",
+                throw CommandError("invalid_argument",
+                                   "A coordinate (" + std::to_string(q.x) + ", " + std::to_string(q.y) +
+                                       ") is too large for the polygon operations.",
                                    "Keep the drawing within about a million units of the origin, or scale it down.");
             p.push_back({std::llround(q.x * scale), std::llround(q.y * scale)});
         }
@@ -46,14 +48,18 @@ std::vector<Poly> from_clip(const Clipper2Lib::Paths64& paths, double scale) {
 }
 
 [[noreturn]] void clip_failed(const std::exception& e) {
-    throw CommandError("failed", std::string("The polygon operation failed: ") + e.what(),
-                       "The shapes may have coordinates that are too large or not numbers. Check the SVG for huge or NaN values.");
+    throw CommandError(
+        "failed", std::string("The polygon operation failed: ") + e.what(),
+        "The shapes may have coordinates that are too large or not numbers. Check the SVG for huge or NaN values.");
 }
 
-Clipper2Lib::FillRule fill_rule(bool evenOdd) { return evenOdd ? Clipper2Lib::FillRule::EvenOdd : Clipper2Lib::FillRule::NonZero; }
+Clipper2Lib::FillRule fill_rule(bool evenOdd) {
+    return evenOdd ? Clipper2Lib::FillRule::EvenOdd : Clipper2Lib::FillRule::NonZero;
+}
 
 // One Clipper2 operation. Collinear points are not preserved: with them on, the result keeps zero-width spikes where pieces meet.
-Clipper2Lib::Paths64 run_clip(Clipper2Lib::ClipType type, Clipper2Lib::FillRule rule, const Clipper2Lib::Paths64& subject, const Clipper2Lib::Paths64& clip = {}) {
+Clipper2Lib::Paths64 run_clip(Clipper2Lib::ClipType type, Clipper2Lib::FillRule rule,
+                              const Clipper2Lib::Paths64& subject, const Clipper2Lib::Paths64& clip = {}) {
     Clipper2Lib::Paths64 out;
     Clipper2Lib::Clipper64 c;
     c.PreserveCollinear(false);
@@ -68,7 +74,9 @@ Clipper2Lib::Paths64 run_clip(Clipper2Lib::ClipType type, Clipper2Lib::FillRule 
 std::vector<Poly> normalize(const std::vector<Poly>& rings, bool evenOdd, const ClipGrid& g) {
     const double s = grid_scale(g);
     try {
-        return from_clip(Clipper2Lib::SimplifyPaths(run_clip(Clipper2Lib::ClipType::Union, fill_rule(evenOdd), to_clip(rings, s)), 1.0), s);
+        return from_clip(Clipper2Lib::SimplifyPaths(
+                             run_clip(Clipper2Lib::ClipType::Union, fill_rule(evenOdd), to_clip(rings, s)), 1.0),
+                         s);
     } catch (const CommandError&) {
         throw;
     } catch (const std::exception& e) {
@@ -96,15 +104,20 @@ std::vector<Poly> union_pieces(const std::vector<Poly>& pieces, const ClipGrid& 
     }
 }
 
-std::vector<Poly> boolean_op(BoolOp op, const std::vector<Poly>& subject, const std::vector<Poly>& clip, const ClipGrid& g) {
+std::vector<Poly> boolean_op(BoolOp op, const std::vector<Poly>& subject, const std::vector<Poly>& clip,
+                             const ClipGrid& g) {
     const double s = grid_scale(g);
     try {
         const auto a = to_clip(subject, s), b = to_clip(clip, s);
         Clipper2Lib::Paths64 r;
         switch (op) {
             case BoolOp::Union: r = run_clip(Clipper2Lib::ClipType::Union, Clipper2Lib::FillRule::NonZero, a, b); break;
-            case BoolOp::Subtract: r = run_clip(Clipper2Lib::ClipType::Difference, Clipper2Lib::FillRule::NonZero, a, b); break;
-            case BoolOp::Intersect: r = run_clip(Clipper2Lib::ClipType::Intersection, Clipper2Lib::FillRule::NonZero, a, b); break;
+            case BoolOp::Subtract:
+                r = run_clip(Clipper2Lib::ClipType::Difference, Clipper2Lib::FillRule::NonZero, a, b);
+                break;
+            case BoolOp::Intersect:
+                r = run_clip(Clipper2Lib::ClipType::Intersection, Clipper2Lib::FillRule::NonZero, a, b);
+                break;
             case BoolOp::Xor: r = run_clip(Clipper2Lib::ClipType::Xor, Clipper2Lib::FillRule::NonZero, a, b); break;
         }
         return from_clip(Clipper2Lib::SimplifyPaths(r, 1.0), s);
@@ -115,7 +128,8 @@ std::vector<Poly> boolean_op(BoolOp op, const std::vector<Poly>& subject, const 
     }
 }
 
-std::vector<Poly> offset_rings(const std::vector<Poly>& rings, double delta, Join join, double miterLimit, double arcTol, const ClipGrid& g) {
+std::vector<Poly> offset_rings(const std::vector<Poly>& rings, double delta, Join join, double miterLimit,
+                               double arcTol, const ClipGrid& g) {
     if (delta == 0) return rings;
     const double s = grid_scale(g);
     try {
@@ -180,7 +194,9 @@ struct Stroker {
     void join(P v, P d0, P d1, Join j, double miterLimit) {
         const double cr = cross(d0, d1), dt = dot(d0, d1);
         if (std::fabs(cr) < 1e-9 && dt > 0) return;  // straight on
-        const double sgn = cr < -1e-9 ? -1.0 : 1.0;   // the outer side is the right one when turning left (a reversal: the right one too)
+        const double sgn =
+            cr < -1e-9 ? -1.0
+                       : 1.0;  // the outer side is the right one when turning left (a reversal: the right one too)
         const P a = v + right(d0) * (hw * sgn), b = v + right(d1) * (hw * sgn);
         // The wedge's sides lie on the end edges of the two segments' rectangles; rounded to the integer grid of the union they leave
         // cracks. Pulling the apex back into the body (it stays inside the disc around `v`, which the stroke covers) makes them overlap.
@@ -251,7 +267,8 @@ struct Stroker {
         const std::size_t n = q.size(), edges = closed ? n : n - 1;
         for (std::size_t i = 0; i < edges; ++i) segment(q[i], q[(i + 1) % n]);
         const std::size_t firstJoin = closed ? 0 : 1, endJoin = closed ? n : n - 1;
-        for (std::size_t i = firstJoin; i < endJoin; ++i) join(q[i], unit(q[i] - q[(i + n - 1) % n]), unit(q[(i + 1) % n] - q[i]), st.join, st.miterLimit);
+        for (std::size_t i = firstJoin; i < endJoin; ++i)
+            join(q[i], unit(q[i] - q[(i + n - 1) % n]), unit(q[(i + 1) % n] - q[i]), st.join, st.miterLimit);
         if (!closed) {
             cap(q[0], unit(q[0] - q[1]), st.cap);
             cap(q[n - 1], unit(q[n - 1] - q[n - 2]), st.cap);
@@ -322,7 +339,9 @@ std::vector<Poly> stroke_outline(const Path& p, const StrokeStyle& style, double
     Stroker st;
     st.hw = style.width * 0.5;
     if (!(st.hw > 0)) return {};
-    st.arcStep = st.hw <= flatTol ? kPi / 3 : std::clamp(2 * std::acos(std::clamp(1 - flatTol / st.hw, -1.0, 1.0)), 0.05, kPi / 3);
+    st.arcStep = st.hw <= flatTol
+                     ? kPi / 3
+                     : std::clamp(2 * std::acos(std::clamp(1 - flatTol / st.hw, -1.0, 1.0)), 0.05, kPi / 3);
     std::vector<double> pattern = style.dashes;
     bool anyDash = false;
     for (double d : pattern) anyDash = anyDash || d > 0;
@@ -334,7 +353,8 @@ std::vector<Poly> stroke_outline(const Path& p, const StrokeStyle& style, double
         }
         const std::vector<Poly> pieces = dash_polyline(r.pts, r.closed, pattern, style.dashOffset);
         // a ring that is not cut stays closed
-        if (pieces.size() == 1 && r.closed && pieces[0].size() >= r.pts.size() && dist(pieces[0].front(), r.pts.front()) < 1e-9 && dist(pieces[0].back(), r.pts.front()) < 1e-9)
+        if (pieces.size() == 1 && r.closed && pieces[0].size() >= r.pts.size() &&
+            dist(pieces[0].front(), r.pts.front()) < 1e-9 && dist(pieces[0].back(), r.pts.front()) < 1e-9)
             st.polyline(r.pts, true, style);
         else
             for (const Poly& piece : pieces) st.polyline(piece, false, style);

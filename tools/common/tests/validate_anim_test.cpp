@@ -17,7 +17,8 @@ namespace {
 const char* kGoodClip = R"({"format":"factoria.anim/1","duration":1,"loop":true,"tracks":[
   {"path":"arm","field":"rotation.z","keys":[{"t":0,"value":-20},{"t":0.5,"value":20},{"t":1,"value":-20}]}]})";
 
-const ValidationIssue* find_in(const std::vector<ValidationIssue>& list, const std::string& file, const std::string& text) {
+const ValidationIssue* find_in(const std::vector<ValidationIssue>& list, const std::string& file,
+                               const std::string& text) {
     for (const ValidationIssue& i : list)
         if (i.file == file && i.message.find(text) != std::string::npos) return &i;
     return nullptr;
@@ -29,7 +30,8 @@ stdfs::path make_project(testing::TempDir& tmp, const char* clips) {
     const stdfs::path dir = tmp.path / "game";
     auto scene = load_json_file((dir / "scenes/main.scene.json").string());
     REQUIRE(scene.ok());
-    Json hero = Json::parse(R"({"id":"hero","name":"hero","components":{"Animator":{}},"children":[{"id":"arm","name":"arm","components":{"Shape2D":{"size":[4,20]}}}]})");
+    Json hero = Json::parse(
+        R"({"id":"hero","name":"hero","components":{"Animator":{}},"children":[{"id":"arm","name":"arm","components":{"Shape2D":{"size":[4,20]}}}]})");
     hero["components"]["Animator"]["clips"] = Json::parse(clips);
     (*scene)["entities"].push_back(hero);
     REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
@@ -52,7 +54,9 @@ TEST_CASE("validate: a clip file that is wrong names the file, the JSON pointer 
     const stdfs::path dir = make_project(tmp, R"({"walk":"anim/walk.anim.json"})");
     testing::write_all(dir / "anim/walk.anim.json", kGoodClip);
     // Not played by anything, but still checked.
-    testing::write_all(dir / "anim/loose.anim.json", R"({"format":"factoria.anim/1","duration":1,"tracks":[{"field":"rotaton.z","keys":[{"t":0,"value":1}]}]})");
+    testing::write_all(
+        dir / "anim/loose.anim.json",
+        R"({"format":"factoria.anim/1","duration":1,"tracks":[{"field":"rotaton.z","keys":[{"t":0,"value":1}]}]})");
     testing::write_all(dir / "anim/syntax.anim.json", "{ not json");
     const ValidationReport r = validate_project(dir.string());
     CHECK_FALSE(r.ok);
@@ -114,11 +118,15 @@ stdfs::path make_rig_project(testing::TempDir& tmp, const char* clips, const cha
     CommandRegistry registry;
     register_asset_commands(registry, dir.string());
     testing::write_all(dir / "assets/models/hero.model.json", kBox);
-    const CommandResult made = registry.call("rig.create", Json::parse(R"({"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid"})"));
+    const CommandResult made = registry.call(
+        "rig.create",
+        Json::parse(
+            R"({"path":"assets/models/hero.rig.json","model":"assets/models/hero.model.json","template":"humanoid"})"));
     REQUIRE_MESSAGE(made.ok, made.error.dump());
     auto scene = load_json_file((dir / "scenes/main.scene.json").string());
     REQUIRE(scene.ok());
-    Json hero = Json::parse(R"({"id":"hero","name":"hero","components":{"MeshRenderer":{"mesh":"assets/models/hero.rig.glb"},"Animator":{"model":"assets/models/hero.rig.glb"}}})");
+    Json hero = Json::parse(
+        R"({"id":"hero","name":"hero","components":{"MeshRenderer":{"mesh":"assets/models/hero.rig.glb"},"Animator":{"model":"assets/models/hero.rig.glb"}}})");
     hero["components"]["Animator"]["clips"] = Json::parse(clips);
     if (ik3d) hero["components"]["IK3D"] = Json::parse(ik3d);
     (*scene)["entities"].push_back(hero);
@@ -133,16 +141,19 @@ const char* kGoodClip3D = R"({"format":"factoria.anim3d/1","duration":1,"loop":t
 
 TEST_CASE("validate: a 3D bone clip played by an Animator on a skinned model passes, and IK3D with good solvers too") {
     testing::TempDir tmp;
-    const stdfs::path dir = make_rig_project(tmp, R"({"walk":"anim/walk.anim.json"})", R"({"solvers":[{"type":"lookAt","bone":"head","target":[0,1.6,3]}]})");
+    const stdfs::path dir = make_rig_project(tmp, R"({"walk":"anim/walk.anim.json"})",
+                                             R"({"solvers":[{"type":"lookAt","bone":"head","target":[0,1.6,3]}]})");
     testing::write_all(dir / "anim/walk.anim.json", kGoodClip3D);
     const ValidationReport r = validate_project(dir.string());
     for (const auto& e : r.errors) MESSAGE(e.to_string());
     CHECK(r.ok);
 }
 
-TEST_CASE("validate: a 3D clip with a bad key, a bone the model lacks, a missing file, and a 2D clip on a model all teach") {
+TEST_CASE(
+    "validate: a 3D clip with a bad key, a bone the model lacks, a missing file, and a 2D clip on a model all teach") {
     testing::TempDir tmp;
-    const stdfs::path dir = make_rig_project(tmp, R"({"walk":"anim/walk.anim.json","ghost":"anim/ghost.anim.json","gone":"anim/gone.anim.json"})");
+    const stdfs::path dir = make_rig_project(
+        tmp, R"({"walk":"anim/walk.anim.json","ghost":"anim/ghost.anim.json","gone":"anim/gone.anim.json"})");
     testing::write_all(dir / "anim/walk.anim.json", R"({"format":"factoria.anim3d/1","duration":1,"tracks":[
       {"bone":"spine_1","keys":[{"t":0,"value":[0,0]}]}]})");
     testing::write_all(dir / "anim/ghost.anim.json", R"({"format":"factoria.anim3d/1","duration":1,"tracks":[
@@ -162,7 +173,9 @@ TEST_CASE("validate: a 3D clip with a bad key, a bone the model lacks, a missing
 
 TEST_CASE("validate: IK3D solvers are checked against the model's bones, and an IK3D needs an Animator on a model") {
     testing::TempDir tmp;
-    const stdfs::path dir = make_rig_project(tmp, R"({})", R"({"weight":2,"solvers":[{"type":"twoBone","root":"thigh_l","mid":"shin_q","end":"foot_l"},{"type":"lookAt","bone":"head","yawLimit":900}]})");
+    const stdfs::path dir = make_rig_project(
+        tmp, R"({})",
+        R"({"weight":2,"solvers":[{"type":"twoBone","root":"thigh_l","mid":"shin_q","end":"foot_l"},{"type":"lookAt","bone":"head","yawLimit":900}]})");
     ValidationReport r = validate_project(dir.string());
     CHECK_FALSE(r.ok);
     const ValidationIssue* mid = find_in(r.errors, "scenes/main.scene.json", "shin_q");
@@ -210,7 +223,8 @@ TEST_CASE("validate: inline Animator events with the wrong JSON types name the p
         if (i.pointer.find("events/1/name") != std::string::npos) name = true;
         if (i.pointer.find("events/2/feel") != std::string::npos) action = true;
         if (i.pointer.find("events/3/time") != std::string::npos) time = true;
-        if (i.pointer.find("events/4/feel") != std::string::npos && i.message.find("hitStop") != std::string::npos) typo = true;
+        if (i.pointer.find("events/4/feel") != std::string::npos && i.message.find("hitStop") != std::string::npos)
+            typo = true;
     }
     CHECK(name);
     CHECK(action);
@@ -225,9 +239,14 @@ TEST_CASE("validate: a spawn without a lifetime is a warning unless the prefab e
         {"clip":"walk","time":0.2,"feel":{"action":"spawn","prefab":"prefabs/dust.prefab.json","lifetime":0.5}},
         {"clip":"walk","time":0.3,"feel":{"action":"spawn","prefab":"prefabs/self.prefab.json"}},
         {"clip":"walk","time":0.4,"feel":{"action":"spawn","prefab":"prefabs/puff.prefab.json"}}])");
-    testing::write_all(dir / "prefabs/dust.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"dust","components":{"Sprite":{}}}})");
-    testing::write_all(dir / "prefabs/self.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"s","components":{"Script":{"path":"scripts/x.js"}}}})");
-    testing::write_all(dir / "prefabs/puff.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"p","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
+    testing::write_all(dir / "prefabs/dust.prefab.json",
+                       R"({"format":"factoria.prefab/1","entity":{"id":"dust","components":{"Sprite":{}}}})");
+    testing::write_all(
+        dir / "prefabs/self.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"id":"s","components":{"Script":{"path":"scripts/x.js"}}}})");
+    testing::write_all(
+        dir / "prefabs/puff.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"id":"p","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
     const ValidationReport r = validate_project(dir.string());
     int lifetimeWarnings = 0;
     bool firstOne = false;
@@ -238,7 +257,8 @@ TEST_CASE("validate: a spawn without a lifetime is a warning unless the prefab e
     }
     CHECK(lifetimeWarnings == 1);
     CHECK(firstOne);
-    for (const ValidationIssue& e : r.errors) CHECK_MESSAGE(e.message.find("no `lifetime`") == std::string::npos, e.to_string());
+    for (const ValidationIssue& e : r.errors)
+        CHECK_MESSAGE(e.message.find("no `lifetime`") == std::string::npos, e.to_string());
 }
 
 TEST_CASE("validate: a spawn whose prefab instances another prefab that ends itself is not a warning") {
@@ -247,12 +267,19 @@ TEST_CASE("validate: a spawn whose prefab instances another prefab that ends its
         {"clip":"walk","time":0.1,"feel":{"action":"spawn","prefab":"prefabs/wrapper.prefab.json"}},
         {"clip":"walk","time":0.2,"feel":{"action":"spawn","prefab":"prefabs/loop_a.prefab.json"}},
         {"clip":"walk","time":0.3,"feel":{"action":"spawn","prefab":"prefabs/vfx.prefab.json"}}])");
-    testing::write_all(dir / "prefabs/inner.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"i","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
-    testing::write_all(dir / "prefabs/wrapper.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"w","components":{"Transform":{}},
+    testing::write_all(
+        dir / "prefabs/inner.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"id":"i","components":{"ParticleEmitter":{"autoDestroy":true}}}})");
+    testing::write_all(dir / "prefabs/wrapper.prefab.json",
+                       R"({"format":"factoria.prefab/1","entity":{"id":"w","components":{"Transform":{}},
         "children":[{"id":"w_in","prefab":"prefabs/inner.prefab.json"}]}})");
-    testing::write_all(dir / "prefabs/loop_a.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"a","prefab":"prefabs/loop_b.prefab.json"}})");
-    testing::write_all(dir / "prefabs/loop_b.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"b","prefab":"prefabs/loop_a.prefab.json"}})");
-    testing::write_all(dir / "prefabs/vfx.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"v","components":{"Vfx":{"effect":"fx/x.vfx.json","autoDestroy":true}}}})");
+    testing::write_all(dir / "prefabs/loop_a.prefab.json",
+                       R"({"format":"factoria.prefab/1","entity":{"id":"a","prefab":"prefabs/loop_b.prefab.json"}})");
+    testing::write_all(dir / "prefabs/loop_b.prefab.json",
+                       R"({"format":"factoria.prefab/1","entity":{"id":"b","prefab":"prefabs/loop_a.prefab.json"}})");
+    testing::write_all(
+        dir / "prefabs/vfx.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"id":"v","components":{"Vfx":{"effect":"fx/x.vfx.json","autoDestroy":true}}}})");
     const ValidationReport r = validate_project(dir.string());
     int warned = 0;
     std::string which;
@@ -261,7 +288,8 @@ TEST_CASE("validate: a spawn whose prefab instances another prefab that ends its
             ++warned;
             which += w.pointer + " ";
         }
-    CHECK_MESSAGE(warned == 1, which);   // only the two prefabs that instance each other never end (the cycle ends the walk, no hang)
+    CHECK_MESSAGE(warned == 1,
+                  which);  // only the two prefabs that instance each other never end (the cycle ends the walk, no hang)
     CHECK(which.find("events/1/") != std::string::npos);
 }
 
@@ -274,7 +302,8 @@ TEST_CASE("validate: a sound that exists only as its .qoa twin is not reported m
     const ValidationReport r = validate_project(dir.string());
     bool step = false, gone = false;
     for (const ValidationIssue& e : r.errors) {
-        if (e.message.find("'audio/step.wav'") != std::string::npos) step = true;   // (the candidates of the other error name the twin)
+        if (e.message.find("'audio/step.wav'") != std::string::npos)
+            step = true;  // (the candidates of the other error name the twin)
         if (e.message.find("'audio/gone.wav'") != std::string::npos) gone = true;
     }
     CHECK_FALSE(step);

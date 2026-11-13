@@ -38,13 +38,13 @@ struct OutFile {
 };
 
 struct ImportOutput {
-    std::vector<OutFile> files;   // files[0] is the asset itself, the others its sidecars (the textures of a model)
-    Json sheet;                   // the `sheet` entry of files[0] (null = none)
-    Json details;                 // importer-specific facts for the result
+    std::vector<OutFile> files;  // files[0] is the asset itself, the others its sidecars (the textures of a model)
+    Json sheet;                  // the `sheet` entry of files[0] (null = none)
+    Json details;                // importer-specific facts for the result
     std::vector<std::string> warnings;
     std::vector<std::string> nextSteps;
-    Json document;                // a layered image document to save (and bake) once the files are written; null = none
-    std::string documentPath;     // where: project-relative, ending in .image.json; it bakes to files[0]
+    Json document;             // a layered image document to save (and bake) once the files are written; null = none
+    std::string documentPath;  // where: project-relative, ending in .image.json; it bakes to files[0]
 };
 
 struct ImportRequest {
@@ -67,13 +67,15 @@ struct SheetClip {
     int lastFrame = 0;
     double fps = 10;
     bool loop = true;
-    std::optional<std::array<double, 2>> pivot;  // [x, y] in 0..1 of the frame: this clip's own pivot (overrides the sheet's)
+    std::optional<std::array<double, 2>>
+        pivot;  // [x, y] in 0..1 of the frame: this clip's own pivot (overrides the sheet's)
 };
 
 // The `sheet` entry of assets.json (schemas/assets.schema.json) for a grid of `frames` frames. `padding` is the transparent
 // gutter around every cell (written only when above 0); `pivot` the pivot of every frame (written only when given).
-Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips,
-                 int padding = 0, std::optional<std::array<double, 2>> pivot = std::nullopt);
+Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames,
+                 const std::vector<SheetClip>& clips, int padding = 0,
+                 std::optional<std::array<double, 2>> pivot = std::nullopt);
 // How to play `sheet` (a sheet_entry) from the image `texture`: the Sprite and SpriteAnimator settings, one line each.
 std::vector<std::string> sheet_next_steps(const std::string& texture, const Json& sheet, double fps);
 
@@ -84,16 +86,16 @@ std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& imag
 // ---- rasterizing SVG text (assets_svg.cpp) ---------------------------------------------------------------
 
 struct SvgRaster {
-    Image image;           // straight-alpha RGBA, transparent where nothing is drawn
-    double svgWidth = 0;   // the size the SVG declares
+    Image image;          // straight-alpha RGBA, transparent where nothing is drawn
+    double svgWidth = 0;  // the size the SVG declares
     double svgHeight = 0;
 };
 // The picture of the SVG `text` in a `w` x `h` image (the SVG fitted inside, aspect kept, centred; a 0 side follows the
 // SVG's proportions, both 0 is the SVG's own size), then the painterly `style` ("none" or one of image_style_names()) at
 // `styleStrength` with `seed`. The core of assets.rasterize_svg and assets.animate_svg. Warnings (features nanosvg does not
 // draw) are appended to `warnings`. Throws CommandError for text that is not a drawable SVG.
-SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
-                             std::vector<std::string>& warnings);
+SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength,
+                             std::uint32_t seed, std::vector<std::string>& warnings);
 
 // ---- procedural textures (assets_texture.cpp) -----------------------------------------------------------
 
@@ -101,7 +103,8 @@ SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::s
 // color, accent, scale, roughness, tileable, vignette, vignetteWidth, angle and the planks fields; no path, overwrite, author
 // or normalMap): straight-alpha RGBA. An image document's procedural layer calls this. Errors (CommandError, code
 // invalid_argument) read "<command> <pointer>/<key>: <what>"; the arguments the preset ignores are added to `warnings`.
-Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer, std::vector<std::string>& warnings);
+Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer,
+                               std::vector<std::string>& warnings);
 // Only the checks of procedural_texture_image, without painting (used when a document is loaded).
 void check_procedural_texture_args(const Json& args, const std::string& command, const std::string& pointer);
 
@@ -110,40 +113,76 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
-void register_sfx_commands(CommandRegistry& registry, const std::string& projectDir);  // sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset, sfx.info (assets_sfx.cpp)
-void register_vfx_commands(CommandRegistry& registry, const std::string& projectDir);  // vfx.create, vfx.edit (assets_vfx.cpp, docs/PARTICLES.md)
-void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
-void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
+void register_sfx_commands(
+    CommandRegistry& registry,
+    const std::string&
+        projectDir);  // sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset, sfx.info (assets_sfx.cpp)
+void register_vfx_commands(CommandRegistry& registry,
+                           const std::string& projectDir);  // vfx.create, vfx.edit (assets_vfx.cpp, docs/PARTICLES.md)
+void register_texture_command(CommandRegistry& registry, const std::string& projectDir);      // assets.generate_texture
+void register_svg_command(CommandRegistry& registry, const std::string& projectDir);          // assets.rasterize_svg
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
 void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
-void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);  // assets.check_art
-void register_style_commands(CommandRegistry& registry, const std::string& projectDir);  // style.ignore, style.set_role (style_commands.cpp)
-void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
+void register_check_art_command(CommandRegistry& registry, const std::string& projectDir);      // assets.check_art
+void register_style_commands(CommandRegistry& registry,
+                             const std::string& projectDir);  // style.ignore, style.set_role (style_commands.cpp)
+void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);     // assets.bake_sheet
 void register_contact_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.contact_sheet
-void register_review_commands(CommandRegistry& registry, const std::string& projectDir);  // review.sheet, review.pick, review.list, review.info
-void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
-void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
-void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
-void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
-void register_rig_commands(CommandRegistry& registry, const std::string& projectDir);  // rig.templates, rig.info, rig.create, rig.fit, rig.bake (assets_rig.cpp, docs/RIGGING.md)
-void register_skin3d_commands(CommandRegistry& registry, const std::string& projectDir);  // skin3d.info, auto, set, add, smooth, normalize, limit, mirror, clear, preview (assets_skin3d.cpp, docs/RIGGING.md)
-void register_anim3d_commands(CommandRegistry& registry, const std::string& projectDir);  // anim3d.* and ik3d.* (assets_anim3d.cpp, docs/ANIMATION.md)
-void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
-void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
-void register_model_eyes_commands(CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
-void register_model_import_clean_command(CommandRegistry& registry, const std::string& projectDir);  // model.import_clean (assets_model_import.cpp)
-Json model_uv_report_json(const ModelUvReport& report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
-void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
+void register_review_commands(CommandRegistry& registry,
+                              const std::string& projectDir);  // review.sheet, review.pick, review.list, review.info
+void register_preview_scene_command(CommandRegistry& registry,
+                                    const std::string& projectDir);  // assets.preview_in_scene
+void register_music_commands(
+    CommandRegistry& registry,
+    const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
+void register_audio_doc_commands(
+    CommandRegistry& registry,
+    const std::string&
+        projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
+void register_model_commands(
+    CommandRegistry& registry,
+    const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
+void register_rig_commands(
+    CommandRegistry& registry,
+    const std::string&
+        projectDir);  // rig.templates, rig.info, rig.create, rig.fit, rig.bake (assets_rig.cpp, docs/RIGGING.md)
+void register_skin3d_commands(
+    CommandRegistry& registry,
+    const std::string&
+        projectDir);  // skin3d.info, auto, set, add, smooth, normalize, limit, mirror, clear, preview (assets_skin3d.cpp, docs/RIGGING.md)
+void register_anim3d_commands(
+    CommandRegistry& registry,
+    const std::string& projectDir);  // anim3d.* and ik3d.* (assets_anim3d.cpp, docs/ANIMATION.md)
+void register_model_uv_command(CommandRegistry& registry,
+                               const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
+void register_model_texture_commands(
+    CommandRegistry& registry,
+    const std::string&
+        projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
+void register_model_eyes_commands(
+    CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
+void register_model_import_clean_command(
+    CommandRegistry& registry, const std::string& projectDir);  // model.import_clean (assets_model_import.cpp)
+Json model_uv_report_json(
+    const ModelUvReport&
+        report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
+void register_audio_commands(CommandRegistry& registry,
+                             const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
-void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
-void register_vector_commands(CommandRegistry& registry, const std::string& projectDir);  // vector.* (vector_commands.cpp, docs/VECTOR.md)
-void register_vector_rig_command(CommandRegistry& registry, const std::string& projectDir);  // vector.to_rig (vector_rig.cpp)
-void register_vector_edit_commands(CommandRegistry& registry, const std::string& projectDir);  // vector.add, nodes, set... (vector_edit_commands.cpp)
+void register_image_commands(CommandRegistry& registry,
+                             const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
+void register_vector_commands(CommandRegistry& registry,
+                              const std::string& projectDir);  // vector.* (vector_commands.cpp, docs/VECTOR.md)
+void register_vector_rig_command(CommandRegistry& registry,
+                                 const std::string& projectDir);  // vector.to_rig (vector_rig.cpp)
+void register_vector_edit_commands(
+    CommandRegistry& registry, const std::string& projectDir);  // vector.add, nodes, set... (vector_edit_commands.cpp)
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
 // read from the VFS project root (hold a ProjectRootGuard). Throws CommandError for an unreadable font or empty text.
-Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline, int maxW, int maxH);
+Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline,
+                      int maxW, int maxH);
 
 // ---- project.validate (validate_assets.cpp) --------------------------------------------------------------
 
@@ -152,7 +191,8 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
 // Every glTF/glb under assets/ must find the textures and buffers its uris name: adds errors.
 void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors);
 // The textures Sprites draw (project-relative): fully transparent images, and backgrounds that should be transparent.
-void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings);
+void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures,
+                           std::vector<ValidationIssue>& warnings);
 
 // ---- painterly styles (assets_style.cpp) -----------------------------------------------------------------
 
@@ -167,7 +207,8 @@ void apply_image_style(Image& image, const std::string& style, double strength, 
 // The `provenance.recipe` of a made asset (schemas/assets.schema.json): `command`, the `args` that make the same bytes
 // again (the caller makes paths project-relative and `seed` explicit) and the project files it read, `inputs`
 // (project-relative), each with its SHA-256 now. Throws CommandError for an input that cannot be read.
-Json make_recipe(const std::string& projectDir, const std::string& command, Json args, const std::vector<std::string>& inputs);
+Json make_recipe(const std::string& projectDir, const std::string& command, Json args,
+                 const std::vector<std::string>& inputs);
 // The `args` of a recipe from the arguments the command was called with: a copy of `a` without `overwrite` (assets.regenerate
 // sets it itself) and with `set` applied on top (the normalized project-relative paths and the values the command chose: the
 // seed actually used, the default path from factoria.json). A null value in `set` removes the key.
@@ -180,7 +221,8 @@ std::string recipe_path(const std::string& rel);
 struct RecipeCheck {
     std::vector<std::string> changed;
     std::vector<std::string> missing;
-    Json compared;  // array: every input the check read, {path, sha256} (the recorded hash, which the file still has unless it is in `changed`), and the style values it compared
+    Json
+        compared;  // array: every input the check read, {path, sha256} (the recorded hash, which the file still has unless it is in `changed`), and the style values it compared
     bool stale() const { return !changed.empty(); }
     bool ok() const { return changed.empty() && missing.empty(); }
 };
@@ -213,26 +255,31 @@ void register_regenerate_command(CommandRegistry& registry, const std::string& p
 void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
 // project.validate: every *.image.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose PNG
 // assets.json does not record as its bake, is a warning with the image.bake command. (A stale bake is check_recipes' warning.)
-void check_image_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+void check_image_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                           std::vector<ValidationIssue>& warnings);
 // project.validate: every *.audio.json that does not load (or would overwrite its own source) is an error with its JSON pointer and fix; one never
 // baked, or whose sound assets.json does not record as its bake, is a warning with the audio.bake command. (A stale bake is check_recipes' warning.)
-void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                           std::vector<ValidationIssue>& warnings);
 // project.validate: every *.model.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not record as its
 // bake, is a warning with the model.bake command. (A stale bake is check_recipes' warning.)
-void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                           std::vector<ValidationIssue>& warnings);
 // project.validate: every *.rig.json that does not load or fit is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not
 // record as its bake, is a warning with the rig.bake command.
-void check_rig_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+void check_rig_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                         std::vector<ValidationIssue>& warnings);
 // project.validate: every *.vfx.json anywhere in the project (not in hidden folders, node_modules or build/) that does not load is an error (file,
 // JSON pointer, fix), so is a sound clip it names that is not in the project; the parser's warnings (a rate that never emits, too many live
 // particles) are warnings. `referenced`: the files the scenes and prefabs name in a Vfx.effect, checked too when their name does not end in .vfx.json
 // (a file that does not exist is the asset check's to report).
-void check_vfx_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings,
-                         const std::set<std::string>& referenced = {});
+void check_vfx_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                         std::vector<ValidationIssue>& warnings, const std::set<std::string>& referenced = {});
 // project.validate: every *.song.json that does not parse is an error (file, JSON pointer, line and column inside note text, fix), so is an
 // instrument or drum-kit file it names that is missing or not a sound patch; the findings of the music checks that need no render (off-key
 // notes, clashes, mud, a track that never plays...) are warnings (docs/MUSIC.md).
-void check_song_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+void check_song_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                          std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 
@@ -240,8 +287,10 @@ void check_song_documents(const std::string& projectDir, std::vector<ValidationI
 
 // Argument errors of the drawing commands (assets_draw_icon.cpp): "<command> <JSON pointer>: <what>" with a hint; unknown
 // keys get a "did you mean"; colours are "#rrggbb", "#rrggbbaa", a name or [r, g, b].
-[[noreturn]] void arg_error(const char* command, const std::string& pointer, const std::string& what, const std::string& hint);
-void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed);
+[[noreturn]] void arg_error(const char* command, const std::string& pointer, const std::string& what,
+                            const std::string& hint);
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer,
+                    const std::vector<std::string>& allowed);
 Color colour_arg(const char* command, const Json& v, const std::string& pointer);
 
 // The absolute path of the project-relative `rel` (sandboxed: it cannot leave the project), or a CommandError.
@@ -257,11 +306,13 @@ stdfs::path project_write_file(const std::string& projectDir, const std::string&
 stdfs::path caller_output_file(const std::string& projectDir, const std::string& path, const char* command);
 // For the bakes that return a Result: the file a document says it writes. Inside the project for every caller, never in .git or .factoria.
 inline Result<stdfs::path> project_write_path(const std::string& projectDir, const std::string& rel) {
-    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+    return fs::resolve_for_write_in(stdfs::path(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false,
+                                    fs::ManagedFolders::Refuse);
 }
 // Refuses the picture a caller asks to keep (argument `pictureOut`, a .png) when `command` may not write it, before any work is done,
 // and a `pictureOut` given when the picture is off (`picture` false, or absent where `pictureDefault` is false): it would be ignored.
-void check_kept_picture(const std::string& projectDir, const Json& args, const char* command, bool pictureDefault = true);
+void check_kept_picture(const std::string& projectDir, const Json& args, const char* command,
+                        bool pictureDefault = true);
 // A string property of an inputSchema that names a project path; `kind` is "read" or "write" (the "x-fa-path" annotation).
 inline Json path_property(const char* kind, const std::string& description) {
     return Json::object({{"type", "string"}, {"x-fa-path", kind}, {"description", description}});
@@ -270,7 +321,8 @@ inline Json path_property(const char* kind, const std::string& description) {
 inline void mark_paths(Json& schema, const char* kind, std::initializer_list<const char*> names) {
     if (!schema.is_object() || !schema.contains("properties") || !schema["properties"].is_object()) return;
     for (const char* name : names)
-        if (schema["properties"].contains(name) && schema["properties"][name].is_object()) schema["properties"][name]["x-fa-path"] = kind;
+        if (schema["properties"].contains(name) && schema["properties"][name].is_object())
+            schema["properties"][name]["x-fa-path"] = kind;
 }
 // How a result names an output path its caller gave: normalized when it is project-relative, as given otherwise (an absolute path).
 inline std::string output_spelling(const std::string& path) {

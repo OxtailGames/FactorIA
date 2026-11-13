@@ -37,7 +37,7 @@ const std::vector<std::string>& feedback_severities();  // blocker, major, minor
 // "gap" (the engine lacked something or got it wrong: the default, never written to the file) and "efficiency" (the AI could have done
 // the same work in fewer steps, minutes or tokens: fa/tooling/efficiency.h).
 const std::vector<std::string>& feedback_kinds();
-const std::vector<std::string>& feedback_statuses();    // open, fixed-in-engine, wont-fix, duplicate, rejected
+const std::vector<std::string>& feedback_statuses();  // open, fixed-in-engine, wont-fix, duplicate, rejected
 // Who set a status: "engine" (the check found the gap already exists), "user" (a person, the default) or "developer" (the engine
 // developer rejected the shared report; the sharing tick writes it).
 const std::vector<std::string>& feedback_status_authors();
@@ -60,10 +60,10 @@ Result<bool> create_feedback_file(const std::string& path, std::string_view proj
 std::vector<SchemaError> validate_feedback(const Json& doc);
 
 struct FeedbackInput {
-    std::string category;  // required, one of feedback_categories()
-    std::string severity;  // required, one of feedback_severities()
-    std::string title;     // required
-    std::string missing;   // required
+    std::string category;    // required, one of feedback_categories()
+    std::string severity;    // required, one of feedback_severities()
+    std::string title;       // required
+    std::string missing;     // required
     std::string workaround;  // required
     std::vector<std::string> workaroundFiles;
     std::string suggestion;
@@ -84,9 +84,11 @@ struct FeedbackInput {
 struct FeedbackAddResult {
     std::string id;
     bool merged = false;  // true when folded into an existing open entry (or an archived fixed one, then `reopened`)
-    bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
+    bool reopened =
+        false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
-    bool alreadyCounted = false;  // an efficiency report whose evidence the entry already counts: merged, nothing added (idempotent)
+    bool alreadyCounted =
+        false;   // an efficiency report whose evidence the entry already counts: merged, nothing added (idempotent)
     Json entry;  // the stored entry
     std::string shareProblem;  // why `share` was not stored ("" = stored or not given)
 };
@@ -111,7 +113,8 @@ Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, co
                                                      std::string_view projectNameIfNew = {});
 
 struct EfficiencyFiling {
-    std::optional<EfficiencyRefusal> refusal;  // set: the gate refused (or the file could not be written) and nothing was written
+    std::optional<EfficiencyRefusal>
+        refusal;  // set: the gate refused (or the file could not be written) and nothing was written
     FeedbackAddResult added;
     EfficiencyVerdict verdict;
 };
@@ -123,8 +126,9 @@ struct EfficiencyFiling {
 // `origin` is what the engine's own code knows (the retrospective): the waste pattern the entry came from and the version of a fix for it
 // that the game already had; the AI's `args` never set them. An entry without a `share` in `base` gets one from its own title, waste and
 // suggestion (the sanitizer cleans it like a gap's before anything is sent); one too short to share stays local.
-EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile, FeedbackInput base, const Json& args,
-                                          std::string_view projectNameIfNew = {}, const EfficiencyOrigin& origin = {});
+EfficiencyFiling file_efficiency_feedback(const std::string& projectDir, const std::string& feedbackFile,
+                                          FeedbackInput base, const Json& args, std::string_view projectNameIfNew = {},
+                                          const EfficiencyOrigin& origin = {});
 
 struct FeedbackFilter {
     std::string status;    // "" = any
@@ -142,10 +146,10 @@ std::string feedback_project_name(const std::string& projectDir);
 std::string feedback_archive_path(const std::string& feedbackPath);
 
 struct FeedbackArchiveResult {
-    int moved = 0;                  // entries moved to the archive by this call
-    std::vector<std::string> ids;   // their ids
-    int open = 0;                   // entries left in the feedback file
-    int archived = 0;               // entries in the archive afterwards
+    int moved = 0;                 // entries moved to the archive by this call
+    std::vector<std::string> ids;  // their ids
+    int open = 0;                  // entries left in the feedback file
+    int archived = 0;              // entries in the archive afterwards
 };
 // Moves every entry whose status is not "open" from `doc` to `archive` (created by the caller, e.g. create_empty_feedback).
 // An id already in the archive is not added twice. Idempotent.
@@ -164,8 +168,8 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 // (`statusBy`: see feedback_status_authors(); "" = user). A reopened entry that the engine rejected gets claimCheck "dismissed",
 // so the check never rejects it again.
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
-                                  std::string_view engineIssue, std::string_view note = {}, std::string_view reason = {},
-                                  std::string_view by = {});
+                                  std::string_view engineIssue, std::string_view note = {},
+                                  std::string_view reason = {}, std::string_view by = {});
 
 // Sets `fixCheck` (what the retrospectives found after a fix: fa/ai/retrospective.h, check_efficiency_fixes) on the closed entry `id` of
 // the feedback file or its archive. Only an entry fixed in the engine has one; any other id is an error that says so.
@@ -183,9 +187,10 @@ Result<Json> delete_feedback_file(const std::string& path, std::string_view id,
                                   const std::function<Result<void>()>& beforeWrite = {});
 
 struct FeedbackShareEdit {
-    Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
-    bool clearShare = false;       // remove `share` (the entry is not shared any more); wins over `share`
-    std::optional<bool> reviewed;  // null = a changed `share` becomes reviewed: false (nobody checked the new text); else as given
+    Json share;               // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
+    bool clearShare = false;  // remove `share` (the entry is not shared any more); wins over `share`
+    std::optional<bool>
+        reviewed;  // null = a changed `share` becomes reviewed: false (nobody checked the new text); else as given
 };
 // Edits the `share` text and/or the `reviewed` flag of entry `id` of the feedback file (an entry of the archive is not edited).
 // The text is validated against the field limits (kShare*Min/Max); an invalid one is an error and nothing is written. A
@@ -195,15 +200,17 @@ Result<Json> set_feedback_share_file(const std::string& path, std::string_view i
 
 // Updates status and/or engineIssue of entry `id`. Returns the updated entry.
 Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status,
-                                   std::string_view engineIssue, std::string_view reason = {}, std::string_view by = {});
+                                   std::string_view engineIssue, std::string_view reason = {},
+                                   std::string_view by = {});
 
 struct FeedbackReport {
-    Json json;                 // see collect_feedback
+    Json json;  // see collect_feedback
     std::string markdown() const;
 };
 struct CollectOptions {
-    bool includeClosed = false;  // also aggregate fixed/wont-fix/duplicate entries (the archive file next to each file counts too)
-    double similarity = 0.7;     // title similarity threshold for grouping
+    bool includeClosed =
+        false;  // also aggregate fixed/wont-fix/duplicate entries (the archive file next to each file counts too)
+    double similarity = 0.7;  // title similarity threshold for grouping
 };
 // `paths`: ENGINE_FEEDBACK.json files, or directories (the file in the dir, or any
 // ENGINE_FEEDBACK.json found below it). Report JSON:

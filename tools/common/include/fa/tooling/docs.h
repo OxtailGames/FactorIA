@@ -19,8 +19,9 @@ struct DocInfo {
     std::string path;   // "docs/AI_GUIDE.md"
     std::string title;  // first heading
     std::size_t bytes = 0;
-    std::string summary;                // one sentence: what the page is for (the manifest in docs.cpp)
-    std::vector<std::string> audience;  // "gameAi" (the AI making a game), "user" (the person using the engine), "engineDev"
+    std::string summary;  // one sentence: what the page is for (the manifest in docs.cpp)
+    std::vector<std::string>
+        audience;  // "gameAi" (the AI making a game), "user" (the person using the engine), "engineDev"
 };
 
 // The manifest behind `summary` and `audience`: one entry per embedded doc.
@@ -32,7 +33,7 @@ struct DocManifestEntry {
 const std::vector<DocManifestEntry>& doc_manifest();
 
 struct DocHit {
-    std::string doc;      // name
+    std::string doc;  // name
     std::string path;
     std::string heading;  // section containing the match
     int line = 0;         // 1-based line of the best match

@@ -51,7 +51,8 @@ bool has_failure(Gfx& g, const std::string& id) {
 
 }  // namespace
 
-TEST_CASE("runtime textures: a capture at the target size has the pixels of the screenshot, and a Sprite draws it back") {
+TEST_CASE(
+    "runtime textures: a capture at the target size has the pixels of the screenshot, and a Sprite draws it back") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World a;
@@ -77,7 +78,8 @@ TEST_CASE("runtime textures: a capture at the target size has the pixels of the 
     CHECK(g.renderer.destroy_runtime_texture(id));
 }
 
-TEST_CASE("runtime textures: a smaller capture keeps the picture (cover crops to the aspect ratio, stretch squeezes the frame)") {
+TEST_CASE("runtime textures: a smaller capture keeps the picture (cover crops to the aspect ratio, stretch squeezes "
+          "the frame)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World a;

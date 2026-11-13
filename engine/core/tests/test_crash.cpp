@@ -64,7 +64,8 @@ bool running_under_wine() {
 bool run_child(const stdfs::path& dir, const std::string& mode, ProcessResult& out) {
     const char* child = std::getenv("FA_CRASH_CHILD");
     if (!child || !*child) {
-        MESSAGE("FA_CRASH_CHILD is not set (the test runs the crash program ctest names): skipped. Run `ctest -R core`.");
+        MESSAGE(
+            "FA_CRASH_CHILD is not set (the test runs the crash program ctest names): skipped. Run `ctest -R core`.");
         return false;
     }
 #ifdef _WIN32
@@ -169,9 +170,9 @@ TEST_CASE("crash reporter: a stack overflow is reported too") {
 
 TEST_CASE("crash reporter: a normal exit leaves no report, and only the newest ones are kept") {
     TempDir dir;
-    for (const char* stem : {"crash-20200101T000000Z", "crash-20200102T000000Z", "crash-20200103T000000Z",
-                             "crash-20200104T000000Z", "crash-20200105T000000Z", "crash-20200106T000000Z",
-                             "crash-20200107T000000Z"}) {
+    for (const char* stem :
+         {"crash-20200101T000000Z", "crash-20200102T000000Z", "crash-20200103T000000Z", "crash-20200104T000000Z",
+          "crash-20200105T000000Z", "crash-20200106T000000Z", "crash-20200107T000000Z"}) {
         touch(dir.path / (std::string(stem) + ".txt"));
         touch(dir.path / (std::string(stem) + ".dmp"));
     }
@@ -179,11 +180,17 @@ TEST_CASE("crash reporter: a normal exit leaves no report, and only the newest o
     ProcessResult r;
     if (!run_child(dir.path, "clean", r)) return;
     CHECK(r.exitCode == 0);
-    const std::vector<std::string> expected = {"crash-20200103T000000Z.dmp", "crash-20200103T000000Z.txt",
-                                               "crash-20200104T000000Z.dmp", "crash-20200104T000000Z.txt",
-                                               "crash-20200105T000000Z.dmp", "crash-20200105T000000Z.txt",
-                                               "crash-20200106T000000Z.dmp", "crash-20200106T000000Z.txt",
-                                               "crash-20200107T000000Z.dmp", "crash-20200107T000000Z.txt", "log.txt"};
+    const std::vector<std::string> expected = {"crash-20200103T000000Z.dmp",
+                                               "crash-20200103T000000Z.txt",
+                                               "crash-20200104T000000Z.dmp",
+                                               "crash-20200104T000000Z.txt",
+                                               "crash-20200105T000000Z.dmp",
+                                               "crash-20200105T000000Z.txt",
+                                               "crash-20200106T000000Z.dmp",
+                                               "crash-20200106T000000Z.txt",
+                                               "crash-20200107T000000Z.dmp",
+                                               "crash-20200107T000000Z.txt",
+                                               "log.txt"};
     CHECK(names_in(dir.path) == expected);
 }
 
@@ -248,7 +255,8 @@ TEST_CASE("thread stacks: a watchdog reads the stack of the thread it watches wh
     stuck.join();
     watch_thread_stack();  // the stuck thread has ended: watch one that lives on, for any later caller
     INFO("watched stack:\n" << first << "\nown stack:\n" << ownStack);
-#if (defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))) || (!defined(_WIN32) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__))
+#if (defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))) ||                                                   \
+    (!defined(_WIN32) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__))
     CHECK(counts_frames(first));
     CHECK(counts_frames(second));
     CHECK(counts_frames(ownStack));

@@ -12,7 +12,9 @@ using namespace fa::editor;
 namespace {
 
 // 2D camera: world y up, panel y down, `zoom` px per world unit, the origin at (400, 300).
-ProjectFn ortho(float zoom = 2.0f) { return [zoom](Vec3 p) { return Vec2{400 + p.x * zoom, 300 - p.y * zoom}; }; }
+ProjectFn ortho(float zoom = 2.0f) {
+    return [zoom](Vec3 p) { return Vec2{400 + p.x * zoom, 300 - p.y * zoom}; };
+}
 
 // A perspective camera at (0, 0, 10) looking down -z, 800x600 panel.
 ProjectFn perspective() {
@@ -73,7 +75,8 @@ TEST_CASE("gizmo: handles keep their pixel size whatever the zoom") {
     }
 }
 
-TEST_CASE("gizmo: hit-test priority: the centre square beats the arms, a scale box beats its arm, the nearest line wins") {
+TEST_CASE(
+    "gizmo: hit-test priority: the centre square beats the arms, a scale box beats its arm, the nearest line wins") {
     GizmoView v;
     v.project = ortho();
     GizmoFrame f;
@@ -91,8 +94,10 @@ TEST_CASE("gizmo: hit-test priority: the centre square beats the arms, a scale b
     a.type = b.type = GizmoShape::Type::Arm;
     a.handle = {GizmoKind::MoveAxis, 0};
     b.handle = {GizmoKind::MoveAxis, 1};
-    a.from = {0, 0}; a.to = {100, 0};
-    b.from = {0, 9}; b.to = {100, 9};
+    a.from = {0, 0};
+    a.to = {100, 0};
+    b.from = {0, 9};
+    b.to = {100, 9};
     CHECK(gizmo_hit({a, b}, {50, 6}, 7).axis == 1);
     CHECK(gizmo_hit({a, b}, {50, 2}, 7).axis == 0);
     CHECK(gizmo_hit({a, b}, {50, 4.5f}, 7).axis == 0);  // a tie goes to the first (x before y)
@@ -135,22 +140,24 @@ TEST_CASE("gizmo: an axis drag follows the axis' own screen direction in perspec
     const Vec2 a = p(pivot), one = p({1, 0, 0});
     const float pxPerUnit = one.x - a.x;
     REQUIRE(pxPerUnit > 10.0f);
-    CHECK(axis_drag_distance(p, pivot, {1, 0, 0}, a, {a.x + 3 * pxPerUnit, a.y + 50}) == doctest::Approx(3.0f).epsilon(1e-3));
+    CHECK(axis_drag_distance(p, pivot, {1, 0, 0}, a, {a.x + 3 * pxPerUnit, a.y + 50}) ==
+          doctest::Approx(3.0f).epsilon(1e-3));
     // The z axis points at the camera: it projects to a point at the centre, nothing to drag along.
     CHECK(axis_drag_distance(p, pivot, {0, 0, 1}, a, {a.x + 100, a.y}) == doctest::Approx(0.0f).epsilon(1e-3));
     // An axis that shows: drag along its screen direction.
     const Vec3 off{4, 0, 0};
     const Vec2 b = p(off), bz = p(off + Vec3{0, 0, 1});
     const Vec2 d{bz.x - b.x, bz.y - b.y};
-    CHECK(axis_drag_distance(p, off, {0, 0, 1}, b, {b.x + 2 * d.x, b.y + 2 * d.y}) == doctest::Approx(2.0f).epsilon(1e-3));
+    CHECK(axis_drag_distance(p, off, {0, 0, 1}, b, {b.x + 2 * d.x, b.y + 2 * d.y}) ==
+          doctest::Approx(2.0f).epsilon(1e-3));
 }
 
 TEST_CASE("gizmo: ray_plane") {
     Vec3 hit;
     CHECK(ray_plane({0, 0, 10}, {0, 0, -1}, {0, 0, 2}, {0, 0, 1}, hit));
     CHECK(near_v(hit, {0, 0, 2}));
-    CHECK_FALSE(ray_plane({0, 0, 10}, {1, 0, 0}, {0, 0, 2}, {0, 0, 1}, hit));   // parallel
-    CHECK_FALSE(ray_plane({0, 0, 10}, {0, 0, 1}, {0, 0, 2}, {0, 0, 1}, hit));   // behind the origin
+    CHECK_FALSE(ray_plane({0, 0, 10}, {1, 0, 0}, {0, 0, 2}, {0, 0, 1}, hit));  // parallel
+    CHECK_FALSE(ray_plane({0, 0, 10}, {0, 0, 1}, {0, 0, 2}, {0, 0, 1}, hit));  // behind the origin
 }
 
 TEST_CASE("gizmo: Ctrl snaps the value, not the delta") {
@@ -213,7 +220,9 @@ TEST_CASE("gizmo: rotating about local axes and reading the euler back is a roun
     for (int axis = 0; axis < 3; ++axis) {
         const Vec3 turned = rotate_local_euler(start, axis, 40.0f);
         // Reference: the same turn as matrices, R * R_axis(40).
-        const Mat4 want = Mat4::rotate_euler_deg(start) * (axis == 0 ? Mat4::rotate_x_deg(40) : axis == 1 ? Mat4::rotate_y_deg(40) : Mat4::rotate_z_deg(40));
+        const Mat4 want = Mat4::rotate_euler_deg(start) * (axis == 0   ? Mat4::rotate_x_deg(40)
+                                                           : axis == 1 ? Mat4::rotate_y_deg(40)
+                                                                       : Mat4::rotate_z_deg(40));
         const Mat4 got = Mat4::rotate_euler_deg(turned);
         for (int i = 0; i < 16; ++i) CHECK(got.m[i] == doctest::Approx(want.m[i]).epsilon(1e-4));
         // and back
@@ -228,15 +237,16 @@ TEST_CASE("gizmo: rotating about local axes and reading the euler back is a roun
 
 TEST_CASE("gizmo: scale never reaches 0 or flips sign by accident") {
     CHECK(scale_axis_factor({0, 0}, {1, 0}, {80, 0}, {160, 0}) == doctest::Approx(2.0f));
-    CHECK(scale_axis_factor({0, 0}, {1, 0}, {80, 0}, {-400, 0}) == kMinScaleFactor);  // dragged through the pivot and beyond
+    CHECK(scale_axis_factor({0, 0}, {1, 0}, {80, 0}, {-400, 0}) ==
+          kMinScaleFactor);  // dragged through the pivot and beyond
     CHECK(scale_axis_factor({0, 0}, {1, 0}, {80, 0}, {0, 0}) == kMinScaleFactor);
     CHECK(scale_axis_factor({0, 0}, {1, 0}, {0.2f, 0}, {50, 0}) == 1.0f);  // grabbed on the pivot: no division by ~0
     CHECK(scale_apply(2.0f, kMinScaleFactor, 0) == doctest::Approx(0.02f));
-    CHECK(scale_apply(-2.0f, 1.5f, 0) == doctest::Approx(-3.0f));         // a mirrored entity stays mirrored
+    CHECK(scale_apply(-2.0f, 1.5f, 0) == doctest::Approx(-3.0f));  // a mirrored entity stays mirrored
     CHECK(scale_apply(-2.0f, 0.0f, 0) < 0.0f);
-    CHECK(scale_apply(0.0f, 3.0f, 0) == 0.0f);                              // nothing to scale
-    CHECK(scale_apply(1.0f, 1.37f, 0.1f) == doctest::Approx(1.4f));         // Ctrl snaps to 0.1
-    CHECK(scale_apply(1.0f, 0.01f, 0.1f) == doctest::Approx(0.1f));         // ...and never to 0
+    CHECK(scale_apply(0.0f, 3.0f, 0) == 0.0f);                       // nothing to scale
+    CHECK(scale_apply(1.0f, 1.37f, 0.1f) == doctest::Approx(1.4f));  // Ctrl snaps to 0.1
+    CHECK(scale_apply(1.0f, 0.01f, 0.1f) == doctest::Approx(0.1f));  // ...and never to 0
     CHECK(scale_uniform_factor({0, 0}, {80, 0}, 80.0f) == doctest::Approx(2.0f));
     CHECK(scale_uniform_factor({0, 0}, {0, 80}, 80.0f) == kMinScaleFactor);  // down shrinks, held at the minimum
     CHECK(scale_uniform_factor({0, 0}, {40, -40}, 80.0f) == doctest::Approx(2.0f));

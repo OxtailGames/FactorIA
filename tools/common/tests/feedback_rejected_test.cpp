@@ -28,7 +28,9 @@ FeedbackInput input(const std::string& title, const std::string& missing = {}) {
     return in;
 }
 
-std::string one_way_missing() { return "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it."; }
+std::string one_way_missing() {
+    return "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.";
+}
 
 Json status_of(const std::string& file, const std::string& id) {
     for (const std::string& path : {file, feedback_archive_path(file)}) {
@@ -57,7 +59,9 @@ struct Net {
 
     Net() {
         const std::string home = dir.sub("home");
-        env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+        env.env = [home](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+        };
         env.now = [] { return std::int64_t(1'800'000'000); };
         env.sleep = [](double) {};
         env.makeUuid = [] { return std::string("11111111-2222-4333-8444-555555555555"); };
@@ -101,8 +105,8 @@ TEST_CASE("feedback check: a report that says the engine lacks what it has is re
     REQUIRE(r.refused());
     CHECK(r.matches.front().name == "Collider2D.oneWay");
     CHECK(r.matches.front().kind == "field");
-    CHECK_FALSE(r.matches.front().doc.empty());                      // its doc string
-    CHECK(r.matches.front().documentedIn.find("docs/") == 0);       // where it is documented
+    CHECK_FALSE(r.matches.front().doc.empty());                // its doc string
+    CHECK(r.matches.front().documentedIn.find("docs/") == 0);  // where it is documented
     const std::string message = r.message(), hint = r.hint();
     CHECK(message.find("Collider2D.oneWay") != std::string::npos);
     CHECK(message.find("Its doc string") != std::string::npos);
@@ -119,20 +123,26 @@ TEST_CASE("feedback check: a report that says the engine lacks what it has is re
 
 TEST_CASE("feedback check: no false positive when the report names a bug, or asks for more than exists") {
     SUBCASE("a bug: the thing exists and does not work as documented") {
-        const ClaimResult r = check("Collider2D.oneWay is ignored", "I set oneWay to true on the platform and a body still collides from below.");
+        const ClaimResult r = check("Collider2D.oneWay is ignored",
+                                    "I set oneWay to true on the platform and a body still collides from below.");
         CHECK_FALSE(r.refused());
     }
     SUBCASE("an extra option on an existing component") {
-        const ClaimResult r = check("Collider2D needs a bounce curve", "Collider2D has a bounciness number, but the bounce cannot follow a curve over speed.",
-                                    "Add Collider2D.bounceCurve (a curve).");
+        const ClaimResult r =
+            check("Collider2D needs a bounce curve",
+                  "Collider2D has a bounciness number, but the bounce cannot follow a curve over speed.",
+                  "Add Collider2D.bounceCurve (a curve).");
         CHECK_FALSE(r.refused());
     }
     SUBCASE("a real gap") {
-        CHECK_FALSE(check("No fluid simulation", "Nothing simulates water that flows around obstacles.").refused() == false);  // the example
-        CHECK_FALSE(check("Rope bridges sway", "Nothing makes a chain of planks swing under a body's weight.").refused());
+        CHECK_FALSE(check("No fluid simulation", "Nothing simulates water that flows around obstacles.").refused() ==
+                    false);  // the example
+        CHECK_FALSE(
+            check("Rope bridges sway", "Nothing makes a chain of planks swing under a body's weight.").refused());
     }
     SUBCASE("related docs without a refusal") {
-        const ClaimResult r = check_feedback_claim(ClaimInput{"Rope bridges sway", "Nothing makes a chain of planks swing.", ""}, nullptr, 3);
+        const ClaimResult r = check_feedback_claim(
+            ClaimInput{"Rope bridges sway", "Nothing makes a chain of planks swing.", ""}, nullptr, 3);
         CHECK_FALSE(r.refused());
         CHECK(r.related.is_array());
         CHECK(r.related.size() <= 3);
@@ -149,7 +159,8 @@ TEST_CASE("feedback check: the invented example of the feedback.report docs is n
 TEST_CASE("feedback check: a command the engine has is named too") {
     CommandRegistry registry;
     register_feedback_commands(registry, ".");
-    const ClaimResult r = check_feedback_claim(ClaimInput{"Missing a command to delete feedback", "There is no feedback.delete command.", ""}, &registry);
+    const ClaimResult r = check_feedback_claim(
+        ClaimInput{"Missing a command to delete feedback", "There is no feedback.delete command.", ""}, &registry);
     REQUIRE(r.refused());
     CHECK(r.matches.front().name == "feedback.delete");
 }
@@ -157,12 +168,16 @@ TEST_CASE("feedback check: a command the engine has is named too") {
 // ----------------------------------------------------------------------------------------- feedback.report, the commands
 
 TEST_CASE("feedback.report refuses a claim the engine already covers, and files a bug about the same thing") {
-    testing::ScratchShareHome scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
+    testing::ScratchShareHome
+        scratchHome;  // the report takes the lock of the user's folder: a scratch one, never ~/.factoria
     testing::TempDir dir;
     CommandRegistry registry;
     register_feedback_commands(registry, dir.str());
-    Json args = Json::object({{"category", "physics"}, {"severity", "major"}, {"title", "No one-way platforms"},
-                              {"missing", one_way_missing()}, {"workaround", "A script toggles the collider."}});
+    Json args = Json::object({{"category", "physics"},
+                              {"severity", "major"},
+                              {"title", "No one-way platforms"},
+                              {"missing", one_way_missing()},
+                              {"workaround", "A script toggles the collider."}});
     auto refused = registry.call("feedback.report", args);
     REQUIRE_FALSE(refused.ok);
     CHECK(refused.error.value("code", std::string()) == "already_exists");
@@ -181,10 +196,12 @@ TEST_CASE("feedback.check: the check on its own, and over the open entries") {
     testing::TempDir dir;
     CommandRegistry registry;
     register_feedback_commands(registry, dir.str());
-    auto exists = registry.call("feedback.check", Json::object({{"title", "No one-way platforms"}, {"missing", one_way_missing()}}));
+    auto exists = registry.call("feedback.check",
+                                Json::object({{"title", "No one-way platforms"}, {"missing", one_way_missing()}}));
     REQUIRE(exists.ok);
     CHECK(exists.result["exists"] == true);
-    auto fine = registry.call("feedback.check", Json::object({{"title", "Rope bridges sway"}, {"missing", "Nothing makes a chain of planks swing."}}));
+    auto fine = registry.call("feedback.check", Json::object({{"title", "Rope bridges sway"},
+                                                              {"missing", "Nothing makes a chain of planks swing."}}));
     REQUIRE(fine.ok);
     CHECK(fine.result["exists"] == false);
 }
@@ -192,7 +209,8 @@ TEST_CASE("feedback.check: the check on its own, and over the open entries") {
 // ----------------------------------------------------------------------------------------------- rejected and its reason
 
 TEST_CASE("rejected: a reason is required, stored with who decided, and the entry goes to the archive") {
-    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
+    testing::ScratchShareHome
+        scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
     REQUIRE(add_feedback_entry_to_file(file, input("Rope bridges sway"), "g").ok());
@@ -202,7 +220,8 @@ TEST_CASE("rejected: a reason is required, stored with who decided, and the entr
     CHECK(noReason.error().message.find("reason") != std::string::npos);
     CHECK(status_of(file, "FB-0001").value("status", std::string()) == "open");
 
-    auto done = update_feedback_file(file, "FB-0001", "rejected", "", "", "  Not a gap:\n the engine has it.\t", "user");
+    auto done =
+        update_feedback_file(file, "FB-0001", "rejected", "", "", "  Not a gap:\n the engine has it.\t", "user");
     REQUIRE(done.ok());
     CHECK((*done)["status"] == "rejected");
     CHECK((*done)["statusReason"] == "Not a gap: the engine has it.");  // plain text on one line
@@ -233,8 +252,10 @@ TEST_CASE("rejected: sanitize_status_reason keeps plain text within the limit, n
     CHECK(int(cut.size()) <= 2 * kFeedbackReasonMax);
 }
 
-TEST_CASE("rejected: the engine rejects the open entries whose claim fails the check, and leaves a reopened one alone") {
-    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
+TEST_CASE(
+    "rejected: the engine rejects the open entries whose claim fails the check, and leaves a reopened one alone") {
+    testing::ScratchShareHome
+        scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
     REQUIRE(add_feedback_entry_to_file(file, input("No one-way platforms", one_way_missing()), "g").ok());
@@ -260,11 +281,14 @@ TEST_CASE("rejected: the engine rejects the open entries whose claim fails the c
 
 // ---------------------------------------------------------------------------------------------------------------- delete
 
-TEST_CASE("delete: a closed entry goes from the file or the archive, an open one is refused, and an id is never reused") {
-    testing::ScratchShareHome scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
+TEST_CASE(
+    "delete: a closed entry goes from the file or the archive, an open one is refused, and an id is never reused") {
+    testing::ScratchShareHome
+        scratchHome;  // the lock of the sharing files goes to a scratch user folder, never ~/.factoria
     testing::TempDir dir;
     const std::string file = dir.sub("ENGINE_FEEDBACK.json");
-    for (const char* title : {"Rope bridges sway", "Weather changes slowly", "Boats float upstream"}) REQUIRE(add_feedback_entry_to_file(file, input(title), "g").ok());
+    for (const char* title : {"Rope bridges sway", "Weather changes slowly", "Boats float upstream"})
+        REQUIRE(add_feedback_entry_to_file(file, input(title), "g").ok());
 
     std::string why;
     CHECK_FALSE(feedback_entry_deletable(status_of(file, "FB-0003"), &why));
@@ -294,7 +318,8 @@ TEST_CASE("delete: an open entry the engine developers refused can go; the comma
     Net net;
     ScopedShareEnv scoped(net.env);
     const std::string file = file_with_sent(net.dir.sub("game"));
-    write_entry_shared(file, "FB-0003", Json::object({{"status", "declined"}, {"shareId", "r_3"}, {"reason", "Not a gap."}}));
+    write_entry_shared(file, "FB-0003",
+                       Json::object({{"status", "declined"}, {"shareId", "r_3"}, {"reason", "Not a gap."}}));
     CHECK(feedback_entry_deletable(status_of(file, "FB-0003")));
     CHECK_FALSE(feedback_entry_deletable(status_of(file, "FB-0001")));  // sent, nobody refused it
     CommandRegistry registry;
@@ -316,8 +341,11 @@ TEST_CASE("verdicts: a rejected report comes back as a rejected entry with the d
         const Json body = Json::parse(rq.body);
         Json verdicts = Json::array();
         for (const Json& id : body["shareIds"]) {
-            if (id == "r_1") verdicts.push_back(Json::object({{"shareId", "r_1"}, {"status", "rejected"}, {"reason", "Not a gap: it is documented."}}));
-            else verdicts.push_back(Json::object({{"shareId", id}, {"status", "received"}}));
+            if (id == "r_1")
+                verdicts.push_back(Json::object(
+                    {{"shareId", "r_1"}, {"status", "rejected"}, {"reason", "Not a gap: it is documented."}}));
+            else
+                verdicts.push_back(Json::object({{"shareId", id}, {"status", "received"}}));
         }
         return reply(Json::object({{"ok", true}, {"verdicts", verdicts}}));
     };
@@ -355,15 +383,19 @@ TEST_CASE("verdicts: a rejection taken back reopens the entry; an answer for an 
     const std::string file = file_with_sent(net.dir.sub("game"));
     REQUIRE(set_share_mode(net.env, ShareMode::Always).ok());
     net.answer = [](const HttpRequest&) {
-        return reply(Json::object({{"ok", true},
-                                   {"verdicts", Json::array({Json::object({{"shareId", "r_1"}, {"status", "rejected"}, {"reason", "No."}}),
-                                                             Json::object({{"shareId", "r_77"}, {"status", "rejected"}, {"reason", "Somebody else's."}})})}}));
+        return reply(Json::object(
+            {{"ok", true},
+             {"verdicts",
+              Json::array(
+                  {Json::object({{"shareId", "r_1"}, {"status", "rejected"}, {"reason", "No."}}),
+                   Json::object({{"shareId", "r_77"}, {"status", "rejected"}, {"reason", "Somebody else's."}})})}}));
     };
     CHECK(share_sync_verdicts(net.env, file).declined == 1);
     CHECK(status_of(file, "FB-0001")["status"] == "rejected");
 
     net.answer = [](const HttpRequest&) {
-        return reply(Json::object({{"ok", true}, {"verdicts", Json::array({Json::object({{"shareId", "r_1"}, {"status", "received"}})})}}));
+        return reply(Json::object(
+            {{"ok", true}, {"verdicts", Json::array({Json::object({{"shareId", "r_1"}, {"status", "received"}})})}}));
     };
     const VerdictResult back = share_sync_verdicts(net.env, file);
     CHECK(back.restored == 1);
@@ -371,7 +403,9 @@ TEST_CASE("verdicts: a rejection taken back reopens the entry; an answer for an 
     CHECK(e["status"] == "open");
     CHECK(e["shared"]["status"] == "sent");
     CHECK_FALSE(e.contains("statusReason"));
-    CHECK(status_of(file, "FB-0003").value("shared", Json::object()).empty());  // nothing written for an id that is not ours
+    CHECK(status_of(file, "FB-0003")
+              .value("shared", Json::object())
+              .empty());  // nothing written for an id that is not ours
 }
 
 TEST_CASE("verdicts: an old server (404), a server that is down, sharing off and nothing sent change nothing") {

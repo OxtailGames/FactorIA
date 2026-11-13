@@ -13,7 +13,9 @@ using namespace fa::ai::test;
 
 namespace {
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::vector<std::string> names_of(const std::vector<ToolDef>& tools) {
     std::vector<std::string> out;
@@ -40,7 +42,9 @@ struct BigRegistry {
             info.description = std::string(500, 'd') + " Details of " + name + ".";
             info.details = "Fine print of " + name + ".";
             Json props = Json::object();
-            for (int i = 0; i < 8; ++i) props["field" + std::to_string(i)] = Json::object({{"type", "string"}, {"description", std::string(60, 'x')}});
+            for (int i = 0; i < 8; ++i)
+                props["field" + std::to_string(i)] =
+                    Json::object({{"type", "string"}, {"description", std::string(60, 'x')}});
             info.inputSchema = Json::object({{"type", "object"}, {"properties", props}});
             reg.add(info, fn ? fn : [](const Json&) { return Json::object({{"ok", true}}); });
         };
@@ -53,8 +57,11 @@ struct BigRegistry {
         add("game.step", "game", false, "Run frames.");
         add("project.validate", "project", true, "Validate the project.");
         add("ai.run", "ai", false, "must be hidden from the model");
-        for (int i = 0; i < 12; ++i) add("anim.op" + std::to_string(i), "anim", i % 2 == 0, "Animation operation number " + std::to_string(i) + ".");
-        for (int i = 0; i < 12; ++i) add("ui.op" + std::to_string(i), "ui", true, "UI operation " + std::to_string(i) + ".");
+        for (int i = 0; i < 12; ++i)
+            add("anim.op" + std::to_string(i), "anim", i % 2 == 0,
+                "Animation operation number " + std::to_string(i) + ".");
+        for (int i = 0; i < 12; ++i)
+            add("ui.op" + std::to_string(i), "ui", true, "UI operation " + std::to_string(i) + ".");
         add("assets.slice_sheet", "assets", false, "Cut a sprite sheet into frames.", [this](const Json& a) {
             ++slicesCalls;
             lastSliceArgs = a;
@@ -67,7 +74,8 @@ struct BigRegistry {
         strict.readOnly = false;
         strict.summary = "Pack images into an atlas.";
         strict.description = std::string(2000, 'p');
-        strict.inputSchema = Json::parse(R"({"type":"object","properties":{"images":{"type":"array","items":{"type":"string"}}},
+        strict.inputSchema =
+            Json::parse(R"({"type":"object","properties":{"images":{"type":"array","items":{"type":"string"}}},
             "required":["images"],"additionalProperties":false})");
         reg.add(strict, [](const Json&) { return Json::object({{"ok", true}}); });
     }
@@ -114,7 +122,8 @@ TEST_CASE("catalog: core commands in full, the rest as catalog lines, ai.* hidde
     ToolPlan plan = plan_tools(b.reg, {});
     REQUIRE(plan.useCatalog);
     const auto tools = names_of(plan.tools);
-    for (const char* t : {"scene_spawn", "scene_list_entities", "game_screenshot", "game_step", "project_validate", "tool_describe", "tool_call"})
+    for (const char* t : {"scene_spawn", "scene_list_entities", "game_screenshot", "game_step", "project_validate",
+                          "tool_describe", "tool_call"})
         CHECK_MESSAGE(has(tools, t), t);
     CHECK_FALSE(has(tools, "anim_op0"));
     CHECK_FALSE(has(tools, "assets_slice_sheet"));
@@ -192,16 +201,23 @@ TEST_CASE("catalog: the roles' toolGroups are read from ai.json and written back
     auto bad2 = parse_config(Json::parse(R"({"roles":{"artist":{"provider":"anthropic","toolGroups":["assets",3]}}})"));
     REQUIRE_FALSE(bad2);
     CHECK(bad2.error().message.find("/roles/artist/toolGroups/1") != std::string::npos);
-    CHECK(validate_config_json(Json::parse(R"({"roles":{"artist":{"provider":"anthropic","toolGroups":["assets"]}}})")).empty());
-    CHECK_FALSE(validate_config_json(Json::parse(R"({"roles":{"artist":{"provider":"anthropic","toolGroups":"assets"}}})")).empty());
+    CHECK(validate_config_json(Json::parse(R"({"roles":{"artist":{"provider":"anthropic","toolGroups":["assets"]}}})"))
+              .empty());
+    CHECK_FALSE(
+        validate_config_json(Json::parse(R"({"roles":{"artist":{"provider":"anthropic","toolGroups":"assets"}}})"))
+            .empty());
 }
 
 TEST_CASE("catalog: describe then call; the tool list and the system prompt stay the same on every step") {
     BigRegistry b;
     Run r;
     r.provider->script = {
-        tool_response({tcall("t1", "tool_describe", Json::object({{"commands", Json::array({"assets.slice_sheet", "assets_pack_atlas", "nope.cmd"})}}))}),
-        tool_response({tcall("t2", "tool_call", Json::object({{"command", "assets.slice_sheet"}, {"arguments", Json::object({{"field0", "a.png"}})}}))}),
+        tool_response({tcall(
+            "t1", "tool_describe",
+            Json::object({{"commands", Json::array({"assets.slice_sheet", "assets_pack_atlas", "nope.cmd"})}}))}),
+        tool_response({tcall(
+            "t2", "tool_call",
+            Json::object({{"command", "assets.slice_sheet"}, {"arguments", Json::object({{"field0", "a.png"}})}}))}),
         text_response("Done."),
     };
     auto res = r.run(b.reg, kRoleWorker);
@@ -227,9 +243,11 @@ TEST_CASE("catalog: describe then call; the tool list and the system prompt stay
     REQUIRE(described["commands"].size() == 2);
     CHECK(described["commands"][0]["name"] == "assets.slice_sheet");
     CHECK(described["commands"][0]["inputSchema"]["properties"].contains("field3"));
-    CHECK(described["commands"][0]["description"].get<std::string>().find("Details of assets.slice_sheet") != std::string::npos);
+    CHECK(described["commands"][0]["description"].get<std::string>().find("Details of assets.slice_sheet") !=
+          std::string::npos);
     // tool_describe promises the FULL definition: the part the MCP description cut off (CommandInfo::details) is in it
-    CHECK(described["commands"][0]["description"].get<std::string>().find("Fine print of assets.slice_sheet.") != std::string::npos);
+    CHECK(described["commands"][0]["description"].get<std::string>().find("Fine print of assets.slice_sheet.") !=
+          std::string::npos);
     CHECK(described["commands"][1]["name"] == "assets.pack_atlas");
     REQUIRE(described["unknown"].size() == 1);
     CHECK(described["unknown"][0]["name"] == "nope.cmd");
@@ -256,13 +274,14 @@ TEST_CASE("catalog: tool_call explains its mistakes; a wrong argument brings the
     BigRegistry b;
     Run r;
     r.provider->script = {
-        tool_response({tcall("a", "tool_call", Json::object({{"command", "assets.slice_shet"}})),
-                       tcall("b", "tool_call", Json::object({{"arguments", Json::object()}})),
-                       tcall("c", "tool_call", Json::object({{"command", "assets.pack_atlas"}, {"arguments", Json::object({{"images", 5}})}})),
-                       tcall("d", "tool_call", Json::object({{"command", "ai.run"}, {"arguments", Json::object()}})),
-                       tcall("e", "tool_call", Json::object({{"command", "assets.pack_atlas"}, {"arguments", "x"}})),
-                       tcall("f", "tool_call", Json::object({{"command", "scene_list_entities"}})),
-                       tcall("g", "tool_describe")}),
+        tool_response(
+            {tcall("a", "tool_call", Json::object({{"command", "assets.slice_shet"}})),
+             tcall("b", "tool_call", Json::object({{"arguments", Json::object()}})),
+             tcall("c", "tool_call",
+                   Json::object({{"command", "assets.pack_atlas"}, {"arguments", Json::object({{"images", 5}})}})),
+             tcall("d", "tool_call", Json::object({{"command", "ai.run"}, {"arguments", Json::object()}})),
+             tcall("e", "tool_call", Json::object({{"command", "assets.pack_atlas"}, {"arguments", "x"}})),
+             tcall("f", "tool_call", Json::object({{"command", "scene_list_entities"}})), tcall("g", "tool_describe")}),
         text_response("Done."),
     };
     REQUIRE(r.run(b.reg, kRoleWorker).ok);
@@ -293,12 +312,12 @@ TEST_CASE("catalog: a read-only role has no way to a command that changes the pr
 
     Run r;
     r.provider->script = {
-        tool_response({tcall("a", "tool_call", Json::object({{"command", "scene.spawn"}, {"arguments", Json::object()}})),
-                       tcall("b", "tool_call", Json::object({{"command", "scene_spawn"}})),
-                       tcall("c", "scene_spawn"),
-                       tcall("d", "tool_call", Json::object({{"command", "assets.slice_sheet"}})),
-                       tcall("e", "tool_describe", Json::object({{"commands", Json::array({"assets.slice_sheet"})}})),
-                       tcall("f", "tool_call", Json::object({{"command", "anim.op0"}}))}),
+        tool_response(
+            {tcall("a", "tool_call", Json::object({{"command", "scene.spawn"}, {"arguments", Json::object()}})),
+             tcall("b", "tool_call", Json::object({{"command", "scene_spawn"}})), tcall("c", "scene_spawn"),
+             tcall("d", "tool_call", Json::object({{"command", "assets.slice_sheet"}})),
+             tcall("e", "tool_describe", Json::object({{"commands", Json::array({"assets.slice_sheet"})}})),
+             tcall("f", "tool_call", Json::object({{"command", "anim.op0"}}))}),
         text_response("Done."),
     };
     REQUIRE(r.run(b.reg, kRoleReviewer).ok);
@@ -332,7 +351,9 @@ TEST_CASE("catalog: the role's tool groups decide what the artist gets in full")
     REQUIRE(r2.run(b.reg, kRoleArtist).ok);
     bool told = false;
     for (const AgentEvent& e : r2.events) {
-        if (e.type == AgentEvent::Type::Info && e.text.find("toolGroups") != std::string::npos && e.text.find("'uii'") != std::string::npos) told = true;
+        if (e.type == AgentEvent::Type::Info && e.text.find("toolGroups") != std::string::npos &&
+            e.text.find("'uii'") != std::string::npos)
+            told = true;
     }
     CHECK(told);
     // without a setting the artist loads the assets
@@ -346,8 +367,8 @@ TEST_CASE("context split: every step records where the context went; the catalog
     BigRegistry b;
     auto measure = [&](bool catalog, std::vector<AgentEvent>* events, std::string* transcript) {
         Run r;
-        r.provider->script = {tool_response({tcall("a", "scene_list_entities")}), tool_response({tcall("b", "scene_list_entities")}),
-                              text_response("Done.")};
+        r.provider->script = {tool_response({tcall("a", "scene_list_entities")}),
+                              tool_response({tcall("b", "scene_list_entities")}), text_response("Done.")};
         SessionOptions so;
         so.toolCatalog = catalog;
         auto res = r.run(b.reg, kRoleWorker, so);
@@ -378,7 +399,7 @@ TEST_CASE("context split: every step records where the context went; the catalog
         CHECK(s.catalogCount == 26);
         CHECK(s.toolCount == 7);  // 5 core in the registry + tool_describe + tool_call
     }
-    CHECK(splits[0].toolBytes == splits[2].toolBytes);              // fixed for the run
+    CHECK(splits[0].toolBytes == splits[2].toolBytes);  // fixed for the run
     CHECK(splits[0].systemBytes == splits[2].systemBytes);
     CHECK(splits[2].conversationBytes > splits[0].conversationBytes);  // the conversation is what grows
     // the transcript has it on the assistant lines, and ai.session_timeline sums it up

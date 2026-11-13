@@ -8,7 +8,8 @@ extern "C" void fa_sokol_log_func(const char* tag, std::uint32_t logLevel, std::
     (void)userData;
     fa::LogLevel level = fa::LogLevel::Info;
     switch (logLevel) {
-        case 0: case 1: level = fa::LogLevel::Error; break;
+        case 0:
+        case 1: level = fa::LogLevel::Error; break;
         case 2: level = fa::LogLevel::Warn; break;
         default: level = fa::LogLevel::Info; break;
     }

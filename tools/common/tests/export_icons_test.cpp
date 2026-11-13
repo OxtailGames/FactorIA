@@ -75,7 +75,8 @@ std::vector<std::string> warnings_without_mismatch(const std::vector<std::string
     return out;
 }
 
-ExportOptions options_for(const std::string& proj, const testing::TempDir& tmp, const std::string& platform, const std::string& player) {
+ExportOptions options_for(const std::string& proj, const testing::TempDir& tmp, const std::string& platform,
+                          const std::string& player) {
     ExportOptions o;
     o.projectDir = proj;
     o.platform = platform;
@@ -143,7 +144,8 @@ TEST_CASE("export macos: the icon becomes AppIcon.icns and the settings become I
     CHECK(contains(plist, "<key>CFBundleIconFile</key><string>AppIcon</string>"));
     CHECK(contains(plist, "<key>LSMinimumSystemVersion</key><string>12.3</string>"));
     CHECK(contains(plist, "<key>LSApplicationCategoryType</key><string>public.app-category.puzzle-games</string>"));
-    CHECK(contains(plist, "<key>NSHumanReadableCopyright</key><string>Copyright 2026 Tom &amp; Jerry &lt;games&gt;</string>"));
+    CHECK(contains(plist,
+                   "<key>NSHumanReadableCopyright</key><string>Copyright 2026 Tom &amp; Jerry &lt;games&gt;</string>"));
     CHECK(contains(plist, "com.example.spacedodge"));
     const std::string json = r->to_json().dump();
     CHECK(contains(json, "AppIcon.icns"));  // listed with the other files
@@ -169,14 +171,17 @@ TEST_CASE("export macos: export.macos.icon replaces the game icon for this platf
     s.macos.icon = "assets/mac.png";
     const std::string proj = make_game(tmp, s);
     Image green = test_icon(1024);
-    for (std::size_t i = 0; i < green.rgba.size(); i += 4) green.rgba[i] = 0, green.rgba[i + 1] = 255, green.rgba[i + 2] = 0;
+    for (std::size_t i = 0; i < green.rgba.size(); i += 4)
+        green.rgba[i] = 0, green.rgba[i + 1] = 255, green.rgba[i + 2] = 0;
     REQUIRE(save_png(green, (stdfs::path(proj) / "assets" / "mac.png").generic_string()).ok());
     auto r = export_project(options_for(proj, tmp, "macos", script_player(tmp)));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     // The 1024 px icon of this platform is what is checked, not the 512 px game icon. (Off a Mac the only warning is that the
     // app is not sealed: codesign runs only on macOS.)
     for (const std::string& w : r->warnings) CHECK_MESSAGE(w.find("icon") == std::string::npos, w);
-    const Image small = icns_image(testing::read_all(stdfs::path(r->outputDir) / "Space Dodge.app" / "Contents" / "Resources" / "AppIcon.icns"), "icp4");
+    const Image small = icns_image(
+        testing::read_all(stdfs::path(r->outputDir) / "Space Dodge.app" / "Contents" / "Resources" / "AppIcon.icns"),
+        "icp4");
     CHECK(small.width == 16);
     CHECK(int(small.rgba[(10 * 16 + 12) * 4 + 1]) == 255);  // green, not the red/blue game icon
 }
@@ -190,7 +195,8 @@ TEST_CASE("export macos: an app with an icon is signed as a whole and valid, and
     const std::string player = tmp.sub("signed_player/factoria_player");
     stdfs::create_directories(stdfs::path(player).parent_path());
     stdfs::copy_file("/usr/bin/true", player);
-    REQUIRE(std::system(("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
+    REQUIRE(std::system(
+                ("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
     auto r = export_project(options_for(proj, tmp, "macos", player));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(warnings_without_mismatch(r->warnings).empty());
@@ -226,7 +232,8 @@ TEST_CASE("export windows: the exe gets the game icon, loses its signature, and 
         CHECK(std::equal(want.begin(), want.end(), out.begin() + std::ptrdiff_t(player.blobOffset[i])));
     }
     CHECK(std::equal(player.bytes.begin() + std::ptrdiff_t(player.textOffset),
-                     player.bytes.begin() + std::ptrdiff_t(player.textOffset + player.textSize), out.begin() + std::ptrdiff_t(player.textOffset)));
+                     player.bytes.begin() + std::ptrdiff_t(player.textOffset + player.textSize),
+                     out.begin() + std::ptrdiff_t(player.textOffset)));
     // The version information names the game.
     CHECK(pe::version_string(out, "FileDescription") == "Space Dodge");
     CHECK(pe::version_string(out, "ProductName") == "Space Dodge");
@@ -305,7 +312,8 @@ TEST_CASE("export windows: export.windows.icon replaces the game icon for this p
     s.windows.icon = "assets/win.png";
     const std::string proj = make_game(tmp, s);
     Image green = test_icon(512);
-    for (std::size_t i = 0; i < green.rgba.size(); i += 4) green.rgba[i] = 0, green.rgba[i + 1] = 255, green.rgba[i + 2] = 0;
+    for (std::size_t i = 0; i < green.rgba.size(); i += 4)
+        green.rgba[i] = 0, green.rgba[i + 1] = 255, green.rgba[i + 2] = 0;
     REQUIRE(save_png(green, (stdfs::path(proj) / "assets" / "win.png").generic_string()).ok());
     pe::PeFile player = pe::build_pe(pe::placeholder_blobs(pe::solid(64, 255, 0, 0)));
     const std::string playerPath = tmp.sub("player/factoria_player.exe");
@@ -333,7 +341,7 @@ TEST_CASE("export linux: the PNG icon and the .desktop file sit next to the exec
     CHECK(png->width == 256);
     CHECK(png->height == 256);
     CHECK(int(png->rgba[(100 * 256 + 20) * 4]) == 255);  // the left half is red
-    CHECK(int(png->rgba[3]) == 0);                        // the transparent corner stays transparent
+    CHECK(int(png->rgba[3]) == 0);                       // the transparent corner stays transparent
 
     const std::string desktop = testing::read_all(root / "space-dodge.desktop");
     CHECK(desktop == "[Desktop Entry]\nType=Application\nName=Space Dodge\nExec=space-dodge\nIcon=space-dodge\n"
@@ -371,7 +379,8 @@ TEST_CASE("export linux: a game named \"Game\" gets an executable that is not it
 
         // The entry, the icon and the next steps name that executable (and the icon keeps the slug).
         CHECK(testing::read_all(root / "game.desktop") ==
-              "[Desktop Entry]\nType=Application\nName=Game\nExec=game-bin\nIcon=game\nTerminal=false\nCategories=Game;\n");
+              "[Desktop "
+              "Entry]\nType=Application\nName=Game\nExec=game-bin\nIcon=game\nTerminal=false\nCategories=Game;\n");
         CHECK(stdfs::is_regular_file(root / "game.png"));
         CHECK(any_contains(r->nextSteps, "Run it: " + exe.generic_string()));
         CHECK(any_contains(r->nextSteps, "Exec=$PWD/game-bin"));
@@ -425,7 +434,8 @@ TEST_CASE("export ios: the icon becomes an asset catalog, and teamId and buildNu
         o.outDir = tmp.sub(prebuilt ? "out_prebuilt" : "out_source");
         if (prebuilt) {
             const stdfs::path mobile = tmp.sub("download/mobile");
-            for (const char* slice : {"iphoneos", "iphonesimulator"}) testing::write_all(mobile / "ios" / slice / "libfactoria_player_main.a", "fake");
+            for (const char* slice : {"iphoneos", "iphonesimulator"})
+                testing::write_all(mobile / "ios" / slice / "libfactoria_player_main.a", "fake");
             o.mobileDir = mobile.string();
         } else {
             o.engineRoot = FA_REPO_ROOT;
@@ -453,12 +463,14 @@ TEST_CASE("export ios: the icon becomes an asset catalog, and teamId and buildNu
         CHECK(any_contains(r->nextSteps, "team ABCDE12345"));
         CHECK(any_contains(r->nextSteps, "Build number (CFBundleVersion) 42"));
 #if !defined(_WIN32)
-        CHECK(std::system(("bash -n '" + (root / "build_ios.sh").string() + "'").c_str()) == 0);  // the script is valid shell
+        CHECK(std::system(("bash -n '" + (root / "build_ios.sh").string() + "'").c_str()) ==
+              0);  // the script is valid shell
 #endif
     }
 }
 
-TEST_CASE("export ios: without an icon there is no asset catalog, the build number is the version and the team is empty") {
+TEST_CASE(
+    "export ios: without an icon there is no asset catalog, the build number is the version and the team is empty") {
     testing::TempDir tmp;
     const std::string proj = make_game(tmp, ProjectExportSettings{}, false);
     ExportOptions o;

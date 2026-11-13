@@ -28,20 +28,25 @@ struct SpriteAnimPlan {
     bool loop = true;
     SpriteAnimMode mode = SpriteAnimMode::Forward;
     int padding = 0;
-    std::optional<Vec2> pivot;            // the sheet's / clip's pivot as Sprite.pivot (y already flipped to count from the bottom)
-    bool fromSheet = false;               // a clip of the sheet entry was resolved
-    std::string error;                    // a `clip` the sheet does not have, or a texture with no sheet: teaches, "" = fine
+    std::optional<Vec2>
+        pivot;               // the sheet's / clip's pivot as Sprite.pivot (y already flipped to count from the bottom)
+    bool fromSheet = false;  // a clip of the sheet entry was resolved
+    std::string error;       // a `clip` the sheet does not have, or a texture with no sheet: teaches, "" = fine
 };
 
 // The plan of `a` for a sprite that draws `texture`. `sheet` is assets::sheet(texture) (null when the texture has none).
-SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view texture, const std::shared_ptr<const assets::Sheet>& sheet);
+SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view texture,
+                                       const std::shared_ptr<const assets::Sheet>& sheet);
 
 // The error text for an unknown `clip` of `texture`: lists the clips and suggests the closest name.
-std::string sprite_clip_error(std::string_view texture, std::string_view clip, const std::shared_ptr<const assets::Sheet>& sheet);
+std::string sprite_clip_error(std::string_view texture, std::string_view clip,
+                              const std::shared_ptr<const assets::Sheet>& sheet);
 
 // Number of frames a pass over the clip shows, and the frame (an index of the sheet's grid, row-major) shown `n` frame-steps
 // after the start. n is clamped for a clip that does not loop.
-int sprite_anim_steps(const SpriteAnimPlan& plan);      // frames in one pass, pingpong included (first..last..first without repeating the ends)
+int sprite_anim_steps(
+    const SpriteAnimPlan&
+        plan);  // frames in one pass, pingpong included (first..last..first without repeating the ends)
 int sprite_anim_frame(const SpriteAnimPlan& plan, int step);  // the grid index at a step of the pass
 
 // One step of `dt` seconds of every active SpriteAnimator of `world`: clip changes, time, `frame`, the frame events
@@ -73,7 +78,8 @@ void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, cons
 std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer,
                                            const std::shared_ptr<const assets::Sheet>& sheet);
 // The same for one entry of the list, `pointer` being the entry's own.
-std::vector<ClipIssue> check_sprite_event(const Json& event, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet);
+std::vector<ClipIssue> check_sprite_event(const Json& event, const std::string& pointer,
+                                          const std::shared_ptr<const assets::Sheet>& sheet);
 
 // The pixel rectangle of grid index `frame` in a texture of texW x texH pixels (top-left origin, like Sprite.region).
 Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH);

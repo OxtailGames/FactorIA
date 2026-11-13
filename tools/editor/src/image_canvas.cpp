@@ -14,7 +14,7 @@ namespace {
 constexpr double kPiD = 3.14159265358979323846;
 constexpr float kMinZoom = 0.02f;
 constexpr float kMaxZoom = 64.0f;
-constexpr float kGridZoom = 8.0f;   // the pixel grid shows from 800%
+constexpr float kGridZoom = 8.0f;  // the pixel grid shows from 800%
 
 ImTextureRef texture_ref(const ImageTexture& t, bool linear) {
     return ImTextureRef(ImTextureID(ui::texture_from_view(t.view, linear)));
@@ -51,10 +51,10 @@ ImVec2 Editor::image_from_screen(ImVec2 p) const {
 void Editor::image_fit() {
     ImageUi& u = image_;
     if (!u.model || !u.model->is_open() || u.canvasW < 8 || u.canvasH < 8) return;
-    const float repeat = u.tiled ? 3.0f : 1.0f;   // the tiled preview shows the picture three times across
+    const float repeat = u.tiled ? 3.0f : 1.0f;  // the tiled preview shows the picture three times across
     const float iw = float(std::max(1, u.model->width())) * repeat, ih = float(std::max(1, u.model->height())) * repeat;
     float z = std::min((u.canvasW - 24.0f) / iw, (u.canvasH - 24.0f) / ih);
-    if (z >= 1.0f) z = std::floor(z);   // whole pixels when enlarging, so pixel art stays crisp
+    if (z >= 1.0f) z = std::floor(z);  // whole pixels when enlarging, so pixel art stays crisp
     u.zoom = std::clamp(z, kMinZoom, kMaxZoom);
     u.panX = (u.canvasW - iw * u.zoom) * 0.5f + (repeat - 1.0f) * 0.5f * float(u.model->width()) * u.zoom;
     u.panY = (u.canvasH - ih * u.zoom) * 0.5f + (repeat - 1.0f) * 0.5f * float(u.model->height()) * u.zoom;
@@ -68,7 +68,8 @@ void Editor::image_update_textures(ImageModel& m) {
         t = ImageTexture{};
     };
     const Image& pic = m.picture();
-    if (!pic.empty() && (u.picture.view == 0 || u.picture.revision != m.revision() || u.picture.w != pic.width || u.picture.h != pic.height)) {
+    if (!pic.empty() && (u.picture.view == 0 || u.picture.revision != m.revision() || u.picture.w != pic.width ||
+                         u.picture.h != pic.height)) {
         retire(u.picture);
         ImageTexture t;
         if (ui::make_texture(pic.width, pic.height, pic.rgba.data(), t.image, t.view)) {
@@ -85,7 +86,8 @@ void Editor::image_update_textures(ImageModel& m) {
         return;
     }
     const ImageSelection& sel = m.selection();
-    if (u.selectionTint.view == 0 || u.selectionTint.revision != m.selection_revision() || u.selectionTint.w != sel.w || u.selectionTint.h != sel.h) {
+    if (u.selectionTint.view == 0 || u.selectionTint.revision != m.selection_revision() || u.selectionTint.w != sel.w ||
+        u.selectionTint.h != sel.h) {
         retire(u.selectionTint);
         u.tintBytes.assign(std::size_t(sel.w) * std::size_t(sel.h) * 4, 0);
         for (std::size_t i = 0; i < sel.v.size(); ++i) {
@@ -111,14 +113,16 @@ void Editor::image_draw_selection(ImageModel& m, ImDrawList* dl) {
     const ImVec2 p0 = image_to_screen(0, 0);
     const ImVec2 p1 = image_to_screen(float(m.width()), float(m.height()));
     if (u.selectionTint.view) dl->AddImage(texture_ref(u.selectionTint, u.zoom < 1.0f), p0, p1);
-    if (m.selection_edges_truncated()) return;   // too long to outline: the tint says it
+    if (m.selection_edges_truncated()) return;  // too long to outline: the tint says it
     const std::vector<ImageEdge>& edges = m.selection_edges();
     const ImVec2 lo(u.canvasX - 4, u.canvasY - 4), hi(u.canvasX + u.canvasW + 4, u.canvasY + u.canvasH + 4);
     const bool crawl = edges.size() <= 3000;
     const float phase = float(std::fmod(u.antsPhase, 12.0));
     for (const ImageEdge& e : edges) {
         const ImVec2 a = image_to_screen(e.x0, e.y0), b = image_to_screen(e.x1, e.y1);
-        if (std::max(a.x, b.x) < lo.x || std::min(a.x, b.x) > hi.x || std::max(a.y, b.y) < lo.y || std::min(a.y, b.y) > hi.y) continue;
+        if (std::max(a.x, b.x) < lo.x || std::min(a.x, b.x) > hi.x || std::max(a.y, b.y) < lo.y ||
+            std::min(a.y, b.y) > hi.y)
+            continue;
         dl->AddLine(a, b, IM_COL32(0, 0, 0, 255), 1.0f);
         if (!crawl) {
             dl->AddLine(a, b, IM_COL32(255, 255, 255, 170), 1.0f);
@@ -129,7 +133,9 @@ void Editor::image_draw_selection(ImageModel& m, ImDrawList* dl) {
         const ImVec2 dir((b.x - a.x) / len, (b.y - a.y) / len);
         for (float s = -phase; s < len; s += 12.0f) {
             const float s0 = std::max(s, 0.0f), s1 = std::min(s + 6.0f, len);
-            if (s1 > s0) dl->AddLine(ImVec2(a.x + dir.x * s0, a.y + dir.y * s0), ImVec2(a.x + dir.x * s1, a.y + dir.y * s1), IM_COL32(255, 255, 255, 255), 1.0f);
+            if (s1 > s0)
+                dl->AddLine(ImVec2(a.x + dir.x * s0, a.y + dir.y * s0), ImVec2(a.x + dir.x * s1, a.y + dir.y * s1),
+                            IM_COL32(255, 255, 255, 255), 1.0f);
         }
     }
 }
@@ -165,7 +171,8 @@ void Editor::image_draw_transform(ImageModel& m, ImDrawList* dl, bool editable) 
 void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
     ImageUi& u = image_;
     const bool editable = play_ == PlayState::Edit && m.valid();
-    ImGui::BeginChild("##imgcanvas", size, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
+    ImGui::BeginChild("##imgcanvas", size, false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     u.canvasX = origin.x;
@@ -177,7 +184,8 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
         u.fitNext = false;
     }
     ImGui::InvisibleButton("##imgcanvasbtn", avail,
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
     at_track("img:canvas");
     const bool hovered = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -193,18 +201,21 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
     const ImVec2 p1 = image_to_screen(float(m.width()), float(m.height()));
     if (u.checker) {
         // only the part of the picture that is on screen
-        const float x0 = std::max(p0.x, cmin.x), y0 = std::max(p0.y, cmin.y), x1 = std::min(p1.x, cmax.x), y1 = std::min(p1.y, cmax.y);
+        const float x0 = std::max(p0.x, cmin.x), y0 = std::max(p0.y, cmin.y), x1 = std::min(p1.x, cmax.x),
+                    y1 = std::min(p1.y, cmax.y);
         if (x1 > x0 && y1 > y0) {
             constexpr float cell = 12.0f;
             dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), IM_COL32(200, 200, 204, 255));
             const int ix0 = int(std::floor((x0 - p0.x) / cell)), iy0 = int(std::floor((y0 - p0.y) / cell));
             for (int iy = iy0; p0.y + float(iy) * cell < y1; ++iy) {
                 int ix = ix0;
-                if (((ix + iy) & 1) == 0) ++ix;   // the dark cells are the odd ones
+                if (((ix + iy) & 1) == 0) ++ix;  // the dark cells are the odd ones
                 for (; p0.x + float(ix) * cell < x1; ix += 2) {
                     const float ax = std::max(p0.x + float(ix) * cell, x0), ay = std::max(p0.y + float(iy) * cell, y0);
-                    const float bx = std::min(p0.x + float(ix + 1) * cell, x1), by = std::min(p0.y + float(iy + 1) * cell, y1);
-                    if (bx > ax && by > ay) dl->AddRectFilled(ImVec2(ax, ay), ImVec2(bx, by), IM_COL32(150, 150, 156, 255));
+                    const float bx = std::min(p0.x + float(ix + 1) * cell, x1),
+                                by = std::min(p0.y + float(iy + 1) * cell, y1);
+                    if (bx > ax && by > ay)
+                        dl->AddRectFilled(ImVec2(ax, ay), ImVec2(bx, by), IM_COL32(150, 150, 156, 255));
                 }
             }
         }
@@ -229,18 +240,23 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
 
     u.gridDrawn = false;
     if (u.showGrid && u.zoom >= kGridZoom) {
-        const int gx0 = std::max(0, int(std::floor((cmin.x - p0.x) / u.zoom))), gx1 = std::min(m.width(), int(std::ceil((cmax.x - p0.x) / u.zoom)));
-        const int gy0 = std::max(0, int(std::floor((cmin.y - p0.y) / u.zoom))), gy1 = std::min(m.height(), int(std::ceil((cmax.y - p0.y) / u.zoom)));
+        const int gx0 = std::max(0, int(std::floor((cmin.x - p0.x) / u.zoom))),
+                  gx1 = std::min(m.width(), int(std::ceil((cmax.x - p0.x) / u.zoom)));
+        const int gy0 = std::max(0, int(std::floor((cmin.y - p0.y) / u.zoom))),
+                  gy1 = std::min(m.height(), int(std::ceil((cmax.y - p0.y) / u.zoom)));
         // the stronger lines: the tiles of a tile document, else every gridMajor pixels
         const ImageTileMode& tm = m.doc().tile;
-        const int majorX = tm.enabled && tm.width > 0 ? tm.width : u.gridMajor, majorY = tm.enabled && tm.height > 0 ? tm.height : u.gridMajor;
+        const int majorX = tm.enabled && tm.width > 0 ? tm.width : u.gridMajor,
+                  majorY = tm.enabled && tm.height > 0 ? tm.height : u.gridMajor;
         for (int x = gx0; x <= gx1; ++x) {
             const bool major = majorX > 0 && x % majorX == 0;
-            dl->AddLine(image_to_screen(float(x), float(gy0)), image_to_screen(float(x), float(gy1)), major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
+            dl->AddLine(image_to_screen(float(x), float(gy0)), image_to_screen(float(x), float(gy1)),
+                        major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
         }
         for (int y = gy0; y <= gy1; ++y) {
             const bool major = majorY > 0 && y % majorY == 0;
-            dl->AddLine(image_to_screen(float(gx0), float(y)), image_to_screen(float(gx1), float(y)), major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
+            dl->AddLine(image_to_screen(float(gx0), float(y)), image_to_screen(float(gx1), float(y)),
+                        major ? IM_COL32(0, 0, 0, 150) : IM_COL32(0, 0, 0, 70));
         }
         u.gridDrawn = true;
     }
@@ -274,13 +290,16 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
     // the pixel under the mouse for the tools that act on one pixel of a pixel-art document
     if (hovered && editable && !m.palette().empty() && u.mouseImageX >= 0 && u.drag == ImageUi::Drag::None &&
         (u.tool == ImageTool::Fill || u.tool == ImageTool::Picker || u.tool == ImageTool::Wand)) {
-        const ImVec2 a = image_to_screen(u.mouseImageX, u.mouseImageY), b = image_to_screen(u.mouseImageX + 1, u.mouseImageY + 1);
+        const ImVec2 a = image_to_screen(u.mouseImageX, u.mouseImageY),
+                     b = image_to_screen(u.mouseImageX + 1, u.mouseImageY + 1);
         dl->AddRect(a, b, IM_COL32(0, 0, 0, 255), 0, 0, 2.0f);
         dl->AddRect(a, b, IM_COL32(255, 255, 255, 255));
     }
     // brush outline
-    if (hovered && editable && (u.tool == ImageTool::Brush || u.tool == ImageTool::Eraser) && u.drag != ImageUi::Drag::Pan) {
-        const bool indexed = !m.palette().empty() && m.layer(m.selected_layer()) && m.layer(m.selected_layer())->kind == ImageLayerKind::Indexed;
+    if (hovered && editable && (u.tool == ImageTool::Brush || u.tool == ImageTool::Eraser) &&
+        u.drag != ImageUi::Drag::Pan) {
+        const bool indexed = !m.palette().empty() && m.layer(m.selected_layer()) &&
+                             m.layer(m.selected_layer())->kind == ImageLayerKind::Indexed;
         const float r = std::max(1.0f, float(u.brush.size) * 0.5f * u.zoom);
         if (indexed) {
             const ImVec2 f = image_from_screen(mouse);
@@ -321,7 +340,7 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
             u.panX += io.MouseWheel * 40.0f;
         }
         if (io.MouseWheelH != 0) u.panX += io.MouseWheelH * 40.0f;
-    } else if (hovered && mod && io.MouseWheel != 0) {   // a pinch arrives as Ctrl + wheel
+    } else if (hovered && mod && io.MouseWheel != 0) {  // a pinch arrives as Ctrl + wheel
         const float z = std::clamp(u.zoom * std::pow(1.15f, io.MouseWheel), kMinZoom, kMaxZoom);
         u.zoom = z;
         u.panX = (mouse.x - u.canvasX) - f.x * z;
@@ -366,7 +385,10 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
             const ImageUi::Drag d = u.drag;
             u.drag = ImageUi::Drag::None;
             switch (d) {
-                case ImageUi::Drag::Stroke: m.stroke_to(f.x, f.y); image_edited(m.end_stroke()); break;
+                case ImageUi::Drag::Stroke:
+                    m.stroke_to(f.x, f.y);
+                    image_edited(m.end_stroke());
+                    break;
                 case ImageUi::Drag::Move: image_edited(m.end_move()); break;
                 case ImageUi::Drag::Rect:
                 case ImageUi::Drag::Ellipse: {
@@ -383,11 +405,13 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
                     break;
                 }
                 case ImageUi::Drag::Lasso:
-                    if (u.points.size() >= 3) image_edited(m.select_polygon(u.points, u.dragOp));
-                    else if (u.dragOp == SelectOp::Replace && m.has_selection()) image_edited(m.deselect());
+                    if (u.points.size() >= 3)
+                        image_edited(m.select_polygon(u.points, u.dragOp));
+                    else if (u.dragOp == SelectOp::Replace && m.has_selection())
+                        image_edited(m.deselect());
                     u.points.clear();
                     break;
-                default: break;   // the transform drags keep their state in the model until Apply
+                default: break;  // the transform drags keep their state in the model until Apply
             }
         } else {
             switch (u.drag) {
@@ -400,12 +424,14 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
                     break;
                 }
                 case ImageUi::Drag::Lasso:
-                    if (u.points.empty() || std::hypot(f.x - u.points.back().first, f.y - u.points.back().second) * u.zoom >= 3.0)
+                    if (u.points.empty() ||
+                        std::hypot(f.x - u.points.back().first, f.y - u.points.back().second) * u.zoom >= 3.0)
                         u.points.emplace_back(f.x, f.y);
                     break;
                 case ImageUi::Drag::TransformMove: {
                     ImageModel::TransformState t = m.transform();
-                    m.set_transform(t.scaleX, t.scaleY, t.rotate, t.flipH, t.flipV, u.tfStartDx + int(std::lround(f.x - u.pressX)),
+                    m.set_transform(t.scaleX, t.scaleY, t.rotate, t.flipH, t.flipV,
+                                    u.tfStartDx + int(std::lround(f.x - u.pressX)),
                                     u.tfStartDy + int(std::lround(f.y - u.pressY)));
                     break;
                 }
@@ -414,8 +440,10 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
                     const Rot r(t.rotate);
                     const double cx = t.pivotX + t.dx, cy = t.pivotY + t.dy;
                     const auto local = r.inverse(f.x - cx, f.y - cy);
-                    double sx = u.tfDirX != 0 ? std::max(0.01, std::abs(local.first) / std::max(1.0, t.boxW / 2.0)) : t.scaleX;
-                    double sy = u.tfDirY != 0 ? std::max(0.01, std::abs(local.second) / std::max(1.0, t.boxH / 2.0)) : t.scaleY;
+                    double sx =
+                        u.tfDirX != 0 ? std::max(0.01, std::abs(local.first) / std::max(1.0, t.boxW / 2.0)) : t.scaleX;
+                    double sy =
+                        u.tfDirY != 0 ? std::max(0.01, std::abs(local.second) / std::max(1.0, t.boxH / 2.0)) : t.scaleY;
                     if (u.tfDirX != 0 && u.tfDirY != 0 && io.KeyShift) sx = sy = std::max(sx, sy);
                     m.set_transform(std::min(sx, 64.0), std::min(sy, 64.0), t.rotate, t.flipH, t.flipV, t.dx, t.dy);
                     break;
@@ -454,15 +482,18 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
         if (ImGui::IsKeyPressed(ImGuiKey_G, false)) pick_tool(ImageTool::Fill);
         if (ImGui::IsKeyPressed(ImGuiKey_I, false)) pick_tool(ImageTool::Picker);
         if (ImGui::IsKeyPressed(ImGuiKey_M, false)) pick_tool(shift ? ImageTool::SelectEllipse : ImageTool::SelectRect);
-        if (ImGui::IsKeyPressed(ImGuiKey_L, false)) pick_tool(shift ? ImageTool::SelectPolygon : ImageTool::SelectLasso);
+        if (ImGui::IsKeyPressed(ImGuiKey_L, false))
+            pick_tool(shift ? ImageTool::SelectPolygon : ImageTool::SelectLasso);
         if (ImGui::IsKeyPressed(ImGuiKey_W, false)) pick_tool(ImageTool::Wand);
         if (ImGui::IsKeyPressed(ImGuiKey_T, false)) pick_tool(ImageTool::Transform);
-        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {   // swap the primary and secondary colours
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {  // swap the primary and secondary colours
             std::swap(u.brush.paletteIndex, u.secondaryIndex);
             std::swap(u.brush.color, u.secondaryColor);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) u.brush.size = std::max(1.0, std::floor(u.brush.size * 0.8 - 0.5));
-        if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) u.brush.size = std::min(256.0, std::ceil(u.brush.size * 1.25 + 0.5));
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+            u.brush.size = std::max(1.0, std::floor(u.brush.size * 0.8 - 0.5));
+        if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+            u.brush.size = std::min(256.0, std::ceil(u.brush.size * 1.25 + 0.5));
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             if (u.polygonOpen) {
                 u.points.clear();
@@ -488,7 +519,8 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
 
     // ---- a button went down on the canvas
     if (!hovered || u.drag != ImageUi::Drag::None) return;
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsKeyDown(ImGuiKey_Space))) {
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) ||
+        (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsKeyDown(ImGuiKey_Space))) {
         u.dragButton = 0;
         u.drag = ImageUi::Drag::Pan;
         return;
@@ -497,7 +529,7 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
     const bool rightClick = ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
                             (u.tool == ImageTool::Brush || u.tool == ImageTool::Eraser || u.tool == ImageTool::Fill);
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !rightClick) return;
-    u.playing = false;   // the timeline preview stops when you start to draw
+    u.playing = false;  // the timeline preview stops when you start to draw
     if (!editable) return;
     u.dragButton = rightClick && !ImGui::IsMouseClicked(ImGuiMouseButton_Left) ? 1 : 0;
     ImageBrushSettings brush = u.brush;
@@ -522,8 +554,10 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
             if (m.begin_stroke(u.tool == ImageTool::Eraser, brush, f.x, f.y)) u.drag = ImageUi::Drag::Stroke;
             break;
         case ImageTool::Fill:
-            if (io.KeyAlt) pick_at(px, py);
-            else if (inside) image_edited(m.fill_at(px, py, brush, u.wand.tolerance));
+            if (io.KeyAlt)
+                pick_at(px, py);
+            else if (inside)
+                image_edited(m.fill_at(px, py, brush, u.wand.tolerance));
             break;
         case ImageTool::Picker: pick_at(px, py); break;
         case ImageTool::SelectRect:
@@ -541,10 +575,13 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
             u.points.emplace_back(f.x, f.y);
             break;
         case ImageTool::SelectPolygon: {
-            const bool closeNear = u.polygonOpen && u.points.size() >= 3 &&
-                                   std::hypot(mouse.x - image_to_screen(float(u.points.front().first), float(u.points.front().second)).x,
-                                              mouse.y - image_to_screen(float(u.points.front().first), float(u.points.front().second)).y) < 8.0f;
-            if (closeNear || (u.polygonOpen && u.points.size() >= 3 && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
+            const bool closeNear =
+                u.polygonOpen && u.points.size() >= 3 &&
+                std::hypot(mouse.x - image_to_screen(float(u.points.front().first), float(u.points.front().second)).x,
+                           mouse.y - image_to_screen(float(u.points.front().first), float(u.points.front().second)).y) <
+                    8.0f;
+            if (closeNear ||
+                (u.polygonOpen && u.points.size() >= 3 && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
                 image_edited(m.select_polygon(u.points, sel_op()));
                 u.points.clear();
                 u.polygonOpen = false;
@@ -591,7 +628,9 @@ void Editor::image_canvas_input(ImageModel& m, bool hovered, bool editable) {
                 const Rot r(t.rotate);
                 const auto local = r.inverse(f.x - cx, f.y - cy);
                 const double sx = std::max(0.01, t.scaleX), sy = std::max(0.01, t.scaleY);
-                u.drag = std::abs(local.first) <= hw * sx && std::abs(local.second) <= hh * sy ? ImageUi::Drag::TransformMove : ImageUi::Drag::TransformRotate;
+                u.drag = std::abs(local.first) <= hw * sx && std::abs(local.second) <= hh * sy
+                             ? ImageUi::Drag::TransformMove
+                             : ImageUi::Drag::TransformRotate;
             }
             break;
         }
@@ -606,14 +645,8 @@ void Editor::draw_image_terrain(ImageModel& m) {
     u.terrainShown = false;
     if (!m.tileset_layer()) return;
     static const std::vector<std::string> kPattern = {
-        "............",
-        ".#####..##..",
-        ".######.##..",
-        ".#####..##..",
-        ".##.##..###.",
-        ".#####......",
-        "..###..#.#..",
-        "............",
+        "............", ".#####..##..", ".######.##..", ".#####..##..",
+        ".##.##..###.", ".#####......", "..###..#.#..", "............",
     };
     if (!ImGui::CollapsingHeader("Terrain preview", ImGuiTreeNodeFlags_DefaultOpen)) return;
     at_track("img:terrain");
@@ -630,7 +663,7 @@ void Editor::draw_image_terrain(ImageModel& m) {
                 u.terrain = t;
             }
         }
-        if (u.terrain.view == 0) u.terrain.revision = m.revision();   // do not retry every frame
+        if (u.terrain.view == 0) u.terrain.revision = m.revision();  // do not retry every frame
     }
     if (u.terrain.view == 0) {
         ImGui::TextDisabled("The sheet is not drawn yet: see the document's tileset layer.");
@@ -646,7 +679,8 @@ void Editor::draw_image_terrain(ImageModel& m) {
     dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), IM_COL32(38, 38, 42, 255));
     dl->AddImage(texture_ref(u.terrain, scale < 1.0f), at, ImVec2(at.x + size.x, at.y + size.y));
     u.terrainShown = true;
-    ImGui::TextDisabled("Each '#' cell of this shape is a terrain cell; the tile is chosen by its neighbours like Tilemap's terrain paint does.");
+    ImGui::TextDisabled("Each '#' cell of this shape is a terrain cell; the tile is chosen by its neighbours like "
+                        "Tilemap's terrain paint does.");
 }
 
 }  // namespace fa::editor

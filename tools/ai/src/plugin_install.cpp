@@ -40,8 +40,10 @@ std::vector<int> version_parts(const std::string& v) {
         }
         if (!any) break;
         out.push_back(n);
-        if (i < v.size() && v[i] == '.') ++i;
-        else break;
+        if (i < v.size() && v[i] == '.')
+            ++i;
+        else
+            break;
     }
     return out;
 }
@@ -54,15 +56,19 @@ std::string clip(std::string s, std::size_t max = 600) {
 
 std::string join_argv(const std::vector<std::string>& argv) {
     std::string out;
-    for (const std::string& a : argv) out += (out.empty() ? "" : " ") + (a.find(' ') != std::string::npos ? "\"" + a + "\"" : a);
+    for (const std::string& a : argv)
+        out += (out.empty() ? "" : " ") + (a.find(' ') != std::string::npos ? "\"" + a + "\"" : a);
     return out;
 }
 
 // Every string value of a JSON document.
 void collect_strings(const Json& j, std::vector<std::string>& out) {
-    if (j.is_string()) out.push_back(j.get<std::string>());
-    else if (j.is_array()) for (const Json& c : j) collect_strings(c, out);
-    else if (j.is_object()) for (auto it = j.begin(); it != j.end(); ++it) collect_strings(it.value(), out);
+    if (j.is_string())
+        out.push_back(j.get<std::string>());
+    else if (j.is_array())
+        for (const Json& c : j) collect_strings(c, out);
+    else if (j.is_object())
+        for (auto it = j.begin(); it != j.end(); ++it) collect_strings(it.value(), out);
 }
 
 // Does `output` of a `list` command name `needle`? JSON when the CLI gave JSON (a string equal to it, or a GitHub/git URL that
@@ -98,7 +104,8 @@ bool installed_for_user(const std::string& output, const std::string& plugin) {
             if (!e.is_object() || !e.contains("id") || !e["id"].is_string()) continue;
             sawEntries = true;
             if (lower(e["id"].get<std::string>()) != lower(plugin)) continue;
-            const std::string scope = e.contains("scope") && e["scope"].is_string() ? e["scope"].get<std::string>() : "user";
+            const std::string scope =
+                e.contains("scope") && e["scope"].is_string() ? e["scope"].get<std::string>() : "user";
             if (scope == "user") return true;
         }
         if (sawEntries) return false;
@@ -115,7 +122,8 @@ struct CliRun {
     std::string startError, startHint;
 };
 
-CliRun run_cli(const ProcessOptions& base, const std::vector<std::string>& args, const PluginInstallHooks& hooks, double timeoutSeconds) {
+CliRun run_cli(const ProcessOptions& base, const std::vector<std::string>& args, const PluginInstallHooks& hooks,
+               double timeoutSeconds) {
     ProcessOptions po = base;
     for (const std::string& a : args) po.argv.push_back(a);
     po.timeoutSeconds = timeoutSeconds;
@@ -143,7 +151,8 @@ Result<std::string> list_output(const ProcessOptions& base, std::vector<std::str
                                 const PluginInstallHooks& hooks, const std::string& updateHint) {
     args.push_back("--json");
     CliRun r = run_cli(base, args, hooks, 60);
-    if (!r.started) return make_error("Could not start the Claude Code CLI to list " + what + ": " + r.startError, r.startHint);
+    if (!r.started)
+        return make_error("Could not start the Claude Code CLI to list " + what + ": " + r.startError, r.startHint);
     if (r.cancelled) return make_error("Cancelled while listing " + what, "Start it again when you are ready.");
     if (!r.ok) {
         args.pop_back();
@@ -151,7 +160,8 @@ Result<std::string> list_output(const ProcessOptions& base, std::vector<std::str
         if (r.cancelled) return make_error("Cancelled while listing " + what, "Start it again when you are ready.");
     }
     if (!r.ok) {
-        return make_error("`" + join_argv(args) + "` failed (" + (r.timedOut ? "no answer in 60 s" : "exit code " + std::to_string(r.exitCode)) +
+        return make_error("`" + join_argv(args) + "` failed (" +
+                              (r.timedOut ? "no answer in 60 s" : "exit code " + std::to_string(r.exitCode)) +
                               "): " + clip(r.err.empty() ? r.out : r.err, 300),
                           updateHint);
     }
@@ -237,13 +247,15 @@ bool python_version_at_least(const std::string& version, const std::string& mini
 
 Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req, const PluginInstallHooks& hooks) {
     if (fa::trim(req.marketplace).empty() || fa::trim(req.plugin).empty()) {
-        return make_error("A plugin install needs a marketplace and a plugin",
-                          "Example: marketplace \"microsoft/TokenEconomizer\", plugin \"tokeneconomizer@tokeneconomizer\".");
+        return make_error(
+            "A plugin install needs a marketplace and a plugin",
+            "Example: marketplace \"microsoft/TokenEconomizer\", plugin \"tokeneconomizer@tokeneconomizer\".");
     }
     const auto at = req.plugin.find('@');
     if (at == std::string::npos || at == 0 || at + 1 == req.plugin.size()) {
-        return make_error("The plugin '" + req.plugin + "' is not name@marketplace",
-                          "Claude Code names a marketplace plugin name@marketplace, e.g. tokeneconomizer@tokeneconomizer.");
+        return make_error(
+            "The plugin '" + req.plugin + "' is not name@marketplace",
+            "Claude Code names a marketplace plugin name@marketplace, e.g. tokeneconomizer@tokeneconomizer.");
     }
     const std::string marketplaceName = req.plugin.substr(at + 1);
 
@@ -259,26 +271,33 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
     }
     if (!provider) {
         return make_error("No claude-code provider is configured",
-                          "Plugins are a Claude Code feature. Add a provider of kind \"claude-code\" to ai.json (docs/AI_PROVIDERS.md), or install "
+                          "Plugins are a Claude Code feature. Add a provider of kind \"claude-code\" to ai.json "
+                          "(docs/AI_PROVIDERS.md), or install "
                           "Claude Code (npm i -g @anthropic-ai/claude-code).");
     }
     auto base = cli_process_options(*provider);
     if (!base) return base.error();
     const std::string exe = base->argv.front();
-    const std::string updateHint = "Update Claude Code (npm i -g @anthropic-ai/claude-code): older versions have no `claude plugin` commands.";
+    const std::string updateHint =
+        "Update Claude Code (npm i -g @anthropic-ai/claude-code): older versions have no `claude plugin` commands.";
 
     // What the entry needs.
     std::string configPath = req.configPath.empty() ? cfg.sourcePath : req.configPath;
     if (configPath.empty()) configPath = default_config_path();
-    const auto sameEntry = [&](const Extension& e) { return e.kind == ExtensionKind::Plugin && !e.from_project() && lower(e.plugin) == lower(req.plugin); };
+    const auto sameEntry = [&](const Extension& e) {
+        return e.kind == ExtensionKind::Plugin && !e.from_project() && lower(e.plugin) == lower(req.plugin);
+    };
     const bool entryPresent = std::ranges::any_of(cfg.extensions.entries, sameEntry);
     std::string entryName = entry_name_from(req);
     if (!entryPresent) {
         const auto taken = [&](const std::string& n) {
-            return std::ranges::any_of(cfg.extensions.entries, [&](const Extension& e) { return e.kind == ExtensionKind::Plugin && e.name == n; });
+            return std::ranges::any_of(cfg.extensions.entries, [&](const Extension& e) {
+                return e.kind == ExtensionKind::Plugin && e.name == n;
+            });
         };
         std::string base2 = entryName;
-        for (int n = 2; taken(entryName); ++n) entryName = base2.substr(0, kMaxExtensionName - 4) + "-" + std::to_string(n);
+        for (int n = 2; taken(entryName); ++n)
+            entryName = base2.substr(0, kMaxExtensionName - 4) + "-" + std::to_string(n);
     } else {
         for (const Extension& e : cfg.extensions.entries)
             if (sameEntry(e)) entryName = e.name;
@@ -290,8 +309,11 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
         Json body = Json::object({{"plugin", req.plugin}});
         if (!req.note.empty()) body["note"] = req.note;
         if (!req.roles.empty()) body["roles"] = req.roles;
-        auto parsed = parse_extensions(Json::object({{"plugins", Json::object({{entryName, body}})}}), "the plugin entry", "user");
-        if (!parsed) return make_error("The ai.json entry is not valid: " + parsed.error().message + " Nothing was installed.", parsed.error().hint);
+        auto parsed = parse_extensions(Json::object({{"plugins", Json::object({{entryName, body}})}}),
+                                       "the plugin entry", "user");
+        if (!parsed)
+            return make_error("The ai.json entry is not valid: " + parsed.error().message + " Nothing was installed.",
+                              parsed.error().hint);
         newEntry = parsed->entries.front();
     }
 
@@ -332,16 +354,20 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
 
     if (req.dryRun) {
         emit(step_json("marketplace", addCmd, needMarketplace, needMarketplace ? "would_run" : "not_needed",
-                       needMarketplace ? "The marketplace is not listed by `claude plugin marketplace list`."
-                                       : (pluginInstalled ? "The plugin is already installed, so its marketplace is not needed again."
-                                                          : "The marketplace is already listed.")));
+                       needMarketplace
+                           ? "The marketplace is not listed by `claude plugin marketplace list`."
+                           : (pluginInstalled
+                                  ? "The plugin is already installed, so its marketplace is not needed again."
+                                  : "The marketplace is already listed.")));
         emit(step_json("plugin", installCmd, needPlugin, needPlugin ? "would_run" : "not_needed",
-                       needPlugin ? "The plugin is not listed by `claude plugin list`." : "The plugin is already installed."));
+                       needPlugin ? "The plugin is not listed by `claude plugin list`."
+                                  : "The plugin is already installed."));
         emit(step_json("entry", {}, !entryPresent, !entryPresent ? "would_run" : "not_needed",
                        !entryPresent ? "Adds plugin '" + entryName + "' (" + req.plugin + ") to " + configPath + "."
                                      : "ai.json already has the entry '" + entryName + "'."));
         report["steps"] = steps;
-        report["entry"] = Json::object({{"name", entryName}, {"added", false}, {"present", entryPresent}, {"path", configPath}});
+        report["entry"] =
+            Json::object({{"name", entryName}, {"added", false}, {"present", entryPresent}, {"path", configPath}});
         const bool pythonBlocks = wantPython && !py.ok && (needMarketplace || needPlugin);
         report["ok"] = !pythonBlocks;
         report["message"] = pythonBlocks ? py.message + ". Install Python " + req.requiresPython + " or newer first."
@@ -356,24 +382,27 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
         const char* pythonName = "python3";
 #endif
         return make_error(py.message + ", and " + req.plugin + " needs it",
-                          "Install Python " + req.requiresPython + " or newer (python.org, or your package manager) so that `" + pythonName +
+                          "Install Python " + req.requiresPython +
+                              " or newer (python.org, or your package manager) so that `" + pythonName +
                               " --version` prints it, then try again. Nothing was installed.");
     }
 
     // The failure message carries the steps that already ran: the caller sees where it stopped.
     std::string done;
     const auto fail = [&](const std::string& what, const CliRun& r, const std::vector<std::string>& cmd) -> Error {
-        std::string why = !r.started ? r.startError
-                          : r.cancelled ? "it was cancelled"
-                          : r.timedOut  ? "it did not finish in time"
-                                        : "exit code " + std::to_string(r.exitCode) + ": " + clip(r.err.empty() ? r.out : r.err, 400);
+        std::string why =
+            !r.started    ? r.startError
+            : r.cancelled ? "it was cancelled"
+            : r.timedOut  ? "it did not finish in time"
+                          : "exit code " + std::to_string(r.exitCode) + ": " + clip(r.err.empty() ? r.out : r.err, 400);
         return make_error(what + " failed (" + why + ")" + (done.empty() ? "" : ". Done before: " + done),
-                          "Run `" + join_argv(cmd) + "` in a terminal to see the whole output. A failed install changes nothing in ai.json. " +
+                          "Run `" + join_argv(cmd) +
+                              "` in a terminal to see the whole output. A failed install changes nothing in ai.json. " +
                               (r.started ? "" : r.startHint));
     };
 
-    const auto run_step = [&](const std::string& id, const std::string& what, const std::vector<std::string>& cmd, bool needed,
-                              const std::string& skipReason, double timeout) -> Result<bool> {
+    const auto run_step = [&](const std::string& id, const std::string& what, const std::vector<std::string>& cmd,
+                              bool needed, const std::string& skipReason, double timeout) -> Result<bool> {
         if (!needed) {
             emit(step_json(id, cmd, false, "skipped", skipReason));
             return false;
@@ -390,11 +419,14 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
         return true;
     };
 
-    if (auto r = run_step("marketplace", "adding the marketplace " + req.marketplace, addCmd, needMarketplace,
-                          pluginInstalled ? "The plugin is already installed." : "The marketplace is already listed.", 300);
+    if (auto r =
+            run_step("marketplace", "adding the marketplace " + req.marketplace, addCmd, needMarketplace,
+                     pluginInstalled ? "The plugin is already installed." : "The marketplace is already listed.", 300);
         !r)
         return r.error();
-    if (auto r = run_step("plugin", "installing " + req.plugin, installCmd, needPlugin, "The plugin is already installed.", 300); !r)
+    if (auto r = run_step("plugin", "installing " + req.plugin, installCmd, needPlugin,
+                          "The plugin is already installed.", 300);
+        !r)
         return r.error();
 
     // The ai.json entry.
@@ -406,12 +438,14 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
         ExtensionsConfig next = cfg.extensions;
         next.entries.push_back(newEntry);
         // Plugins come before skills and hooks in the file.
-        std::stable_sort(next.entries.begin(), next.entries.end(),
-                         [](const Extension& a, const Extension& b) { return static_cast<int>(a.kind) < static_cast<int>(b.kind); });
+        std::stable_sort(next.entries.begin(), next.entries.end(), [](const Extension& a, const Extension& b) {
+            return static_cast<int>(a.kind) < static_cast<int>(b.kind);
+        });
         if (auto saved = save_extensions(next, configPath); !saved) {
             emit(step_json("entry", {}, true, "failed", saved.error().message));
             return make_error("The plugin is installed but ai.json could not be written: " + saved.error().message,
-                              saved.error().hint + " Add it by hand, or fix the file and call ai.plugin_install again: the installed steps are skipped.");
+                              saved.error().hint + " Add it by hand, or fix the file and call ai.plugin_install again: "
+                                                   "the installed steps are skipped.");
         }
         added = true;
         emit(step_json("entry", {}, true, "done", "Added '" + entryName + "' to " + configPath + "."));

@@ -31,15 +31,21 @@ double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
 // ------------------------------------------------------------------------------------------------ samples and tolerances
 Json perf_sample_json(const PerfSample& s, bool withSlowest) {
-    Json j = Json::object({{"frames", s.frames}, {"cpuMsAvg", round3(s.cpuMsAvg)}, {"cpuMsP95", round3(s.cpuMsP95)},
-                         {"cpuMsMax", round3(s.cpuMsMax)}, {"peakMemoryMB", std::round(s.peakMemoryMB * 10.0) / 10.0},
-                         {"drawCalls", s.drawCalls}, {"entities", s.entities}, {"graphics", s.graphics}});
+    Json j = Json::object({{"frames", s.frames},
+                           {"cpuMsAvg", round3(s.cpuMsAvg)},
+                           {"cpuMsP95", round3(s.cpuMsP95)},
+                           {"cpuMsMax", round3(s.cpuMsMax)},
+                           {"peakMemoryMB", std::round(s.peakMemoryMB * 10.0) / 10.0},
+                           {"drawCalls", s.drawCalls},
+                           {"entities", s.entities},
+                           {"graphics", s.graphics}});
     // Written only when recorded, so a sample read from an old baseline file is written back without invented fields.
     if (s.cpuMsMedian >= 0) j["cpuMsMedian"] = round3(s.cpuMsMedian);
     if (s.provisional) j["provisional"] = true;
     if (withSlowest && !s.slowestFrames.empty()) {
         Json slow = Json::array();
-        for (const PerfFrame& f : s.slowestFrames) slow.push_back(Json::object({{"frame", f.frame}, {"ms", round3(f.ms)}}));
+        for (const PerfFrame& f : s.slowestFrames)
+            slow.push_back(Json::object({{"frame", f.frame}, {"ms", round3(f.ms)}}));
         j["slowestFrames"] = slow;
     }
     if (s.triangles >= 0) j["triangles"] = std::llround(s.triangles);
@@ -69,9 +75,12 @@ PerfSample perf_sample_from_json(const Json& j) {
     s.peakMemoryMB = num(j, "peakMemoryMB");
     s.drawCalls = int(num(j, "drawCalls"));
     s.entities = int(num(j, "entities"));
-    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles}, {"lights", &s.lights},
-                          {"textureMB", &s.textureMB}, {"startupMs", &s.startupMs},
-                          {"audioDecodedMB", &s.audioDecodedMB}, {"musicMB", &s.musicMB}})
+    for (const auto& f : {std::pair<const char*, double*>{"triangles", &s.triangles},
+                          {"lights", &s.lights},
+                          {"textureMB", &s.textureMB},
+                          {"startupMs", &s.startupMs},
+                          {"audioDecodedMB", &s.audioDecodedMB},
+                          {"musicMB", &s.musicMB}})
         if (auto it = j.find(f.first); it != j.end() && it->is_number()) *f.second = it->get<double>();
     if (auto it = j.find("graphics"); it != j.end() && it->is_string()) s.graphics = it->get<std::string>();
     return s;
@@ -80,15 +89,24 @@ PerfSample perf_sample_from_json(const Json& j) {
 PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* problems) {
     PerfTolerance t;
     if (!j.is_object()) return t;
-    const std::pair<const char*, double*> fields[] = {{"cpuMedian", &t.cpuMedian}, {"cpuP95", &t.cpuP95},
-                                                      {"cpuFail", &t.cpuFail},     {"cpuFailSlackMs", &t.cpuFailSlackMs},
-                                                      {"memoryFail", &t.memoryFail}, {"memoryFailSlackMB", &t.memoryFailSlackMB},
-                                                      {"memory", &t.memory},       {"drawCalls", &t.drawCalls},
-                                                      {"entities", &t.entities},   {"cpuSlackMs", &t.cpuSlackMs},
-                                                      {"memorySlackMB", &t.memorySlackMB}, {"countSlack", &t.countSlack},
-                                                      {"triangles", &t.triangles}, {"lights", &t.lights},
-                                                      {"textureMB", &t.textureMB}, {"textureSlackMB", &t.textureSlackMB},
-                                                      {"startup", &t.startup},     {"startupSlackMs", &t.startupSlackMs}};
+    const std::pair<const char*, double*> fields[] = {{"cpuMedian", &t.cpuMedian},
+                                                      {"cpuP95", &t.cpuP95},
+                                                      {"cpuFail", &t.cpuFail},
+                                                      {"cpuFailSlackMs", &t.cpuFailSlackMs},
+                                                      {"memoryFail", &t.memoryFail},
+                                                      {"memoryFailSlackMB", &t.memoryFailSlackMB},
+                                                      {"memory", &t.memory},
+                                                      {"drawCalls", &t.drawCalls},
+                                                      {"entities", &t.entities},
+                                                      {"cpuSlackMs", &t.cpuSlackMs},
+                                                      {"memorySlackMB", &t.memorySlackMB},
+                                                      {"countSlack", &t.countSlack},
+                                                      {"triangles", &t.triangles},
+                                                      {"lights", &t.lights},
+                                                      {"textureMB", &t.textureMB},
+                                                      {"textureSlackMB", &t.textureSlackMB},
+                                                      {"startup", &t.startup},
+                                                      {"startupSlackMs", &t.startupSlackMs}};
     std::vector<std::string> names;
     for (const auto& f : fields) names.push_back(f.first);
     for (auto it = j.begin(); it != j.end(); ++it) {
@@ -99,10 +117,15 @@ PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* 
             if (it.key() != f.first && !(oldAvg && std::string(f.first) == "cpuMedian")) continue;
             known = true;
             if (oldAvg && j.contains("cpuMedian")) break;
-            if (it->is_number() && it->get<double>() >= 0) *f.second = it->get<double>();
-            else if (problems) problems->push_back("tolerance." + it.key() + " must be a number >= 0 (a ratio such as 0.1 = +10%, or a slack in ms / MB / count).");
+            if (it->is_number() && it->get<double>() >= 0)
+                *f.second = it->get<double>();
+            else if (problems)
+                problems->push_back(
+                    "tolerance." + it.key() +
+                    " must be a number >= 0 (a ratio such as 0.1 = +10%, or a slack in ms / MB / count).");
         }
-        if (!known && problems) problems->push_back("Unknown tolerance '" + it.key() + "'. " + did_you_mean(it.key(), names));
+        if (!known && problems)
+            problems->push_back("Unknown tolerance '" + it.key() + "'. " + did_you_mean(it.key(), names));
     }
     return t;
 }
@@ -117,7 +140,8 @@ PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTol
         r.measured = measured;
         r.baseline = baseline;
         r.warnLimit = std::max(baseline * (1.0 + ratio), baseline + slack);
-        r.limit = failRatio < 0 ? r.warnLimit : std::max(r.warnLimit, std::max(baseline * (1.0 + failRatio), baseline + failSlack));
+        r.limit = failRatio < 0 ? r.warnLimit
+                                : std::max(r.warnLimit, std::max(baseline * (1.0 + failRatio), baseline + failSlack));
         r.timing = timing;
         r.exceeded = measured > r.limit;
         r.warned = !r.exceeded && measured > r.warnLimit;
@@ -138,9 +162,11 @@ PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTol
         const double mMedian = m.cpuMsMedian >= 0 ? m.cpuMsMedian : m.cpuMsAvg;
         add("cpuMsMedian", mMedian, bMedian, tol.cpuMedian, tol.cpuSlackMs, true, tol.cpuFail, tol.cpuFailSlackMs);
         add("cpuMsP95", m.cpuMsP95, b.cpuMsP95, tol.cpuP95, tol.cpuSlackMs, true, tol.cpuFail, tol.cpuFailSlackMs);
-        add("peakMemoryMB", m.peakMemoryMB, b.peakMemoryMB, tol.memory, tol.memorySlackMB, false, tol.memoryFail, tol.memoryFailSlackMB);
+        add("peakMemoryMB", m.peakMemoryMB, b.peakMemoryMB, tol.memory, tol.memorySlackMB, false, tol.memoryFail,
+            tol.memoryFailSlackMB);
         // Start-up is a time: it warns outside CI and fails in CI (after re-measures), like the CPU times. Only with a baseline that has it.
-        if (b.startupMs >= 0 && m.startupMs >= 0) add("startupMs", m.startupMs, b.startupMs, tol.startup, tol.startupSlackMs, true);
+        if (b.startupMs >= 0 && m.startupMs >= 0)
+            add("startupMs", m.startupMs, b.startupMs, tol.startup, tol.startupSlackMs, true);
     }
     v.status = "pass";
     for (const PerfCheckRow& r : v.rows) {
@@ -156,9 +182,9 @@ PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTol
 PerfBudgets perf_budgets_from_json(const Json& j, std::vector<std::string>* problems) {
     PerfBudgets b;
     if (!j.is_object()) return b;
-    const std::pair<const char*, double*> fields[] = {{"maxTriangles", &b.maxTriangles}, {"maxLights", &b.maxLights},
-                                                      {"maxTextureMB", &b.maxTextureMB}, {"maxDrawCalls", &b.maxDrawCalls},
-                                                      {"maxEntities", &b.maxEntities}, {"maxStartupMs", &b.maxStartupMs}};
+    const std::pair<const char*, double*> fields[] = {
+        {"maxTriangles", &b.maxTriangles}, {"maxLights", &b.maxLights},     {"maxTextureMB", &b.maxTextureMB},
+        {"maxDrawCalls", &b.maxDrawCalls}, {"maxEntities", &b.maxEntities}, {"maxStartupMs", &b.maxStartupMs}};
     std::vector<std::string> names;
     for (const auto& f : fields) names.push_back(f.first);
     for (auto it = j.begin(); it != j.end(); ++it) {
@@ -166,10 +192,13 @@ PerfBudgets perf_budgets_from_json(const Json& j, std::vector<std::string>* prob
         for (const auto& f : fields) {
             if (it.key() != f.first) continue;
             known = true;
-            if (it->is_number() && it->get<double>() >= 0) *f.second = it->get<double>();
-            else if (problems) problems->push_back("budgets." + it.key() + " must be a number >= 0 (the most the game may reach).");
+            if (it->is_number() && it->get<double>() >= 0)
+                *f.second = it->get<double>();
+            else if (problems)
+                problems->push_back("budgets." + it.key() + " must be a number >= 0 (the most the game may reach).");
         }
-        if (!known && problems) problems->push_back("Unknown budget '" + it.key() + "'. " + did_you_mean(it.key(), names));
+        if (!known && problems)
+            problems->push_back("Unknown budget '" + it.key() + "'. " + did_you_mean(it.key(), names));
     }
     return b;
 }
@@ -196,9 +225,12 @@ std::vector<PerfCheckRow> perf_budget_rows(const PerfSample& m, const PerfBudget
 }
 
 std::string perf_startup_advice() {
-    return "Start-up is the time from reading the game to its first frame: it grows with the files of the first scene (textures and models "
-           "are decoded, audio is decoded, scripts are compiled). Keep the first scene small and load the rest later (scene.load / "
-           "scene.preload, a loading screen), keep textures and audio of the first scene to what it shows, and do not do heavy work in "
+    return "Start-up is the time from reading the game to its first frame: it grows with the files of the first scene "
+           "(textures and models "
+           "are decoded, audio is decoded, scripts are compiled). Keep the first scene small and load the rest later "
+           "(scene.load / "
+           "scene.preload, a loading screen), keep textures and audio of the first scene to what it shows, and do not "
+           "do heavy work in "
            "onStart. Measure it with: factoria call perf.measure (startupMs); see docs/PERFORMANCE.md, \"Startup\".";
 }
 
@@ -239,8 +271,10 @@ std::string perf_runner_id(const std::string& graphics) {
         gpu = "d3d11";
     } else {
         for (char c : g) {
-            if (std::isalnum(static_cast<unsigned char>(c))) gpu += c;
-            else if (!gpu.empty()) break;
+            if (std::isalnum(static_cast<unsigned char>(c)))
+                gpu += c;
+            else if (!gpu.empty())
+                break;
         }
         if (gpu.empty()) gpu = "gpu";
     }
@@ -271,14 +305,20 @@ struct RunSpec {
     std::string scene, input;
 };
 
-std::string abs_path(const std::string& projectDir, const std::string& p) { return tooling_detail::project_path(projectDir, p); }
+std::string abs_path(const std::string& projectDir, const std::string& p) {
+    return tooling_detail::project_path(projectDir, p);
+}
 
 // One headless run with the GPU renderer (when there is one), drawing every frame; returns the run's report (`needKey` must be in it).
 Json run_report(const std::string& projectDir, const RunSpec& spec, HeadlessRunOptions ho, const char* needKey) {
     // The run starts its own engine with its own GPU, and a process has one graphics device: asking sokol for a second one aborts.
     if (gfx_device_active())
-        throw CommandError("gpu_busy", "This process already uses the graphics card (the editor, a window or an engine with graphics), and a measured run needs a second engine with its own.",
-                           "Run it from a terminal: factoria call --no-graphics perf.measure (perf.profile, perf.check...; plain 'factoria call perf.*' does that by itself). In the editor use View > Profiler or play.report's profile instead.");
+        throw CommandError("gpu_busy",
+                           "This process already uses the graphics card (the editor, a window or an engine with "
+                           "graphics), and a measured run needs a second engine with its own.",
+                           "Run it from a terminal: factoria call --no-graphics perf.measure (perf.profile, "
+                           "perf.check...; plain 'factoria call perf.*' does that by itself). In the editor use View > "
+                           "Profiler or play.report's profile instead.");
     EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, spec.scene, true, RenderMode::Always);
     if (!spec.input.empty()) ho.inputReplayPath = abs_path(projectDir, spec.input);
     Json report;
@@ -287,7 +327,8 @@ Json run_report(const std::string& projectDir, const RunSpec& spec, HeadlessRunO
         std::string why = report.value("error", std::string());
         if (report.contains("scriptErrors") && report["scriptErrors"].is_array() && !report["scriptErrors"].empty())
             why += (why.empty() ? "" : " ") + std::string("Script error: ") + report["scriptErrors"][0].dump();
-        throw CommandError("failed", "The measured run did not finish cleanly (exit code " + std::to_string(code) + "): " + why,
+        throw CommandError("failed",
+                           "The measured run did not finish cleanly (exit code " + std::to_string(code) + "): " + why,
                            "Run 'factoria run --headless --frames " + std::to_string(ho.frames) +
                                "' to see the problem; a budget needs a game that runs.");
     }
@@ -348,7 +389,9 @@ void require_project(const std::string& projectDir) { tooling_detail::require_pr
 RunSpec spec_from_args(const Json& a, const RunSpec& def) {
     RunSpec s = def;
     if (a.contains("frames")) s.frames = int(tooling_detail::arg_int(a, "frames", def.frames));
-    if (s.frames < 1) throw CommandError("invalid_argument", "frames must be >= 1.", "A budget needs a run of a few hundred frames, e.g. 300.");
+    if (s.frames < 1)
+        throw CommandError("invalid_argument", "frames must be >= 1.",
+                           "A budget needs a run of a few hundred frames, e.g. 300.");
     if (a.contains("scene")) s.scene = tooling_detail::arg_string(a, "scene", false, def.scene);
     if (a.contains("input")) s.input = tooling_detail::arg_string(a, "input", false, def.input);
     return s;
@@ -364,7 +407,8 @@ Json load_budget(const std::string& file, bool mustExist) {
     auto r = load_json_file(file);
     if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
     if (!r->is_object())
-        throw CommandError("failed", "Budget file '" + file + "' must be a JSON object.", "Delete it and run: factoria call perf.baseline");
+        throw CommandError("failed", "Budget file '" + file + "' must be a JSON object.",
+                           "Delete it and run: factoria call perf.baseline");
     return *r;
 }
 
@@ -377,12 +421,22 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.name = "perf.measure";
     m.category = "project";
     m.readOnly = true;
-    m.summary = "Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities, triangles, lights, texture memory.";
+    m.summary = "Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, "
+                "entities, triangles, lights, texture memory.";
     m.description =
-        "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
-        "{runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the run, slowest first: a spike is named here), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every 8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
-        "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
+        "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer "
+        "when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
+        "{runner, sample: {frames, cpuMsAvg, cpuMsMedian, cpuMsP95, cpuMsMax (process CPU per frame; perf.check gates "
+        "the median and the p95, the rest is reported), slowestFrames ([{frame, ms}], the five slowest frames of the "
+        "run, slowest first: a spike is named here), peakMemoryMB (peak resident memory "
+        "of the process), drawCalls, entities, triangles (of the main pass), lights (3D lights of the main pass plus "
+        "Light2D lights of the same frame), textureMB (GPU texture memory), audioDecodedMB (decoded audio, read every "
+        "8th frame) and musicMB (the music alone, every frame; neither gated), all max over the run, startupMs (CPU "
+        "milliseconds from reading the game's files to its first frame: scenes, scripts, textures, shaders), "
+        "graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a "
+        "Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. "
+        "Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{
         "frames":{"type":"integer","default":300,"minimum":1,"description":"How many frames to run (fixed step)."},
@@ -400,7 +454,8 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     pr.name = "perf.profile";
     pr.category = "project";
     pr.readOnly = true;
-    pr.summary = "Run the game headless with the profiler on and report where the time goes: per engine system, per script behaviour class, GPU time, memory.";
+    pr.summary = "Run the game headless with the profiler on and report where the time goes: per engine system, per "
+                 "script behaviour class, GPU time, memory.";
     pr.description =
         "Use it when the game is slow and you need to know WHY (perf.measure only says how slow). Runs the "
         "project like perf.measure (drawing every frame with the GPU renderer when there is one) with the "
@@ -414,8 +469,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "p95Ms, maxMs, samples, reason} (milliseconds the GPU took to draw the world; null with a `reason` "
         "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, "
         "end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: "
-        "{\"frames\":300,\"input\":\"replays/play.json\"}."
-        FA_COMMAND_DETAILS
+        "{\"frames\":300,\"input\":\"replays/play.json\"}." FA_COMMAND_DETAILS
         "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big "
         "gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds every "
         "onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames "
@@ -431,14 +485,16 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         require_project(projectDir);
         const RunSpec spec = spec_from_args(a, RunSpec{});
         const int warmup = int(tooling_detail::arg_int(a, "warmup", 30));
-        if (warmup < 0) throw CommandError("invalid_argument", "warmup must be >= 0.", "Use 0 to count every frame, or about 30.");
+        if (warmup < 0)
+            throw CommandError("invalid_argument", "warmup must be >= 0.", "Use 0 to count every frame, or about 30.");
         HeadlessRunOptions ho;
         ho.frames = spec.frames + warmup;
         ho.profile = true;
         ho.profileWarmup = warmup;
         const Json report = run_report(projectDir, spec, ho, "profile");
         const std::string graphics = report["perf"].value("graphics", std::string("none"));
-        return Json::object({{"runner", perf_runner_id(graphics)}, {"graphics", graphics}, {"profile", report["profile"]}});
+        return Json::object(
+            {{"runner", perf_runner_id(graphics)}, {"graphics", graphics}, {"profile", report["profile"]}});
     });
 
     CommandInfo b;
@@ -454,8 +510,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "-debug), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: "
         "`factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` "
         "(in CI it fails past the tolerance) checks it. Example: "
-        "{\"frames\":300,\"input\":\"replays/play.json\"}."
-        FA_COMMAND_DETAILS
+        "{\"frames\":300,\"input\":\"replays/play.json\"}." FA_COMMAND_DETAILS
         "File: {format:\"factoria.perf/1\", frames, scene?, input?, tolerance?: {cpuMedian:1.0 (warn ratio "
         "over the baseline; cpuAvg is its old name), cpuP95:1.5, cpuFail:5.0 (fail ratio of both), "
         "cpuFailSlackMs:10, memory:0.1, memoryFail:0.5, memoryFailSlackMB:32, drawCalls:0, entities:0, "
@@ -478,12 +533,14 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         require_project(projectDir);
         // The file this command writes: confined to the project (the command-line user may name any file).
         auto budgetFile = resolve_write_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
-        if (!budgetFile.ok()) throw CommandError("invalid_argument", budgetFile.error().message, budgetFile.error().hint);
+        if (!budgetFile.ok())
+            throw CommandError("invalid_argument", budgetFile.error().message, budgetFile.error().hint);
         const std::string file = fs::path_to_utf8(budgetFile.value());
         Json budget = load_budget(file, false);
         const bool created = budget.empty();
         RunSpec def;
-        def.frames = budget.contains("frames") && budget["frames"].is_number_integer() ? budget["frames"].get<int>() : kDefaultFrames;
+        def.frames = budget.contains("frames") && budget["frames"].is_number_integer() ? budget["frames"].get<int>()
+                                                                                       : kDefaultFrames;
         def.scene = budget.value("scene", std::string());
         def.input = budget.value("input", std::string());
         const RunSpec spec = spec_from_args(a, def);
@@ -492,7 +549,9 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             perf_tolerance_from_json(a["tolerance"], &problems);
             if (!problems.empty())
                 throw CommandError("invalid_argument", problems[0],
-                                   "Tolerance keys: cpuMedian, cpuP95, cpuFail, cpuFailSlackMs, memory, memoryFail, memoryFailSlackMB, drawCalls, entities, triangles, lights, textureMB, startup, cpuSlackMs, memorySlackMB, textureSlackMB, startupSlackMs, countSlack.");
+                                   "Tolerance keys: cpuMedian, cpuP95, cpuFail, cpuFailSlackMs, memory, memoryFail, "
+                                   "memoryFailSlackMB, drawCalls, entities, triangles, lights, textureMB, startup, "
+                                   "cpuSlackMs, memorySlackMB, textureSlackMB, startupSlackMs, countSlack.");
             budget["tolerance"] = a["tolerance"];
         }
         const PerfSample s = measure(projectDir, spec, int(tooling_detail::arg_int(a, "repeats", 3)));
@@ -503,15 +562,18 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         if (!spec.input.empty()) budget["input"] = spec.input;
         if (!budget.contains("runners") || !budget["runners"].is_object()) budget["runners"] = Json::object();
         budget["runners"][runner] = perf_sample_json(s, false);  // no provisional flag: this is a measurement
-        if (auto w = fs::write_text(file, dump_json(budget) + "\n"); !w.ok()) throw CommandError("failed", w.error().message, w.error().hint);
-        return Json::object({{"file", file}, {"runner", runner}, {"sample", perf_sample_json(s, false)}, {"created", created}});
+        if (auto w = fs::write_text(file, dump_json(budget) + "\n"); !w.ok())
+            throw CommandError("failed", w.error().message, w.error().hint);
+        return Json::object(
+            {{"file", file}, {"runner", runner}, {"sample", perf_sample_json(s, false)}, {"created", created}});
     });
 
     CommandInfo c;
     c.name = "perf.check";
     c.category = "project";
     c.readOnly = true;
-    c.summary = "Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.";
+    c.summary =
+        "Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.";
     c.description =
         "Measures with the settings of the budget file (frames, scene, input) and compares with "
         "runners.<this runner> of the file (see perf.baseline for the format and the tolerances). The "
@@ -522,8 +584,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "FAIL, so a baseline is never refreshed to pass (docs/PERFORMANCE.md, \"The band\"). The average and "
         "the maximum are not gated; the message names the slowest frames. An entry with \"provisional\": "
         "true enforces only the counters. Texture memory fails past +10% and 1 MB. Example: {} or "
-        "{\"file\":\"perf.json\"}."
-        FA_COMMAND_DETAILS
+        "{\"file\":\"perf.json\"}." FA_COMMAND_DETAILS
         "The file's \"budgets\" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, "
         "maxStartupMs}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, "
         "also on a runner with no baseline. maxStartupMs is the `perf.startup` budget: the most CPU "
@@ -548,19 +609,26 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         const std::string file = abs_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
         const Json budget = load_budget(file, true);
         RunSpec spec;
-        if (budget.contains("frames") && budget["frames"].is_number_integer()) spec.frames = budget["frames"].get<int>();
+        if (budget.contains("frames") && budget["frames"].is_number_integer())
+            spec.frames = budget["frames"].get<int>();
         spec.scene = budget.value("scene", std::string());
         spec.input = budget.value("input", std::string());
         std::vector<std::string> problems;
         const PerfTolerance tol = perf_tolerance_from_json(budget.value("tolerance", Json::object()), &problems);
-        if (!problems.empty()) throw CommandError("failed", file + ": " + problems[0], "Fix the \"tolerance\" object of the budget file.");
+        if (!problems.empty())
+            throw CommandError("failed", file + ": " + problems[0], "Fix the \"tolerance\" object of the budget file.");
         // Absolute caps: the file's "budgets" object, with the keys of the `budgets` argument on top.
         Json budgetJson = budget.value("budgets", Json::object());
-        if (!budgetJson.is_object()) throw CommandError("failed", file + ": \"budgets\" must be an object such as {\"maxTriangles\": 200000}.", "Fix the \"budgets\" object of the budget file.");
+        if (!budgetJson.is_object())
+            throw CommandError("failed", file + ": \"budgets\" must be an object such as {\"maxTriangles\": 200000}.",
+                               "Fix the \"budgets\" object of the budget file.");
         if (a.contains("budgets") && a["budgets"].is_object())
             for (auto it = a["budgets"].begin(); it != a["budgets"].end(); ++it) budgetJson[it.key()] = it.value();
         const PerfBudgets caps = perf_budgets_from_json(budgetJson, &problems);
-        if (!problems.empty()) throw CommandError("invalid_argument", file + ": " + problems[0], "Budgets: maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs.");
+        if (!problems.empty())
+            throw CommandError(
+                "invalid_argument", file + ": " + problems[0],
+                "Budgets: maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs.");
         const bool strictTime = tooling_detail::arg_bool(a, "strictTime", perf_in_ci());
         PerfSample s = measure(projectDir, spec, 1);
         const std::string runner = perf_runner_id(s.graphics);
@@ -590,10 +658,12 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         for (int retry = 0; retry < 2 && e.timeOver && !e.hard; ++retry) {
             const PerfSample again = measure(projectDir, spec, 1);
             // The spike stays in the message: the frames named are those of the run with the worst frame, however the best time goes.
-            if (!again.slowestFrames.empty() && (s.slowestFrames.empty() || again.slowestFrames[0].ms > s.slowestFrames[0].ms))
+            if (!again.slowestFrames.empty() &&
+                (s.slowestFrames.empty() || again.slowestFrames[0].ms > s.slowestFrames[0].ms))
                 s.slowestFrames = again.slowestFrames;
             s.cpuMsAvg = std::min(s.cpuMsAvg, again.cpuMsAvg);
-            if (s.cpuMsMedian >= 0 && again.cpuMsMedian >= 0) s.cpuMsMedian = std::min(s.cpuMsMedian, again.cpuMsMedian);
+            if (s.cpuMsMedian >= 0 && again.cpuMsMedian >= 0)
+                s.cpuMsMedian = std::min(s.cpuMsMedian, again.cpuMsMedian);
             s.cpuMsP95 = std::min(s.cpuMsP95, again.cpuMsP95);
             s.cpuMsMax = std::min(s.cpuMsMax, again.cpuMsMax);
             if (s.startupMs >= 0 && again.startupMs >= 0) s.startupMs = std::min(s.startupMs, again.startupMs);
@@ -605,8 +675,11 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         std::string over, inBand;
         bool startupOver = false, anyWarned = false;
         for (const PerfCheckRow& r : all) {
-            Json row = Json::object({{"metric", r.metric}, {"measured", round3(r.measured)}, {"baseline", round3(r.baseline)},
-                                     {"limit", round3(r.limit)}, {"exceeded", r.exceeded}});
+            Json row = Json::object({{"metric", r.metric},
+                                     {"measured", round3(r.measured)},
+                                     {"baseline", round3(r.baseline)},
+                                     {"limit", round3(r.limit)},
+                                     {"exceeded", r.exceeded}});
             if (r.warnLimit != r.limit) {
                 row["warnLimit"] = round3(r.warnLimit);
                 row["warned"] = r.warned;
@@ -614,39 +687,57 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             rows.push_back(row);
             if (r.warned) {
                 anyWarned = true;
-                inBand += std::format(" {} {} > {} (baseline {}; it fails past {});", r.metric, fmt(r.measured), fmt(r.warnLimit), fmt(r.baseline), fmt(r.limit));
+                inBand += std::format(" {} {} > {} (baseline {}; it fails past {});", r.metric, fmt(r.measured),
+                                      fmt(r.warnLimit), fmt(r.baseline), fmt(r.limit));
             }
             if (!r.exceeded) continue;
             startupOver = startupOver || r.metric == "startupMs" || r.metric == "maxStartupMs";
-            if (r.metric.rfind("max", 0) == 0) over += std::format(" {} {} > budget {};", r.metric, fmt(r.measured), fmt(r.limit));
-            else over += std::format(" {} {} > limit {} (baseline {});", r.metric, fmt(r.measured), fmt(r.limit), fmt(r.baseline));
+            if (r.metric.rfind("max", 0) == 0)
+                over += std::format(" {} {} > budget {};", r.metric, fmt(r.measured), fmt(r.limit));
+            else
+                over += std::format(" {} {} > limit {} (baseline {});", r.metric, fmt(r.measured), fmt(r.limit),
+                                    fmt(r.baseline));
         }
         result["sample"] = perf_sample_json(s);
         if (!all.empty()) result["rows"] = rows;
         // The slowest frames: one spike decides a maximum and nothing else, so it is named, not gated.
         std::string slowest;
-        for (const PerfFrame& f : s.slowestFrames) slowest += std::format("{} frame {} {} ms", slowest.empty() ? "" : ",", f.frame, fmt(f.ms));
+        for (const PerfFrame& f : s.slowestFrames)
+            slowest += std::format("{} frame {} {} ms", slowest.empty() ? "" : ",", f.frame, fmt(f.ms));
         if (!slowest.empty()) slowest = " Slowest frames:" + slowest + ".";
         if (base.provisional) result["provisional"] = true;
-        const std::string provisionalNote = base.provisional ? " The baseline entry is provisional: only draw calls, entities, triangles and lights are enforced; replace it with the output of perf.baseline on this runner (the CI workflow \"Perf baselines\" records it)." : std::string();
+        const std::string provisionalNote =
+            base.provisional ? " The baseline entry is provisional: only draw calls, entities, triangles and lights "
+                               "are enforced; replace it with the output of perf.baseline on this runner (the CI "
+                               "workflow \"Perf baselines\" records it)."
+                             : std::string();
         const std::string startupHelp = startupOver ? " " + perf_startup_advice() : std::string();
         const bool failing = e.hard || (e.timeOver && strictTime);
         if (!entry) {
             result["status"] = "no_baseline";
             result["baselineEntry"] = Json::object({{runner, perf_sample_json(s, false)}});
-            result["message"] = "No baseline for runner '" + runner + "' in " + file + ": nothing was checked against a baseline. Commit this entry under \"runners\": " +
+            result["message"] = "No baseline for runner '" + runner + "' in " + file +
+                                ": nothing was checked against a baseline. Commit this entry under \"runners\": " +
                                 dump_json(result["baselineEntry"]) + " (or run: factoria call perf.baseline).";
             if (failing)
-                throw CommandError("perf_budget_exceeded", "Over the budgets of " + file + " (no baseline for runner '" + runner + "'):" + over,
-                                   "Reduce what the scene draws (fewer or simpler meshes, fewer lights), or raise the budget on purpose." + startupHelp, result);
+                throw CommandError("perf_budget_exceeded",
+                                   "Over the budgets of " + file + " (no baseline for runner '" + runner + "'):" + over,
+                                   "Reduce what the scene draws (fewer or simpler meshes, fewer lights), or raise the "
+                                   "budget on purpose." +
+                                       startupHelp,
+                                   result);
             if (e.timeOver) {  // only a time cap, outside CI
                 result["status"] = "warn";
-                result["message"] = "Over the time budget of " + file + " (only a warning outside CI; no baseline for runner '" + runner + "'):" + over + startupHelp;
+                result["message"] = "Over the time budget of " + file +
+                                    " (only a warning outside CI; no baseline for runner '" + runner + "'):" + over +
+                                    startupHelp;
                 return result;
             }
             if (tooling_detail::arg_bool(a, "requireBaseline", false))
                 throw CommandError("perf_no_baseline", result["message"].get<std::string>(),
-                                   "Add baselineEntry under \"runners\" of " + file + ", or run factoria call perf.baseline on this runner.", result);
+                                   "Add baselineEntry under \"runners\" of " + file +
+                                       ", or run factoria call perf.baseline on this runner.",
+                                   result);
             return result;
         }
         result["status"] = failing ? "fail" : (e.timeOver || anyWarned) ? "warn" : "pass";
@@ -654,24 +745,29 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             result["message"] = "Within the budget of runner '" + runner + "'." + slowest + provisionalNote;
             return result;
         }
-        const std::string how = "If the cost is intended, refresh the baseline on this runner: factoria call perf.baseline (file: " + file +
-                                "). Otherwise find what got heavier (play.report spikes, game.state)." + startupHelp;
+        const std::string how =
+            "If the cost is intended, refresh the baseline on this runner: factoria call perf.baseline (file: " + file +
+            "). Otherwise find what got heavier (play.report spikes, game.state)." + startupHelp;
         if (!failing) {
             std::string msg;
-            if (!over.empty()) msg += "Over the time budget of runner '" + runner + "' (only a warning outside CI):" + over;
+            if (!over.empty())
+                msg += "Over the time budget of runner '" + runner + "' (only a warning outside CI):" + over;
             if (!inBand.empty())
-                msg += std::string(msg.empty() ? "" : " ") + "Inside the warning band of runner '" + runner + "' (not a failure; a baseline needs no refresh for this):" + inBand;
+                msg += std::string(msg.empty() ? "" : " ") + "Inside the warning band of runner '" + runner +
+                       "' (not a failure; a baseline needs no refresh for this):" + inBand;
             result["message"] = msg + slowest + provisionalNote + (over.empty() ? "" : " " + how);
             return result;
         }
-        throw CommandError("perf_budget_exceeded", "Over the performance budget of runner '" + runner + "' (" + file + "):" + over + slowest + provisionalNote, how, result);
+        throw CommandError("perf_budget_exceeded",
+                           "Over the performance budget of runner '" + runner + "' (" + file + "):" + over + slowest +
+                               provisionalNote,
+                           how, result);
     });
     // perf.measure and perf.profile run the game in a second headless engine inside this process: they read the project and write nothing.
-    declare_command_capabilities(registry, {
-        {"perf.measure", capability_sets::reads()},
-        {"perf.profile", capability_sets::reads()},
-        {"perf.baseline", capability_sets::writes_project()},
-        {"perf.check", capability_sets::reads()}});
+    declare_command_capabilities(registry, {{"perf.measure", capability_sets::reads()},
+                                            {"perf.profile", capability_sets::reads()},
+                                            {"perf.baseline", capability_sets::writes_project()},
+                                            {"perf.check", capability_sets::reads()}});
 }
 
 }  // namespace fa

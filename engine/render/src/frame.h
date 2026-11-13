@@ -30,10 +30,10 @@ struct ShadowCache {
 
 // A CameraView the UI gather met: the camera it shows rendered into an image of pxW x pxH pixels, drawn in `size` design pixels.
 struct ViewRequest {
-    std::uint64_t key = 0;   // the CameraView widget (its entity bits): one image and one job per widget
-    Entity camera;           // the Camera entity to draw
-    Vec2 size{0, 0};         // the widget's rectangle in design pixels: the aspect of the camera and the size of its UI units
-    int pxW = 1, pxH = 1;    // the image's pixels
+    std::uint64_t key = 0;  // the CameraView widget (its entity bits): one image and one job per widget
+    Entity camera;          // the Camera entity to draw
+    Vec2 size{0, 0};  // the widget's rectangle in design pixels: the aspect of the camera and the size of its UI units
+    int pxW = 1, pxH = 1;  // the image's pixels
 };
 
 struct Frame {
@@ -44,15 +44,17 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
-    std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
+    std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>>
+        sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
     Fonts* fonts = nullptr;
     float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
-    float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
-    float uiScale = 1.0f;    // World::ui_scale() of this frame: screen-space UI is drawn this many times as big (ui_rect.h)
+    float textScale = 1.0f;    // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
+    float uiScale =
+        1.0f;  // World::ui_scale() of this frame: screen-space UI is drawn this many times as big (ui_rect.h)
     bool white_used = false;
     // CameraViews (ui2d.cpp, draw_camera_view): `viewImage` makes (or keeps) the image of a view and answers its texture (null when it
     // cannot be made), `views` collects what the renderer must draw before the frame's own jobs. `viewFlipV`: the images of this
@@ -63,17 +65,20 @@ struct Frame {
     // Lit 2D visuals (Sprite.lit, Tilemap.lit): the lights of this frame (gather_2d) and the base light.
     std::vector<Light2DData> lights2d;
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};
-    bool* warnedLights2d = nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
-    bool* warnedShadows2d = nullptr; // set once gather_2d warned that more than kMaxShadowLights2D lights cast shadows (per scene)
+    bool* warnedLights2d =
+        nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
+    bool* warnedShadows2d =
+        nullptr;  // set once gather_2d warned that more than kMaxShadowLights2D lights cast shadows (per scene)
     // The shadow rows of the point lights with castShadows (light2d.cpp): shadowRows rows of kShadowAngles RGBA8 texels,
     // row r for the light whose Light2DData::extra[0] is r. Empty when no light casts a shadow this frame.
     std::vector<std::uint8_t> shadowData;
     int shadowRows = 0;
-    std::uint64_t shadowKey = 0;     // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
-    bool* warnedSpriteMesh = nullptr;     // set once gather_2d warned about a Sprite mesh with too many cells (per scene)
+    std::uint64_t shadowKey = 0;       // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
+    bool* warnedSpriteMesh = nullptr;  // set once gather_2d warned about a Sprite mesh with too many cells (per scene)
     bool* warnedGradientStops = nullptr;  // set once gather_2d warned about malformed Shape2D gradientStops (per scene)
-    ShadowCache* shadowCache = nullptr;  // the renderer's rows kept across frames; null = none kept
-    GradientRamps* ramps = nullptr;      // Shape2D gradient ramps (gradient_ramp.h); null = gradients with stops draw two-colour
+    ShadowCache* shadowCache = nullptr;   // the renderer's rows kept across frames; null = none kept
+    GradientRamps* ramps =
+        nullptr;  // Shape2D gradient ramps (gradient_ramp.h); null = gradients with stops draw two-colour
     // Tint components (scene/components.h): set by gather_2d when the scene has at least one, which makes every visual walk its
     // parent chain; false = no visual pays for the feature.
     bool anyTint = false;
@@ -119,8 +124,9 @@ struct QuadEmitter {
 // `visible` >= 0 draws only the glyphs and pictures of the first `visible` grapheme clusters (Text.visibleCharacters): the layout
 // is the whole text's, so nothing moves while a line reveals. Returns the number of glyphs drawn (pictures not counted).
 // `tint` (Tint component): `color` already includes it; it is multiplied into the run colours and pictures of a rich text too.
-int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
-              float secondary, const Rect& clip, int visible = -1, Color tint = Color{1, 1, 1, 1});
+int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts,
+              Assets& assets, int layer, float secondary, const Rect& clip, int visible = -1,
+              Color tint = Color{1, 1, 1, 1});
 
 // Writes Sprite.region of every SpriteAnimator from the frame it is on (`frame`, chosen by the simulation:
 // fa::update_sprite_animators), with the size of the GPU texture. The simulation already wrote the same rectangle from the size of the

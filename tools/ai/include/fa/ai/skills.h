@@ -26,15 +26,19 @@ namespace fa::ai {
 struct SkillInfo {
     std::string name;
     std::string description;
-    std::string source;       // "engine", "user" or "project": where the folder lives
-    std::string dir;          // absolute folder; "engine:<name>" for a skill inside the binary; "" when the entry did not resolve
-    std::string entry;        // the extension entry that lists it ("" = found in a skills folder)
-    std::string entryScope;   // "user" or "project": which file holds `entry`
+    std::string source;  // "engine", "user" or "project": where the folder lives
+    std::string
+        dir;  // absolute folder; "engine:<name>" for a skill inside the binary; "" when the entry did not resolve
+    std::string entry;       // the extension entry that lists it ("" = found in a skills folder)
+    std::string entryScope;  // "user" or "project": which file holds `entry`
     bool enabled = true;
     std::vector<std::string> roles;  // the entry's roles; empty = defaultRoles
-    std::vector<std::string> defaultRoles;  // who gets it when `roles` is empty: kDefaultExtensionRoles, or the engine skill's own list
-    std::string shadowedBy;   // "project skill" / "user skill" / "engine skill" when another skill of this name wins; else ""
-    std::string problem;      // why it cannot be used (SKILL.md missing or invalid, folder missing); such a skill is not offered
+    std::vector<std::string>
+        defaultRoles;  // who gets it when `roles` is empty: kDefaultExtensionRoles, or the engine skill's own list
+    std::string
+        shadowedBy;  // "project skill" / "user skill" / "engine skill" when another skill of this name wins; else ""
+    std::string
+        problem;  // why it cannot be used (SKILL.md missing or invalid, folder missing); such a skill is not offered
     std::string fix;
 
     bool is_engine() const { return source == "engine"; }
@@ -51,18 +55,18 @@ struct SkillInfo {
 std::vector<std::string> engine_skill_default_roles(std::string_view name);
 
 struct SkillsContext {
-    std::string projectDir;   // "" = no project
-    ExtensionEnv env;         // HOME lookup; null = the process environment
+    std::string projectDir;  // "" = no project
+    ExtensionEnv env;        // HOME lookup; null = the process environment
 };
 
-std::string user_skills_dir(const SkillsContext& ctx);       // ~/.factoria/skills expanded; "" when there is no home folder
-std::string project_skills_dir(const SkillsContext& ctx);    // <project>/skills; "" without a project
+std::string user_skills_dir(const SkillsContext& ctx);  // ~/.factoria/skills expanded; "" when there is no home folder
+std::string project_skills_dir(const SkillsContext& ctx);  // <project>/skills; "" without a project
 
 // Every skill of every source, in precedence order (project, user, engine; entries before skills folders; then by name),
 // including the shadowed ones and those with a problem. `userEntries` / `projectEntries`: the extension entries of kind Skill
 // (others are ignored). The editor passes its unsaved lists to preview a change.
-std::vector<SkillInfo> scan_skills(const std::vector<Extension>& userEntries, const std::vector<Extension>& projectEntries,
-                                   const SkillsContext& ctx);
+std::vector<SkillInfo> scan_skills(const std::vector<Extension>& userEntries,
+                                   const std::vector<Extension>& projectEntries, const SkillsContext& ctx);
 // The same with the entries of `cfg` (ai.json) and the project's .factoria/extensions.json (read from disk).
 std::vector<SkillInfo> scan_skills(const AiConfig& cfg, const SkillsContext& ctx);
 // The skills `role` is offered, sorted by name.
@@ -91,7 +95,7 @@ std::vector<SkillFile> skill_files(const SkillInfo& skill, std::size_t max, std:
 // (unknown file: the files there are; binary file; outside the folder). `offset`/`limit` are bytes of the text.
 struct SkillRead {
     std::string name, source, file;
-    std::string description;       // when `file` is SKILL.md
+    std::string description;  // when `file` is SKILL.md
     std::string content;
     bool truncated = false;
     u64 nextOffset = 0;
@@ -105,9 +109,9 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view file, u64 
 Result<std::string> create_skill(const std::string& skillsDir, std::string_view name, std::string_view description);
 
 struct SkillsCommandOptions {
-    std::function<Result<AiConfig>()> loadConfig;   // null = load_config()
-    std::function<std::string()> projectDir;        // null = fa::fs::project_root()
-    EnvLookup env;                                  // null = the process environment
+    std::function<Result<AiConfig>()> loadConfig;  // null = load_config()
+    std::function<std::string()> projectDir;       // null = fa::fs::project_root()
+    EnvLookup env;                                 // null = the process environment
 };
 // Registers skills.list, skills.read and skills.new. Called by register_ai_commands.
 void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions options);

@@ -106,7 +106,8 @@ public:
     // ---- hooks (fa::fs and the loaders call them; cheap when no trace exists) ----
     static bool any() { return activeCount_.load(std::memory_order_relaxed) > 0; }
     // A file read finished: `bytes` returned, `storedBytes` taken from the pack (== bytes for a loose file).
-    static void file_read(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::int64_t readNs);
+    static void file_read(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack,
+                          std::int64_t readNs);
     // A file read earlier (ahead of time) is used now: it enters the first-use order of the current scene if it is not
     // there yet. Counts nothing (its read was counted). Inside a reading-ahead scope it only goes to the file collector.
     static void file_used(std::string_view path);
@@ -150,11 +151,14 @@ public:
 
 private:
     friend class AssetLoadScope;
-    static void asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs);
-    void record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack, std::uint64_t aheadTag);
+    static void asset_loaded(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs,
+                             std::int64_t readNs);
+    void record_file(std::string_view path, std::uint64_t bytes, std::uint64_t storedBytes, bool fromPack,
+                     std::uint64_t aheadTag);
     void record_use(std::string_view path);
     void record_use_locked(std::string_view path);
-    void record_asset(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs, std::int64_t readNs);
+    void record_asset(std::string_view kind, std::string_view path, std::uint64_t bytes, std::int64_t totalNs,
+                      std::int64_t readNs);
 
     struct SceneLoad {
         std::string scene;
@@ -197,7 +201,9 @@ public:
     ~AssetLoadScope();
     AssetLoadScope(const AssetLoadScope&) = delete;
     AssetLoadScope& operator=(const AssetLoadScope&) = delete;
-    void set_bytes(std::uint64_t bytes) { bytes_ = bytes; }  // the size of the file it read (else the bytes its reads returned)
+    void set_bytes(std::uint64_t bytes) {
+        bytes_ = bytes;
+    }  // the size of the file it read (else the bytes its reads returned)
 
 private:
     const char* kind_;

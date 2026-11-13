@@ -16,10 +16,13 @@ TEST_CASE("progress file: the tail delivers what is appended after it started, i
     std::mutex mu;
     std::vector<std::string> got;
     {
-        ProgressTail tail(dir.str(), [&](const std::string& l) {
-            std::lock_guard<std::mutex> lock(mu);
-            got.push_back(l);
-        }, 20);
+        ProgressTail tail(
+            dir.str(),
+            [&](const std::string& l) {
+                std::lock_guard<std::mutex> lock(mu);
+                got.push_back(l);
+            },
+            20);
         append_progress_line(dir.str(), "worker: starting");
         append_progress_line(dir.str(), "worker > running Bash\n(two lines)");
         for (int i = 0; i < 100; ++i) {

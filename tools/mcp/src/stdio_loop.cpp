@@ -18,17 +18,18 @@ namespace {
 // A thread reads the stream line by line into a queue; next() waits on it with a timeout.
 class StreamLineReader final : public LineReader {
 public:
-    explicit StreamLineReader(std::istream& in) : thread_([this, &in] {
-        std::string line;
-        while (std::getline(in, line)) {
-            std::lock_guard<std::mutex> lock(mu_);
-            lines_.push_back(line);
-            cv_.notify_all();
-        }
-        std::lock_guard<std::mutex> lock(mu_);
-        eof_ = true;
-        cv_.notify_all();
-    }) {}
+    explicit StreamLineReader(std::istream& in)
+        : thread_([this, &in] {
+              std::string line;
+              while (std::getline(in, line)) {
+                  std::lock_guard<std::mutex> lock(mu_);
+                  lines_.push_back(line);
+                  cv_.notify_all();
+              }
+              std::lock_guard<std::mutex> lock(mu_);
+              eof_ = true;
+              cv_.notify_all();
+          }) {}
     ~StreamLineReader() override { thread_.join(); }
 
     Status next(std::string& line, std::chrono::milliseconds timeout) override {
@@ -156,7 +157,8 @@ private:
         if (cv_.wait_for(lock, eofGrace_, [this] { return stop_; })) return;
         lock.unlock();
         if (const std::size_t n = server_.session()->cancel_all(); n > 0)
-            ::fa::log(LogLevel::Info, "mcp", "stdin closed: cancelled " + std::to_string(n) + " request(s) still running or queued.");
+            ::fa::log(LogLevel::Info, "mcp",
+                      "stdin closed: cancelled " + std::to_string(n) + " request(s) still running or queued.");
     }
 
     McpServer& server_;
@@ -207,8 +209,10 @@ StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& ou
             }
             continue;
         }
-        if (options.before_message) options.before_message();
-        else poll();
+        if (options.before_message)
+            options.before_message();
+        else
+            poll();
         if (auto response = server.handle_message(line)) write(*response);
         poll();
         if (restart_now()) {

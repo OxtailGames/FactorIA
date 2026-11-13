@@ -73,7 +73,8 @@ void store_frame(void*) {
 int store_init(const FaPluginApi* api) {
     g_store = api;
     CHECK(api->version >= 2);
-    FaBackendDesc d = {"teststore", R"(["achievements","stats","leaderboards","purchases"])", store_request, store_frame, nullptr};
+    FaBackendDesc d = {"teststore", R"(["achievements","stats","leaderboards","purchases"])", store_request,
+                       store_frame, nullptr};
     CHECK(api->add_backend(api, &d) == 0);
     return 0;
 }
@@ -91,8 +92,12 @@ void ads_request_for(const char* backend, FaRequest* req, const char* method, co
     g_adsSeen.push_back(std::string(backend) + " " + method + " " + args);
     g_ads->resolve(req, (std::string(R"({"by":")") + backend + R"(","args":)" + args + "}").c_str());
 }
-void ads_request(FaRequest* req, const char* method, const char* args, void*) { ads_request_for("adsnet", req, method, args); }
-void ads_request2(FaRequest* req, const char* method, const char* args, void*) { ads_request_for("adsnet2", req, method, args); }
+void ads_request(FaRequest* req, const char* method, const char* args, void*) {
+    ads_request_for("adsnet", req, method, args);
+}
+void ads_request2(FaRequest* req, const char* method, const char* args, void*) {
+    ads_request_for("adsnet2", req, method, args);
+}
 
 int ads_init(const FaPluginApi* api) {
     g_ads = api;
@@ -112,24 +117,28 @@ int g_refusals = 0;
 int refusing_init(const FaPluginApi* api) {
     g_late = api;
     auto refused = [&](FaBackendDesc d) { g_refusals += api->add_backend(api, &d) != 0 ? 1 : 0; };
-    refused({"Bad Name", R"(["stats"])", store_request, nullptr, nullptr});          // not a backend name
-    refused({"refuser", nullptr, store_request, nullptr, nullptr});                  // no services
-    refused({"refuser", "not json", store_request, nullptr, nullptr});               // services are not JSON
-    refused({"refuser", R"({"a":1})", store_request, nullptr, nullptr});             // not an array
-    refused({"refuser", R"(["achievments"])", store_request, nullptr, nullptr});     // not a service: did you mean
-    refused({"refuser", R"([])", store_request, nullptr, nullptr});                  // offers nothing
-    refused({"refuser", R"(["stats","http"])", store_request, nullptr, nullptr});    // http is the engine's own
-    refused({"refuser", R"(["stats"])", nullptr, nullptr, nullptr});                 // no request handler
-    refused({nullptr, R"(["stats"])", store_request, nullptr, nullptr});             // no name
+    refused({"Bad Name", R"(["stats"])", store_request, nullptr, nullptr});        // not a backend name
+    refused({"refuser", nullptr, store_request, nullptr, nullptr});                // no services
+    refused({"refuser", "not json", store_request, nullptr, nullptr});             // services are not JSON
+    refused({"refuser", R"({"a":1})", store_request, nullptr, nullptr});           // not an array
+    refused({"refuser", R"(["achievments"])", store_request, nullptr, nullptr});   // not a service: did you mean
+    refused({"refuser", R"([])", store_request, nullptr, nullptr});                // offers nothing
+    refused({"refuser", R"(["stats","http"])", store_request, nullptr, nullptr});  // http is the engine's own
+    refused({"refuser", R"(["stats"])", nullptr, nullptr, nullptr});               // no request handler
+    refused({nullptr, R"(["stats"])", store_request, nullptr, nullptr});           // no name
     FaBackendDesc good = {"refuser", R"(["stats", "stats"])", store_request, nullptr, nullptr};
     CHECK(api->add_backend(api, &good) == 0);
-    refused({"refuser2", R"(["stats"])", store_request, nullptr, nullptr});          // a second backend
+    refused({"refuser2", R"(["stats"])", store_request, nullptr, nullptr});  // a second backend
     return 0;
 }
 
 // A plugin written against version 1: it knows nothing of backends.
 int v1_init(const FaPluginApi* api) {
-    FaFunctionDesc f = {"hello", "hello(): says hi.", [](FaCall* call, const char*, void*) { /* answers null */ (void)call; }, nullptr};
+    FaFunctionDesc f = {"hello", "hello(): says hi.",
+                        [](FaCall* call, const char*, void*) { /* answers null */
+                                                               (void)call;
+                        },
+                        nullptr};
     return api->add_function(api, &f);
 }
 
@@ -182,7 +191,8 @@ Json run(Engine& engine, const std::string& code) {
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------- selection ---
-TEST_CASE("platform backend choice: the fake in development, none in an exported game, a plugin when the game has one") {
+TEST_CASE(
+    "platform backend choice: the fake in development, none in an exported game, a plugin when the game has one") {
     PlatformCatalog catalog;
     PluginInstall none;
     auto make = [](const std::string& plugin, const std::string& backend) {
@@ -229,7 +239,8 @@ TEST_CASE("platform backend choice: the fake in development, none in an exported
     catalog.backendByPlatform = {{"ios", "apple"}, {"windows", "steam"}};
     CHECK(has(choose_platform_backend("", "fake", catalog, two, "ios").why, "'apple' registered it"));
     CHECK(has(choose_platform_backend("", "fake", catalog, two, "windows").why, "'steam' registered it"));
-    CHECK(choose_platform_backend("", "fake", catalog, two, "linux").warnings.size() == 1);  // no entry for linux: unclear again
+    CHECK(choose_platform_backend("", "fake", catalog, two, "linux").warnings.size() ==
+          1);  // no entry for linux: unclear again
 
     // A name that is no plugin with a backend: a warning that suggests, then the fallback.
     catalog.backendByPlatform.clear();
@@ -282,16 +293,19 @@ TEST_CASE("platform backend choice: an Engine without a store plugin") {
         CHECK(engine.platform_services()->info()["httpBackend"] != "fake");
         CHECK(engine.platform_services()->info()["httpBackend"] != "none");
         // Nothing is free: a purchase is rejected with a hint.
-        run(engine, "globalThis.out = []; platform.purchases.buy('gems_100').catch((e) => out.push([e.code, e.message, e.hint]))");
+        run(engine, "globalThis.out = []; platform.purchases.buy('gems_100').catch((e) => out.push([e.code, e.message, "
+                    "e.hint]))");
         Json out = run(engine, "out");
         REQUIRE(out.size() == 1);
         CHECK(out[0][0] == "unavailable");
-        CHECK(has(out[0][1].get<std::string>(), "platform.purchases.buy(\"gems_100\") failed: platform.purchases.buy is not available"));
+        CHECK(has(out[0][1].get<std::string>(),
+                  "platform.purchases.buy(\"gems_100\") failed: platform.purchases.buy is not available"));
         CHECK(has(out[0][2].get<std::string>(), "platform.has(\"purchases\")"));
         // The platform commands refuse to act on a store that is not the fake, saying which one runs.
         CommandResult reset = engine.commands().call("platform.reset");
         REQUIRE_FALSE(reset.ok);
-        CHECK(has(reset.error["message"].get<std::string>(), "only works with the fake backend, but this game runs the 'none' backend"));
+        CHECK(has(reset.error["message"].get<std::string>(),
+                  "only works with the fake backend, but this game runs the 'none' backend"));
         engine.shutdown();
     }
     {
@@ -336,9 +350,10 @@ TEST_CASE("platform plugin: a backend answers later from its frame callback and 
     CHECK(logs_since(seq).find("using the fake backend") == std::string::npos);
 
     g_frames = 0;
-    run(engine, "globalThis.out = []; globalThis.events = [];"
-                "platform.on('overlay', (e) => events.push(e.open));"
-                "platform.achievements.unlock('first_win').then((r) => out.push(r), (e) => out.push('ERR ' + e.message)); 0");
+    run(engine,
+        "globalThis.out = []; globalThis.events = [];"
+        "platform.on('overlay', (e) => events.push(e.open));"
+        "platform.achievements.unlock('first_win').then((r) => out.push(r), (e) => out.push('ERR ' + e.message)); 0");
     // The backend was asked with the store's id for the achievement.
     CHECK(Json::parse(g_unlockArgs) == Json::parse(R"({"id":"first_win","storeId":"ACH_ONE"})"));
     CHECK(run(engine, "out.length") == 0);  // not answered yet: nothing resolves without a frame
@@ -360,7 +375,8 @@ TEST_CASE("platform plugin: a backend answers later from its frame callback and 
     CHECK(bought["transactionId"] == "T-1");
     CHECK(bought["receipt"] == "R-1");
     // The store rejects finish() with a code the engine does not know: "failed", with the plugin's words kept.
-    Json finished = run(engine, "(async () => { try { await platform.purchases.finish('T-1'); } catch (e) { return [e.code, e.message]; } })()");
+    Json finished = run(engine, "(async () => { try { await platform.purchases.finish('T-1'); } catch (e) { return "
+                                "[e.code, e.message]; } })()");
     CHECK(finished[0] == "failed");
     CHECK(has(finished[1].get<std::string>(), "unexpected method (the backend used the error code \"mystery\""));
 }
@@ -374,24 +390,30 @@ TEST_CASE("platform plugin: rejections, other threads, bad answers and late answ
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
 
     // reject(): code, message and hint reach the script as an Error with .code and .hint.
-    Json rejected = run(engine, "(async () => { try { await platform.achievements.progress('first_win', 0.5); } catch (e) { return [e.code, e.hint, e.message]; } })()");
+    Json rejected = run(engine, "(async () => { try { await platform.achievements.progress('first_win', 0.5); } catch "
+                                "(e) { return [e.code, e.hint, e.message]; } })()");
     CHECK(rejected[0] == "network");
     CHECK(rejected[1] == "retry later");
-    CHECK(rejected[2] == "platform.achievements.progress(\"first_win\", 0.5) failed: no route to the store (hint: retry later)");
+    CHECK(rejected[2] ==
+          "platform.achievements.progress(\"first_win\", 0.5) failed: no route to the store (hint: retry later)");
 
     // resolve() from another thread: the answer is queued and reaches the script at the start of the next frame.
-    run(engine, "globalThis.best = []; platform.leaderboards.submit('high_score', 5).then((r) => best.push(r.best)); 0");
+    run(engine,
+        "globalThis.best = []; platform.leaderboards.submit('high_score', 5).then((r) => best.push(r.best)); 0");
     CHECK(run(engine, "best.length") == 0);
     engine.step(1);
     CHECK(run(engine, "best") == Json::parse("[9]"));
 
     // Text that is not JSON fails the request with the code "failed" and names the plugin and the method.
-    Json garbled = run(engine, "(async () => { try { await platform.stats.get('wins'); } catch (e) { return [e.code, e.message]; } })()");
+    Json garbled =
+        run(engine,
+            "(async () => { try { await platform.stats.get('wins'); } catch (e) { return [e.code, e.message]; } })()");
     CHECK(garbled[0] == "failed");
     CHECK(has(garbled[1].get<std::string>(), "the plugin 'pstore' answered stats.get with text that is not JSON"));
 
     // stats.set is answered late (below): the promise is still pending.
-    run(engine, "globalThis.late = []; platform.stats.set('wins', 1).then(() => late.push('ok'), (e) => late.push(e.code)); 0");
+    run(engine,
+        "globalThis.late = []; platform.stats.set('wins', 1).then(() => late.push('ok'), (e) => late.push(e.code)); 0");
     CHECK(run(engine, "late.length") == 0);
     CHECK(engine.platform_services()->pending() == 1);
 
@@ -421,11 +443,13 @@ TEST_CASE("platform plugin: two backend plugins need platform.backend to choose"
         CommandResult info = engine.commands().call("engine.info");
         REQUIRE(info.ok);
         bool listed = false;
-        for (const Json& p : info.result["startupProblems"]) listed = listed || has(p.get<std::string>(), "several plugins offer");
+        for (const Json& p : info.result["startupProblems"])
+            listed = listed || has(p.get<std::string>(), "several plugins offer");
         CHECK(listed);
     }
     {
-        StoreGame game(R"({"pstore": {"path": "native/pstore"}, "pstore2": {"path": "native/pstore2"}})", R"({"backend": "pstore2"})");
+        StoreGame game(R"({"pstore": {"path": "native/pstore"}, "pstore2": {"path": "native/pstore2"}})",
+                       R"({"backend": "pstore2"})");
         Engine engine;
         std::string err;
         REQUIRE(engine.init(game.cfg(), nullptr, &err));
@@ -434,7 +458,8 @@ TEST_CASE("platform plugin: two backend plugins need platform.backend to choose"
     }
     {
         StoreGame game(R"({"pstore": {"path": "native/pstore"}, "pstore2": {"path": "native/pstore2"}})",
-                       std::string(R"({"backend": {")") + runtime_platform() + R"(": "pstore2", "android": "pstore"}})");
+                       std::string(R"({"backend": {")") + runtime_platform() +
+                           R"(": "pstore2", "android": "pstore"}})");
         Engine engine;
         std::string err;
         REQUIRE(engine.init(game.cfg(), nullptr, &err));
@@ -535,7 +560,8 @@ TEST_CASE("platform backend choice: a plugin that offers only ads is the ads bac
     BackendChoice typo = choose_platform_backend("", "none", catalog, two, "android");
     CHECK_FALSE(typo.adsBackend);
     REQUIRE(typo.warnings.size() == 1);
-    CHECK(has(typo.warnings[0], "platform.ads.backend names 'net3', but no plugin of that name offers an ads backend on android"));
+    CHECK(has(typo.warnings[0],
+              "platform.ads.backend names 'net3', but no plugin of that name offers an ads backend on android"));
     CHECK(has(typo.warnings[0], "Did you mean"));
     PluginInstall failed;
     failed.failed = {"admob"};
@@ -554,7 +580,8 @@ TEST_CASE("platform backend choice: a plugin that offers only ads is the ads bac
     catalog.backend = "admob";
     BackendChoice misplaced = choose_platform_backend("", "none", catalog, both, "android");
     REQUIRE_FALSE(misplaced.warnings.empty());
-    CHECK(has(misplaced.warnings[0], "which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" section"));
+    CHECK(has(misplaced.warnings[0],
+              "which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" section"));
 }
 
 TEST_CASE("platform plugin: an ads plugin gets ads.*, the store plugin the rest, and the age reaches it") {
@@ -613,6 +640,7 @@ TEST_CASE("platform plugin: development runs keep the fake even when the game ha
     CHECK(run(engine, "platform.adsBackend") == "fake");
     CHECK(run(engine, "(async () => await platform.ads.available('more_time'))()") == true);
     CHECK(g_adsSeen.empty());
-    CHECK(has(engine.commands().call("platform.state").result["adsWhy"].get<std::string>(), "only runs in shipped games"));
+    CHECK(has(engine.commands().call("platform.state").result["adsWhy"].get<std::string>(),
+              "only runs in shipped games"));
     engine.shutdown();
 }

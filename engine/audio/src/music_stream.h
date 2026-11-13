@@ -39,9 +39,9 @@ constexpr std::int64_t kMusicChunkFrames = std::int64_t(1) << kMusicChunkShift; 
 // The window: 32 chunks, 6 s. A crossfade inside one song reads two heads (12 chunks of look-ahead each) and a jump just primed keeps up to 8
 // protected, so 12 + 12 + 8 fills it; kMusicWantedMax never exceeds it, or the service would want what the window cannot hold.
 constexpr std::size_t kMusicSlots = 32;
-constexpr std::size_t kMusicWantedMax = kMusicSlots;                              // chunks the service asks to keep decoded at once
-constexpr std::int64_t kMusicLookAhead = 12;                                      // chunks ahead of a playhead kept decoded (2.2 s)
-constexpr std::int64_t kMusicUrgent = 4;                                          // chunks of each playhead decoded before any other
+constexpr std::size_t kMusicWantedMax = kMusicSlots;  // chunks the service asks to keep decoded at once
+constexpr std::int64_t kMusicLookAhead = 12;          // chunks ahead of a playhead kept decoded (2.2 s)
+constexpr std::int64_t kMusicUrgent = 4;              // chunks of each playhead decoded before any other
 
 // Underruns of many stems added up (the Audio owns one; a stem adds to it as well as to its own count, so a source that leaves the music
 // cache while it still plays keeps being counted in stats()).
@@ -54,7 +54,8 @@ class MusicStemStream {
 public:
     // Opens an .ogg (44100 Hz, 1 or 2 channels) for streaming. Null with *why (a sentence) when it cannot stream: the caller decodes it whole.
     // It decodes the last chunk once, which proves the length in the header and that seeking works.
-    static std::shared_ptr<MusicStemStream> open(std::shared_ptr<const Bytes> bytes, std::string_view ext, std::string* why);
+    static std::shared_ptr<MusicStemStream> open(std::shared_ptr<const Bytes> bytes, std::string_view ext,
+                                                 std::string* why);
 
     std::int64_t frames() const { return frames_; }
     std::int64_t chunk_count() const { return (frames_ + kMusicChunkFrames - 1) / kMusicChunkFrames; }
@@ -136,13 +137,15 @@ private:
     static constexpr std::uint64_t kReaders = 0x7fff, kLoading = 0x8000;
     static std::uint64_t ready_word(std::int64_t chunk) { return std::uint64_t(chunk + 1) << 16; }
 
-    static constexpr std::uint64_t kPrimedBlocks = 200;  // audio blocks the mixer publishes: 2.3 s at 512 frames and 44100 Hz
+    static constexpr std::uint64_t kPrimedBlocks =
+        200;  // audio blocks the mixer publishes: 2.3 s at 512 frames and 44100 Hz
     static constexpr std::size_t kMaxHeads = 16;
 
     bool wanted_or_primed(std::int64_t chunk) const;
-    void refresh_wanted();  // wanted_ from the published heads
+    void refresh_wanted();                                     // wanted_ from the published heads
     int take_slot(std::int64_t forChunk, bool respectWanted);  // a slot set to LOADING for forChunk, or -1
-    std::size_t decode_into(int slot, std::int64_t chunk);       // frames the decoder gave (the rest of the chunk is silence)
+    std::size_t decode_into(int slot,
+                            std::int64_t chunk);  // frames the decoder gave (the rest of the chunk is silence)
     bool ensure(std::int64_t chunk, bool respectWanted);
 
     std::shared_ptr<const Bytes> bytes_;
@@ -151,9 +154,9 @@ private:
     int channels_ = 2;
     std::size_t resident_ = 0;
     std::array<Slot, kMusicSlots> slots_;
-    std::vector<float> scratch_;              // the decoder's output before it is made stereo
+    std::vector<float> scratch_;  // the decoder's output before it is made stereo
     // The producer's (claim holder's):
-    std::int64_t decodePos_ = 0;              // the frame the decoder returns next (-1: unknown, seek first)
+    std::int64_t decodePos_ = 0;  // the frame the decoder returns next (-1: unknown, seek first)
     std::array<std::int64_t, kMusicWantedMax> wanted_{};
     std::size_t wantedCount_ = 0;
     std::size_t urgentCount_ = 0;  // the first of wanted_ that are the urgent round of refresh_wanted

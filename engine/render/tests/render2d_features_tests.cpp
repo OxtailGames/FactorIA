@@ -109,14 +109,20 @@ TEST_CASE("tile flags: flipped and rotated tiles are drawn turned") {
     tm.tileset = "assets/quadrants.png";
     tm.tileSize = {16, 16};
     // plain, flipX, flipY, 90 cw, 180, 90 ccw, transpose (a mirror across the diagonal)
-    const int flags[7] = {0, kTileFlipX, kTileFlipY, kTileTranspose | kTileFlipX, kTileFlipX | kTileFlipY,
-                          kTileTranspose | kTileFlipY, kTileTranspose};
+    const int flags[7] = {0,
+                          kTileFlipX,
+                          kTileFlipY,
+                          kTileTranspose | kTileFlipX,
+                          kTileFlipX | kTileFlipY,
+                          kTileTranspose | kTileFlipY,
+                          kTileTranspose};
     Json row = Json::array();
     for (int f : flags) row.push_back(f);
     tm.tiles = Json::array({row});
     const Color R = Color::hex(0xe02020), G = Color::hex(0x20e020), B = Color::hex(0x2020e0), Y = Color::hex(0xe0e020);
     // expected [TL, TR, BL, BR] of each tile
-    const Color expect[7][4] = {{R, G, B, Y}, {G, R, Y, B}, {B, Y, R, G}, {B, R, Y, G}, {Y, B, G, R}, {G, Y, R, B}, {R, B, G, Y}};
+    const Color expect[7][4] = {{R, G, B, Y}, {G, R, Y, B}, {B, Y, R, G}, {B, R, Y, G},
+                                {Y, B, G, R}, {G, Y, R, B}, {R, B, G, Y}};
     Image img = g.render(w);
     for (int t = 0; t < 7; ++t)
         for (int q = 0; q < 4; ++q) {
@@ -155,8 +161,13 @@ TEST_CASE("9-slice sprite: corners keep their texture size at any sprite size, f
     save(tex, "assets/sprite_nine.png");
     World w;
     camera_at(w);
-    struct Spot { float x, y, width, height; bool flipX, flipY; };
-    const Spot spots[4] = {{10, 10, 40, 40, false, false}, {60, 10, 100, 60, false, false}, {10, 80, 90, 90, true, false},
+    struct Spot {
+        float x, y, width, height;
+        bool flipX, flipY;
+    };
+    const Spot spots[4] = {{10, 10, 40, 40, false, false},
+                           {60, 10, 100, 60, false, false},
+                           {10, 80, 90, 90, true, false},
                            {110, 80, 90, 90, false, true}};
     for (const Spot& s : spots) {
         Entity e = make(w, "nine", {s.x - 160, 90 - s.y, 0});  // pivot top-left at pixel (x, y)
@@ -218,7 +229,8 @@ TEST_CASE("9-slice sprite: slices are measured inside the region") {
             CHECK(near(img.pixel(x0 + 80 - 8 + i, y0 + 50 - 8 + j), frame.pixel(16 + i, 16 + j)));
         }
     for (int y = y0; y < y0 + 50; ++y)
-        for (int x = x0; x < x0 + 80; ++x) CHECK(img.pixel(x, y).g > 0.1f);  // never the magenta of the neighbouring frame (g = 0)
+        for (int x = x0; x < x0 + 80; ++x)
+            CHECK(img.pixel(x, y).g > 0.1f);  // never the magenta of the neighbouring frame (g = 0)
 }
 
 TEST_CASE("9-slice sprite: borders that do not fit shrink together") {
@@ -233,8 +245,9 @@ TEST_CASE("9-slice sprite: borders that do not fit shrink together") {
     sp.slice = {8, 8, 8, 8};
     sp.size = {8, 8};  // smaller than left + right
     Image img = g.render(w);
-    CHECK(near(img.pixel(156, 86), nine_slice_texture().pixel(2, 2), 0.2f));  // some corner pixel, not a stretched centre
-    CHECK(img.pixel(170, 86).r < 0.05f);                                      // nothing outside the 8x8 box
+    CHECK(
+        near(img.pixel(156, 86), nine_slice_texture().pixel(2, 2), 0.2f));  // some corner pixel, not a stretched centre
+    CHECK(img.pixel(170, 86).r < 0.05f);                                    // nothing outside the 8x8 box
 }
 
 // ------------------------------------------------------------------------------------------------------- lit sprites
@@ -284,10 +297,10 @@ TEST_CASE("lit sprites: a point light fades with distance, unlit sprites ignore 
     l.falloff = 1;
     l.intensity = 1;
     Image img = g.render(w);
-    CHECK(brightness(img, 110, 90) == doctest::Approx(1.0f).epsilon(0.03));   // at the lamp
-    CHECK(brightness(img, 160, 90) == doctest::Approx(0.5f).epsilon(0.03));   // 50 units away: (1 - 50/100)
-    CHECK(brightness(img, 190, 90) == doctest::Approx(0.2f).epsilon(0.05));   // 80 away
-    CHECK(brightness(img, 215, 90) < 0.02f);                                  // beyond the radius
+    CHECK(brightness(img, 110, 90) == doctest::Approx(1.0f).epsilon(0.03));       // at the lamp
+    CHECK(brightness(img, 160, 90) == doctest::Approx(0.5f).epsilon(0.03));       // 50 units away: (1 - 50/100)
+    CHECK(brightness(img, 190, 90) == doctest::Approx(0.2f).epsilon(0.05));       // 80 away
+    CHECK(brightness(img, 215, 90) < 0.02f);                                      // beyond the radius
     CHECK(brightness(img, 160, 90 - 70) == doctest::Approx(1.0f).epsilon(0.02));  // the unlit sprite keeps its colour
 }
 
@@ -304,7 +317,8 @@ TEST_CASE("lit sprites: ambient light, light colour and intensity") {
     Entity s = sun(w, 270, 90, 0.5f);
     w.get<Light2D>(s)->color = Color{0, 1, 0, 1};
     img = g.render(w);
-    CHECK(near(img.pixel(160, 90), Color{0.2f, 0.6f, 0.0f, 1}));  // ambient + the green sun at half strength, flat sprite
+    CHECK(
+        near(img.pixel(160, 90), Color{0.2f, 0.6f, 0.0f, 1}));  // ambient + the green sun at half strength, flat sprite
 }
 
 TEST_CASE("lit sprites: the normal map turns with the sprite's rotation and flips") {
@@ -318,8 +332,12 @@ TEST_CASE("lit sprites: the normal map turns with the sprite's rotation and flip
     // Light travelling left (comes from +x) 30 degrees above the picture: L = (cos 30, 0, sin 30).
     sun(w, 180, 30);
     const Vec3 L{std::cos(radians(30.0f)), 0.0f, std::sin(radians(30.0f))};
-    struct Case { float rotation; bool flipX, flipY; };
-    const Case cases[6] = {{0, false, false}, {0, true, false}, {90, false, false}, {180, false, false}, {90, false, true}, {-90, true, false}};
+    struct Case {
+        float rotation;
+        bool flipX, flipY;
+    };
+    const Case cases[6] = {{0, false, false},   {0, true, false},  {90, false, false},
+                           {180, false, false}, {90, false, true}, {-90, true, false}};
     std::vector<float> expected;
     for (int i = 0; i < 6; ++i) {
         Entity e = lit_sprite(w, "assets/normal_tilt_x.png", {-125.0f + 50.0f * float(i), 0, 0});
@@ -334,7 +352,8 @@ TEST_CASE("lit sprites: the normal map turns with the sprite's rotation and flip
     }
     Image img = g.render(w);
     for (int i = 0; i < 6; ++i) {
-        INFO("case " << i << " rotation " << cases[i].rotation << " flipX " << cases[i].flipX << " flipY " << cases[i].flipY);
+        INFO("case " << i << " rotation " << cases[i].rotation << " flipX " << cases[i].flipX << " flipY "
+                     << cases[i].flipY);
         CHECK(brightness(img, 35 + 50 * i, 90) == doctest::Approx(expected[std::size_t(i)]).epsilon(0.06));
     }
     CHECK(expected[0] > 0.9f);
@@ -349,7 +368,8 @@ TEST_CASE("lit sprites: golden - a dome normal map under a point light and a sun
     Image diffuse = solid(64, 64, Color::hex(0xc8b08c));
     for (int y = 0; y < 64; ++y)
         for (int x = 0; x < 64; ++x) {
-            const float nx = (float(x) + 0.5f - 32.0f) / 28.0f, ny = -(float(y) + 0.5f - 32.0f) / 28.0f;  // +y up the picture
+            const float nx = (float(x) + 0.5f - 32.0f) / 28.0f,
+                        ny = -(float(y) + 0.5f - 32.0f) / 28.0f;  // +y up the picture
             const float r2 = nx * nx + ny * ny;
             if (r2 < 1.0f) {
                 const float nz = std::sqrt(1.0f - r2);
@@ -430,9 +450,9 @@ TEST_CASE("parallax: layers follow the camera by their factor") {
     REQUIRE(g.ok);
     World w;
     camera_at(w, {100, 0, 0});
-    block(w, {0, 40, 0}, {10, 10}, Color::hex(0xff0000), {1, 1});      // normal object: world x 0
+    block(w, {0, 40, 0}, {10, 10}, Color::hex(0xff0000), {1, 1});       // normal object: world x 0
     block(w, {0, 0, 0}, {10, 10}, Color::hex(0x00ff00), {0.5f, 0.5f});  // drawn at world x 50
-    block(w, {0, -40, 0}, {10, 10}, Color::hex(0x0000ff), {0, 0});     // glued to the camera: drawn at world x 100
+    block(w, {0, -40, 0}, {10, 10}, Color::hex(0x0000ff), {0, 0});      // glued to the camera: drawn at world x 100
     block(w, {0, 70, 0}, {10, 10}, Color::hex(0xffff00), {2, 1});       // foreground: drawn at world x -100
     Image img = g.render(w);
     // pixel x = 160 + (world x - camera x)
@@ -486,9 +506,9 @@ TEST_CASE("parallax: a repeating strip never runs out and the result is determin
     scene(c, 37);
     Image ic = g.render(c);
     for (int x = 0; x < 320; ++x) {
-        const float worldX = float(x) - 160.0f + 37.0f;                // the world position under the pixel
-        const float local = worldX - 37.0f * 0.5f;                     // minus the strip's drawn offset (camera * (1 - 0.5))
-        const float m = local - 20.0f * std::floor(local / 20.0f);     // position within its 20-unit period
+        const float worldX = float(x) - 160.0f + 37.0f;  // the world position under the pixel
+        const float local = worldX - 37.0f * 0.5f;       // minus the strip's drawn offset (camera * (1 - 0.5))
+        const float m = local - 20.0f * std::floor(local / 20.0f);           // position within its 20-unit period
         if (std::fabs(m - 10.0f) < 1.0f || m < 1.0f || m > 19.0f) continue;  // skip the pixel seams
         INFO("camera 37, pixel x " << x);
         CHECK(near(ic.pixel(x, 150), m < 10.0f ? Color::hex(0xff8000) : Color::hex(0x303040)));
@@ -502,7 +522,8 @@ TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes kee
     World w;
     camera_at(w);
     w.settings().ambientLight = Color{0.15f, 0.15f, 0.2f, 1};
-    const ShapeType kinds[5] = {ShapeType::Rectangle, ShapeType::Circle, ShapeType::Triangle, ShapeType::Star, ShapeType::Line};
+    const ShapeType kinds[5] = {ShapeType::Rectangle, ShapeType::Circle, ShapeType::Triangle, ShapeType::Star,
+                                ShapeType::Line};
     for (int row = 0; row < 2; ++row)  // top row lit, bottom row unlit
         for (int i = 0; i < 5; ++i) {
             Entity e = make(w, "shape", {-112.0f + 56.0f * float(i), row == 0 ? 36.0f : -36.0f, 0});
@@ -531,7 +552,8 @@ TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes kee
 
 // M29.1 kept the first 16 lights in view; since M29.14 lit visuals without a normal map read a light buffer and the budget
 // is kMaxLights2D = 256 (docs/PERFORMANCE.md), so all the lights in view stay and only the off-view ones are left out.
-TEST_CASE("Light2D: the lights in view are all kept and the off-view ones are the ones left out, counted in the stats") {
+TEST_CASE(
+    "Light2D: the lights in view are all kept and the off-view ones are the ones left out, counted in the stats") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(16, 16, Color::white()), "assets/white16.png");
@@ -607,7 +629,8 @@ float at(const Image& img, float x, float y) { return img.pixel(int(160 + x), in
 
 }  // namespace
 
-TEST_CASE("Light2D buffer: a wall of solid tiles leaves the far side dark, a light without castShadows shines through") {
+TEST_CASE(
+    "Light2D buffer: a wall of solid tiles leaves the far side dark, a light without castShadows shines through") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(16, 16, Color::white()), "assets/white16.png");
@@ -616,9 +639,9 @@ TEST_CASE("Light2D buffer: a wall of solid tiles leaves the far side dark, a lig
     tile_wall(w);
     Entity lamp = point_light(w, {-80, 0, 0});
     Image img = g.render(w);
-    CHECK(at(img, -40, 0) == doctest::Approx(0.8f).epsilon(0.04));   // 40 from the lamp: 1 - 40/200
-    CHECK(at(img, -40, 60) > 0.4f);                                  // the near side is lit all over
-    CHECK(at(img, 40, 0) < 0.02f);                                   // behind the wall: 120 away would be 0.4
+    CHECK(at(img, -40, 0) == doctest::Approx(0.8f).epsilon(0.04));  // 40 from the lamp: 1 - 40/200
+    CHECK(at(img, -40, 60) > 0.4f);                                 // the near side is lit all over
+    CHECK(at(img, 40, 0) < 0.02f);                                  // behind the wall: 120 away would be 0.4
     CHECK(at(img, 40, 50) < 0.02f);
     CHECK(at(img, 40, -50) < 0.02f);
     CHECK(at(img, 100, 10) < 0.02f);
@@ -656,8 +679,8 @@ TEST_CASE("Light2D buffer: editing a solid tile updates the shadow on the next f
     REQUIRE(set_tilemap_tile(tm, 0, 5, -1));
     REQUIRE(set_tilemap_tile(tm, 0, 6, -1));
     img = g.render(w);
-    CHECK(at(img, 40, 0) > 0.3f);          // through the doorway
-    CHECK(at(img, 40, 60) < 0.02f);        // still behind the rest of the wall
+    CHECK(at(img, 40, 0) > 0.3f);    // through the doorway
+    CHECK(at(img, 40, 60) < 0.02f);  // still behind the rest of the wall
     // Close it again.
     REQUIRE(set_tilemap_tile(tm, 0, 5, 0));
     REQUIRE(set_tilemap_tile(tm, 0, 6, 0));
@@ -693,7 +716,9 @@ TEST_CASE("Light2D buffer: 64 lights all light the scene") {
     save(solid(16, 16, Color::white()), "assets/white16.png");
     World w;
     lit_floor(w);
-    struct Spot { float x, y; };
+    struct Spot {
+        float x, y;
+    };
     std::vector<Spot> spots;
     for (int j = 0; j < 8; ++j)
         for (int i = 0; i < 8; ++i) {
@@ -773,8 +798,10 @@ TEST_CASE("Light2D buffer: a scene without point lights or without lit visuals d
     lit_floor(one);
     point_light(one, {0, 0, 0}, 100, false);
     g.render(one);
-    if (!light_format_is("none")) CHECK(g.renderer.stats().drawCalls == withoutLight + 1);
-    else CHECK(g.renderer.stats().drawCalls == withoutLight);
+    if (!light_format_is("none"))
+        CHECK(g.renderer.stats().drawCalls == withoutLight + 1);
+    else
+        CHECK(g.renderer.stats().drawCalls == withoutLight);
     // A light and only unlit visuals: no pass.
     World unlit;
     camera_at(unlit);

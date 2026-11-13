@@ -26,18 +26,27 @@ bool is_midi_name(const std::string& path) {
 
 // The file of a `path` argument that is read: absolute on this machine, or relative to the project.
 stdfs::path source_file(const std::string& projectDir, const std::string& arg, const char* command) {
-    if (arg.find("://") != std::string::npos) fail("invalid_argument", std::string(command) + " reads files on this machine, and '" + arg + "' is a URL.", "Download the file first, then pass its local path.");
+    if (arg.find("://") != std::string::npos)
+        fail("invalid_argument", std::string(command) + " reads files on this machine, and '" + arg + "' is a URL.",
+             "Download the file first, then pass its local path.");
     const stdfs::path path = stdfs::path(arg).is_absolute() ? stdfs::path(arg) : project_file(projectDir, arg);
     std::error_code ec;
-    if (!stdfs::is_regular_file(path, ec)) fail("not_found", "The file '" + arg + "' does not exist" + (stdfs::is_directory(path, ec) ? " (it is a folder)." : "."), "Pass the absolute path of the .mid file, or a path relative to the project folder.");
-    if (stdfs::file_size(path, ec) > (std::uintmax_t(64) << 20)) fail("too_large", "'" + arg + "' is larger than 64 MB, which is not a MIDI file of a song.", "Check that it is a Standard MIDI File.");
+    if (!stdfs::is_regular_file(path, ec))
+        fail("not_found",
+             "The file '" + arg + "' does not exist" + (stdfs::is_directory(path, ec) ? " (it is a folder)." : "."),
+             "Pass the absolute path of the .mid file, or a path relative to the project folder.");
+    if (stdfs::file_size(path, ec) > (std::uintmax_t(64) << 20))
+        fail("too_large", "'" + arg + "' is larger than 64 MB, which is not a MIDI file of a song.",
+             "Check that it is a Standard MIDI File.");
     return path;
 }
 
 }  // namespace
 
-Json import_midi_file(const std::string& projectDir, const stdfs::path& source, const std::string& sourceLabel, const Json& a, const std::string& outRel) {
-    const std::string out = outRel.empty() ? "assets/music/" + safe_file_name(source.stem().string(), "song") + kSuffix : outRel;
+Json import_midi_file(const std::string& projectDir, const stdfs::path& source, const std::string& sourceLabel,
+                      const Json& a, const std::string& outRel) {
+    const std::string out =
+        outRel.empty() ? "assets/music/" + safe_file_name(source.stem().string(), "song") + kSuffix : outRel;
     const std::string rel = song_path(out, "out");
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
@@ -47,9 +56,15 @@ Json import_midi_file(const std::string& projectDir, const stdfs::path& source, 
     require_usable_manifest(projectDir);
 
     const std::string text = tooling_detail::read_file(source).value_or(std::string());
-    if (text.empty()) fail("failed", "Cannot read '" + sourceLabel + "' (or it is empty).", "Check that the file exists and is readable.");
+    if (text.empty())
+        fail("failed", "Cannot read '" + sourceLabel + "' (or it is empty).",
+             "Check that the file exists and is readable.");
     auto file = parse_midi(std::vector<std::uint8_t>(text.begin(), text.end()), sourceLabel);
-    if (!file.ok()) fail("invalid_midi", file.error().message, file.error().hint.empty() ? "The file must be a Standard MIDI File (format 0 or 1, ticks per quarter note)." : file.error().hint);
+    if (!file.ok())
+        fail("invalid_midi", file.error().message,
+             file.error().hint.empty()
+                 ? "The file must be a Standard MIDI File (format 0 or 1, ticks per quarter note)."
+                 : file.error().hint);
 
     MidiImportOptions options;
     options.source = source.filename().string();
@@ -60,7 +75,8 @@ Json import_midi_file(const std::string& projectDir, const stdfs::path& source, 
         // The path before '#' is a project file; it must exist so the song plays.
         auto norm = fs::normalize_checked(options.soundfont);
         if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/") || to_lower(fs::extension(*norm)) != ".sf2")
-            fail("invalid_argument", "`soundfont` '" + options.soundfont + "' is not a SoundFont (.sf2) under assets/.", "Example: \"assets/music/gm.sf2\".");
+            fail("invalid_argument", "`soundfont` '" + options.soundfont + "' is not a SoundFont (.sf2) under assets/.",
+                 "Example: \"assets/music/gm.sf2\".");
         options.soundfont = *norm;
     }
     Result<MidiImportResult> imported = [&] {
@@ -74,25 +90,43 @@ Json import_midi_file(const std::string& projectDir, const stdfs::path& source, 
     write_song(projectDir, rel, imported->song);
 
     // Where the song came from, for the credits.
-    Json provenance = Json::object({{"origin", "imported"}, {"date", assets::today()}, {"source", tooling_detail::arg_string(a, "sourceUrl", false, replace_all(sourceLabel, "\\", "/"))}});
+    Json provenance = Json::object(
+        {{"origin", "imported"},
+         {"date", assets::today()},
+         {"source", tooling_detail::arg_string(a, "sourceUrl", false, replace_all(sourceLabel, "\\", "/"))}});
     for (const char* key : {"license", "author"})
         if (const std::string v = tooling_detail::arg_string(a, key, false); !v.empty()) provenance[key] = v;
     {
         ProjectRootGuard root(projectDir);
         auto r = assets::update_entry(rel, [&](Json& e) { e["provenance"] = provenance; });
-        if (!r.ok()) fail("failed", "The song was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+        if (!r.ok())
+            fail("failed", "The song was written, but assets.json was not updated: " + r.error().message,
+                 r.error().hint);
     }
 
     Json result = Json::object({{"path", rel}, {"source", sourceLabel}});
     Json summary = summary_json(doc, tl);
     for (auto it = summary.begin(); it != summary.end(); ++it) result[it.key()] = it.value();
-    result["import"] = Json::object({{"midiTracks", file->tracks.size()}, {"songTracks", imported->tracks}, {"notes", imported->notes}, {"bars", imported->bars}, {"sections", imported->sections},
-                                     {"patterns", imported->patterns}, {"quantize", options.quantize}, {"ticksPerQuarter", file->division}, {"format", file->format}});
+    result["import"] = Json::object({{"midiTracks", file->tracks.size()},
+                                     {"songTracks", imported->tracks},
+                                     {"notes", imported->notes},
+                                     {"bars", imported->bars},
+                                     {"sections", imported->sections},
+                                     {"patterns", imported->patterns},
+                                     {"quantize", options.quantize},
+                                     {"ticksPerQuarter", file->division},
+                                     {"format", file->format}});
     if (!imported->warnings.empty()) result["warnings"] = imported->warnings;
     Json steps = Json::array();
-    steps.push_back("Listen with music.preview {\"path\":\"" + rel + "\"} and look at the piano roll music.info draws. Instruments are the nearest built-in ones to the General MIDI programs: change one with music.edit set_track (or pass `soundfont`).");
-    steps.push_back("music.check finds notes the instruments cannot play and clashes; music.edit changes patterns, sections and the mixer. Record the license of the file with `license` and `author` when it is not yours.");
-    if (!imported->warnings.empty()) steps.push_back("Read `warnings`: they say what the song cannot hold (tempo or meter changes, notes dropped, drum keys without a lane).");
+    steps.push_back("Listen with music.preview {\"path\":\"" + rel +
+                    "\"} and look at the piano roll music.info draws. Instruments are the nearest built-in ones to the "
+                    "General MIDI programs: change one with music.edit set_track (or pass `soundfont`).");
+    steps.push_back(
+        "music.check finds notes the instruments cannot play and clashes; music.edit changes patterns, sections and "
+        "the mixer. Record the license of the file with `license` and `author` when it is not yours.");
+    if (!imported->warnings.empty())
+        steps.push_back("Read `warnings`: they say what the song cannot hold (tempo or meter changes, notes dropped, "
+                        "drum keys without a lane).");
     result["nextSteps"] = steps;
     return result;
 }
@@ -100,10 +134,14 @@ Json import_midi_file(const std::string& projectDir, const stdfs::path& source, 
 namespace {
 
 Json music_import_midi_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys(kImport, a, "", {"path", "out", "quantize", "soundfont", "loop", "overwrite", "license", "author", "sourceUrl"});
+    check_arg_keys(kImport, a, "",
+                   {"path", "out", "quantize", "soundfont", "loop", "overwrite", "license", "author", "sourceUrl"});
     const std::string arg = tooling_detail::arg_string(a, "path", true);
-    if (!is_midi_name(arg)) fail("invalid_argument", "`path` '" + arg + "' is not a .mid file.", "Pass a Standard MIDI File (.mid or .midi), e.g. \"C:/music/theme.mid\" or \"assets/music/theme.mid\".");
-    return import_midi_file(projectDir, source_file(projectDir, arg, kImport), arg, a, tooling_detail::arg_string(a, "out", false));
+    if (!is_midi_name(arg))
+        fail("invalid_argument", "`path` '" + arg + "' is not a .mid file.",
+             "Pass a Standard MIDI File (.mid or .midi), e.g. \"C:/music/theme.mid\" or \"assets/music/theme.mid\".");
+    return import_midi_file(projectDir, source_file(projectDir, arg, kImport), arg, a,
+                            tooling_detail::arg_string(a, "out", false));
 }
 
 Json music_export_midi_command(const std::string& projectDir, const Json& a) {
@@ -114,17 +152,32 @@ Json music_export_midi_command(const std::string& projectDir, const Json& a) {
     const std::string outArg = tooling_detail::arg_string(a, "out", false);
     const std::string out = outArg.empty() ? song_stem(rel) + ".mid" : outArg;
     auto norm = fs::normalize_checked(out);
-    if (!norm.ok() || norm->empty() || !is_midi_name(*norm)) fail("invalid_argument", "`out` '" + out + "' must be a project path ending in .mid.", "Example: \"out\": \"" + song_stem(rel) + ".mid\".");
+    if (!norm.ok() || norm->empty() || !is_midi_name(*norm))
+        fail("invalid_argument", "`out` '" + out + "' must be a project path ending in .mid.",
+             "Example: \"out\": \"" + song_stem(rel) + ".mid\".");
     const stdfs::path file = project_write_file(projectDir, *norm);
     std::error_code ec;
-    if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(file, ec)) fail("exists", "'" + *norm + "' already exists.", "Pass overwrite: true to replace it, or choose another `out`.");
+    if (!tooling_detail::arg_bool(a, "overwrite", false) && stdfs::exists(file, ec))
+        fail("exists", "'" + *norm + "' already exists.",
+             "Pass overwrite: true to replace it, or choose another `out`.");
     auto exported = song_to_midi(loaded.doc, tl);
     if (!exported.ok()) fail("failed", rel + ": " + exported.error().message, exported.error().hint);
     std::string err;
-    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(exported->bytes.data()), exported->bytes.size()), &err)) fail("failed", err);
-    Json result = Json::object({{"song", rel}, {"path", *norm}, {"bytes", exported->bytes.size()}, {"format", 1}, {"tracks", exported->tracks}, {"notes", exported->notes}, {"ticksPerQuarter", kSongPpq}});
+    if (!tooling_detail::write_file(
+            file, std::string_view(reinterpret_cast<const char*>(exported->bytes.data()), exported->bytes.size()),
+            &err))
+        fail("failed", err);
+    Json result = Json::object({{"song", rel},
+                                {"path", *norm},
+                                {"bytes", exported->bytes.size()},
+                                {"format", 1},
+                                {"tracks", exported->tracks},
+                                {"notes", exported->notes},
+                                {"ticksPerQuarter", kSongPpq}});
     if (!exported->warnings.empty()) result["warnings"] = exported->warnings;
-    result["nextSteps"] = Json::array({"Open it in a DAW or notation program. music.import_midi reads it back as the same notes, timing and velocities; the mixer, effects, buses and automation are not part of a MIDI file."});
+    result["nextSteps"] =
+        Json::array({"Open it in a DAW or notation program. music.import_midi reads it back as the same notes, timing "
+                     "and velocities; the mixer, effects, buses and automation are not part of a MIDI file."});
     return result;
 }
 
@@ -136,7 +189,8 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
         info.name = kImport;
         info.category = "assets";
         info.readOnly = false;
-        info.summary = "Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from markers, drums as grids.";
+        info.summary = "Turn a Standard MIDI File (.mid) into a song document: tracks, patterns, sections from "
+                       "markers, drums as grids.";
         info.description =
             "Reads the MIDI file `path` (absolute on this machine, or in the project) with the engine's own "
             "parser (format 0 and 1, running status, meta events, any number of tracks and channels; format "
@@ -149,8 +203,8 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
             "SoundFont's preset of the program). Velocities are kept, the sustain pedal lengthens notes, "
             "controllers 7 and 10 become the track's volume and pan. `quantize` (\"off\" keeps the written "
             "times to 1/48 of a quarter note; \"16\", \"8t\", \"32\"...) snaps starts and ends. Example: "
-            "{\"path\":\"C:/music/theme.mid\",\"out\":\"assets/music/theme.song.json\",\"quantize\":\"16\"}"
-            FA_COMMAND_DETAILS
+            "{\"path\":\"C:/music/theme.mid\",\"out\":\"assets/music/"
+            "theme.song.json\",\"quantize\":\"16\"}" FA_COMMAND_DETAILS
             "Markers become sections (a name starting with intro, loop or outro, or written \"loop:name\"); "
             "without markers the song is one section `main`, a loop when `loop` is true. Repeated bars of a "
             "track become one pattern played several times. Tempo, meter and key come from the first such "
@@ -158,21 +212,32 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
             "byte offset in the file. The result is the song summary (as music.info) plus `import` (what was "
             "read) and `warnings`; `license`, `author` and `sourceUrl` go to the song's provenance in "
             "assets.json. An existing song is an `exists` error unless overwrite is true.";
-        info.inputSchema = Json::object({{"type", "object"},
-                                         {"required", Json::array({"path"})},
-                                         {"additionalProperties", false},
-                                         {"properties", obj({{"path", str("The MIDI file: an absolute path on this machine, or relative to the project. Ends in .mid or .midi.")},
-                                                             {"out", str("The song to write: under assets/, ending in .song.json. Default: assets/music/<name>.song.json.")},
-                                                             {"quantize", str("\"off\" (default) or a note value to snap starts and ends to: \"4\", \"8\", \"16\", \"32\", \"64\", \"8t\", \"16t\"...")},
-                                                             {"soundfont", str("A SoundFont (.sf2) under assets/: pitched tracks play its preset with their General MIDI program and drums its drum kit.")},
-                                                             {"loop", boolean("A file with no markers: make its one section the song's loop (default: an ordinary section).", false)},
-                                                             {"overwrite", boolean("Replace the song when it exists.", false)},
-                                                             {"license", str("License of the MIDI file (\"CC0\", \"CC-BY 4.0\"), for the credits.")},
-                                                             {"author", str("Who made the MIDI file.")},
-                                                             {"sourceUrl", str("The page the file came from, for the credits.")}})}});
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"required", Json::array({"path"})},
+             {"additionalProperties", false},
+             {"properties",
+              obj({{"path", str("The MIDI file: an absolute path on this machine, or relative to the project. Ends in "
+                                ".mid or .midi.")},
+                   {"out", str("The song to write: under assets/, ending in .song.json. Default: "
+                               "assets/music/<name>.song.json.")},
+                   {"quantize", str("\"off\" (default) or a note value to snap starts and ends to: \"4\", \"8\", "
+                                    "\"16\", \"32\", \"64\", \"8t\", \"16t\"...")},
+                   {"soundfont", str("A SoundFont (.sf2) under assets/: pitched tracks play its preset with their "
+                                     "General MIDI program and drums its drum kit.")},
+                   {"loop",
+                    boolean(
+                        "A file with no markers: make its one section the song's loop (default: an ordinary section).",
+                        false)},
+                   {"overwrite", boolean("Replace the song when it exists.", false)},
+                   {"license", str("License of the MIDI file (\"CC0\", \"CC-BY 4.0\"), for the credits.")},
+                   {"author", str("Who made the MIDI file.")},
+                   {"sourceUrl", str("The page the file came from, for the credits.")}})}});
         mark_paths(info.inputSchema, "read", {"path"});
         mark_paths(info.inputSchema, "write", {"out"});
-        registry.add(info, [projectDir](const Json& args) { return music_import_midi_command(projectDir, args.is_null() ? Json::object() : args); });
+        registry.add(info, [projectDir](const Json& args) {
+            return music_import_midi_command(projectDir, args.is_null() ? Json::object() : args);
+        });
     }
     {
         CommandInfo info;
@@ -180,20 +245,31 @@ void register_music_midi_commands(CommandRegistry& registry, const std::string& 
         info.category = "assets";
         info.readOnly = false;
         info.summary = "Write a song as a format-1 Standard MIDI File that a DAW or notation program opens.";
-        info.description =
-            "Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quarter note) at `out` (default: the song's path with .mid). Track 1 holds the tempo, time signature, key signature (major or minor) and one marker "
-            "per section (\"kind:name\"); then one track per song track with its name, instrument (Instrument Name and the General MIDI program), volume and pan controllers and its notes with the length they sound; drum tracks use channel 10 and the General MIDI "
-            "percussion keys. The sounded timeline is written: swing is in the note times, `transpose` in the pitches, and muted tracks (or tracks not soloed) are left out. The mixer, effects, buses and automation are not part of a MIDI file. "
-            "music.import_midi reads the file back as the same notes, timing and velocities. Example: {\"path\":\"assets/music/theme.song.json\"}";
-        info.inputSchema = Json::object({{"type", "object"},
-                                         {"required", Json::array({"path"})},
-                                         {"additionalProperties", false},
-                                         {"properties", obj({{"path", str("The song, project-relative, under assets/ and ending in .song.json.")},
-                                                             {"out", str("The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid.")},
-                                                             {"overwrite", boolean("Replace the file when it exists.", false)}})}});
+        info.description = "Writes the song at `path` as a Standard MIDI File (format 1, 960 ticks per quarter note) "
+                           "at `out` (default: the song's path with .mid). Track 1 holds the tempo, time signature, "
+                           "key signature (major or minor) and one marker "
+                           "per section (\"kind:name\"); then one track per song track with its name, instrument "
+                           "(Instrument Name and the General MIDI program), volume and pan controllers and its notes "
+                           "with the length they sound; drum tracks use channel 10 and the General MIDI "
+                           "percussion keys. The sounded timeline is written: swing is in the note times, `transpose` "
+                           "in the pitches, and muted tracks (or tracks not soloed) are left out. The mixer, effects, "
+                           "buses and automation are not part of a MIDI file. "
+                           "music.import_midi reads the file back as the same notes, timing and velocities. Example: "
+                           "{\"path\":\"assets/music/theme.song.json\"}";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"required", Json::array({"path"})},
+             {"additionalProperties", false},
+             {"properties",
+              obj({{"path", str("The song, project-relative, under assets/ and ending in .song.json.")},
+                   {"out",
+                    str("The MIDI file to write: a project path ending in .mid. Default: the song's path with .mid.")},
+                   {"overwrite", boolean("Replace the file when it exists.", false)}})}});
         mark_paths(info.inputSchema, "read", {"path"});
         mark_paths(info.inputSchema, "write", {"out"});
-        registry.add(info, [projectDir](const Json& args) { return music_export_midi_command(projectDir, args.is_null() ? Json::object() : args); });
+        registry.add(info, [projectDir](const Json& args) {
+            return music_export_midi_command(projectDir, args.is_null() ? Json::object() : args);
+        });
     }
     using namespace capability_sets;  // capability.h: both write a file of the project
     declare_command_capabilities(registry, {{kImport, writes_project()}, {kExport, writes_project()}});

@@ -40,8 +40,8 @@ void write_bytes(const stdfs::path& p, const std::string& bytes) {
 
 // The marker texts are joined here so that this test program carries no complete marker of its own.
 std::string fake_program(const std::string& version, const std::string& fingerprint, std::size_t pad = 64) {
-    return "fake " + std::string(pad, '.') + std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";" + std::string("FA-ENGINE-") +
-           "VERSION:" + version + ";";
+    return "fake " + std::string(pad, '.') + std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";" +
+           std::string("FA-ENGINE-") + "VERSION:" + version + ";";
 }
 
 struct Rig {
@@ -64,13 +64,15 @@ struct Rig {
         });
     }
     Json rpc(const std::string& method, Json params = Json::object()) {
-        Json req = Json::object({{"jsonrpc", "2.0"}, {"id", nextId++}, {"method", method}, {"params", std::move(params)}});
+        Json req =
+            Json::object({{"jsonrpc", "2.0"}, {"id", nextId++}, {"method", method}, {"params", std::move(params)}});
         auto resp = server.handle_message(req.dump());
         REQUIRE(resp.has_value());
         return Json::parse(*resp);
     }
     Json initialize(const std::string& client = "test") {
-        return rpc("initialize", {{"protocolVersion", "2025-06-18"}, {"capabilities", Json::object({{"roots", Json::object()}})},
+        return rpc("initialize", {{"protocolVersion", "2025-06-18"},
+                                  {"capabilities", Json::object({{"roots", Json::object()}})},
                                   {"clientInfo", {{"name", client}, {"version", "1"}}}});
     }
     Json call(const std::string& tool) { return rpc("tools/call", {{"name", tool}, {"arguments", Json::object()}}); }
@@ -135,7 +137,8 @@ TEST_CASE("mcp update: a notice is added once to the next tool result, after the
     CHECK(notice.find("second note") != std::string::npos);
     CHECK(notice.find("first note\n") == std::string::npos);
     INFO(content.dump());
-    CHECK(content[0]["text"].get<std::string>().find("state") != std::string::npos);  // the result stays the first block
+    CHECK(content[0]["text"].get<std::string>().find("state") !=
+          std::string::npos);  // the result stays the first block
     CHECK(rig.server.pending_tool_notices().empty());
     CHECK(Rig::last_text(rig.call("engine_update_status")).find("[FactorIA notice]") == std::string::npos);  // once
 }
@@ -278,12 +281,14 @@ TEST_CASE("mcp update: a client that started before .mcp.json changed is told on
 
 TEST_CASE("mcp update: a client that is not Claude Code is not told about .mcp.json") {
     Rig rig;
-    write_bytes(rig.dir.path / ".mcp.json", R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":1}}})");
+    write_bytes(rig.dir.path / ".mcp.json",
+                R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":1}}})");
     rig.initialize("some-other-client");
     UpdateWatch watch(rig.exe, BuildId{"0.4.0", "aaaaaaaaaaaa"});
     McpUpdateMonitor monitor(rig.server, watch, quick(rig));
     std::this_thread::sleep_for(30ms);
-    write_bytes(rig.dir.path / ".mcp.json", R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":2}}})");
+    write_bytes(rig.dir.path / ".mcp.json",
+                R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":2}}})");
     monitor.poll();
     CHECK(rig.server.pending_tool_notices().empty());
     CHECK(monitor.status()["projectConfig"]["clientReadsIt"] == false);
@@ -291,14 +296,16 @@ TEST_CASE("mcp update: a client that is not Claude Code is not told about .mcp.j
 
 TEST_CASE("mcp update: .mcp.json edited after the client started is reported, an untouched one is not") {
     Rig rig;
-    write_bytes(rig.dir.path / ".mcp.json", R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":14400000}}})");
+    write_bytes(rig.dir.path / ".mcp.json",
+                R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":14400000}}})");
     rig.initialize("claude-code");
     UpdateWatch watch(rig.exe, BuildId{"0.4.0", "aaaaaaaaaaaa"});
     McpUpdateMonitor monitor(rig.server, watch, quick(rig));
     monitor.poll();
     CHECK(rig.server.pending_tool_notices().empty());  // the client read the file as it is
     std::this_thread::sleep_for(30ms);
-    write_bytes(rig.dir.path / ".mcp.json", R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":28800000}}})");
+    write_bytes(rig.dir.path / ".mcp.json",
+                R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":28800000}}})");
     monitor.poll();
     REQUIRE(rig.server.pending_tool_notices().size() == 1);
     CHECK(rig.server.pending_tool_notices()[0].find("changed after the AI client started") != std::string::npos);

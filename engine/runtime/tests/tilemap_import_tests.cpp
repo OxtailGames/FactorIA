@@ -69,7 +69,9 @@ struct TempProject {
         write("scenes/main.scene.json", kScene);
         write("prefabs/coin.prefab.json", kCoinPrefab);
         write("prefabs/player.prefab.json", kPlayerPrefab);
-        write("prefabs/enemy.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Crawler","components":{"Shape2D":{"size":[20,20]}}}})");
+        write(
+            "prefabs/enemy.prefab.json",
+            R"({"format":"factoria.prefab/1","entity":{"name":"Crawler","components":{"Shape2D":{"size":[20,20]}}}})");
         // 128x32 tileset: 4 tiles of 32x32 (0 red, 1 blue, 2 green, 3 white).
         Image img;
         img.width = 128;
@@ -80,7 +82,8 @@ struct TempProject {
             for (int x = 0; x < 128; ++x) img.set_pixel(x, y, colors[x / 32]);
         std::vector<std::uint8_t> png = encode_png(img);
         stdfs::create_directories(dir / "assets");
-        std::ofstream(dir / "assets/tiles.png", std::ios::binary).write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
+        std::ofstream(dir / "assets/tiles.png", std::ios::binary)
+            .write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
     }
     ~TempProject() {
         std::error_code ec;
@@ -104,7 +107,8 @@ EngineConfig headless_cfg(const TempProject& p) {
 struct Session {
     TempProject project;
     Engine engine;
-    explicit Session(const std::string& name, const std::string& startScene = {}, bool editorMode = false) : project(name) {
+    explicit Session(const std::string& name, const std::string& startScene = {}, bool editorMode = false)
+        : project(name) {
         std::string err;
         EngineConfig cfg = headless_cfg(project);
         cfg.scene = startScene;
@@ -112,7 +116,9 @@ struct Session {
         REQUIRE_MESSAGE(engine.init(cfg, nullptr, &err), err);
     }
     ~Session() { engine.shutdown(); }
-    CommandResult call(const std::string& cmd, const Json& args = Json::object()) { return engine.commands().call(cmd, args); }
+    CommandResult call(const std::string& cmd, const Json& args = Json::object()) {
+        return engine.commands().call(cmd, args);
+    }
     CommandResult import(Json args) { return call("scene.import_ascii", args); }
     std::size_t entities() { return engine.world().entity_count(); }
     Json entity(const std::string& id) {
@@ -199,7 +205,10 @@ TEST_CASE("import_ascii: a 10x6 level yields tiles, 3 coins, the player, at cell
     REQUIRE(r.result["spawned"].size() == 4);
 
     // Cell centre = ((col + 0.5) * 32, -(row + 0.5) * 32) for a tilemap whose top-left corner is the origin.
-    struct Expect { const char* id; int col, row; };
+    struct Expect {
+        const char* id;
+        int col, row;
+    };
     for (Expect x : {Expect{"coin_1", 3, 1}, Expect{"coin_2", 6, 1}, Expect{"player", 1, 3}, Expect{"coin_3", 8, 3}}) {
         INFO(x.id);
         Json e = s.entity(x.id);
@@ -412,7 +421,7 @@ TEST_CASE("import_ascii: save:true without path is refused while the running sce
     const std::string text = error_text(r);
     CHECK(contains(text, "scenes/main.scene.json"));  // names the file it would have overwritten
     CHECK(contains(text, "main scene"));
-    CHECK(contains(text, "\"path\""));                // the fix
+    CHECK(contains(text, "\"path\""));  // the fix
     CHECK(contains(text, "--scene"));
     CHECK(slurp(s.project.dir / "scenes/main.scene.json") == before);
     CHECK(s.entities() == 1);  // refused before anything was built: just the camera
@@ -451,8 +460,10 @@ TEST_CASE("import_ascii: replace (default) does not duplicate objects, replace:f
     CHECK(s.entities() == count - 2);
 
     // replace:false keeps the previous coins and adds new ones with fresh ids.
-    Json coins = Json::parse(R"({"rows":["o.o"],"legend":{"o":{"prefab":"prefabs/coin.prefab.json"}},"replace":false})");
-    const std::size_t beforeCoins = s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"].get<std::size_t>();
+    Json coins =
+        Json::parse(R"({"rows":["o.o"],"legend":{"o":{"prefab":"prefabs/coin.prefab.json"}},"replace":false})");
+    const std::size_t beforeCoins =
+        s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"].get<std::size_t>();
     r = s.import(coins);
     REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(r.result["removed"].empty());
@@ -490,7 +501,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
     };
 
     SUBCASE("ragged rows name the rows and their lengths") {
-        auto r = s.import(level(R"({"rows":["..........","....","..........","..........","##########","@@@@@@@@@@@"]})"));
+        auto r =
+            s.import(level(R"({"rows":["..........","....","..........","..........","##########","@@@@@@@@@@@"]})"));
         REQUIRE_FALSE(r.ok);
         std::string t = error_text(r);
         CHECK(contains(t, "same length"));
@@ -501,7 +513,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("unknown glyph: row, column, glyph, legend glyphs and a did-you-mean") {
-        auto r = s.import(level(R"({"rows":["..........","...O..x...","..........",".P........","##########","@@@@@@@@@@"]})"));
+        auto r = s.import(
+            level(R"({"rows":["..........","...O..x...","..........",".P........","##########","@@@@@@@@@@"]})"));
         REQUIRE_FALSE(r.ok);
         std::string t = error_text(r);
         CHECK(contains(t, "'O' first at row 1, column 3"));
@@ -522,11 +535,13 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("a legend object with neither tile nor prefab, unknown keys, id without prefab") {
-        auto r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"id":"x"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
+        auto r =
+            s.import(level(R"({"legend":{"#":0,"@":1,"o":{"id":"x"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
         REQUIRE_FALSE(r.ok);
         CHECK(contains(error_text(r), "legend['o']"));
         CHECK(contains(error_text(r), "'id' but no 'prefab'"));
-        r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"tile":null},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
+        r = s.import(
+            level(R"({"legend":{"#":0,"@":1,"o":{"tile":null},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
         REQUIRE_FALSE(r.ok);
         CHECK(contains(error_text(r), "legend['o'].tile"));
         r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{}}})"));
@@ -542,7 +557,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("a prefab that does not exist suggests the closest one") {
-        auto r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coins.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
+        auto r = s.import(level(
+            R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coins.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "not_found");
         std::string t = error_text(r);
@@ -551,7 +567,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("a fixed id used by two cells names both") {
-        auto r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json","id":"coin"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
+        auto r = s.import(level(
+            R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json","id":"coin"},"P":{"prefab":"prefabs/player.prefab.json"}}})"));
         REQUIRE_FALSE(r.ok);
         std::string t = error_text(r);
         CHECK(contains(t, "id 'coin' is used by two cells"));
@@ -560,7 +577,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("a fixed id already used by another entity") {
-        auto r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"cam"}}})"));
+        auto r = s.import(level(
+            R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"cam"}}})"));
         REQUIRE_FALSE(r.ok);
         CHECK(contains(error_text(r), "id 'cam'"));
         CHECK(contains(error_text(r), "already used"));
@@ -571,7 +589,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         REQUIRE_FALSE(r.ok);
         CHECK(contains(error_text(r), "legend['#']"));
         CHECK(contains(error_text(r), "-5"));
-        r = s.import(level(R"({"legend":{"#":0,"@":9,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}}})"));
+        r = s.import(level(
+            R"({"legend":{"#":0,"@":9,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}}})"));
         REQUIRE_FALSE(r.ok);
         std::string t = error_text(r);
         CHECK(contains(t, "legend['@'] uses tile 9"));
@@ -580,7 +599,8 @@ TEST_CASE("import_ascii: errors teach, and a failed import changes nothing") {
         expect_unchanged();
     }
     SUBCASE("bad override component or field, and a bad 'tilemap' value, are rolled back") {
-        auto r = s.import(level(R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json","overrides":{"Shapee2D":{"size":[1,1]}}},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}}})"));
+        auto r = s.import(level(
+            R"({"legend":{"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json","overrides":{"Shapee2D":{"size":[1,1]}}},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}}})"));
         REQUIRE_FALSE(r.ok);
         std::string t = error_text(r);
         CHECK(contains(t, "legend['o']"));
@@ -655,7 +675,9 @@ export default class Importer extends Behaviour {
   }
 }
 )");
-    REQUIRE(s.call("scene.spawn", Json::parse(R"({"id":"importer","components":{"Script":{"path":"scripts/importer.js"}}})")).ok);
+    REQUIRE(s.call("scene.spawn",
+                   Json::parse(R"({"id":"importer","components":{"Script":{"path":"scripts/importer.js"}}})"))
+                .ok);
     s.engine.step(6);
     Json state = s.engine.state();
     CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
@@ -663,17 +685,21 @@ export default class Importer extends Behaviour {
     CHECK(ids_with_tag(s, "tilemap:tilemap") == std::vector<std::string>{"coin_1", "coin_2"});
     Json coin = s.entity("coin_2");
     REQUIRE(coin.is_object());
-    CHECK(position_of(coin).x == doctest::Approx(40.0f));          // col 2 of 16 px tiles
-    CHECK(position_of(coin).y == doctest::Approx(-8.0f + 2.0f));   // row 0 centre + offset
+    CHECK(position_of(coin).x == doctest::Approx(40.0f));         // col 2 of 16 px tiles
+    CHECK(position_of(coin).y == doctest::Approx(-8.0f + 2.0f));  // row 0 centre + offset
     // The second call (frame 4) replaced the objects of the first one (frame 2) and got the same ids.
-    Json seen = s.call("script.eval", Json{{"code", "[world.find('importer').behaviour.removed, world.find('importer').behaviour.ids]"}}).result["value"];
+    Json seen =
+        s.call("script.eval",
+               Json{{"code", "[world.find('importer').behaviour.removed, world.find('importer').behaviour.ids]"}})
+            .result["value"];
     CHECK(seen[0] == Json::parse(R"(["coin_1","coin_2"])"));
     CHECK(seen[1] == Json::parse(R"(["coin_1","coin_2"])"));
 }
 
 TEST_CASE("import_ascii: unicode glyphs and an all-empty map") {
     Session s("unicode");
-    auto r = s.import(Json::parse(R"({"rows":["░█░","█o█"],"legend":{"█":4,"░":-1,"o":{"prefab":"prefabs/coin.prefab.json"}}})"));
+    auto r = s.import(
+        Json::parse(R"({"rows":["░█░","█o█"],"legend":{"█":4,"░":-1,"o":{"prefab":"prefabs/coin.prefab.json"}}})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(r.result["width"] == 3);
     CHECK(r.result["height"] == 2);
@@ -698,20 +724,18 @@ TEST_CASE("import_ascii: the tilemap is drawn where the objects are (screenshot)
     REQUIRE(img.ok());
     REQUIRE(img->width == 320);
     // View y in [-90, 90] -> pixel row = 90 - y. Map top-left = (-160, 96): col c, row r centre = (-160 + 32c + 16, 96 - 32r - 16).
-    auto px = [&](int col, int row) {
-        return img->pixel(32 * col + 16, int(90 - (96 - 32.0f * row - 16)));
-    };
-    Color ground = px(0, 4);    // tile 0 = red
+    auto px = [&](int col, int row) { return img->pixel(32 * col + 16, int(90 - (96 - 32.0f * row - 16))); };
+    Color ground = px(0, 4);  // tile 0 = red
     CHECK(ground.r > 0.9f);
     CHECK(ground.b < 0.1f);
-    Color bedrock = px(0, 5);   // tile 1 = blue
+    Color bedrock = px(0, 5);  // tile 1 = blue
     CHECK(bedrock.b > 0.9f);
     CHECK(bedrock.r < 0.1f);
-    Color coin = px(3, 1);      // coin_1 = gold circle drawn on the empty cell (3, 1)
+    Color coin = px(3, 1);  // coin_1 = gold circle drawn on the empty cell (3, 1)
     CHECK(coin.r > 0.9f);
     CHECK(coin.g > 0.7f);
     CHECK(coin.b < 0.2f);
-    Color sky = px(5, 0);       // empty cell = clear colour
+    Color sky = px(5, 0);  // empty cell = clear colour
     CHECK(sky.r < 0.2f);
     CHECK(sky.b > 0.1f);
 }
@@ -741,14 +765,18 @@ std::vector<std::string> entity_ids(const Json& scene) {
     return out;
 }
 
-bool has(const std::vector<std::string>& v, const std::string& x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& x) {
+    return std::find(v.begin(), v.end(), x) != v.end();
+}
 
 }  // namespace
 
 TEST_CASE("import_ascii path: builds a new scene file from an empty scene and leaves the running world alone") {
     Session s("file_new");
     // Something that a reload or a stray import into the running world would change.
-    REQUIRE(s.call("scene.set_component", Json::parse(R"({"id":"cam","component":"Camera","fields":{"clearColor":"#ff0000"}})")).ok);
+    REQUIRE(s.call("scene.set_component",
+                   Json::parse(R"({"id":"cam","component":"Camera","fields":{"clearColor":"#ff0000"}})"))
+                .ok);
     s.engine.step(3);
     const Json worldBefore = s.call("game.state", Json{{"maxEntities", 100}}).result;
     const std::uint64_t frame = s.engine.frame_index();
@@ -773,7 +801,8 @@ TEST_CASE("import_ascii path: builds a new scene file from an empty scene and le
     CHECK(s.engine.frame_index() == frame);
     CHECK(s.entities() == 1);
     CHECK_FALSE(s.engine.world().find_by_id("tilemap"));
-    CHECK(s.call("scene.get_entity", Json{{"id", "cam"}}).result["components"]["Camera"]["clearColor"] == Json::parse("[1,0,0,1]"));
+    CHECK(s.call("scene.get_entity", Json{{"id", "cam"}}).result["components"]["Camera"]["clearColor"] ==
+          Json::parse("[1,0,0,1]"));
     CHECK(s.call("project.info").result["currentScene"] == "scenes/main.scene.json");
     const Json worldAfter = s.call("game.state", Json{{"maxEntities", 100}}).result;
     CHECK(worldAfter["entities"] == worldBefore["entities"]);
@@ -792,7 +821,8 @@ TEST_CASE("import_ascii path: the file loads to exactly what the running-world i
     // Loading the references expands them to the very entities the running world got (the file itself is smaller).
     REQUIRE(s.call("scene.load", Json{{"path", ".factoria/tmp/by_file.scene.json"}}).ok);
     REQUIRE(s.call("scene.save", Json{{"path", ".factoria/tmp/by_file_loaded.scene.json"}}).ok);
-    CHECK(slurp(s.project.dir / ".factoria/tmp/by_file_loaded.scene.json") == slurp(s.project.dir / ".factoria/tmp/by_world.scene.json"));
+    CHECK(slurp(s.project.dir / ".factoria/tmp/by_file_loaded.scene.json") ==
+          slurp(s.project.dir / ".factoria/tmp/by_world.scene.json"));
     // Re-running the file import is idempotent: same bytes.
     REQUIRE(s.import(level(R"({"path":".factoria/tmp/by_file.scene.json","from":"scenes/main.scene.json"})")).ok);
     CHECK(slurp(s.project.dir / ".factoria/tmp/by_file.scene.json") == byFile);
@@ -831,7 +861,8 @@ TEST_CASE("import_ascii path: from starts the scene from a base scene and replac
     CHECK(r.result["from"] == "levels/base.scene.json");
     CHECK(contains(r.result["notes"].dump(), "was replaced"));
     Json out = scene_file(s, "scenes/out.scene.json");
-    CHECK(entity_ids(out) == std::vector<std::string>{"camera", "hud", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
+    CHECK(entity_ids(out) ==
+          std::vector<std::string>{"camera", "hud", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
     CHECK(out["settings"]["gravity2D"] == Json::parse("[0,-500]"));
     CHECK(slurp(s.project.dir / "levels/base.scene.json") == baseBefore);  // the base is only read
 
@@ -843,7 +874,8 @@ TEST_CASE("import_ascii path: from starts the scene from a base scene and replac
     CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/second.scene.json"));
 }
 
-TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_component, and a wrong one writes nothing") {
+TEST_CASE(
+    "import_ascii path: edits patch the scene's components like scene.set_component, and a wrong one writes nothing") {
     Session s("file_edits");
     s.project.write("levels/base.scene.json", kBaseScene);
     const std::string baseBefore = slurp(s.project.dir / "levels/base.scene.json");
@@ -864,7 +896,8 @@ TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_
     REQUIRE((camera != nullptr && hud != nullptr));
     CHECK((*camera)["components"]["Camera"]["clearColor"] == Json::parse("[0.5,0.25,0.75,1]"));
     CHECK((*camera)["components"]["Transform"]["position"] == Json::parse("[640,256,0]"));
-    CHECK((*hud)["components"]["Script"]["props"] == Json::parse(R"({"levelIndex":3})"));  // a component the base did not have is added
+    CHECK((*hud)["components"]["Script"]["props"] ==
+          Json::parse(R"({"levelIndex":3})"));  // a component the base did not have is added
     CHECK(slurp(s.project.dir / "levels/base.scene.json") == baseBefore);
     CHECK(slurp(s.project.dir / "scenes/main.scene.json") == mainBefore);
     CHECK(s.engine.world().find_by_id("hud").is_null());  // the running world is untouched
@@ -892,10 +925,14 @@ TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_
         for (const char* needle : needles) CHECK_MESSAGE(contains(error_text(bad), needle), std::string(needle));
         CHECK(slurp(s.project.dir / "scenes/edited.scene.json") == editedBefore);
     };
-    fails(R"({"camra":{"Camera":{"clearColor":"red"}}})", {"edits[\"camra\"][\"Camera\"]", "No entity", "camera", "Nothing was written"});
-    fails(R"({"camera":{"Camra":{"clearColor":"red"}}})", {"edits[\"camera\"][\"Camra\"]", "Unknown component", "Camera", "Nothing was written"});
-    fails(R"({"camera":{"Camera":{"clearColr":"red"}}})", {"edits[\"camera\"][\"Camera\"]", "clearColr", "clearColor", "Nothing was written"});
-    fails(R"({"camera":{"Camera":{"clearColor":"nocolor"}}})", {"edits[\"camera\"][\"Camera\"]", "clearColor", "Nothing was written"});
+    fails(R"({"camra":{"Camera":{"clearColor":"red"}}})",
+          {"edits[\"camra\"][\"Camera\"]", "No entity", "camera", "Nothing was written"});
+    fails(R"({"camera":{"Camra":{"clearColor":"red"}}})",
+          {"edits[\"camera\"][\"Camra\"]", "Unknown component", "Camera", "Nothing was written"});
+    fails(R"({"camera":{"Camera":{"clearColr":"red"}}})",
+          {"edits[\"camera\"][\"Camera\"]", "clearColr", "clearColor", "Nothing was written"});
+    fails(R"({"camera":{"Camera":{"clearColor":"nocolor"}}})",
+          {"edits[\"camera\"][\"Camera\"]", "clearColor", "Nothing was written"});
 
     // The shape is checked by the input schema, which names the JSON pointer.
     fails(R"([])", {"/edits: expected object"});
@@ -903,7 +940,8 @@ TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_
     fails(R"({"camera":{"Camera":3}})", {"/edits/camera/Camera: expected object"});
 }
 
-TEST_CASE("import_ascii path: an edit with \"$merge\" merges Script.props (RFC 7386), without it the props are replaced") {
+TEST_CASE(
+    "import_ascii path: an edit with \"$merge\" merges Script.props (RFC 7386), without it the props are replaced") {
     Session s("file_edits_merge");
     s.project.write("levels/base.scene.json", R"({
   "format": "factoria.scene/1",
@@ -927,16 +965,20 @@ TEST_CASE("import_ascii path: an edit with \"$merge\" merges Script.props (RFC 7
     };
 
     // Only the given props change; killY and speed stay, null deletes a key, objects merge recursively.
-    CHECK(levelProps(edit(R"({"level":{"Script":{"$merge":true,"props":{"levelIndex":3,"speed":null,"tuning":{"wind":null,"drag":0.5}}}}})")) ==
-          Json::parse(R"({"levelIndex":3,"killY":-200,"tuning":{"gravity":9,"drag":0.5}})"));
+    CHECK(
+        levelProps(edit(
+            R"({"level":{"Script":{"$merge":true,"props":{"levelIndex":3,"speed":null,"tuning":{"wind":null,"drag":0.5}}}}})")) ==
+        Json::parse(R"({"levelIndex":3,"killY":-200,"tuning":{"gravity":9,"drag":0.5}})"));
     // The same edit without $merge (or with "$merge": false) replaces the props as a whole, as before.
     CHECK(levelProps(edit(R"({"level":{"Script":{"props":{"levelIndex":3}}}})")) == Json::parse(R"({"levelIndex":3})"));
-    CHECK(levelProps(edit(R"({"level":{"Script":{"$merge":false,"props":{"levelIndex":3}}}})")) == Json::parse(R"({"levelIndex":3})"));
+    CHECK(levelProps(edit(R"({"level":{"Script":{"$merge":false,"props":{"levelIndex":3}}}})")) ==
+          Json::parse(R"({"levelIndex":3})"));
     // $merge is not a field: it never reaches the file.
     CHECK_FALSE(slurp(s.project.dir / "scenes/merged.scene.json").find("$merge") != std::string::npos);
     // The other fields of the component keep their normal meaning next to a merge.
     auto next = edit(R"({"level":{"Script":{"$merge":true,"enabled":false,"props":{"extra":1}}}})");
-    CHECK(levelProps(next) == Json::parse(R"({"levelIndex":1,"killY":-200,"speed":3,"tuning":{"gravity":9,"wind":2},"extra":1})"));
+    CHECK(levelProps(next) ==
+          Json::parse(R"({"levelIndex":1,"killY":-200,"speed":3,"tuning":{"gravity":9,"wind":2},"extra":1})"));
     const Json file = scene_file(s, "scenes/merged.scene.json");
     for (const Json& e : file["entities"])
         if (e["id"] == "level") CHECK(e["components"]["Script"]["enabled"] == false);
@@ -949,7 +991,8 @@ TEST_CASE("import_ascii path: an edit with \"$merge\" merges Script.props (RFC 7
     CHECK(contains(error_text(bad), "Nothing was written"));
 }
 
-TEST_CASE("scene.set_component: merge reads fields as a JSON merge-patch; out-of-range values are refused with the range") {
+TEST_CASE(
+    "scene.set_component: merge reads fields as a JSON merge-patch; out-of-range values are refused with the range") {
     Session s("set_component_merge");
     auto call = [&](const char* json) { return s.engine.commands().call("scene.set_component", Json::parse(json)); };
     const CommandInfo* info = s.engine.commands().info("scene.set_component");
@@ -962,17 +1005,21 @@ TEST_CASE("scene.set_component: merge reads fields as a JSON merge-patch; out-of
         return r.result["value"]["props"];
     };
     // merge may add the component; a null for a key that was never there leaves it absent.
-    CHECK(props(call(R"({"id":"cam","component":"Script","merge":true,"fields":{"path":"scripts/x.js","props":{"a":1,"b":{"c":2,"d":3},"gone":true,"never":null}}})")) ==
-          Json::parse(R"({"a":1,"b":{"c":2,"d":3},"gone":true})"));
+    CHECK(
+        props(call(
+            R"({"id":"cam","component":"Script","merge":true,"fields":{"path":"scripts/x.js","props":{"a":1,"b":{"c":2,"d":3},"gone":true,"never":null}}})")) ==
+        Json::parse(R"({"a":1,"b":{"c":2,"d":3},"gone":true})"));
     // Without merge the whole props object is replaced.
     CHECK(props(call(R"({"id":"cam","component":"Script","fields":{"props":{"a":5}}})")) == Json::parse(R"({"a":5})"));
     REQUIRE(call(R"({"id":"cam","component":"Script","fields":{"props":{"a":1,"b":{"c":2,"d":3},"gone":true}}})").ok);
     // With merge only the named keys change; null deletes; objects merge recursively; the other fields are untouched.
-    auto merged = call(R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"a":7,"gone":null,"b":{"c":null,"e":4}}}})");
+    auto merged = call(
+        R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"a":7,"gone":null,"b":{"c":null,"e":4}}}})");
     CHECK(props(merged) == Json::parse(R"({"a":7,"b":{"d":3,"e":4}})"));
     CHECK(merged.result["value"]["path"] == "scripts/x.js");
     // A non-object replaces, as in RFC 7386; null on a plain field resets it to its default.
-    CHECK(props(call(R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"b":[1,2]}}})")) == Json::parse(R"({"a":7,"b":[1,2]})"));
+    CHECK(props(call(R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"b":[1,2]}}})")) ==
+          Json::parse(R"({"a":7,"b":[1,2]})"));
     REQUIRE(call(R"({"id":"cam","component":"Camera","fields":{"fov":90}})").ok);
     auto reset = call(R"({"id":"cam","component":"Camera","merge":true,"fields":{"fov":null}})");
     REQUIRE_MESSAGE(reset.ok, error_text(reset));
@@ -990,7 +1037,8 @@ TEST_CASE("scene.set_component: merge reads fields as a JSON merge-patch; out-of
     CHECK(contains(error_text(high), "sides"));
     CHECK(contains(error_text(high), "value 200 is outside the allowed range 3..64"));
     CHECK(contains(error_text(high), "Use a value from 3 to 64 (both allowed); the nearest is 64."));
-    CHECK(s.engine.world().get<Shape2D>(s.engine.world().find_by_id("cam")) == nullptr);  // the new component was rolled back
+    CHECK(s.engine.world().get<Shape2D>(s.engine.world().find_by_id("cam")) ==
+          nullptr);  // the new component was rolled back
     auto low = call(R"({"id":"cam","component":"Camera","fields":{"fov":-3}})");
     REQUIRE_FALSE(low.ok);
     CHECK(contains(error_text(low), "value -3 is outside the allowed range 1..179"));
@@ -1014,7 +1062,8 @@ TEST_CASE("import_ascii: edits need path (the running world has scene.set_compon
     CHECK(contains(info->full_description(), "edits"));
 }
 
-TEST_CASE("import_ascii path: a typo in path warns with a did-you-mean instead of silently creating a different scene") {
+TEST_CASE(
+    "import_ascii path: a typo in path warns with a did-you-mean instead of silently creating a different scene") {
     Session s("file_typo");
     auto r = s.import(level(R"({"path":"scenes/mian.scene.json"})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));  // it is a valid way to create a scene, so it works ...
@@ -1035,7 +1084,8 @@ TEST_CASE("import_ascii path: dryRun returns the scene and writes nothing") {
     CHECK(slurp(s.project.dir / "scenes/main.scene.json") == mainBefore);
     REQUIRE(r.result.contains("scene"));
     CHECK(r.result["scene"]["format"] == "factoria.scene/1");
-    CHECK(entity_ids(r.result["scene"]) == std::vector<std::string>{"cam", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
+    CHECK(entity_ids(r.result["scene"]) ==
+          std::vector<std::string>{"cam", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
 
     // A new path stays absent, and the same call without dryRun writes exactly the scene the dry run returned.
     r = s.import(level(R"({"path":"scenes/preview.scene.json","dryRun":true})"));
@@ -1080,8 +1130,9 @@ TEST_CASE("import_ascii path: the base scene's entities count for ids, and a fai
         CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/never.scene.json"));
     }
     SUBCASE("a scene with load errors is not rewritten (the entries that failed would be dropped)") {
-        s.project.write("scenes/broken.scene.json",
-                        R"({"format":"factoria.scene/1","entities":[{"id":"ok"},{"id":"bad","components":{"Sprit":{"color":"red"}}}]})");
+        s.project.write(
+            "scenes/broken.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"ok"},{"id":"bad","components":{"Sprit":{"color":"red"}}}]})");
         const std::string brokenBefore = slurp(s.project.dir / "scenes/broken.scene.json");
         auto r = s.import(level(R"({"path":"scenes/broken.scene.json"})"));
         REQUIRE_FALSE(r.ok);
@@ -1116,7 +1167,8 @@ TEST_CASE("import_ascii path: arguments are checked, and writes follow the same 
     fails(R"({"path":"../outside.scene.json"})", "escapes");
     fails(R"({"path":"scenes/a.scene.json","from":"/etc/x.scene.json"})", "absolute");
     // .factoria/ is managed by the engine: only .factoria/tmp/ is writable (scene.save, fs.write and fs.delete agree).
-    for (const char* bad : {".factoria/screenshots/a.scene.json", ".factoria/save/a.scene.json", ".factoria/a.scene.json"}) {
+    for (const char* bad :
+         {".factoria/screenshots/a.scene.json", ".factoria/save/a.scene.json", ".factoria/a.scene.json"}) {
         Json a = level();
         a["path"] = bad;
         auto r = s.import(a);
@@ -1173,7 +1225,8 @@ TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the re
     CHECK(contains(info->full_description(), ".factoria/tmp/"));
 }
 
-TEST_CASE("import_ascii path: a game script cannot build a scene file (it is granted {read, state}); a caller with writeProject can") {
+TEST_CASE("import_ascii path: a game script cannot build a scene file (it is granted {read, state}); a caller with "
+          "writeProject can") {
     Session s("file_frame");
     s.project.write("scripts/builder.js", R"(
 import { Behaviour, fa } from "factoria";
@@ -1192,17 +1245,21 @@ export default class Builder extends Behaviour {
   }
 }
 )");
-    REQUIRE(s.call("scene.spawn", Json::parse(R"({"id":"builder","components":{"Script":{"path":"scripts/builder.js"}}})")).ok);
+    REQUIRE(
+        s.call("scene.spawn", Json::parse(R"({"id":"builder","components":{"Script":{"path":"scripts/builder.js"}}})"))
+            .ok);
     s.engine.step(4);
     Json state = s.engine.state();
     CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
-    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.denied"}}).result["value"] == "capability_denied");
+    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.denied"}}).result["value"] ==
+          "capability_denied");
     CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/tmp/from_script.scene.json"));
     // The same call from the command line (a caller with writeProject) writes it, and the running world has no coins.
     auto r = s.import(Json::parse(R"({"rows":["o.o","###"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},
                                       "path":".factoria/tmp/from_script.scene.json"})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(entity_ids(scene_file(s, ".factoria/tmp/from_script.scene.json")) == std::vector<std::string>{"tilemap", "coin_1", "coin_2"});
+    CHECK(entity_ids(scene_file(s, ".factoria/tmp/from_script.scene.json")) ==
+          std::vector<std::string>{"tilemap", "coin_1", "coin_2"});
     CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 0);  // the running world has no coins
 }
 
@@ -1224,7 +1281,8 @@ TEST_CASE("import_ascii: documented path, from and dryRun") {
     CHECK(contains(info->full_description(), "PREFAB REFERENCES"));
 }
 
-TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefab changes the loaded level with no import") {
+TEST_CASE(
+    "import_ascii path: the level keeps prefab references; editing a prefab changes the loaded level with no import") {
     Session s("file_prefab_refs");
     s.project.write("levels/base.scene.json", R"({"format":"factoria.scene/1","entities":[
         {"id":"camera","components":{"Camera":{}}},
@@ -1251,9 +1309,12 @@ TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefa
     CHECK_FALSE((*coin)["components"].contains("Collider2D"));
 
     // Editing the prefab changes the level when it is loaded; the level is not imported again.
-    s.project.write("prefabs/coin.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Coin","tags":["coin"],
+    s.project.write("prefabs/coin.prefab.json",
+                    R"({"format":"factoria.prefab/1","entity":{"name":"Coin","tags":["coin"],
         "components":{"Shape2D":{"shape":"circle","size":[40,40],"color":"#ff0000","layer":5}}}})");
-    s.project.write("prefabs/enemy.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Crawler","components":{"Shape2D":{"size":[77,20]}}}})");
+    s.project.write(
+        "prefabs/enemy.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"name":"Crawler","components":{"Shape2D":{"size":[77,20]}}}})");
     REQUIRE(s.call("scene.load", Json{{"path", "scenes/refs.scene.json"}}).ok);
     Json c = s.entity("coin_1");
     CHECK(c["components"]["Shape2D"]["size"] == Json::parse("[40,40]"));
@@ -1290,7 +1351,7 @@ TEST_CASE("import_ascii: legendFrom merges a shared legend under the map's own, 
     a["from"] = "scenes/main.scene.json";
     auto r = s.import(a);
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK_MESSAGE(r.result["warnings"].empty(), r.result["warnings"].dump());  // E is shared and unused
+    CHECK_MESSAGE(r.result["warnings"].empty(), r.result["warnings"].dump());     // E is shared and unused
     CHECK(has(entity_ids(scene_file(s, "scenes/shared.scene.json")), "player"));  // the map's own entry wins
 
     a["legend"] = Json::parse(R"({"Z":3})");
@@ -1316,7 +1377,8 @@ namespace {
 
 // Writes levels/m.json (the base level building scenes/m.scene.json), applies `ops` with scene.ascii_edit and checks that the
 // written rows are `expected` and that the rebuilt scene is byte-for-byte what scene.import_ascii builds from the hand-written map.
-void check_edit(const char* name, const char* ops, const std::vector<std::string>& expected, Json* resultOut = nullptr) {
+void check_edit(const char* name, const char* ops, const std::vector<std::string>& expected,
+                Json* resultOut = nullptr) {
     Session s(name);
     Json file = level(R"({"path":"scenes/m.scene.json"})");
     s.project.write("levels/m.json", file.dump(2));
@@ -1384,7 +1446,8 @@ TEST_CASE("ascii_edit dryRun, rebuild false and errors write nothing") {
     CHECK(slurp(s.project.dir / "levels/m.json") == before);
     CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/m.scene.json"));
 
-    auto nore = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"rebuild", false},
+    auto nore = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"},
+                                                {"rebuild", false},
                                                 {"ops", Json::parse(R"([{"op":"replace","from":"o","to":"."}])")}});
     REQUIRE_MESSAGE(nore.ok, error_text(nore));
     CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/m.scene.json"));
@@ -1426,7 +1489,8 @@ TEST_CASE("ascii_edit above needs ground") {
     // No solidTiles in the file and no scene to read them from: teaches to pass `row`.
     file.erase("tilemap");
     s.project.write("levels/n.json", file.dump(2));
-    r = s.call("scene.ascii_edit", Json{{"file", "levels/n.json"}, {"ops", Json::parse(R"([{"op":"put","col":4,"glyph":"o","above":1}])")}});
+    r = s.call("scene.ascii_edit", Json{{"file", "levels/n.json"},
+                                        {"ops", Json::parse(R"([{"op":"put","col":4,"glyph":"o","above":1}])")}});
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_text(r), "solidTiles"));
 }
@@ -1437,8 +1501,9 @@ TEST_CASE("ascii_edit reads the ground from the scene's Tilemap when the file ha
     REQUIRE(s.import(file).ok);  // builds scenes/m.scene.json with solidTiles [0, 1]
     file.erase("tilemap");
     s.project.write("levels/m.json", file.dump(2));
-    auto r = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"rebuild", false},
-                                              {"ops", Json::parse(R"([{"op":"put","col":5,"glyph":"o","above":2}])")}});
+    auto r = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"},
+                                             {"rebuild", false},
+                                             {"ops", Json::parse(R"([{"op":"put","col":5,"glyph":"o","above":2}])")}});
     REQUIRE_MESSAGE(r.ok, error_text(r));
     auto written = load_json_file((s.project.dir / "levels/m.json").generic_string());
     CHECK(written.value()["rows"][2] == ".....o....");
@@ -1474,13 +1539,18 @@ TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move t
     REQUIRE(tm != nullptr);
     const std::uint32_t v0 = tilemap_version(*tm);
     CHECK(tilemap_version(*tm) == v0);
-    Json same = Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tm->tiles}})}});
+    Json same =
+        Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tm->tiles}})}});
     REQUIRE(s.call("scene.set_component", same).ok);
     tm = s.engine.world().get<Tilemap>(map);
     CHECK(tilemap_version(*tm) == v0);
     Json tiles = tm->tiles;
-    if (tiles[0].is_array()) tiles[0][0] = tiles[0][0].get<int>() == 0 ? 1 : 0; else tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
-    Json changed = Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles}})}});
+    if (tiles[0].is_array())
+        tiles[0][0] = tiles[0][0].get<int>() == 0 ? 1 : 0;
+    else
+        tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
+    Json changed =
+        Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles}})}});
     REQUIRE(s.call("scene.set_component", changed).ok);
     tm = s.engine.world().get<Tilemap>(map);
     const std::uint32_t v1 = tilemap_version(*tm);
@@ -1489,7 +1559,8 @@ TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move t
     CHECK(tilemap_version(*tm) > v1);
 }
 
-TEST_CASE("import_ascii on an isometric map: objects stand at the diamond centres, anchors use the drawn box, cell_at inverts cell_to_world") {
+TEST_CASE("import_ascii on an isometric map: objects stand at the diamond centres, anchors use the drawn box, cell_at "
+          "inverts cell_to_world") {
     Session s("iso");
     Json a = Json::parse(R"({
       "rows": ["#.#", "...", "#o#"],

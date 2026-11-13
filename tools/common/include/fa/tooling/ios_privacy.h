@@ -13,8 +13,8 @@ namespace fa {
 // Apple's required-reason API categories and the reason codes each one accepts (developer.apple.com, "Describing use of
 // required reason API"). `category` has no NSPrivacyAccessedAPICategory prefix.
 struct IosPrivacyApiCategory {
-    std::string category;                // "FileTimestamp"
-    std::vector<std::string> reasons;    // {"DDA9.1", "C617.1", "3B52.1", "0A2A.1"}
+    std::string category;              // "FileTimestamp"
+    std::vector<std::string> reasons;  // {"DDA9.1", "C617.1", "3B52.1", "0A2A.1"}
 };
 const std::vector<IosPrivacyApiCategory>& ios_privacy_api_categories();
 

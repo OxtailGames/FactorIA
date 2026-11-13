@@ -40,11 +40,10 @@ std::array<float, 3> vec3(const cgltf_accessor* a, cgltf_size i) {
     return v;
 }
 
-const char* kQuad =
-    "v 0 0 0\nv 2 0 0\nv 2 2 0\nv 0 2 0\n"
-    "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
-    "vn 0 0 1\n"
-    "f 1/1/1 2/2/1 3/3/1 4/4/1\n";
+const char* kQuad = "v 0 0 0\nv 2 0 0\nv 2 2 0\nv 0 2 0\n"
+                    "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
+                    "vn 0 0 1\n"
+                    "f 1/1/1 2/2/1 3/3/1 4/4/1\n";
 
 }  // namespace
 
@@ -115,13 +114,11 @@ TEST_CASE("assets.import: OBJ objects, materials, and their texture") {
     AssetsProject p;
     const auto art = p.tmp.path / "art";
     write_png(art / "textures/wood.png", make_image(2, 2, {200, 100, 50, 255}));
-    write_all(art / "crate.mtl",
-              "newmtl Wood\nKd 0.5 0.25 0.125\nmap_Kd -s 1 1 1 textures/wood.png\n\n"
-              "newmtl Glass\nKd 0 1 0\nd 0.5\n");
-    write_all(art / "crate.obj",
-              "mtllib crate.mtl\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0\nvt 1 0\nvt 1 1\n"
-              "o Box\nusemtl Wood\nf 1/1 2/2 3/3\n"
-              "o Lid\nusemtl Glass\nf 1 3 4\nusemtl Missing\nf 1 2 4\n");
+    write_all(art / "crate.mtl", "newmtl Wood\nKd 0.5 0.25 0.125\nmap_Kd -s 1 1 1 textures/wood.png\n\n"
+                                 "newmtl Glass\nKd 0 1 0\nd 0.5\n");
+    write_all(art / "crate.obj", "mtllib crate.mtl\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0\nvt 1 0\nvt 1 1\n"
+                                 "o Box\nusemtl Wood\nf 1/1 2/2 3/3\n"
+                                 "o Lid\nusemtl Glass\nf 1 3 4\nusemtl Missing\nf 1 2 4\n");
     const Json r = p.ok("assets.import", {{"source", (art / "crate.obj").string()}, {"path", "assets/models/crate/"}});
     CHECK(r["path"] == "assets/models/crate/crate.gltf");
     CHECK(r["details"]["objects"] == 2);
@@ -190,7 +187,8 @@ TEST_CASE("assets.import: a big OBJ uses 32-bit indices") {
     for (int i = 0; i <= quads; ++i) obj += "v " + std::to_string(i) + " 0 0\nv " + std::to_string(i) + " 1 0\n";
     for (int i = 0; i < quads; ++i) {
         const int a = 2 * i + 1;
-        obj += "f " + std::to_string(a) + " " + std::to_string(a + 2) + " " + std::to_string(a + 3) + " " + std::to_string(a + 1) + "\n";
+        obj += "f " + std::to_string(a) + " " + std::to_string(a + 2) + " " + std::to_string(a + 3) + " " +
+               std::to_string(a + 1) + "\n";
     }
     write_all(p.tmp.path / "art/strip.obj", obj);
     const Json r = p.ok("assets.import", {{"source", (p.tmp.path / "art/strip.obj").string()}});

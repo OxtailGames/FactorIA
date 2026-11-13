@@ -29,7 +29,10 @@ Image solid(int w, int h, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
 
 void put(Image& img, int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
     std::uint8_t* p = &img.rgba[(std::size_t(y) * img.width + x) * 4];
-    p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    p[0] = r;
+    p[1] = g;
+    p[2] = b;
+    p[3] = 255;
 }
 
 }  // namespace
@@ -44,8 +47,8 @@ TEST_CASE("image_tools: crop_image keeps the pixels and pads outside with transp
     CHECK(c.rgba[0] == 10);
     Image edge = crop_image(src, 8, 6, 4, 4);  // half outside
     REQUIRE(edge.width == 4);
-    CHECK(edge.rgba[3] == 255);                      // inside: opaque
-    CHECK(edge.rgba[(3 * 4 + 3) * 4 + 3] == 0);      // outside: transparent
+    CHECK(edge.rgba[3] == 255);                  // inside: opaque
+    CHECK(edge.rgba[(3 * 4 + 3) * 4 + 3] == 0);  // outside: transparent
     CHECK(crop_image(src, 0, 0, 0, 4).empty());
     CHECK(crop_image(Image{}, 0, 0, 4, 4).empty());
 }
@@ -93,8 +96,9 @@ TEST_CASE("image_tools: sheet_layout and contact_sheet put the tiles in a labell
     // The label of the first tile is white pixels on black at its top-left corner; the unlabelled third has none.
     bool white = false;
     for (int y = 0; y < 16; ++y)
-        for (int x = 0; x < 30; ++x) white |= sheet.rgba[(std::size_t(3 + y) * sheet.width + 3 + x) * 4 + 1] == 255 &&
-                                              sheet.rgba[(std::size_t(3 + y) * sheet.width + 3 + x) * 4 + 0] == 255;
+        for (int x = 0; x < 30; ++x)
+            white |= sheet.rgba[(std::size_t(3 + y) * sheet.width + 3 + x) * 4 + 1] == 255 &&
+                     sheet.rgba[(std::size_t(3 + y) * sheet.width + 3 + x) * 4 + 0] == 255;
     CHECK(white);
     CHECK(contact_sheet({}, {}, 2).empty());
 }
@@ -103,7 +107,7 @@ TEST_CASE("image_tools: profile_line samples one pixel per step and find_steps l
     Image img = solid(20, 4, 50, 50, 50);
     for (int y = 0; y < 4; ++y)
         for (int x = 10; x < 20; ++x) put(img, x, y, 200, 200, 200);  // a hard edge between x = 9 and x = 10
-    for (int y = 0; y < 4; ++y) put(img, 4, y, 120, 120, 120);       // a 1 px bright seam at x = 4 (+70)
+    for (int y = 0; y < 4; ++y) put(img, 4, y, 120, 120, 120);        // a 1 px bright seam at x = 4 (+70)
     std::vector<Vec2> pts;
     auto v = profile_line(img, {0, 1}, {19, 1}, ProfileChannel::Luminance, &pts);
     REQUIRE(v.size() == 20);
@@ -188,7 +192,8 @@ TEST_CASE("screenshot_files: prune_screenshots drops old and surplus engine-name
     stdfs::remove_all(dir, ec);
 }
 
-TEST_CASE("screenshot_files: discard_temporary_image deletes only a flagged engine-named file in the screenshot folder") {
+TEST_CASE(
+    "screenshot_files: discard_temporary_image deletes only a flagged engine-named file in the screenshot folder") {
     const stdfs::path dir = fs::make_temp_dir("fa_discard_shots").value();
     const stdfs::path shots = dir / ".factoria" / "screenshots";
     stdfs::create_directories(shots);
@@ -204,7 +209,7 @@ TEST_CASE("screenshot_files: discard_temporary_image deletes only a flagged engi
     };
     CHECK_FALSE(discard_temporary_image(spec(shots / "frame_5.png", false), dir));  // not flagged
     CHECK(stdfs::exists(shots / "frame_5.png"));
-    CHECK_FALSE(discard_temporary_image(spec(shots / "hall.png", true), dir));      // not engine-named
+    CHECK_FALSE(discard_temporary_image(spec(shots / "hall.png", true), dir));              // not engine-named
     CHECK_FALSE(discard_temporary_image(spec(dir / "assets" / "frame_5.png", true), dir));  // outside the folder
     CHECK(stdfs::exists(dir / "assets" / "frame_5.png"));
     CHECK(discard_temporary_image(spec(shots / "frame_5.png", true), dir));

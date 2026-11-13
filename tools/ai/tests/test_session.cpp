@@ -39,7 +39,8 @@ TEST_CASE("tools come from the registry: dots become underscores, sorted, ai.* h
     auto tools = tools_from_registry(reg, true);
     std::vector<std::string> names;
     for (auto& t : tools) names.push_back(t.name);
-    CHECK(names == std::vector<std::string>{"agent_delegate", "game_screenshot", "project_validate", "scene_list_entities"});
+    CHECK(names ==
+          std::vector<std::string>{"agent_delegate", "game_screenshot", "project_validate", "scene_list_entities"});
     CHECK(tools_from_registry(reg, false).size() == 3);
     CHECK(tool_name_for_command("scene.list_entities") == "scene_list_entities");
 }
@@ -142,11 +143,12 @@ TEST_CASE("invalid tool input JSON is reported back to the model") {
 TEST_CASE("agent_delegate runs a sub-session with the worker model") {
     Harness h;
     h.provider->script = {
-        tool_response({call("d1", "agent_delegate", Json::object({{"role", "worker"}, {"task", "Implement the pause menu."}})),
-                       call("d2", "agent_delegate", Json::object({{"role", "fast"}, {"task", "Rename a file."}}))}),
-        text_response("Pause menu implemented."),   // worker's final report
-        text_response("Renamed."),                   // fast's final report
-        text_response("Everything is done."),        // orchestrator final
+        tool_response(
+            {call("d1", "agent_delegate", Json::object({{"role", "worker"}, {"task", "Implement the pause menu."}})),
+             call("d2", "agent_delegate", Json::object({{"role", "fast"}, {"task", "Rename a file."}}))}),
+        text_response("Pause menu implemented."),  // worker's final report
+        text_response("Renamed."),                 // fast's final report
+        text_response("Everything is done."),      // orchestrator final
     };
     auto r = h.run("Add a pause menu");
     REQUIRE(r.ok);
@@ -176,7 +178,9 @@ TEST_CASE("agent_delegate runs a sub-session with the worker model") {
 
     // invalid delegation args are reported, not crashed
     Harness h2;
-    h2.provider->script = {tool_response({call("d1", "agent_delegate", Json::object({{"role", "orchestrator"}, {"task", "x"}}))}), text_response("fine")};
+    h2.provider->script = {
+        tool_response({call("d1", "agent_delegate", Json::object({{"role", "orchestrator"}, {"task", "x"}}))}),
+        text_response("fine")};
     REQUIRE(h2.run("x").ok);
     CHECK(h2.provider->requests[1].messages[2].toolResults[0].isError);
 }
@@ -230,7 +234,8 @@ TEST_CASE("max_tokens continues, pause_turn resends, refusal surfaces details") 
 TEST_CASE("limits: max turns, cost budget, cancellation, provider errors") {
     {
         Harness h;
-        for (int i = 0; i < 10; ++i) h.provider->script.push_back(tool_response({call("t" + std::to_string(i), "scene_list_entities")}));
+        for (int i = 0; i < 10; ++i)
+            h.provider->script.push_back(tool_response({call("t" + std::to_string(i), "scene_list_entities")}));
         SessionOptions so;
         so.maxTurns = 3;
         auto r = h.run("loop forever", so);
@@ -317,7 +322,9 @@ TEST_CASE("limits: max turns, cost budget, cancellation, provider errors") {
 
 TEST_CASE("provider/model overrides apply to the main role only") {
     Harness h;
-    h.cfg = parse_config(Json::parse(R"({"providers":{"local":{"type":"openai-compatible","baseUrl":"http://x/v1"}}})"), "x").value();
+    h.cfg = parse_config(Json::parse(R"({"providers":{"local":{"type":"openai-compatible","baseUrl":"http://x/v1"}}})"),
+                         "x")
+                .value();
     h.provider->script = {text_response("done")};
     SessionOptions so;
     so.providerOverride = "local";
@@ -336,7 +343,8 @@ TEST_CASE("a role's context limit reaches the request and is reported as the win
     REQUIRE(h.run("x").ok);
     CHECK(h.provider->requests[0].maxContextTokens == 400000);
     bool sawWindow = false;
-    for (const auto& e : h.events) sawWindow = sawWindow || (e.type == AgentEvent::Type::Usage && e.contextWindow == 400000);
+    for (const auto& e : h.events)
+        sawWindow = sawWindow || (e.type == AgentEvent::Type::Usage && e.contextWindow == 400000);
     CHECK(sawWindow);
 }
 

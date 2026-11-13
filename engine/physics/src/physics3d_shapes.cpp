@@ -282,8 +282,10 @@ static bool ray_core(const Core& core, Vec3 origin, Vec3 d, float maxT, float& t
                 float lo = prev, hi = t;
                 for (int k = 0; k < 40; ++k) {
                     const float mid = 0.5f * (lo + hi);
-                    if (gap_at(mid) < 0.0f) hi = mid;
-                    else lo = mid;
+                    if (gap_at(mid) < 0.0f)
+                        hi = mid;
+                    else
+                        lo = mid;
                 }
                 t = lo;
                 gap_at(t);
@@ -319,7 +321,8 @@ bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float
 
 // A procedural mesh ("mesh:N", fa/scene/mesh_store.h) is cached under its id and version, so an update builds a new shape and
 // the bodies using the mesh pick it up; prune_procedural_shapes() drops the ones nobody can ask for any more.
-std::shared_ptr<const ShapeData> Physics3D::shape_data(World& world, const std::string& mesh, bool bvh, std::string& problem) {
+std::shared_ptr<const ShapeData> Physics3D::shape_data(World& world, const std::string& mesh, bool bvh,
+                                                       std::string& problem) {
     std::string key = std::string(bvh ? "M:" : "H:") + mesh_key(mesh);
     std::shared_ptr<const MeshGeometry> geometry;
     if (MeshStore::is_id(mesh)) {

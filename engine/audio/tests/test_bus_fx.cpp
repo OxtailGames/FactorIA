@@ -97,9 +97,9 @@ TEST_CASE("bus fx: reverb adds a tail that stops costing after a while; mix 0 re
     fx.audio.play("sounds/click.wav");
     fx.run(6.5);
     const Recording wet = fx.finish();
-    CHECK(wet.sound_end(0.01f) > 44100 * 0.05);                 // the click itself
-    CHECK(wet.peak(44100 / 2, 44100) > 0.001f);                 // still ringing half a second later
-    CHECK(wet.peak(wet.frames() - 44100) == 0.0f);               // and after four silent seconds the reverb stops working
+    CHECK(wet.sound_end(0.01f) > 44100 * 0.05);     // the click itself
+    CHECK(wet.peak(44100 / 2, 44100) > 0.001f);     // still ringing half a second later
+    CHECK(wet.peak(wet.frames() - 44100) == 0.0f);  // and after four silent seconds the reverb stops working
 
     REQUIRE(fx.audio.set_bus_reverb("sfx", 0.0f).ok());
     fx.audio.start_recording();
@@ -134,9 +134,9 @@ TEST_CASE("bus fx: a ducked bus drops while the other plays and recovers after i
     const Recording r = fx.finish();
     const double full = tone(r, 440, 0.1, 0.5);
     CHECK(full == doctest::Approx(0.5).epsilon(0.05));
-    CHECK(tone(r, 1000, 0.8, 1.3) == doctest::Approx(0.5).epsilon(0.05));  // the sfx is not ducked
+    CHECK(tone(r, 1000, 0.8, 1.3) == doctest::Approx(0.5).epsilon(0.05));       // the sfx is not ducked
     CHECK(tone(r, 440, 0.8, 1.3) == doctest::Approx(full * 0.2).epsilon(0.1));  // while the blip plays
-    CHECK(tone(r, 440, 2.2, 3.0) == doctest::Approx(full).epsilon(0.05));  // recovered
+    CHECK(tone(r, 440, 2.2, 3.0) == doctest::Approx(full).epsilon(0.05));       // recovered
 
     // Turn it off: nothing is ducked even while the other plays.
     REQUIRE(fx.audio.set_bus_duck("music", DuckSettings{}).ok());
@@ -173,7 +173,7 @@ TEST_CASE("bus fx: ducking while the other bus is quiet does nothing, and the du
     fx.audio.start_recording();
     fx.run(0.4);
     const Recording r = fx.finish();
-    CHECK(tone(r, 440, 0.2, 0.4) < 0.01);                                         // amount 1 = silent
+    CHECK(tone(r, 440, 0.2, 0.4) < 0.01);  // amount 1 = silent
     CHECK(tone(r, 1000, 0.2, 0.4) == doctest::Approx(0.5).epsilon(0.05));
 }
 
@@ -261,8 +261,8 @@ TEST_CASE("bus fx: wrong buses and values are errors that teach") {
     DuckSettings d;
     d.by = "sfx";
     d.amount = 0.5f;
-    CHECK_FALSE(fx.audio.set_bus_duck("sfx", d).ok());      // itself
-    CHECK_FALSE(fx.audio.set_bus_duck("master", d).ok());   // the master has no ducking
+    CHECK_FALSE(fx.audio.set_bus_duck("sfx", d).ok());     // itself
+    CHECK_FALSE(fx.audio.set_bus_duck("master", d).ok());  // the master has no ducking
     d.by = "master";
     CHECK_FALSE(fx.audio.set_bus_duck("music", d).ok());
     d.by = "sfx";

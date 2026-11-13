@@ -5,7 +5,8 @@
 
 namespace fa::assets_detail {
 
-void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings) {
+void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                           std::vector<ValidationIssue>& warnings) {
     for (const std::string& rel : list_audio_documents(projectDir)) {
         const AudioBakeStatus status = audio_bake_status(projectDir, rel);
         const std::string bake = "factoria call audio.bake '" + Json::object({{"path", rel}}).dump() + "'";
@@ -19,18 +20,26 @@ void check_audio_documents(const std::string& projectDir, std::vector<Validation
                 }
                 if (issues.empty()) issues.push_back({"", status.reason, status.hint});
                 for (const AudioDocIssue& issue : issues)
-                    errors.push_back({rel, issue.pointer, issue.message, issue.hint.empty() ? "Fix the document (docs/SOUND.md \"Audio documents\", schemas/audio.schema.json)." : issue.hint});
+                    errors.push_back(
+                        {rel, issue.pointer, issue.message,
+                         issue.hint.empty()
+                             ? "Fix the document (docs/SOUND.md \"Audio documents\", schemas/audio.schema.json)."
+                             : issue.hint});
                 break;
             }
             case AudioBakeState::Missing:
-                warnings.push_back({rel, "", "Not baked yet: " + status.reason, "Render it into a sound with: " + bake + " (factoria export does it too)."});
+                warnings.push_back({rel, "", "Not baked yet: " + status.reason,
+                                    "Render it into a sound with: " + bake + " (factoria export does it too)."});
                 break;
             case AudioBakeState::Unrecorded:
-                warnings.push_back({rel, "", "The sound next to the document is not recorded as its bake: " + status.reason, "Bake it again with: factoria call audio.bake '" + Json::object({{"path", rel}, {"overwrite", true}}).dump() + "' to record the recipe (this replaces the file)."});
+                warnings.push_back({rel, "",
+                                    "The sound next to the document is not recorded as its bake: " + status.reason,
+                                    "Bake it again with: factoria call audio.bake '" +
+                                        Json::object({{"path", rel}, {"overwrite", true}}).dump() +
+                                        "' to record the recipe (this replaces the file)."});
                 break;
             case AudioBakeState::Stale:  // reported by check_recipes, with the regenerate command
-            case AudioBakeState::Fresh:
-                break;
+            case AudioBakeState::Fresh: break;
         }
     }
 }

@@ -44,11 +44,12 @@ namespace {
 constexpr const auto& kRoleNames = ai::kAllRoles;  // all seven, in the order of the Roles window
 constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
 constexpr u64 kContextLimits[] = {0, 100000, 200000, 300000, 400000, 500000, 600000, 800000};  // 0 = the model's window
-constexpr const char* kRolesBlurb = "Your messages go to the Orchestrator. It answers and plans, and hands implementation work to\n"
-                                    "the Worker, small mechanical edits to Fast, art to the Artist and sound to Audio by itself.\n"
-                                    "A role you untick is not used: the Orchestrator does that work itself (nobody else is started).\n"
-                                    "The Art critic and the Reviewer only run when you press Art critique or Game review; they cannot\n"
-                                    "change anything. Unticked, their reviews run on the Orchestrator's model.";
+constexpr const char* kRolesBlurb =
+    "Your messages go to the Orchestrator. It answers and plans, and hands implementation work to\n"
+    "the Worker, small mechanical edits to Fast, art to the Artist and sound to Audio by itself.\n"
+    "A role you untick is not used: the Orchestrator does that work itself (nobody else is started).\n"
+    "The Art critic and the Reviewer only run when you press Art critique or Game review; they cannot\n"
+    "change anything. Unticked, their reviews run on the Orchestrator's model.";
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
 constexpr float kThumb = 56.0f;                // pending pictures
 constexpr float kThumbSent = 48.0f;            // pictures in the transcript
@@ -57,7 +58,8 @@ i64 now_epoch() { return static_cast<i64>(std::time(nullptr)); }
 
 // The editor's own clock for "how long since": steady, in milliseconds (never the simulation's clock).
 long long now_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 double now_seconds() { return static_cast<double>(now_ms()) / 1000.0; }
 
@@ -158,10 +160,13 @@ std::string reset_text(const LimitView& v, i64 now) {
 
 // What the cost estimate means, wherever the editor shows it.
 constexpr const char* kApiCostTip =
-    "API cost estimate: what this conversation's tokens would cost on the provider's pay-per-token API (USD, from the price\n"
-    "the CLI reports or the engine's price table). While an agent works it is the engine's running estimate (every agent\n"
+    "API cost estimate: what this conversation's tokens would cost on the provider's pay-per-token API (USD, from the "
+    "price\n"
+    "the CLI reports or the engine's price table). While an agent works it is the engine's running estimate (every "
+    "agent\n"
     "counts, workers included); the CLI's own total replaces it when the agent finishes.\n"
-    "With a subscription (Claude Code / Codex sign-in, a ChatGPT plan...) none of this is charged on top of the plan: there\n"
+    "With a subscription (Claude Code / Codex sign-in, a ChatGPT plan...) none of this is charged on top of the plan: "
+    "there\n"
     "only the plan windows at the top of the panel matter.";
 
 // The provider's plan windows (a subscription's quota). They belong to the provider, not to a chat, so the panel draws
@@ -187,11 +192,16 @@ void draw_plan_windows(const ProviderLimits* limits, const std::string& provider
             ImGui::TextDisabled("%s", reset.c_str());
             ImGui::EndGroup();
             if (ImGui::IsItemHovered()) {
-                std::string tip = v.label + ": " + (v.known ? format_percent(v.used) + " of this window used." : "usage not reported.");
-                if (v.wasReset) tip += "\nThe window has reset since the last report (shown as 0% until " + provider + " reports again).";
-                else if (v.resetsAt > 0) tip += "\nResets " + format_date_time(v.resetsAt) + ".";
+                std::string tip = v.label + ": " +
+                                  (v.known ? format_percent(v.used) + " of this window used." : "usage not reported.");
+                if (v.wasReset)
+                    tip += "\nThe window has reset since the last report (shown as 0% until " + provider +
+                           " reports again).";
+                else if (v.resetsAt > 0)
+                    tip += "\nResets " + format_date_time(v.resetsAt) + ".";
                 if (limits->updated > 0) {
-                    tip += "\nAs of " + format_clock(limits->updated, now) + ": " + provider + " reports the plan windows once per message,\n"
+                    tip += "\nAs of " + format_clock(limits->updated, now) + ": " + provider +
+                           " reports the plan windows once per message,\n"
                            "after its first model call, so they do not move while it works.";
                 }
                 ImGui::SetTooltip("%s", tip.c_str());
@@ -213,12 +223,14 @@ void draw_usage_area(const AiChat& chat, bool subscription) {
     const float barW = std::min(180.0f, flow.avail);
     if (chat.contextTokens > 0) {
         const bool known = chat.contextWindow > 0;
-        const std::string text = "Context " + format_tokens(chat.contextTokens) + (known ? " / " + format_tokens(chat.contextWindow) : "");
+        const std::string text =
+            "Context " + format_tokens(chat.contextTokens) + (known ? " / " + format_tokens(chat.contextWindow) : "");
         const float w = known ? barW : ImGui::CalcTextSize(text.c_str()).x;
         flow.place(w);
         ImGui::BeginGroup();
         if (known) {
-            const double frac = std::min(1.0, static_cast<double>(chat.contextTokens) / static_cast<double>(chat.contextWindow));
+            const double frac =
+                std::min(1.0, static_cast<double>(chat.contextTokens) / static_cast<double>(chat.contextWindow));
             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, bar_color(frac));
             ImGui::ProgressBar(static_cast<float>(frac), ImVec2(barW, 0), text.c_str());
             ImGui::PopStyleColor();
@@ -239,12 +251,14 @@ void draw_usage_area(const AiChat& chat, bool subscription) {
                 ImGui::Text("Where the last call's context went (estimated):");
                 std::string system = format_tokens(ai::estimate_tokens(split.systemBytes));
                 if (split.catalogCount > 0) {
-                    system += ", of which the catalog of " + std::to_string(split.catalogCount) + " more commands: " +
-                              format_tokens(ai::estimate_tokens(split.catalogBytes));
+                    system += ", of which the catalog of " + std::to_string(split.catalogCount) +
+                              " more commands: " + format_tokens(ai::estimate_tokens(split.catalogBytes));
                 }
                 ImGui::BulletText("System prompt: %s", system.c_str());
-                ImGui::BulletText("Tool definitions: %s (%d tools)", format_tokens(ai::estimate_tokens(split.toolBytes)).c_str(), split.toolCount);
-                ImGui::BulletText("Conversation: %s", format_tokens(ai::estimate_tokens(split.conversationBytes)).c_str());
+                ImGui::BulletText("Tool definitions: %s (%d tools)",
+                                  format_tokens(ai::estimate_tokens(split.toolBytes)).c_str(), split.toolCount);
+                ImGui::BulletText("Conversation: %s",
+                                  format_tokens(ai::estimate_tokens(split.conversationBytes)).c_str());
             }
             ImGui::EndTooltip();
         }
@@ -256,7 +270,8 @@ void draw_usage_area(const AiChat& chat, bool subscription) {
         char text[96];
         // A CLI with a sign-in (Claude Code, Codex) runs on a subscription: the dollars are what the same tokens would cost
         // on the pay-per-token API, none of it is charged on top of the plan.
-        std::snprintf(text, sizeof text, "API cost est. $%.4f%s", cost, subscription ? " (not billed on a subscription)" : "");
+        std::snprintf(text, sizeof text, "API cost est. $%.4f%s", cost,
+                      subscription ? " (not billed on a subscription)" : "");
         flow.place(ImGui::CalcTextSize(text).x);
         ImGui::AlignTextToFramePadding();  // same height as the bar next to it
         ImGui::TextUnformatted(text);
@@ -265,14 +280,17 @@ void draw_usage_area(const AiChat& chat, bool subscription) {
     if (u.inputTokens || u.outputTokens || u.cacheReadTokens || u.cacheCreationTokens) {
         char text[160];
         std::snprintf(text, sizeof text, "Tokens in %s  out %s  cache %s", format_tokens(u.inputTokens).c_str(),
-                      format_tokens(u.outputTokens).c_str(), format_tokens(u.cacheReadTokens + u.cacheCreationTokens).c_str());
+                      format_tokens(u.outputTokens).c_str(),
+                      format_tokens(u.cacheReadTokens + u.cacheCreationTokens).c_str());
         flow.place(ImGui::CalcTextSize(text).x);
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(text);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Tokens used by this conversation so far, live while an agent works.\nin = new input, out = what the model wrote,\n"
-                              "cache = input read from or written to the prompt cache.\n"
-                              "Claude Code reports a message's output tokens early, so out can lag until the agent finishes.");
+            ImGui::SetTooltip(
+                "Tokens used by this conversation so far, live while an agent works.\nin = new input, out = what the "
+                "model wrote,\n"
+                "cache = input read from or written to the prompt cache.\n"
+                "Claude Code reports a message's output tokens early, so out can lag until the agent finishes.");
         }
     }
 }
@@ -294,10 +312,12 @@ std::string model_tip(const ai::ModelInfo& m) {
 // The menu of the InputText just submitted on `text` (which must pass text_menu_callback with CallbackAlways).
 void Editor::text_menu(const std::string& text, bool readOnly) {
     const ImGuiID id = ImGui::GetItemID();
-    if (id == 0 || !ImGui::BeginPopupContextItem()) return;  // 0: the box is scrolled out of a small window (no menu to open)
+    if (id == 0 || !ImGui::BeginPopupContextItem())
+        return;  // 0: the box is scrolled out of a small window (no menu to open)
     const ImGuiInputTextState* s = ImGui::GetInputTextState(id);
     // ImGui keeps a box's cursor only while its text is unchanged (an editable box) and no other box was used since.
-    const bool fresh = !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);
+    const bool fresh =
+        !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);
     size_t a = 0, b = 0;
     if (!fresh && s->HasSelection()) {
         a = std::min<size_t>(std::min(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
@@ -328,20 +348,23 @@ void Editor::text_menu(const std::string& text, bool readOnly) {
 void Editor::message_text(const char* id, std::string& text, const ImVec4* color) {
     const ImGuiStyle& st = ImGui::GetStyle();
     const float w = ImGui::GetContentRegionAvail().x;
-    const float wrap = std::max(1.0f, w - st.FramePadding.x * 2 - st.ScrollbarSize);  // what ImGuiInputTextFlags_WordWrap uses
+    const float wrap =
+        std::max(1.0f, w - st.FramePadding.x * 2 - st.ScrollbarSize);  // what ImGuiInputTextFlags_WordWrap uses
     // Its line count as InputTextLineIndexBuild counts it, so the box never needs a scrollbar of its own.
     const char* end = text.data() + text.size();
     int lines = 0;
     for (const char* p = text.data(); p < end; p = *p == '\n' ? p + 1 : p) {
         ++lines;
-        p = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), p, end, wrap, ImDrawTextFlags_WrapKeepBlanks);
+        p = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), p, end, wrap,
+                                         ImDrawTextFlags_WrapKeepBlanks);
     }
     lines = std::max(lines, 1) + (!text.empty() && text.back() == '\n' ? 1 : 0);
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
     if (color) ImGui::PushStyleColor(ImGuiCol_Text, *color);
-    ImGui::InputTextMultiline(id, &text, ImVec2(w, static_cast<float>(lines) * ImGui::GetFontSize() + st.FramePadding.y * 2),
-                              ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
-                              text_menu_callback);
+    ImGui::InputTextMultiline(
+        id, &text, ImVec2(w, static_cast<float>(lines) * ImGui::GetFontSize() + st.FramePadding.y * 2),
+        ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
+        text_menu_callback);
     at_track("ai:message");
     ImGui::PopStyleColor(color ? 2 : 1);
     text_menu(text, true);
@@ -355,7 +378,8 @@ void Editor::ai_refresh_providers() {
         ai::AiConfig cfg;
         std::string err;
         auto loaded = ai::load_config();
-        if (loaded) cfg = *loaded;
+        if (loaded)
+            cfg = *loaded;
         else {
             err = loaded.error().to_string();
             cfg = ai::default_config();
@@ -375,8 +399,10 @@ void Editor::ai_refresh_providers() {
         for (const ai::ProviderStatus& s : st) {
             if (!s.available || ai::is_asset_only_kind(cfg.providers.at(s.name).kind)) continue;
             ProviderModels& pm = models[s.name];
-            if (auto listed = ai::list_models(cfg.providers.at(s.name))) pm.models = std::move(*listed);
-            else pm.error = listed.error().to_string();
+            if (auto listed = ai::list_models(cfg.providers.at(s.name)))
+                pm.models = std::move(*listed);
+            else
+                pm.error = listed.error().to_string();
         }
         {
             std::lock_guard<std::mutex> lock(aiMu_);
@@ -387,7 +413,8 @@ void Editor::ai_refresh_providers() {
 }
 
 std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
-    AiRun* const r = &run;  // outlives the registry: ai_end_run joins the thread and stops the endpoint before it frees the run
+    AiRun* const r =
+        &run;  // outlives the registry: ai_end_run joins the thread and stops the endpoint before it frees the run
     auto reg = std::make_shared<CommandRegistry>();
     for (const CommandInfo* ci : engine_->commands().list()) {
         CommandInfo info = *ci;
@@ -465,7 +492,9 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     // candidates for a slot) has its sheet offered the same way: the toast is posted to the UI thread (poll_review shows it).
     std::vector<std::string> own;
     for (const CommandInfo* ci : reg->list())
-        if (!ci->readOnly && !engine_->commands().has(ci->name) && ci->name != "assets.pick" && ci->name != "review.pick") own.push_back(ci->name);
+        if (!ci->readOnly && !engine_->commands().has(ci->name) && ci->name != "assets.pick" &&
+            ci->name != "review.pick")
+            own.push_back(ci->name);
     for (const std::string& name : own) {
         CommandInfo info = *reg->info(name);
         CommandHandler inner = reg->handler(name);
@@ -473,7 +502,7 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
         reg->add(std::move(info), [this, inner, project = projectDir_](const Json& args) -> Json {
             Json out = inner(args);
             if (ReviewAnnounce a = review_announce_from(out, args); !a.sheet.empty()) {
-                a.project = project;   // poll_review drops it if another project is open by then
+                a.project = project;  // poll_review drops it if another project is open by then
                 std::lock_guard<std::mutex> lock(reviewInboxMu_);
                 reviewInbox_.push_back(std::move(a));
             }
@@ -526,7 +555,8 @@ bool Editor::ai_with_project_config(const std::function<void(const ai::AiConfig&
             std::error_code ec;  // never the throwing overload: this runs on the UI thread every frame
             aiProjFileDir_ = projectDir_;
             aiProjFileAtMs_ = nowMs;
-            aiProjHasFile_ = std::filesystem::is_regular_file(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json", ec);
+            aiProjHasFile_ =
+                std::filesystem::is_regular_file(utf8_path(projectDir_) / ".factoria" / "ai" / "settings.json", ec);
         }
         hasFile = !projectDir_.empty() && aiProjHasFile_;
         key = projectDir_;
@@ -608,8 +638,10 @@ void Editor::ai_sync_chats() {
 
 // Adds a copied picture to the active chat's pending strip, or tells the user why not.
 void Editor::ai_add_pending(Result<ChatAttachment> attached) {
-    if (attached) chat_.current().pending.push_back(*attached);
-    else notify(attached.error().to_string(), 1);
+    if (attached)
+        chat_.current().pending.push_back(*attached);
+    else
+        notify(attached.error().to_string(), 1);
 }
 
 void Editor::ai_attach_path(const std::string& path) {
@@ -619,7 +651,9 @@ void Editor::ai_attach_path(const std::string& path) {
         return;
     }
     if (chat_.current().pending.size() >= kMaxPendingImages) {
-        notify("At most " + std::to_string(kMaxPendingImages) + " pictures per message. Send this one first, then attach more.", 1);
+        notify("At most " + std::to_string(kMaxPendingImages) +
+                   " pictures per message. Send this one first, then attach more.",
+               1);
         return;
     }
     ai_add_pending(attach_file(projectDir_, path));
@@ -631,7 +665,9 @@ void Editor::ai_paste_image() {
     const std::vector<std::uint8_t> png = clipboard_image_png();
     if (png.empty()) return;  // no picture on the clipboard: nothing to attach
     if (chat_.current().pending.size() >= kMaxPendingImages) {
-        notify("At most " + std::to_string(kMaxPendingImages) + " pictures per message. Send this one first, then paste more.", 1);
+        notify("At most " + std::to_string(kMaxPendingImages) +
+                   " pictures per message. Send this one first, then paste more.",
+               1);
         return;
     }
     ai_add_pending(attach_bytes(projectDir_, "paste.png", png));
@@ -649,7 +685,8 @@ void Editor::ai_on_files_dropped() {
 // every slot of limits.maxConcurrentRuns is taken or the endpoint cannot start. Reviews (ai_review.cpp) start their runs the same way.
 std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
     if (ai_run_count() >= ai_max_runs()) {
-        notify(std::to_string(ai_run_count()) + " chats are already running (the limit is limits.maxConcurrentRuns in ai.json). " +
+        notify(std::to_string(ai_run_count()) +
+                   " chats are already running (the limit is limits.maxConcurrentRuns in ai.json). " +
                    "Wait for one to finish or press Stop in its tab.",
                1);
         return nullptr;
@@ -658,26 +695,27 @@ std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
     AiRun& run = *owned;
     // StreamHandler: a long ai.run call reports progress (what the worker does) as MCP notifications on its own request, so
     // Claude Code, which aborts a call that stays silent for 300 s, keeps waiting for as long as the worker really works.
-    auto started = run.mcp.start([r = &run, dir = projectDir_, session = run.mcpSession](
-                                     std::string_view message, const McpHttpServer::Notify& emit) -> std::optional<std::string> {
-        std::shared_ptr<CommandRegistry> proxy;
-        std::string role;
-        {
-            std::lock_guard<std::mutex> lock(r->mu);
-            proxy = r->proxy;
-            role = r->endpointRole;
-        }
-        if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
-        // The CLI agent behind this endpoint can do what its role's capabilities allow and no more (a builder's CLI cannot publish
-        // through MCP; a critic's registry holds only the commands that observe and play, make_proxy_registry); the scopes travel
-        // with each command to the main thread (MainThreadQueue).
-        CommandCapabilityScope roleCapabilities(ai::role_capabilities(role), ai::role_denial_hint(role));
-        SimpleMcpHost host(*proxy, dir);
-        McpServer server(host);  // one server per message, sharing the run's session (handshake, cancellation)
-        server.share_session(session);
-        server.set_notification_sink([&emit](const std::string& n) { emit(n); });
-        return server.handle_message(message);
-    });
+    auto started =
+        run.mcp.start([r = &run, dir = projectDir_, session = run.mcpSession](
+                          std::string_view message, const McpHttpServer::Notify& emit) -> std::optional<std::string> {
+            std::shared_ptr<CommandRegistry> proxy;
+            std::string role;
+            {
+                std::lock_guard<std::mutex> lock(r->mu);
+                proxy = r->proxy;
+                role = r->endpointRole;
+            }
+            if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
+            // The CLI agent behind this endpoint can do what its role's capabilities allow and no more (a builder's CLI cannot publish
+            // through MCP; a critic's registry holds only the commands that observe and play, make_proxy_registry); the scopes travel
+            // with each command to the main thread (MainThreadQueue).
+            CommandCapabilityScope roleCapabilities(ai::role_capabilities(role), ai::role_denial_hint(role));
+            SimpleMcpHost host(*proxy, dir);
+            McpServer server(host);  // one server per message, sharing the run's session (handshake, cancellation)
+            server.share_session(session);
+            server.set_notification_sink([&emit](const std::string& n) { emit(n); });
+            return server.handle_message(message);
+        });
     if (!started) {
         notify(started.error().to_string(), 2);
         return nullptr;
@@ -710,7 +748,8 @@ void Editor::ai_start(const std::string& task) {
         imageFiles.push_back(utf8_string(utf8_path(projectDir_) / utf8_path(a.path)));
     }
     chat.pending.clear();
-    const std::string revertNote = revert_line(chat.items);  // before this message: what the user reverted since the last one
+    const std::string revertNote =
+        revert_line(chat.items);  // before this message: what the user reverted since the last one
     chat.items.push_back(std::move(user));
     if (chat.title.empty()) chat.title = chat_title_from(task);
     chat.updated = now_epoch();
@@ -726,7 +765,7 @@ void Editor::ai_start(const std::string& task) {
 
     run.startedAt = now_epoch();
     ai::asset_run_begin(chat.id);  // the run's asset spending starts at 0 and "Approve all" is off again
-    run.reset_live(now_ms());  // a fresh run: nothing is left of any earlier one's liveness
+    run.reset_live(now_ms());      // a fresh run: nothing is left of any earlier one's liveness
     aiTouch_.begin(chat.id);
     ai_run_checkpoint_begin(run, task);  // before the agent thread exists: it cannot touch a file first
     aiRuns_.push_back(std::move(owned));
@@ -791,8 +830,8 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
 // endpoint stops, its last events are applied and its chat is saved.
 void Editor::ai_stop(const char* cause) {
     for (auto& r : aiRuns_) r->request_cancel(cause);
-    aiApprovals_.close();  // a call waiting for the user's yes ends as stopped
-    ai::asset_run_begin(kImagePanelRun);   // the Image panel's spending in this run of the project starts at 0 too
+    aiApprovals_.close();                 // a call waiting for the user's yes ends as stopped
+    ai::asset_run_begin(kImagePanelRun);  // the Image panel's spending in this run of the project starts at 0 too
     queue_.close();
     for (auto& r : aiRuns_) {
         if (r->thread.joinable()) r->thread.join();
@@ -802,7 +841,8 @@ void Editor::ai_stop(const char* cause) {
     std::vector<std::string> ids;
     for (const auto& r : aiRuns_) ids.push_back(r->chatId);
     for (const std::string& id : ids) {
-        if (AiRun* r = ai_run_of(id)) ai_drain_run(*r);  // the cancelled run's last events and result (cancel set: no continuation)
+        if (AiRun* r = ai_run_of(id))
+            ai_drain_run(*r);  // the cancelled run's last events and result (cancel set: no continuation)
         if (AiRun* r = ai_run_of(id)) ai_end_run(*r, chat_.find(id));  // a worker that never reported back
     }
     queue_.reopen();
@@ -826,12 +866,15 @@ void Editor::ai_end_run(AiRun& run, AiChat* c) {
         chat_.save(*c);  // saved after every run (no timer): the chat survives a crash or a closed editor
         chat_.save_open_list();
         if (c->id != chat_.current().id)  // the run was in a tab that is not in front: say it is over
-            notify("The assistant finished in chat \"" + (c->title.empty() ? std::string("New chat") : short_line(c->title, 40)) + "\"", 0);
+            notify("The assistant finished in chat \"" +
+                       (c->title.empty() ? std::string("New chat") : short_line(c->title, 40)) + "\"",
+                   0);
     } else {
         run.checkpointId.clear();
         aiTouch_.end(chatId, {});
     }
-    if (chatId == aiReview_.chatId) aiReview_.stopped = run.cancel.load();  // the user stopped a reviewer (ai_review_tick)
+    if (chatId == aiReview_.chatId)
+        aiReview_.stopped = run.cancel.load();  // the user stopped a reviewer (ai_review_tick)
     run.request_cancel("run_ended");  // anything of this run still blocked on the queue or on its endpoint ends
     if (run.thread.joinable()) run.thread.join();
     run.mcp.stop();
@@ -847,7 +890,8 @@ static std::string continuation_prompt(const std::vector<std::pair<ai::AiRunInfo
     for (const auto& [info, text] : reports) {
         out += "\n--- " + info.role + " worker, task: " + clip(info.task, 300) + "\n" + text + "\n";
     }
-    out += "\nCarry on from here: check the result against what the user asked, finish whatever is left, and tell the user "
+    out += "\nCarry on from here: check the result against what the user asked, finish whatever is left, and tell the "
+           "user "
            "what was done. Do not start the same work again.";
     return out;
 }
@@ -870,8 +914,10 @@ void Editor::ai_watchdog_tick(AiRun& run) {
         // (process_alive) together with silence for the grace period counts as gone.
         if (agent_process_gone(p.pid, tree.empty(), idle, &process_alive)) {
             double& since = run.deadSince[p.pid];
-            if (since == 0) since = now;
-            else if (now - since >= 10 && !dead) dead = &p;  // gone for two samples, and its run is still going
+            if (since == 0)
+                since = now;
+            else if (now - since >= 10 && !dead)
+                dead = &p;  // gone for two samples, and its run is still going
         } else if (tree.empty()) {
             run.deadSince.erase(p.pid);  // alive or still reporting, just not in the list this time
         } else {
@@ -984,7 +1030,8 @@ void Editor::ai_drain_run(AiRun& run) {
     const bool detached = d.detached, orphansDone = d.orphansDone;
     if (!events.empty() || result || run.running.load() || detached) ai_watchdog_tick(run);
     if (events.empty() && !result && !(detached && orphansDone)) return;
-    AiChat orphan;  // the run's chat is gone (the project changed under it): its text is dropped, the plan limits are kept
+    AiChat
+        orphan;  // the run's chat is gone (the project changed under it): its text is dropped, the plan limits are kept
     AiChat* found = chat_.find(run.chatId);
     AiChat& c = found ? *found : orphan;
     std::vector<ChatItem>& items = c.items;
@@ -1000,7 +1047,8 @@ void Editor::ai_drain_run(AiRun& run) {
         c.scrollDown = true;
         switch (ev.type) {
             case T::SessionStart:
-                note(ChatItem::Kind::Info, "session started (" + std::string(ai::role_display_name(ev.role)) + ")", ev.depth);
+                note(ChatItem::Kind::Info, "session started (" + std::string(ai::role_display_name(ev.role)) + ")",
+                     ev.depth);
                 break;
             case T::TextDelta:
                 if (items.empty() || items.back().kind != ChatItem::Kind::Assistant || items.back().depth != ev.depth) {
@@ -1056,17 +1104,13 @@ void Editor::ai_drain_run(AiRun& run) {
                     }
                 }
                 break;
-            case T::Info:
-                note(ChatItem::Kind::Info, ev.text, ev.depth);
-                break;
+            case T::Info: note(ChatItem::Kind::Info, ev.text, ev.depth); break;
             case T::Error:
                 note(ChatItem::Kind::Error, ev.text, ev.depth);
                 // A run that ends in an error still spent what it spent (the parser's own errors carry no usage).
                 if (ev.usage.total() > 0 || ev.costUsd > 0) c.run.update(ev.runId, ev.usage, ev.costUsd);
                 break;
-            case T::Done:
-                c.run.update(ev.runId, ev.usage, ev.costUsd);
-                break;
+            case T::Done: c.run.update(ev.runId, ev.usage, ev.costUsd); break;
         }
     }
     if (result) {
@@ -1077,7 +1121,8 @@ void Editor::ai_drain_run(AiRun& run) {
                       (result->hint.empty() ? "" : "\nHint: " + result->hint);
         } else if (detached) {
             it.kind = ChatItem::Kind::Info;
-            it.text = "The orchestrator's turn ended while its worker is still running. When the worker finishes, its report goes "
+            it.text = "The orchestrator's turn ended while its worker is still running. When the worker finishes, its "
+                      "report goes "
                       "back to the orchestrator and the work continues (Stop ends both).";
         } else {
             it.kind = ChatItem::Kind::Info;
@@ -1087,7 +1132,8 @@ void Editor::ai_drain_run(AiRun& run) {
         // The orchestrator's final totals replace its live ones and join the chat's; the workers' (whose usage the
         // orchestrator's result does not hold) join too, unless one still runs: that one settles when it ends.
         c.run.settle_orchestrator(result->usage, result->costUsd, c.usage, c.costUsd, !detached);
-        if (!result->conversation.empty()) c.conversation = result->conversation;  // a failed first run keeps the old one
+        if (!result->conversation.empty())
+            c.conversation = result->conversation;  // a failed first run keeps the old one
         c.updated = now_epoch();
         c.scrollDown = true;
         if (detached) {
@@ -1163,7 +1209,8 @@ std::string Editor::ai_editing_note() {
         names.push_back("\"" + (!c || c->title.empty() ? std::string("New chat") : short_line(c->title, 30)) + "\"");
     }
     std::string who;
-    for (std::size_t i = 0; i < names.size(); ++i) who += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + names[i];
+    for (std::size_t i = 0; i < names.size(); ++i)
+        who += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + names[i];
     return "The assistant is changing the scene" + (who.empty() ? std::string() : " (chat " + who + ")") +
            ": wait for it to finish (or press Stop in the AI panel).";
 }
@@ -1177,11 +1224,13 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
     if (aiRolesOpen_) {
         std::set<std::string> typing;
         std::map<std::string, ai::RoleConfig> restarted;
-        if (aiRolesKeepEdits_ && aiRolesBase_) {  // the files changed under the window: the rows the person changed stay as typed
+        if (aiRolesKeepEdits_ &&
+            aiRolesBase_) {  // the files changed under the window: the rows the person changed stay as typed
             restarted = ai_roles_keep_edits(aiRolesEdit_, *aiRolesBase_, cfg);
             for (const std::string& name : aiRolesTyping_) {
                 const auto was = aiRolesEdit_.find(name);
-                if (was != aiRolesEdit_.end() && !ai_same_role(was->second, aiRolesBase_->role(name))) typing.insert(name);
+                if (was != aiRolesEdit_.end() && !ai_same_role(was->second, aiRolesBase_->role(name)))
+                    typing.insert(name);
             }
         } else {
             for (const char* name : kRoleNames) restarted[name] = cfg.role(name);
@@ -1210,182 +1259,214 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
         models = aiModels_;
     }
     for (int group = 0; group < ai::kRoleGroupCount; ++group) {
-      ImGui::SeparatorText(ai::role_group_title(group));
-      if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), columns, ImGuiTableFlags_SizingFixedFit)) {
-        // Fixed widths so the three tables line up like one (narrower with the "From" column, so it fits the window).
-        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, res ? 56.0f : 64.0f);
-        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, res ? 84.0f : 96.0f);
-        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, res ? 150.0f : 180.0f);
-        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, res ? 176.0f : 270.0f);
-        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, res ? 96.0f : 90.0f);
-        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, res ? 76.0f : 90.0f);
-        if (res) ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 150);
-        ImGui::TableHeadersRow();
-        for (const char* name : kRoleNames) {
-            if (ai::role_group(name) != group) continue;
-            ai::RoleConfig& r = aiRolesEdit_[name];
-            ImGui::PushID(name);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            const bool orchestrator = std::string_view(name) == ai::kRoleOrchestrator;
-            {
-                bool on = orchestrator || r.enabled;
-                ImGui::BeginDisabled(orchestrator);  // the orchestrator is always there
-                if (ImGui::Checkbox("##enabled", &on) && !orchestrator) r.enabled = on;
-                at_track(std::string("ai:roles:enabled:") + name, !orchestrator);
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) {
-                    if (orchestrator) ImGui::SetTooltip("The Orchestrator is always on: it talks to you and does the work of\nevery role that is turned off.");
-                    else if (ai::is_review_role(name)) ImGui::SetTooltip("Off: the %s button still works, but the review runs on the\nOrchestrator's provider, model and effort (still read-only).", ai::role_display_name(name));
-                    else ImGui::SetTooltip("Off: the Orchestrator does the work of the %s role itself\nand nothing is delegated to it.", ai::role_display_name(name));
-                }
-            }
-            ImGui::TableNextColumn();
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(ai::role_display_name(name));
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", ai::role_summary(name));
-            ImGui::BeginDisabled(!orchestrator && !r.enabled);  // an off role keeps its settings but they are not used
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 140.0f : 170.0f);
-            if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
-                for (const auto& [pname, pc] : cfg.providers) {
-                    if (ai::is_asset_only_kind(pc.kind)) continue;  // they generate assets, they cannot play a role
-                    const auto found = std::ranges::find(status, pname, &ai::ProviderStatus::name);
-                    const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
-                    const std::string label = pname + (st && !st->available ? "  (not available)" : "");
-                    if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
-                        r = {pname, "", "", r.maxTokens, r.maxContextTokens, r.enabled};  // another provider: its default model and effort
-                        aiRolesTyping_.erase(name);
-                    }
-                    if (st && ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 166.0f : 260.0f);
-            const auto rstatus = std::ranges::find(status, r.provider, &ai::ProviderStatus::name);
-            const auto listed = models.find(r.provider);
-            const bool listOk = listed != models.end() && listed->second.error.empty();
-            // A provider that could not list its models (Claude Code not installed or not logged in yet) still offers
-            // the ones it always accepts, so picking it never leaves a bare text box.
-            const auto pcfg = cfg.providers.find(r.provider);
-            const std::vector<ai::ModelInfo> fallback =
-                listOk || pcfg == cfg.providers.end() ? std::vector<ai::ModelInfo>{} : ai::fallback_models(pcfg->second.kind);
-            const std::string listError = listed != models.end() ? listed->second.error : std::string();
-            if (rstatus != status.end() && !rstatus->available) {
-                // Nothing to pick from: say why instead of a model box (the role keeps its model for when it is set up).
-                ImGui::BeginDisabled();
-                if (ImGui::BeginCombo("##model", "Provider not available")) ImGui::EndCombo();
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("%s\n%s", rstatus->detail.c_str(), rstatus->hint.c_str());
-                }
-            } else if ((listOk || !fallback.empty()) && !aiRolesTyping_.contains(name)) {
-                // The models the provider offers; "Other..." types one that is not in the list.
-                const std::vector<ai::ModelInfo>& list = listOk ? listed->second.models : fallback;
-                const auto current = std::ranges::find(list, r.model, &ai::ModelInfo::id);
-                const std::string preview = r.model.empty() ? "default" : current != list.end() ? model_label(*current) : r.model;
-                if (ImGui::BeginCombo("##model", preview.c_str())) {
-                    const auto def = std::ranges::find(list, "default", &ai::ModelInfo::id);  // Claude Code lists its default
-                    if (ImGui::Selectable("default", r.model.empty())) r.model.clear();
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("The default of the role (Anthropic API) or of the CLI itself.%s%s", def == list.end() ? "" : "\n",
-                                          def == list.end() ? "" : model_tip(*def).c_str());
-                    }
-                    for (const ai::ModelInfo& m : list) {
-                        if (m.id == "default") continue;  // the item above is the same choice
-                        if (ImGui::Selectable(model_label(m).c_str(), r.model == m.id)) r.model = m.id;
-                        if (ImGui::IsItemHovered() && !model_tip(m).empty()) ImGui::SetTooltip("%s", model_tip(m).c_str());
-                    }
-                    if (ImGui::Selectable("Other...")) aiRolesTyping_.insert(name);
-                    ImGui::SetItemTooltip("Type a model name that is not in the list.");
-                    ImGui::EndCombo();
-                }
-                if (!listOk) {
-                    ImGui::SetItemTooltip("Its models could not be listed, so these are the aliases it always accepts.\n%s",
-                                          listError.empty() ? "Still asking it (Refresh models)." : listError.c_str());
-                }
-            } else {
-                ImGui::InputTextWithHint("##model", "default", &r.model);
-                // Typed text that is empty or in the list sends the role back to the list.
-                const std::vector<ai::ModelInfo>& back = listOk ? listed->second.models : fallback;
-                if (ImGui::IsItemDeactivated() && (listOk || !fallback.empty()) &&
-                    (r.model.empty() || std::ranges::find(back, r.model, &ai::ModelInfo::id) != back.end())) {
-                    aiRolesTyping_.erase(name);
-                }
-                ImGui::SetItemTooltip("Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"
-                                      "(Anthropic API). Empty = the default: Anthropic's for the role, or the CLI's own.%s%s",
-                                      listed != models.end() && !listed->second.error.empty() ? "\nIts models could not be listed: " : "",
-                                      listed != models.end() ? listed->second.error.c_str() : "");
-            }
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 88.0f : 90.0f);
-            if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
-                for (const char* e : kEfforts) {
-                    if (ImGui::Selectable(*e ? e : "default", r.effort == e)) r.effort = e;
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 68.0f : 80.0f);
-            const auto context_label = [](u64 n) { return n == 0 ? std::string("full") : format_tokens(n); };
-            if (ImGui::BeginCombo("##context", context_label(r.maxContextTokens).c_str())) {
-                for (const u64 n : kContextLimits) {
-                    if (ImGui::Selectable(context_label(n).c_str(), r.maxContextTokens == n)) r.maxContextTokens = n;
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SetItemTooltip("Most context a session of this role keeps. When it gets there, the earlier part of the\n"
-                                  "conversation is replaced by a summary, so each message reads (and costs) less.\n"
-                                  "full = the model's whole window. Claude Code and the Anthropic API; other providers ignore it.");
-            ImGui::EndDisabled();
-            if (res) {
+        ImGui::SeparatorText(ai::role_group_title(group));
+        if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), columns, ImGuiTableFlags_SizingFixedFit)) {
+            // Fixed widths so the three tables line up like one (narrower with the "From" column, so it fits the window).
+            ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, res ? 56.0f : 64.0f);
+            ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, res ? 84.0f : 96.0f);
+            ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, res ? 150.0f : 180.0f);
+            ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, res ? 176.0f : 270.0f);
+            ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, res ? 96.0f : 90.0f);
+            ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, res ? 76.0f : 90.0f);
+            if (res) ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 150);
+            ImGui::TableHeadersRow();
+            for (const char* name : kRoleNames) {
+                if (ai::role_group(name) != group) continue;
+                ai::RoleConfig& r = aiRolesEdit_[name];
+                ImGui::PushID(name);
+                ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                const ai::SettingSource source = ai_group_source(*res, std::string("/roles/") + name);
+                const bool orchestrator = std::string_view(name) == ai::kRoleOrchestrator;
+                {
+                    bool on = orchestrator || r.enabled;
+                    ImGui::BeginDisabled(orchestrator);  // the orchestrator is always there
+                    if (ImGui::Checkbox("##enabled", &on) && !orchestrator) r.enabled = on;
+                    at_track(std::string("ai:roles:enabled:") + name, !orchestrator);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) {
+                        if (orchestrator)
+                            ImGui::SetTooltip("The Orchestrator is always on: it talks to you and does the work "
+                                              "of\nevery role that is turned off.");
+                        else if (ai::is_review_role(name))
+                            ImGui::SetTooltip("Off: the %s button still works, but the review runs on "
+                                              "the\nOrchestrator's provider, model and effort (still read-only).",
+                                              ai::role_display_name(name));
+                        else
+                            ImGui::SetTooltip("Off: the Orchestrator does the work of the %s role itself\nand nothing "
+                                              "is delegated to it.",
+                                              ai::role_display_name(name));
+                    }
+                }
+                ImGui::TableNextColumn();
                 ImGui::AlignTextToFramePadding();
-                // A role the file does not name but that follows one it does (the artist and the audio role follow the worker): its value is
-                // the project's, and the way back is to reset the role it follows.
-                const bool named = res->overrides.is_object() && res->overrides.contains("roles") && res->overrides["roles"].is_object() &&
-                                   res->overrides["roles"].contains(name);
-                if (source == ai::SettingSource::Project && !named) {
-                    ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
-                    ImGui::SetItemTooltip("This role is not in the project's file: it follows another role that this project sets (the Worker or the\n"
-                                          "Orchestrator). Reset that role to bring this one back to your defaults.");
-                } else if (source == ai::SettingSource::Project) {
-                    ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
-                    ImGui::SetItemTooltip("This project's file sets this role. Reset to my defaults goes back to: %s%s.",
-                                          res->inherited.role_enabled(name) ? "" : "off, ",
-                                          (res->inherited.role(name).provider + " / " + (res->inherited.role(name).model.empty() ? "default" : res->inherited.role(name).model)).c_str());
-                    ImGui::SameLine();
-                    ImGui::BeginDisabled(locked);
-                    if (ImGui::SmallButton("Reset")) {
-                        if (auto done = ai_project_reset(std::string("/roles/") + name); !done) {
-                            notify(done.error().to_string(), 2);
-                        } else {
-                            aiRolesEdit_[name] = ai_window_config().role(name);  // this row only: the other rows keep their unsaved edits
+                ImGui::TextUnformatted(ai::role_display_name(name));
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", ai::role_summary(name));
+                ImGui::BeginDisabled(!orchestrator &&
+                                     !r.enabled);  // an off role keeps its settings but they are not used
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(res ? 140.0f : 170.0f);
+                if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
+                    for (const auto& [pname, pc] : cfg.providers) {
+                        if (ai::is_asset_only_kind(pc.kind)) continue;  // they generate assets, they cannot play a role
+                        const auto found = std::ranges::find(status, pname, &ai::ProviderStatus::name);
+                        const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
+                        const std::string label = pname + (st && !st->available ? "  (not available)" : "");
+                        if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
+                            r = {pname,    "", "", r.maxTokens, r.maxContextTokens,
+                                 r.enabled};  // another provider: its default model and effort
                             aiRolesTyping_.erase(name);
                         }
+                        if (st && ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
                     }
-                    at_track(std::string("ai:roles:reset:") + name, !locked);
-                    ImGui::SetItemTooltip("Reset to my defaults: this role goes back to what your ai.json gives it.");
-                    ImGui::EndDisabled();
-                } else {
-                    ImGui::TextDisabled("%s", ai_source_label(source));
-                    ImGui::SetItemTooltip("%s", source == ai::SettingSource::You ? "From your ai.json: every project that does not change it uses it."
-                                                                                : "The engine's own value (your ai.json does not set it).");
+                    ImGui::EndCombo();
                 }
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(res ? 166.0f : 260.0f);
+                const auto rstatus = std::ranges::find(status, r.provider, &ai::ProviderStatus::name);
+                const auto listed = models.find(r.provider);
+                const bool listOk = listed != models.end() && listed->second.error.empty();
+                // A provider that could not list its models (Claude Code not installed or not logged in yet) still offers
+                // the ones it always accepts, so picking it never leaves a bare text box.
+                const auto pcfg = cfg.providers.find(r.provider);
+                const std::vector<ai::ModelInfo> fallback = listOk || pcfg == cfg.providers.end()
+                                                                ? std::vector<ai::ModelInfo>{}
+                                                                : ai::fallback_models(pcfg->second.kind);
+                const std::string listError = listed != models.end() ? listed->second.error : std::string();
+                if (rstatus != status.end() && !rstatus->available) {
+                    // Nothing to pick from: say why instead of a model box (the role keeps its model for when it is set up).
+                    ImGui::BeginDisabled();
+                    if (ImGui::BeginCombo("##model", "Provider not available")) ImGui::EndCombo();
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("%s\n%s", rstatus->detail.c_str(), rstatus->hint.c_str());
+                    }
+                } else if ((listOk || !fallback.empty()) && !aiRolesTyping_.contains(name)) {
+                    // The models the provider offers; "Other..." types one that is not in the list.
+                    const std::vector<ai::ModelInfo>& list = listOk ? listed->second.models : fallback;
+                    const auto current = std::ranges::find(list, r.model, &ai::ModelInfo::id);
+                    const std::string preview = r.model.empty()         ? "default"
+                                                : current != list.end() ? model_label(*current)
+                                                                        : r.model;
+                    if (ImGui::BeginCombo("##model", preview.c_str())) {
+                        const auto def =
+                            std::ranges::find(list, "default", &ai::ModelInfo::id);  // Claude Code lists its default
+                        if (ImGui::Selectable("default", r.model.empty())) r.model.clear();
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("The default of the role (Anthropic API) or of the CLI itself.%s%s",
+                                              def == list.end() ? "" : "\n",
+                                              def == list.end() ? "" : model_tip(*def).c_str());
+                        }
+                        for (const ai::ModelInfo& m : list) {
+                            if (m.id == "default") continue;  // the item above is the same choice
+                            if (ImGui::Selectable(model_label(m).c_str(), r.model == m.id)) r.model = m.id;
+                            if (ImGui::IsItemHovered() && !model_tip(m).empty())
+                                ImGui::SetTooltip("%s", model_tip(m).c_str());
+                        }
+                        if (ImGui::Selectable("Other...")) aiRolesTyping_.insert(name);
+                        ImGui::SetItemTooltip("Type a model name that is not in the list.");
+                        ImGui::EndCombo();
+                    }
+                    if (!listOk) {
+                        ImGui::SetItemTooltip(
+                            "Its models could not be listed, so these are the aliases it always accepts.\n%s",
+                            listError.empty() ? "Still asking it (Refresh models)." : listError.c_str());
+                    }
+                } else {
+                    ImGui::InputTextWithHint("##model", "default", &r.model);
+                    // Typed text that is empty or in the list sends the role back to the list.
+                    const std::vector<ai::ModelInfo>& back = listOk ? listed->second.models : fallback;
+                    if (ImGui::IsItemDeactivated() && (listOk || !fallback.empty()) &&
+                        (r.model.empty() || std::ranges::find(back, r.model, &ai::ModelInfo::id) != back.end())) {
+                        aiRolesTyping_.erase(name);
+                    }
+                    ImGui::SetItemTooltip(
+                        "Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"
+                        "(Anthropic API). Empty = the default: Anthropic's for the role, or the CLI's own.%s%s",
+                        listed != models.end() && !listed->second.error.empty() ? "\nIts models could not be listed: "
+                                                                                : "",
+                        listed != models.end() ? listed->second.error.c_str() : "");
+                }
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(res ? 88.0f : 90.0f);
+                if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
+                    for (const char* e : kEfforts) {
+                        if (ImGui::Selectable(*e ? e : "default", r.effort == e)) r.effort = e;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(res ? 68.0f : 80.0f);
+                const auto context_label = [](u64 n) { return n == 0 ? std::string("full") : format_tokens(n); };
+                if (ImGui::BeginCombo("##context", context_label(r.maxContextTokens).c_str())) {
+                    for (const u64 n : kContextLimits) {
+                        if (ImGui::Selectable(context_label(n).c_str(), r.maxContextTokens == n))
+                            r.maxContextTokens = n;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip(
+                    "Most context a session of this role keeps. When it gets there, the earlier part of the\n"
+                    "conversation is replaced by a summary, so each message reads (and costs) less.\n"
+                    "full = the model's whole window. Claude Code and the Anthropic API; other providers ignore it.");
+                ImGui::EndDisabled();
+                if (res) {
+                    ImGui::TableNextColumn();
+                    const ai::SettingSource source = ai_group_source(*res, std::string("/roles/") + name);
+                    ImGui::AlignTextToFramePadding();
+                    // A role the file does not name but that follows one it does (the artist and the audio role follow the worker): its value is
+                    // the project's, and the way back is to reset the role it follows.
+                    const bool named = res->overrides.is_object() && res->overrides.contains("roles") &&
+                                       res->overrides["roles"].is_object() && res->overrides["roles"].contains(name);
+                    if (source == ai::SettingSource::Project && !named) {
+                        ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+                        ImGui::SetItemTooltip(
+                            "This role is not in the project's file: it follows another role that this project sets "
+                            "(the Worker or the\n"
+                            "Orchestrator). Reset that role to bring this one back to your defaults.");
+                    } else if (source == ai::SettingSource::Project) {
+                        ImGui::TextColored(kProjectBlue, "%s", ai_source_label(source));
+                        ImGui::SetItemTooltip(
+                            "This project's file sets this role. Reset to my defaults goes back to: %s%s.",
+                            res->inherited.role_enabled(name) ? "" : "off, ",
+                            (res->inherited.role(name).provider + " / " +
+                             (res->inherited.role(name).model.empty() ? "default" : res->inherited.role(name).model))
+                                .c_str());
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(locked);
+                        if (ImGui::SmallButton("Reset")) {
+                            if (auto done = ai_project_reset(std::string("/roles/") + name); !done) {
+                                notify(done.error().to_string(), 2);
+                            } else {
+                                aiRolesEdit_[name] = ai_window_config().role(
+                                    name);  // this row only: the other rows keep their unsaved edits
+                                aiRolesTyping_.erase(name);
+                            }
+                        }
+                        at_track(std::string("ai:roles:reset:") + name, !locked);
+                        ImGui::SetItemTooltip(
+                            "Reset to my defaults: this role goes back to what your ai.json gives it.");
+                        ImGui::EndDisabled();
+                    } else {
+                        ImGui::TextDisabled("%s", ai_source_label(source));
+                        ImGui::SetItemTooltip("%s",
+                                              source == ai::SettingSource::You
+                                                  ? "From your ai.json: every project that does not change it uses it."
+                                                  : "The engine's own value (your ai.json does not set it).");
+                    }
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
+            ImGui::EndTable();
         }
-        ImGui::EndTable();
-      }
     }
     const std::string userSource = ai_user_config().sourcePath;
     const std::string path = userSource.empty() ? ai::default_config_path() : userSource;
     if (projectMode) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Saved in %s, this project's own file (not part of the game). Only what differs from your defaults is written.",
+        ImGui::TextWrapped("Saved in %s, this project's own file (not part of the game). Only what differs from your "
+                           "defaults is written.",
                            ai_project_settings_path().c_str());
         ImGui::PopStyleColor();
     } else {
@@ -1404,7 +1485,8 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
         ImGui::TextDisabled("Checking models...");
     }
     ImGui::BeginDisabled(locked);
-    const bool saveRetried = projectMode && ai_project_save_retry("roles");  // the user confirmed replacing the ignored file
+    const bool saveRetried =
+        projectMode && ai_project_save_retry("roles");  // the user confirmed replacing the ignored file
     if (ImGui::Button("Save") || saveRetried) {
         if (projectMode && !ai_project_replace_allowed("roles")) {
             // the confirmation popup was requested; Replace presses this Save again
@@ -1426,7 +1508,8 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             if (auto saved = ai::save_roles(toSave, path); !saved) {
                 notify(saved.error().to_string(), 2);
             } else {
-                auto loaded = ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
+                auto loaded =
+                    ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
                 {
                     std::lock_guard<std::mutex> lock(aiMu_);
                     if (loaded) aiConfig_ = std::move(*loaded);
@@ -1460,20 +1543,25 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                 notify("The roles of this project are back to your defaults.");
             }
         }
-        at_track("ai:roles:reset-tab", !(locked || !res || ai_group_source(*res, "/roles") != ai::SettingSource::Project));
-        ImGui::SetItemTooltip("Remove every role override of this project: all seven roles use your ai.json again (the limits and assets stay as they are).");
+        at_track("ai:roles:reset-tab",
+                 !(locked || !res || ai_group_source(*res, "/roles") != ai::SettingSource::Project));
+        ImGui::SetItemTooltip("Remove every role override of this project: all seven roles use your ai.json again (the "
+                              "limits and assets stay as they are).");
         ImGui::EndDisabled();
         fit_same_line("Save as my defaults");
         if (ImGui::Button("Save as my defaults")) {
             const ai::AiConfig wanted = ai_apply_edits(res ? res->config : cfg, &aiRolesEdit_, nullptr, nullptr);
-            const std::map<std::string, ai::RoleConfig> toSave = ai_roles_for_defaults(res ? res->inherited : cfg, aiRolesEdit_);
+            const std::map<std::string, ai::RoleConfig> toSave =
+                ai_roles_for_defaults(res ? res->inherited : cfg, aiRolesEdit_);
             if (auto saved = ai::save_roles(toSave, path); !saved) {
                 notify(saved.error().to_string(), 2);
             } else if (auto loaded = ai_user_config_reload(); !loaded) {
                 notify("Saved, but ai.json no longer loads: " + loaded.error().to_string(), 2);
             } else {
                 if (auto kept = ai_project_after_defaults(wanted); !kept) {
-                    notify("Your defaults were saved in " + path + ", but this project's AI settings file was not updated: " + kept.error().to_string(), 2);
+                    notify("Your defaults were saved in " + path +
+                               ", but this project's AI settings file was not updated: " + kept.error().to_string(),
+                           2);
                 } else {
                     notify("These roles are now your defaults: new projects start from them.");
                 }
@@ -1481,10 +1569,14 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             }
         }
         at_track("ai:roles:save-defaults");
-        ImGui::SetItemTooltip("Write every role you see here, the ones this project sets and the ones that come from your defaults, into your\n"
-                              "ai.json (%s), so every project that does not change them, and every new project, starts from them. This project\n"
-                              "keeps only what still differs. Artist, Audio, Art critic and Reviewer are not written while they still follow\n"
-                              "the Orchestrator and the Worker.", path.c_str());
+        ImGui::SetItemTooltip("Write every role you see here, the ones this project sets and the ones that come from "
+                              "your defaults, into your\n"
+                              "ai.json (%s), so every project that does not change them, and every new project, starts "
+                              "from them. This project\n"
+                              "keeps only what still differs. Artist, Audio, Art critic and Reviewer are not written "
+                              "while they still follow\n"
+                              "the Orchestrator and the Worker.",
+                              path.c_str());
     }
     ImGui::EndChild();
 }
@@ -1503,7 +1595,8 @@ std::string Editor::ai_roles_summary() {
         const ai::RoleConfig rc = cfg.role(name);
         roles += "\n" + std::string(ai::role_display_name(name)) + ": ";
         if (!rc.enabled) {
-            roles += std::string("off (") + (ai::is_review_role(name) ? "uses the Orchestrator's model" : "the Orchestrator does it") + ")";
+            roles += std::string("off (") +
+                     (ai::is_review_role(name) ? "uses the Orchestrator's model" : "the Orchestrator does it") + ")";
             continue;
         }
         roles += rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
@@ -1521,8 +1614,9 @@ std::string Editor::ai_roles_summary() {
 float Editor::ai_asset_cards_height(const AiChat& chat, float availableY) {
     if (!aiApprovals_.waiting_for(chat.id)) return 0;
     const float pad = ImGui::GetStyle().WindowPadding.y * 2;
-    const float needed = ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetFrameHeightWithSpacing() * 3 + pad;   // title, buttons
-    const float want = needed + ImGui::GetTextLineHeightWithSpacing() * 5;                                          // and the text
+    const float needed =
+        ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetFrameHeightWithSpacing() * 3 + pad;  // title, buttons
+    const float want = needed + ImGui::GetTextLineHeightWithSpacing() * 5;                         // and the text
     return std::min(want, std::max(needed, availableY * 0.6f));
 }
 
@@ -1537,7 +1631,8 @@ void Editor::ai_asset_notify_other_chats() {
     for (const AssetCard& card : cards) {
         if (card.chatId == front || !aiCardNotified_.insert(card.id).second) continue;
         const AiChat* c = chat_.find(card.chatId);
-        notify("The assistant in chat \"" + (c && !c->title.empty() ? short_line(c->title, 40) : std::string("New chat")) +
+        notify("The assistant in chat \"" +
+                   (c && !c->title.empty() ? short_line(c->title, 40) : std::string("New chat")) +
                    "\" asks your approval to spend money on assets. Open that tab to answer.",
                1);
     }
@@ -1574,10 +1669,12 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
         };
         place("Approve", "ai:approve:yes", "Make it and pay for it: this one call.", ai::AssetDecision::Approve, true);
         place("Approve all for this run", "ai:approve:all",
-              "Make this and every further paid call of this run without asking again.\nThe spending limits in AI Settings still hold.",
+              "Make this and every further paid call of this run without asking again.\nThe spending limits in AI "
+              "Settings still hold.",
               ai::AssetDecision::ApproveAll, false);
-        place("Cancel", "ai:approve:cancel", "Do not make it. The assistant is told you said no and continues without it.",
-              ai::AssetDecision::Cancel, false);
+        place("Cancel", "ai:approve:cancel",
+              "Do not make it. The assistant is told you said no and continues without it.", ai::AssetDecision::Cancel,
+              false);
         // What will be made: a scrolling child, so a long prompt in a narrow panel is read by scrolling, not by losing the buttons.
         ImGui::BeginChild("##cardtext", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4), ImGuiChildFlags_None);
         ImGui::PushTextWrapPos(0.0f);
@@ -1591,8 +1688,9 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
                 ChatItem it;
                 it.kind = ChatItem::Kind::Info;
                 it.text = *decision == ai::AssetDecision::Cancel ? "You declined: " + text.what
-                          : *decision == ai::AssetDecision::ApproveAll ? "You approved (all paid asset calls of this run): " + text.what + ", " + text.estimate
-                                                                       : "You approved: " + text.what + ", " + text.estimate;
+                          : *decision == ai::AssetDecision::ApproveAll
+                              ? "You approved (all paid asset calls of this run): " + text.what + ", " + text.estimate
+                              : "You approved: " + text.what + ", " + text.estimate;
                 chat.items.push_back(std::move(it));
                 chat.scrollDown = true;
             }
@@ -1606,7 +1704,10 @@ void Editor::draw_ai_asset_cards(AiChat& chat, float height) {
 }
 
 void Editor::draw_ai_panel() {
-    if (!ImGui::Begin("AI Assistant")) { ImGui::End(); return; }
+    if (!ImGui::Begin("AI Assistant")) {
+        ImGui::End();
+        return;
+    }
     ai_sync_chats();
     std::vector<ai::ProviderStatus> status;
     ai::AiConfig cfg;
@@ -1641,7 +1742,10 @@ void Editor::draw_ai_panel() {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.22f, 0.08f, 1));
         ImGui::BeginChild("##noprov", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.6f), ImGuiChildFlags_Borders);
         ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "No AI provider is configured.");
-        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex CLI and sign in.%s", anyListed ? " Local servers (ollama, lmstudio) can be selected in AI > AI Settings > Roles." : "");
+        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex "
+                           "CLI and sign in.%s",
+                           anyListed ? " Local servers (ollama, lmstudio) can be selected in AI > AI Settings > Roles."
+                                     : "");
         if (ImGui::SmallButton("Open AI_PROVIDERS.md")) {
             auto d = read_doc("ai-providers");
             docsTitle_ = "AI_PROVIDERS.md";
@@ -1671,18 +1775,26 @@ void Editor::draw_ai_panel() {
         if (ImGui::BeginTabBar("##aichats", ImGuiTabBarFlags_None)) {  // tabs shrink when they do not fit, then scroll
             for (int i = 0; i < static_cast<int>(chat_.tabs.size()); ++i) {
                 const AiChat& t = chat_.tabs[static_cast<std::size_t>(i)];
-                const bool isRun = ai_chat_running(t.id);  // includes the wait for a worker that outlived the orchestrator's turn
+                const bool isRun =
+                    ai_chat_running(t.id);  // includes the wait for a worker that outlived the orchestrator's turn
                 const bool asking = aiApprovals_.waiting_for(t.id);
-                const std::string label = std::string(asking ? "? " : isRun ? "* " : "") + (t.title.empty() ? "New chat" : t.title) + "###" + t.id;
+                const std::string label = std::string(asking  ? "? "
+                                                      : isRun ? "* "
+                                                              : "") +
+                                          (t.title.empty() ? "New chat" : t.title) + "###" + t.id;
                 bool open = true;
-                const ImGuiTabItemFlags flags = (forcing && i == chat_.active) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                const ImGuiTabItemFlags flags =
+                    (forcing && i == chat_.active) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 if (ImGui::BeginTabItem(label.c_str(), &open, flags)) {
                     // ImGui shows a tab selected by code one frame late: while forcing, the old tab still reports as visible.
                     if (!forcing && i != chat_.active) pickIndex = i;
                     ImGui::EndTabItem();
                 }
-                if (asking) ImGui::SetItemTooltip("The assistant is waiting for your approval to spend money on assets: open the tab to answer");
-                else if (isRun) ImGui::SetItemTooltip("The assistant is working in this chat");
+                if (asking)
+                    ImGui::SetItemTooltip(
+                        "The assistant is waiting for your approval to spend money on assets: open the tab to answer");
+                else if (isRun)
+                    ImGui::SetItemTooltip("The assistant is working in this chat");
                 if (!open) closeIndex = i;
             }
             addTab = ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip);
@@ -1719,14 +1831,17 @@ void Editor::draw_ai_panel() {
         if (aiHistory_.empty()) ImGui::TextDisabled("No saved chats yet. A chat is saved after each answer.");
         // Three columns by hand (title, date, delete): the title column is as wide as the longest title.
         const auto title_of = [&](const ChatHistoryEntry& h) {
-            return (h.title.empty() ? std::string("(untitled)") : h.title) + (chat_.index_of(h.id) >= 0 ? "  (open)" : "");
+            return (h.title.empty() ? std::string("(untitled)") : h.title) +
+                   (chat_.index_of(h.id) >= 0 ? "  (open)" : "");
         };
         float titleW = 0;
-        for (const ChatHistoryEntry& h : aiHistory_) titleW = std::max(titleW, ImGui::CalcTextSize(title_of(h).c_str()).x);
+        for (const ChatHistoryEntry& h : aiHistory_)
+            titleW = std::max(titleW, ImGui::CalcTextSize(title_of(h).c_str()).x);
         for (const ChatHistoryEntry& h : aiHistory_) {
             ImGui::PushID(h.id.c_str());
             const bool isRun = ai_chat_busy(h.id);
-            if (ImGui::Selectable(title_of(h).c_str(), false, ImGuiSelectableFlags_None, ImVec2(titleW, 0))) reopenId = h.id;
+            if (ImGui::Selectable(title_of(h).c_str(), false, ImGuiSelectableFlags_None, ImVec2(titleW, 0)))
+                reopenId = h.id;
             ImGui::SetItemTooltip("Open this chat in a tab; your next message continues it where it stopped");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", format_date_time(h.updated).c_str());
@@ -1734,16 +1849,21 @@ void Editor::draw_ai_panel() {
             const bool confirm = aiHistoryDelete_ == h.id;
             ImGui::BeginDisabled(isRun);
             if (ImGui::SmallButton(confirm ? "Delete for good?" : "Delete")) {
-                if (confirm) eraseId = h.id;
-                else aiHistoryDelete_ = h.id;
+                if (confirm)
+                    eraseId = h.id;
+                else
+                    aiHistoryDelete_ = h.id;
             }
             ImGui::EndDisabled();
-            ImGui::SetItemTooltip("%s", isRun ? "The assistant is working in this chat" : "Removes the saved chat. Click again to confirm.");
+            ImGui::SetItemTooltip("%s", isRun ? "The assistant is working in this chat"
+                                              : "Removes the saved chat. Click again to confirm.");
             ImGui::PopID();
         }
         if (!reopenId.empty()) {
-            if (chat_.reopen(reopenId)) aiTabForce_ = 2;
-            else notify("Cannot open that chat: its file is missing or damaged.", 2);
+            if (chat_.reopen(reopenId))
+                aiTabForce_ = 2;
+            else
+                notify("Cannot open that chat: its file is missing or damaged.", 2);
             ImGui::CloseCurrentPopup();
         } else if (!eraseId.empty()) {
             chat_.erase(eraseId);
@@ -1755,11 +1875,13 @@ void Editor::draw_ai_panel() {
     }
 
     AiChat& chat = chat_.current();  // (no chat_ change below this line: the reference stays valid)
-    AiRun* const run = ai_run_of(chat.id);  // this tab's run (nullptr = none); valid for the frame: nothing below ends a run
+    AiRun* const run =
+        ai_run_of(chat.id);  // this tab's run (nullptr = none); valid for the frame: nothing below ends a run
     const bool isRunTab = run && run->active();  // includes the wait for a worker that outlived the orchestrator's turn
     const int runsOn = ai_run_count();
     const int maxRuns = cfg.limits.maxConcurrentRuns;
-    const bool atCap = !isRunTab && runsOn >= std::clamp(maxRuns, 1, ai::kMaxConcurrentRunsCap);  // every slot is taken by other chats
+    const bool atCap =
+        !isRunTab && runsOn >= std::clamp(maxRuns, 1, ai::kMaxConcurrentRunsCap);  // every slot is taken by other chats
 
     ImGui::PushID(chat.id.c_str());  // every widget below belongs to the tab: its own scroll position and input text
     draw_usage_area(chat, providerIsCli);
@@ -1778,30 +1900,38 @@ void Editor::draw_ai_panel() {
     // The message box: 3 lines, or the height the user dragged it to with the grip above it (it grows upwards).
     const float defaultInputH = ImGui::GetTextLineHeight() * 3.4f + 8;
     const float maxInputH = std::max(defaultInputH, ImGui::GetContentRegionAvail().y * 0.7f);
-    const float inputH = std::clamp(aiInputH_ > 0 ? aiInputH_ : defaultInputH, ImGui::GetTextLineHeight() * 1.4f + 8, maxInputH);
+    const float inputH =
+        std::clamp(aiInputH_ > 0 ? aiInputH_ : defaultInputH, ImGui::GetTextLineHeight() * 1.4f + 8, maxInputH);
     constexpr float kGripH = 6.0f;
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
-    const int stuckSeconds = isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
+    const int stuckSeconds =
+        isRunTab && run->stuckAfterSeconds.load() >= 0 ? run->stuckAfterSeconds.load() : cfg.limits.stuckAfterSeconds;
     const float cardsH = ai_asset_cards_height(chat, ImGui::GetContentRegionAvail().y);
     // A run that waits for the user's yes is not stuck.
     const bool showStuck = isRunTab && stuckSeconds > 0 && cardsH == 0 &&
                            static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= stuckSeconds &&
                            now_seconds() >= run->snoozeUntil;
-    const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
+    const float statusH = !isRunTab ? 0.0f
+                                    : ImGui::GetFrameHeightWithSpacing() *
+                                          (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
     const float footer = stripH + noticeH + statusH + cardsH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +
                          ImGui::GetFrameHeightWithSpacing() * 1.4f;  // the buttons row
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
-        #ifdef __APPLE__
+#ifdef __APPLE__
         constexpr const char* kUndoKey = "Cmd+Z";
 #else
         constexpr const char* kUndoKey = "Ctrl+Z";
 #endif
-        ImGui::TextDisabled("Describe what you want built or changed. The assistant uses the same commands as the console (scene.*, fs.*, game.*...) and edits the open scene. Changes can be undone with %s.", kUndoKey);
-        ImGui::TextDisabled("To show it a picture: drop image files on this window, press Ctrl+V with a picture copied, or use Attach image.");
+        ImGui::TextDisabled(
+            "Describe what you want built or changed. The assistant uses the same commands as the console (scene.*, "
+            "fs.*, game.*...) and edits the open scene. Changes can be undone with %s.",
+            kUndoKey);
+        ImGui::TextDisabled("To show it a picture: drop image files on this window, press Ctrl+V with a picture "
+                            "copied, or use Attach image.");
     }
     int idx = 0;
     for (ChatItem& c : chat.items) {
@@ -1822,7 +1952,9 @@ void Editor::draw_ai_panel() {
                 }
                 break;
             case ChatItem::Kind::Assistant:
-                ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1), "Assistant%s", c.role.empty() ? "" : (" (" + std::string(ai::role_display_name(c.role)) + ")").c_str());
+                ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1), "Assistant%s",
+                                   c.role.empty() ? ""
+                                                  : (" (" + std::string(ai::role_display_name(c.role)) + ")").c_str());
                 message_text("##text", c.text);
                 break;
             case ChatItem::Kind::Thinking:
@@ -1832,25 +1964,33 @@ void Editor::draw_ai_panel() {
                 }
                 break;
             case ChatItem::Kind::Tool: {
-                const ImVec4 col = !c.done ? ImVec4(1, 0.85f, 0.4f, 1) : c.isError ? ImVec4(1, 0.45f, 0.4f, 1) : ImVec4(0.5f, 0.85f, 0.95f, 1);
+                const ImVec4 col = !c.done     ? ImVec4(1, 0.85f, 0.4f, 1)
+                                   : c.isError ? ImVec4(1, 0.45f, 0.4f, 1)
+                                               : ImVec4(0.5f, 0.85f, 0.95f, 1);
                 ImGui::PushStyleColor(ImGuiCol_Text, col);
-                const bool open = ImGui::TreeNodeEx("##tool", ImGuiTreeNodeFlags_SpanAvailWidth, "tool: %s %s", c.tool.c_str(),
-                                                    !c.done ? "(running...)" : c.isError ? "(error)" : "(ok)");
+                const bool open =
+                    ImGui::TreeNodeEx("##tool", ImGuiTreeNodeFlags_SpanAvailWidth, "tool: %s %s", c.tool.c_str(),
+                                      !c.done     ? "(running...)"
+                                      : c.isError ? "(error)"
+                                                  : "(ok)");
                 ImGui::PopStyleColor();
                 if (open) {
                     ImGui::TextDisabled("arguments");
                     ImGui::TextUnformatted(clip(c.input.dump(2), 2000).c_str());
                     if (c.done) {
                         ImGui::TextDisabled("result");
-                        ImGui::TextUnformatted(clip(c.result.is_string() ? c.result.get<std::string>() : c.result.dump(2), 3000).c_str());
+                        ImGui::TextUnformatted(
+                            clip(c.result.is_string() ? c.result.get<std::string>() : c.result.dump(2), 3000).c_str());
                     }
                     ImGui::TreePop();
                 }
                 break;
             }
             case ChatItem::Kind::Info:
-                if (c.isError) ImGui::TextColored(ImVec4(1, 0.78f, 0.3f, 1), "%s", c.text.c_str());  // a warning, not a failure
-                else ImGui::TextDisabled("%s", c.text.c_str());
+                if (c.isError)
+                    ImGui::TextColored(ImVec4(1, 0.78f, 0.3f, 1), "%s", c.text.c_str());  // a warning, not a failure
+                else
+                    ImGui::TextDisabled("%s", c.text.c_str());
                 break;
             case ChatItem::Kind::Error: {
                 const ImVec4 red(1, 0.45f, 0.4f, 1);
@@ -1858,9 +1998,7 @@ void Editor::draw_ai_panel() {
                 break;
             }
             case ChatItem::Kind::Run:
-            case ChatItem::Kind::Revert:
-                draw_ai_run_item(c, chat, idx - 1);
-                break;
+            case ChatItem::Kind::Revert: draw_ai_run_item(c, chat, idx - 1); break;
         }
         if (c.depth > 0) ImGui::Unindent(12.0f * float(c.depth));
         ImGui::Spacing();
@@ -1877,10 +2015,12 @@ void Editor::draw_ai_panel() {
         const char* label = "Jump to latest";
         const ImVec2 size(ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2, ImGui::GetFrameHeight());
         const float pad = ImGui::GetStyle().WindowPadding.x;
-        ImGui::SetCursorPos(ImVec2(ImGui::GetScrollX() + ImGui::GetWindowWidth() - size.x - pad - ImGui::GetStyle().ScrollbarSize,
-                                   ImGui::GetScrollY() + ImGui::GetWindowHeight() - size.y - pad));
+        ImGui::SetCursorPos(
+            ImVec2(ImGui::GetScrollX() + ImGui::GetWindowWidth() - size.x - pad - ImGui::GetStyle().ScrollbarSize,
+                   ImGui::GetScrollY() + ImGui::GetWindowHeight() - size.y - pad));
         // A child window of its own, so it is drawn over the transcript and gets the clicks there.
-        ImGui::BeginChild("##jump", size, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+        ImGui::BeginChild("##jump", size, ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
         if (ImGui::Button(label, size)) chat.forceScroll = true;
         at_track("ai:jump");
         ImGui::SetItemTooltip("Scroll to the newest output and keep following it");
@@ -1902,7 +2042,8 @@ void Editor::draw_ai_panel() {
             ImGui::EndGroup();
             ImGui::PopID();
         }
-        if (removeAt >= 0) chat.pending.erase(chat.pending.begin() + removeAt);  // the copy in .factoria/ai/attachments stays
+        if (removeAt >= 0)
+            chat.pending.erase(chat.pending.begin() + removeAt);  // the copy in .factoria/ai/attachments stays
     }
 
     // After Stop: the play session had marks or errors, offer to show them to the assistant.
@@ -1921,17 +2062,21 @@ void Editor::draw_ai_panel() {
         const std::string activity = run->activity_line();
         if (showDetached) {
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "Worker still running: the orchestrator's turn ended, its report will continue the chat.");
+            ImGui::TextColored(
+                ImVec4(1, 0.85f, 0.4f, 1),
+                "Worker still running: the orchestrator's turn ended, its report will continue the chat.");
             ImGui::PopTextWrapPos();
             at_track("ai:detached");
         }
         const double assetSpent = ai::asset_run_spent(chat.id);
-        ImGui::TextDisabled("running %s  |  last activity %s ago%s%s%s", ai::format_duration(elapsed).c_str(), ai::format_duration(idle).c_str(),
-                            activity.empty() ? "" : "  |  ", short_line(activity, 60).c_str(),
-                            assetSpent > 0 ? ("  |  assets ~" + ai::format_usd(assetSpent) + " (estimate)").c_str() : "");
+        ImGui::TextDisabled(
+            "running %s  |  last activity %s ago%s%s%s", ai::format_duration(elapsed).c_str(),
+            ai::format_duration(idle).c_str(), activity.empty() ? "" : "  |  ", short_line(activity, 60).c_str(),
+            assetSpent > 0 ? ("  |  assets ~" + ai::format_usd(assetSpent) + " (estimate)").c_str() : "");
         at_track("ai:status");
         if (showStuck) {
-            ImGui::TextColored(ImVec4(1, 0.6f, 0.35f, 1), "No activity for %s: the agent may be stuck.", ai::format_duration(idle).c_str());
+            ImGui::TextColored(ImVec4(1, 0.6f, 0.35f, 1), "No activity for %s: the agent may be stuck.",
+                               ai::format_duration(idle).c_str());
             at_track("ai:stuck");
             if (ImGui::SmallButton("Stop##stuck")) run->request_cancel("stuck_stop");
             at_track("ai:stuck:stop");
@@ -1939,9 +2084,10 @@ void Editor::draw_ai_panel() {
             ImGui::SameLine();
             if (ImGui::SmallButton("Check activity##stuck")) ai_check_activity(*run);
             at_track("ai:stuck:check");
-            ImGui::SetItemTooltip("Looks at the agent's process (alive? using CPU?), the tool call it is waiting for, its child\n"
-                                  "processes and the project's recent file changes, and says whether it is still working.\n"
-                                  "The warning stays quiet for another period afterwards.");
+            ImGui::SetItemTooltip(
+                "Looks at the agent's process (alive? using CPU?), the tool call it is waiting for, its child\n"
+                "processes and the project's recent file changes, and says whether it is still working.\n"
+                "The warning stays quiet for another period afterwards.");
         }
     }
 
@@ -1954,7 +2100,8 @@ void Editor::draw_ai_panel() {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         const float y = (a.y + b.y) * 0.5f, w = 40.0f, cx = (a.x + b.x) * 0.5f;
-        ImGui::GetWindowDrawList()->AddLine(ImVec2(cx - w * 0.5f, y), ImVec2(cx + w * 0.5f, y), ImGui::GetColorU32(ImGuiCol_SeparatorHovered), 2.0f);
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(cx - w * 0.5f, y), ImVec2(cx + w * 0.5f, y),
+                                            ImGui::GetColorU32(ImGuiCol_SeparatorHovered), 2.0f);
     }
     ImGui::SetItemTooltip("Drag to make the message box taller or shorter (double-click: back to 3 lines)");
     if (ImGui::IsItemActive() && ImGui::GetIO().MouseDelta.y != 0) {
@@ -1969,10 +2116,11 @@ void Editor::draw_ai_panel() {
 
     // Input.
     ImGui::BeginDisabled(isRunTab);
-    bool submit = ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
-                                            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine |
-                                                ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
-                                            text_menu_callback);
+    bool submit =
+        ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
+                                  ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine |
+                                      ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
+                                  text_menu_callback);
     const bool inputActive = ImGui::IsItemActive();
     at_track("ai:input");
     text_menu(chat.input, false);
@@ -2002,9 +2150,10 @@ void Editor::draw_ai_panel() {
         ImGui::SetTooltip("The game is running. Press Stop (F5) first: what the assistant changed while it runs\n"
                           "would be thrown away at Stop, which puts the scene back as it was before Play.");
     } else if (atCap && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("%d chats are running, the most the editor runs at once (limits.maxConcurrentRuns in ai.json).\n"
-                          "Wait for one to finish, or press Stop in its tab.",
-                          runsOn);
+        ImGui::SetTooltip(
+            "%d chats are running, the most the editor runs at once (limits.maxConcurrentRuns in ai.json).\n"
+            "Wait for one to finish, or press Stop in its tab.",
+            runsOn);
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(!isRunTab);
@@ -2013,18 +2162,25 @@ void Editor::draw_ai_panel() {
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Attach image...")) {
-        const std::string file = pick_file("Attach an image", projectDir_, "Images", {"png", "jpg", "jpeg", "gif", "webp"});
+        const std::string file =
+            pick_file("Attach an image", projectDir_, "Images", {"png", "jpg", "jpeg", "gif", "webp"});
         if (!file.empty()) ai_attach_path(file);
     }
-    ImGui::SetItemTooltip("Add a picture to your next message (png, jpg, gif, webp).\nYou can also drop image files on the window, or press Ctrl+V in the message box with a picture copied.");
+    ImGui::SetItemTooltip("Add a picture to your next message (png, jpg, gif, webp).\nYou can also drop image files on "
+                          "the window, or press Ctrl+V in the message box with a picture copied.");
     ImGui::SameLine();
     if (ImGui::Button("Attach last play session")) ai_attach_last_session();
-    ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.\nA session the AI's bot played (Play > Let the AI Play) is only used when you have none of your own.");
+    ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with "
+                          "F9) and the mark screenshots to your next message.\nA session the AI's bot played (Play > "
+                          "Let the AI Play) is only used when you have none of your own.");
     if (isRunTab || runsOn > 0 || gameRuns) {
         ImGui::SameLine();
-        if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
-        else if (runsOn > 0) ImGui::TextDisabled("%d other chat%s working", runsOn, runsOn == 1 ? "" : "s");
-        else ImGui::TextDisabled("game running: Stop it to send");
+        if (isRunTab)
+            ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
+        else if (runsOn > 0)
+            ImGui::TextDisabled("%d other chat%s working", runsOn, runsOn == 1 ? "" : "s");
+        else
+            ImGui::TextDisabled("game running: Stop it to send");
     }
     ImGui::PopID();
     ImGui::End();

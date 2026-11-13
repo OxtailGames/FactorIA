@@ -19,7 +19,8 @@ void send(const Json& message) {
 }
 
 Json text_result(const std::string& text, bool isError = false) {
-    return Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
+    return Json::object(
+        {{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
 }
 
 Json tool(const std::string& name, const std::string& description, const Json& properties = Json::object()) {
@@ -50,10 +51,13 @@ int main() {
                                    {"capabilities", Json::object({{"tools", Json::object()}})},
                                    {"serverInfo", Json::object({{"name", "FakeStdio"}, {"version", "0.1"}})}});
         } else if (method == "tools/list") {
-            result = Json::object({{"tools", Json::array({tool("echo", "Repeats the text.", Json::object({{"text", Json::object({{"type", "string"}})}})),
-                                                          tool("env", "Reads an environment variable."), tool("fail", "Always fails."),
-                                                          tool("image", "Returns a picture."), tool("crash", "Ends the program."),
-                                                          tool("ping_first", "Asks the client a ping first."), tool("big", "A very long text.")})}});
+            result = Json::object(
+                {{"tools",
+                  Json::array(
+                      {tool("echo", "Repeats the text.", Json::object({{"text", Json::object({{"type", "string"}})}})),
+                       tool("env", "Reads an environment variable."), tool("fail", "Always fails."),
+                       tool("image", "Returns a picture."), tool("crash", "Ends the program."),
+                       tool("ping_first", "Asks the client a ping first."), tool("big", "A very long text.")})}});
         } else if (method == "tools/call") {
             const std::string name = params.value("name", std::string());
             const Json args = params.contains("arguments") ? params["arguments"] : Json::object();
@@ -66,9 +70,12 @@ int main() {
                 result = text_result("the tool failed on purpose", true);
             } else if (name == "image") {
                 result = Json::object(
-                    {{"content", Json::array({Json::object({{"type", "text"}, {"text", "here is the picture"}}),
-                                              Json::object({{"type", "image"}, {"mimeType", "image/png"},
-                                                            {"data", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}})})},
+                    {{"content",
+                      Json::array({Json::object({{"type", "text"}, {"text", "here is the picture"}}),
+                                   Json::object({{"type", "image"},
+                                                 {"mimeType", "image/png"},
+                                                 {"data", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+                                                          "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}})})},
                      {"isError", false}});
             } else if (name == "crash") {
                 std::_Exit(3);
@@ -82,13 +89,18 @@ int main() {
                 for (int i = 0; i < 75000; ++i) big += "\xC3\xA9";
                 result = text_result(big);
             } else {
-                send(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32602}, {"message", "Unknown tool: " + name}})}}));
+                send(Json::object({{"jsonrpc", "2.0"},
+                                   {"id", id},
+                                   {"error", Json::object({{"code", -32602}, {"message", "Unknown tool: " + name}})}}));
                 continue;
             }
         } else if (method == "ping") {
             result = Json::object();
         } else {
-            send(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"error", Json::object({{"code", -32601}, {"message", "Method not found: " + method}})}}));
+            send(Json::object(
+                {{"jsonrpc", "2.0"},
+                 {"id", id},
+                 {"error", Json::object({{"code", -32601}, {"message", "Method not found: " + method}})}}));
             continue;
         }
         send(Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"result", result}}));

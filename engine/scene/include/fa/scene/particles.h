@@ -36,15 +36,18 @@ namespace fa {
 
 inline constexpr int kParticleHardCap = 10000;
 inline constexpr int kParticleTrailPoints = 32;  // a power of two: a trail is a ring of this many points
-inline constexpr int kParticleTrailBudget = 16384;  // trail points (ring slots * kParticleTrailPoints) one emitter may hold
+inline constexpr int kParticleTrailBudget =
+    16384;  // trail points (ring slots * kParticleTrailPoints) one emitter may hold
 inline constexpr int kParticleTrailSlots = kParticleTrailBudget / kParticleTrailPoints;
 static_assert((kParticleTrailPoints & (kParticleTrailPoints - 1)) == 0, "a trail ring indexes with a mask");
 inline constexpr int kParticleSubDepth = 2;
 inline constexpr int kParticleSubCount = 32;
 inline constexpr int kParticleSubGroups = 8;
 inline constexpr int kParticleSubPerStep = 256;
-inline constexpr double kParticleLinkSync = 0.1;   // seconds of sim time between copies of the emitter an {"entity": id} sub-emitter names
-inline constexpr double kParticleLinkRetry = 1.0;  // seconds of sim time between tries to build a prefab or entity sub-emitter that failed
+inline constexpr double kParticleLinkSync =
+    0.1;  // seconds of sim time between copies of the emitter an {"entity": id} sub-emitter names
+inline constexpr double kParticleLinkRetry =
+    1.0;  // seconds of sim time between tries to build a prefab or entity sub-emitter that failed
 
 // ------------------------------------------------------------------ checking --
 // One thing wrong (or useless) in an emitter's data: `pointer` is relative to the component ("/sizeCurve"), the same convention as
@@ -113,30 +116,35 @@ static_assert(std::is_trivially_copyable_v<Particle>, "a particle owns nothing: 
 
 // What the sim needs to know about the world around the emitter for one step. Everything may stay empty.
 struct ParticleEnv {
-    Mat4 emitter;                      // the emitter's world matrix
-    bool is3D = false;                 // = em.is3D
-    bool screen = false;               // a screen-space emitter: the sim runs +Y up on the screen position (see render particles.cpp)
+    Mat4 emitter;       // the emitter's world matrix
+    bool is3D = false;  // = em.is3D
+    bool screen =
+        false;  // a screen-space emitter: the sim runs +Y up on the screen position (see render particles.cpp)
     const Tilemap* tilemap = nullptr;  // collision = tilemap of the emitter itself (when null, findTilemap is asked)
     Mat4 tilemapWorld;                 // that tilemap's world matrix
     // The Tilemap an emitter (the emitter itself or one of its sub-emitters) whose `collision` is "tilemap" bounces on, and its world
     // matrix; null when there is none. Sub-emitters ask this too, so they bounce off the map like their parent.
     std::function<const Tilemap*(const ParticleEmitter& emitter, Mat4& world)> findTilemap;
-    const MeshSurface* mesh = nullptr; // shape = mesh
+    const MeshSurface* mesh = nullptr;  // shape = mesh
     // The ParticleEmitter of the entity with this id (a sub-emitter given as {"entity": id}); null when there is none.
     std::function<const ParticleEmitter*(std::string_view id)> findEmitter;
 };
 
 class ParticleSim {
 public:
-    std::vector<Particle> particles;                 // every group, in birth order
-    std::vector<ParticleTrailPoint> emitterTrail;    // trail = emitter: the emitter's own path, newest last
-    bool everSpawned = false;                        // at least one particle was ever born (guards autoDestroy)
+    std::vector<Particle> particles;               // every group, in birth order
+    std::vector<ParticleTrailPoint> emitterTrail;  // trail = emitter: the emitter's own path, newest last
+    bool everSpawned = false;                      // at least one particle was ever born (guards autoDestroy)
 
     void seed(std::uint64_t s);
     bool seeded() const { return seeded_; }
-    double clock() const { return clock_; }          // seconds simulated so far (trail points are stamped with it)
-    std::uint64_t rng_state() const { return rng_.state(); }  // where the emitter's random sequence is (the world hash reads it)
-    float emission_accumulator() const { return acc_; }       // the fraction of a particle the continuous emission still owes
+    double clock() const { return clock_; }  // seconds simulated so far (trail points are stamped with it)
+    std::uint64_t rng_state() const {
+        return rng_.state();
+    }  // where the emitter's random sequence is (the world hash reads it)
+    float emission_accumulator() const {
+        return acc_;
+    }  // the fraction of a particle the continuous emission still owes
 
     // `count` particles born at the next step (or at flush()): the bursts scripts ask for.
     void queue_burst(int count) { pendingBurst_ += count; }
@@ -182,7 +190,8 @@ private:
         ParticleStyle style;
         std::vector<Link> on[3];  // sub-emitters of birth, death and collision
         std::string entityId;     // {"entity": id}: copied from that emitter now and then (kParticleLinkSync)
-        bool styleDirty = true;   // the emitter changed since the style was parsed (a sub-emitter's own fields never change)
+        bool styleDirty =
+            true;  // the emitter changed since the style was parsed (a sub-emitter's own fields never change)
         // Collision = tilemap: what the emitter bounces on (found again at every step), and the solid tiles read from it.
         const Tilemap* tilemap = nullptr;
         Mat4 tilemapWorld, tilemapInv;

@@ -37,17 +37,21 @@ TEST_CASE("examples: CLAUDE.md is the one line @AGENTS.md and AGENTS.md is the t
         const fs::path agents = dir / "AGENTS.md";
         const fs::path claude = dir / "CLAUDE.md";
         INFO("example " << name);
-        REQUIRE_MESSAGE(fs::exists(agents, ec), "examples/" << name << "/AGENTS.md is missing. Write it with `factoria new <tmp> --name \""
-                                                << name << "\"` and copy the AGENTS.md it makes.");
-        REQUIRE_MESSAGE(fs::exists(claude, ec), "examples/" << name << "/CLAUDE.md is missing. It is the one line `@AGENTS.md`.");
+        REQUIRE_MESSAGE(fs::exists(agents, ec),
+                        "examples/" << name << "/AGENTS.md is missing. Write it with `factoria new <tmp> --name \""
+                                    << name << "\"` and copy the AGENTS.md it makes.");
+        REQUIRE_MESSAGE(fs::exists(claude, ec),
+                        "examples/" << name << "/CLAUDE.md is missing. It is the one line `@AGENTS.md`.");
         std::string claudeText = read_all(claude);  // a Windows checkout with autocrlf has \r\n
         claudeText.erase(std::remove(claudeText.begin(), claudeText.end(), '\r'), claudeText.end());
         CHECK_MESSAGE(claudeText == "@AGENTS.md\n",
-                      "examples/" << name << "/CLAUDE.md is not the one line `@AGENTS.md` that `factoria new` writes. Replace "
+                      "examples/" << name
+                                  << "/CLAUDE.md is not the one line `@AGENTS.md` that `factoria new` writes. Replace "
                                   << "it with that line: the guide lives in AGENTS.md only, a second copy drifts.");
         // The old copies said "created ... engine 0.14.1" and lacked the sentence on reading the guide by sections.
         CHECK_MESSAGE(read_all(agents).find("factoria docs read ai-guide --heading Index") != std::string::npos,
-                      "examples/" << name << "/AGENTS.md is an old copy of the template (it does not tell to read ai-guide by "
+                      "examples/" << name
+                                  << "/AGENTS.md is an old copy of the template (it does not tell to read ai-guide by "
                                   << "sections). Regenerate it: `factoria new <tmp> --name \"" << name
                                   << "\"` and copy the AGENTS.md it makes.");
     }

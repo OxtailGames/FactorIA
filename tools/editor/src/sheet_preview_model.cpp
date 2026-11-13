@@ -27,7 +27,8 @@ SpriteAnimPlan sheet_preview_plan(const assets::Sheet& sheet, const std::string&
     return plan;
 }
 
-SheetPreviewFrame sheet_preview_frame(const assets::Sheet& sheet, const std::string& choice, double seconds, int texW, int texH) {
+SheetPreviewFrame sheet_preview_frame(const assets::Sheet& sheet, const std::string& choice, double seconds, int texW,
+                                      int texH) {
     const SpriteAnimPlan plan = sheet_preview_plan(sheet, choice);
     SheetPreviewFrame out;
     out.steps = sprite_anim_steps(plan);

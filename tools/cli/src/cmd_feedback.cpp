@@ -61,15 +61,21 @@ bool contains_kind(const std::string& k) {
 
 // `feedback add --kind efficiency`: the flags (or the keys of --json, the same as feedback.report's) become the report's arguments; the gate
 // measures the evidence and refuses with a reason; the entry is written under the cross-process lock.
-int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const std::function<std::string(const char*)>& get) {
+int add_efficiency(Context& ctx, const std::string& dir, const Json& src,
+                   const std::function<std::string(const char*)>& get) {
     const Args& a = ctx.args;
     Json args = src;
-    for (const auto& [flag, key] : {std::pair<const char*, const char*>{"category", "category"}, {"title", "title"}, {"waste", "waste"},
-                                    {"suggestion", "suggestion"}, {"fix-type", "fixType"}, {"applies-to", "appliesTo"},
+    for (const auto& [flag, key] : {std::pair<const char*, const char*>{"category", "category"},
+                                    {"title", "title"},
+                                    {"waste", "waste"},
+                                    {"suggestion", "suggestion"},
+                                    {"fix-type", "fixType"},
+                                    {"applies-to", "appliesTo"},
                                     {"why-not-cheaper", "whyNotCheaper"}})
         if (a.has(flag)) args[key] = a.str(flag);
     if (a.has("saving-share") || a.has("saving-why")) {
-        Json e = args.contains("expectedSaving") && args["expectedSaving"].is_object() ? args["expectedSaving"] : Json::object();
+        Json e = args.contains("expectedSaving") && args["expectedSaving"].is_object() ? args["expectedSaving"]
+                                                                                       : Json::object();
         if (a.has("saving-share")) e["share"] = a.number("saving-share", 0);
         if (a.has("saving-why")) e["why"] = a.str("saving-why");
         args["expectedSaving"] = e;
@@ -96,7 +102,8 @@ int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const 
             }
             if (!ok)
                 throw UsageError("--evidence '" + text + "' is not SESSION:FROM-TO.",
-                                 "Example: --evidence 20261014-153012-main:12-52 (steps count from 1; `factoria call ai.session_timeline` shows them).");
+                                 "Example: --evidence 20261014-153012-main:12-52 (steps count from 1; `factoria call "
+                                 "ai.session_timeline` shows them).");
             spans.push_back(Json::object({{"session", text.substr(0, colon)}, {"fromStep", from}, {"toStep", to}}));
         }
         args["evidence"] = spans;
@@ -110,7 +117,9 @@ int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const 
     base.missing = get("missing");
     base.workaround = get("workaround");
     base.effort = get("effort");
-    const std::string kind = a.str("reporter", src.contains("reporter") && src["reporter"].is_object() ? src["reporter"].value("kind", std::string("human")) : "human");
+    const std::string kind = a.str("reporter", src.contains("reporter") && src["reporter"].is_object()
+                                                   ? src["reporter"].value("kind", std::string("human"))
+                                                   : "human");
     base.reporter = Json::object({{"kind", kind}});
     if (a.has("agent")) base.reporter["agent"] = a.str("agent");
     if (a.has("model")) base.reporter["model"] = a.str("model");
@@ -119,8 +128,10 @@ int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const 
         for (const char* k : {"title", "missing", "suggestion", "workaround"})
             if (a.has(std::string("share-") + k)) share[k] = a.str(std::string("share-") + k);
         if (!share.empty()) base.share = share;
-        if (a.has("reviewed")) base.reviewed = true;
-        else if (src.contains("reviewed") && src["reviewed"].is_boolean()) base.reviewed = src["reviewed"].get<bool>();
+        if (a.has("reviewed"))
+            base.reviewed = true;
+        else if (src.contains("reviewed") && src["reviewed"].is_boolean())
+            base.reviewed = src["reviewed"].get<bool>();
     }
     const std::string path = feedback_path(dir);
     EfficiencyFiling f = file_efficiency_feedback(dir, path, base, args, project_name(dir));
@@ -128,12 +139,19 @@ int add_efficiency(Context& ctx, const std::string& dir, const Json& src, const 
     const FeedbackAddResult& r = f.added;
     char numbers[160];
     std::snprintf(numbers, sizeof numbers, "measured %.1f minutes, %llu tokens%s", f.verdict.measured.minutes,
-                  static_cast<unsigned long long>(f.verdict.measured.tokens), f.verdict.measured.estimated ? " (estimated)" : "");
-    if (r.alreadyCounted) ctx.out << "Already counted: " << r.id << " holds this evidence; nothing was added.\n";
-    else ctx.out << (r.merged ? "Merged into " : "Added ") << r.id << " (efficiency, " << numbers << "; occurrences: " << r.occurrences << ")\n";
-    if (!f.verdict.existingDoc.empty()) ctx.out << "Findability: the doc exists at " << f.verdict.existingDoc << "; the fix is its title and keywords.\n";
+                  static_cast<unsigned long long>(f.verdict.measured.tokens),
+                  f.verdict.measured.estimated ? " (estimated)" : "");
+    if (r.alreadyCounted)
+        ctx.out << "Already counted: " << r.id << " holds this evidence; nothing was added.\n";
+    else
+        ctx.out << (r.merged ? "Merged into " : "Added ") << r.id << " (efficiency, " << numbers
+                << "; occurrences: " << r.occurrences << ")\n";
+    if (!f.verdict.existingDoc.empty())
+        ctx.out << "Findability: the doc exists at " << f.verdict.existingDoc
+                << "; the fix is its title and keywords.\n";
     if (f.verdict.candidateOnly) ctx.out << "An engine change is only a candidate for triage.\n";
-    if (!r.shareProblem.empty()) ctx.out << "The share text was not stored: " << r.shareProblem << ".\n";
+    if (!r.shareProblem.empty())
+        ctx.out << "The share text was not stored: " << r.shareProblem << ".\n";
     else if (!base.share.is_null() && !r.alreadyCounted) {
         const Json summary = share_report_summary(share_env(), path, dir, r.id, nullptr, true);
         if (summary.is_object()) ctx.out << summary.value("message", std::string()) << "\n";
@@ -147,7 +165,8 @@ Command make_feedback_command() {
     Command g;
     g.name = "feedback";
     g.summary = "Manage ENGINE_FEEDBACK.json: what the engine lacked and the workarounds used.";
-    g.details = "Game-making AIs record engine gaps here; engine developers aggregate many projects with 'feedback collect'.\nSee: factoria docs read engine-feedback";
+    g.details = "Game-making AIs record engine gaps here; engine developers aggregate many projects with 'feedback "
+                "collect'.\nSee: factoria docs read engine-feedback";
     g.maxPositional = -1;
 
     Command init = project_flag_cmd("init", "Create ENGINE_FEEDBACK.json if the project has none.");
@@ -174,54 +193,73 @@ Command make_feedback_command() {
 
     Command add = project_flag_cmd("add", "Add an entry (similar open entries are merged).");
     add.usage = "--category C --severity S --title T --missing TEXT --workaround TEXT [options]\n"
-                "       factoria feedback add --kind efficiency --category C --title T --waste TEXT --evidence SESSION:FROM-TO --fix-type F\n"
+                "       factoria feedback add --kind efficiency --category C --title T --waste TEXT --evidence "
+                "SESSION:FROM-TO --fix-type F\n"
                 "           --saving-share N --saving-why TEXT --applies-to A --suggestion TEXT [options]";
-    add.details =
-        "category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling,\n"
-        "ai-integration, docs, platform, performance, networking, other.\n"
-        "severity: blocker, major, minor, nice-to-have.\n"
-        "\n"
-        "--kind efficiency files the other kind of report: the engine lacked nothing, but the work took many more steps, minutes or\n"
-        "tokens than a doc, an example or a command option could have made it. The engine measures the span of the transcript you name\n"
-        "(--evidence session:from-to, steps count from 1, `ai.session_timeline` shows them) and refuses, with the reason, a report with no\n"
-        "evidence, a saving under the threshold of its fix, a fix that is not the cheapest that works, a missing guide for a doc that\n"
-        "docs.search finds, a lesson only true for this game, or a model/effort/limit setting. docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\".\n"
-        "fix-type: doc, guide, example, commandOption, newCommand, engineChange (cheapest first). applies-to: every-game, genre, feature,\n"
-        "this-game (refused: that is a project fact).";
-    add.flags.insert(add.flags.end(), {{"category", "C", "Engine area."},
-                                       {"severity", "S", "blocker | major | minor | nice-to-have."},
-                                       {"title", "T", "Short noun phrase; reuse wording for the same gap."},
-                                       {"missing", "TEXT", "What the engine lacks."},
-                                       {"workaround", "TEXT", "What you did instead."},
-                                       {"files", "A,B", "Workaround files (comma separated or repeated).", true},
-                                       {"suggestion", "TEXT", "How the engine could fix it."},
-                                       {"effort", "E", "small | medium | large."},
-                                       {"reporter", "KIND", "ai or human (default human)."},
-                                       {"agent", "NAME", "Reporter agent name (with --reporter ai)."},
-                                       {"model", "MODEL", "Reporter model (with --reporter ai)."},
-                                       {"share-title", "T", "For sharing: the title in engine terms only, nothing about the game (8-120 characters)."},
-                                       {"share-missing", "TEXT", "For sharing: what the engine lacks, in engine terms only (20-1500 characters)."},
-                                       {"share-suggestion", "TEXT", "For sharing: the engine change that would fix it."},
-                                       {"share-workaround", "TEXT", "For sharing: the kind of workaround, without project details."},
-                                       {"reviewed", "", "You checked against the docs that the gap is real and about the engine."},
-                                       {"kind", "K", "gap (default) or efficiency."},
-                                       {"waste", "TEXT", "Efficiency: what took the time, in engine terms."},
-                                       {"evidence", "SESSION:FROM-TO", "Efficiency: a span of a transcript where the waste happened (steps from 1); repeat for more spans.", true},
-                                       {"fix-type", "F", "Efficiency: doc | guide | example | commandOption | newCommand | engineChange."},
-                                       {"saving-share", "N", "Efficiency: 0.01 to 1, the share of the measured span the fix removes."},
-                                       {"saving-why", "TEXT", "Efficiency: one line on why the fix removes that share."},
-                                       {"applies-to", "A", "Efficiency: every-game | genre | feature | this-game."},
-                                       {"why-not-cheaper", "TEXT", "Efficiency, commandOption/newCommand/engineChange: why a doc, a guide and an example would not do."},
-                                       {"searched", "WORDS", "Efficiency, findability: words given to docs.search that did not find the doc that exists.", true},
-                                       {"every-step-tokens", "N", "Efficiency: tokens the fix adds to every step (AGENTS.md, system prompt)."},
-                                       {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, workaround?}, `reviewed` a boolean; efficiency: the fields of feedback.report)."}});
-    add.examples = {"factoria feedback add --category physics --severity major --title \"No fluid simulation\" \\\n"
-                    "    --missing \"There is no liquid solver\" --workaround \"scripts/water.js fakes a surface\" --files scripts/water.js",
-                    "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'",
-                    "factoria feedback add --kind efficiency --category scripting --title \"Boss fight phases\" \\\n"
-                    "    --waste \"Making a boss that changes at health thresholds took 40 steps\" --evidence 20261014-153012-main:12-52 \\\n"
-                    "    --fix-type guide --saving-share 0.7 --saving-why \"a guide gives the three calls\" --applies-to genre \\\n"
-                    "    --suggestion \"A boss fight topic guide: phases at health thresholds, attack timers\""};
+    add.details = "category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, "
+                  "animation, tooling,\n"
+                  "ai-integration, docs, platform, performance, networking, other.\n"
+                  "severity: blocker, major, minor, nice-to-have.\n"
+                  "\n"
+                  "--kind efficiency files the other kind of report: the engine lacked nothing, but the work took many "
+                  "more steps, minutes or\n"
+                  "tokens than a doc, an example or a command option could have made it. The engine measures the span "
+                  "of the transcript you name\n"
+                  "(--evidence session:from-to, steps count from 1, `ai.session_timeline` shows them) and refuses, "
+                  "with the reason, a report with no\n"
+                  "evidence, a saving under the threshold of its fix, a fix that is not the cheapest that works, a "
+                  "missing guide for a doc that\n"
+                  "docs.search finds, a lesson only true for this game, or a model/effort/limit setting. "
+                  "docs/ENGINE_FEEDBACK.md, \"Efficiency feedback\".\n"
+                  "fix-type: doc, guide, example, commandOption, newCommand, engineChange (cheapest first). "
+                  "applies-to: every-game, genre, feature,\n"
+                  "this-game (refused: that is a project fact).";
+    add.flags.insert(
+        add.flags.end(),
+        {{"category", "C", "Engine area."},
+         {"severity", "S", "blocker | major | minor | nice-to-have."},
+         {"title", "T", "Short noun phrase; reuse wording for the same gap."},
+         {"missing", "TEXT", "What the engine lacks."},
+         {"workaround", "TEXT", "What you did instead."},
+         {"files", "A,B", "Workaround files (comma separated or repeated).", true},
+         {"suggestion", "TEXT", "How the engine could fix it."},
+         {"effort", "E", "small | medium | large."},
+         {"reporter", "KIND", "ai or human (default human)."},
+         {"agent", "NAME", "Reporter agent name (with --reporter ai)."},
+         {"model", "MODEL", "Reporter model (with --reporter ai)."},
+         {"share-title", "T",
+          "For sharing: the title in engine terms only, nothing about the game (8-120 characters)."},
+         {"share-missing", "TEXT", "For sharing: what the engine lacks, in engine terms only (20-1500 characters)."},
+         {"share-suggestion", "TEXT", "For sharing: the engine change that would fix it."},
+         {"share-workaround", "TEXT", "For sharing: the kind of workaround, without project details."},
+         {"reviewed", "", "You checked against the docs that the gap is real and about the engine."},
+         {"kind", "K", "gap (default) or efficiency."},
+         {"waste", "TEXT", "Efficiency: what took the time, in engine terms."},
+         {"evidence", "SESSION:FROM-TO",
+          "Efficiency: a span of a transcript where the waste happened (steps from 1); repeat for more spans.", true},
+         {"fix-type", "F", "Efficiency: doc | guide | example | commandOption | newCommand | engineChange."},
+         {"saving-share", "N", "Efficiency: 0.01 to 1, the share of the measured span the fix removes."},
+         {"saving-why", "TEXT", "Efficiency: one line on why the fix removes that share."},
+         {"applies-to", "A", "Efficiency: every-game | genre | feature | this-game."},
+         {"why-not-cheaper", "TEXT",
+          "Efficiency, commandOption/newCommand/engineChange: why a doc, a guide and an example would not do."},
+         {"searched", "WORDS",
+          "Efficiency, findability: words given to docs.search that did not find the doc that exists.", true},
+         {"every-step-tokens", "N", "Efficiency: tokens the fix adds to every step (AGENTS.md, system prompt)."},
+         {"json", "JSON",
+          "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, "
+          "workaround?}, `reviewed` a boolean; efficiency: the fields of feedback.report)."}});
+    add.examples = {
+        "factoria feedback add --category physics --severity major --title \"No fluid simulation\" \\\n"
+        "    --missing \"There is no liquid solver\" --workaround \"scripts/water.js fakes a surface\" --files "
+        "scripts/water.js",
+        "factoria feedback add --json "
+        "'{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'",
+        "factoria feedback add --kind efficiency --category scripting --title \"Boss fight phases\" \\\n"
+        "    --waste \"Making a boss that changes at health thresholds took 40 steps\" --evidence "
+        "20261014-153012-main:12-52 \\\n"
+        "    --fix-type guide --saving-share 0.7 --saving-why \"a guide gives the three calls\" --applies-to genre \\\n"
+        "    --suggestion \"A boss fight topic guide: phases at health thresholds, attack timers\""};
     add.run = [](Context& ctx) {
         const Args& a = ctx.args;
         std::string dir = resolve_project_dir(ctx, 0);
@@ -229,13 +267,17 @@ Command make_feedback_command() {
         if (a.has("json")) {
             auto j = parse_json(a.str("json"), "--json");
             if (!j.ok() || !j->is_object())
-                throw UsageError("--json must be a JSON object: " + (j.ok() ? std::string("got ") + describe_json_value(*j) : j.error().message));
+                throw UsageError("--json must be a JSON object: " +
+                                 (j.ok() ? std::string("got ") + describe_json_value(*j) : j.error().message));
             src = *j;
         }
-        auto get = [&](const char* key) { return a.has(key) && std::string(key) != "json" ? a.str(key) : src.value(key, std::string()); };
+        auto get = [&](const char* key) {
+            return a.has(key) && std::string(key) != "json" ? a.str(key) : src.value(key, std::string());
+        };
         const std::string entryKind = get("kind");
         if (!entryKind.empty() && !contains_kind(entryKind))
-            throw UsageError("Invalid --kind '" + entryKind + "'. " + did_you_mean(entryKind, feedback_kinds()), "gap (default) or efficiency.");
+            throw UsageError("Invalid --kind '" + entryKind + "'. " + did_you_mean(entryKind, feedback_kinds()),
+                             "gap (default) or efficiency.");
         if (entryKind == "efficiency") return add_efficiency(ctx, dir, src, get);
         FeedbackInput in;
         in.category = get("category");
@@ -253,16 +295,25 @@ Command make_feedback_command() {
             for (const char* k : {"title", "missing", "suggestion", "workaround"})
                 if (a.has(std::string("share-") + k)) share[k] = a.str(std::string("share-") + k);
             if (!share.empty()) in.share = share;
-            if (a.has("reviewed")) in.reviewed = true;
-            else if (src.contains("reviewed") && src["reviewed"].is_boolean()) in.reviewed = src["reviewed"].get<bool>();
+            if (a.has("reviewed"))
+                in.reviewed = true;
+            else if (src.contains("reviewed") && src["reviewed"].is_boolean())
+                in.reviewed = src["reviewed"].get<bool>();
         }
         std::vector<std::string> missing;
-        for (auto [k, v] : {std::pair<const char*, const std::string*>{"category", &in.category}, {"severity", &in.severity}, {"title", &in.title},
-                            {"missing", &in.missing}, {"workaround", &in.workaround}})
+        for (auto [k, v] : {std::pair<const char*, const std::string*>{"category", &in.category},
+                            {"severity", &in.severity},
+                            {"title", &in.title},
+                            {"missing", &in.missing},
+                            {"workaround", &in.workaround}})
             if (v->empty()) missing.push_back(std::string("--") + k);
         if (!missing.empty())
-            throw UsageError("Missing required " + join(missing, ", ") + ".", "Usage: factoria feedback add --category C --severity S --title T --missing TEXT --workaround TEXT");
-        std::string kind = a.str("reporter", src.contains("reporter") && src["reporter"].is_object() ? src["reporter"].value("kind", std::string("human")) : "human");
+            throw UsageError(
+                "Missing required " + join(missing, ", ") + ".",
+                "Usage: factoria feedback add --category C --severity S --title T --missing TEXT --workaround TEXT");
+        std::string kind = a.str("reporter", src.contains("reporter") && src["reporter"].is_object()
+                                                 ? src["reporter"].value("kind", std::string("human"))
+                                                 : "human");
         Json rep = Json::object({{"kind", kind}});
         if (a.has("agent")) rep["agent"] = a.str("agent");
         if (a.has("model")) rep["model"] = a.str("model");
@@ -281,18 +332,25 @@ Command make_feedback_command() {
         {
             FeedbackFileLock lock(share_env(), feedback_path(dir));
             if (!lock.held())
-                return report_failure(ctx, lock.error(), "Run the command again in a moment; the other program is only writing a small file.");
+                return report_failure(
+                    ctx, lock.error(),
+                    "Run the command again in a moment; the other program is only writing a small file.");
             r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
         }
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-        ctx.out << (r->reopened ? "Reopened (fixed before, reported again) " : r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
+        ctx.out << (r->reopened ? "Reopened (fixed before, reported again) "
+                    : r->merged ? "Merged into "
+                                : "Added ")
+                << r->id << " (occurrences: " << r->occurrences << ")\n";
         if (!claim.related.empty()) {
-            ctx.out << "Related documentation (if it already covers the gap, close the entry with `feedback update " << r->id
-                    << " --status rejected --reason TEXT`):\n";
+            ctx.out << "Related documentation (if it already covers the gap, close the entry with `feedback update "
+                    << r->id << " --status rejected --reason TEXT`):\n";
             for (const Json& d : claim.related)
-                ctx.out << "  " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  " << d.value("heading", std::string()) << "\n";
+                ctx.out << "  " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  "
+                        << d.value("heading", std::string()) << "\n";
         }
-        if (!r->shareProblem.empty()) ctx.out << "The share text was not stored: " << r->shareProblem << ".\n";
+        if (!r->shareProblem.empty())
+            ctx.out << "The share text was not stored: " << r->shareProblem << ".\n";
         else if (!in.share.is_null()) {
             const Json summary = share_report_summary(share_env(), feedback_path(dir), dir, r->id, nullptr, true);
             if (summary.is_object()) ctx.out << summary.value("message", std::string()) << "\n";
@@ -302,7 +360,8 @@ Command make_feedback_command() {
 
     Command list = project_flag_cmd("list", "List entries.");
     list.usage = "[project] [--status S] [--category C] [--severity V] [--kind K] [--archive] [--json]";
-    list.details = "The file holds what is still open; closed entries live in ENGINE_FEEDBACK.archive.json (see 'feedback archive').";
+    list.details = "The file holds what is still open; closed entries live in ENGINE_FEEDBACK.archive.json (see "
+                   "'feedback archive').";
     list.flags.insert(list.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate | rejected."},
                                          {"category", "C", "Filter by category."},
                                          {"severity", "V", "Filter by severity."},
@@ -313,7 +372,10 @@ Command make_feedback_command() {
     list.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         auto doc = load_feedback(feedback_path(dir));
-        if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+        if (!doc.ok())
+            return report_failure(ctx, doc.error().message,
+                                  doc.error().hint.empty() ? "Create it with 'factoria feedback init'."
+                                                           : doc.error().hint);
         FeedbackFilter f{ctx.args.str("status"), ctx.args.str("category"), ctx.args.str("severity")};
         Json entries = list_feedback(*doc, f);
         if (ctx.args.has("archive"))
@@ -323,7 +385,8 @@ Command make_feedback_command() {
             }
         if (const std::string kind = ctx.args.str("kind"); !kind.empty()) {
             if (!contains_kind(kind))
-                throw UsageError("Invalid --kind '" + kind + "'. " + did_you_mean(kind, feedback_kinds()), "gap or efficiency.");
+                throw UsageError("Invalid --kind '" + kind + "'. " + did_you_mean(kind, feedback_kinds()),
+                                 "gap or efficiency.");
             Json kept = Json::array();
             for (auto& e : entries)
                 if (e.value("kind", std::string("gap")) == kind) kept.push_back(std::move(e));
@@ -335,9 +398,12 @@ Command make_feedback_command() {
         }
         if (entries.empty()) ctx.out << "No entries.\n";
         for (const auto& e : entries) {
-            ctx.out << e.value("id", std::string()) << " [" << e.value("severity", std::string()) << "] " << e.value("category", std::string()) << " x"
-                    << e.value("occurrences", 1) << " (" << e.value("status", std::string()) << (e.value("archived", false) ? ", archived" : "") << ") " << e.value("title", std::string());
-            if (e.value("kind", std::string("gap")) == "efficiency" && e.contains("saving") && e["saving"].is_object()) {
+            ctx.out << e.value("id", std::string()) << " [" << e.value("severity", std::string()) << "] "
+                    << e.value("category", std::string()) << " x" << e.value("occurrences", 1) << " ("
+                    << e.value("status", std::string()) << (e.value("archived", false) ? ", archived" : "") << ") "
+                    << e.value("title", std::string());
+            if (e.value("kind", std::string("gap")) == "efficiency" && e.contains("saving") &&
+                e["saving"].is_object()) {
                 const Json& sv = e["saving"];
                 char buf[96];
                 std::snprintf(buf, sizeof buf, "  [efficiency: saves %.1f min, %llu tokens]", sv.value("minutes", 0.0),
@@ -352,25 +418,36 @@ Command make_feedback_command() {
     Command update = project_flag_cmd("update", "Change an entry's status and/or engine issue reference (triage).");
     update.usage = "[project] <id> [--status S] [--reason TEXT] [--note TEXT] [--engine-issue REF] [--json]";
     update.maxPositional = 2;
-    update.details = "The project folder is optional: 'factoria feedback update <id> --status fixed-in-engine' works inside a project.";
-    update.flags.insert(update.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate | rejected (the gap does not exist: --reason is required)."},
-                                             {"reason", "TEXT", "Why the entry got this status (statusReason): required for rejected, at most 500 characters."},
-                                             {"note", "TEXT", "Triage note appended to the entry's notes."},
-                                             {"engine-issue", "REF", "Engine issue/commit that handles it (stored as engineIssue)."},
-                                             {"json", "", "Print the updated entry as JSON."}});
-    update.examples = {"factoria feedback update games/my-game fb-001 --status fixed-in-engine --engine-issue \"abc123\"",
-                       "factoria feedback update fb-002 --status wont-fix --note \"by design\"",
-                       "factoria feedback update fb-003 --status rejected --reason \"The engine has it: see docs/reference/components/physics.md\""};
+    update.details = "The project folder is optional: 'factoria feedback update <id> --status fixed-in-engine' works "
+                     "inside a project.";
+    update.flags.insert(
+        update.flags.end(),
+        {{"status", "S",
+          "open | fixed-in-engine | wont-fix | duplicate | rejected (the gap does not exist: --reason is required)."},
+         {"reason", "TEXT",
+          "Why the entry got this status (statusReason): required for rejected, at most 500 characters."},
+         {"note", "TEXT", "Triage note appended to the entry's notes."},
+         {"engine-issue", "REF", "Engine issue/commit that handles it (stored as engineIssue)."},
+         {"json", "", "Print the updated entry as JSON."}});
+    update.examples = {
+        "factoria feedback update games/my-game fb-001 --status fixed-in-engine --engine-issue \"abc123\"",
+        "factoria feedback update fb-002 --status wont-fix --note \"by design\"",
+        "factoria feedback update fb-003 --status rejected --reason \"The engine has it: see "
+        "docs/reference/components/physics.md\""};
     update.run = [](Context& ctx) {
         const Args& a = ctx.args;
         const auto& pos = a.positional();
-        if (pos.empty()) throw UsageError("Missing entry id.", "Usage: factoria feedback update [project] <id> --status S");
+        if (pos.empty())
+            throw UsageError("Missing entry id.", "Usage: factoria feedback update [project] <id> --status S");
         std::string id = pos.back();
         std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
         if (!a.has("status") && !a.has("note") && !a.has("engine-issue") && !a.has("reason"))
             throw UsageError("Nothing to update.", "Pass --status, --reason, --note and/or --engine-issue.");
-        auto r = update_feedback_file(feedback_path(dir), id, a.str("status"), a.str("engine-issue"), a.str("note"), a.str("reason"), "user");
-        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
+        auto r = update_feedback_file(feedback_path(dir), id, a.str("status"), a.str("engine-issue"), a.str("note"),
+                                      a.str("reason"), "user");
+        if (!r.ok())
+            return report_failure(ctx, r.error().message,
+                                  r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
         if (a.has("json")) {
             print_json(ctx.out, *r);
             return 0;
@@ -378,41 +455,61 @@ Command make_feedback_command() {
         ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
         if (r->value("status", std::string()) == "rejected")
             if (std::string offer = reject_offer(*r); !offer.empty())
-                ctx.out << "A pulled report: tell the installation why (it shows the reason in its editor; this only closes the local copy):\n  " << offer << "\n";
+                ctx.out << "A pulled report: tell the installation why (it shows the reason in its editor; this only "
+                           "closes the local copy):\n  "
+                        << offer << "\n";
         if (r->value("status", std::string()) == "fixed-in-engine")
             if (std::string offer = fixed_add_offer(*r); !offer.empty())
-                ctx.out << "A pulled report: record the fix so every user's matching entry is closed when they update:\n  " << offer << "\n";
+                ctx.out
+                    << "A pulled report: record the fix so every user's matching entry is closed when they update:\n  "
+                    << offer << "\n";
         return 0;
     };
 
-    Command archive = project_flag_cmd("archive", "Move closed entries (fixed-in-engine, wont-fix, duplicate, rejected) to ENGINE_FEEDBACK.archive.json.");
+    Command archive = project_flag_cmd(
+        "archive",
+        "Move closed entries (fixed-in-engine, wont-fix, duplicate, rejected) to ENGINE_FEEDBACK.archive.json.");
     archive.usage = "[project] [--json]";
-    archive.details = "ENGINE_FEEDBACK.json then only holds what is still open. Ids stay unique across both files, a new report that\n"
-                      "matches an archived fixed-in-engine entry reopens it, and 'feedback collect' still counts the archive. The editor\n"
+    archive.details = "ENGINE_FEEDBACK.json then only holds what is still open. Ids stay unique across both files, a "
+                      "new report that\n"
+                      "matches an archived fixed-in-engine entry reopens it, and 'feedback collect' still counts the "
+                      "archive. The editor\n"
                       "runs this when it opens a project. Nothing closed: nothing changes.";
     archive.flags.push_back({"json", "", "Machine-readable output."});
     archive.examples = {"factoria feedback archive", "factoria feedback archive games/my-game --json"};
     archive.run = [](Context& ctx) {
         std::string path = feedback_path(resolve_project_dir(ctx, 0));
         auto r = archive_closed_feedback_file(path);
-        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
+        if (!r.ok())
+            return report_failure(ctx, r.error().message,
+                                  r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
         if (ctx.args.has("json")) {
-            print_json(ctx.out, Json::object({{"moved", r->moved}, {"ids", r->ids}, {"open", r->open}, {"archived", r->archived},
-                                              {"file", path}, {"archiveFile", feedback_archive_path(path)}}));
+            print_json(ctx.out, Json::object({{"moved", r->moved},
+                                              {"ids", r->ids},
+                                              {"open", r->open},
+                                              {"archived", r->archived},
+                                              {"file", path},
+                                              {"archiveFile", feedback_archive_path(path)}}));
             return 0;
         }
-        if (r->moved == 0) ctx.out << "Nothing to archive: " << r->open << " open, " << r->archived << " archived.\n";
-        else ctx.out << "Archived " << r->moved << " closed entr" << (r->moved == 1 ? "y" : "ies") << " to " << feedback_archive_path(path) << " ("
-                     << r->open << " left open, " << r->archived << " archived).\n";
+        if (r->moved == 0)
+            ctx.out << "Nothing to archive: " << r->open << " open, " << r->archived << " archived.\n";
+        else
+            ctx.out << "Archived " << r->moved << " closed entr" << (r->moved == 1 ? "y" : "ies") << " to "
+                    << feedback_archive_path(path) << " (" << r->open << " left open, " << r->archived
+                    << " archived).\n";
         return 0;
     };
 
-
-    Command check = project_flag_cmd("check", "Does the engine already have what a report says it lacks? (before filing, or for the open entries)");
+    Command check = project_flag_cmd(
+        "check", "Does the engine already have what a report says it lacks? (before filing, or for the open entries)");
     check.usage = "[project] [--title T --missing TEXT [--suggestion TEXT]] [--entries [--reject]] [--json]";
-    check.details = "With --title and --missing: the check `feedback add` runs, on its own (exit 1 when the engine already has it, with what exists\n"
-                    "and where it is documented). With --entries: every OPEN entry of the project's ENGINE_FEEDBACK.json is checked; --reject also\n"
-                    "closes the ones that fail it as rejected, with the explanation as the reason. Same as the command feedback.check.";
+    check.details = "With --title and --missing: the check `feedback add` runs, on its own (exit 1 when the engine "
+                    "already has it, with what exists\n"
+                    "and where it is documented). With --entries: every OPEN entry of the project's "
+                    "ENGINE_FEEDBACK.json is checked; --reject also\n"
+                    "closes the ones that fail it as rejected, with the explanation as the reason. Same as the command "
+                    "feedback.check.";
     check.flags.insert(check.flags.end(), {{"title", "T", "Title of the report to check."},
                                            {"missing", "TEXT", "What the report says the engine lacks."},
                                            {"suggestion", "TEXT", "The change the report asks for."},
@@ -427,14 +524,20 @@ Command make_feedback_command() {
             const std::string path = feedback_path(resolve_project_dir(ctx, 0));
             Json out = Json::object({{"file", path}, {"checked", 0}, {"refused", Json::array()}});
             auto doc = load_feedback(path);
-            if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+            if (!doc.ok())
+                return report_failure(ctx, doc.error().message,
+                                      doc.error().hint.empty() ? "Create it with 'factoria feedback init'."
+                                                               : doc.error().hint);
             Json refused = Json::array();
             int checked = 0;
             for (const Json& e : (*doc)["entries"]) {
                 if (e.value("status", std::string("open")) != "open") continue;
                 ++checked;
                 const ClaimResult r = check_feedback_entry_claim(e);
-                if (r.refused()) refused.push_back(Json::object({{"id", e.value("id", std::string())}, {"title", e.value("title", std::string())}, {"reason", r.reason()}}));
+                if (r.refused())
+                    refused.push_back(Json::object({{"id", e.value("id", std::string())},
+                                                    {"title", e.value("title", std::string())},
+                                                    {"reason", r.reason()}}));
             }
             std::vector<std::string> rejected;
             if (a.has("reject") && !refused.empty()) {
@@ -449,17 +552,22 @@ Command make_feedback_command() {
                 print_json(ctx.out, out);
                 return refused.empty() ? 0 : 1;
             }
-            ctx.out << "Checked " << checked << " open entr" << (checked == 1 ? "y" : "ies") << ": " << refused.size() << " claim" << (refused.size() == 1 ? "" : "s")
-                    << " something the engine already has.\n";
+            ctx.out << "Checked " << checked << " open entr" << (checked == 1 ? "y" : "ies") << ": " << refused.size()
+                    << " claim" << (refused.size() == 1 ? "" : "s") << " something the engine already has.\n";
             for (const Json& r : refused)
-                ctx.out << "  " << r.value("id", std::string()) << " " << r.value("title", std::string()) << "\n    " << r.value("reason", std::string()) << "\n";
-            if (!rejected.empty()) ctx.out << "Rejected: " << join(rejected, ", ") << ".\n";
-            else if (!refused.empty()) ctx.out << "Run again with --reject to close them as rejected.\n";
+                ctx.out << "  " << r.value("id", std::string()) << " " << r.value("title", std::string()) << "\n    "
+                        << r.value("reason", std::string()) << "\n";
+            if (!rejected.empty())
+                ctx.out << "Rejected: " << join(rejected, ", ") << ".\n";
+            else if (!refused.empty())
+                ctx.out << "Run again with --reject to close them as rejected.\n";
             return refused.empty() ? 0 : 1;
         }
         if (!a.has("title") || !a.has("missing"))
-            throw UsageError("Give --title and --missing, or --entries.", "Usage: factoria feedback check --title T --missing TEXT");
-        const ClaimResult claim = check_feedback_claim({a.str("title"), a.str("missing"), a.str("suggestion")}, nullptr, 5);
+            throw UsageError("Give --title and --missing, or --entries.",
+                             "Usage: factoria feedback check --title T --missing TEXT");
+        const ClaimResult claim =
+            check_feedback_claim({a.str("title"), a.str("missing"), a.str("suggestion")}, nullptr, 5);
         if (a.has("json")) {
             print_json(ctx.out, claim.to_json());
             return claim.refused() ? 1 : 0;
@@ -469,15 +577,20 @@ Command make_feedback_command() {
             return 1;
         }
         ctx.out << "Nothing in the report names something the engine has: it can be filed.\n";
-        for (const Json& d : claim.related) ctx.out << "  related: " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  " << d.value("heading", std::string()) << "\n";
+        for (const Json& d : claim.related)
+            ctx.out << "  related: " << d.value("path", std::string()) << ":" << d.value("line", 0) << "  "
+                    << d.value("heading", std::string()) << "\n";
         return 0;
     };
 
-    Command discard = project_flag_cmd("discard", "Delete a closed entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.");
+    Command discard = project_flag_cmd(
+        "discard", "Delete a closed entry (rejected, wont-fix, duplicate, fixed) from the file and its archive.");
     discard.usage = "[project] <id> [--json]";
     discard.maxPositional = 2;
-    discard.details = "Only a closed entry can go, or an open one the engine developer refused (rejected): an open entry is a question for the engine\n"
-                      "developers. The id is not given again. What was already sent to the engine developer stays with them. (`feedback delete`\n"
+    discard.details = "Only a closed entry can go, or an open one the engine developer refused (rejected): an open "
+                      "entry is a question for the engine\n"
+                      "developers. The id is not given again. What was already sent to the engine developer stays with "
+                      "them. (`feedback delete`\n"
                       "is the server-side delete of the engine developer.) Same as the command feedback.delete.";
     discard.flags.push_back({"json", "", "Machine-readable output."});
     discard.examples = {"factoria feedback discard FB-0004"};
@@ -490,8 +603,10 @@ Command make_feedback_command() {
         // The outbox is cleaned first, and the entry stays when that fails: a deleted entry must never stay sendable.
         auto r = delete_feedback_file(path, id, [&] { return share_discard(share_env(), path, {id}); });
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-        if (ctx.args.has("json")) print_json(ctx.out, Json::object({{"deleted", id}, {"title", r->value("title", std::string())}}));
-        else ctx.out << "Deleted " << id << ": " << r->value("title", std::string()) << "\n";
+        if (ctx.args.has("json"))
+            print_json(ctx.out, Json::object({{"deleted", id}, {"title", r->value("title", std::string())}}));
+        else
+            ctx.out << "Deleted " << id << ": " << r->value("title", std::string()) << "\n";
         return 0;
     };
 
@@ -510,12 +625,15 @@ Command make_feedback_command() {
         }
         if (ctx.args.has("json")) {
             Json arr = Json::array();
-            for (const auto& e : errs) arr.push_back(Json::object({{"pointer", e.pointer}, {"message", e.message}, {"hint", e.hint}}));
+            for (const auto& e : errs)
+                arr.push_back(Json::object({{"pointer", e.pointer}, {"message", e.message}, {"hint", e.hint}}));
             print_json(ctx.out, Json::object({{"ok", errs.empty()}, {"file", path}, {"errors", arr}}));
         } else if (errs.empty()) {
             ctx.out << "OK: " << path << "\n";
         } else {
-            for (const auto& e : errs) ctx.out << path << e.pointer << ": " << e.message << (e.hint.empty() ? "" : " (hint: " + e.hint + ")") << "\n";
+            for (const auto& e : errs)
+                ctx.out << path << e.pointer << ": " << e.message << (e.hint.empty() ? "" : " (hint: " + e.hint + ")")
+                        << "\n";
         }
         return errs.empty() ? 0 : 1;
     };
@@ -524,20 +642,26 @@ Command make_feedback_command() {
     collect.name = "collect";
     collect.summary = "Aggregate many projects' feedback into a ranked roadmap (engine developers).";
     collect.usage = "<dirs-or-files...> [--out report.md|report.json]";
-    collect.details =
-        "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count unless --include-closed (which also reads the ENGINE_FEEDBACK.archive.json next to each file).\n"
-        "Efficiency entries (what the engine's gaps cost in time and tokens) are ranked apart, by the total saving of the fix across installations next to\n"
-        "what the fix costs: each gets a verdict (doc now / command: worth it / engine change: below threshold, N of the $1000 / 20 hours it needs) and a\n"
-        "ready reason for `feedback reject`. JSON: the `efficiency` array.";
+    collect.details = "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count "
+                      "unless --include-closed (which also reads the ENGINE_FEEDBACK.archive.json next to each file).\n"
+                      "Efficiency entries (what the engine's gaps cost in time and tokens) are ranked apart, by the "
+                      "total saving of the fix across installations next to\n"
+                      "what the fix costs: each gets a verdict (doc now / command: worth it / engine change: below "
+                      "threshold, N of the $1000 / 20 hours it needs) and a\n"
+                      "ready reason for `feedback reject`. JSON: the `efficiency` array.";
     collect.maxPositional = -1;
-    collect.flags = {{"out", "FILE", "Write the report here (.json => JSON, otherwise Markdown). Default: Markdown on stdout."},
-                     {"format", "md|json", "Output format when not writing to a file with a clear extension."},
-                     {"include-closed", "", "Also aggregate fixed/wont-fix/duplicate entries."},
-                     {"similarity", "0..1", "Title similarity threshold for grouping (default 0.7)."}};
-    collect.examples = {"factoria feedback collect examples/ --out roadmap.md", "factoria feedback collect games/a games/b/ENGINE_FEEDBACK.json --format json"};
+    collect.flags = {
+        {"out", "FILE", "Write the report here (.json => JSON, otherwise Markdown). Default: Markdown on stdout."},
+        {"format", "md|json", "Output format when not writing to a file with a clear extension."},
+        {"include-closed", "", "Also aggregate fixed/wont-fix/duplicate entries."},
+        {"similarity", "0..1", "Title similarity threshold for grouping (default 0.7)."}};
+    collect.examples = {"factoria feedback collect examples/ --out roadmap.md",
+                        "factoria feedback collect games/a games/b/ENGINE_FEEDBACK.json --format json"};
     collect.run = [](Context& ctx) {
         const Args& a = ctx.args;
-        if (a.positional().empty()) throw UsageError("Give at least one project folder or ENGINE_FEEDBACK.json.", "Usage: factoria feedback collect <dirs...> --out report.md");
+        if (a.positional().empty())
+            throw UsageError("Give at least one project folder or ENGINE_FEEDBACK.json.",
+                             "Usage: factoria feedback collect <dirs...> --out report.md");
         std::vector<std::string> paths;
         for (const auto& p : a.positional()) paths.push_back(absolute_path(p));
         CollectOptions co;
@@ -554,7 +678,8 @@ Command make_feedback_command() {
             ctx.out << text;
         } else {
             write_text_file(out, text);
-            ctx.out << "Wrote " << out << " (" << rep->json.value("totalEntries", 0) << " entries from " << paths.size() << " source(s))\n";
+            ctx.out << "Wrote " << out << " (" << rep->json.value("totalEntries", 0) << " entries from " << paths.size()
+                    << " source(s))\n";
         }
         return 0;
     };
@@ -568,11 +693,15 @@ Command make_feedback_command() {
 namespace {
 
 std::vector<FlagSpec> docs_read_flags() {
-    return {{"contents", "", "Print only the page's headings with their line numbers, and the command that reads one (docs.read's `contents`)."},
-            {"heading", "TITLE", "Print only the section with this heading (case-insensitive; an exact title wins, else part of one)."},
-            {"start-line", "N", "First line to print (1-based). With --heading: where to continue a long section."},
-            {"max-lines", "N", "Maximum number of lines (default 2000)."},
-            {"max-bytes", "N", "Maximum size in bytes (1000 to 90000, default 40000); the cut falls on a line boundary."}};
+    return {
+        {"contents", "",
+         "Print only the page's headings with their line numbers, and the command that reads one (docs.read's "
+         "`contents`)."},
+        {"heading", "TITLE",
+         "Print only the section with this heading (case-insensitive; an exact title wins, else part of one)."},
+        {"start-line", "N", "First line to print (1-based). With --heading: where to continue a long section."},
+        {"max-lines", "N", "Maximum number of lines (default 2000)."},
+        {"max-bytes", "N", "Maximum size in bytes (1000 to 90000, default 40000); the cut falls on a line boundary."}};
 }
 
 // `factoria docs read <name> --heading/--start-line/--max-lines/--max-bytes`: the docs.read command itself, so the CLI and
@@ -582,7 +711,8 @@ int run_docs_read_part(Context& ctx) {
     register_docs_commands(registry);
     Json args = Json::object({{"name", ctx.args.pos(0)}});
     const bool contentsOnly = ctx.args.has("contents");
-    if (contentsOnly) args["maxLines"] = 1;  // a page of more than one line is "cut", and a cut read carries its contents
+    if (contentsOnly)
+        args["maxLines"] = 1;  // a page of more than one line is "cut", and a cut read carries its contents
     if (ctx.args.has("heading")) args["heading"] = ctx.args.str("heading");
     // The ranges docs.read documents (kDocReadMaxBytes is 90000 in docs.cpp): out of range is a usage error, never a
     // silent clamp that returns something other than what was asked.
@@ -625,22 +755,26 @@ int run_docs_read_part(Context& ctx) {
     }
     if (contentsOnly) {
         if (!r.result.contains("contents")) {
-            ctx.out << "'" << ctx.args.pos(0) << "' is one line: read it with 'factoria docs read " << ctx.args.pos(0) << "'.\n";
+            ctx.out << "'" << ctx.args.pos(0) << "' is one line: read it with 'factoria docs read " << ctx.args.pos(0)
+                    << "'.\n";
             return 0;
         }
-        ctx.out << r.result.value("contents", std::string())
-                << "Read one section: factoria docs read " << ctx.args.pos(0) << " --heading \"<a heading above>\"\n";
+        ctx.out << r.result.value("contents", std::string()) << "Read one section: factoria docs read "
+                << ctx.args.pos(0) << " --heading \"<a heading above>\"\n";
         return 0;
     }
     const std::string content = r.result.value("content", std::string());
     ctx.out << content;
     if (content.empty() || content.back() != '\n') ctx.out << "\n";
     if (r.result.value("truncated", false)) {
-        ctx.err << "-- cut at line " << r.result.value("endLine", 0) << " of " << r.result.value("totalLines", 0) << " --\n"
+        ctx.err << "-- cut at line " << r.result.value("endLine", 0) << " of " << r.result.value("totalLines", 0)
+                << " --\n"
                 << "Continue: factoria docs read " << ctx.args.pos(0);
-        if (r.result.contains("heading")) ctx.err << " --heading \"" << r.result.value("heading", std::string()) << "\"";
+        if (r.result.contains("heading"))
+            ctx.err << " --heading \"" << r.result.value("heading", std::string()) << "\"";
         ctx.err << " --start-line " << r.result.value("nextStartLine", 0) << "\n"
-                << "One section: factoria docs read " << ctx.args.pos(0) << " --heading \"<a heading below>\"; a range: --start-line N --max-lines M.\n"
+                << "One section: factoria docs read " << ctx.args.pos(0)
+                << " --heading \"<a heading below>\"; a range: --start-line N --max-lines M.\n"
                 << r.result.value("contents", std::string()) << "\n";
     }
     return 0;
@@ -653,12 +787,16 @@ Command make_docs_command() {
     g.name = "docs";
     g.summary = "Read the engine documentation embedded in this binary (works offline).";
     g.usage = "[name]";
-    g.details = "'factoria docs' lists documents; 'factoria docs <name>' prints one (same as 'docs read'). The same docs are MCP resources.";
+    g.details = "'factoria docs' lists documents; 'factoria docs <name>' prints one (same as 'docs read'). The same "
+                "docs are MCP resources.";
     g.maxPositional = 1;
-    g.flags = {{"json", "", "Machine-readable output (with no name: the list)."},
-               {"audience", "WHO", "With no name: only the docs for gameAi (the AI making a game), user or engineDev."}};
+    g.flags = {
+        {"json", "", "Machine-readable output (with no name: the list)."},
+        {"audience", "WHO", "With no name: only the docs for gameAi (the AI making a game), user or engineDev."}};
     for (const FlagSpec& f : docs_read_flags()) g.flags.push_back(f);
-    g.examples = {"factoria docs", "factoria docs scripting", "factoria docs read ai-guide --heading \"Platformer character\"", "factoria docs search \"collision events\"", "factoria docs list --json"};
+    g.examples = {"factoria docs", "factoria docs scripting",
+                  "factoria docs read ai-guide --heading \"Platformer character\"",
+                  "factoria docs search \"collision events\"", "factoria docs list --json"};
     g.run = [](Context& ctx) {
         if (ctx.args.positional().empty()) {
             // Thin over docs.list, so the CLI and MCP list (and filter by audience) the same way.
@@ -667,24 +805,29 @@ Command make_docs_command() {
             Json args = Json::object();
             if (ctx.args.has("audience")) args["audience"] = ctx.args.str("audience");
             CommandResult r = registry.call("docs.list", args);
-            if (!r.ok) return report_failure(ctx, r.error.value("message", std::string("docs.list failed.")), r.error.value("hint", std::string()));
+            if (!r.ok)
+                return report_failure(ctx, r.error.value("message", std::string("docs.list failed.")),
+                                      r.error.value("hint", std::string()));
             if (ctx.args.has("json")) {
                 print_json(ctx.out, r.result["docs"]);
                 return 0;
             }
             for (const Json& d : r.result["docs"]) {
                 const std::string summary = d.value("summary", std::string());
-                ctx.out << d.value("name", std::string()) << "  -  " << (summary.empty() ? d.value("title", std::string()) : summary) << "\n";
+                ctx.out << d.value("name", std::string()) << "  -  "
+                        << (summary.empty() ? d.value("title", std::string()) : summary) << "\n";
             }
             return 0;
         }
-        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") || ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
+        if (ctx.args.has("contents") || ctx.args.has("heading") || ctx.args.has("start-line") ||
+            ctx.args.has("max-lines") || ctx.args.has("max-bytes") || ctx.args.has("json"))
             return run_docs_read_part(ctx);
         auto t = read_doc(ctx.args.pos(0));
         if (!t.ok()) {
             std::vector<std::string> names;
             for (const auto& d : list_docs()) names.push_back(d.name);
-            return report_failure(ctx, t.error().message, t.error().hint.empty() ? fa::did_you_mean(ctx.args.pos(0), names) : t.error().hint);
+            return report_failure(ctx, t.error().message,
+                                  t.error().hint.empty() ? fa::did_you_mean(ctx.args.pos(0), names) : t.error().hint);
         }
         ctx.out << *t;
         if (t->empty() || t->back() != '\n') ctx.out << "\n";
@@ -694,8 +837,10 @@ Command make_docs_command() {
     Command list;
     list.name = "list";
     list.summary = "List the documents.";
-    list.flags = {{"json", "", "Machine-readable output."},
-                  {"audience", "WHO", "Only the docs for gameAi (the AI making a game), user (the person using the engine) or engineDev."}};
+    list.flags = {
+        {"json", "", "Machine-readable output."},
+        {"audience", "WHO",
+         "Only the docs for gameAi (the AI making a game), user (the person using the engine) or engineDev."}};
     list.examples = {"factoria docs list", "factoria docs list --audience gameAi --json"};
     list.run = g.run;
 
@@ -706,10 +851,12 @@ Command make_docs_command() {
     read.maxPositional = 1;
     read.flags = docs_read_flags();
     read.flags.push_back({"json", "", "Print the docs.read result as JSON (with a partial-read flag)."});
-    read.details = "Without flags the whole page is printed. With --heading, --start-line, --max-lines or --max-bytes it is the "
-                   "docs.read command: a section or a range, at most --max-bytes (default 40000); when it cuts, the hint with the "
-                   "exact next call and the page's contents (headings with line numbers) follow on stderr. "
-                   "With --json the docs.read result (content, startLine, endLine, totalLines, truncated, next, contents) is printed.";
+    read.details =
+        "Without flags the whole page is printed. With --heading, --start-line, --max-lines or --max-bytes it is the "
+        "docs.read command: a section or a range, at most --max-bytes (default 40000); when it cuts, the hint with the "
+        "exact next call and the page's contents (headings with line numbers) follow on stderr. "
+        "With --json the docs.read result (content, startLine, endLine, totalLines, truncated, next, contents) is "
+        "printed.";
     read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --heading Index",
                      "factoria docs read ai-guide --heading \"Platformer character\"",
                      "factoria docs read architecture --start-line 400 --max-bytes 20000"};
@@ -732,12 +879,18 @@ Command make_docs_command() {
         if (ctx.args.has("json")) {
             Json arr = Json::array();
             for (const auto& h : hits)
-                arr.push_back(Json::object({{"doc", h.doc}, {"path", h.path}, {"heading", h.heading}, {"line", h.line}, {"score", h.score}, {"snippet", h.snippet}}));
+                arr.push_back(Json::object({{"doc", h.doc},
+                                            {"path", h.path},
+                                            {"heading", h.heading},
+                                            {"line", h.line},
+                                            {"score", h.score},
+                                            {"snippet", h.snippet}}));
             print_json(ctx.out, arr);
             return 0;
         }
         if (hits.empty()) ctx.out << "No matches for '" << q << "'.\n";
-        for (const auto& h : hits) ctx.out << h.doc << ":" << h.line << "  [" << h.heading << "]\n    " << h.snippet << "\n";
+        for (const auto& h : hits)
+            ctx.out << h.doc << ":" << h.line << "  [" << h.heading << "]\n    " << h.snippet << "\n";
         return 0;
     };
 

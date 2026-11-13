@@ -24,12 +24,29 @@ using namespace fa;
 inline std::vector<std::uint8_t> wav_bytes(const std::vector<float>& interleaved, int channels, int rate) {
     const std::size_t n = interleaved.size();
     std::vector<std::uint8_t> b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(v >> (8 * i))); };
-    auto u16 = [&](std::uint16_t v) { b.push_back(std::uint8_t(v)); b.push_back(std::uint8_t(v >> 8)); };
-    auto tag = [&](const char* s) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(s[i])); };
-    tag("RIFF"); u32(std::uint32_t(36 + n * 2)); tag("WAVE"); tag("fmt "); u32(16); u16(1); u16(std::uint16_t(channels));
-    u32(std::uint32_t(rate)); u32(std::uint32_t(rate * channels * 2)); u16(std::uint16_t(channels * 2)); u16(16);
-    tag("data"); u32(std::uint32_t(n * 2));
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(v >> (8 * i)));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        b.push_back(std::uint8_t(v));
+        b.push_back(std::uint8_t(v >> 8));
+    };
+    auto tag = [&](const char* s) {
+        for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(s[i]));
+    };
+    tag("RIFF");
+    u32(std::uint32_t(36 + n * 2));
+    tag("WAVE");
+    tag("fmt ");
+    u32(16);
+    u16(1);
+    u16(std::uint16_t(channels));
+    u32(std::uint32_t(rate));
+    u32(std::uint32_t(rate * channels * 2));
+    u16(std::uint16_t(channels * 2));
+    u16(16);
+    tag("data");
+    u32(std::uint32_t(n * 2));
     for (float s : interleaved) u16(std::uint16_t(std::int16_t(std::lround(std::clamp(s, -1.0f, 1.0f) * 32767.0f))));
     return b;
 }
@@ -47,11 +64,13 @@ inline double dbfs(double db) { return std::pow(10.0, db / 20.0); }
 // `seconds` of a sine, mono, appended to `out`.
 inline void add_sine(std::vector<float>& out, double seconds, double freq, double amp, int rate) {
     const std::size_t n = std::size_t(std::lround(seconds * rate));
-    for (std::size_t i = 0; i < n; ++i) out.push_back(float(amp * std::sin(2.0 * std::numbers::pi * freq * double(i) / rate)));
+    for (std::size_t i = 0; i < n; ++i)
+        out.push_back(float(amp * std::sin(2.0 * std::numbers::pi * freq * double(i) / rate)));
 }
 
 // A 16-bit mono PCM WAV sine wave.
-inline void write_sine_wav(const std::filesystem::path& file, double seconds, double freq = 440.0, double amp = 0.5, int rate = 44100) {
+inline void write_sine_wav(const std::filesystem::path& file, double seconds, double freq = 440.0, double amp = 0.5,
+                           int rate = 44100) {
     std::vector<float> s;
     add_sine(s, seconds, freq, amp, rate);
     write_file(file, wav_bytes(s, 1, rate));
@@ -62,14 +81,24 @@ struct Recording {
     std::size_t frames() const { return l.size(); }
     float peak(std::size_t from = 0, std::size_t to = SIZE_MAX) const {
         float p = 0;
-        for (std::size_t i = from, end = std::min({to, l.size(), r.size()}); i < end; ++i) p = std::max({p, std::fabs(l[i]), std::fabs(r[i])});
+        for (std::size_t i = from, end = std::min({to, l.size(), r.size()}); i < end; ++i)
+            p = std::max({p, std::fabs(l[i]), std::fabs(r[i])});
         return p;
     }
-    float peak_l() const { float p = 0; for (float v : l) p = std::max(p, std::fabs(v)); return p; }
-    float peak_r() const { float p = 0; for (float v : r) p = std::max(p, std::fabs(v)); return p; }
+    float peak_l() const {
+        float p = 0;
+        for (float v : l) p = std::max(p, std::fabs(v));
+        return p;
+    }
+    float peak_r() const {
+        float p = 0;
+        for (float v : r) p = std::max(p, std::fabs(v));
+        return p;
+    }
     // index one past the last non-silent frame
     std::size_t sound_end(float thr = 0.01f) const {
-        for (std::size_t i = l.size(); i > 0; --i) if (std::fabs(l[i - 1]) > thr || std::fabs(r[i - 1]) > thr) return i;
+        for (std::size_t i = l.size(); i > 0; --i)
+            if (std::fabs(l[i - 1]) > thr || std::fabs(r[i - 1]) > thr) return i;
         return 0;
     }
 };
@@ -84,7 +113,9 @@ inline Recording read_wav16(const std::string& path) {
     Recording rec;
     std::size_t n = (d.size() - 44) / 4;
     for (std::size_t i = 0; i < n; ++i) {
-        auto s = [&](std::size_t off) { return float(std::int16_t(d[44 + i * 4 + off] | (d[44 + i * 4 + off + 1] << 8))) / 32768.0f; };
+        auto s = [&](std::size_t off) {
+            return float(std::int16_t(d[44 + i * 4 + off] | (d[44 + i * 4 + off + 1] << 8))) / 32768.0f;
+        };
         rec.l.push_back(s(0));
         rec.r.push_back(s(2));
     }

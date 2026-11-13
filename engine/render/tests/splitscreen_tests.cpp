@@ -43,11 +43,11 @@ TEST_CASE("split screen: two cameras draw their own half, each with its own clea
     World w;
     camera(w, "left", {0, 0, 0}, {0, 0, 0.5f, 1}, kGrey, 0);
     camera(w, "right", {500, 0, 0}, {0.5f, 0, 0.5f, 1}, kDark, 1);
-    square(w, {0, 0, 0}, kRed);       // seen by the left camera only
-    square(w, {500, 0, 0}, kBlue);    // seen by the right camera only
+    square(w, {0, 0, 0}, kRed);     // seen by the left camera only
+    square(w, {500, 0, 0}, kBlue);  // seen by the right camera only
     Image img = g.render(w);
-    CHECK(near_color(img.pixel(80, 90), kRed));      // centre of the left half
-    CHECK(near_color(img.pixel(240, 90), kBlue));    // centre of the right half
+    CHECK(near_color(img.pixel(80, 90), kRed));    // centre of the left half
+    CHECK(near_color(img.pixel(240, 90), kBlue));  // centre of the right half
     CHECK(near_color(img.pixel(10, 10), kGrey));
     CHECK(near_color(img.pixel(150, 170), kGrey));
     CHECK(near_color(img.pixel(170, 10), kDark));
@@ -60,7 +60,8 @@ TEST_CASE("split screen: two cameras draw their own half, each with its own clea
     CHECK(near_color(img.pixel(160, 5), kDark));
 }
 
-TEST_CASE("split screen: each camera draws a Parallax layer shifted for itself, and the world keeps the first camera's offset") {
+TEST_CASE("split screen: each camera draws a Parallax layer shifted for itself, and the world keeps the first camera's "
+          "offset") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -125,10 +126,10 @@ TEST_CASE("split screen: clear is per camera") {
     square(w, {0, 0, 0}, kRed, 60.0f);
     square(w, {500, 0, 0}, kBlue, 20.0f);
     Image img = g.render(w);
-    CHECK(near_color(img.pixel(145, 75), kRed));      // the full-screen camera (its red square is cut by the inset)
-    CHECK(near_color(img.pixel(240, 135), kBlue));    // the inset: centre of the bottom right quarter
-    CHECK(near_color(img.pixel(300, 170), kTeal));    // the inset cleared its own rectangle
-    CHECK(near_color(img.pixel(300, 10), kGrey));     // outside the inset the first camera shows
+    CHECK(near_color(img.pixel(145, 75), kRed));    // the full-screen camera (its red square is cut by the inset)
+    CHECK(near_color(img.pixel(240, 135), kBlue));  // the inset: centre of the bottom right quarter
+    CHECK(near_color(img.pixel(300, 170), kTeal));  // the inset cleared its own rectangle
+    CHECK(near_color(img.pixel(300, 10), kGrey));   // outside the inset the first camera shows
     // Without a clear the inset draws over the first camera's picture instead.
     w.get<Camera>(inset)->clear = false;
     img = g.render(w);
@@ -293,11 +294,11 @@ TEST_CASE("split screen: perspective cameras each draw their own 3D view into th
         m.color = i == 0 ? kRed : kBlue;
     }
     Image img = g.render(w);
-    CHECK(near_color(img.pixel(80, 90), kRed));     // the cube is centred in its half, the aspect of the half is kept
+    CHECK(near_color(img.pixel(80, 90), kRed));  // the cube is centred in its half, the aspect of the half is kept
     CHECK(near_color(img.pixel(240, 90), kBlue));
-    CHECK(img.pixel(80, 3).b > 0.5f);               // each half has its own sky
+    CHECK(img.pixel(80, 3).b > 0.5f);  // each half has its own sky
     CHECK(img.pixel(240, 3).b > 0.5f);
-    CHECK(g.renderer.stats().meshes == 2);          // one cube per camera: the other one is far outside the view
+    CHECK(g.renderer.stats().meshes == 2);  // one cube per camera: the other one is far outside the view
 }
 
 TEST_CASE("split screen: bloom and the HUD work over the frame of several cameras") {
@@ -325,7 +326,7 @@ TEST_CASE("split screen: bloom and the HUD work over the frame of several camera
     Image img = g.render(w);
     CHECK(near_color(img.pixel(80, 90), kYellow, 0.15f));
     CHECK(near_color(img.pixel(240, 90), kBlue, 0.15f));
-    CHECK(near_color(img.pixel(150, 90), kGreen));   // the HUD is drawn over the glow, whole
+    CHECK(near_color(img.pixel(150, 90), kGreen));  // the HUD is drawn over the glow, whole
     CHECK(near_color(img.pixel(170, 90), kGreen));
     // The glow reaches around the yellow square of the left view
     CHECK(img.pixel(80 + 24, 90).r > kGrey.r + 0.02f);

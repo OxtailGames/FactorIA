@@ -53,7 +53,8 @@ TEST_CASE("particle store: two worlds with the same entity bits do not interfere
     CHECK(a.particles().find(da) == nullptr);
 }
 
-TEST_CASE("particle store: the same emitter in two worlds draws the same random numbers, and a queued burst is born in the next step") {
+TEST_CASE("particle store: the same emitter in two worlds draws the same random numbers, and a queued burst is born in "
+          "the next step") {
     World a, b;
     const Entity ea = add_emitter(a, "sparks", 0);
     const Entity eb = add_emitter(b, "sparks", 0);

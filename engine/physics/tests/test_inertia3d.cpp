@@ -20,8 +20,8 @@ std::shared_ptr<ShapeData> hull_of(const char* mesh) {
 TEST_CASE("inertia: a capsule is a cylinder plus two hemispheres") {
     // radius 1, cylinder height 2 (segHalf 1), mass 1: the cylinder holds 0.6 of the mass, the hemispheres 0.4.
     const Vec3 c = capsule_inertia(1.0f, 1.0f, 1.0f);
-    CHECK(c.y == doctest::Approx(0.6 * 0.5 + 0.4 * 0.4));                                                      // about its axis
-    CHECK(c.x == doctest::Approx(0.6 * (0.25 + 4.0 / 12.0) + 0.4 * (0.4 + 1.0 + 0.75)));                       // across it
+    CHECK(c.y == doctest::Approx(0.6 * 0.5 + 0.4 * 0.4));                                 // about its axis
+    CHECK(c.x == doctest::Approx(0.6 * (0.25 + 4.0 / 12.0) + 0.4 * (0.4 + 1.0 + 0.75)));  // across it
     CHECK(c.z == c.x);
     CHECK(c.x > c.y);  // a long capsule is harder to tip than to spin
 
@@ -70,7 +70,8 @@ TEST_CASE("inertia: a cylinder hull matches the formulas of the cylinder") {
 TEST_CASE("inertia: a hull is measured about the model origin, a flat one has no volume") {
     // A unit cube with its corner at the origin: the parallel axes theorem, I = m/6 + m * (0.5^2 + 0.5^2) = m * 2/3.
     std::vector<Vec3> p = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
-    std::vector<std::uint32_t> idx = {0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
+    std::vector<std::uint32_t> idx = {0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                                      3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
     const SolidMoments m = solid_moments(p, idx);
     CHECK(m.volume == doctest::Approx(1.0));
     CHECK(m.xx == doctest::Approx(1.0 / 3.0));  // the integral of x^2 over [0,1]^3

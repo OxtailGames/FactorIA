@@ -27,7 +27,8 @@ std::string B(int k) {  // before `debugger;`
 std::string FO(int fid) {  // after the `{` of a function body
     return " let __fa_f; try { __fa_f = __fa_d.e(" + std::to_string(fid) + ", (__fa_x) => eval(__fa_x)); ";
 }
-const std::string FC = " } catch (__fa_c) { throw __fa_d.c(__fa_f, __fa_c); } finally { __fa_d.x(__fa_f); } ";  // before the `}`
+const std::string FC =
+    " } catch (__fa_c) { throw __fa_d.c(__fa_f, __fa_c); } finally { __fa_d.x(__fa_f); } ";  // before the `}`
 const std::string PRO =
     "const __fa_d = globalThis.__fa_dbg, __fa_h = __fa_d.h, __fa_f = __fa_d.m(@MID@, (__fa_x) => eval(__fa_x)); ";
 
@@ -49,30 +50,14 @@ using Fn = ScriptDebugInfo::Function;
 // scripts/calc.js: add(a, b) and run(n) = sum of add over 0..n-1, plus 6. run(5) is 16. Line 5 is blank.
 Fixture calc_fixture() {
     Fixture f;
-    f.orig = join({"export function add(a, b) {",
-                   "    const s = a + b;",
-                   "    return s;",
-                   "}",
-                   "",
-                   "export function run(n) {",
-                   "    let total = 0;",
-                   "    for (let i = 0; i < n; i++) {",
-                   "        total = add(total, i);",
-                   "    }",
-                   "    return total + 6;",
-                   "}"});
-    f.instr = join({PRO + "export function add(a, b) {" + FO(0),
-                    "    " + H(0) + "const s = a + b;",
-                    "    " + H(1) + "return s;",
-                    FC + "}",
-                    "",
-                    "export function run(n) {" + FO(1),
-                    "    " + H(2) + "let total = 0;",
-                    "    " + H(3) + "for (let i = 0; i < n; i++) {",
-                    "        " + H(4) + "total = add(total, i);",
-                    "    }",
-                    "    " + H(5) + "return total + 6;",
-                    FC + "}"});
+    f.orig = join({"export function add(a, b) {", "    const s = a + b;", "    return s;", "}", "",
+                   "export function run(n) {", "    let total = 0;", "    for (let i = 0; i < n; i++) {",
+                   "        total = add(total, i);", "    }", "    return total + 6;", "}"});
+    f.instr =
+        join({PRO + "export function add(a, b) {" + FO(0), "    " + H(0) + "const s = a + b;",
+              "    " + H(1) + "return s;", FC + "}", "", "export function run(n) {" + FO(1),
+              "    " + H(2) + "let total = 0;", "    " + H(3) + "for (let i = 0; i < n; i++) {",
+              "        " + H(4) + "total = add(total, i);", "    }", "    " + H(5) + "return total + 6;", FC + "}"});
     f.info.statements = {St{2, 5, 1}, St{3, 5, 1}, St{7, 5, 2}, St{8, 5, 2}, St{9, 9, 4}, St{11, 5, 2}};
     f.info.functions = {Fn{"add", 1, 17, 4, 1}, Fn{"run", 6, 17, 12, 2}};
     f.info.scopes = {Sc{-1, "module", {"add", "run"}}, Sc{0, "function", {"this", "a", "b", "s"}},
@@ -83,75 +68,41 @@ Fixture calc_fixture() {
 // scripts/loop.js: module state, an endless loop that ends when `done` is set, and a function with `debugger;`.
 Fixture loop_fixture() {
     Fixture f;
-    f.orig = join({"let done = false;",
-                   "export let n = 0;",
-                   "export function spin() {",
-                   "    while (true) {",
-                   "        if (done) { break; }",
-                   "        n++;",
-                   "    }",
-                   "    return n;",
-                   "}",
-                   "export function tick() {",
-                   "    n = n + 1;",
-                   "    debugger;",
-                   "    return n;",
-                   "}"});
-    f.instr = join({PRO + H(0) + "let done = false;",
-                    H(1) + "export let n = 0;",
-                    "export function spin() {" + FO(0),
-                    "    " + H(2) + "while (true) {",
-                    "        " + H(3) + "if (done) { " + H(4) + "break; }",
-                    "        " + H(5) + "n++;",
-                    "    }",
-                    "    " + H(6) + "return n;",
-                    FC + "}",
-                    "export function tick() {" + FO(1),
-                    "    " + H(7) + "n = n + 1;",
-                    "    " + H(8) + B(8) + "debugger;",
-                    "    " + H(9) + "return n;",
-                    FC + "}"});
-    f.info.statements = {St{1, 1, 0}, St{2, 1, 0}, St{4, 5, 1}, St{5, 9, 2}, St{5, 22, 3},
+    f.orig = join({"let done = false;", "export let n = 0;", "export function spin() {", "    while (true) {",
+                   "        if (done) { break; }", "        n++;", "    }", "    return n;", "}",
+                   "export function tick() {", "    n = n + 1;", "    debugger;", "    return n;", "}"});
+    f.instr = join({PRO + H(0) + "let done = false;", H(1) + "export let n = 0;", "export function spin() {" + FO(0),
+                    "    " + H(2) + "while (true) {", "        " + H(3) + "if (done) { " + H(4) + "break; }",
+                    "        " + H(5) + "n++;", "    }", "    " + H(6) + "return n;", FC + "}",
+                    "export function tick() {" + FO(1), "    " + H(7) + "n = n + 1;",
+                    "    " + H(8) + B(8) + "debugger;", "    " + H(9) + "return n;", FC + "}"});
+    f.info.statements = {St{1, 1, 0}, St{2, 1, 0}, St{4, 5, 1},  St{5, 9, 2},  St{5, 22, 3},
                          St{6, 9, 2}, St{8, 5, 1}, St{11, 5, 4}, St{12, 5, 4}, St{13, 5, 4}};
     f.info.functions = {Fn{"spin", 3, 17, 9, 1}, Fn{"tick", 10, 17, 14, 4}};
-    f.info.scopes = {Sc{-1, "module", {"done", "n", "spin", "tick"}}, Sc{0, "function", {"this"}},
-                     Sc{1, "block", {}}, Sc{2, "block", {}}, Sc{0, "function", {"this"}}};
+    f.info.scopes = {Sc{-1, "module", {"done", "n", "spin", "tick"}}, Sc{0, "function", {"this"}}, Sc{1, "block", {}},
+                     Sc{2, "block", {}}, Sc{0, "function", {"this"}}};
     return f;
 }
 
 // scripts/boom.js: inner() throws; outer() lets it through; guarded() catches it.
 Fixture boom_fixture() {
     Fixture f;
-    f.orig = join({"export function inner() {",
-                   "    throw new Error(\"boom\");",
-                   "}",
-                   "export function outer() {",
-                   "    inner();",
-                   "}",
-                   "export function guarded() {",
-                   "    try {",
-                   "        inner();",
-                   "    } catch (e) {",
-                   "        return \"caught\";",
-                   "    }",
-                   "}"});
-    f.instr = join({PRO + "export function inner() {" + FO(0),
-                    "    " + H(0) + "throw new Error(\"boom\");",
-                    FC + "}",
-                    "export function outer() {" + FO(1),
-                    "    " + H(1) + "inner();",
-                    FC + "}",
-                    "export function guarded() {" + FO(2),
-                    "    " + H(2) + "try {",
-                    "        " + H(3) + "inner();",
-                    "    } catch (e) { __fa_d.k(__fa_f, e);",
-                    "        " + H(4) + "return \"caught\";",
-                    "    }",
-                    FC + "}"});
+    f.orig = join({"export function inner() {", "    throw new Error(\"boom\");", "}", "export function outer() {",
+                   "    inner();", "}", "export function guarded() {", "    try {", "        inner();",
+                   "    } catch (e) {", "        return \"caught\";", "    }", "}"});
+    f.instr =
+        join({PRO + "export function inner() {" + FO(0), "    " + H(0) + "throw new Error(\"boom\");", FC + "}",
+              "export function outer() {" + FO(1), "    " + H(1) + "inner();", FC + "}",
+              "export function guarded() {" + FO(2), "    " + H(2) + "try {", "        " + H(3) + "inner();",
+              "    } catch (e) { __fa_d.k(__fa_f, e);", "        " + H(4) + "return \"caught\";", "    }", FC + "}"});
     f.info.statements = {St{2, 5, 1}, St{5, 5, 2}, St{8, 5, 3}, St{9, 9, 4}, St{11, 9, 5}};
     f.info.functions = {Fn{"inner", 1, 17, 3, 1}, Fn{"outer", 4, 17, 6, 2}, Fn{"guarded", 7, 17, 13, 3}};
-    f.info.scopes = {Sc{-1, "module", {"inner", "outer", "guarded"}}, Sc{0, "function", {"this"}},
-                     Sc{0, "function", {"this"}}, Sc{0, "function", {"this"}}, Sc{3, "block", {}}, Sc{3, "catch", {"e"}}};
+    f.info.scopes = {Sc{-1, "module", {"inner", "outer", "guarded"}},
+                     Sc{0, "function", {"this"}},
+                     Sc{0, "function", {"this"}},
+                     Sc{0, "function", {"this"}},
+                     Sc{3, "block", {}},
+                     Sc{3, "catch", {"e"}}};
     return f;
 }
 
@@ -160,20 +111,11 @@ Fixture behaviour_fixture(const std::string& cls, bool fail) {
     Fixture f;
     const std::string body = fail ? "this.nothing.x = k;" : "globalThis.ticks = (globalThis.ticks || 0) + 1;";
     const std::string first = fail ? "const k = 2;" : "globalThis.last = 1;";
-    f.orig = join({"import { Behaviour } from \"factoria\";",
-                   "export default class " + cls + " extends Behaviour {",
-                   "  onUpdate(dt) {",
-                   "    " + first,
-                   "    " + body,
-                   "  }",
-                   "}"});
-    f.instr = join({PRO + "import { Behaviour } from \"factoria\";",
-                    "export default class " + cls + " extends Behaviour {",
-                    "  onUpdate(dt) {" + FO(0),
-                    "    " + H(0) + first,
-                    "    " + H(1) + body,
-                    "  " + FC + "}",
-                    "}"});
+    f.orig = join({"import { Behaviour } from \"factoria\";", "export default class " + cls + " extends Behaviour {",
+                   "  onUpdate(dt) {", "    " + first, "    " + body, "  }", "}"});
+    f.instr =
+        join({PRO + "import { Behaviour } from \"factoria\";", "export default class " + cls + " extends Behaviour {",
+              "  onUpdate(dt) {" + FO(0), "    " + H(0) + first, "    " + H(1) + body, "  " + FC + "}", "}"});
     f.info.statements = {St{4, 5, 1}, St{5, 5, 1}};
     f.info.functions = {Fn{cls + ".onUpdate", 3, 3, 6, 1}};
     f.info.scopes = {Sc{-1, "module", {"Behaviour", cls}}, Sc{0, "function", {"this", "dt"}}};

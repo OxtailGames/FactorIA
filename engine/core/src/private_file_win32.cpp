@@ -98,8 +98,8 @@ std::string restrict_to_owner(const std::filesystem::path& file) {
     }
     std::wstring name = file.native();  // SetNamedSecurityInfoW takes a non-const string
     const DWORD rc = SetNamedSecurityInfoW(name.data(), SE_FILE_OBJECT,
-                                           DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr,
-                                           dacl, nullptr);
+                                           DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr,
+                                           nullptr, dacl, nullptr);
     LocalFree(sd);
     if (rc != ERROR_SUCCESS) return win_error("cannot set the permissions", rc);
     return {};

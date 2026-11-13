@@ -29,7 +29,8 @@ void draw_profiler_threads(const ProfilerView& v, ImGuiTableFlags flags) {
         ImGui::TextDisabled("No frame measured yet.");
         return;
     }
-    ImGui::TextDisabled("%d worker thread(s)%s; jobs run where a thread is free, the results do not depend on it", jobs::worker_count(),
+    ImGui::TextDisabled("%d worker thread(s)%s; jobs run where a thread is free, the results do not depend on it",
+                        jobs::worker_count(),
                         jobs::inline_mode() ? " (inline mode: every job runs on the main thread)" : "");
     if (!ImGui::BeginChild("##profthreads", ImVec2(0, table_height()))) {
         ImGui::EndChild();
@@ -125,31 +126,38 @@ void Editor::draw_profiler_panel() {
     }
     const ProfilerView& v = profView_;
     if (v.frames == 0) {
-        ImGui::TextDisabled("Press Play: the profiler measures the frames the game runs (nothing is measured while editing).");
+        ImGui::TextDisabled(
+            "Press Play: the profiler measures the frames the game runs (nothing is measured while editing).");
     } else {
         ImGui::Text("Frame %.2f ms (%.0f fps)", v.smoothFrameMs, v.smoothFrameMs > 0 ? 1000.0 / v.smoothFrameMs : 0.0);
         ImGui::SameLine();
-        if (play_ == PlayState::Playing) ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1), "live");
-        else ImGui::TextDisabled("(not running)");
+        if (play_ == PlayState::Playing)
+            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1), "live");
+        else
+            ImGui::TextDisabled("(not running)");
         ImGui::SameLine();
         ImGui::TextDisabled("engine time per frame, wall clock; the editor's own drawing is not included");
         float top = 16.7f;
         for (float f : v.frameMs) top = std::max(top, f);
-        ImGui::PlotLines("##frames", v.frameMs.data(), int(v.frameMs.size()), 0, nullptr, 0.0f, top * 1.1f, ImVec2(-1, 56));
+        ImGui::PlotLines("##frames", v.frameMs.data(), int(v.frameMs.size()), 0, nullptr, 0.0f, top * 1.1f,
+                         ImVec2(-1, 56));
         ImGui::SetItemTooltip("Milliseconds of the last %zu frames", ProfilerView::kHistory);
     }
-    if (v.haveGpu) ImGui::Text("GPU %.2f ms", v.gpuMs);
-    else ImGui::TextDisabled("GPU: n/a (%s)", v.gpuReason.c_str());
+    if (v.haveGpu)
+        ImGui::Text("GPU %.2f ms", v.gpuMs);
+    else
+        ImGui::TextDisabled("GPU: n/a (%s)", v.gpuReason.c_str());
     if (v.haveMemory) {
         auto mb = [](std::uint64_t b) { return double(b) / (1024.0 * 1024.0); };
-        ImGui::Text("Memory %.0f MB (peak %.0f)   JS heap %.1f MB", mb(v.memory.processBytes), mb(v.memory.peakProcessBytes),
-                    mb(v.memory.jsHeapBytes));
+        ImGui::Text("Memory %.0f MB (peak %.0f)   JS heap %.1f MB", mb(v.memory.processBytes),
+                    mb(v.memory.peakProcessBytes), mb(v.memory.jsHeapBytes));
         ImGui::Text("Textures %.1f MB   audio %.1f MB (music %.1f)   entities %d", mb(v.memory.textureBytes),
                     mb(v.memory.audioDecodedBytes), mb(v.memory.musicBytes), v.memory.entities);
     }
 
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
-                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings;
+                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp |
+                                      ImGuiTableFlags_NoSavedSettings;
     if (ImGui::BeginTabBar("##proftabs")) {
         if (ImGui::BeginTabItem("Systems and scripts")) {
             const float half = ImGui::GetContentRegionAvail().x * 0.4f;
@@ -207,9 +215,10 @@ void Editor::draw_profiler_panel() {
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
-        const bool threadsOpen =
-            ImGui::BeginTabItem("Threads", nullptr, profShowThreads_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
-        ImGui::SetItemTooltip("Time each thread of the job system spent in jobs (runtime.jobThreads in factoria.json; jobs.info)");
+        const bool threadsOpen = ImGui::BeginTabItem(
+            "Threads", nullptr, profShowThreads_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+        ImGui::SetItemTooltip(
+            "Time each thread of the job system spent in jobs (runtime.jobThreads in factoria.json; jobs.info)");
         profShowThreads_ = false;
         if (threadsOpen) {
             draw_profiler_threads(v, flags);

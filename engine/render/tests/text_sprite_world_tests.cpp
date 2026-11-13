@@ -22,7 +22,7 @@ void persp_cam(World& w, float dist) {
     c.projection = Projection::Perspective;
     c.fov = 60;
     c.clearColor = Color::black();
-    w.settings().skyColor = Color::black();      // the 3D background gradient would be the brightest pixel
+    w.settings().skyColor = Color::black();  // the 3D background gradient would be the brightest pixel
     w.settings().horizonColor = Color::black();
     w.settings().fogDensity = 0.0f;
 }
@@ -85,8 +85,8 @@ TEST_CASE("a world Text of fontSize 0.07 in a perspective scene is as sharp as f
     b.get<Transform>(e)->scale = {0.001f, 0.001f, 0.001f};
     Image scaled = g.render(b);
 
-    CHECK(lit_pixels(small) > 30);                 // drawn, not a speck of 1 px
-    CHECK(brightest(small) > 0.9f);                // glyph cores are solid white: rasterized for the screen size, not 0.07
+    CHECK(lit_pixels(small) > 30);   // drawn, not a speck of 1 px
+    CHECK(brightest(small) > 0.9f);  // glyph cores are solid white: rasterized for the screen size, not 0.07
     CHECK(diff_images(small, scaled, 8.0f / 255.0f).meanError < 0.01);
 }
 
@@ -109,13 +109,14 @@ TEST_CASE("Text.lit: the text is shaded by the 3D lights, unlit text ignores the
         return brightest(g.render(w));
     };
     const float unlit = shot(false, 0.0f, 0.0f, {});
-    CHECK(unlit > 0.95f);                                    // unlit: exactly the colour
-    CHECK(shot(true, 0.0f, 0.0f, {}) < 0.05f);               // lit, no light, no ambient: black
-    CHECK(shot(true, 0.0f, 0.4f, {}) == doctest::Approx(0.4f).epsilon(0.1));      // ambient only
-    CHECK(shot(true, 0.5f, 0.0f, {0, 0, 0}) == doctest::Approx(0.5f).epsilon(0.1)); // light along -Z hits the +Z face head on
-    CHECK(shot(true, 1.0f, 0.0f, {0, 90, 0}) < 0.05f);       // light along the text plane: lights nothing
+    CHECK(unlit > 0.95f);                                                     // unlit: exactly the colour
+    CHECK(shot(true, 0.0f, 0.0f, {}) < 0.05f);                                // lit, no light, no ambient: black
+    CHECK(shot(true, 0.0f, 0.4f, {}) == doctest::Approx(0.4f).epsilon(0.1));  // ambient only
+    CHECK(shot(true, 0.5f, 0.0f, {0, 0, 0}) ==
+          doctest::Approx(0.5f).epsilon(0.1));          // light along -Z hits the +Z face head on
+    CHECK(shot(true, 1.0f, 0.0f, {0, 90, 0}) < 0.05f);  // light along the text plane: lights nothing
     CHECK(shot(true, 1.0f, 0.0f, {0, 0, 0}) > 0.95f);
-    CHECK(shot(false, 0.0f, 0.0f, {0, 90, 0}) > 0.95f);      // unlit ignores it all
+    CHECK(shot(false, 0.0f, 0.0f, {0, 90, 0}) > 0.95f);  // unlit ignores it all
 }
 
 TEST_CASE("Sprite.vertexColors: colour per grid vertex, multiplied with color; a wrong length teaches") {
@@ -157,14 +158,22 @@ TEST_CASE("Sprite.vertexColors: colour per grid vertex, multiplied with color; a
 
     // A scene with the wrong length is a load error at the right pointer.
     World loaded;
-    Json scene = Json::object({{"entities", Json::array({Json::object({{"name", "p"}, {"components", Json::object({
-        {"Sprite", Json::object({{"meshColumns", 2}, {"meshRows", 1}, {"vertexColors", Json::array({1, 1, 1})}})}})}})})}});
+    Json scene = Json::object(
+        {{"entities",
+          Json::array({Json::object(
+              {{"name", "p"},
+               {"components",
+                Json::object({{"Sprite", Json::object({{"meshColumns", 2},
+                                                       {"meshRows", 1},
+                                                       {"vertexColors", Json::array({1, 1, 1})}})}})}})})}});
     LoadReport report = load_scene(loaded, scene, "<test>");
     INFO(report.summary());
     REQUIRE_FALSE(report.ok());
     bool found = false;
     for (const LoadMessage& m : report.messages)
-        if (m.pointer.find("/Sprite/vertexColors") != std::string::npos && m.message.find("needs 24") != std::string::npos) found = true;
+        if (m.pointer.find("/Sprite/vertexColors") != std::string::npos &&
+            m.message.find("needs 24") != std::string::npos)
+            found = true;
     CHECK(found);
 
     // Without a grid it is an error as well.
@@ -207,11 +216,12 @@ TEST_CASE("an entity destroyed during a frame is not drawn in that frame, its re
     group("new", {80, 0, 0});
     const int glyphsExpected = 4;
     Image during = g.render(w);
-    CHECK(g.renderer.stats().textGlyphs == glyphsExpected);   // only the replacement's text
+    CHECK(g.renderer.stats().textGlyphs == glyphsExpected);  // only the replacement's text
     CHECK(g.renderer.stats().sprites == 1);
     int left = 0, right = 0;
     for (int y = 0; y < during.height; ++y)
-        for (int x = 0; x < during.width; ++x) (x < during.width / 2 ? left : right) += during.pixel(x, y).r > 0.5f ? 1 : 0;
+        for (int x = 0; x < during.width; ++x)
+            (x < during.width / 2 ? left : right) += during.pixel(x, y).r > 0.5f ? 1 : 0;
     CHECK(left == 0);
     CHECK(right > 100);
 

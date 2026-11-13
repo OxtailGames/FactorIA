@@ -18,11 +18,11 @@
 namespace fa {
 
 struct UpdateInfo {
-    std::string current;           // this build's version (FA_ENGINE_VERSION)
-    std::string latest;            // newest published release newer than `current`; "" = up to date
-    std::string packageUrl;        // download of this OS's package in that release
-    std::uint64_t packageSize = 0; // bytes (0 = unknown)
-    std::string notes;             // Markdown: the notes of every release newer than `current`, newest first
+    std::string current;            // this build's version (FA_ENGINE_VERSION)
+    std::string latest;             // newest published release newer than `current`; "" = up to date
+    std::string packageUrl;         // download of this OS's package in that release
+    std::uint64_t packageSize = 0;  // bytes (0 = unknown)
+    std::string notes;              // Markdown: the notes of every release newer than `current`, newest first
     bool available() const { return !latest.empty(); }
 };
 

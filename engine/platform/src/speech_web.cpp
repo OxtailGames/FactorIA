@@ -7,7 +7,9 @@
 
 #include "fa/platform/speech.h"
 
-EM_JS(int, fa_web_speech_available, (), { return (typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined') ? 1 : 0; });
+EM_JS(int, fa_web_speech_available, (), {
+    return (typeof speechSynthesis != = 'undefined' && typeof SpeechSynthesisUtterance != = 'undefined') ? 1 : 0;
+});
 
 EM_JS(void, fa_web_speech_speak, (const char* text, const char* lang, int interrupt), {
     const synth = window.speechSynthesis;
@@ -19,15 +21,17 @@ EM_JS(void, fa_web_speech_speak, (const char* text, const char* lang, int interr
         u.lang = tag;
         const primary = tag.split('-')[0].toLowerCase();
         // Voices on the device first: an online voice (Chrome's "Google ...") sends the text to its provider.
-        const voices = (synth.getVoices() || []).slice().sort((a, b) => b.localService - a.localService);
-        const voice = voices.find((v) => v.lang && v.lang.replace('_', '-').toLowerCase() === tag.toLowerCase())
-            || voices.find((v) => v.lang && v.lang.toLowerCase().split(/[-_]/)[0] === primary);
+        const voices = (synth.getVoices() || []).slice().sort((a, b) = > b.localService - a.localService);
+        const voice = voices.find((v) = > v.lang && v.lang.replace('_', '-').toLowerCase() == = tag.toLowerCase()) ||
+                      voices.find((v) = > v.lang && v.lang.toLowerCase().split(/ [-_] /)[0] == = primary);
         if (voice) u.voice = voice;
     }
     synth.speak(u);
 });
 
-EM_JS(void, fa_web_speech_stop, (), { if (window.speechSynthesis) window.speechSynthesis.cancel(); });
+EM_JS(void, fa_web_speech_stop, (), {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+});
 
 namespace fa {
 

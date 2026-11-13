@@ -97,7 +97,8 @@ ModelMesh model_radial_array(const ModelMesh& m, const ModelRadialArrayParams& p
         ModelMesh copy = m;
         const float deg = stepDeg * float(k);
         if (k > 0) {
-            const Mat4 around = Mat4::translate(p.center) * axis_rotation(axis, deg) * Mat4::translate(p.center * -1.0f);
+            const Mat4 around =
+                Mat4::translate(p.center) * axis_rotation(axis, deg) * Mat4::translate(p.center * -1.0f);
             if (p.faceCenter) {
                 copy.transform(around);
             } else {
@@ -124,7 +125,8 @@ ModelMesh model_solidify(const ModelMesh& m, const ModelSolidifyParams& p) {
         fn[t] = unit_or(s.face_cross(t), Vec3{0, 0, 0});
         for (int k = 0; k < 3; ++k) {
             const Vec3 q = s.pos[s.tris[t][std::size_t(k)]];
-            const Vec3 e1 = s.pos[s.tris[t][std::size_t((k + 1) % 3)]] - q, e2 = s.pos[s.tris[t][std::size_t((k + 2) % 3)]] - q;
+            const Vec3 e1 = s.pos[s.tris[t][std::size_t((k + 1) % 3)]] - q,
+                       e2 = s.pos[s.tris[t][std::size_t((k + 2) % 3)]] - q;
             if (length_sq(e1) < 1e-30f || length_sq(e2) < 1e-30f) continue;
             vn[s.tris[t][std::size_t(k)]] += fn[t] * det::atan2(length(cross(e1, e2)), dot(e1, e2));
         }
@@ -154,7 +156,8 @@ ModelMesh model_solidify(const ModelMesh& m, const ModelSolidifyParams& p) {
     outerMesh = refresh_normals(outerMesh, m);
     innerMesh = refresh_normals(innerMesh, m);
     for (Vec3& n : innerMesh.normals) n = -n;
-    for (std::size_t i = 0; i + 2 < innerMesh.indices.size(); i += 3) std::swap(innerMesh.indices[i + 1], innerMesh.indices[i + 2]);
+    for (std::size_t i = 0; i + 2 < innerMesh.indices.size(); i += 3)
+        std::swap(innerMesh.indices[i + 1], innerMesh.indices[i + 2]);
 
     // walls along the boundary edges (edges that exactly one triangle uses)
     const Edges edges = build_edges(s);
@@ -168,7 +171,8 @@ ModelMesh model_solidify(const ModelMesh& m, const ModelSolidifyParams& p) {
             const std::uint32_t wa = s.tris[tri][std::size_t(slot)], wb = s.tris[tri][std::size_t((slot + 1) % 3)];
             const Attr& aa = s.attr[tri][std::size_t(slot)];
             const Attr& ab = s.attr[tri][std::size_t((slot + 1) % 3)];
-            const Vec3 ao = shifted(wa, outer), ai = shifted(wa, inner), bo = shifted(wb, outer), bi = shifted(wb, inner);
+            const Vec3 ao = shifted(wa, outer), ai = shifted(wa, inner), bo = shifted(wb, outer),
+                       bi = shifted(wb, inner);
             const Vec3 n = unit_or(cross(ai - ao, bi - ao) + cross(bi - ao, bo - ao), Vec3{0, 1, 0});
             const std::uint32_t base = std::uint32_t(walls.positions.size());
             for (const Vec3& q : {ao, ai, bi, bo}) {
@@ -201,8 +205,8 @@ ModelMesh model_bend(const ModelMesh& m, const ModelBendParams& p) {
     det::sin_cos(radians(p.direction), sd, cd);
     return move_vertices(m, [&](Vec3 q, std::size_t) {
         const float t = q[a];
-        const float dist = q[u] * cd + q[w] * sd;      // offset towards the bend direction
-        const float side = -q[u] * sd + q[w] * cd;     // across it: unchanged
+        const float dist = q[u] * cd + q[w] * sd;   // offset towards the bend direction
+        const float side = -q[u] * sd + q[w] * cd;  // across it: unchanged
         const float tc = clamp(t, lo, hi);
         const float phi = (tc - lo) / radius;
         float sp, cp;

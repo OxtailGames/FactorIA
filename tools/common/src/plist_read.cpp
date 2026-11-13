@@ -56,7 +56,12 @@ std::string decode(std::string_view t) {
             const std::size_t e = t.find(';', i);
             if (e != std::string_view::npos) {
                 const std::string_view ent = t.substr(i + 1, e - i - 1);
-                const char* rep = ent == "amp" ? "&" : ent == "lt" ? "<" : ent == "gt" ? ">" : ent == "quot" ? "\"" : ent == "apos" ? "'" : nullptr;
+                const char* rep = ent == "amp"    ? "&"
+                                  : ent == "lt"   ? "<"
+                                  : ent == "gt"   ? ">"
+                                  : ent == "quot" ? "\""
+                                  : ent == "apos" ? "'"
+                                                  : nullptr;
                 if (rep) {
                     out += rep;
                     i = e;
@@ -155,9 +160,12 @@ bool parse_value(Cursor& c, const std::string& name, bool selfClosing, Json& out
     }
     std::string text;
     if (!selfClosing && !read_text(c, name, text)) return false;
-    if (name == "integer") out = std::strtoll(text.c_str(), nullptr, 10);
-    else if (name == "real") out = std::strtod(text.c_str(), nullptr);
-    else out = text;  // string, date, data
+    if (name == "integer")
+        out = std::strtoll(text.c_str(), nullptr, 10);
+    else if (name == "real")
+        out = std::strtod(text.c_str(), nullptr);
+    else
+        out = text;  // string, date, data
     return true;
 }
 
@@ -166,11 +174,13 @@ bool parse_value(Cursor& c, const std::string& name, bool selfClosing, Json& out
 Result<Json> parse_xml_plist(std::string_view text) {
     const std::size_t start = text.find("<plist");
     if (start == std::string_view::npos)
-        return Error{"no <plist> found", "Pass an XML property list (a binary plist: convert it with `plutil -convert xml1 -o - <file>`)."};
+        return Error{"no <plist> found",
+                     "Pass an XML property list (a binary plist: convert it with `plutil -convert xml1 -o - <file>`)."};
     Cursor c{text, start, {}};
     std::string name;
     bool sc = false;
-    if (!c.open_tag(name, sc) || name != "plist" || sc) return Error{"bad <plist> tag", "The file is not a property list."};
+    if (!c.open_tag(name, sc) || name != "plist" || sc)
+        return Error{"bad <plist> tag", "The file is not a property list."};
     if (!c.open_tag(name, sc)) return Error{"the <plist> is empty", "A property list holds a <dict> or an <array>."};
     Json root;
     const char* hint = "The file is damaged or not an XML property list.";

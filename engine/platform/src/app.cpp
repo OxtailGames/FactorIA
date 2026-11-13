@@ -32,8 +32,9 @@ struct AppState {
     AppDesc desc;
     bool active = false;
     bool focused = true;  // pads are not polled while the window is in the background
-    bool vsync = true;  // as asked for: AppDesc::vsync, then app_set_vsync
-    bool borderlessWanted = false;  // full screen was asked for as "borderless" (Windows, Linux: the same window as "fullscreen")
+    bool vsync = true;    // as asked for: AppDesc::vsync, then app_set_vsync
+    bool borderlessWanted =
+        false;  // full screen was asked for as "borderless" (Windows, Linux: the same window as "fullscreen")
     bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
     EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
@@ -50,7 +51,8 @@ Key map_key(sapp_keycode k) {
     if (k >= SAPP_KEYCODE_F1 && k <= SAPP_KEYCODE_F12) return Key(int(Key::F1) + (k - SAPP_KEYCODE_F1));
     switch (k) {
         case SAPP_KEYCODE_SPACE: return Key::Space;
-        case SAPP_KEYCODE_ENTER: case SAPP_KEYCODE_KP_ENTER: return Key::Enter;
+        case SAPP_KEYCODE_ENTER:
+        case SAPP_KEYCODE_KP_ENTER: return Key::Enter;
         case SAPP_KEYCODE_ESCAPE: return Key::Escape;
         case SAPP_KEYCODE_TAB: return Key::Tab;
         case SAPP_KEYCODE_BACKSPACE: return Key::Backspace;
@@ -72,16 +74,21 @@ Key map_key(sapp_keycode k) {
         case SAPP_KEYCODE_RIGHT_ALT: return Key::RightAlt;
         case SAPP_KEYCODE_LEFT_SUPER: return Key::LeftSuper;
         case SAPP_KEYCODE_RIGHT_SUPER: return Key::RightSuper;
-        case SAPP_KEYCODE_MINUS: case SAPP_KEYCODE_KP_SUBTRACT: return Key::Minus;
-        case SAPP_KEYCODE_EQUAL: case SAPP_KEYCODE_KP_EQUAL: case SAPP_KEYCODE_KP_ADD: return Key::Equal;
+        case SAPP_KEYCODE_MINUS:
+        case SAPP_KEYCODE_KP_SUBTRACT: return Key::Minus;
+        case SAPP_KEYCODE_EQUAL:
+        case SAPP_KEYCODE_KP_EQUAL:
+        case SAPP_KEYCODE_KP_ADD: return Key::Equal;
         case SAPP_KEYCODE_LEFT_BRACKET: return Key::LeftBracket;
         case SAPP_KEYCODE_RIGHT_BRACKET: return Key::RightBracket;
         case SAPP_KEYCODE_BACKSLASH: return Key::Backslash;
         case SAPP_KEYCODE_SEMICOLON: return Key::Semicolon;
         case SAPP_KEYCODE_APOSTROPHE: return Key::Apostrophe;
         case SAPP_KEYCODE_COMMA: return Key::Comma;
-        case SAPP_KEYCODE_PERIOD: case SAPP_KEYCODE_KP_DECIMAL: return Key::Period;
-        case SAPP_KEYCODE_SLASH: case SAPP_KEYCODE_KP_DIVIDE: return Key::Slash;
+        case SAPP_KEYCODE_PERIOD:
+        case SAPP_KEYCODE_KP_DECIMAL: return Key::Period;
+        case SAPP_KEYCODE_SLASH:
+        case SAPP_KEYCODE_KP_DIVIDE: return Key::Slash;
         case SAPP_KEYCODE_GRAVE_ACCENT: return Key::GraveAccent;
         default: return Key::Unknown;
     }
@@ -123,10 +130,9 @@ void refresh_insets() {
 EM_JS(void, fa_web_install_lifecycle, (), {
     if (Module.faLifecycle) return;
     Module.faLifecycle = true;
-    document.addEventListener('visibilitychange', () => {
-        Module._fa_web_lifecycle(document.visibilityState === 'hidden' ? 0 : 1);
-    });
-    window.addEventListener('pagehide', () => { Module._fa_web_lifecycle(2); });
+    document.addEventListener(
+        'visibilitychange', () = > { Module._fa_web_lifecycle(document.visibilityState == = 'hidden' ? 0 : 1); });
+    window.addEventListener('pagehide', () = > { Module._fa_web_lifecycle(2); });
 });
 
 namespace {
@@ -149,7 +155,9 @@ void web_lifecycle(int kind) {
     fs::flush_user_dir();
 }
 }  // namespace
-extern "C" EMSCRIPTEN_KEEPALIVE void fa_web_lifecycle(int kind) { web_lifecycle(kind); }  // called by the page code above
+extern "C" EMSCRIPTEN_KEEPALIVE void fa_web_lifecycle(int kind) {
+    web_lifecycle(kind);
+}  // called by the page code above
 namespace {
 #endif
 
@@ -175,12 +183,14 @@ void on_frame() {
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
     if (g.desc.input && g.focused) poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
-    if (g.desc.input) mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
+    if (g.desc.input)
+        mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
     if (--g.framesToInsets <= 0) refresh_insets();
     if (g.desc.frame) g.desc.frame(dt);
 }
 
-#if !(defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE))  // phones never reach run_app() or the macOS exit below
+#if !(defined(__ANDROID__) ||                                                                                          \
+      (defined(__APPLE__) && TARGET_OS_IPHONE))  // phones never reach run_app() or the macOS exit below
 int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 #endif
 
@@ -215,9 +225,12 @@ void on_event(const sapp_event* e) {
             if (in) {
                 in->on_mouse_move(to_design(e->mouse_x, e->mouse_y));
                 MouseButton b = MouseButton::Left;
-                if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT) b = MouseButton::Right;
-                else if (e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE) b = MouseButton::Middle;
-                else if (e->mouse_button != SAPP_MOUSEBUTTON_LEFT) break;
+                if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT)
+                    b = MouseButton::Right;
+                else if (e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE)
+                    b = MouseButton::Middle;
+                else if (e->mouse_button != SAPP_MOUSEBUTTON_LEFT)
+                    break;
                 in->on_mouse_button(b, e->type == SAPP_EVENTTYPE_MOUSE_DOWN);
             }
             break;
@@ -240,8 +253,10 @@ void on_event(const sapp_event* e) {
                                 e->num_touches);
                     }
                     // Input mirrors the first finger onto the mouse (see Input::on_touch_begin).
-                    if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN) in->on_touch_begin(id, p);
-                    else if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED) in->on_touch_move(id, p);
+                    if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN)
+                        in->on_touch_begin(id, p);
+                    else if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED)
+                        in->on_touch_move(id, p);
                     else {
                         in->on_touch_move(id, p);  // the lift position: the mouse button is released there
                         in->on_touch_end(id);
@@ -290,11 +305,8 @@ void on_event(const sapp_event* e) {
             // The web hands the pasted text to sokol_app (app_clipboard_get reads it); a focused TextField pastes on this.
             if (in) in->on_paste();
             break;
-        case SAPP_EVENTTYPE_FILES_DROPPED:
-            emit(AppEvent::Type::FilesDropped);
-            break;
-        default:
-            break;
+        case SAPP_EVENTTYPE_FILES_DROPPED: emit(AppEvent::Type::FilesDropped); break;
+        default: break;
     }
 }
 
@@ -345,7 +357,8 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL;
     s.logger.func = fa_sokol_log_func;
 #if defined(__ANDROID__)
-    s.android.native_event_cb = mobile_native_event;  // pads, keys and Back: see gamepad_android.cpp, mobile_android.cpp
+    s.android.native_event_cb =
+        mobile_native_event;  // pads, keys and Back: see gamepad_android.cpp, mobile_android.cpp
     // sokol_app asks for an OpenGL ES 3.1 context on Android by default. The engine's shaders are GLSL ES 3.00 and
     // use no 3.1 feature, but not every GL stack offers 3.1 (the emulator's software GPU is 3.0: eglCreateContext
     // fails with EGL_BAD_CONFIG and sokol aborts at startup), so ask for 3.0; drivers may still return a newer context.
@@ -461,12 +474,14 @@ WindowMode app_window_mode() {
 }
 
 std::string app_set_window_mode(WindowMode mode) {
-    if (app_is_mobile()) return mode == WindowMode::Fullscreen ? std::string() : "phones and tablets always run full screen";
+    if (app_is_mobile())
+        return mode == WindowMode::Fullscreen ? std::string() : "phones and tablets always run full screen";
     const WindowMode now = app_window_mode();
     if (now == mode) return {};
     if (kNativeFullscreenSpace) {
         if (mode == WindowMode::Borderless && now == WindowMode::Fullscreen)
-            return "macOS full screen is a Space of its own that takes a moment to leave: call window.setMode(\"windowed\"), "
+            return "macOS full screen is a Space of its own that takes a moment to leave: call "
+                   "window.setMode(\"windowed\"), "
                    "wait a second, then window.setMode(\"borderless\")";
         if (now == WindowMode::Borderless) fa_sapp_set_borderless(false);
         if (mode == WindowMode::Borderless) {

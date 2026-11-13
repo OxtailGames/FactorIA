@@ -40,7 +40,8 @@ std::string plugin_library(const std::string& name, const std::string& platform)
 // The folder of the plugin's build for `platform` (<folder>/<platform>), once it holds what that build needs: the library
 // on desktop, both static libraries on iOS (iphoneos, iphonesimulator), a Gradle module (build.gradle or .kts) or .aar /
 // .jar files on Android. The error says what is missing and how to make it. `factoria validate` and the export use it.
-Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin, const std::string& platform);
+Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin,
+                                 const std::string& platform);
 
 // A platform backend a plugin registered with api->add_backend (ABI version 2; docs/PLATFORM.md, "Writing a backend").
 struct PluginBackend {
@@ -72,8 +73,8 @@ struct PluginInstall {
 // they registered into `commands` and `scripts` (ScriptSystem::set_plugins, before its init); the platform backends
 // they registered are returned for the engine to choose from (fa/runtime/platform_backend.h). `libraryDir` is where an
 // exported game keeps the libraries (next to the executable; "" = each plugin's folder, for development runs).
-PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir, const std::string& libraryDir,
-                              CommandRegistry& commands, ScriptSystem& scripts);
+PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir,
+                              const std::string& libraryDir, CommandRegistry& commands, ScriptSystem& scripts);
 
 // The texts plugins handed back with api->submit_text since the last call, oldest first. The engine takes them once per
 // frame and gives them to the TextField that took the platform keyboard (UiSystem::submit_text).

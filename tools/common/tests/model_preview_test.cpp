@@ -54,7 +54,8 @@ MeshData built_mesh(const char* text) {
 
 // ---- the rasterizer ---------------------------------------------------------------------------------------------------------
 
-TEST_CASE("model view: a box seen from the front fills the middle, the corners stay background, and the same view is the same pixels") {
+TEST_CASE("model view: a box seen from the front fills the middle, the corners stay background, and the same view is "
+          "the same pixels") {
     const MeshData box = built_mesh(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[1,1,1]}]})");
     ModelViewItem item;
     item.mesh = &box;
@@ -111,7 +112,8 @@ TEST_CASE("model view: wireframe and highlighted parts change the picture, hidde
     const Image wire = render_model_view({item}, o);
     // a hidden-line view is mostly background
     std::size_t background = 0;
-    for (std::size_t i = 0; i + 3 < wire.rgba.size(); i += 4) background += wire.rgba[i] == 33 && wire.rgba[i + 1] == 36 && wire.rgba[i + 2] == 43;
+    for (std::size_t i = 0; i + 3 < wire.rgba.size(); i += 4)
+        background += wire.rgba[i] == 33 && wire.rgba[i + 1] == 36 && wire.rgba[i + 2] == 43;
     CHECK(background > wire.rgba.size() / 4 * 7 / 10);
 }
 
@@ -149,7 +151,8 @@ TEST_CASE("model.preview: a turntable sheet next to the 1.8 m figure, as a PNG")
     CHECK(r["stats"]["parts"].size() == 2);
     // the sheet is not blank: many pixels differ from the header colour
     std::size_t plain = 0;
-    for (std::size_t i = 0; i + 3 < img.rgba.size(); i += 4) plain += img.rgba[i] == img.rgba[0] && img.rgba[i + 1] == img.rgba[1] && img.rgba[i + 2] == img.rgba[2];
+    for (std::size_t i = 0; i + 3 < img.rgba.size(); i += 4)
+        plain += img.rgba[i] == img.rgba[0] && img.rgba[i + 1] == img.rgba[1] && img.rgba[i + 2] == img.rgba[2];
     CHECK(plain < img.rgba.size() / 4 * 8 / 10);
     // nothing was written to the project besides the temporary picture
     CHECK_FALSE(p.exists("assets/models/crate.glb"));
@@ -162,9 +165,11 @@ TEST_CASE("model.preview: the same call draws the same pixels; the options chang
     const Image a = load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}}));
     const Image b = load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}}));
     CHECK(differing_pixels(a, b) == 0);
-    const Image noFigure = load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}, {"figure", false}}));
+    const Image noFigure =
+        load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}, {"figure", false}}));
     CHECK(differing_pixels(a, noFigure) > 500);
-    const Image wire = load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}, {"mode", "shaded_wireframe"}}));
+    const Image wire =
+        load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}, {"mode", "shaded_wireframe"}}));
     CHECK(differing_pixels(a, wire) > 500);
     const Image part = load_picture(p.ok("model.preview", {{"path", kCratePath}, {"cell", 160}, {"part", "post"}}));
     CHECK(differing_pixels(a, part) > 100);
@@ -227,8 +232,9 @@ TEST_CASE("model.preview: out keeps the PNG in the project and does not overwrit
 
 TEST_CASE("model.preview: it draws the mesh the game gets, with the gameReady origin applied") {
     AssetsProject p;
-    write_doc(p, "assets/models/lamp.model.json",
-              R"({"format":"factoria.model/1","gameReady":{"origin":"bottom_center"},"nodes":[{"op":"cylinder","radius":0.2,"height":1,"position":[3,5,2]}]})");
+    write_doc(
+        p, "assets/models/lamp.model.json",
+        R"({"format":"factoria.model/1","gameReady":{"origin":"bottom_center"},"nodes":[{"op":"cylinder","radius":0.2,"height":1,"position":[3,5,2]}]})");
     const Json r = p.ok("model.preview", {{"path", "assets/models/lamp.model.json"}, {"cell", 128}, {"views", 4}});
     CHECK(r["stats"]["mesh"] == "gameReady");
     CHECK(r["stats"]["bounds"]["min"][1].get<double>() == doctest::Approx(0.0).epsilon(0.001));
@@ -243,12 +249,14 @@ TEST_CASE("model.check: with no document it lists the checks and the platform bu
     REQUIRE(r.contains("checks"));
     std::vector<std::string> codes;
     for (const Json& c : r["checks"]) codes.push_back(c["code"].get<std::string>());
-    for (const char* code : {"inside_out", "open_edges", "scale", "triangle_budget"}) CHECK(std::find(codes.begin(), codes.end(), code) != codes.end());
+    for (const char* code : {"inside_out", "open_edges", "scale", "triangle_budget"})
+        CHECK(std::find(codes.begin(), codes.end(), code) != codes.end());
     CHECK(r["platformBudgets"].size() == 3);
     CHECK(r["referenceFigure"]["height"] == 1.8);
 }
 
-TEST_CASE("model.check: a clean solid, then scale, open surfaces and budgets, each finding teaching where and how to fix") {
+TEST_CASE(
+    "model.check: a clean solid, then scale, open surfaces and budgets, each finding teaching where and how to fix") {
     AssetsProject p;
     write_doc(p, kCratePath, kCrate);
     const Json clean = p.ok("model.check", {{"path", kCratePath}});
@@ -268,7 +276,8 @@ TEST_CASE("model.check: a clean solid, then scale, open surfaces and budgets, ea
     CHECK(scale["ok"] == true);  // a warning
     CHECK(p.ok("model.check", {{"path", kCratePath}, {"expectedHeight", 1.5}})["findings"].empty());
 
-    write_doc(p, "assets/models/sheet.model.json", R"({"format":"factoria.model/1","nodes":[{"op":"grid","width":2,"depth":2}]})");
+    write_doc(p, "assets/models/sheet.model.json",
+              R"({"format":"factoria.model/1","nodes":[{"op":"grid","width":2,"depth":2}]})");
     const Json open = p.ok("model.check", {{"path", "assets/models/sheet.model.json"}});
     REQUIRE_FALSE(open["findings"].empty());
     CHECK(open["findings"][0]["code"] == "open_edges");
@@ -276,25 +285,31 @@ TEST_CASE("model.check: a clean solid, then scale, open surfaces and budgets, ea
     CHECK_FALSE(open["findings"][0]["samples"].empty());
     CHECK(open["findings"][0]["bounds"]["min"].size() == 3);
     CHECK(open["findings"][0]["hint"].get<std::string>().find("ignore") != std::string::npos);
-    const Json ignored = p.ok("model.check", {{"path", "assets/models/sheet.model.json"}, {"ignore", Json::array({"open_edges"})}});
+    const Json ignored =
+        p.ok("model.check", {{"path", "assets/models/sheet.model.json"}, {"ignore", Json::array({"open_edges"})}});
     CHECK(ignored["findings"].empty());
 
-    write_doc(p, "assets/models/ball.model.json", R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":0.5,"segments":256,"rings":128,"position":[0,0.5,0]}]})");
+    write_doc(
+        p, "assets/models/ball.model.json",
+        R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":0.5,"segments":256,"rings":128,"position":[0,0.5,0]}]})");
     const Json budget = p.ok("model.check", {{"path", "assets/models/ball.model.json"}});
     std::vector<std::string> platforms;
     for (const Json& f : budget["findings"])
         if (f["code"] == "triangle_budget") platforms.push_back(f["platform"].get<std::string>());
     CHECK(platforms == std::vector<std::string>{"mobile", "web"});
-    const Json mobile = p.ok("model.check", {{"path", "assets/models/ball.model.json"}, {"platforms", Json::array({"mobile"})}});
+    const Json mobile =
+        p.ok("model.check", {{"path", "assets/models/ball.model.json"}, {"platforms", Json::array({"mobile"})}});
     CHECK(mobile["findings"].size() == 1);
     CHECK(mobile["checked"]["platforms"] == Json::array({"mobile"}));
 }
 
 TEST_CASE("model.check: the LODs of the document's gameReady make a budget finding information") {
     AssetsProject p;
-    write_doc(p, "assets/models/ball.model.json",
-              R"({"format":"factoria.model/1","gameReady":{"lods":[{"ratio":0.3}]},"nodes":[{"op":"sphere","radius":0.5,"segments":160,"rings":80,"position":[0,0.5,0]}]})");
-    const Json r = p.ok("model.check", {{"path", "assets/models/ball.model.json"}, {"platforms", Json::array({"mobile"})}});
+    write_doc(
+        p, "assets/models/ball.model.json",
+        R"({"format":"factoria.model/1","gameReady":{"lods":[{"ratio":0.3}]},"nodes":[{"op":"sphere","radius":0.5,"segments":160,"rings":80,"position":[0,0.5,0]}]})");
+    const Json r =
+        p.ok("model.check", {{"path", "assets/models/ball.model.json"}, {"platforms", Json::array({"mobile"})}});
     REQUIRE(r["findings"].size() == 1);
     CHECK(r["findings"][0]["severity"] == "info");
     CHECK(r["findings"][0]["message"].get<std::string>().find("LOD1") != std::string::npos);
@@ -325,7 +340,8 @@ TEST_CASE("model.check: mistakes teach") {
 
 TEST_CASE("model.check: an inline document is checked without being written") {
     AssetsProject p;
-    const Json r = p.ok("model.check", {{"document", {{"nodes", Json::array({{{"op", "box"}, {"size", {0.01, 0.01, 0.01}}}})}}}});
+    const Json r =
+        p.ok("model.check", {{"document", {{"nodes", Json::array({{{"op", "box"}, {"size", {0.01, 0.01, 0.01}}}})}}}});
     REQUIRE_FALSE(r["findings"].empty());
     CHECK(r["path"] == "document");
     bool scale = false;

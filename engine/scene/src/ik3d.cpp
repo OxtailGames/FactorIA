@@ -22,15 +22,20 @@ float wrap_deg(float a) {
 }  // namespace
 
 Result<TwoBoneResult> solve_two_bone(const SkeletonAsset& sk, Pose& pose, int root, int mid, int end, Vec3 target,
-                                     const std::optional<Vec3>& pole, float weight, const std::optional<Quat>& endRotation) {
+                                     const std::optional<Vec3>& pole, float weight,
+                                     const std::optional<Quat>& endRotation) {
     const int n = int(sk.nodes.size());
     auto name = [&](int i) { return i >= 0 && i < n ? sk.nodes[std::size_t(i)].name : std::string("?"); };
     if (root < 0 || mid < 0 || end < 0 || root >= n || mid >= n || end >= n)
-        return make_error("two-bone IK needs three bones of the skeleton", "Name the root, mid and end bones of the limb.");
+        return make_error("two-bone IK needs three bones of the skeleton",
+                          "Name the root, mid and end bones of the limb.");
     if (sk.nodes[std::size_t(mid)].parent != root || sk.nodes[std::size_t(end)].parent != mid)
-        return make_error(std::format("two-bone IK needs a chain root -> mid -> end, but '{}' is not the parent of '{}' or '{}' is not the "
-                                      "parent of '{}'", name(root), name(mid), name(mid), name(end)),
-                          "Name three bones where each is the child of the one before: arm_upper_l, arm_lower_l, hand_l.");
+        return make_error(
+            std::format(
+                "two-bone IK needs a chain root -> mid -> end, but '{}' is not the parent of '{}' or '{}' is not the "
+                "parent of '{}'",
+                name(root), name(mid), name(mid), name(end)),
+            "Name three bones where each is the child of the one before: arm_upper_l, arm_lower_l, hand_l.");
     const Pose original = pose;
     PoseFrame f = pose_frame(sk, pose);
     const Vec3 a = f.pos[std::size_t(root)], b = f.pos[std::size_t(mid)], c = f.pos[std::size_t(end)];
@@ -79,7 +84,8 @@ Result<TwoBoneResult> solve_two_bone(const SkeletonAsset& sk, Pose& pose, int ro
     return res;
 }
 
-LookAtResult solve_look_at(const SkeletonAsset& sk, Pose& pose, int bone, Vec3 target, const LookAtParams& prm, Quat& state) {
+LookAtResult solve_look_at(const SkeletonAsset& sk, Pose& pose, int bone, Vec3 target, const LookAtParams& prm,
+                           Quat& state) {
     LookAtResult res;
     const std::size_t bi = std::size_t(bone);
     const int parent = sk.nodes[bi].parent;
@@ -89,18 +95,25 @@ LookAtResult solve_look_at(const SkeletonAsset& sk, Pose& pose, int bone, Vec3 t
     const Vec3 fwd = normalize(prm.forward);
     // Everything below is in the parent's frame, where +Y is up and +Z forward at rest.
     const Vec3 animated = normalize(pose.rotation[bi].rotate(fwd));  // where the animation points the bone
-    Quat wanted;                                                      // the turn on top of the animation
+    Quat wanted;                                                     // the turn on top of the animation
     bool aimed = false;
     float aimYaw = 0.0f, aimPitch = 0.0f;
     const Vec3 toTarget = toLocal.rotate(target - f.pos[bi]);
     if (length_sq(toTarget) > 1e-10f && length_sq(animated) > 0.5f) {
         const Vec3 dl = normalize(toTarget);
-        const float yawA = degrees(det::atan2(animated.x, animated.z)), pitchA = degrees(det::asin(clamp(animated.y, -1.0f, 1.0f)));
+        const float yawA = degrees(det::atan2(animated.x, animated.z)),
+                    pitchA = degrees(det::asin(clamp(animated.y, -1.0f, 1.0f)));
         const float yawD = degrees(det::atan2(dl.x, dl.z)), pitchD = degrees(det::asin(clamp(dl.y, -1.0f, 1.0f)));
         float dyaw = wrap_deg(yawD - yawA), dpitch = pitchD - pitchA;
         const float yl = clamp(prm.yawLimit, 0.0f, 180.0f), pl = clamp(prm.pitchLimit, 0.0f, 90.0f);
-        if (std::fabs(dyaw) > yl) { dyaw = dyaw < 0 ? -yl : yl; res.clamped = true; }
-        if (std::fabs(dpitch) > pl) { dpitch = dpitch < 0 ? -pl : pl; res.clamped = true; }
+        if (std::fabs(dyaw) > yl) {
+            dyaw = dyaw < 0 ? -yl : yl;
+            res.clamped = true;
+        }
+        if (std::fabs(dpitch) > pl) {
+            dpitch = dpitch < 0 ? -pl : pl;
+            res.clamped = true;
+        }
         const float yawC = yawA + dyaw, pitchC = clamp(pitchA + dpitch, -89.0f, 89.0f);
         const float cp = det::cos(radians(pitchC));
         const Vec3 aim{det::sin(radians(yawC)) * cp, det::sin(radians(pitchC)), det::cos(radians(yawC)) * cp};

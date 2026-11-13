@@ -80,7 +80,8 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
     const bool hasTime = text.size() > 10;
     if (hasTime && (text[10] != 'T' && text[10] != ' ')) {
         return Error{who + " '" + shown + "' is not a date of the form YYYY-MM-DD",
-                     "Write the year with four digits and the month and day with two, e.g. 2026-10-23, optionally followed by a time: 2026-10-23T18:30 or 2026-10-23T18:30:15."};
+                     "Write the year with four digits and the month and day with two, e.g. 2026-10-23, optionally "
+                     "followed by a time: 2026-10-23T18:30 or 2026-10-23T18:30:15."};
     }
     const std::string_view day = text.substr(0, 10);
     if (text.size() < 10 || day[4] != '-' || day[7] != '-' || !digits(0, 4) || !digits(5, 2) || !digits(8, 2))
@@ -97,10 +98,12 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
                      "The month is 01 to 12 (YYYY-MM-DD, e.g. 2026-10-23)."};
     const int maxDay = days_in_month(c.year, c.month);
     if (c.day < 1 || c.day > maxDay) {
-        const std::string why = std::string("month ") + std::string(text.substr(5, 2)) + " of " + std::string(text.substr(0, 4)) + " has " +
-              std::to_string(maxDay) + " days";
+        const std::string why = std::string("month ") + std::string(text.substr(5, 2)) + " of " +
+                                std::string(text.substr(0, 4)) + " has " + std::to_string(maxDay) + " days";
         std::string hint = "Use a day from 01 to " + std::to_string(maxDay) + ".";
-        if (c.month == 2 && c.day == 29) hint = std::string(text.substr(0, 4)) + " is not a leap year: use 02-28 or 03-01, or a leap year such as 2028-02-29.";
+        if (c.month == 2 && c.day == 29)
+            hint = std::string(text.substr(0, 4)) +
+                   " is not a leap year: use 02-28 or 03-01, or a leap year such as 2028-02-29.";
         return Error{who + " '" + shown + "' is not a real date: " + why, hint};
     }
     if (hasTime) {
@@ -109,7 +112,8 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
                            (t.size() == 5 || (t[5] == ':' && digits(17, 2)));
         if (!shape)
             return Error{who + " '" + shown + "' has a time that is not HH:MM or HH:MM:SS",
-                         "Write the time after the date with two digits per part, e.g. 2026-10-23T18:30 or 2026-10-23T18:30:15."};
+                         "Write the time after the date with two digits per part, e.g. 2026-10-23T18:30 or "
+                         "2026-10-23T18:30:15."};
         c.hour = std::stoi(std::string(t.substr(0, 2)));
         c.minute = std::stoi(std::string(t.substr(3, 2)));
         c.second = t.size() == 8 ? std::stoi(std::string(t.substr(6, 2))) : 0;
@@ -121,17 +125,22 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
 }
 
 std::int64_t unix_time_ms_now() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 std::string iso_utc_ms(std::int64_t unixMs) {
     std::int64_t days = unixMs / 86400000;
     std::int64_t rem = unixMs % 86400000;
-    if (rem < 0) { rem += 86400000; --days; }
+    if (rem < 0) {
+        rem += 86400000;
+        --days;
+    }
     CalendarDate d = calendar_date_from_days(static_cast<long>(days));
     char buf[40];
-    std::snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", d.year, d.month, d.day, static_cast<int>(rem / 3600000),
-                  static_cast<int>(rem / 60000 % 60), static_cast<int>(rem / 1000 % 60), static_cast<int>(rem % 1000));
+    std::snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", d.year, d.month, d.day,
+                  static_cast<int>(rem / 3600000), static_cast<int>(rem / 60000 % 60),
+                  static_cast<int>(rem / 1000 % 60), static_cast<int>(rem % 1000));
     return buf;
 }
 
@@ -146,7 +155,10 @@ bool parse_iso_utc_ms(std::string_view text, std::int64_t& unixMs) {
         ++pos;
         int scale = 100;
         while (pos < t.size() && std::isdigit(static_cast<unsigned char>(t[pos]))) {
-            if (digits < 3) { ms += (t[pos] - '0') * scale; scale /= 10; }
+            if (digits < 3) {
+                ms += (t[pos] - '0') * scale;
+                scale /= 10;
+            }
             ++digits;
             ++pos;
         }
@@ -154,7 +166,9 @@ bool parse_iso_utc_ms(std::string_view text, std::int64_t& unixMs) {
     }
     if (pos < t.size() && t[pos] != 'Z') return false;
     CalendarDate cd;
-    cd.year = y; cd.month = mo; cd.day = d;
+    cd.year = y;
+    cd.month = mo;
+    cd.day = d;
     unixMs = (static_cast<std::int64_t>(cd.days_since_epoch()) * 86400 + h * 3600 + mi * 60 + sec) * 1000 + ms;
     return true;
 }

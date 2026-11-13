@@ -65,7 +65,9 @@ struct Session {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
-    CommandResult call(const std::string& cmd, const char* args) { return engine.commands().call(cmd, Json::parse(args)); }
+    CommandResult call(const std::string& cmd, const char* args) {
+        return engine.commands().call(cmd, Json::parse(args));
+    }
     std::string read(const char* rel) {
         std::ifstream f(dir / rel, std::ios::binary);
         return std::string(std::istreambuf_iterator<char>(f), {});

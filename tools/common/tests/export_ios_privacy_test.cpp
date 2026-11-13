@@ -53,7 +53,8 @@ Result<ExportReport> export_ios(const std::string& proj, const testing::TempDir&
     o.platform = "ios";
     o.outDir = tmp.sub("out");
     const stdfs::path mobile = tmp.sub("download/mobile");
-    for (const char* slice : {"iphoneos", "iphonesimulator"}) testing::write_all(mobile / "ios" / slice / "libfactoria_player_main.a", "fake");
+    for (const char* slice : {"iphoneos", "iphonesimulator"})
+        testing::write_all(mobile / "ios" / slice / "libfactoria_player_main.a", "fake");
     o.mobileDir = mobile.string();
     return export_project(o);
 }
@@ -66,7 +67,8 @@ std::vector<std::string> reasons_of(const std::string& manifest, const std::stri
     std::size_t at = manifest.find(marker);
     if (at == std::string::npos) return out;
     const std::size_t end = manifest.find("</dict>", at);
-    for (std::size_t s = manifest.find("<string>", at + marker.size()); s != std::string::npos && s < end; s = manifest.find("<string>", s + 1)) {
+    for (std::size_t s = manifest.find("<string>", at + marker.size()); s != std::string::npos && s < end;
+         s = manifest.find("<string>", s + 1)) {
         const std::size_t close = manifest.find("</string>", s);
         out.push_back(manifest.substr(s + 8, close - s - 8));
     }
@@ -103,7 +105,8 @@ TEST_CASE("export ios: PrivacyInfo.xcprivacy declares the engine's required-reas
     CHECK(reasons_of(manifest, "SystemBootTime") == std::vector<std::string>{"35F9.1"});
     CHECK(count_of(manifest, "<dict>") == count_of(manifest, "</dict>"));
     CHECK(count_of(manifest, "<array>") == count_of(manifest, "</array>"));
-    CHECK(manifest.find("--", manifest.find("<!--") + 4) >= manifest.find("-->"));  // a comment must not hold "--" (invalid XML)
+    CHECK(manifest.find("--", manifest.find("<!--") + 4) >=
+          manifest.find("-->"));  // a comment must not hold "--" (invalid XML)
 
     // It reaches the app: build_ios.sh hands it to CMake, which copies it to the root of the bundle (platforms/ios/plist.cmake).
     const std::string script = testing::read_all(root / "build_ios.sh");
@@ -114,7 +117,9 @@ TEST_CASE("export ios: PrivacyInfo.xcprivacy declares the engine's required-reas
     CHECK(contains(testing::read_all(root / "CMakeLists.txt"), "fa_ios_add_privacy_manifest(factoria_player)"));
     CHECK(contains(testing::read_all(root / "cmake" / "Info.plist.in"), "<key>ITSAppUsesNonExemptEncryption</key>"));
     bool mentioned = false;
-    for (const auto& step : r->nextSteps) mentioned = mentioned || (contains(step, "PrivacyInfo.xcprivacy") && contains(step, "ITSAppUsesNonExemptEncryption false"));
+    for (const auto& step : r->nextSteps)
+        mentioned = mentioned ||
+                    (contains(step, "PrivacyInfo.xcprivacy") && contains(step, "ITSAppUsesNonExemptEncryption false"));
     CHECK(mentioned);
 }
 
@@ -151,7 +156,8 @@ TEST_CASE("export ios: export.ios.privacy adds to the manifest, and usesNonExemp
     CHECK(contains(manifest, "<string>NSPrivacyCollectedDataTypeCrashData</string>"));
     CHECK(count_of(manifest, "<key>NSPrivacyCollectedDataType</key>") == 2);
 
-    CHECK(contains(testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh"), "-DFA_GAME_NON_EXEMPT_ENCRYPTION=ON"));
+    CHECK(
+        contains(testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh"), "-DFA_GAME_NON_EXEMPT_ENCRYPTION=ON"));
 }
 
 TEST_CASE("export.ios.privacy: wrong entries are errors that name the pointer and say how to fix them") {
@@ -167,32 +173,39 @@ TEST_CASE("export.ios.privacy: wrong entries are errors that name the pointer an
         CHECK_FALSE(p.settings.ios.usesNonExemptEncryption);
     }
     SUBCASE("an unknown category suggests the right one") {
-        const auto errors = error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpce", "reasons": ["E174.1"]}]}})"));
+        const auto errors =
+            error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpce", "reasons": ["E174.1"]}]}})"));
         REQUIRE(errors.size() == 1);
         CHECK(contains(errors[0], "factoria.json#/export/ios/privacy/accessedApis/0/category"));
         CHECK(contains(errors[0], "DiskSpace"));
     }
     SUBCASE("a reason of another category") {
-        const auto errors = error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpace", "reasons": ["C617.1"]}]}})"));
+        const auto errors =
+            error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpace", "reasons": ["C617.1"]}]}})"));
         REQUIRE(errors.size() == 1);
         CHECK(contains(errors[0], "#/export/ios/privacy/accessedApis/0/reasons/0"));
         CHECK(contains(errors[0], "E174.1"));  // the codes DiskSpace accepts
     }
     SUBCASE("a category without reasons") {
-        CHECK(any_contains(error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpace"}]}})")), "at least one reason"));
+        CHECK(any_contains(error_texts(parse(R"({"privacy": {"accessedApis": [{"category": "DiskSpace"}]}})")),
+                           "at least one reason"));
     }
     SUBCASE("a data type and purpose Apple does not know") {
-        auto errors = error_texts(parse(R"({"privacy": {"collectedData": [{"type": "PurchaseHistry", "purposes": ["AppFunctionality"]}]}})"));
+        auto errors = error_texts(
+            parse(R"({"privacy": {"collectedData": [{"type": "PurchaseHistry", "purposes": ["AppFunctionality"]}]}})"));
         REQUIRE(errors.size() == 1);
         CHECK(contains(errors[0], "PurchaseHistory"));
-        errors = error_texts(parse(R"({"privacy": {"collectedData": [{"type": "UserID", "purposes": ["Analytic"]}]}})"));
+        errors =
+            error_texts(parse(R"({"privacy": {"collectedData": [{"type": "UserID", "purposes": ["Analytic"]}]}})"));
         REQUIRE(errors.size() == 1);
         CHECK(contains(errors[0], "#/export/ios/privacy/collectedData/0/purposes/0"));
         CHECK(contains(errors[0], "Analytics"));
-        CHECK(any_contains(error_texts(parse(R"({"privacy": {"collectedData": [{"type": "UserID"}]}})")), "at least one purpose"));
+        CHECK(any_contains(error_texts(parse(R"({"privacy": {"collectedData": [{"type": "UserID"}]}})")),
+                           "at least one purpose"));
     }
     SUBCASE("wrong types") {
-        CHECK(any_contains(error_texts(parse(R"({"usesNonExemptEncryption": "no"})")), "#/export/ios/usesNonExemptEncryption"));
+        CHECK(any_contains(error_texts(parse(R"({"usesNonExemptEncryption": "no"})")),
+                           "#/export/ios/usesNonExemptEncryption"));
         CHECK(any_contains(error_texts(parse(R"({"privacy": {"tracking": 1}})")), "#/export/ios/privacy/tracking"));
         CHECK(any_contains(error_texts(parse(R"({"privacy": {"accessedApis": "DiskSpace"}})")), "expected an array"));
     }
@@ -227,11 +240,12 @@ TEST_CASE("Info.plist: ITSAppUsesNonExemptEncryption is false by default and tru
         const stdfs::path out = tmp.path / (nonExempt ? "true.plist" : "false.plist");
         const stdfs::path script = tmp.path / (nonExempt ? "true.cmake" : "false.cmake");
         testing::write_all(script,
-                           std::string("set(FA_GAME_BUNDLE_ID com.example.spacedodge)\nset(FA_GAME_NAME \"Space & Dodge\")\nset(FA_GAME_VERSION 1.2.3)\n"
+                           std::string("set(FA_GAME_BUNDLE_ID com.example.spacedodge)\nset(FA_GAME_NAME \"Space & "
+                                       "Dodge\")\nset(FA_GAME_VERSION 1.2.3)\n"
                                        "set(FA_GAME_ORIENTATION landscape)\nset(CMAKE_OSX_DEPLOYMENT_TARGET 16.3)\n") +
                                (nonExempt ? "set(FA_GAME_NON_EXEMPT_ENCRYPTION ON)\n" : "") + "include(\"" +
-                               (stdfs::path(FA_REPO_ROOT) / "platforms" / "ios" / "plist.cmake").generic_string() + "\")\nfa_ios_configure_plist(\"" +
-                               out.generic_string() + "\")\n");
+                               (stdfs::path(FA_REPO_ROOT) / "platforms" / "ios" / "plist.cmake").generic_string() +
+                               "\")\nfa_ios_configure_plist(\"" + out.generic_string() + "\")\n");
         ProcessOptions po;
         po.argv = {cmake, "-P", script.string()};
         auto ran = run_process(po);
@@ -239,7 +253,8 @@ TEST_CASE("Info.plist: ITSAppUsesNonExemptEncryption is false by default and tru
         REQUIRE_MESSAGE(ran->exitCode == 0, ran->stderrText);
         std::string plist = testing::read_all(out);
         plist.erase(std::remove(plist.begin(), plist.end(), '\r'), plist.end());  // a CRLF checkout of the template
-        CHECK(contains(plist, std::string("<key>ITSAppUsesNonExemptEncryption</key>\n\t") + (nonExempt ? "<true/>" : "<false/>")));
+        CHECK(contains(plist, std::string("<key>ITSAppUsesNonExemptEncryption</key>\n\t") +
+                                  (nonExempt ? "<true/>" : "<false/>")));
         CHECK(contains(plist, "<string>Space &amp; Dodge</string>"));  // the rest of the template still renders
     }
 }

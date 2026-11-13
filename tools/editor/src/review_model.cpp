@@ -221,9 +221,11 @@ void review_upload_size(int w, int h, int maxSide, int& outW, int& outH) {
 
 std::optional<std::pair<int, int>> review_png_size(const std::uint8_t* d, std::size_t size) {
     static const std::uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
-    if (!d || size < 24 || !std::equal(sig, sig + 8, d) || d[12] != 'I' || d[13] != 'H' || d[14] != 'D' || d[15] != 'R') return std::nullopt;
+    if (!d || size < 24 || !std::equal(sig, sig + 8, d) || d[12] != 'I' || d[13] != 'H' || d[14] != 'D' || d[15] != 'R')
+        return std::nullopt;
     auto be32 = [&](std::size_t at) {
-        return (std::uint32_t(d[at]) << 24) | (std::uint32_t(d[at + 1]) << 16) | (std::uint32_t(d[at + 2]) << 8) | std::uint32_t(d[at + 3]);
+        return (std::uint32_t(d[at]) << 24) | (std::uint32_t(d[at + 1]) << 16) | (std::uint32_t(d[at + 2]) << 8) |
+               std::uint32_t(d[at + 3]);
     };
     const std::uint32_t w = be32(16), h = be32(20);
     if (w == 0 || h == 0 || w > 0x7fffffffu || h > 0x7fffffffu) return std::nullopt;
@@ -236,25 +238,31 @@ ReviewPickPlan review_pick_plan(const ReviewSheetView& s, int n, bool drop, cons
     plan.command = candidates ? "assets.pick" : "review.pick";
     plan.canKeepFiles = !candidates;
     if (s.is_picked()) {
-        plan.error = s.id + " was already answered: number " + std::to_string(s.picked_n()) + " was picked. A choice is final; make a new sheet to choose again.";
+        plan.error = s.id + " was already answered: number " + std::to_string(s.picked_n()) +
+                     " was picked. A choice is final; make a new sheet to choose again.";
         return plan;
     }
     const ReviewItemView* chosen = s.item(n);
     if (!chosen) {
-        plan.error = "Number " + std::to_string(n) + " is not on " + s.id + "; its numbers go from 1 to " + std::to_string(s.items.size()) + ".";
+        plan.error = "Number " + std::to_string(n) + " is not on " + s.id + "; its numbers go from 1 to " +
+                     std::to_string(s.items.size()) + ".";
         return plan;
     }
     if (!chosen->ok) {
-        plan.error = "Item " + std::to_string(n) + " failed to render" + (chosen->error.empty() ? std::string() : " (" + chosen->error + ")") + ", so it cannot be picked.";
+        plan.error = "Item " + std::to_string(n) + " failed to render" +
+                     (chosen->error.empty() ? std::string() : " (" + chosen->error + ")") + ", so it cannot be picked.";
         return plan;
     }
     if (candidates && s.slot.empty()) {
-        plan.error = "This sheet of asset candidates has no slot in its meta, so assets.pick does not know where the picked file goes.";
+        plan.error = "This sheet of asset candidates has no slot in its meta, so assets.pick does not know where the "
+                     "picked file goes.";
         return plan;
     }
     plan.args = Json::object({{"sheet", s.id}, {"n", n}});
-    if (candidates) plan.args["slot"] = s.slot;
-    else plan.args["drop"] = drop;
+    if (candidates)
+        plan.args["slot"] = s.slot;
+    else
+        plan.args["drop"] = drop;
     if (!note.empty()) plan.args["note"] = review_cut_note(note, kReviewNoteMaxBytes);
     if (!drop && !candidates) return plan;
     // The files the pick moves: the same rule as review_pick (other candidates with a file; each file once; never the picked one's).
@@ -318,13 +326,16 @@ Result<Json> review_level_seeds_args(const LevelGenOptions& o, int count, const 
     Result<Json> level = level_gen_arguments(o);
     if (!level.ok()) return level.error();
     if (count < kReviewSeedsMin || count > kReviewSeedsMax)
-        return Error{"A sheet of seeds shows " + std::to_string(kReviewSeedsMin) + " to " + std::to_string(kReviewSeedsMax) + " levels, not " +
-                         std::to_string(count) + ".",
-                     "Set \"Seeds on a sheet\" to a number in that range; four to nine is what a person compares well."};
+        return Error{
+            "A sheet of seeds shows " + std::to_string(kReviewSeedsMin) + " to " + std::to_string(kReviewSeedsMax) +
+                " levels, not " + std::to_string(count) + ".",
+            "Set \"Seeds on a sheet\" to a number in that range; four to nine is what a person compares well."};
     if (o.width > kReviewLevelMaxSide || o.height > kReviewLevelMaxSide)
-        return Error{"A level of " + std::to_string(o.width) + " x " + std::to_string(o.height) + " cells is too big for a review sheet.",
-                     "A sheet draws levels up to " + std::to_string(kReviewLevelMaxSide) + " cells a side: make the Size smaller to compare seeds, then "
-                     "generate the chosen seed at full size."};
+        return Error{"A level of " + std::to_string(o.width) + " x " + std::to_string(o.height) +
+                         " cells is too big for a review sheet.",
+                     "A sheet draws levels up to " + std::to_string(kReviewLevelMaxSide) +
+                         " cells a side: make the Size smaller to compare seeds, then "
+                         "generate the chosen seed at full size."};
     Json args = level.value();
     args.erase("seed");
     Json seeds = Json::array();
@@ -338,7 +349,8 @@ Result<Json> review_level_seeds_args(const LevelGenOptions& o, int count, const 
     if (o.sampleFile.empty()) {
         if (sampleScene.empty())
             return Error{"The sample is the entity '" + o.sampleEntity + "', and the scene it is in has no file yet.",
-                         "Save the scene first (the sheet is made from the project as saved on disk), or use a level file as the sample."};
+                         "Save the scene first (the sheet is made from the project as saved on disk), or use a level "
+                         "file as the sample."};
         item["sampleScene"] = sampleScene;
         meta["sampleEntity"] = o.sampleEntity;
         meta["sampleScene"] = sampleScene;
@@ -346,7 +358,8 @@ Result<Json> review_level_seeds_args(const LevelGenOptions& o, int count, const 
         meta["sampleFile"] = o.sampleFile;
     }
     const std::string sampleName = o.sampleFile.empty() ? o.sampleEntity : o.sampleFile;
-    return Json::object({{"label", "Which level? (" + sampleName + ", " + std::to_string(o.width) + " x " + std::to_string(o.height) + ")"},
+    return Json::object({{"label", "Which level? (" + sampleName + ", " + std::to_string(o.width) + " x " +
+                                       std::to_string(o.height) + ")"},
                          {"items", Json::array({item})},
                          {"meta", meta}});
 }
@@ -355,8 +368,10 @@ std::optional<std::int64_t> review_picked_level_seed(const Json& picked) {
     const Json& level = member(member(picked, "spec"), "level");
     const Json& seed = member(level, "seed");
     if (!seed.is_number_integer() && !seed.is_number_unsigned()) return std::nullopt;
-    const std::int64_t s = seed.is_number_unsigned() ? std::int64_t(std::min<std::uint64_t>(seed.get<std::uint64_t>(), std::uint64_t(kLevelGenMaxSeed)))
-                                                     : seed.get<std::int64_t>();
+    const std::int64_t s =
+        seed.is_number_unsigned()
+            ? std::int64_t(std::min<std::uint64_t>(seed.get<std::uint64_t>(), std::uint64_t(kLevelGenMaxSeed)))
+            : seed.get<std::int64_t>();
     if (s < 0 || s > kLevelGenMaxSeed) return std::nullopt;
     return s;
 }
@@ -381,7 +396,8 @@ bool review_level_options_from_pick(const Json& picked, const Json& meta, LevelG
         next.height = int(std::clamp(size[1].get<double>(), 1.0, 2048.0));
     }
     next.seed = *seed;
-    if (const std::string model = str_of(level, "model"); model == "overlapping" || model == "tiled") next.model = model;
+    if (const std::string model = str_of(level, "model"); model == "overlapping" || model == "tiled")
+        next.model = model;
     next.n = std::clamp(int_of(level, "n", next.n), 2, 5);
     const int sym = int_of(level, "symmetry", 1);
     next.symmetry = (sym == 2 || sym == 4 || sym == 8) ? sym : 1;
@@ -390,7 +406,9 @@ bool review_level_options_from_pick(const Json& picked, const Json& meta, LevelG
     if (level.is_object())
         for (auto it = level.begin(); it != level.end(); ++it) {
             const std::string& k = it.key();
-            if (k == "sample" || k == "legend" || k == "size" || k == "seed" || k == "model" || k == "n" || k == "symmetry" || k == "periodic") continue;
+            if (k == "sample" || k == "legend" || k == "size" || k == "seed" || k == "model" || k == "n" ||
+                k == "symmetry" || k == "periodic")
+                continue;
             extra[k] = it.value();
         }
     next.extra = extra.empty() ? std::string() : extra.dump();

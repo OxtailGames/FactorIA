@@ -36,7 +36,8 @@ const char* kBall = R"({"format":"factoria.model/1","nodes":[{"op":"sphere","rad
 const char* kL = R"({"format":"factoria.model/1","nodes":[{"op":"boolean","mode":"union","children":[
     {"op":"box","size":[3,1,1],"position":[0,0.5,0]},{"op":"box","size":[1,3,1],"position":[-1,1.5,0]}]}]})";
 // a lamp: two materials, two parts
-const char* kLamp = R"({"format":"factoria.model/1","materials":{"brass":{"color":[0.8,0.6,0.2,1]},"cloth":{"color":[0.9,0.9,0.8,1]}},"nodes":[
+const char* kLamp =
+    R"({"format":"factoria.model/1","materials":{"brass":{"color":[0.8,0.6,0.2,1]},"cloth":{"color":[0.9,0.9,0.8,1]}},"nodes":[
     {"op":"sphere","radius":0.5,"segments":32,"rings":16,"part":"base","material":"brass","position":[0,0.5,3]},
     {"op":"cylinder","radius":0.2,"height":2,"segments":24,"part":"stem","material":"brass","position":[0,2,3]},
     {"op":"cone","radius":0.6,"height":1,"segments":32,"part":"shade","material":"cloth","position":[0,3.5,3]},
@@ -61,7 +62,8 @@ TEST_CASE("game ready: the settings are read with defaults and every mistake is 
     CHECK(g.is_default());
     CHECK(g.platforms.size() == 3);
 
-    const ModelGameReady full = settings(R"({"origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"triangles":300,"distance":20}],
+    const ModelGameReady full =
+        settings(R"({"origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"triangles":300,"distance":20}],
         "collider":{"shape":"decomposed","maxHulls":4,"maxVertices":24,"resolution":50000},"platforms":["mobile"]})");
     CHECK(full.origin == "bottom_center");
     CHECK(full.lods.size() == 2);
@@ -73,10 +75,14 @@ TEST_CASE("game ready: the settings are read with defaults and every mistake is 
     CHECK(game_ready_to_json(*parse_game_ready(again, "/gameReady")) == again);
 
     std::vector<ModelIssue> issues;
-    auto bad = parse_game_ready(J(R"({"origin":"botom","lods":[{"ratio":3},{}],"collider":{"shape":"hul","maxVertices":900},"extra":1,"platforms":["phone"]})"), "/gameReady", &issues);
+    auto bad = parse_game_ready(
+        J(R"({"origin":"botom","lods":[{"ratio":3},{}],"collider":{"shape":"hul","maxVertices":900},"extra":1,"platforms":["phone"]})"),
+        "/gameReady", &issues);
     CHECK_FALSE(bad.ok());
     auto find = [&](const std::string& pointer, const std::string& text) {
-        return std::any_of(issues.begin(), issues.end(), [&](const ModelIssue& i) { return i.pointer == pointer && (i.message + i.hint).find(text) != std::string::npos; });
+        return std::any_of(issues.begin(), issues.end(), [&](const ModelIssue& i) {
+            return i.pointer == pointer && (i.message + i.hint).find(text) != std::string::npos;
+        });
     };
     CHECK(find("/gameReady/origin", "bottom"));  // did you mean
     CHECK(find("/gameReady/lods/0/ratio", "between"));
@@ -88,12 +94,16 @@ TEST_CASE("game ready: the settings are read with defaults and every mistake is 
 }
 
 TEST_CASE("game ready: a model document carries the settings and the schema describes them") {
-    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","gameReady":{"origin":"bottom","lods":[{"ratio":0.25}]},"nodes":[{"op":"box"}]})"), "t.model.json");
+    auto doc = parse_model_doc(
+        J(R"({"format":"factoria.model/1","gameReady":{"origin":"bottom","lods":[{"ratio":0.25}]},"nodes":[{"op":"box"}]})"),
+        "t.model.json");
     REQUIRE(doc.ok());
     CHECK(doc->gameReady["origin"] == "bottom");
     CHECK(doc->gameReady["lods"].size() == 1);
     std::vector<ModelIssue> issues;
-    auto bad = parse_model_doc(J(R"({"format":"factoria.model/1","gameReady":{"lods":[{"ratio":0}]},"nodes":[{"op":"box"}]})"), "t.model.json", &issues);
+    auto bad =
+        parse_model_doc(J(R"({"format":"factoria.model/1","gameReady":{"lods":[{"ratio":0}]},"nodes":[{"op":"box"}]})"),
+                        "t.model.json", &issues);
     CHECK_FALSE(bad.ok());
     REQUIRE(!issues.empty());
     CHECK(issues[0].pointer == "/gameReady/lods/0/ratio");
@@ -155,7 +165,8 @@ TEST_CASE("game ready: merging joins the submeshes of one material and welds ide
     auto one = model_merge_by_material(box.data);
     REQUIRE(one.ok());
     CHECK(one->submeshes.size() == 1);
-    CHECK(one->vertex_count() == box.data.vertex_count());  // a flat shaded box: 24 vertices that differ in their normals
+    CHECK(one->vertex_count() ==
+          box.data.vertex_count());  // a flat shaded box: 24 vertices that differ in their normals
 }
 
 TEST_CASE("game ready: a LOD keeps the target, the materials, the parts and the shape") {
@@ -180,7 +191,9 @@ TEST_CASE("game ready: a LOD keeps the target, the materials, the parts and the 
     CHECK(lod->bmax.y == doctest::Approx(b.data.bmax.y).epsilon(0.02));
     CHECK(lod->bmin.y == doctest::Approx(b.data.bmin.y).epsilon(0.02));
     for (std::size_t v = 0; v < lod->vertex_count(); ++v) {
-        const float l = std::sqrt(lod->normals[v * 3] * lod->normals[v * 3] + lod->normals[v * 3 + 1] * lod->normals[v * 3 + 1] + lod->normals[v * 3 + 2] * lod->normals[v * 3 + 2]);
+        const float l =
+            std::sqrt(lod->normals[v * 3] * lod->normals[v * 3] + lod->normals[v * 3 + 1] * lod->normals[v * 3 + 1] +
+                      lod->normals[v * 3 + 2] * lod->normals[v * 3 + 2]);
         CHECK(l == doctest::Approx(1.0f).epsilon(1e-3));
     }
     for (std::uint32_t i : lod->indices) CHECK(i < lod->vertex_count());
@@ -238,10 +251,13 @@ TEST_CASE("game ready: a LOD of a sphere stays a sphere (volume and radius)") {
     s.ratio = 0.2;
     auto lod = model_make_lod(b.data, s);
     REQUIRE(lod.ok());
-    const double volume = model_fit_collider(*lod, {"box"})->meshVolume, full = model_fit_collider(b.data, {"box"})->meshVolume;
+    const double volume = model_fit_collider(*lod, {"box"})->meshVolume,
+                 full = model_fit_collider(b.data, {"box"})->meshVolume;
     CHECK(volume == doctest::Approx(full).epsilon(0.12));
     for (std::size_t v = 0; v < lod->vertex_count(); ++v) {
-        const float r = std::sqrt(lod->positions[v * 3] * lod->positions[v * 3] + lod->positions[v * 3 + 1] * lod->positions[v * 3 + 1] + lod->positions[v * 3 + 2] * lod->positions[v * 3 + 2]);
+        const float r = std::sqrt(lod->positions[v * 3] * lod->positions[v * 3] +
+                                  lod->positions[v * 3 + 1] * lod->positions[v * 3 + 1] +
+                                  lod->positions[v * 3 + 2] * lod->positions[v * 3 + 2]);
         CHECK(r == doctest::Approx(1.0f).epsilon(0.06));
     }
 }
@@ -266,14 +282,16 @@ TEST_CASE("game ready: colliders fit the mesh") {
     }
 
     spec.shape = "capsule";
-    auto capsule = model_fit_collider(build(R"({"format":"factoria.model/1","nodes":[{"op":"capsule","radius":0.4,"height":1.8}]})").data, spec);
+    auto capsule = model_fit_collider(
+        build(R"({"format":"factoria.model/1","nodes":[{"op":"capsule","radius":0.4,"height":1.8}]})").data, spec);
     REQUIRE(capsule.ok());
     CHECK(capsule->radius == doctest::Approx(0.4f).epsilon(0.01));
     CHECK(capsule->height == doctest::Approx(1.8f).epsilon(0.01));
     CHECK(capsule->volumeRatio == doctest::Approx(1.0).epsilon(0.05));
     CHECK(capsule->warnings.empty());
     // a wide, low model does not fit a capsule on Y, and says so
-    auto flat = model_fit_collider(build(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[4,0.5,4]}]})").data, spec);
+    auto flat = model_fit_collider(
+        build(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[4,0.5,4]}]})").data, spec);
     REQUIRE(flat.ok());
     CHECK_FALSE(flat->warnings.empty());
 
@@ -341,7 +359,8 @@ TEST_CASE("game ready: a concave model is cut into convex pieces that follow it 
                 hi = max(hi, q);
             }
             const float tol = 0.08f;
-            inside = inside || (p.x >= lo.x - tol && p.x <= hi.x + tol && p.y >= lo.y - tol && p.y <= hi.y + tol && p.z >= lo.z - tol && p.z <= hi.z + tol);
+            inside = inside || (p.x >= lo.x - tol && p.x <= hi.x + tol && p.y >= lo.y - tol && p.y <= hi.y + tol &&
+                                p.z >= lo.z - tol && p.z <= hi.z + tol);
         }
         CHECK(inside);
     }
@@ -357,7 +376,8 @@ TEST_CASE("game ready: a concave model is cut into convex pieces that follow it 
 }
 
 TEST_CASE("game ready: the budget report names what is over and what fits") {
-    const ModelBuild b = build(R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":1,"segments":256,"rings":128}]})");  // 64k triangles
+    const ModelBuild b = build(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":1,"segments":256,"rings":128}]})");  // 64k triangles
     REQUIRE(b.data.triangle_count() > 60000);
     auto plain = make_game_ready(b.data, settings(R"({})"));
     REQUIRE(plain.ok());
@@ -367,7 +387,8 @@ TEST_CASE("game ready: the budget report names what is over and what fits") {
     CHECK_FALSE(plain->budget[1].fullMeshFits);  // mobile 20000
     CHECK(plain->budget[1].firstFittingLod == -1);
     bool noLod = false;
-    for (const std::string& w : plain->warnings) noLod = noLod || (w.find("mobile") == 0 && w.find("no LOD fits") != std::string::npos);
+    for (const std::string& w : plain->warnings)
+        noLod = noLod || (w.find("mobile") == 0 && w.find("no LOD fits") != std::string::npos);
     CHECK(noLod);
 
     auto withLods = make_game_ready(b.data, settings(R"({"lods":[{"ratio":0.5},{"triangles":15000}]})"));
@@ -377,7 +398,8 @@ TEST_CASE("game ready: the budget report names what is over and what fits") {
     CHECK(withLods->lodInfo[1].triangles > withLods->lodInfo[2].triangles);
     CHECK(withLods->budget[1].firstFittingLod == 2);
     bool fits = false;
-    for (const std::string& w : withLods->warnings) fits = fits || (w.find("mobile") == 0 && w.find("LOD2") != std::string::npos);
+    for (const std::string& w : withLods->warnings)
+        fits = fits || (w.find("mobile") == 0 && w.find("LOD2") != std::string::npos);
     CHECK(fits);
     const Json report = game_ready_report_json(*withLods, settings(R"({"lods":[{"ratio":0.5},{"triangles":15000}]})"));
     CHECK(report["lods"].size() == 3);
@@ -397,9 +419,13 @@ TEST_CASE("game ready: the budget report names what is over and what fits") {
 }
 
 TEST_CASE("game ready: the settings work on an organic sdf result") {
-    const ModelBuild b = build(R"({"format":"factoria.model/1","materials":{"skin":{"color":[0.8,0.5,0.4,1]}},"nodes":[{"op":"sdf","part":"blob","material":"skin","children":[
+    const ModelBuild b = build(
+        R"({"format":"factoria.model/1","materials":{"skin":{"color":[0.8,0.5,0.4,1]}},"nodes":[{"op":"sdf","part":"blob","material":"skin","children":[
         {"op":"sdf_sphere","radius":0.8,"position":[0,0.8,0]},{"op":"sdf_sphere","radius":0.5,"position":[0.9,0.6,0],"blend":"union","smooth":0.3}]}]})");
-    auto r = make_game_ready(b.data, settings(R"({"origin":"bottom_center","lods":[{"ratio":0.4}],"collider":{"shape":"convex","maxVertices":24}})"));
+    auto r = make_game_ready(
+        b.data,
+        settings(
+            R"({"origin":"bottom_center","lods":[{"ratio":0.4}],"collider":{"shape":"convex","maxVertices":24}})"));
     REQUIRE(r.ok());
     CHECK(r->mesh.bmin.y == doctest::Approx(0.0f).scale(1).epsilon(1e-4));
     CHECK(r->lods.size() == 1);
@@ -413,7 +439,10 @@ TEST_CASE("game ready: the settings work on an organic sdf result") {
 TEST_CASE("game ready: the same mesh gives the same bytes (and the same bytes on every platform)") {
     const ModelBuild b = build(kLamp);
     auto run = [&] {
-        return make_game_ready(b.data, settings(R"({"origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"decomposed","maxHulls":4}})"));
+        return make_game_ready(
+            b.data,
+            settings(
+                R"({"origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"decomposed","maxHulls":4}})"));
     };
     auto a = run();
     auto c = run();
@@ -425,7 +454,8 @@ TEST_CASE("game ready: the same mesh gives the same bytes (and the same bytes on
     REQUIRE(a->collider.hulls.size() == c->collider.hulls.size());
     for (std::size_t i = 0; i < a->collider.hulls.size(); ++i) {
         CHECK(a->collider.hulls[i].points.size() == c->collider.hulls[i].points.size());
-        CHECK(std::memcmp(a->collider.hulls[i].points.data(), c->collider.hulls[i].points.data(), a->collider.hulls[i].points.size() * sizeof(Vec3)) == 0);
+        CHECK(std::memcmp(a->collider.hulls[i].points.data(), c->collider.hulls[i].points.data(),
+                          a->collider.hulls[i].points.size() * sizeof(Vec3)) == 0);
     }
     // the bits that must not change from one machine to the next: pinned, so a platform that rounds differently fails here
     CHECK(a->lodInfo[1].triangles == 672);
@@ -436,7 +466,9 @@ TEST_CASE("game ready: the same mesh gives the same bytes (and the same bytes on
     // a one-bit difference in a hull point must show: a hash of the points quantised to micrometres
     std::string q;
     for (const ModelHull& h : a->collider.hulls)
-        for (const Vec3& p : h.points) q += std::to_string(std::lround(p.x * 1000)) + "," + std::to_string(std::lround(p.y * 1000)) + "," + std::to_string(std::lround(p.z * 1000)) + ";";
+        for (const Vec3& p : h.points)
+            q += std::to_string(std::lround(p.x * 1000)) + "," + std::to_string(std::lround(p.y * 1000)) + "," +
+                 std::to_string(std::lround(p.z * 1000)) + ";";
     CHECK(sha256_hex(q) == "3e832ed4a035569d279b11f0986f39852beade59fd9dc267e95566bea27bcbb1");
 }
 
@@ -454,7 +486,8 @@ TEST_CASE("lod: MeshRenderer.lods picks the mesh by camera distance") {
     CHECK(lod_mesh(mr, 30.0f) == "assets/lamp.lod2.glb");
     CHECK(lod_mesh(mr, 1e6f) == "assets/lamp.lod2.glb");
     // malformed entries are skipped, an unsorted list still picks by distance
-    mr.lods = J(R"([{"mesh":"assets/b.glb","distance":30},7,{"mesh":"","distance":1},{"distance":2},{"mesh":"assets/a.glb","distance":10},{"mesh":"x","distance":"far"}])");
+    mr.lods = J(
+        R"([{"mesh":"assets/b.glb","distance":30},7,{"mesh":"","distance":1},{"distance":2},{"mesh":"assets/a.glb","distance":10},{"mesh":"x","distance":"far"}])");
     CHECK(lod_mesh(mr, 5.0f) == "assets/lamp.glb");
     CHECK(lod_mesh(mr, 15.0f) == "assets/a.glb");
     CHECK(lod_mesh(mr, 40.0f) == "assets/b.glb");
@@ -475,7 +508,8 @@ TEST_CASE("game ready: a collider fitted to one part, with a radius and height o
     CHECK(stem->radius < all->radius);
     CHECK(stem->center.y == doctest::Approx(2.0f).epsilon(0.01));
     // make_game_ready fits the part before a merge joins the part names
-    ModelGameReady g = settings(R"({"merge":true,"collider":{"shape":"capsule","part":"stem","radius":0.3,"height":1.5}})");
+    ModelGameReady g =
+        settings(R"({"merge":true,"collider":{"shape":"capsule","part":"stem","radius":0.3,"height":1.5}})");
     CHECK(g.collider.part == "stem");
     auto made = make_game_ready(b.data, g);
     REQUIRE(made.ok());

@@ -14,6 +14,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const auto midi = fa::parse_midi(bytes, "fuzz.mid");
     if (!midi) return 0;
     const auto written = fa::write_midi(midi.value());
-    if (written && !fa::parse_midi(written.value(), "fuzz-written.mid")) fa::fuzz::fail("write_midi wrote a file that parse_midi refuses");
+    if (written && !fa::parse_midi(written.value(), "fuzz-written.mid"))
+        fa::fuzz::fail("write_midi wrote a file that parse_midi refuses");
     return 0;
 }

@@ -52,7 +52,9 @@ struct SettingsProject {
     stdfs::path factoria() const { return dir / "factoria.json"; }
     PlatformSettings load() const {
         PlatformSettings ps;
-        ps.env = [](const std::string&) { return std::string(); };  // no FACTORIA_ANDROID_* variables from the test machine
+        ps.env = [](const std::string&) {
+            return std::string();
+        };  // no FACTORIA_ANDROID_* variables from the test machine
         ps.load(dir.string(), machine.string());
         return ps;
     }
@@ -82,13 +84,15 @@ TEST_CASE("platform settings: one tab per platform after General, and the lists 
     CHECK(std::string(settings_tab_platform(SettingsTab::General)).empty());
     for (int i = 1; i < kSettingsTabCount; ++i) {
         const SettingsTab tab = static_cast<SettingsTab>(i);
-        CHECK(normalize_export_platform(settings_tab_platform(tab)) == settings_tab_platform(tab));  // a name export_project knows
+        CHECK(normalize_export_platform(settings_tab_platform(tab)) ==
+              settings_tab_platform(tab));  // a name export_project knows
         CHECK(settings_tab_for_platform(settings_tab_platform(tab)) == tab);
     }
     CHECK(settings_tab_for_platform("Mac") == SettingsTab::Macos);
     CHECK(settings_tab_for_platform("win") == SettingsTab::Windows);
     CHECK_FALSE(settings_tab_for_platform("amiga").has_value());
-    CHECK(settings_tab_for_platform("") == settings_tab_for_platform(normalize_export_platform("")));  // "" = this machine's
+    CHECK(settings_tab_for_platform("") ==
+          settings_tab_for_platform(normalize_export_platform("")));  // "" = this machine's
 
     std::vector<std::string> formats;
     for (const SettingsChoice& c : android_formats()) formats.push_back(c.value);
@@ -97,7 +101,8 @@ TEST_CASE("platform settings: one tab per platform after General, and the lists 
     CHECK(find_choice(mac_game_categories(), "public.app-category.games") != nullptr);
     CHECK(find_choice(mac_game_categories(), "public.app-category.puzzle-games") != nullptr);
     CHECK(find_choice(mac_game_categories(), "public.app-category.finance") == nullptr);
-    for (const SettingsChoice& c : mac_game_categories()) CHECK(std::string(c.value).rfind("public.app-category.", 0) == 0);
+    for (const SettingsChoice& c : mac_game_categories())
+        CHECK(std::string(c.value).rfind("public.app-category.", 0) == 0);
     CHECK(find_choice(linux_game_categories(), "Game") != nullptr);
 }
 
@@ -212,11 +217,11 @@ TEST_CASE("platform settings: edits are dirty, Save writes factoria.json and not
 TEST_CASE("platform settings: an empty field that means its default is not an edit") {
     SettingsProject p("defaults");
     PlatformSettings ps = p.load();
-    ps.project.macos.category.clear();                // empty = public.app-category.games
-    ps.project.macos.minimumSystemVersion = "  ";     // blanks = 11.0
-    ps.project.ios.iconBackground.clear();            // empty = #FFFFFF
-    ps.project.android.adaptiveIcon.background = "";  // empty = #FFFFFF
-    ps.project.linux.categories = {"Game", "", "  "}; // blank entries are dropped
+    ps.project.macos.category.clear();                 // empty = public.app-category.games
+    ps.project.macos.minimumSystemVersion = "  ";      // blanks = 11.0
+    ps.project.ios.iconBackground.clear();             // empty = #FFFFFF
+    ps.project.android.adaptiveIcon.background = "";   // empty = #FFFFFF
+    ps.project.linux.categories = {"Game", "", "  "};  // blank entries are dropped
     ps.project.android.permissions = {"", " "};
     CHECK_FALSE(ps.project_dirty());
     CHECK(ps.validate().errors.empty());
@@ -246,9 +251,10 @@ TEST_CASE("platform settings: wrong values are errors with the pointer of their 
     ps.project.android.adaptiveIcon.background = "#12";
     ps.project.ios.buildNumber = "1.2.3.4";
     const SettingsProblems problems = ps.validate();
-    for (const char* pointer : {"/export/android/minSdk", "/export/macos/minimumSystemVersion", "/export/ios/teamId", "/export/ios/iconBackground",
-                                "/icon", "/export/windows/icon", "/export/linux/categories/0", "/export/android/permissions/0",
-                                "/export/android/adaptiveIcon/background", "/export/ios/buildNumber"}) {
+    for (const char* pointer :
+         {"/export/android/minSdk", "/export/macos/minimumSystemVersion", "/export/ios/teamId",
+          "/export/ios/iconBackground", "/icon", "/export/windows/icon", "/export/linux/categories/0",
+          "/export/android/permissions/0", "/export/android/adaptiveIcon/background", "/export/ios/buildNumber"}) {
         const ExportSettingsIssue* e = problems.error_for(pointer);
         INFO(pointer);
         REQUIRE(e != nullptr);
@@ -280,7 +286,8 @@ TEST_CASE("platform settings: wrong values are errors with the pointer of their 
     CHECK(sign.validate().warnings.empty());
 }
 
-TEST_CASE("platform settings: a hand-edited file opens with its errors listed, and an unreadable one cannot be saved over") {
+TEST_CASE(
+    "platform settings: a hand-edited file opens with its errors listed, and an unreadable one cannot be saved over") {
     SettingsProject p("badfile");
     // Wrong value in the file: the window still opens, the error is listed with its pointer.
     {
@@ -322,7 +329,7 @@ TEST_CASE("platform settings: factoria.json changing on disk is noticed") {
     CHECK(ps.project_file_changed());
     ps.project.android.minSdk = 30;  // an unsaved edit is untouched by noticing...
     CHECK(ps.project_file_changed());
-    ps.reload_project();             // ...and gone when the file is read again
+    ps.reload_project();  // ...and gone when the file is read again
     CHECK_FALSE(ps.project_file_changed());
     CHECK(ps.project.icon == "assets/ai-made.png");
     CHECK(ps.project.android.minSdk == 26);
@@ -437,7 +444,9 @@ TEST_CASE("platform settings: where each signing password comes from, never its 
 
     // The environment wins.
     ps.rememberPasswords = true;
-    ps.env = [](const std::string& name) { return name == "FACTORIA_ANDROID_KEYSTORE_PASSWORD" ? std::string("from-env") : std::string(); };
+    ps.env = [](const std::string& name) {
+        return name == "FACTORIA_ANDROID_KEYSTORE_PASSWORD" ? std::string("from-env") : std::string();
+    };
     ks = ps.keystore_password_status();
     CHECK(ks.from == "FACTORIA_ANDROID_KEYSTORE_PASSWORD");
     CHECK(ks.text.find("FACTORIA_ANDROID_KEYSTORE_PASSWORD") != std::string::npos);
@@ -473,7 +482,7 @@ TEST_CASE("platform settings: the Android toolchain the working settings find") 
     ps.machine.androidJdk = jdk.string();
     CHECK(ps.toolchain().ok());
     stdfs::remove_all(sdk);
-    CHECK(ps.toolchain().ok());          // cached: the folders are looked at again on request...
+    CHECK(ps.toolchain().ok());            // cached: the folders are looked at again on request...
     CHECK_FALSE(ps.toolchain(true).ok());  // ...and the SDK is gone
 }
 
@@ -528,7 +537,8 @@ TEST_CASE("icons: a picture is checked for what an export would complain about")
     CHECK(small.loaded);
     REQUIRE(small.warnings.size() == 1);
     CHECK(small.warnings[0].find("smaller than 512") != std::string::npos);
-    CHECK(check_icon(p.dir.string(), "assets/small.png", 256).warnings.empty());  // the size that is recommended is a parameter
+    CHECK(check_icon(p.dir.string(), "assets/small.png", 256)
+              .warnings.empty());  // the size that is recommended is a parameter
 
     IconCheck wide = check_icon(p.dir.string(), "assets/wide.png");
     CHECK(wide.loaded);
@@ -540,7 +550,7 @@ TEST_CASE("icons: a picture is checked for what an export would complain about")
     CHECK(missing.set);
     CHECK_FALSE(missing.loaded);
     CHECK(missing.error.find("does not exist") != std::string::npos);
-    CHECK(missing.error.find("good.png") != std::string::npos);  // did you mean
+    CHECK(missing.error.find("good.png") != std::string::npos);        // did you mean
     CHECK(missing.error.find("factoria.json#") == std::string::npos);  // no location noise in the window
 
     CHECK(check_icon(p.dir.string(), "assets/broken.png").error.find("cannot use") != std::string::npos);
@@ -697,7 +707,9 @@ TEST_CASE("keystore: the password reaches keytool through its environment, never
     r.organization = "My Studio";
     auto cmd = make_keytool_command(r);
     REQUIRE_MESSAGE(cmd.ok(), (cmd.ok() ? "" : cmd.error().message));
-    const auto has = [&](const std::string& a) { return std::find(cmd->argv.begin(), cmd->argv.end(), a) != cmd->argv.end(); };
+    const auto has = [&](const std::string& a) {
+        return std::find(cmd->argv.begin(), cmd->argv.end(), a) != cmd->argv.end();
+    };
     CHECK(has("-genkeypair"));
     CHECK(has("-storepass:env"));
     CHECK(has("-keypass:env"));
@@ -707,7 +719,8 @@ TEST_CASE("keystore: the password reaches keytool through its environment, never
     CHECK(has("CN=Jane Doe, O=My Studio"));
     CHECK(has(r.path));
     CHECK(has("upload"));
-    for (const std::string& a : cmd->argv) CHECK(a.find("p4ssw0rd-xyz") == std::string::npos);  // not in the process list
+    for (const std::string& a : cmd->argv)
+        CHECK(a.find("p4ssw0rd-xyz") == std::string::npos);  // not in the process list
     REQUIRE(cmd->env.count("FACTORIA_KEYSTORE_PASSWORD") == 1);
     CHECK(cmd->env["FACTORIA_KEYSTORE_PASSWORD"] == "p4ssw0rd-xyz");
     CHECK(cmd->env["FACTORIA_KEY_PASSWORD"] == "p4ssw0rd-xyz");
@@ -727,16 +740,17 @@ namespace {
 stdfs::path fake_jdk(const stdfs::path& root, bool succeed) {
     const stdfs::path jdk = root / (succeed ? "jdk-ok" : "jdk-bad");
     const stdfs::path script = jdk / "bin" / "keytool";
-    write_file_text(script,
-                    succeed ? "#!/bin/sh\n"
-                              "while [ $# -gt 0 ]; do\n"
-                              "  case \"$1\" in -keystore) ks=\"$2\"; shift;; -storepass:env) sp=\"$2\"; shift;; esac\n"
-                              "  shift\n"
-                              "done\n"
-                              "eval \"pw=\\${$sp}\"\n"
-                              "[ -n \"$pw\" ] || { echo 'keytool error: no password' >&2; exit 2; }\n"
-                              "echo \"keystore $pw\" > \"$ks\"\n"
-                            : "#!/bin/sh\necho 'keytool error: java.io.IOException: Keystore was tampered with' >&2\nexit 1\n");
+    write_file_text(
+        script, succeed
+                    ? "#!/bin/sh\n"
+                      "while [ $# -gt 0 ]; do\n"
+                      "  case \"$1\" in -keystore) ks=\"$2\"; shift;; -storepass:env) sp=\"$2\"; shift;; esac\n"
+                      "  shift\n"
+                      "done\n"
+                      "eval \"pw=\\${$sp}\"\n"
+                      "[ -n \"$pw\" ] || { echo 'keytool error: no password' >&2; exit 2; }\n"
+                      "echo \"keystore $pw\" > \"$ks\"\n"
+                    : "#!/bin/sh\necho 'keytool error: java.io.IOException: Keystore was tampered with' >&2\nexit 1\n");
     stdfs::permissions(script, stdfs::perms::owner_all, stdfs::perm_options::add);
     return jdk;
 }

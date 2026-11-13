@@ -25,7 +25,9 @@ Result<void> convert_shaders(ExportAssets& ea) {
     options.dialects = *dialects;
     for (const std::string& path : materials) {
         auto compiled = compile_material(ea.project.dir.string(), path, options);
-        if (!compiled.ok()) return err("export: the shaders of " + path + " cannot be compiled: " + compiled.error().message, compiled.error().hint);
+        if (!compiled.ok())
+            return err("export: the shaders of " + path + " cannot be compiled: " + compiled.error().message,
+                       compiled.error().hint);
         if (!compiled->ok) {
             std::string message = "export: the material " + path + " does not compile, so the game cannot be exported:";
             for (const ValidationIssue& i : shader_validation_issues(*compiled)) message += "\nerror: " + i.to_string();

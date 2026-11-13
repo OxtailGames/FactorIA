@@ -21,7 +21,7 @@ using namespace fa::test;
 
 namespace {
 
-const Color kPage{0.1f, 0.2f, 0.7f, 1};   // what the page camera clears to
+const Color kPage{0.1f, 0.2f, 0.7f, 1};  // what the page camera clears to
 const Color kRed = Color::hex(0xe02020);
 const Color kGreen = Color::hex(0x20c040);
 
@@ -83,10 +83,10 @@ TEST_CASE("render target: a Sprite shows what the camera drew, the right way up,
     Image img = g.render(w);
     CHECK(g.renderer.stats().renderTargets == 1);
     // The sprite covers x 96..224, y 58..122; the page is shown twice as big as it is.
-    CHECK(near(img.pixel(110, 66), kRed));       // top-left of the page
-    CHECK(near(img.pixel(210, 114), kGreen));    // bottom-right
-    CHECK(near(img.pixel(210, 66), kPage));      // top-right: nothing
-    CHECK(near(img.pixel(110, 114), kPage));     // bottom-left: nothing
+    CHECK(near(img.pixel(110, 66), kRed));     // top-left of the page
+    CHECK(near(img.pixel(210, 114), kGreen));  // bottom-right
+    CHECK(near(img.pixel(210, 66), kPage));    // top-right: nothing
+    CHECK(near(img.pixel(110, 114), kPage));   // bottom-left: nothing
     CHECK(near(img.pixel(160, 90), kPage));
     CHECK(near(img.pixel(50, 90), Color{0, 0, 0, 1}));  // outside the sprite: the game camera's clear
 }
@@ -101,7 +101,7 @@ TEST_CASE("render target: the camera is not drawn to the screen and is not a ren
     page.depth = -5;
     shape(w, "box", {0, 0, 0}, {40, 40}, kRed);
     Image img = g.render(w);
-    CHECK(near(img.pixel(160, 90), kRed));       // the game camera draws the box
+    CHECK(near(img.pixel(160, 90), kRed));              // the game camera draws the box
     CHECK(near(img.pixel(10, 10), Color{0, 0, 0, 1}));  // not the page camera's blue clear
     CHECK(rendering_cameras(w).size() == 1);
     CHECK(g.renderer.cameras().size() == 1);
@@ -157,7 +157,8 @@ TEST_CASE("render target: a name nobody renders into draws the checker and does 
     bool listed = false;
     const Json before = g.renderer.asset_report();
     for (const Json& f : before["failures"])
-        if (f["path"] == "target:ghost") listed = f["hint"].get<std::string>().find("renderTarget") != std::string::npos;
+        if (f["path"] == "target:ghost")
+            listed = f["hint"].get<std::string>().find("renderTarget") != std::string::npos;
     CHECK(listed);
     // Once a camera renders into it, the sprite shows it and the stale failure is gone.
     target_camera(w, "ghost", {1000, 0, 0}, 64, 32);
@@ -226,15 +227,21 @@ TEST_CASE("render target: a mesh shows the target on its texture, the right way 
     for (int y = 0; y < img.height; ++y)
         for (int x = 0; x < img.width; ++x) {
             Color c = img.pixel(x, y);
-            if (near(c, kRed, 0.12f) && redX < 0) { redX = x; redY = y; }
-            if (near(c, kGreen, 0.12f)) { greenX = x; greenY = y; }
+            if (near(c, kRed, 0.12f) && redX < 0) {
+                redX = x;
+                redY = y;
+            }
+            if (near(c, kGreen, 0.12f)) {
+                greenX = x;
+                greenY = y;
+            }
         }
     REQUIRE(redX >= 0);
     REQUIRE(greenX >= 0);
     CHECK(redX < 160);
-    CHECK(redY < 90);      // top-left
+    CHECK(redY < 90);  // top-left
     CHECK(greenX > 160);
-    CHECK(greenY > 90);    // bottom-right
+    CHECK(greenY > 90);  // bottom-right
 }
 
 TEST_CASE("render target: a 3D camera renders its scene into the texture") {
@@ -257,7 +264,7 @@ TEST_CASE("render target: a 3D camera renders its scene into the texture") {
     Image img = g.render(w);
     CHECK(near(img.pixel(160, 90), kRed, 0.5f));
     CHECK(img.pixel(160, 90).r > img.pixel(160, 90).b * 2.0f);
-    CHECK(near(img.pixel(100, 40), kPage));   // the target's own clear colour around the cube
+    CHECK(near(img.pixel(100, 40), kPage));  // the target's own clear colour around the cube
 }
 
 // The pointer finds a texture coordinate on the surface the renderer draws, so the two must agree vertex by vertex.
@@ -274,9 +281,9 @@ TEST_CASE("render target: the mesh surface the pointer uses is the mesh the rend
         REQUIRE(s.uvs.size() == v.size());
         bool same = true;
         for (std::size_t i = 0; i < v.size(); ++i)
-            same = same && std::fabs(s.positions[i].x - v[i].px) < 1e-5f && std::fabs(s.positions[i].y - v[i].py) < 1e-5f &&
-                   std::fabs(s.positions[i].z - v[i].pz) < 1e-5f && std::fabs(s.uvs[i].x - v[i].u) < 1e-5f &&
-                   std::fabs(s.uvs[i].y - v[i].v) < 1e-5f;
+            same = same && std::fabs(s.positions[i].x - v[i].px) < 1e-5f &&
+                   std::fabs(s.positions[i].y - v[i].py) < 1e-5f && std::fabs(s.positions[i].z - v[i].pz) < 1e-5f &&
+                   std::fabs(s.uvs[i].x - v[i].u) < 1e-5f && std::fabs(s.uvs[i].y - v[i].v) < 1e-5f;
         CHECK(same);
         // The same triangles (the renderer may wind them the other way round).
         REQUIRE(s.indices.size() == idx.size());
@@ -300,7 +307,8 @@ std::string base64(const std::vector<std::uint8_t>& d) {
     static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
     for (std::size_t i = 0; i < d.size(); i += 3) {
-        const std::uint32_t n = (d[i] << 16) | (i + 1 < d.size() ? d[i + 1] << 8 : 0) | (i + 2 < d.size() ? d[i + 2] : 0);
+        const std::uint32_t n =
+            (d[i] << 16) | (i + 1 < d.size() ? d[i + 1] << 8 : 0) | (i + 2 < d.size() ? d[i + 2] : 0);
         out += t[(n >> 18) & 63];
         out += t[(n >> 12) & 63];
         out += i + 1 < d.size() ? t[(n >> 6) & 63] : '=';
@@ -325,15 +333,17 @@ TEST_CASE("render target: a glTF model's UVs are the ones the pointer reads") {
     std::vector<std::uint8_t> bytes(floats.size() * 4);
     std::memcpy(bytes.data(), floats.data(), bytes.size());
     std::vector<std::uint16_t> ix;
-    for (std::uint16_t i = 0; i < 4; ++i) ix.insert(ix.end(), {std::uint16_t(2 * i), std::uint16_t(2 * i + 1), std::uint16_t(2 * i + 2),
-                                                               std::uint16_t(2 * i + 2), std::uint16_t(2 * i + 1), std::uint16_t(2 * i + 3)});
+    for (std::uint16_t i = 0; i < 4; ++i)
+        ix.insert(ix.end(), {std::uint16_t(2 * i), std::uint16_t(2 * i + 1), std::uint16_t(2 * i + 2),
+                             std::uint16_t(2 * i + 2), std::uint16_t(2 * i + 1), std::uint16_t(2 * i + 3)});
     const std::size_t at = bytes.size();
     bytes.resize(at + ix.size() * 2);
     std::memcpy(bytes.data() + at, ix.data(), ix.size() * 2);
     const std::string uri = "data:application/octet-stream;base64," + base64(bytes);
     const Json gltf = Json::parse(R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
         "meshes":[{"primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":2}]}],
-        "buffers":[{"byteLength":)" + std::to_string(bytes.size()) + R"(,"uri":")" + uri + R"("}],
+        "buffers":[{"byteLength":)" +
+                                  std::to_string(bytes.size()) + R"(,"uri":")" + uri + R"("}],
         "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":120},{"buffer":0,"byteOffset":120,"byteLength":80},
                        {"buffer":0,"byteOffset":200,"byteLength":48}],
         "accessors":[{"bufferView":0,"componentType":5126,"count":10,"type":"VEC3","min":[0,-0.5,0],"max":[2,0.5,2]},

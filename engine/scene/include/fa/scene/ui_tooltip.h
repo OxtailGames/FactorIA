@@ -24,17 +24,17 @@ struct UiTooltipStyle {
     std::string font;                            // project path of a .ttf, "" = the built-in font
     float fontSize = 18.0f;                      // body lines
     float titleSize = 20.0f;                     // the title
-    float maxWidth = 300.0f;                     // a longer line wraps at this width (the box is this wide plus the padding)
-    float spacing = 3.0f;                        // between lines
-    Vec4 padding{10, 8, 10, 8};                  // left, top, right, bottom
-    float gap = 16.0f;                           // from the pointer to the box
-    std::int32_t layer = 1000;                   // draw order among the UI; above every widget by default
+    float maxWidth = 300.0f;     // a longer line wraps at this width (the box is this wide plus the padding)
+    float spacing = 3.0f;        // between lines
+    Vec4 padding{10, 8, 10, 8};  // left, top, right, bottom
+    float gap = 16.0f;           // from the pointer to the box
+    std::int32_t layer = 1000;   // draw order among the UI; above every widget by default
     bool operator==(const UiTooltipStyle&) const = default;
 };
 
 struct UiTooltipSettings {
-    float delay = 0.5f;       // seconds of rest before a widget's tooltip shows (ui.tooltipDelay)
-    bool onTouch = false;     // true: tooltips also show while the last input was a touch (otherwise they stay off)
+    float delay = 0.5f;    // seconds of rest before a widget's tooltip shows (ui.tooltipDelay)
+    bool onTouch = false;  // true: tooltips also show while the last input was a touch (otherwise they stay off)
     UiTooltipStyle style;
     bool operator==(const UiTooltipSettings&) const = default;
 };
@@ -46,8 +46,8 @@ Result<UiTooltipSettings> parse_tooltip_settings(const Json& ui, const std::stri
 // A line of the tooltip that is on screen, with the place it is drawn at.
 struct UiTooltipLine {
     std::string text;
-    Color color;           // the colour it is drawn in
-    Vec2 pos{};            // top-left corner on the screen, UI units
+    Color color;  // the colour it is drawn in
+    Vec2 pos{};   // top-left corner on the screen, UI units
     float fontSize = 18.0f;
     bool title = false;
 };
@@ -55,10 +55,11 @@ struct UiTooltipLine {
 // The tooltip on screen (shown false: none). Everything is in UI units; multiply by the interface scale for pixels.
 struct UiTooltipView {
     bool shown = false;
-    Rect rect;                     // the box, UI units
+    Rect rect;  // the box, UI units
     std::vector<UiTooltipLine> lines;
-    std::string source;            // "widget" (a tooltip set on the widget), "script" (a function from ui.setTooltip), "world" (ui.setWorldTooltip) or "manual" (ui.showTooltip)
-    std::string widget;            // the id of the widget that owns it ("" for world and script tooltips)
+    std::string
+        source;  // "widget" (a tooltip set on the widget), "script" (a function from ui.setTooltip), "world" (ui.setWorldTooltip) or "manual" (ui.showTooltip)
+    std::string widget;  // the id of the widget that owns it ("" for world and script tooltips)
 };
 
 // The view as scripts and tests read it (ui.tooltip, "tooltip" of ui.state): null when none shows, else {title, lines: [text],

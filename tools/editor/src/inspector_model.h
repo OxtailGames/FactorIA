@@ -15,7 +15,21 @@
 namespace fa::editor {
 
 // ---------------------------------------------------------------------------------------------- field -> widget
-enum class FieldWidget { Checkbox, DragInt, DragFloat, Text, Vec2, Vec3, Vec4, Color, Rect, EntityCombo, EnumCombo, AssetPicker, JsonText };
+enum class FieldWidget {
+    Checkbox,
+    DragInt,
+    DragFloat,
+    Text,
+    Vec2,
+    Vec3,
+    Vec4,
+    Color,
+    Rect,
+    EntityCombo,
+    EnumCombo,
+    AssetPicker,
+    JsonText
+};
 
 // Runtime-only fields (serialized == false) are not shown: they are the engine's state, not the scene's.
 inline bool inspector_shows(const FieldInfo& f) { return f.serialized; }
@@ -29,8 +43,8 @@ int widget_arity(FieldWidget w);
 float drag_speed_for(const FieldInfo& f, double current);
 
 // The arguments of `scene.set_component` that set ONE field. `merge` is for materialParams (RFC 7386, see the command).
-Json field_edit_args(const std::string& entityId, const std::string& component, const std::string& field, const Json& value,
-                     bool merge = false);
+Json field_edit_args(const std::string& entityId, const std::string& component, const std::string& field,
+                     const Json& value, bool merge = false);
 // The text of a Json field's box, parsed: the error names the line and column and says how to fix it.
 Result<Json> parse_json_box(const std::string& text);
 // A short message of a failed command's `error` object ("message" and, when there is one, " " + "hint").
@@ -43,7 +57,8 @@ bool asset_file_matches(std::string_view assetType, std::string_view relPath);
 // Folders the project listings never enter: hidden ones (.factoria, .git), build, node_modules, dist, export.
 bool skip_project_dir(std::string_view name);
 // The project's files of that type, sorted, with forward slashes (the build and hidden folders are skipped).
-std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType, std::size_t limit = 2000);
+std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType,
+                                          std::size_t limit = 2000);
 
 // ---------------------------------------------------------------------------------------------- material params
 // One entry of material.info's `params`.

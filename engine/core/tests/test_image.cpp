@@ -28,7 +28,10 @@ Image solid(int w, int h, std::uint8_t r, std::uint8_t g, std::uint8_t b, std::u
 
 void put(Image& img, int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a) {
     std::uint8_t* p = &img.rgba[(std::size_t(y) * img.width + x) * 4];
-    p[0] = r; p[1] = g; p[2] = b; p[3] = a;
+    p[0] = r;
+    p[1] = g;
+    p[2] = b;
+    p[3] = a;
 }
 
 std::array<int, 4> px(const Image& img, int x, int y) {
@@ -120,7 +123,8 @@ TEST_CASE("fit_image: centered over the background, aspect ratio kept") {
     CHECK(px(f, 3, 2)[2] == 255);  // blue half
 }
 
-TEST_CASE("fit_image: scale leaves a margin, a transparent background stays transparent, an opaque one fills the corners") {
+TEST_CASE(
+    "fit_image: scale leaves a margin, a transparent background stays transparent, an opaque one fills the corners") {
     Image a = solid(8, 8, 255, 255, 255, 255);
     Image f = fit_image(a, 16, 0.5f, Color::clear());
     CHECK(px(f, 0, 0)[3] == 0);
@@ -139,11 +143,11 @@ TEST_CASE("fit_image: scale leaves a margin, a transparent background stays tran
 
 TEST_CASE("fit_image: an image with alpha is composed over the background") {
     Image a = solid(2, 2, 255, 255, 255, 0);
-    put(a, 0, 0, 255, 255, 255, 255);   // opaque white
-    put(a, 1, 0, 255, 255, 255, 128);   // half transparent white
+    put(a, 0, 0, 255, 255, 255, 255);  // opaque white
+    put(a, 1, 0, 255, 255, 255, 128);  // half transparent white
     Image f = fit_image(a, 2, 1.0f, Color::black());
     CHECK(px(f, 0, 0) == std::array<int, 4>{255, 255, 255, 255});
-    CHECK(px(f, 1, 0)[0] == 128);                 // white over black at ~50%
+    CHECK(px(f, 1, 0)[0] == 128);  // white over black at ~50%
     CHECK(px(f, 1, 0)[3] == 255);
     CHECK(px(f, 0, 1) == std::array<int, 4>{0, 0, 0, 255});  // fully transparent pixel: just the background
 }
@@ -226,11 +230,11 @@ TEST_CASE("decode_image: a picture with no rows is an error, and mip_chain survi
     bmp[0] = 'B';
     bmp[1] = 'M';
     bmp[2] = std::uint8_t(bmp.size());
-    bmp[10] = 54;   // pixel data offset
-    bmp[14] = 40;   // DIB header size
-    bmp[18] = 8;    // width; the height at 22 stays 0
-    bmp[26] = 1;    // planes
-    bmp[28] = 24;   // bits per pixel
+    bmp[10] = 54;  // pixel data offset
+    bmp[14] = 40;  // DIB header size
+    bmp[18] = 8;   // width; the height at 22 stays 0
+    bmp[26] = 1;   // planes
+    bmp[28] = 24;  // bits per pixel
     const auto flat = decode_image(bmp.data(), bmp.size());
     CHECK_FALSE(flat.ok());
     if (!flat.ok()) CHECK_FALSE(flat.error().hint.empty());
@@ -273,7 +277,10 @@ TEST_CASE("mip_chain: halves down to 1x1, averaging 2x2 pixels and repeating the
 namespace {
 // The first bytes of a KTX2 file: identifier, vkFormat, typeSize, pixelWidth, pixelHeight.
 std::string ktx2_header(std::uint32_t w, std::uint32_t h) {
-    std::string s("\xAB" "KTX 20" "\xBB\r\n\x1A\n", 12);
+    std::string s("\xAB"
+                  "KTX 20"
+                  "\xBB\r\n\x1A\n",
+                  12);
     for (std::uint32_t v : {0u, 1u, w, h})
         for (int i = 0; i < 4; ++i) s.push_back(char((v >> (8 * i)) & 255));
     return s;
@@ -306,8 +313,9 @@ TEST_CASE("texture_size: the file, else the packed rectangle, else the header of
 
     REQUIRE(save_png(solid(6, 4, 1, 2, 3, 255), "assets/plain.png").ok());
     write("assets/twin.png.ktx2", ktx2_header(64, 32));
-    write("assets.json",
-          R"({"format": "factoria.assets/1", "assets": {"assets/packed.png": {"packed": {"atlas": "assets/atlases/a.png", "rect": [2, 2, 20, 10]}}}})");
+    write(
+        "assets.json",
+        R"({"format": "factoria.assets/1", "assets": {"assets/packed.png": {"packed": {"atlas": "assets/atlases/a.png", "rect": [2, 2, 20, 10]}}}})");
 
     auto plain = texture_size("assets/plain.png");
     REQUIRE(plain.ok());
@@ -350,7 +358,8 @@ TEST_CASE("color simulation: names parse and a typo teaches") {
 }
 
 TEST_CASE("color simulation: white and greys are unchanged by the dichromacy matrices, alpha is kept") {
-    for (ColorSimulation m : {ColorSimulation::Protanopia, ColorSimulation::Deuteranopia, ColorSimulation::Tritanopia}) {
+    for (ColorSimulation m :
+         {ColorSimulation::Protanopia, ColorSimulation::Deuteranopia, ColorSimulation::Tritanopia}) {
         CHECK(near_color(simulate_color_vision(Color{1, 1, 1, 1}, m), 1, 1, 1));
         CHECK(near_color(simulate_color_vision(Color{0.5f, 0.5f, 0.5f, 1}, m), 0.5f, 0.5f, 0.5f));
         CHECK(near_color(simulate_color_vision(Color{0, 0, 0, 1}, m), 0, 0, 0));
@@ -364,7 +373,8 @@ TEST_CASE("color simulation: pure red, green and blue through each matrix (known
     CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Protanopia), 1.0f, 0.8994f, 0.0f));
     CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Protanopia), 0.0f, 0.3479f, 1.0f));
     CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Deuteranopia), 0.6401f, 0.5658f, 0.0f));
-    CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Deuteranopia), 0.9361f, 0.8392f, 0.2292f));
+    CHECK(
+        near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Deuteranopia), 0.9361f, 0.8392f, 0.2292f));
     CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Deuteranopia), 0.0f, 0.2412f, 0.9862f));
     CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Tritanopia), 1.0f, 0.0f, 0.0584f));
     CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Tritanopia), 0.0f, 0.9689f, 0.8496f));

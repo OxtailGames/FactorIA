@@ -38,7 +38,7 @@ u32 mix_bits(u32 h) {
     return h;
 }
 u32 hash3(int x, int y, u32 seed) { return mix_bits(u32(x) * 0x9E3779B1u ^ mix_bits(u32(y) * 0x85EBCA77u + seed)); }
-double unit(u32 h) { return double(h >> 8) * (1.0 / 16777216.0); }          // [0, 1)
+double unit(u32 h) { return double(h >> 8) * (1.0 / 16777216.0); }  // [0, 1)
 double rand01(int x, int y, u32 seed) { return unit(hash3(x, y, seed)); }
 int wrap_cell(int i, int period) { return period > 0 ? ((i % period) + period) % period : i; }
 
@@ -54,8 +54,14 @@ double fade(double t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
 // Gradient (Perlin) noise in about [-1, 1]. x and y count lattice cells; a period > 0 wraps the lattice, so the noise repeats
 // every `period` cells.
 double gnoise(double x, double y, int px, int py, u32 seed) {
-    static const double kGrad[8][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {0.70710678, 0.70710678}, {-0.70710678, 0.70710678},
-                                       {0.70710678, -0.70710678}, {-0.70710678, -0.70710678}};
+    static const double kGrad[8][2] = {{1, 0},
+                                       {-1, 0},
+                                       {0, 1},
+                                       {0, -1},
+                                       {0.70710678, 0.70710678},
+                                       {-0.70710678, 0.70710678},
+                                       {0.70710678, -0.70710678},
+                                       {-0.70710678, -0.70710678}};
     const double fx0 = std::floor(x), fy0 = std::floor(y);
     const int x0 = int(fx0), y0 = int(fy0);
     const double fx = x - fx0, fy = y - fy0;
@@ -90,7 +96,8 @@ struct Grid {
     // Cells of a feature about `perShortSide` times across the shorter side (or `px` pixels wide).
     Cells per_short(double perShortSide) const {
         const double s = std::min(w, h);
-        return {std::max(1, int(std::lround(perShortSide * w / s))), std::max(1, int(std::lround(perShortSide * h / s)))};
+        return {std::max(1, int(std::lround(perShortSide * w / s))),
+                std::max(1, int(std::lround(perShortSide * h / s)))};
     }
     Cells per_px(double px, double pxY = 0) const {
         if (pxY <= 0) pxY = px;
@@ -132,7 +139,8 @@ Worley worley(const Grid& g, double u, double v, Cells c, double jitter, u32 sal
             const int cx = ix + dx, cy = iy + dy;
             const int wx = g.tile ? wrap_cell(cx, c.x) : cx, wy = g.tile ? wrap_cell(cy, c.y) : cy;
             const u32 hh = hash3(wx, wy, seed);
-            const double fx = cx + 0.5 + (unit(hh) - 0.5) * jitter, fy = cy + 0.5 + (unit(mix_bits(hh ^ 0x68bc21ebu)) - 0.5) * jitter;
+            const double fx = cx + 0.5 + (unit(hh) - 0.5) * jitter,
+                         fy = cy + 0.5 + (unit(mix_bits(hh ^ 0x68bc21ebu)) - 0.5) * jitter;
             const double ddx = (fx - x) * sx / ref, ddy = (fy - y) * sy / ref;
             const double d = std::sqrt(ddx * ddx + ddy * ddy);
             if (d < best.f1) {
@@ -171,7 +179,8 @@ struct Canvas {
     bool tile = false;
     std::vector<Rgb> px;
     std::vector<double> height;  // 0..1, drives the shading and the normal map
-    Canvas(int w_, int h_, bool tile_) : w(w_), h(h_), tile(tile_), px(std::size_t(w_) * h_), height(std::size_t(w_) * h_, 0.5) {}
+    Canvas(int w_, int h_, bool tile_)
+        : w(w_), h(h_), tile(tile_), px(std::size_t(w_) * h_), height(std::size_t(w_) * h_, 0.5) {}
     std::size_t at(int x, int y) const { return std::size_t(y) * w + x; }
     double h_at(int x, int y) const {  // height with wrap (tileable) or clamp
         if (tile) {
@@ -257,26 +266,24 @@ struct Params {
     double scale = 1, rough = 0.5, vignette = -1, vignetteWidth = 0.035, angle = 0;
     bool tile = false;
     // planks only
-    int plankCount = 0;           // boards across the picture's height; 0 = derived from `scale`
-    double plankLength = 1.0;     // board length as a fraction of the picture's width; 0 = full width, no butt joints
-    double gapWidth = 0.015;      // gap between boards as a fraction of a board's width
-    double gapDarkness = 0.55;    // 0 = no darkening in the gaps, 1 = as dark as the accent allows
+    int plankCount = 0;         // boards across the picture's height; 0 = derived from `scale`
+    double plankLength = 1.0;   // board length as a fraction of the picture's width; 0 = full width, no butt joints
+    double gapWidth = 0.015;    // gap between boards as a fraction of a board's width
+    double gapDarkness = 0.55;  // 0 = no darkening in the gaps, 1 = as dark as the accent allows
 };
 
 struct Preset {
     const char* name;
-    const char* what;      // one line for the description of the command
-    const char* palette;   // default colours, for the description
+    const char* what;     // one line for the description of the command
+    const char* palette;  // default colours, for the description
     Rgb base, accent;
-    double vignette;       // default edge darkening (0 = none)
+    double vignette;  // default edge darkening (0 = none)
     bool canTile;
-    bool textured;         // has its own grain; the smooth presets get a dither so they do not band
+    bool textured;  // has its own grain; the smooth presets get a dither so they do not band
     void (*draw)(Canvas&, const Params&, const Grid&);
 };
 
-Rgb hex(u32 rgb) {
-    return {((rgb >> 16) & 0xff) / 255.0, ((rgb >> 8) & 0xff) / 255.0, (rgb & 0xff) / 255.0, 1.0};
-}
+Rgb hex(u32 rgb) { return {((rgb >> 16) & 0xff) / 255.0, ((rgb >> 8) & 0xff) / 255.0, (rgb & 0xff) / 255.0, 1.0}; }
 
 // The height, in 0..1, is stored for shading; the albedo is written by each preset.
 
@@ -286,7 +293,8 @@ void draw_paper(Canvas& c, const Params& p, const Grid& g) {
     scatter_fibres(fibres, p.seed + 11u, int(1400 * area), 9.0, 0.10, 1.2);
     FibreBuffer light(c.w, c.h, c.tile);
     scatter_fibres(light, p.seed + 12u, int(700 * area), 10.0, 0.07, 1.0);
-    const Cells mottleCells = g.per_short(3.0 / p.scale), blotchCells = g.per_short(9.0 / p.scale), toothCells = g.per_px(2.2);
+    const Cells mottleCells = g.per_short(3.0 / p.scale), blotchCells = g.per_short(9.0 / p.scale),
+                toothCells = g.per_px(2.2);
     const double amount = 0.35 + 0.65 * p.rough;
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
@@ -309,8 +317,8 @@ void draw_parchment(Canvas& c, const Params& p, const Grid& g) {
     FibreBuffer fibres(c.w, c.h, c.tile);
     const double area = double(c.w) * c.h / (512.0 * 512.0);
     scatter_fibres(fibres, p.seed + 21u, int(1000 * area), 10.0, 0.10, 1.4);
-    const Cells stainCells = g.per_short(2.4 / p.scale), mottleCells = g.per_short(10.0 / p.scale), creaseCells = g.per_short(5.0 / p.scale),
-                toothCells = g.per_px(2.0);
+    const Cells stainCells = g.per_short(2.4 / p.scale), mottleCells = g.per_short(10.0 / p.scale),
+                creaseCells = g.per_short(5.0 / p.scale), toothCells = g.per_px(2.0);
     const double amount = 0.4 + 0.6 * p.rough;
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
@@ -320,7 +328,8 @@ void draw_parchment(Canvas& c, const Params& p, const Grid& g) {
             const double blot = smoothstep(0.30, 0.85, stain);
             const double mottle = fbm(g, u, v, mottleCells, 4, 0.5, 2);
             // creases: thin dark lines where a noise crosses zero
-            const double warpU = u + 0.02 * fbm(g, u, v, creaseCells, 2, 0.5, 4), warpV = v + 0.02 * fbm(g, u, v, creaseCells, 2, 0.5, 5);
+            const double warpU = u + 0.02 * fbm(g, u, v, creaseCells, 2, 0.5, 4),
+                         warpV = v + 0.02 * fbm(g, u, v, creaseCells, 2, 0.5, 5);
             const double ridge = std::abs(fbm(g, warpU, warpV, creaseCells, 3, 0.5, 6));
             const double crease = 1.0 - smoothstep(0.0, 0.022, ridge);
             const double tooth = fbm(g, u, v, toothCells, 2, 0.6, 3);
@@ -337,10 +346,12 @@ void draw_parchment(Canvas& c, const Params& p, const Grid& g) {
 
 void draw_wood(Canvas& c, const Params& p, const Grid& g) {
     const int rings = std::max(3, int(std::lround(16.0 / p.scale)));
-    const Cells warpCells = {std::max(1, int(std::lround(2.0 / p.scale))), std::max(1, int(std::lround(5.0 / p.scale)))};
+    const Cells warpCells = {std::max(1, int(std::lround(2.0 / p.scale))),
+                             std::max(1, int(std::lround(5.0 / p.scale)))};
     const Cells swayCells = {1, std::max(1, int(std::lround(2.0 / p.scale)))};
     const Cells streakCells = {std::max(1, int(std::lround(4.0 / p.scale))), std::max(1, int(std::lround(c.h / 2.0)))};
-    const Cells poreCells = {std::max(1, int(std::lround(c.w / (10.0 * p.scale)))), std::max(1, int(std::lround(c.h / 1.6)))};
+    const Cells poreCells = {std::max(1, int(std::lround(c.w / (10.0 * p.scale)))),
+                             std::max(1, int(std::lround(c.h / 1.6)))};
     const Cells tintCells = g.per_short(1.5 / p.scale);
     const Cells widthCells = {1, std::max(1, int(std::lround(3.0 / p.scale)))};
     const double amount = 0.4 + 0.6 * p.rough;
@@ -355,11 +366,13 @@ void draw_wood(Canvas& c, const Params& p, const Grid& g) {
             const double late = std::pow(f, 3.2);
             const double ringContrast = 0.7 + 0.5 * (fbm(g, u, v, widthCells, 2, 0.5, 8));
             const double streak = fbm(g, u, v, streakCells, 3, 0.6, 2) * 0.5 + 0.5;
-            const double pore = vnoise(u * poreCells.x, v * poreCells.y, c.tile ? poreCells.x : 0, c.tile ? poreCells.y : 0, g.seed + 9u);
+            const double pore = vnoise(u * poreCells.x, v * poreCells.y, c.tile ? poreCells.x : 0,
+                                       c.tile ? poreCells.y : 0, g.seed + 9u);
             const double tint = fbm(g, u, v, tintCells, 3, 0.5, 4);
             const double poreDark = smoothstep(0.80, 0.95, pore);
             const double hair = std::pow(0.5 + 0.5 * std::sin((t * 3.7 + streak * 3.0) * kPi * 2), 8.0);
-            double tone = 0.12 + hair * 0.22 * amount + late * 0.55 * ringContrast + (streak - 0.5) * 0.40 * amount + tint * 0.10 - poreDark * 0.20 * amount;
+            double tone = 0.12 + hair * 0.22 * amount + late * 0.55 * ringContrast + (streak - 0.5) * 0.40 * amount +
+                          tint * 0.10 - poreDark * 0.20 * amount;
             Rgb col = mix(p.base, p.accent, clamp01(tone));
             col = scaled(col, 1.0 + tint * 0.08 * amount);
             c.px[c.at(x, y)] = col;
@@ -384,22 +397,25 @@ void draw_planks(Canvas& c, const Params& p, const Grid& g) {
     for (int r = 0; r < rows; ++r) {
         const double off = rand01(r, 3, p.seed + 31u) * c.w;
         for (int k = 0; joined && k < segs; ++k) {
-            joints[r][k] = std::fmod(off + (k + (rand01(r, k + 100, p.seed + 32u) - 0.5) * 0.45) * (double(c.w) / segs) + c.w, double(c.w));
+            joints[r][k] = std::fmod(
+                off + (k + (rand01(r, k + 100, p.seed + 32u) - 0.5) * 0.45) * (double(c.w) / segs) + c.w, double(c.w));
         }
         std::sort(joints[r].begin(), joints[r].end());
         if (!joined) joints[r][0] = 0;
     }
     for (int y = 0; y < c.h; ++y) {
         const int r = std::min(rows - 1, int(y / ph));
-        const double local = y + 0.5 - r * ph;                        // pixels from the top of the plank
-        const double edge = std::min(local, ph - local);              // pixels from the nearest long edge
+        const double local = y + 0.5 - r * ph;            // pixels from the top of the plank
+        const double edge = std::min(local, ph - local);  // pixels from the nearest long edge
         for (int x = 0; x < c.w; ++x) {
             const std::vector<double>& js = joints[r];
             // the plank is the interval between two joints (the last one wraps to the first)
             int seg = int(js.size()) - 1;
             for (int k = 0; k < int(js.size()); ++k) {
-                if (x + 0.5 >= js[k]) seg = k;
-                else break;
+                if (x + 0.5 >= js[k])
+                    seg = k;
+                else
+                    break;
             }
             const double start = js[seg], endp = js[(seg + 1) % js.size()];
             double dStart = x + 0.5 - start;
@@ -434,13 +450,15 @@ void draw_planks(Canvas& c, const Params& p, const Grid& g) {
 }
 
 void draw_leather(Canvas& c, const Params& p, const Grid& g) {
-    const Cells grainCells = g.per_short(20.0 / p.scale), fineCells = g.per_short(60.0 / p.scale), warpCells = g.per_short(6.0 / p.scale),
-                wearCells = g.per_short(3.0 / p.scale), wrinkleCells = g.per_short(8.0 / p.scale);
+    const Cells grainCells = g.per_short(20.0 / p.scale), fineCells = g.per_short(60.0 / p.scale),
+                warpCells = g.per_short(6.0 / p.scale), wearCells = g.per_short(3.0 / p.scale),
+                wrinkleCells = g.per_short(8.0 / p.scale);
     const double amount = 0.4 + 0.6 * p.rough;
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
-            const double wu = u + 0.012 * fbm(g, u, v, warpCells, 2, 0.5, 1), wv = v + 0.012 * fbm(g, u, v, warpCells, 2, 0.5, 2);
+            const double wu = u + 0.012 * fbm(g, u, v, warpCells, 2, 0.5, 1),
+                         wv = v + 0.012 * fbm(g, u, v, warpCells, 2, 0.5, 2);
             const Worley a = worley(g, wu, wv, grainCells, 0.95, 1);
             const Worley b = worley(g, wu, wv, fineCells, 0.9, 2);
             // pebbles: domed plateaus separated by narrow creases
@@ -486,7 +504,8 @@ void draw_weave(Canvas& c, const Params& p, const Grid& g, const Weave& wv) {
     // thread counts are even so the over-under pattern repeats at the edge of a tileable image
     auto even = [](double v) { return std::max(2, int(std::lround(v / 2.0)) * 2); };
     const int tx = even(wv.threads / p.scale * c.w / s), ty = even(wv.threads / p.scale * c.h / s);
-    const Cells warpCells = g.per_short(5.0 / p.scale), fibreCellsA = {tx * 3, ty / 2 > 0 ? ty / 2 : 1}, fibreCellsB = {tx / 2 > 0 ? tx / 2 : 1, ty * 3};
+    const Cells warpCells = g.per_short(5.0 / p.scale), fibreCellsA = {tx * 3, ty / 2 > 0 ? ty / 2 : 1},
+                fibreCellsB = {tx / 2 > 0 ? tx / 2 : 1, ty * 3};
     const Cells mottleCells = g.per_short(2.5 / p.scale);
     const double amount = 0.3 + 0.7 * p.rough;
     // A thread a few pixels wide sampled once per pixel beats against the pixel grid (a plaid of big light and dark blocks): the
@@ -497,7 +516,8 @@ void draw_weave(Canvas& c, const Params& p, const Grid& g, const Weave& wv) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
             // the weave is a little uneven: the grid is pushed around by a slow noise
-            const double warpX = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 1), warpY = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 2);
+            const double warpX = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 1),
+                         warpY = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 2);
             const double fib0 = fbm(g, u, v, fibreCellsA, 2, 0.5, 3), fib1 = fbm(g, u, v, fibreCellsB, 2, 0.5, 4);
             const double mottle = fbm(g, u, v, mottleCells, 3, 0.5, 5);
             Rgb sum{0, 0, 0, 0};
@@ -513,13 +533,17 @@ void draw_weave(Canvas& c, const Params& p, const Grid& g, const Weave& wv) {
                     const double across = vertical ? fx : fy, along = vertical ? fy : fx;
                     const int threadId = vertical ? ci : cj;
                     const u32 th = hash3(threadId, vertical ? 1 : 2, p.seed + 41u);
-                    const u32 crossing = hash3(ci, cj, p.seed + 43u);  // a different value at every crossing: no period in the slubs
+                    const u32 crossing =
+                        hash3(ci, cj, p.seed + 43u);  // a different value at every crossing: no period in the slubs
                     const double profile = std::pow(std::sin(kPi * across), 0.75);
                     const double taper = 0.60 + 0.40 * std::pow(std::sin(kPi * along), 0.8);
-                    const double slub = 1.0 - 0.12 * wv.slubs * (0.5 + unit(crossing)) * (0.5 - 0.5 * std::sin(along * 2 * kPi + unit(th) * 6.0));
+                    const double slub = 1.0 - 0.12 * wv.slubs * (0.5 + unit(crossing)) *
+                                                  (0.5 - 0.5 * std::sin(along * 2 * kPi + unit(th) * 6.0));
                     const double hgt = profile * taper * slub;
                     const double fib = vertical ? fib0 : fib1;
-                    const double tint = 1.0 + (unit(th) - 0.5) * 0.22 * amount * wv.toneSpread + (unit(crossing) - 0.5) * 0.05 * wv.toneSpread + (vertical ? 0.015 : -0.015) * wv.toneSpread +
+                    const double tint = 1.0 + (unit(th) - 0.5) * 0.22 * amount * wv.toneSpread +
+                                        (unit(crossing) - 0.5) * 0.05 * wv.toneSpread +
+                                        (vertical ? 0.015 : -0.015) * wv.toneSpread +
                                         mottle * 0.06 * amount * wv.toneSpread + fib * 0.07;
                     const Rgb col = mix(scaled(p.accent, 0.45), scaled(p.base, tint), 0.25 + 0.75 * clamp01(hgt));
                     sum.r += col.r;
@@ -542,13 +566,15 @@ void draw_fabric(Canvas& c, const Params& p, const Grid& g) { draw_weave(c, p, g
 void draw_linen(Canvas& c, const Params& p, const Grid& g) { draw_weave(c, p, g, Weave{92.0, 0.45, 0.4, 0.35, 0.55}); }
 
 void draw_stone(Canvas& c, const Params& p, const Grid& g) {
-    const Cells blockCells = g.per_short(4.5 / p.scale), warpCells = g.per_short(3.0 / p.scale), grainCells = g.per_short(24.0 / p.scale),
-                crackCells = g.per_short(9.0 / p.scale), cloudCells = g.per_short(2.5 / p.scale), speckCells = g.per_px(1.6);
+    const Cells blockCells = g.per_short(4.5 / p.scale), warpCells = g.per_short(3.0 / p.scale),
+                grainCells = g.per_short(24.0 / p.scale), crackCells = g.per_short(9.0 / p.scale),
+                cloudCells = g.per_short(2.5 / p.scale), speckCells = g.per_px(1.6);
     const double amount = 0.35 + 0.65 * p.rough;
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
-            const double wu = u + 0.035 * fbm(g, u, v, warpCells, 3, 0.5, 1), wv = v + 0.035 * fbm(g, u, v, warpCells, 3, 0.5, 2);
+            const double wu = u + 0.035 * fbm(g, u, v, warpCells, 3, 0.5, 1),
+                         wv = v + 0.035 * fbm(g, u, v, warpCells, 3, 0.5, 2);
             const Worley a = worley(g, wu, wv, blockCells, 0.85, 1);
             const double width = 0.06 + 0.05 * amount;
             const double joint = 1.0 - smoothstep(width * 0.25, width * 0.8, a.edge);
@@ -655,27 +681,36 @@ void draw_vignette(Canvas& c, const Params& p, const Grid&) {
 }
 
 const Preset kPresets[] = {
-    {"paper", "cream paper: fibres, mottling and a fine tooth", "#efe6d2 paper, #bba67f shadow tone", hex(0xefe6d2), hex(0xbba67f), 0, true, true, draw_paper},
-    {"parchment", "old parchment: warm stains, creases and (when not tileable) darkened edges", "#e1c98f skin, #8b5a2b stain", hex(0xe1c98f),
-     hex(0x8b5a2b), 0.5, true, true, draw_parchment},
-    {"wood", "wood grain: growth rings, streaks and pores along the width", "#b07a45 light wood, #4f2f17 late wood", hex(0xb07a45), hex(0x4f2f17), 0, true, true, draw_wood},
-    {"planks", "wooden planks (a floor or a desk top) with joints, gaps and a different grain in every board", "#a9743f wood, #3d2412 gaps and grain",
-     hex(0xa9743f), hex(0x3d2412), 0, true, true, draw_planks},
-    {"leather", "pebbled leather with creases, wear and a soft sheen", "#7a4a2a leather, #2a150a creases", hex(0x7a4a2a), hex(0x2a150a), 0, true, true, draw_leather},
-    {"fabric", "woven cloth (plain weave): threads that go over and under, slubs and uneven tone", "#c4b490 thread, #6b5c3e shadows", hex(0xc4b490),
-     hex(0x6b5c3e), 0, true, true, draw_fabric},
-    {"linen", "linen or bookcloth: a fine, even, low-contrast weave (finer and quieter than fabric)", "#d9cfb6 thread, #a99d82 shadows", hex(0xd9cfb6),
-     hex(0xa99d82), 0, true, true, draw_linen},
-    {"stone", "flagstone: blocks with joints, grain, cracks and speckles", "#9a968e stone, #4a4640 joints and cracks", hex(0x9a968e), hex(0x4a4640), 0, true, true, draw_stone},
-    {"value", "value noise (smooth blobs) from `color` to `accent`", "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_value},
-    {"fbm", "fractal noise (clouds; `roughness` adds octaves) from `color` to `accent`", "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_fbm},
-    {"cellular", "cellular (Worley) noise: distance to the nearest point, from `color` (at a point) to `accent`", "#202020 to #f2f2f2", hex(0x202020),
-     hex(0xf2f2f2), 0, true, false, draw_cellular},
-    {"gradient", "a linear gradient from `color` to `accent` along `angle` (the alphas of the colours are blended too)", "#f4ead5 to #8c6a42", hex(0xf4ead5),
-     hex(0x8c6a42), 0, false, false, draw_gradient},
-    {"radial", "a radial gradient: `color` in the middle to `accent` at the corners (`scale` is the radius, 1 = the corners)", "#f4ead5 to #5a3d22",
-     hex(0xf4ead5), hex(0x5a3d22), 0, false, false, draw_radial},
-    {"vignette", "a transparent middle fading to `color` at the edges (an overlay for a scene: put it over a Sprite); `vignette` is its strongest alpha",
+    {"paper", "cream paper: fibres, mottling and a fine tooth", "#efe6d2 paper, #bba67f shadow tone", hex(0xefe6d2),
+     hex(0xbba67f), 0, true, true, draw_paper},
+    {"parchment", "old parchment: warm stains, creases and (when not tileable) darkened edges",
+     "#e1c98f skin, #8b5a2b stain", hex(0xe1c98f), hex(0x8b5a2b), 0.5, true, true, draw_parchment},
+    {"wood", "wood grain: growth rings, streaks and pores along the width", "#b07a45 light wood, #4f2f17 late wood",
+     hex(0xb07a45), hex(0x4f2f17), 0, true, true, draw_wood},
+    {"planks", "wooden planks (a floor or a desk top) with joints, gaps and a different grain in every board",
+     "#a9743f wood, #3d2412 gaps and grain", hex(0xa9743f), hex(0x3d2412), 0, true, true, draw_planks},
+    {"leather", "pebbled leather with creases, wear and a soft sheen", "#7a4a2a leather, #2a150a creases",
+     hex(0x7a4a2a), hex(0x2a150a), 0, true, true, draw_leather},
+    {"fabric", "woven cloth (plain weave): threads that go over and under, slubs and uneven tone",
+     "#c4b490 thread, #6b5c3e shadows", hex(0xc4b490), hex(0x6b5c3e), 0, true, true, draw_fabric},
+    {"linen", "linen or bookcloth: a fine, even, low-contrast weave (finer and quieter than fabric)",
+     "#d9cfb6 thread, #a99d82 shadows", hex(0xd9cfb6), hex(0xa99d82), 0, true, true, draw_linen},
+    {"stone", "flagstone: blocks with joints, grain, cracks and speckles", "#9a968e stone, #4a4640 joints and cracks",
+     hex(0x9a968e), hex(0x4a4640), 0, true, true, draw_stone},
+    {"value", "value noise (smooth blobs) from `color` to `accent`", "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2),
+     0, true, false, draw_value},
+    {"fbm", "fractal noise (clouds; `roughness` adds octaves) from `color` to `accent`", "#202020 to #f2f2f2",
+     hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_fbm},
+    {"cellular", "cellular (Worley) noise: distance to the nearest point, from `color` (at a point) to `accent`",
+     "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_cellular},
+    {"gradient", "a linear gradient from `color` to `accent` along `angle` (the alphas of the colours are blended too)",
+     "#f4ead5 to #8c6a42", hex(0xf4ead5), hex(0x8c6a42), 0, false, false, draw_gradient},
+    {"radial",
+     "a radial gradient: `color` in the middle to `accent` at the corners (`scale` is the radius, 1 = the corners)",
+     "#f4ead5 to #5a3d22", hex(0xf4ead5), hex(0x5a3d22), 0, false, false, draw_radial},
+    {"vignette",
+     "a transparent middle fading to `color` at the edges (an overlay for a scene: put it over a Sprite); `vignette` "
+     "is its strongest alpha",
      "#000000", hex(0x000000), hex(0x000000), 0.85, false, false, draw_vignette},
 };
 
@@ -704,8 +739,10 @@ void apply_edge_vignette(Canvas& c, const Params& p, const Grid& g, double amoun
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
-            const double d = std::min({u * c.w, (1 - u) * c.w, v * c.h, (1 - v) * c.h}) / shortSide;  // distance to the nearest edge, in short sides
-            const double ragged = d - width * (0.55 * fbm(g, u, v, slow, 3, 0.55, 90) + 0.35 * fbm(g, u, v, fine, 3, 0.55, 91));
+            const double d = std::min({u * c.w, (1 - u) * c.w, v * c.h, (1 - v) * c.h}) /
+                             shortSide;  // distance to the nearest edge, in short sides
+            const double ragged =
+                d - width * (0.55 * fbm(g, u, v, slow, 3, 0.55, 90) + 0.35 * fbm(g, u, v, fine, 3, 0.55, 91));
             double burn = smoothstep(width * 1.15, width * 0.0, ragged);
             burn *= 0.8 + 0.2 * fbm(g, u, v, grit, 2, 0.6, 92);
             burn = clamp01(burn * (0.4 + amount * 1.2));
@@ -717,7 +754,9 @@ void apply_edge_vignette(Canvas& c, const Params& p, const Grid& g, double amoun
 
 // ---- output ---------------------------------------------------------------------------------------------------------
 
-std::uint8_t to_byte(double v, double dither) { return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5 + dither), 0.0, 255.0)); }
+std::uint8_t to_byte(double v, double dither) {
+    return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5 + dither), 0.0, 255.0));
+}
 
 // Triangular dither of about one level, so smooth gradients do not band.
 double dither_at(int x, int y, u32 seed) { return rand01(x, y, seed + 0xd17e5u) - rand01(x, y, seed + 0xd17e6u); }
@@ -751,7 +790,8 @@ Image normal_map(const Canvas& c, double strength) {
         for (int x = 0; x < c.w; ++x) {
             double dx, dy;
             slope(c, x, y, dx, dy);
-            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0, nz = 1.0;  // up the picture is -y of the pixel grid
+            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0,
+                   nz = 1.0;  // up the picture is -y of the pixel grid
             const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
             nx /= len;
             ny /= len;
@@ -782,7 +822,8 @@ double number_arg(const ArgCtx& c, const Json& a, const char* key, double def, d
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number()) arg_error(c.command.c_str(), c.prefix + "/" + key, "expected a number.", hint);
     const double v = it->get<double>();
-    if (!(v >= lo && v <= hi)) arg_error(c.command.c_str(), c.prefix + "/" + key, std::format("{} is outside {} to {}.", v, lo, hi), hint);
+    if (!(v >= lo && v <= hi))
+        arg_error(c.command.c_str(), c.prefix + "/" + key, std::format("{} is outside {} to {}.", v, lo, hi), hint);
     return v;
 }
 
@@ -790,8 +831,10 @@ int size_arg(const ArgCtx& c, const Json& a, const char* key, int def) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number_integer() || it->get<long long>() < 8 || it->get<long long>() > kMaxSide)
-        arg_error(c.command.c_str(), c.prefix + "/" + key, std::format("expected a whole number of pixels from 8 to {}.", kMaxSide),
-                  std::format("Make a texture up to {0}x{0} and tile it (Sprite.tiled / uvScale) for larger areas.", kMaxSide));
+        arg_error(c.command.c_str(), c.prefix + "/" + key,
+                  std::format("expected a whole number of pixels from 8 to {}.", kMaxSide),
+                  std::format("Make a texture up to {0}x{0} and tile it (Sprite.tiled / uvScale) for larger areas.",
+                              kMaxSide));
     return int(it->get<long long>());
 }
 
@@ -800,7 +843,8 @@ void write_png_asset(const std::string& projectDir, const std::string& rel, cons
     for (std::size_t i = 3; i < img.rgba.size(); i += 4) opaque = opaque && img.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
     std::string err;
-    if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+    if (!tooling_detail::write_file(project_write_file(projectDir, rel),
+                                    std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
         fail("failed", err);
     ProjectRootGuard root(projectDir);
     auto r = assets::update_entry(rel, [&](Json& e) {
@@ -808,17 +852,21 @@ void write_png_asset(const std::string& projectDir, const std::string& rel, cons
         e.erase("sheet");
         Json prov = provenance;
         // What the picture is for (style role) does not change because it was made again.
-        if (!prov.contains("role") && e.contains("provenance") && e["provenance"].is_object() && e["provenance"].contains("role"))
+        if (!prov.contains("role") && e.contains("provenance") && e["provenance"].is_object() &&
+            e["provenance"].contains("role"))
             prov["role"] = e["provenance"]["role"];
         e["provenance"] = prov;
     });
-    if (!r.ok()) fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+    if (!r.ok())
+        fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message,
+             r.error().hint);
 }
 
 std::string checked_png_path(const std::string& path) {
     auto norm = fs::normalize_checked(path);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
-        fail("invalid_argument", "The texture goes under assets/, and '" + path + "' is not there.", "Use a path such as \"assets/textures/paper.png\".");
+        fail("invalid_argument", "The texture goes under assets/, and '" + path + "' is not there.",
+             "Use a path such as \"assets/textures/paper.png\".");
     if (to_lower(fs::extension(*norm)) != ".png")
         fail("invalid_argument", std::string(kCommand) + " writes PNG files, and '" + *norm + "' does not end in .png.",
              "Use a path such as \"assets/textures/paper.png\".");
@@ -832,12 +880,13 @@ struct TextureSpec {
     const Preset* preset = nullptr;
     Params p;
     long seedArg = 0;
-    Json used;                         // the arguments that were used, for the notes
+    Json used;  // the arguments that were used, for the notes
     std::vector<std::string> warnings;
 };
 
-const std::vector<std::string> kPictureKeys = {"preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette",
-                                               "vignetteWidth", "angle", "plankCount", "plankLength", "gapWidth", "gapDarkness"};
+const std::vector<std::string> kPictureKeys = {
+    "preset",   "width",    "height",        "seed",  "color",      "accent",      "scale",    "roughness",
+    "tileable", "vignette", "vignetteWidth", "angle", "plankCount", "plankLength", "gapWidth", "gapDarkness"};
 
 TextureSpec parse_texture_spec(const ArgCtx& ctx, const Json& a) {
     TextureSpec spec;
@@ -845,55 +894,81 @@ TextureSpec parse_texture_spec(const ArgCtx& ctx, const Json& a) {
     spec.preset = find_preset(spec.presetName);
     if (!spec.preset) {
         const auto names = preset_names();
-        arg_error(ctx.command.c_str(), ctx.prefix + "/preset", "unknown preset '" + spec.presetName + "'.", did_you_mean(spec.presetName, names) + " Presets: " + join(names, ", ") + ".");
+        arg_error(ctx.command.c_str(), ctx.prefix + "/preset", "unknown preset '" + spec.presetName + "'.",
+                  did_you_mean(spec.presetName, names) + " Presets: " + join(names, ", ") + ".");
     }
     const Preset* preset = spec.preset;
     const std::string& presetName = spec.presetName;
     Params& p = spec.p;
     p.w = size_arg(ctx, a, "width", 512);
     p.h = size_arg(ctx, a, "height", a.contains("width") ? p.w : 512);
-    p.seed = u32(mix_bits(u32(tooling_detail::arg_int(a, "seed", 0))) ^ mix_bits(u32(static_cast<std::int64_t>(tooling_detail::arg_int(a, "seed", 0)) >> 32) + 0x51ed27u));
+    p.seed = u32(mix_bits(u32(tooling_detail::arg_int(a, "seed", 0))) ^
+                 mix_bits(u32(static_cast<std::int64_t>(tooling_detail::arg_int(a, "seed", 0)) >> 32) + 0x51ed27u));
     p.base = preset->base;
     p.accent = preset->accent;
     if (a.contains("color")) p.base = from_color(colour_arg(ctx.command.c_str(), a["color"], ctx.prefix + "/color"));
-    if (a.contains("accent")) p.accent = from_color(colour_arg(ctx.command.c_str(), a["accent"], ctx.prefix + "/accent"));
-    p.scale = number_arg(ctx, a, "scale", 1.0, 0.1, 10.0, "1 is the preset's natural size; 2 makes every feature twice as big, 0.5 half as big.");
-    p.rough = number_arg(ctx, a, "roughness", 0.5, 0.0, 1.0, "0 is smooth and even, 1 is rough and uneven; 0.5 is the default.");
+    if (a.contains("accent"))
+        p.accent = from_color(colour_arg(ctx.command.c_str(), a["accent"], ctx.prefix + "/accent"));
+    p.scale = number_arg(ctx, a, "scale", 1.0, 0.1, 10.0,
+                         "1 is the preset's natural size; 2 makes every feature twice as big, 0.5 half as big.");
+    p.rough = number_arg(ctx, a, "roughness", 0.5, 0.0, 1.0,
+                         "0 is smooth and even, 1 is rough and uneven; 0.5 is the default.");
     p.vignette = number_arg(ctx, a, "vignette", preset->vignette, 0.0, 1.0, "0 is no darkened edge, 1 a strong one.");
-    p.vignetteWidth = number_arg(ctx, a, "vignetteWidth", p.vignetteWidth, 0.005, 0.5, "A fraction of the picture's short side: 0.035 (the default) is a narrow worn edge, 0.17 a wide frame.");
-    p.angle = number_arg(ctx, a, "angle", 0.0, -360.0, 360.0, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
+    p.vignetteWidth = number_arg(
+        ctx, a, "vignetteWidth", p.vignetteWidth, 0.005, 0.5,
+        "A fraction of the picture's short side: 0.035 (the default) is a narrow worn edge, 0.17 a wide frame.");
+    p.angle = number_arg(ctx, a, "angle", 0.0, -360.0, 360.0,
+                         "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
     p.tile = tooling_detail::arg_bool(a, "tileable", false);
     if (a.contains("plankCount") && !a["plankCount"].is_null()) {
         const Json& pc = a["plankCount"];
         if (!pc.is_number_integer() || pc.get<long long>() < 1 || pc.get<long long>() > 64)
-            arg_error(ctx.command.c_str(), ctx.prefix + "/plankCount", "expected a whole number of boards from 1 to 64.", "It is how many boards are stacked from the top to the bottom of the picture; leave it out to follow `scale`.");
+            arg_error(ctx.command.c_str(), ctx.prefix + "/plankCount",
+                      "expected a whole number of boards from 1 to 64.",
+                      "It is how many boards are stacked from the top to the bottom of the picture; leave it out to "
+                      "follow `scale`.");
         p.plankCount = int(pc.get<long long>());
     }
-    p.plankLength = number_arg(ctx, a, "plankLength", p.plankLength, 0.0, 1.0, "A fraction of the picture's width: 0 is boards that run from side to side, 0.5 is two boards per row, 0.25 four.");
-    p.gapWidth = number_arg(ctx, a, "gapWidth", p.gapWidth, 0.0, 0.2, "A fraction of a board's width: 0.01 is a fine seam, 0.05 a wide gap.");
-    p.gapDarkness = number_arg(ctx, a, "gapDarkness", p.gapDarkness, 0.0, 1.0, "0 leaves the gaps the colour of the wood, 1 makes them as dark as the accent allows.");
+    p.plankLength = number_arg(ctx, a, "plankLength", p.plankLength, 0.0, 1.0,
+                               "A fraction of the picture's width: 0 is boards that run from side to side, 0.5 is two "
+                               "boards per row, 0.25 four.");
+    p.gapWidth = number_arg(ctx, a, "gapWidth", p.gapWidth, 0.0, 0.2,
+                            "A fraction of a board's width: 0.01 is a fine seam, 0.05 a wide gap.");
+    p.gapDarkness = number_arg(ctx, a, "gapDarkness", p.gapDarkness, 0.0, 1.0,
+                               "0 leaves the gaps the colour of the wood, 1 makes them as dark as the accent allows.");
 
     std::vector<std::string>& warnings = spec.warnings;
     if (p.tile && !preset->canTile) {
-        warnings.push_back(std::format("tileable was ignored: a {} has an edge by nature. Use paper, wood, leather or another material preset to tile.", presetName));
+        warnings.push_back(std::format("tileable was ignored: a {} has an edge by nature. Use paper, wood, leather or "
+                                       "another material preset to tile.",
+                                       presetName));
         p.tile = false;
     }
     if (p.tile && a.contains("vignette") && p.vignette > 0 && presetName != "vignette") {
-        warnings.push_back("vignette was ignored: a darkened edge does not repeat. Leave tileable off for a page or a cover.");
+        warnings.push_back(
+            "vignette was ignored: a darkened edge does not repeat. Leave tileable off for a page or a cover.");
         p.vignette = 0;
     } else if (p.tile && presetName != "vignette") {
         p.vignette = 0;  // the preset's own edge darkening (parchment) is for single pictures
     }
     if (presetName != "planks") {
         for (const char* key : {"plankCount", "plankLength", "gapWidth", "gapDarkness"})
-            if (a.contains(key)) warnings.push_back(std::string(key) + " only changes the planks preset; it was ignored.");
+            if (a.contains(key))
+                warnings.push_back(std::string(key) + " only changes the planks preset; it was ignored.");
     }
     if (a.contains("vignetteWidth") && !a["vignetteWidth"].is_null() && (presetName == "vignette" || p.vignette <= 0))
-        warnings.push_back("vignetteWidth only matters when the edge is darkened (a `vignette` above 0 on a preset other than vignette, not tileable); it was ignored.");
-    if (p.angle != 0 && presetName != "gradient") warnings.push_back("angle only turns the gradient preset; it was ignored.");
+        warnings.push_back("vignetteWidth only matters when the edge is darkened (a `vignette` above 0 on a preset "
+                           "other than vignette, not tileable); it was ignored.");
+    if (p.angle != 0 && presetName != "gradient")
+        warnings.push_back("angle only turns the gradient preset; it was ignored.");
 
     spec.seedArg = tooling_detail::arg_int(a, "seed", 0);
-    Json used = Json::object({{"preset", presetName}, {"width", p.w}, {"height", p.h}, {"seed", spec.seedArg}, {"scale", p.scale}, {"roughness", p.rough}});
+    Json used = Json::object({{"preset", presetName},
+                              {"width", p.w},
+                              {"height", p.h},
+                              {"seed", spec.seedArg},
+                              {"scale", p.scale},
+                              {"roughness", p.rough}});
     if (a.contains("color")) used["color"] = a["color"];
     if (a.contains("accent")) used["accent"] = a["accent"];
     if (p.tile) used["tileable"] = true;
@@ -926,7 +1001,9 @@ Canvas paint_texture(const TextureSpec& spec) {
 }
 
 Json generate_texture(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.generate_texture expects an object.", "See the description of the command for the fields.");
+    if (!a.is_object())
+        fail("invalid_argument", "assets.generate_texture expects an object.",
+             "See the description of the command for the fields.");
     std::vector<std::string> keys = kPictureKeys;
     keys.insert(keys.end(), {"path", "normalMap", "normalStrength", "overwrite", "author"});
     check_arg_keys(kCommand, a, "", keys);
@@ -937,7 +1014,8 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     const std::string& presetName = spec.presetName;
     const Params& p = spec.p;
     const bool wantNormal = tooling_detail::arg_bool(a, "normalMap", false);
-    const double normalStrength = number_arg(ctx, a, "normalStrength", 3.0, 0.1, 20.0, "3 is a clear relief; 1 is subtle, 10 is deep.");
+    const double normalStrength =
+        number_arg(ctx, a, "normalStrength", 3.0, 0.1, 20.0, "3 is a clear relief; 1 is subtle, 10 is deep.");
     const std::string author = tooling_detail::arg_string(a, "author", false, "factoria");
 
     std::vector<std::string> warnings = spec.warnings;
@@ -955,7 +1033,9 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     if (!overwrite) {
         for (const std::string& f : {rel, normalRel}) {
             std::error_code ec;
-            if (!f.empty() && stdfs::exists(project_write_file(projectDir, f), ec)) fail("exists", "'" + f + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+            if (!f.empty() && stdfs::exists(project_write_file(projectDir, f), ec))
+                fail("exists", "'" + f + "' already exists.",
+                     "Pass overwrite: true to replace it, or choose another `path`.");
         }
     }
     require_usable_manifest(projectDir);
@@ -964,24 +1044,46 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     const Image image = to_image(canvas, p.seed, !spec.preset->textured);
 
     const long seedArg = spec.seedArg;
-    const std::string notes = "Procedural texture from assets.generate_texture " + spec.used.dump() + ". Same arguments, same picture.";
+    const std::string notes =
+        "Procedural texture from assets.generate_texture " + spec.used.dump() + ". Same arguments, same picture.";
     const Json recipe = make_recipe(projectDir, kCommand, recipe_args(a, {{"path", rel}, {"seed", seedArg}}), {});
     auto provenance_for = [&](const std::string& extra) {
-        return Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"provider", "factoria assets.generate_texture"}, {"seed", seedArg},
-                             {"license", "CC0-1.0"}, {"author", author}, {"notes", notes + extra}, {"date", assets::today()}, {"recipe", recipe}});
+        return Json::object({{"origin", "original"},
+                             {"ai", false},
+                             {"kind", "image"},
+                             {"provider", "factoria assets.generate_texture"},
+                             {"seed", seedArg},
+                             {"license", "CC0-1.0"},
+                             {"author", author},
+                             {"notes", notes + extra},
+                             {"date", assets::today()},
+                             {"recipe", recipe}});
     };
     const Json provenance = provenance_for("");
     write_png_asset(projectDir, rel, image, provenance);
-    Json result = Json::object({{"path", rel}, {"preset", presetName}, {"width", p.w}, {"height", p.h}, {"seed", seedArg}, {"tileable", p.tile}, {"provenance", provenance}});
+    Json result = Json::object({{"path", rel},
+                                {"preset", presetName},
+                                {"width", p.w},
+                                {"height", p.h},
+                                {"seed", seedArg},
+                                {"tileable", p.tile},
+                                {"provenance", provenance}});
     if (wantNormal) {
-        write_png_asset(projectDir, normalRel, normal_map(canvas, normalStrength), provenance_for(" This is its tangent-space normal map (+Y up)."));
+        write_png_asset(projectDir, normalRel, normal_map(canvas, normalStrength),
+                        provenance_for(" This is its tangent-space normal map (+Y up)."));
         result["normalMap"] = normalRel;
     }
     if (!warnings.empty()) result["warnings"] = warnings;
     result["$image"] = Json::object({{"path", project_file(projectDir, rel).string()}, {"mimeType", "image/png"}});
-    Json next = Json::array({"Use it as a Sprite texture (Sprite.texture \"" + rel + "\"), a MeshRenderer texture or a background; look at the picture in this result and change the arguments if it is not what you want."});
-    if (p.tile) next.push_back("It tiles: repeat it with several Sprites side by side, or MeshRenderer.uvScale on a 3D surface.");
-    if (wantNormal) next.push_back("Set Sprite.normalMap to \"" + normalRel + "\" with lit: true (and a Light2D), or MeshRenderer.normalMap, for relief under light.");
+    Json next = Json::array({"Use it as a Sprite texture (Sprite.texture \"" + rel +
+                             "\"), a MeshRenderer texture or a background; look at the picture in this result and "
+                             "change the arguments if it is not what you want."});
+    if (p.tile)
+        next.push_back(
+            "It tiles: repeat it with several Sprites side by side, or MeshRenderer.uvScale on a 3D surface.");
+    if (wantNormal)
+        next.push_back("Set Sprite.normalMap to \"" + normalRel +
+                       "\" with lit: true (and a Light2D), or MeshRenderer.normalMap, for relief under light.");
     next.push_back("Another take: change `seed`. A different material: change `preset`, `color` and `accent`.");
     result["nextSteps"] = next;
     return result;
@@ -989,7 +1091,8 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
 
 }  // namespace
 
-Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer, std::vector<std::string>& warnings) {
+Image procedural_texture_image(const Json& args, const std::string& command, const std::string& pointer,
+                               std::vector<std::string>& warnings) {
     TextureSpec spec = parse_texture_spec({command, pointer}, args);
     warnings.insert(warnings.end(), spec.warnings.begin(), spec.warnings.end());
     return to_image(paint_texture(spec), spec.p.seed, !spec.preset->textured);
@@ -997,18 +1100,21 @@ Image procedural_texture_image(const Json& args, const std::string& command, con
 
 void check_procedural_texture_args(const Json& args, const std::string& command, const std::string& pointer) {
     check_arg_keys(command.c_str(), args, pointer, kPictureKeys);
-    if (!args.contains("preset")) arg_error(command.c_str(), pointer, "missing 'preset'.", "Presets: " + join(preset_names(), ", ") + ".");
+    if (!args.contains("preset"))
+        arg_error(command.c_str(), pointer, "missing 'preset'.", "Presets: " + join(preset_names(), ", ") + ".");
     (void)parse_texture_spec({command, pointer}, args);
 }
 
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir) {
     std::string presets;
-    for (const Preset& p : kPresets) presets += std::string("\n- ") + p.name + ": " + p.what + " (default colours " + p.palette + ").";
+    for (const Preset& p : kPresets)
+        presets += std::string("\n- ") + p.name + ": " + p.what + " (default colours " + p.palette + ").";
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key.";
+    info.summary = "Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, "
+                   "vignette) offline: a seeded PNG, no provider and no key.";
     info.description =
         "Paints a procedural texture at `path` (under assets/, ending in .png) with no AI provider and no "
         "key: free, offline and seeded (the same arguments give the same picture with the same build of "
@@ -1021,12 +1127,17 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
         "sprites and 3D materials. Textures are lit from the upper left, so grooves and bumps read. It makes "
         "surfaces, not drawings: for a picture of a subject (a portrait, an icon, an ornament) write an SVG "
         "and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, "
-        "license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets: "
-        FA_COMMAND_DETAILS + presets +
-        "\nExamples: {\"path\":\"assets/textures/desk.png\",\"preset\":\"planks\",\"width\":1280,\"height\":720,\"seed\":4} / "
-        "{\"path\":\"assets/textures/long_planks.png\",\"preset\":\"planks\",\"plankCount\":7,\"plankLength\":0,\"gapWidth\":0.01} / "
-        "{\"path\":\"assets/textures/cover.png\",\"preset\":\"leather\",\"color\":\"#5b2a1a\",\"accent\":\"#1d0d07\",\"normalMap\":true} / "
-        "{\"path\":\"assets/textures/page.png\",\"preset\":\"parchment\",\"width\":640,\"height\":900,\"vignette\":0.6} / "
+        "license CC0, the arguments in the notes). Look at the picture in the result and adjust. "
+        "Presets: " FA_COMMAND_DETAILS +
+        presets +
+        "\nExamples: "
+        "{\"path\":\"assets/textures/desk.png\",\"preset\":\"planks\",\"width\":1280,\"height\":720,\"seed\":4} / "
+        "{\"path\":\"assets/textures/"
+        "long_planks.png\",\"preset\":\"planks\",\"plankCount\":7,\"plankLength\":0,\"gapWidth\":0.01} / "
+        "{\"path\":\"assets/textures/"
+        "cover.png\",\"preset\":\"leather\",\"color\":\"#5b2a1a\",\"accent\":\"#1d0d07\",\"normalMap\":true} / "
+        "{\"path\":\"assets/textures/"
+        "page.png\",\"preset\":\"parchment\",\"width\":640,\"height\":900,\"vignette\":0.6} / "
         "{\"path\":\"assets/textures/floor.png\",\"preset\":\"stone\",\"tileable\":true,\"scale\":2}";
     info.inputSchema = Json::object(
         {{"type", "object"},
@@ -1034,27 +1145,133 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"path", Json::object({{"type", "string"}, {"description", "Where to write the PNG, project-relative, under assets/ and ending in .png, e.g. \"assets/textures/paper.png\"."}})},
-               {"preset", Json::object({{"type", "string"}, {"enum", preset_names()}, {"description", "The material or pattern. See the list in the command description."}})},
-               {"width", Json::object({{"type", "integer"}, {"minimum", 8}, {"maximum", kMaxSide}, {"default", 512}, {"description", "Width in pixels (up to 2048; tile it for larger areas)."}})},
-               {"height", Json::object({{"type", "integer"}, {"minimum", 8}, {"maximum", kMaxSide}, {"description", "Height in pixels. Default: the width (512 when neither is given)."}})},
-               {"seed", Json::object({{"type", "integer"}, {"default", 0}, {"description", "Chooses the take: the same arguments always give the same file; change it for another sample of the material."}})},
-               {"color", Json::object({{"description", "The main colour: \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1. Default: the preset's own (see the preset list). For vignette, the colour of the shade; for gradient, the start."}})},
-               {"accent", Json::object({{"description", "The second colour (shadow, late wood, creases, joints, the far end of a gradient). Same formats as `color`. Default: the preset's own."}})},
-               {"scale", Json::object({{"type", "number"}, {"minimum", 0.1}, {"maximum", 10}, {"default", 1}, {"description", "Size of the features: 1 is the preset's natural size relative to the picture, 2 makes them twice as big, 0.5 half as big (more planks, finer weave, smaller pebbles). For radial and vignette it is the radius (1 reaches the corners); for gradient it stretches the ramp."}})},
-               {"roughness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"default", 0.5}, {"description", "0 is smooth and even, 1 is worn and uneven (more stains, deeper creases, a rougher weave). For vignette: the softness of the edge; for cellular: how irregular the cells are."}})},
-               {"tileable", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Make the picture repeat with no seam at its edges. The material presets and the noises can; gradient, radial and vignette have an edge by nature and ignore it (with a warning)."}})},
-               {"vignette", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "Darkens the edge with a narrow, irregular worn border (a thumbed page, a burnt corner) on any preset except gradient and radial; ignored when tileable. How strong: 0.5 for parchment by default, 0 for the others. How wide: `vignetteWidth`. For the vignette preset it is the alpha at the edge (default 0.85)."}})},
-               {"vignetteWidth", Json::object({{"type", "number"}, {"minimum", 0.005}, {"maximum", 0.5}, {"description", "How wide the darkened edge is (see `vignette`), as a fraction of the picture's short side. Default 0.035: a narrow band whose inner edge is ragged, like wear. 0.1 is a visible frame; 0.17 gives the wide uniform frame that earlier versions drew. Ignored when no edge is darkened."}})},
-               {"angle", Json::object({{"type", "number"}, {"minimum", -360}, {"maximum", 360}, {"default", 0}, {"description", "gradient only: direction in degrees. 0 runs from the top to the bottom, 90 from the left to the right."}})},
-               {"normalMap", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Also write the tangent-space normal map of the same relief as <path without .png>_n.png (+X right, +Y up the picture, the convention of Sprite.normalMap and glTF), with its own provenance record."}})},
-               {"normalStrength", Json::object({{"type", "number"}, {"minimum", 0.1}, {"maximum", 20}, {"default", 3}, {"description", "How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep."}})},
-               {"plankCount", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 64}, {"description", "planks only: how many boards are stacked from the top to the bottom of the picture (each runs from left to right). Default: follows `scale` (6 at scale 1)."}})},
-               {"plankLength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "planks only (default 1): the length of a board as a fraction of the picture's width. 0 makes every board run from side to side with no butt joint (a desk top); 1 (the default) gives each row one joint, 0.5 two boards per row, 0.25 four. Joints are staggered row by row."}})},
-               {"gapWidth", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 0.2}, {"description", "planks only (default 0.015): the gap between boards as a fraction of a board's width (at least one pixel). 0.015 is a fine seam, 0.05 a wide gap."}})},
-               {"gapDarkness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "planks only (default 0.55): how dark the gaps are. 0 leaves them the colour of the wood (only the bevel shows), 1 makes them nearly as dark as `accent` allows."}})},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},
-               {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record. Default: \"factoria\"."}})}})}});
+              {{"path", Json::object({{"type", "string"},
+                                      {"description", "Where to write the PNG, project-relative, under assets/ and "
+                                                      "ending in .png, e.g. \"assets/textures/paper.png\"."}})},
+               {"preset",
+                Json::object({{"type", "string"},
+                              {"enum", preset_names()},
+                              {"description", "The material or pattern. See the list in the command description."}})},
+               {"width", Json::object({{"type", "integer"},
+                                       {"minimum", 8},
+                                       {"maximum", kMaxSide},
+                                       {"default", 512},
+                                       {"description", "Width in pixels (up to 2048; tile it for larger areas)."}})},
+               {"height",
+                Json::object({{"type", "integer"},
+                              {"minimum", 8},
+                              {"maximum", kMaxSide},
+                              {"description", "Height in pixels. Default: the width (512 when neither is given)."}})},
+               {"seed", Json::object({{"type", "integer"},
+                                      {"default", 0},
+                                      {"description", "Chooses the take: the same arguments always give the same file; "
+                                                      "change it for another sample of the material."}})},
+               {"color",
+                Json::object({{"description", "The main colour: \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or "
+                                              "[r, g, b] in 0..1. Default: the preset's own (see the preset list). For "
+                                              "vignette, the colour of the shade; for gradient, the start."}})},
+               {"accent",
+                Json::object({{"description", "The second colour (shadow, late wood, creases, joints, the far end of a "
+                                              "gradient). Same formats as `color`. Default: the preset's own."}})},
+               {"scale",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0.1},
+                     {"maximum", 10},
+                     {"default", 1},
+                     {"description",
+                      "Size of the features: 1 is the preset's natural size relative to the picture, 2 makes them "
+                      "twice as big, 0.5 half as big (more planks, finer weave, smaller pebbles). For radial and "
+                      "vignette it is the radius (1 reaches the corners); for gradient it stretches the ramp."}})},
+               {"roughness",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0},
+                     {"maximum", 1},
+                     {"default", 0.5},
+                     {"description",
+                      "0 is smooth and even, 1 is worn and uneven (more stains, deeper creases, a rougher weave). For "
+                      "vignette: the softness of the edge; for cellular: how irregular the cells are."}})},
+               {"tileable",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description",
+                      "Make the picture repeat with no seam at its edges. The material presets and the noises can; "
+                      "gradient, radial and vignette have an edge by nature and ignore it (with a warning)."}})},
+               {"vignette",
+                Json::object({{"type", "number"},
+                              {"minimum", 0},
+                              {"maximum", 1},
+                              {"description",
+                               "Darkens the edge with a narrow, irregular worn border (a thumbed page, a burnt corner) "
+                               "on any preset except gradient and radial; ignored when tileable. How strong: 0.5 for "
+                               "parchment by default, 0 for the others. How wide: `vignetteWidth`. For the vignette "
+                               "preset it is the alpha at the edge (default 0.85)."}})},
+               {"vignetteWidth",
+                Json::object({{"type", "number"},
+                              {"minimum", 0.005},
+                              {"maximum", 0.5},
+                              {"description", "How wide the darkened edge is (see `vignette`), as a fraction of the "
+                                              "picture's short side. Default 0.035: a narrow band whose inner edge is "
+                                              "ragged, like wear. 0.1 is a visible frame; 0.17 gives the wide uniform "
+                                              "frame that earlier versions drew. Ignored when no edge is darkened."}})},
+               {"angle", Json::object({{"type", "number"},
+                                       {"minimum", -360},
+                                       {"maximum", 360},
+                                       {"default", 0},
+                                       {"description", "gradient only: direction in degrees. 0 runs from the top to "
+                                                       "the bottom, 90 from the left to the right."}})},
+               {"normalMap",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description", "Also write the tangent-space normal map of the same relief as <path "
+                                              "without .png>_n.png (+X right, +Y up the picture, the convention of "
+                                              "Sprite.normalMap and glTF), with its own provenance record."}})},
+               {"normalStrength",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0.1},
+                     {"maximum", 20},
+                     {"default", 3},
+                     {"description", "How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep."}})},
+               {"plankCount",
+                Json::object({{"type", "integer"},
+                              {"minimum", 1},
+                              {"maximum", 64},
+                              {"description",
+                               "planks only: how many boards are stacked from the top to the bottom of the picture "
+                               "(each runs from left to right). Default: follows `scale` (6 at scale 1)."}})},
+               {"plankLength",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0},
+                     {"maximum", 1},
+                     {"description",
+                      "planks only (default 1): the length of a board as a fraction of the picture's width. 0 makes "
+                      "every board run from side to side with no butt joint (a desk top); 1 (the default) gives each "
+                      "row one joint, 0.5 two boards per row, 0.25 four. Joints are staggered row by row."}})},
+               {"gapWidth",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0},
+                     {"maximum", 0.2},
+                     {"description", "planks only (default 0.015): the gap between boards as a fraction of a board's "
+                                     "width (at least one pixel). 0.015 is a fine seam, 0.05 a wide gap."}})},
+               {"gapDarkness",
+                Json::object({{"type", "number"},
+                              {"minimum", 0},
+                              {"maximum", 1},
+                              {"description",
+                               "planks only (default 0.55): how dark the gaps are. 0 leaves them the colour of the "
+                               "wood (only the bevel shows), 1 makes them nearly as dark as `accent` allows."}})},
+               {"overwrite", Json::object({{"type", "boolean"},
+                                           {"default", false},
+                                           {"description", "Replace the file when it already exists."}})},
+               {"author",
+                Json::object(
+                    {{"type", "string"},
+                     {"description", "Who gets the credit in the provenance record. Default: \"factoria\"."}})}})}});
     mark_paths(info.inputSchema, "write", {"path"});
     registry.add(info, [projectDir](const Json& args) { return generate_texture(projectDir, args); });
     // Capabilities (capability.h): a PNG (and its normal map) with their assets.json entries, in the project.

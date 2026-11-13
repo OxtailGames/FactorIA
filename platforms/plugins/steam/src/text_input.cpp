@@ -18,8 +18,10 @@ namespace {
 
 bool wanted() {
     SteamApi& s = steam();
-    const bool deck = s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck && s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(s.utils);
-    const bool bigPicture = s.SteamAPI_ISteamUtils_IsSteamInBigPictureMode && s.SteamAPI_ISteamUtils_IsSteamInBigPictureMode(s.utils);
+    const bool deck =
+        s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck && s.SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(s.utils);
+    const bool bigPicture =
+        s.SteamAPI_ISteamUtils_IsSteamInBigPictureMode && s.SteamAPI_ISteamUtils_IsSteamInBigPictureMode(s.utils);
     return deck || bigPicture;
 }
 
@@ -38,13 +40,13 @@ int on_text_input(const FaTextInput* in, void*) {
         if (b.keyboard == Backend::Keyboard::Floating) b.keyboard = Backend::Keyboard::None;
         return 0;
     }
-    if (!wanted()) return 0;  // a desktop Steam: the game's keyboard serves the pad
+    if (!wanted()) return 0;                              // a desktop Steam: the game's keyboard serves the pad
     if (b.keyboard != Backend::Keyboard::None) return 1;  // already up (the player pressed A on the field again)
 
     if (s.SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput &&
-        s.SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput(s.utils, in->multiline ? kFloatingMultipleLines : kFloatingSingleLine,
-                                                            rounded(in->x), rounded(in->y), std::max(1, rounded(in->width)),
-                                                            std::max(1, rounded(in->height)))) {
+        s.SteamAPI_ISteamUtils_ShowFloatingGamepadTextInput(
+            s.utils, in->multiline ? kFloatingMultipleLines : kFloatingSingleLine, rounded(in->x), rounded(in->y),
+            std::max(1, rounded(in->width)), std::max(1, rounded(in->height)))) {
         b.keyboard = Backend::Keyboard::Floating;
         return 1;
     }
@@ -56,8 +58,9 @@ int on_text_input(const FaTextInput* in, void*) {
         b.keyboard = Backend::Keyboard::Modal;
         return 1;
     }
-    warn_once("textinput", "Steam did not open a keyboard (ShowFloatingGamepadTextInput and ShowGamepadTextInput both refused): "
-                           "the game's own on-screen keyboard is used.");
+    warn_once("textinput",
+              "Steam did not open a keyboard (ShowFloatingGamepadTextInput and ShowGamepadTextInput both refused): "
+              "the game's own on-screen keyboard is used.");
     return 0;
 }
 
@@ -65,7 +68,9 @@ void text_input_dismissed(const GamepadTextInputDismissed& result) {
     Backend& b = backend();
     SteamApi& s = b.steam;
     if (b.keyboard == Backend::Keyboard::Modal) b.keyboard = Backend::Keyboard::None;
-    if (!result.submitted || !s.SteamAPI_ISteamUtils_GetEnteredGamepadTextLength || !s.SteamAPI_ISteamUtils_GetEnteredGamepadTextInput) return;
+    if (!result.submitted || !s.SteamAPI_ISteamUtils_GetEnteredGamepadTextLength ||
+        !s.SteamAPI_ISteamUtils_GetEnteredGamepadTextInput)
+        return;
     const u32 length = s.SteamAPI_ISteamUtils_GetEnteredGamepadTextLength(s.utils);  // bytes, with the terminating zero
     std::vector<char> text(static_cast<std::size_t>(length) + 1, '\0');
     if (!s.SteamAPI_ISteamUtils_GetEnteredGamepadTextInput(s.utils, text.data(), static_cast<u32>(text.size()))) return;

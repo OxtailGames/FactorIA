@@ -129,8 +129,11 @@ std::string read_app_id(const stdfs::path& file) {
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::string number;
     for (char c : text) {
-        if (c >= '0' && c <= '9') number += c;
-        else if (!number.empty() || (c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '\xEF' && c != '\xBB' && c != '\xBF')) break;
+        if (c >= '0' && c <= '9')
+            number += c;
+        else if (!number.empty() ||
+                 (c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '\xEF' && c != '\xBB' && c != '\xBF'))
+            break;
     }
     return number;
 }
@@ -164,7 +167,7 @@ std::string prepare_app_id() {
 
 struct AccessorSpec {
     const char* label;
-    void* SteamApi::*field;
+    void* SteamApi::* field;
     std::vector<const char*> names;  // newest first
 };
 
@@ -249,7 +252,8 @@ std::string tried_names(const AccessorSpec& spec) {
     std::string prefix;
     int number = 0;
     if (!spec.names.empty() && split_version(spec.names.front(), prefix, number))
-        out += "; newer: " + versioned_name(prefix, number + 1) + " to " + versioned_name(prefix, number + kNewerVersionWindow);
+        out += "; newer: " + versioned_name(prefix, number + 1) + " to " +
+               versioned_name(prefix, number + kNewerVersionWindow);
     return out;
 }
 
@@ -258,19 +262,23 @@ std::string init_failure(const SteamApi& api, int result, const char* sdkMessage
     if (sdkMessage && *sdkMessage) out += std::string(" (") + sdkMessage + ")";
     out += ". ";
     if (result == kInitVersionMismatch) {
-        out += "The Steam client is older than the Steamworks library next to the plugin: update Steam (Steam menu > Check for "
+        out += "The Steam client is older than the Steamworks library next to the plugin: update Steam (Steam menu > "
+               "Check for "
                "Steam Client Updates), or use the redistributable of an older SDK. ";
     } else {
         const bool known = api.SteamAPI_IsSteamRunning != nullptr;
         const bool running = known && api.SteamAPI_IsSteamRunning();
-        out += known && !running ? "Steam is not running, or the game has no app id. "
-                                 : "Steam is not running, or the game has no app id (or this account does not own it). ";
-        out += api.appIdSource.empty() ? "No app id was found: there is no SteamAppId variable and no steam_appid.txt in the folder "
-                                         "the game started in or in the project folder. "
-                                       : "The app id came from " + api.appIdSource + ". ";
+        out += known && !running
+                   ? "Steam is not running, or the game has no app id. "
+                   : "Steam is not running, or the game has no app id (or this account does not own it). ";
+        out += api.appIdSource.empty()
+                   ? "No app id was found: there is no SteamAppId variable and no steam_appid.txt in the folder "
+                     "the game started in or in the project folder. "
+                   : "The app id came from " + api.appIdSource + ". ";
     }
-    out += how_to_start_steam() + " The game runs without Steam's services (the fake platform backend in development, none in an "
-                                  "exported game).";
+    out += how_to_start_steam() +
+           " The game runs without Steam's services (the fake platform backend in development, none in an "
+           "exported game).";
     return out;
 }
 
@@ -281,14 +289,17 @@ std::string newer_interfaces_warning(const SteamApi& api) {
     std::string names;
     for (const std::string& n : api.newerInterfaces) names += (names.empty() ? "" : ", ") + n;
     const bool one = api.newerInterfaces.size() == 1;
-    return names + (one ? " is" : " are") + " newer than the SDKs this plugin was checked against (" + kCheckedSdkRange + "); " +
-           (one ? "it is" : "they are") + " used, since every function the plugin calls is present. If something misbehaves, use "
+    return names + (one ? " is" : " are") + " newer than the SDKs this plugin was checked against (" +
+           kCheckedSdkRange + "); " + (one ? "it is" : "they are") +
+           " used, since every function the plugin calls is present. If something misbehaves, use "
            "the redistributable of the SDK 1.64 or update the plugin.";
 }
 
 std::string how_to_start_steam() {
-    return "Start the Steam client and sign in. For development, put a steam_appid.txt holding 480 (Valve's test app, which "
-           "any Steam account can run) in the project folder: `factoria call platform.add_backend '{\"backend\": \"steam\"}'` "
+    return "Start the Steam client and sign in. For development, put a steam_appid.txt holding 480 (Valve's test app, "
+           "which "
+           "any Steam account can run) in the project folder: `factoria call platform.add_backend '{\"backend\": "
+           "\"steam\"}'` "
            "writes it. A game exported for Steam gets its app id from Steam when it is started from the Steam client, "
            "and must not ship a steam_appid.txt.";
 }
@@ -304,7 +315,8 @@ bool load_library(SteamApi& api, std::string& error) {
         handle = open_library(folder / kLibraryFile, true, why);
         if (!handle) {
             error = std::string("The Steamworks library ") + api.library + " cannot be loaded: " + why +
-                    ". It must be the 64-bit build for this operating system and CPU from the Steamworks SDK (" + kSdkFile +
+                    ". It must be the 64-bit build for this operating system and CPU from the Steamworks SDK (" +
+                    kSdkFile +
                     "), not a file from another platform or a damaged copy. Copy it again, or run `factoria call "
                     "platform.add_backend '{\"backend\": \"steam\", \"sdk\": \"<Steamworks SDK folder>\"}'`.";
             return false;
@@ -316,11 +328,15 @@ bool load_library(SteamApi& api, std::string& error) {
             const std::string tried = folder.empty() ? std::string("the system's library path")
                                                      : folder.generic_string() + " and the system's library path";
             error = std::string("The Steamworks library ") + kLibraryFile + " was not found (looked in " + tried +
-                    "). Valve's files are not part of FactorIA: download the Steamworks SDK (partner.steamgames.com/downloads/list, "
-                    "needs a free Steamworks account) and copy " + kSdkFile + " next to this plugin" +
+                    "). Valve's files are not part of FactorIA: download the Steamworks SDK "
+                    "(partner.steamgames.com/downloads/list, "
+                    "needs a free Steamworks account) and copy " +
+                    kSdkFile + " next to this plugin" +
                     (folder.empty() ? std::string() : " (into " + folder.generic_string() + ")") +
-                    ", or run `factoria call platform.add_backend '{\"backend\": \"steam\", \"sdk\": \"<Steamworks SDK folder or "
-                    ".zip>\"}'` to do it. Without it the game uses the fake platform backend in development and has no platform "
+                    ", or run `factoria call platform.add_backend '{\"backend\": \"steam\", \"sdk\": \"<Steamworks SDK "
+                    "folder or "
+                    ".zip>\"}'` to do it. Without it the game uses the fake platform backend in development and has no "
+                    "platform "
                     "services in an exported game.";
             return false;
         }
@@ -328,8 +344,8 @@ bool load_library(SteamApi& api, std::string& error) {
     api.module = handle;
 
     std::vector<std::string> missing;
-#define STEAM_LOOKUP_REQUIRED(name, ret, params)                       \
-    api.name = reinterpret_cast<ret(*) params>(symbol(handle, #name)); \
+#define STEAM_LOOKUP_REQUIRED(name, ret, params)                                                                       \
+    api.name = reinterpret_cast<ret(*) params>(symbol(handle, #name));                                                 \
     if (!api.name) missing.push_back(#name);
     STEAM_REQUIRED_FUNCTIONS(STEAM_LOOKUP_REQUIRED)
 #undef STEAM_LOOKUP_REQUIRED
@@ -339,13 +355,16 @@ bool load_library(SteamApi& api, std::string& error) {
     if (!missing.empty()) {
         error = api.library + " does not export " + missing[0] +
                 (missing.size() > 1 ? " (and " + std::to_string(missing.size() - 1) + " more)" : std::string()) +
-                ": it is not a Steamworks library this plugin can use. The plugin calls only functions of the flat API that the " +
-                kCheckedSdk + " have; a later SDK may have renamed or removed one, and then the plugin needs an update. Copy the "
+                ": it is not a Steamworks library this plugin can use. The plugin calls only functions of the flat API "
+                "that the " +
+                kCheckedSdk +
+                " have; a later SDK may have renamed or removed one, and then the plugin needs an update. Copy the "
                 "redistributable of one of those SDKs next to the plugin.";
         return false;
     }
     if (!api.SteamAPI_InitFlat && !api.SteamAPI_Init) {
-        error = api.library + " exports neither SteamAPI_InitFlat nor SteamAPI_Init: it is not a Steamworks library. Use the " +
+        error = api.library +
+                " exports neither SteamAPI_InitFlat nor SteamAPI_Init: it is not a Steamworks library. Use the " +
                 std::string(kCheckedSdk) + " redistributable.";
         return false;
     }
@@ -358,10 +377,14 @@ bool load_library(SteamApi& api, std::string& error) {
             absent += (absent.empty() ? "" : "; ") + std::string(spec.label) + " (" + tried_names(spec) + ")";
     }
     if (!absent.empty()) {
-        error = api.library + " has none of the interface accessors this plugin can use. Tried: " + absent + ". This plugin was "
-                "checked against the " + kCheckedSdk + " and also accepts up to " + std::to_string(kNewerVersionWindow) +
-                " interface versions above them; this library is from an older SDK, or from one that changed the interfaces more "
-                "than that. Copy the redistributable of a checked SDK next to the plugin, or update the plugin (a new `factoria "
+        error = api.library + " has none of the interface accessors this plugin can use. Tried: " + absent +
+                ". This plugin was "
+                "checked against the " +
+                kCheckedSdk + " and also accepts up to " + std::to_string(kNewerVersionWindow) +
+                " interface versions above them; this library is from an older SDK, or from one that changed the "
+                "interfaces more "
+                "than that. Copy the redistributable of a checked SDK next to the plugin, or update the plugin (a new "
+                "`factoria "
                 "call project.new_plugin` with \"template\": \"steam\" in another folder has the current version).";
         return false;
     }
@@ -401,8 +424,10 @@ bool start_steam(SteamApi& api, std::string& error) {
     }
     if (!failed.empty()) {
         api.SteamAPI_Shutdown();
-        error = "Steam started, but the library returned no interface for " + failed + ": it does not match the client. Update "
-                "Steam, or use the redistributable of a checked SDK (" + kCheckedSdk + ").";
+        error = "Steam started, but the library returned no interface for " + failed +
+                ": it does not match the client. Update "
+                "Steam, or use the redistributable of a checked SDK (" +
+                kCheckedSdk + ").";
         return false;
     }
     // Optional interfaces: an older client or library has none, and the service they give is then simply not offered. A
@@ -411,7 +436,8 @@ bool start_steam(SteamApi& api, std::string& error) {
     const bool remotePlayFunctions =
         api.SteamAPI_ISteamRemotePlay_GetSessionCount && api.SteamAPI_ISteamRemotePlay_GetSessionID &&
         api.SteamAPI_ISteamRemotePlay_GetSessionSteamID && api.SteamAPI_ISteamRemotePlay_GetSessionClientName &&
-        api.SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor && api.SteamAPI_ISteamRemotePlay_BGetSessionClientResolution;
+        api.SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor &&
+        api.SteamAPI_ISteamRemotePlay_BGetSessionClientResolution;
     for (const AccessorSpec& spec : optional_accessor_specs()) {
         if (spec.field == &SteamApi::remotePlay && !remotePlayFunctions) continue;
         for (const char* name : spec.names) {
@@ -420,7 +446,8 @@ bool start_steam(SteamApi& api, std::string& error) {
             api.*spec.field = function();
             if (api.*spec.field) {
                 const std::string text = name;
-                api.accessors += (api.accessors.empty() ? "" : ", ") + std::string(spec.label) + " " + text.substr(text.rfind('_') + 1);
+                api.accessors += (api.accessors.empty() ? "" : ", ") + std::string(spec.label) + " " +
+                                 text.substr(text.rfind('_') + 1);
             }
             break;
         }

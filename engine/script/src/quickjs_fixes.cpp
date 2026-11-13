@@ -64,7 +64,8 @@ void install_quickjs_fixes(JSContext* ctx) {
     struct {
         const char* name;
         FindMode mode;
-    } const finds[] = {{"find", kFind}, {"findIndex", kFindIndex}, {"findLast", kFindLast}, {"findLastIndex", kFindLastIndex}};
+    } const finds[] = {
+        {"find", kFind}, {"findIndex", kFindIndex}, {"findLast", kFindLast}, {"findLastIndex", kFindLastIndex}};
     for (const auto& f : finds) {
         JSValue fn = JS_NewCFunctionMagic(ctx, array_find, f.name, 1, JS_CFUNC_generic_magic, f.mode);
         JS_DefinePropertyValueStr(ctx, proto, f.name, fn, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);

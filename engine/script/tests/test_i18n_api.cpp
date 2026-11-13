@@ -25,7 +25,8 @@ void write_tables(TestHost& h) {
       "greeting": "¡Hola, {name}!",
       "hud": { "score": "Puntos: {score}" },
       "items": { "one": "{count} objeto", "other": "{count} objetos" } })");
-    h.file("locales/pt-BR.json", R"json({ "$name": "Português (Brasil)", "menu": { "play": "Jogar", "title": "Meu jogo" } })json");
+    h.file("locales/pt-BR.json",
+           R"json({ "$name": "Português (Brasil)", "menu": { "play": "Jogar", "title": "Meu jogo" } })json");
     h.file("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
       { "id": "title", "components": { "Text": { "text": "scene", "key": "menu.title", "space": "screen" } } },
       { "id": "play", "components": { "Button": { "text": "x", "key": "menu.play" } } },
@@ -34,7 +35,8 @@ void write_tables(TestHost& h) {
 
 }  // namespace
 
-TEST_CASE("i18n api: t fills placeholders and plurals, has tells a string from a missing key, the rest describes the game") {
+TEST_CASE(
+    "i18n api: t fills placeholders and plurals, has tells a string from a missing key, the rest describes the game") {
     TestHost h("i18n_read", settings());
     write_tables(h);
     h.file("tests/read.test.js", R"js(
@@ -96,7 +98,8 @@ test("a test file starts in the default language, with the scene translated", ()
 });
 )");
     REQUIRE(h.start());
-    TestReport rep = h.scripts.run_tests({"tests/read.test.js", "tests/a_leaves_spanish.test.js", "tests/b_starts_in_default.test.js"});
+    TestReport rep = h.scripts.run_tests(
+        {"tests/read.test.js", "tests/a_leaves_spanish.test.js", "tests/b_starts_in_default.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
     CHECK(rep.passed == 5);
@@ -155,7 +158,8 @@ test("an entity a script spawns is translated before the script's next line", ()
     CHECK(rep.passed == 4);
 }
 
-TEST_CASE("i18n api: a game without a localization section has no languages, t returns the key and setLanguage explains") {
+TEST_CASE(
+    "i18n api: a game without a localization section has no languages, t returns the key and setLanguage explains") {
     TestHost h("i18n_off");
     h.file("tests/off.test.js", R"(
 import { test, expect } from "factoria:test";
@@ -220,9 +224,13 @@ test("a TouchButton with a key follows the language, and a spawned label takes i
 }
 
 TEST_CASE("i18n api: number and duration follow the language, and {v:number:1} / {t:duration} do the same in a key") {
-    TestHost h("i18n_numbers", Json::parse(R"({ "localization": { "defaultLanguage": "en", "languages": ["en", "es", "de", "fr", "ar", "xx"] } })"));
+    TestHost h(
+        "i18n_numbers",
+        Json::parse(
+            R"({ "localization": { "defaultLanguage": "en", "languages": ["en", "es", "de", "fr", "ar", "xx"] } })"));
     h.file("locales/en.json", R"json({ "best": "Best: {t:duration} ({v:number:1} m, {n:number})" })json");
-    for (const char* lang : {"es", "fr", "ar", "xx"}) h.file(std::string("locales/") + lang + ".json", R"({ "x": "x" })");
+    for (const char* lang : {"es", "fr", "ar", "xx"})
+        h.file(std::string("locales/") + lang + ".json", R"({ "x": "x" })");
     h.file("locales/de.json", R"json({ "best": "Beste: {t:duration} ({v:number:1} m)" })json");
     h.file("tests/numbers.test.js", R"js(
 import { test, expect } from "factoria:test";

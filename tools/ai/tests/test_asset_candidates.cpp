@@ -26,13 +26,16 @@ Json candidate_args(const std::string& slot, int count) {
 
 // A fake provider with a price table: 0.30 a picture.
 Json paid_config(const std::string& limits) {
-    return Json::parse(R"({"providers":{"paid":{"type":"fake","assetPricing":{"image":0.30,"checked":"2026-11-06","source":"https://example.com/prices"}}},
-               "assets":{"image":{"provider":"paid"}},"limits":)" + limits + "}");
+    return Json::parse(
+        R"({"providers":{"paid":{"type":"fake","assetPricing":{"image":0.30,"checked":"2026-11-06","source":"https://example.com/prices"}}},
+               "assets":{"image":{"provider":"paid"}},"limits":)" +
+        limits + "}");
 }
 
 }  // namespace
 
-TEST_CASE("assets.generate_image count 3: three candidate files with their own seeds and provenance, one review sheet with the meta") {
+TEST_CASE("assets.generate_image count 3: three candidate files with their own seeds and provenance, one review sheet "
+          "with the meta") {
     Game game(fake_config());
     const Json r = game.ok("assets.generate_image", [] {
         Json a = candidate_args("assets/items/potion.png", 3);
@@ -92,7 +95,8 @@ TEST_CASE("assets.generate_image count 3: three candidate files with their own s
     CHECK(game.exists("assets/items/one.png"));
 }
 
-TEST_CASE("assets.generate_image count: out of range is refused with the pointer; existing candidates are refused before anything is made") {
+TEST_CASE("assets.generate_image count: out of range is refused with the pointer; existing candidates are refused "
+          "before anything is made") {
     Game game(fake_config());
     for (int bad : {0, 5}) {
         auto r = game.call("assets.generate_image", candidate_args("assets/a.png", bad));
@@ -134,7 +138,8 @@ TEST_CASE("assets.generate_image count: out of range is refused with the pointer
     CHECK(r.error["code"] == "wrong_extension");
 }
 
-TEST_CASE("assets.generate_image count 3: the estimate covers the three candidates, and there is one approval for the batch") {
+TEST_CASE("assets.generate_image count 3: the estimate covers the three candidates, and there is one approval for the "
+          "batch") {
     Game game(config_from(paid_config(R"({"askAboveUsd":0.50})")));
     // one call of 0.30 is under the threshold, three are not: needsApproval for all three, before any provider call
     auto r = game.call("assets.generate_image", candidate_args("assets/p.png", 3));
@@ -203,7 +208,8 @@ TEST_CASE("AssetCostGuard::commit_part keeps the share of what was made and give
     CHECK(asset_run_spent("part-run") == doctest::Approx(0.30));
 }
 
-TEST_CASE("assets.generate_image count: a provider failure part way says what was made and what it cost, and keeps it") {
+TEST_CASE(
+    "assets.generate_image count: a provider failure part way says what was made and what it cost, and keeps it") {
     Wire wire;
     wire.replies = {Wire::reply(200, fixture("openai_image.json")), Wire::reply(401, fixture("openai_error_401.json"))};
     Game game(config_from(R"({"assets":{"image":{"provider":"openai"}},"limits":{"askAboveUsd":100}})"),
@@ -225,7 +231,8 @@ TEST_CASE("assets.generate_image count: a provider failure part way says what wa
     CHECK(wire.requests.size() == 2);                         // it stopped at the failure
 }
 
-TEST_CASE("assets.pick: the chosen candidate becomes the slot with its provenance, the others move to the candidates folder") {
+TEST_CASE("assets.pick: the chosen candidate becomes the slot with its provenance, the others move to the candidates "
+          "folder") {
     Game game(config_from(paid_config(R"({"askAboveUsd":5})")));
     Json args = candidate_args("assets/items/potion.png", 3);
     args["seed"] = 7;
@@ -324,7 +331,8 @@ TEST_CASE("assets.pick: a move that fails puts everything back (the chosen file 
     const bool rulesBefore = fs::windows_rules();
     fs::set_windows_rules(true);
     {
-        fs::ReadStream open(game.dir.path / "assets/hero.candidate-2.png", std::ios::binary);  // a viewer holds the chosen file
+        fs::ReadStream open(game.dir.path / "assets/hero.candidate-2.png",
+                            std::ios::binary);  // a viewer holds the chosen file
         REQUIRE(open.is_open());
         auto r = game.call("assets.pick", {{"slot", "assets/hero.png"}, {"n", 2}});
         REQUIRE_FALSE(r.ok);
@@ -369,7 +377,8 @@ TEST_CASE("assets.pick: an existing slot needs overwrite and is kept in the drop
     CHECK_FALSE(game.exists(".factoria/assets/candidates/sheet-0001/02_tile.candidate-2.png"));
 }
 
-TEST_CASE("assets.pick: only the newest candidates sheet of a slot can be answered (a regeneration with overwrite replaces the older one)") {
+TEST_CASE("assets.pick: only the newest candidates sheet of a slot can be answered (a regeneration with overwrite "
+          "replaces the older one)") {
     Game game(fake_config());
     Json args = candidate_args("assets/ring.png", 2);
     args["seed"] = 10;
@@ -395,9 +404,12 @@ TEST_CASE("assets.pick: only the newest candidates sheet of a slot can be answer
     CHECK(has(r.error["hint"].get<std::string>(), "Show " + secondSheet));
     CHECK_FALSE(game.exists("assets/ring.png"));
     CHECK(game.exists("assets/ring.candidate-1.png"));
-    CHECK(Json::parse(game.file(".factoria/review/" + first + "/manifest.json")).value("picked", Json(nullptr)).is_null());
+    CHECK(Json::parse(game.file(".factoria/review/" + first + "/manifest.json"))
+              .value("picked", Json(nullptr))
+              .is_null());
     // the sheet given by its number, as the editor's Review window may pass it
-    r = game.call("assets.pick", {{"slot", "assets/ring.png"}, {"n", 1}, {"sheet", std::to_string(std::stol(first.substr(6)))}});
+    r = game.call("assets.pick",
+                  {{"slot", "assets/ring.png"}, {"n", 1}, {"sheet", std::to_string(std::stol(first.substr(6)))}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "superseded");
 
@@ -419,7 +431,8 @@ TEST_CASE("assets.pick: only the newest candidates sheet of a slot can be answer
 
 TEST_CASE("assets.pick: a candidate file that changed after its sheet was made is refused (superseded)") {
     Game game(fake_config());
-    const std::string sheet = game.ok("assets.generate_image", candidate_args("assets/coin.png", 3))["sheet"].get<std::string>();
+    const std::string sheet =
+        game.ok("assets.generate_image", candidate_args("assets/coin.png", 3))["sheet"].get<std::string>();
     const Json meta = Json::parse(game.file(".factoria/review/" + sheet + "/manifest.json"))["meta"];
     REQUIRE(meta["sha256"].size() == 3);
     CHECK(meta["sha256"][0].get<std::string>().size() == 64);
@@ -439,24 +452,35 @@ TEST_CASE("assets.pick: a candidate file that changed after its sheet was made i
 
 TEST_CASE("review.pick without the assets.pick step refuses a candidates sheet and names assets.pick") {
     Game game(fake_config());
-    const std::string sheet = game.ok("assets.generate_image", candidate_args("assets/key.png", 2))["sheet"].get<std::string>();
+    const std::string sheet =
+        game.ok("assets.generate_image", candidate_args("assets/key.png", 2))["sheet"].get<std::string>();
     const ReviewOutcome plain = review_pick(game.dir.str(), sheet, 1, ReviewPickOptions{});
     REQUIRE_FALSE(plain.ok);
     CHECK(plain.code == "invalid_argument");
     CHECK(has(plain.hint, "assets.pick {\"slot\": \"assets/key.png\", \"n\": 1}"));
     CHECK(game.exists("assets/key.candidate-1.png"));
     CHECK(game.exists("assets/key.candidate-2.png"));
-    CHECK(Json::parse(game.file(".factoria/review/" + sheet + "/manifest.json")).value("picked", Json(nullptr)).is_null());
+    CHECK(Json::parse(game.file(".factoria/review/" + sheet + "/manifest.json"))
+              .value("picked", Json(nullptr))
+              .is_null());
 }
 
-TEST_CASE("assets.generate_image count: a slot whose sheet meta would pass the limit only before the hashes and the cost is refused before paying") {
+TEST_CASE("assets.generate_image count: a slot whose sheet meta would pass the limit only before the hashes and the "
+          "cost is refused before paying") {
     Game game(fake_config());
     // The meta as assets.generate_image writes it, before the hashes and the cost are known: grow the slot until it is just under the limit.
     const auto meta_size = [](const std::string& slot) {
         std::vector<std::string> paths;
-        for (int n = 1; n <= 4; ++n) paths.push_back(slot.substr(0, slot.size() - 4) + ".candidate-" + std::to_string(n) + ".png");
-        return Json::object({{"kind", "assetCandidates"}, {"slot", slot}, {"command", "assets.generate_image"}, {"count", 4}, {"candidates", paths},
-                             {"overwrite", false}, {"estimatedCostUsd", nullptr}, {"sha256", Json::array()}})
+        for (int n = 1; n <= 4; ++n)
+            paths.push_back(slot.substr(0, slot.size() - 4) + ".candidate-" + std::to_string(n) + ".png");
+        return Json::object({{"kind", "assetCandidates"},
+                             {"slot", slot},
+                             {"command", "assets.generate_image"},
+                             {"count", 4},
+                             {"candidates", paths},
+                             {"overwrite", false},
+                             {"estimatedCostUsd", nullptr},
+                             {"sha256", Json::array()}})
             .dump()
             .size();
     };
@@ -499,5 +523,7 @@ TEST_CASE("assets.generate_image count and assets.pick in a project folder with 
     CHECK(fsys::exists(project / "assets/hero.png"));
     CHECK(fsys::exists(project / ".factoria/assets/candidates/sheet-0001/02_hero.candidate-2.png"));
     CHECK_FALSE(fsys::exists(project / "assets/hero.candidate-2.png"));
-    CHECK(Json::parse(read_file((project / "assets.json").string()))["assets"]["assets/hero.png"]["provenance"]["candidates"]["picked"] == 1);
+    CHECK(Json::parse(read_file(
+              (project / "assets.json").string()))["assets"]["assets/hero.png"]["provenance"]["candidates"]["picked"] ==
+          1);
 }

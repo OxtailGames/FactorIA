@@ -41,18 +41,22 @@ std::size_t prune_screenshots(const stdfs::path& projectDir, int maxAgeDays, std
     const auto cutoff = stdfs::file_time_type::clock::now() - std::chrono::hours(24LL * std::max(0, maxAgeDays));
     std::vector<Entry> kept;
     for (const Entry& f : files) {
-        if (f.time < cutoff) remove(f);
-        else kept.push_back(f);
+        if (f.time < cutoff)
+            remove(f);
+        else
+            kept.push_back(f);
     }
     if (kept.size() > maxFiles) {
-        std::sort(kept.begin(), kept.end(), [](const Entry& a, const Entry& b) { return a.time > b.time; });  // newest first
+        std::sort(kept.begin(), kept.end(),
+                  [](const Entry& a, const Entry& b) { return a.time > b.time; });  // newest first
         for (std::size_t i = maxFiles; i < kept.size(); ++i) remove(kept[i]);
     }
     return removed;
 }
 
 bool discard_temporary_image(const Json& spec, const stdfs::path& projectDir) {
-    if (!spec.is_object() || spec.value("temporary", false) != true || !spec.contains("path") || !spec["path"].is_string())
+    if (!spec.is_object() || spec.value("temporary", false) != true || !spec.contains("path") ||
+        !spec["path"].is_string())
         return false;
     std::error_code ec;
     stdfs::path p = spec["path"].get<std::string>();

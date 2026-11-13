@@ -30,12 +30,21 @@ std::string builtin_session(int n, std::uint64_t tokensPerStep = 5000, double co
     for (int i = 1; i <= n; ++i) {
         const std::string id = "tu" + std::to_string(i);
         Json input = Json::object({{"command", "scene.inspect"}, {"arguments", Json::object({{"entity", "player"}})}});
-        Json content = Json::array({Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"}, {"input", input}})});
-        out += Json::object({{"kind", "assistant"}, {"t", at(60 * i - 1)},
+        Json content =
+            Json::array({Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"}, {"input", input}})});
+        out += Json::object({{"kind", "assistant"},
+                             {"t", at(60 * i - 1)},
                              {"usage", Json::object({{"inputTokens", tokensPerStep - 500}, {"outputTokens", 500}})},
-                             {"costUsd", costPerStep}, {"content", content}}).dump() + "\n";
-        Json result = Json::object({{"toolUseId", id}, {"isError", i % 10 == 0}, {"ms", 40}, {"content", i % 10 == 0 ? "{\"code\":\"not_found\",\"message\":\"no\"}" : "ok"}});
-        out += Json::object({{"kind", "tool_results"}, {"t", at(60 * i)}, {"results", Json::array({result})}}).dump() + "\n";
+                             {"costUsd", costPerStep},
+                             {"content", content}})
+                   .dump() +
+               "\n";
+        Json result = Json::object({{"toolUseId", id},
+                                    {"isError", i % 10 == 0},
+                                    {"ms", 40},
+                                    {"content", i % 10 == 0 ? "{\"code\":\"not_found\",\"message\":\"no\"}" : "ok"}});
+        out += Json::object({{"kind", "tool_results"}, {"t", at(60 * i)}, {"results", Json::array({result})}}).dump() +
+               "\n";
     }
     return out;
 }
@@ -46,9 +55,13 @@ struct Project {
     ShareEnv env;
     Project() {
         const std::string h = home.str();
-        env.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        env.env = [h](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
+        };
     }
-    void session(const std::string& id, const std::string& text) { testing::write_all(dir.path / ".factoria" / "ai" / "sessions" / (id + ".jsonl"), text); }
+    void session(const std::string& id, const std::string& text) {
+        testing::write_all(dir.path / ".factoria" / "ai" / "sessions" / (id + ".jsonl"), text);
+    }
 };
 
 EfficiencyInput good_input() {
@@ -86,7 +99,8 @@ TEST_CASE("efficiency: a built-in transcript is read into steps with calls, time
 }
 
 TEST_CASE("efficiency: lines that are not JSON are skipped and counted, a missing time keeps the one before") {
-    std::string text = builtin_session(3) + "this is not json\n{\"kind\":\"assistant\",\"usage\":{\"inputTokens\":10}}\n";
+    std::string text =
+        builtin_session(3) + "this is not json\n{\"kind\":\"assistant\",\"usage\":{\"inputTokens\":10}}\n";
     const EfficiencySession s = read_efficiency_session(text, "x");
     CHECK(s.skippedLines == 1);
     REQUIRE(s.steps.size() == 4);
@@ -98,13 +112,25 @@ TEST_CASE("efficiency: a CLI agent transcript has one step per model turn, token
     auto line = [&](const Json& j) { t += j.dump() + "\n"; };
     line(Json::object({{"kind", "start"}, {"t", at(0)}}));
     line(Json::object({{"kind", "thinking"}, {"t", at(5)}, {"text", std::string(375, 'a')}}));
-    line(Json::object({{"kind", "tool_start"}, {"t", at(6)}, {"tool", "Bash"}, {"id", "c1"},
+    line(Json::object({{"kind", "tool_start"},
+                       {"t", at(6)},
+                       {"tool", "Bash"},
+                       {"id", "c1"},
                        {"input", Json::object({{"command", "factoria call scene.inspect --project . player"}})}}));
-    line(Json::object({{"kind", "tool_end"}, {"t", at(30)}, {"tool", "Bash"}, {"id", "c1"}, {"ms", 24000},
+    line(Json::object({{"kind", "tool_end"},
+                       {"t", at(30)},
+                       {"tool", "Bash"},
+                       {"id", "c1"},
+                       {"ms", 24000},
                        {"result", "{\"code\":\"not_found\",\"message\":\"no entity\"}"}}));
     line(Json::object({{"kind", "text"}, {"t", at(40)}, {"text", "next"}}));
-    line(Json::object({{"kind", "tool_start"}, {"t", at(41)}, {"tool", "Read"}, {"id", "c2"}, {"input", Json::object({{"file_path", "docs/A.md"}})}}));
-    line(Json::object({{"kind", "tool_end"}, {"t", at(50)}, {"tool", "Read"}, {"id", "c2"}, {"ms", 9000}, {"result", "text"}}));
+    line(Json::object({{"kind", "tool_start"},
+                       {"t", at(41)},
+                       {"tool", "Read"},
+                       {"id", "c2"},
+                       {"input", Json::object({{"file_path", "docs/A.md"}})}}));
+    line(Json::object(
+        {{"kind", "tool_end"}, {"t", at(50)}, {"tool", "Read"}, {"id", "c2"}, {"ms", 9000}, {"result", "text"}}));
     const EfficiencySession s = read_efficiency_session(t, "cli1");
     CHECK(s.agent == "cli");
     CHECK(s.estimated);
@@ -147,7 +173,8 @@ TEST_CASE("efficiency: measure_span counts the span, from the end of the step be
 TEST_CASE("efficiency: the threshold table in docs/ENGINE_FEEDBACK.md is the one the gate uses") {
     const std::string doc = testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md");
     CHECK_MESSAGE(doc.find(efficiency_threshold_table()) != std::string::npos,
-                  "docs/ENGINE_FEEDBACK.md must contain, verbatim:\n" << efficiency_threshold_table());
+                  "docs/ENGINE_FEEDBACK.md must contain, verbatim:\n"
+                      << efficiency_threshold_table());
 }
 
 TEST_CASE("efficiency gate: a measured report with the cheapest fix passes and is measured, not guessed") {
@@ -300,7 +327,8 @@ TEST_CASE("efficiency gate: an engine change is a candidate, justified by hours 
     CHECK(v.candidateOnly);
 }
 
-TEST_CASE("efficiency gate: a missing guide for a doc that docs.search finds is refused, unless findability is the report") {
+TEST_CASE(
+    "efficiency gate: a missing guide for a doc that docs.search finds is refused, unless findability is the report") {
     Project p;
     p.session("s1", builtin_session(40));
     EfficiencyInput in = good_input();
@@ -338,8 +366,10 @@ TEST_CASE("efficiency: the input from JSON names the pointer of the field that i
     REQUIRE(r);
     CHECK(r->message.find("/everyStepTokens") != std::string::npos);
     EfficiencyInput ok;
-    REQUIRE_FALSE(efficiency_input_from_json(Json::parse(R"({"waste":"w w w","fixType":"doc","appliesTo":"genre","searched":"a b",
-        "expectedSaving":{"share":0.5,"why":"x y"},"evidence":[{"session":"s","fromStep":1,"toStep":2}]})"), ok));
+    REQUIRE_FALSE(
+        efficiency_input_from_json(Json::parse(R"({"waste":"w w w","fixType":"doc","appliesTo":"genre","searched":"a b",
+        "expectedSaving":{"share":0.5,"why":"x y"},"evidence":[{"session":"s","fromStep":1,"toStep":2}]})"),
+                                   ok));
     CHECK(ok.fixType == "doc");
     CHECK(ok.searched == std::vector<std::string>{"a b"});
     CHECK(ok.evidence.size() == 1);
@@ -350,8 +380,10 @@ Json report_args(int from, int to, double share = 0.5) {
     return Json::parse(R"({"kind":"efficiency","category":"scene","title":"Quantum flux calibration routine",
         "waste":"Working out the order of the flux calibration calls took forty steps of trial",
         "suggestion":"A topic guide that lists the three calibration calls in order","fixType":"guide","appliesTo":"every-game",
-        "expectedSaving":{"share":)" + std::to_string(share) + R"(,"why":"the guide gives the calls in order"},
-        "evidence":[{"session":"s1","fromStep":)" + std::to_string(from) + R"(,"toStep":)" + std::to_string(to) + "}]}");
+        "expectedSaving":{"share":)" +
+                       std::to_string(share) + R"(,"why":"the guide gives the calls in order"},
+        "evidence":[{"session":"s1","fromStep":)" +
+                       std::to_string(from) + R"(,"toStep":)" + std::to_string(to) + "}]}");
 }
 }  // namespace
 
@@ -430,7 +462,8 @@ TEST_CASE("feedback.report kind efficiency: a refusal writes nothing and an unkn
 
 // ---------------------------------------------------------------------------------------- review: streaming, budget, numbers --
 
-TEST_CASE("efficiency: a stream is read like the text, a line longer than the limit is dropped, a line may span chunks") {
+TEST_CASE(
+    "efficiency: a stream is read like the text, a line longer than the limit is dropped, a line may span chunks") {
     const std::string text = builtin_session(30);
     std::istringstream in(text);
     const EfficiencySession streamed = read_efficiency_session(in, "s1");
@@ -444,8 +477,8 @@ TEST_CASE("efficiency: a stream is read like the text, a line longer than the li
     const std::string wide = Json::object({{"kind", "noise"}, {"pad", std::string(200 * 1024, 'y')}}).dump();
     std::istringstream mixed(builtin_session(3) + big + "\n" + wide + "\n" + builtin_session(2));
     const EfficiencySession s = read_efficiency_session(mixed, "mixed");
-    CHECK(s.skippedLines == 1);          // only the 9 MB line
-    CHECK(s.steps.size() == 5);          // the lines before and after it are read
+    CHECK(s.skippedLines == 1);  // only the 9 MB line
+    CHECK(s.steps.size() == 5);  // the lines before and after it are read
 }
 
 TEST_CASE("efficiency: a stream past the byte limit is cut and says so") {
@@ -463,11 +496,13 @@ TEST_CASE("efficiency: a stream past the byte limit is cut and says so") {
     CHECK_FALSE(read_efficiency_session(small, "small", limit).truncated);
 }
 
-TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file cap and one that no longer fits the budget, with the reason") {
+TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file cap and one that no longer fits the "
+          "budget, with the reason") {
     Project p;
     p.session("small-a", builtin_session(5));
     p.session("small-b", builtin_session(5));
-    const std::uintmax_t size = std::filesystem::file_size(p.dir.path / ".factoria" / "ai" / "sessions" / "small-a.jsonl");
+    const std::uintmax_t size =
+        std::filesystem::file_size(p.dir.path / ".factoria" / "ai" / "sessions" / "small-a.jsonl");
     REQUIRE(size > 100);
 
     EfficiencyLoadBudget budget;
@@ -480,7 +515,7 @@ TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file 
     CHECK(second.error().message.find("small-b") != std::string::npos);
     CHECK(second.error().message.find("not read") != std::string::npos);
     CHECK_FALSE(second.error().hint.empty());
-    CHECK(budget.bytesLeft == size / 2);  // a refused file takes nothing off
+    CHECK(budget.bytesLeft == size / 2);                          // a refused file takes nothing off
     CHECK(load_efficiency_session(p.dir.str(), "small-b").ok());  // no budget, no total limit
 
     // The per-file cap (lowered to 2 MB here instead of making a 65 MB file): a file of one byte over it is refused before it is opened.
@@ -491,7 +526,7 @@ TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file 
     REQUIRE_FALSE(big.ok());
     CHECK(big.error().message.find("huge") != std::string::npos);
     CHECK(big.error().message.find("2 MB") != std::string::npos);
-    CHECK(capped.bytesLeft == kEfficiencyMaxTotalBytes);  // a refused file takes nothing off
+    CHECK(capped.bytesLeft == kEfficiencyMaxTotalBytes);       // a refused file takes nothing off
     CHECK(load_efficiency_session(p.dir.str(), "huge").ok());  // under the real 64 MB cap it is read
     std::error_code ec;
     std::filesystem::remove(huge, ec);
@@ -499,8 +534,9 @@ TEST_CASE("efficiency: load_efficiency_session refuses a file over the per-file 
 
 TEST_CASE("efficiency: a number in a transcript or a block that is huge, negative or NaN cannot overflow a count") {
     // The usage numbers are doubles in the file: past the range of the integer, they are clamped, never cast out of range.
-    const std::string line = R"({"kind":"assistant","t":"2027-01-15T10:00:00.000Z","usage":{"inputTokens":1e300,"outputTokens":-5,"cacheReadTokens":1.8446744073709552e19},)"
-                             R"("costUsd":1e300,"content":[]})";
+    const std::string line =
+        R"({"kind":"assistant","t":"2027-01-15T10:00:00.000Z","usage":{"inputTokens":1e300,"outputTokens":-5,"cacheReadTokens":1.8446744073709552e19},)"
+        R"("costUsd":1e300,"content":[]})";
     const EfficiencySession s = read_efficiency_session(line + "\n" + line + "\n", "x");
     REQUIRE(s.steps.size() == 2);
     CHECK(s.steps[0].tokens <= 3'000'000'000'000'000ull);
@@ -509,7 +545,8 @@ TEST_CASE("efficiency: a number in a transcript or a block that is huge, negativ
     CHECK(m.tokens == s.steps[0].tokens + s.steps[1].tokens);
     CHECK(std::isfinite(m.costUsd));
 
-    Json j = Json::object({{"steps", 1e300}, {"toolCalls", -4}, {"minutes", std::nan("")}, {"tokens", std::nan("")}, {"costUsd", -1.0}});
+    Json j = Json::object(
+        {{"steps", 1e300}, {"toolCalls", -4}, {"minutes", std::nan("")}, {"tokens", std::nan("")}, {"costUsd", -1.0}});
     const EfficiencyMeasure from = EfficiencyMeasure::from_json(j);
     CHECK(from.steps == 2'000'000'000);
     CHECK(from.toolCalls == 0);
@@ -548,14 +585,16 @@ TEST_CASE("efficiency: a session named with accented letters is listed, loaded a
     CHECK(load_feedback(p.dir.sub("ENGINE_FEEDBACK.json")).value()["entries"][0]["evidence"][0]["session"] == name);
 }
 
-TEST_CASE("feedback: add_feedback_entry refuses kind efficiency (only the gate may write one); a gap report takes the share lock") {
+TEST_CASE("feedback: add_feedback_entry refuses kind efficiency (only the gate may write one); a gap report takes the "
+          "share lock") {
     Project p;
     ScopedShareEnv scoped(p.env);
     FeedbackInput in;
     in.kind = "efficiency";
     in.category = "scene";
     in.title = "Quantum flux calibration routine";
-    in.efficiency = Json::object({{"waste", "Working out the order of the flux calibration calls took forty steps of trial"}});
+    in.efficiency =
+        Json::object({{"waste", "Working out the order of the flux calibration calls took forty steps of trial"}});
     Json doc = create_empty_feedback("p");
     auto direct = add_feedback_entry(doc, in);
     REQUIRE_FALSE(direct.ok());
@@ -573,7 +612,9 @@ TEST_CASE("feedback: add_feedback_entry refuses kind efficiency (only the gate m
     ScopedShareEnv scopedBusy(busy);
     CommandRegistry registry;
     register_feedback_commands(registry, p.dir.str());
-    const Json gap = Json::object({{"category", "scene"}, {"severity", "minor"}, {"title", "Zorblax wibble gauge is missing"},
+    const Json gap = Json::object({{"category", "scene"},
+                                   {"severity", "minor"},
+                                   {"title", "Zorblax wibble gauge is missing"},
                                    {"missing", "The engine has no zorblax wibble gauge for the quuxel pipeline"},
                                    {"workaround", "I counted the quuxel frames by hand"}});
     std::error_code ec;
@@ -624,21 +665,25 @@ std::vector<Json> efficiency_reports_in(const std::string& section) {
         const std::size_t to = section.find("\n```", from);
         REQUIRE(to != std::string::npos);
         auto parsed = Json::parse(section.substr(from, to - from), nullptr, false);
-        if (!parsed.is_discarded() && parsed.is_object() && parsed.value("kind", std::string()) == "efficiency") out.push_back(std::move(parsed));
+        if (!parsed.is_discarded() && parsed.is_object() && parsed.value("kind", std::string()) == "efficiency")
+            out.push_back(std::move(parsed));
     }
     return out;
 }
 
 }  // namespace
 
-TEST_CASE("efficiency: the good reports in docs/ENGINE_FEEDBACK.md pass the gate against a transcript of the length they name") {
-    const std::string section = efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md"));
+TEST_CASE("efficiency: the good reports in docs/ENGINE_FEEDBACK.md pass the gate against a transcript of the length "
+          "they name") {
+    const std::string section =
+        efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md"));
     const std::vector<Json> reports = efficiency_reports_in(section);
     CHECK(reports.size() >= 3);
     Project p;
     for (const Json& r : reports)
         for (const Json& span : r.value("evidence", Json::array()))
-            if (!std::filesystem::exists(p.dir.path / ".factoria" / "ai" / "sessions" / (span.value("session", std::string()) + ".jsonl")))
+            if (!std::filesystem::exists(p.dir.path / ".factoria" / "ai" / "sessions" /
+                                         (span.value("session", std::string()) + ".jsonl")))
                 p.session(span.value("session", std::string()), builtin_session(80));
     for (const Json& r : reports) {
         EfficiencyInput in;
@@ -646,12 +691,14 @@ TEST_CASE("efficiency: the good reports in docs/ENGINE_FEEDBACK.md pass the gate
         REQUIRE_MESSAGE(!bad, r.value("title", std::string()) << ": " << (bad ? bad->message : std::string()));
         EfficiencyVerdict v;
         auto refused = check_efficiency_report(p.dir.str(), in, v);
-        CHECK_MESSAGE(!refused, "'" << r.value("title", std::string()) << "' is refused: " << (refused ? refused->message + " " + refused->hint : std::string()));
+        CHECK_MESSAGE(!refused, "'" << r.value("title", std::string()) << "' is refused: "
+                                    << (refused ? refused->message + " " + refused->hint : std::string()));
     }
 }
 
 TEST_CASE("efficiency: the refusals quoted in docs/ENGINE_FEEDBACK.md are the text the gate gives") {
-    const std::string section = without_doc_lines(efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md")));
+    const std::string section = without_doc_lines(
+        efficiency_section(testing::read_text(std::filesystem::path(FA_REPO_ROOT) / "docs" / "ENGINE_FEEDBACK.md")));
     Project p;
     p.session("20261014-153012-main", builtin_session(80));
     auto quoted = [&](const char* code, const EfficiencyInput& in) {
@@ -659,7 +706,8 @@ TEST_CASE("efficiency: the refusals quoted in docs/ENGINE_FEEDBACK.md are the te
         auto r = check_efficiency_report(p.dir.str(), in, v);
         REQUIRE_MESSAGE(r, code << " was not refused");
         CHECK(r->code == code);
-        INFO("the document must quote this refusal; update docs/ENGINE_FEEDBACK.md:\ncode: " << r->code << "\nmessage: " << r->message << "\nhint: " << r->hint);
+        INFO("the document must quote this refusal; update docs/ENGINE_FEEDBACK.md:\ncode: "
+             << r->code << "\nmessage: " << r->message << "\nhint: " << r->hint);
         CHECK(section.find("code: " + r->code + "\n") != std::string::npos);
         CHECK(section.find("message: " + without_doc_lines(r->message) + "\n") != std::string::npos);
         CHECK(section.find("hint: " + without_doc_lines(r->hint) + "\n") != std::string::npos);

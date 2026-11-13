@@ -44,8 +44,10 @@ struct ScopedEnv {
 #ifdef _WIN32
         _putenv_s(name.c_str(), value ? value : "");
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -104,14 +106,17 @@ void spread_step(World& world, const std::vector<Entity>& cells) {
     const std::uint64_t seed = world.rng().next_u32();
     std::vector<Vec3> next(cells.size());
     for (std::size_t i = 0; i < cells.size(); ++i) next[i] = world.get<Transform>(cells[i])->position;
-    auto r = jobs::parallel_for("test.spread", cells.size(), 16, [&](const jobs::Chunk& c) {
-        Rng rng = c.rng();
-        for (std::size_t i = c.begin; i < c.end; ++i) {
-            Vec3& p = next[i];
-            p.x = p.x * 0.99f + rng.range(-1.0f, 1.0f);
-            p.y = p.y * 0.98f + rng.range(-0.5f, 0.5f) + float(i % 7) * 0.01f;
-        }
-    }, seed);
+    auto r = jobs::parallel_for(
+        "test.spread", cells.size(), 16,
+        [&](const jobs::Chunk& c) {
+            Rng rng = c.rng();
+            for (std::size_t i = c.begin; i < c.end; ++i) {
+                Vec3& p = next[i];
+                p.x = p.x * 0.99f + rng.range(-1.0f, 1.0f);
+                p.y = p.y * 0.98f + rng.range(-0.5f, 0.5f) + float(i % 7) * 0.01f;
+            }
+        },
+        seed);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     // Partial sums per chunk, combined in chunk order: the float result does not depend on who ran which chunk.
     auto sum = jobs::parallel_reduce<float>(
@@ -169,10 +174,14 @@ void build_physics_scene(World& w) {
     wall2("wallR2", {450, 300, 0}, {40, 700});
     for (int i = 0; i < 300; ++i) {
         Entity e = w.create("b2_" + std::to_string(i), "b2_" + std::to_string(i));
-        w.add<Transform>(e).position = {-360.0f + 29.0f * float(i % 25) + (i / 25 % 2 ? 6.0f : 0.0f), 80.0f + 27.0f * float(i / 25), 0};
+        w.add<Transform>(e).position = {-360.0f + 29.0f * float(i % 25) + (i / 25 % 2 ? 6.0f : 0.0f),
+                                        80.0f + 27.0f * float(i / 25), 0};
         Collider2D& c = w.add<Collider2D>(e);
-        if (i % 2) { c.shape = ColliderShape::Circle; c.radius = 11.0f; }
-        else c.size = {22, 18};
+        if (i % 2) {
+            c.shape = ColliderShape::Circle;
+            c.radius = 11.0f;
+        } else
+            c.size = {22, 18};
         w.add<RigidBody2D>(e);
     }
     for (int i = 0; i < 20; i += 2) {
@@ -195,11 +204,15 @@ void build_physics_scene(World& w) {
     for (int i = 0; i < 150; ++i) {
         Entity e = w.create("b3_" + std::to_string(i), "b3_" + std::to_string(i));
         Transform& t = w.add<Transform>(e);
-        t.position = {-14.0f + 2.4f * float(i % 12), 1.0f + 1.3f * float(i / 48 * 3 + i / 12 % 3), 1986.0f + 2.4f * float(i / 12 % 12)};
+        t.position = {-14.0f + 2.4f * float(i % 12), 1.0f + 1.3f * float(i / 48 * 3 + i / 12 % 3),
+                      1986.0f + 2.4f * float(i / 12 % 12)};
         t.rotation = {float((i * 29) % 90), float((i * 53) % 90), float((i * 11) % 90)};
         Collider3D& c = w.add<Collider3D>(e);
-        if (i % 3 == 0) { c.shape = ColliderShape3D::Sphere; c.radius = 0.5f; }
-        else c.size = {0.9f, 0.7f, 0.8f};
+        if (i % 3 == 0) {
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.5f;
+        } else
+            c.size = {0.9f, 0.7f, 0.8f};
         w.add<RigidBody3D>(e).angularVelocity = {float(i % 5) * 20.0f, 10.0f, -float(i % 4) * 15.0f};
     }
 }
@@ -457,15 +470,15 @@ TEST_CASE("jobs engine: each engine owns its jobs; shutdown waits for them, a fr
         std::atomic<bool> ownedByEngine{false};  // doctest checks are not thread-safe: the job records, the test checks
         jobs::Handle posted;
         // A command's handler runs with the engine as the current owner: the job and the task it posts are a's.
-        a.commands().add({"test.post", "Queue a job that posts a main-thread task.", "Test only.", Json::object(), false,
-                          "test"},
-                         [&](const Json&) {
-                             posted = jobs::submit("test.post", [&] {
-                                 ownedByEngine.store(jobs::current_owner_name() == "engine");
-                                 jobs::post_main("test.task", [&] { aTasks.fetch_add(1); });
-                             });
-                             return Json::object();
-                         });
+        a.commands().add(
+            {"test.post", "Queue a job that posts a main-thread task.", "Test only.", Json::object(), false, "test"},
+            [&](const Json&) {
+                posted = jobs::submit("test.post", [&] {
+                    ownedByEngine.store(jobs::current_owner_name() == "engine");
+                    jobs::post_main("test.task", [&] { aTasks.fetch_add(1); });
+                });
+                return Json::object();
+            });
         a.commands().add({"test.slow", "Queue a job that takes a while.", "Test only.", Json::object(), false, "test"},
                          [&](const Json&) {
                              jobs::submit("test.slow", [&] {
@@ -507,13 +520,14 @@ TEST_CASE("jobs engine: runtime.jobThreads round-trips through the project file"
     CHECK_FALSE(none.contains("runtime"));
 }
 
-TEST_CASE("jobs engine: a physics-heavy scene gives the same state hash for hundreds of frames, inline and on 1, 3 and 8 threads") {
+TEST_CASE("jobs engine: a physics-heavy scene gives the same state hash for hundreds of frames, inline and on 1, 3 and "
+          "8 threads") {
     ScopedEnv env("FA_JOB_THREADS", nullptr);
     TempProject p("physics");
     const PhysicsRun base = run_physics(p, "inline", 200);
     REQUIRE(base.hashes.size() == 20);
     CHECK(base.hashes.front() != base.hashes.back());  // it moves
-    CHECK(base.queued == 0);                            // inline mode queues nothing
+    CHECK(base.queued == 0);                           // inline mode queues nothing
     if (!jobs::threads_supported()) return;
     for (const char* threads : {"1", "3", "8"}) {
         const PhysicsRun run = run_physics(p, threads, 200);

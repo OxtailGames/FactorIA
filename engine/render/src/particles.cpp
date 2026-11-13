@@ -38,7 +38,8 @@ std::shared_ptr<const std::vector<Color>> style_palette() {
     static Cache* cache = new Cache();  // intentionally leaked, like the emitter states
     std::lock_guard lock(cache->mutex);
     const std::uint64_t version = assets::manifest_version();
-    if (cache->have && cache->version == version && (cache->image.empty() || fs::modified_time(cache->image) == cache->imageTime))
+    if (cache->have && cache->version == version &&
+        (cache->image.empty() || fs::modified_time(cache->image) == cache->imageTime))
         return cache->colors;
     cache->have = true;
     cache->version = version;
@@ -59,15 +60,18 @@ std::shared_ptr<const std::vector<Color>> style_palette() {
             for (std::size_t i = 0; i + 3 < img->rgba.size() && colors->size() < 256; i += 4) {
                 if (img->rgba[i + 3] < 128) continue;
                 const Color c{img->rgba[i] / 255.0f, img->rgba[i + 1] / 255.0f, img->rgba[i + 2] / 255.0f, 1.0f};
-                if (std::none_of(colors->begin(), colors->end(), [&](const Color& o) { return o.r == c.r && o.g == c.g && o.b == c.b; }))
+                if (std::none_of(colors->begin(), colors->end(),
+                                 [&](const Color& o) { return o.r == c.r && o.g == c.g && o.b == c.b; }))
                     colors->push_back(c);
             }
         } else {
             const std::string tag = cache->image + "|" + std::to_string(cache->imageTime);
             if (cache->warned != tag) {
                 cache->warned = tag;
-                FA_WARN("particles", "assets.json style.palette is the image '{}', which cannot be read, so pixel-mode particles without their own "
-                                     "palette use four levels per colour channel: {}",
+                FA_WARN("particles",
+                        "assets.json style.palette is the image '{}', which cannot be read, so pixel-mode particles "
+                        "without their own "
+                        "palette use four levels per colour channel: {}",
                         cache->image, img.error().to_string());
             }
         }
@@ -130,7 +134,8 @@ struct DrawItem {
 };
 
 // Draws one emitter into `list`: a chunk's own list, so this only reads the World and the Frame.
-void draw_emitter(const World& world, const Frame& f, const DrawItem& item, const std::vector<Color>& stylePalette, QuadList& list) {
+void draw_emitter(const World& world, const Frame& f, const DrawItem& item, const std::vector<Color>& stylePalette,
+                  QuadList& list) {
     static const std::vector<Color> kNoPalette;
     const Entity e = item.e;
     const ParticleEmitter& em = *item.em;
@@ -142,7 +147,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
         Mat4 m = world.world_matrix(e);
         Vec3 anchor{};
         if (screen) {
-            const Vec2 a = anchor_point(em.anchor, em.safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
+            const Vec2 a =
+                anchor_point(em.anchor, em.safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
             anchor = Vec3{a.x, a.y, 0.0f};
         }
 
@@ -162,7 +168,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
         std::vector<Vec3> pts, left, right;
         std::vector<float> s;
         std::vector<Color> col;
-        auto ribbon = [&](const ParticleEmitter& c, const ParticleStyle& style, Color head, float alphaMul, bool billboard) {
+        auto ribbon = [&](const ParticleEmitter& c, const ParticleStyle& style, Color head, float alphaMul,
+                          bool billboard) {
             const std::size_t n = pts.size();
             if (n < 2) return;
             left.resize(n);
@@ -177,7 +184,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                 const float w = c.trailWidth * style.trailWidth.eval_or(s[i], 1.0f - s[i]) * 0.5f;
                 left[i] = pts[i] + perp * w;
                 right[i] = pts[i] - perp * w;
-                Color k = style.trailColor.empty() ? Color{head.r, head.g, head.b, head.a * (1.0f - s[i])} : style.trailColor.eval(s[i]);
+                Color k = style.trailColor.empty() ? Color{head.r, head.g, head.b, head.a * (1.0f - s[i])}
+                                                   : style.trailColor.eval(s[i]);
                 k = k * tint;
                 k.a *= alphaMul;
                 col[i] = k;
@@ -187,7 +195,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                 auto v = [&](const Vec3& p, const Color& k) {
                     return Vertex2D{p.x, p.y, p.z, whiteUv.x, whiteUv.y, pack_color(k), float(kModeTextured), 0};
                 };
-                list.quad(v(left[i], col[i]), v(right[i], col[i]), v(right[i + 1], col[i + 1]), v(left[i + 1], col[i + 1]));
+                list.quad(v(left[i], col[i]), v(right[i], col[i]), v(right[i + 1], col[i + 1]),
+                          v(left[i + 1], col[i + 1]));
             }
         };
 
@@ -206,7 +215,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                 s.push_back(0.0f);
                 for (std::size_t i = sim.emitterTrail.size(); i-- > 0;) {
                     pts.push_back(to_draw(sim.emitterTrail[i].pos));
-                    s.push_back(std::clamp((now - sim.emitterTrail[i].time) / std::max(1e-3f, em.trailTime), 0.0f, 1.0f));
+                    s.push_back(
+                        std::clamp((now - sim.emitterTrail[i].time) / std::max(1e-3f, em.trailTime), 0.0f, 1.0f));
                 }
                 list.begin_item(em.layer, depth, white, SamplerKind::Linear, em.blend, clip);
                 ribbon(em, style, em.startColor, 1.0f, billboard);
@@ -255,8 +265,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
             const std::vector<Color>& palette = *palettePtr;
             const float pxSize = std::max(1e-3f, c.pixelSize);
             const float mode = soft ? float(kModeSoft) : float(kModeTextured);
-            const bool plain = !c.alignToVelocity && c.startRotation.x == 0.0f && c.startRotation.y == 0.0f && c.spin.x == 0.0f &&
-                               c.spin.y == 0.0f;
+            const bool plain = !c.alignToVelocity && c.startRotation.x == 0.0f && c.startRotation.y == 0.0f &&
+                               c.spin.x == 0.0f && c.spin.y == 0.0f;
             list.begin_item(c.layer, depth, tex, pixel ? SamplerKind::Nearest : SamplerKind::Linear, c.blend, clip);
             for (const Particle& p : sim.particles) {
                 if (p.group != g) continue;
@@ -275,7 +285,10 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                     pos.x = std::floor(pos.x / pxSize + 0.5f) * pxSize;
                     pos.y = std::floor(pos.y / pxSize + 0.5f) * pxSize;
                 } else {
-                    if (billboard) { r = f.cam.right; u = f.cam.up; }
+                    if (billboard) {
+                        r = f.cam.right;
+                        u = f.cam.up;
+                    }
                     if (!plain) {
                         float deg = p.rotation;
                         if (c.alignToVelocity) {
@@ -285,7 +298,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                         }
                         float sn, cs;
                         det::sin_cos(radians(deg), sn, cs);
-                        const Vec3 r0 = r, u0 = u;  // counter-clockwise on screen (u already points down the y-down screen)
+                        const Vec3 r0 = r,
+                                   u0 = u;  // counter-clockwise on screen (u already points down the y-down screen)
                         r = r0 * cs + u0 * sn;
                         u = u0 * cs - r0 * sn;
                     }
@@ -340,7 +354,8 @@ void gather_particles(World& world, Frame& f) {
             item.groupTex[std::size_t(g)] = f.assets->white();
             if (sim.live(g) <= 0) continue;  // nothing of this group is drawn: nothing to look up
             if (!c.texture.empty() && !c.pixelMode) item.groupTex[std::size_t(g)] = f.assets->texture(c.texture);
-            if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette) frameStylePalette = style_palette();
+            if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette)
+                frameStylePalette = style_palette();
         }
         f.stats->particles += int(sim.particles.size());
         weights.push_back(sim.particles.size() + kEmitterWeight);

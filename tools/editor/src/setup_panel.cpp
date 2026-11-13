@@ -123,7 +123,8 @@ void Editor::poll_setup() {
     }
 
     if (auto done = setupJob_.take_result()) {
-        const int level = done->ok ? (done->report.warnings.empty() ? 0 : 1) : (done->cancelled || done->licenseRequired ? 1 : 2);
+        const int level =
+            done->ok ? (done->report.warnings.empty() ? 0 : 1) : (done->cancelled || done->licenseRequired ? 1 : 2);
         notify(setup_summary(*done), level);
         if (done->licenseRequired && done->options.component == "android") {
             // The install refused: the license was not accepted (it changed, or the status was stale). Ask again.
@@ -147,7 +148,8 @@ void Editor::poll_setup() {
 
     // What the windows that show the status need: fresh while one of them is open, never while an install changes the folders.
     const bool wanted = showSetup_ || showExport_ || showPlatformSettings_;
-    if (!setupJob_.running() && !setupStatus_.refreshing() && (setupRefreshAgain_ || (wanted && setupStatus_.stale(time_, 20.0)))) {
+    if (!setupJob_.running() && !setupStatus_.refreshing() &&
+        (setupRefreshAgain_ || (wanted && setupStatus_.stale(time_, 20.0)))) {
         setupRefreshAgain_ = false;
         setupStatus_.refresh(make_setup_context(), time_);
     }
@@ -182,8 +184,8 @@ void Editor::draw_setup_window() {
     if (!showSetup_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(800, 700)), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (setupFocus_) {
         ImGui::SetNextWindowFocus();
         setupFocus_ = false;
@@ -196,9 +198,12 @@ void Editor::draw_setup_window() {
     ImGui::PushTextWrapPos(0);
     const SetupStatus& status = setupStatus_.status();
 
-    note("An export needs a few things that are not part of FactorIA: the Android build tools, the players of the other platforms, CMake and "
-         "Xcode. Each button installs one of them. Everything goes into one folder of yours (no administrator password, no PATH, no "
-         "registry), each download is checked against its publisher's checksum, and nothing is downloaded until you press a button.");
+    note("An export needs a few things that are not part of FactorIA: the Android build tools, the players of the "
+         "other platforms, CMake and "
+         "Xcode. Each button installs one of them. Everything goes into one folder of yours (no administrator "
+         "password, no PATH, no "
+         "registry), each download is checked against its publisher's checksum, and nothing is downloaded until you "
+         "press a button.");
     if (setupStatus_.has()) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("Installed into");
@@ -212,7 +217,8 @@ void Editor::draw_setup_window() {
             if (std::string why = open_in_file_manager(status.home); !why.empty()) notify(why, 1);
         ImGui::EndDisabled();
         at_track("setup:show-folder", homeExists);
-        tip(homeExists ? "Opens the folder in the file manager." : "Nothing is installed yet: the first install creates it.");
+        tip(homeExists ? "Opens the folder in the file manager."
+                       : "Nothing is installed yet: the first install creates it.");
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(busy || setupStatus_.refreshing());
@@ -269,13 +275,16 @@ void Editor::draw_setup_window() {
         const SetupInstallOptions o = setupJob_.options();
         const int dots = int(std::fmod(time_ * 3.0, 4.0));
         const std::string what = setup_what(o.component, o.platforms);
-        if (setupJob_.cancelling()) ImGui::Text("Cancelling the setup of %s%.*s", what.c_str(), dots, "...");
-        else ImGui::Text("Setting up %s%.*s", what.c_str(), dots, "...");
+        if (setupJob_.cancelling())
+            ImGui::Text("Cancelling the setup of %s%.*s", what.c_str(), dots, "...");
+        else
+            ImGui::Text("Setting up %s%.*s", what.c_str(), dots, "...");
         const double fraction = setupJob_.fraction();
         char overlay[16] = {};
         if (fraction >= 0.0) std::snprintf(overlay, sizeof overlay, "%d%%", int(fraction * 100.0 + 0.5));
         // A known percentage fills the bar; between downloads (unpacking, looking something up) it keeps moving.
-        ImGui::ProgressBar(fraction >= 0.0 ? float(fraction) : float(-1.0 * ImGui::GetTime()), ImVec2(-FLT_MIN, 0), fraction >= 0.0 ? overlay : "working...");
+        ImGui::ProgressBar(fraction >= 0.0 ? float(fraction) : float(-1.0 * ImGui::GetTime()), ImVec2(-FLT_MIN, 0),
+                           fraction >= 0.0 ? overlay : "working...");
         at_track("setup:progress");
         const std::string line = setupJob_.progress_line();
         if (!line.empty()) ImGui::TextWrapped("%s", line.c_str());
@@ -297,31 +306,37 @@ void Editor::draw_setup_window() {
         }
         at_track("setup:log");
     } else if (!setupLast_) {
-        ImGui::TextDisabled("Press a button above to install it. Its report (what was installed, warnings, next steps) shows here.");
+        ImGui::TextDisabled(
+            "Press a button above to install it. Its report (what was installed, warnings, next steps) shows here.");
     } else {
         const SetupOutcome& o = *setupLast_;
         const std::string what = setup_what(o.options.component, o.options.platforms);
         if (o.ok) {
             ImGui::TextColored(kReady, "%s", setup_summary(o).c_str());
             for (const SetupStep& s : o.report.steps) {
-                ImGui::BulletText("%s: %s%s%s", s.title.c_str(), s.outcome.c_str(), s.detail.empty() ? "" : " - ", s.detail.c_str());
+                ImGui::BulletText("%s: %s%s%s", s.title.c_str(), s.outcome.c_str(), s.detail.empty() ? "" : " - ",
+                                  s.detail.c_str());
             }
-            for (const auto& [key, value] : o.report.paths) ImGui::TextDisabled("%s: %s", path_label(key).c_str(), value.c_str());
+            for (const auto& [key, value] : o.report.paths)
+                ImGui::TextDisabled("%s: %s", path_label(key).c_str(), value.c_str());
             for (const std::string& w : o.report.warnings) wrapped(kWarn, w);
             if (!o.report.nextSteps.empty()) {
                 ImGui::Spacing();
                 ImGui::TextUnformatted("Next steps");
-                for (size_t i = 0; i < o.report.nextSteps.size(); ++i) ImGui::TextWrapped("%zu. %s", i + 1, o.report.nextSteps[i].c_str());
+                for (size_t i = 0; i < o.report.nextSteps.size(); ++i)
+                    ImGui::TextWrapped("%zu. %s", i + 1, o.report.nextSteps[i].c_str());
             }
         } else if (o.cancelled) {
             wrapped(kWarn, "Setup of " + what + " cancelled. Nothing was installed by it.");
         } else if (o.licenseRequired) {
-            wrapped(kWarn, "The Android SDK license has to be accepted before anything is downloaded. Press Install again to read it.");
+            wrapped(kWarn, "The Android SDK license has to be accepted before anything is downloaded. Press Install "
+                           "again to read it.");
         } else {
             wrapped(kFailed, "Setup of " + what + " failed: " + o.error);
             if (!o.hint.empty()) note("How to fix it: " + o.hint);
             for (const SetupStep& s : o.report.steps)
-                ImGui::BulletText("%s: %s%s%s", s.title.c_str(), s.outcome.c_str(), s.detail.empty() ? "" : " - ", s.detail.c_str());
+                ImGui::BulletText("%s: %s%s%s", s.title.c_str(), s.outcome.c_str(), s.detail.empty() ? "" : " - ",
+                                  s.detail.c_str());
         }
         ImGui::Spacing();
         if (ImGui::SmallButton("Copy report")) {
@@ -344,8 +359,8 @@ void Editor::draw_setup_license_dialog() {
     }
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(780, 600)), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     if (!setupLicenseOpen_) {  // the license turned out not to be needed, or the install started
         ImGui::CloseCurrentPopup();
@@ -355,8 +370,10 @@ void Editor::draw_setup_license_dialog() {
     using State = SetupLicenseLoad::State;
     const State state = setupLicense_.state();
     ImGui::PushTextWrapPos(0);
-    note("Installing the Android build tools downloads Google's Android SDK, which comes with a license agreement between you and Google. "
-         "Read it, and accept it to continue. FactorIA never accepts it for you, and nothing is downloaded before you do.");
+    note("Installing the Android build tools downloads Google's Android SDK, which comes with a license agreement "
+         "between you and Google. "
+         "Read it, and accept it to continue. FactorIA never accepts it for you, and nothing is downloaded before you "
+         "do.");
     ImGui::Spacing();
 
     const float footerH = ImGui::GetFrameHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y * 3;
@@ -372,8 +389,10 @@ void Editor::draw_setup_license_dialog() {
                 if (end == std::string::npos) end = lic.text.size();
                 std::string paragraph = lic.text.substr(pos, end - pos);
                 while (!paragraph.empty() && paragraph.back() == '\r') paragraph.pop_back();
-                if (paragraph.empty()) ImGui::Spacing();
-                else ImGui::TextWrapped("%s", paragraph.c_str());
+                if (paragraph.empty())
+                    ImGui::Spacing();
+                else
+                    ImGui::TextWrapped("%s", paragraph.c_str());
                 if (end == lic.text.size()) break;
                 pos = end + 1;
             }

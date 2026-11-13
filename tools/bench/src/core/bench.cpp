@@ -29,7 +29,8 @@ double quantile_of(std::vector<double> v, double q) {
     if (v.empty()) return 0.0;
     std::sort(v.begin(), v.end());
     // Nearest rank: the smallest value with at least a share q of the values at or below it.
-    const std::size_t rank = static_cast<std::size_t>(std::ceil(std::clamp(q, 0.0, 1.0) * static_cast<double>(v.size())));
+    const std::size_t rank =
+        static_cast<std::size_t>(std::ceil(std::clamp(q, 0.0, 1.0) * static_cast<double>(v.size())));
     return v[std::clamp<std::size_t>(rank, 1, v.size()) - 1];
 }
 
@@ -138,15 +139,13 @@ Json entry_json(const Measurement& m) {
 }
 }  // namespace
 
-Json measurements_to_json(const std::string& runner, const std::string& jobs, int repeats, const std::vector<Measurement>& ms) {
+Json measurements_to_json(const std::string& runner, const std::string& jobs, int repeats,
+                          const std::vector<Measurement>& ms) {
     Json benchmarks = Json::object();
     for (const Measurement& m : ms)
         if (!m.skipped) benchmarks[m.name] = entry_json(m);
-    return Json::object({{"format", kFormat},
-                         {"runner", runner},
-                         {"jobs", jobs},
-                         {"repeats", repeats},
-                         {"benchmarks", benchmarks}});
+    return Json::object(
+        {{"format", kFormat}, {"runner", runner}, {"jobs", jobs}, {"repeats", repeats}, {"benchmarks", benchmarks}});
 }
 
 Json merge_baseline(const Json* existing, const std::string& runner, const std::string& jobs, int repeats,
@@ -187,15 +186,18 @@ const char* verdict_name(Verdict v) {
 
 std::string update_hint(const std::string& runner, const std::string& baselineFile) {
     const std::string file = baselineFile.empty() ? "tools/bench/baselines/" + runner + ".json" : baselineFile;
-    return "On a machine of the kind '" + runner + "' (same OS, compiler and a Release build) run `fa_bench --update-baseline` "
-           "(add --filter <name> for one benchmark); it rewrites " + file + ". For the CI runner, run the CI workflow by hand "
+    return "On a machine of the kind '" + runner +
+           "' (same OS, compiler and a Release build) run `fa_bench --update-baseline` "
+           "(add --filter <name> for one benchmark); it rewrites " +
+           file +
+           ". For the CI runner, run the CI workflow by hand "
            "with benchBaselines ticked and copy the file from the artifact of the 'Bench baselines' job. A baseline is "
            "refreshed because the code got slower or faster on purpose, never only to make a check pass "
            "(docs/PERFORMANCE.md, \"Microbenchmarks\").";
 }
 
-Comparison compare_one(const std::string& name, const Json* baselineEntry, const Measurement& m, const Thresholds& defaults,
-                       const std::string& runner, const std::string& baselineFile) {
+Comparison compare_one(const std::string& name, const Json* baselineEntry, const Measurement& m,
+                       const Thresholds& defaults, const std::string& runner, const std::string& baselineFile) {
     Comparison c;
     c.name = name;
     c.measuredMs = m.medianMs;
@@ -207,13 +209,15 @@ Comparison compare_one(const std::string& name, const Json* baselineEntry, const
     if (!baselineEntry || !baselineEntry->is_object() || !baselineEntry->contains("medianMs") ||
         !(*baselineEntry)["medianMs"].is_number() || (*baselineEntry)["medianMs"].get<double>() <= 0.0) {
         c.verdict = Verdict::NoBaseline;
-        c.message = "Benchmark '" + name + "' has no baseline for runner '" + runner + "' (measured " + ms_text(m.medianMs) +
-                    "), so nothing was compared. " + update_hint(runner, baselineFile);
+        c.message = "Benchmark '" + name + "' has no baseline for runner '" + runner + "' (measured " +
+                    ms_text(m.medianMs) + "), so nothing was compared. " + update_hint(runner, baselineFile);
         return c;
     }
     Thresholds t = defaults;
-    if (auto it = baselineEntry->find("warnRatio"); it != baselineEntry->end() && it->is_number()) t.warnRatio = it->get<double>();
-    if (auto it = baselineEntry->find("failRatio"); it != baselineEntry->end() && it->is_number()) t.failRatio = it->get<double>();
+    if (auto it = baselineEntry->find("warnRatio"); it != baselineEntry->end() && it->is_number())
+        t.warnRatio = it->get<double>();
+    if (auto it = baselineEntry->find("failRatio"); it != baselineEntry->end() && it->is_number())
+        t.failRatio = it->get<double>();
     if (t.failRatio < t.warnRatio) t.failRatio = t.warnRatio;
     const double base = (*baselineEntry)["medianMs"].get<double>();
     c.baselineMs = base;
@@ -225,8 +229,10 @@ Comparison compare_one(const std::string& name, const Json* baselineEntry, const
     if (m.medianMs > c.failLimitMs) {
         c.verdict = Verdict::Fail;
         c.message = "Benchmark '" + name + "' got slower: " + where + "; it fails over " + ms_text(c.failLimitMs) +
-                    " (x" + fmt("%.2f", t.failRatio) + "). If the engine really got slower, find the change that did it; if this "
-                    "is the price of something you meant, refresh the baseline. " + update_hint(runner, baselineFile);
+                    " (x" + fmt("%.2f", t.failRatio) +
+                    "). If the engine really got slower, find the change that did it; if this "
+                    "is the price of something you meant, refresh the baseline. " +
+                    update_hint(runner, baselineFile);
     } else if (m.medianMs > c.warnLimitMs) {
         c.verdict = Verdict::Warn;
         c.message = "Benchmark '" + name + "' is inside the warning band: " + where + "; it warns over " +
@@ -234,8 +240,10 @@ Comparison compare_one(const std::string& name, const Json* baselineEntry, const
                     ". A noisy machine does this; if it repeats on every run, the code got slower.";
     } else if (m.medianMs < base * 0.7 && base - m.medianMs > t.warnSlackMs) {
         c.verdict = Verdict::Faster;
-        c.message = "Benchmark '" + name + "' got faster: " + where + ". Refresh the baseline to keep the gain from slipping "
-                    "back unnoticed. " + update_hint(runner, baselineFile);
+        c.message = "Benchmark '" + name + "' got faster: " + where +
+                    ". Refresh the baseline to keep the gain from slipping "
+                    "back unnoticed. " +
+                    update_hint(runner, baselineFile);
     } else {
         c.verdict = Verdict::Pass;
         c.message = "Benchmark '" + name + "': " + where + ".";
@@ -259,8 +267,8 @@ std::string CompareReport::text() const {
     out += baselineFile.empty() ? "no baseline file" : baselineFile;
     out += " (runner " + runner + "): " + std::to_string(count(Verdict::Pass)) + " pass, " +
            std::to_string(count(Verdict::Faster)) + " faster, " + std::to_string(count(Verdict::Warn)) + " warn, " +
-           std::to_string(count(Verdict::Fail)) + " fail, " + std::to_string(count(Verdict::NoBaseline)) + " without baseline, " +
-           std::to_string(count(Verdict::Skipped)) + " skipped.\n";
+           std::to_string(count(Verdict::Fail)) + " fail, " + std::to_string(count(Verdict::NoBaseline)) +
+           " without baseline, " + std::to_string(count(Verdict::Skipped)) + " skipped.\n";
     if (!note.empty()) out += note + "\n";
     std::string missing;
     for (const Comparison& c : rows) {
@@ -299,11 +307,14 @@ CompareReport compare_all(const std::string& runner, const std::string& baseline
     report.baselineFile = baselineFileName;
     const Json* entries = nullptr;
     if (!baselineFile) {
-        report.note = "There is no baseline file for runner '" + runner + "', so nothing was compared and the numbers of this "
-                      "run are only reported. " + update_hint(runner, baselineFileName);
+        report.note = "There is no baseline file for runner '" + runner +
+                      "', so nothing was compared and the numbers of this "
+                      "run are only reported. " +
+                      update_hint(runner, baselineFileName);
     } else if (!baselineFile->is_object() || baselineFile->value("format", std::string()) != kFormat ||
                !baselineFile->contains("benchmarks") || !(*baselineFile)["benchmarks"].is_object()) {
-        report.note = "The baseline file " + baselineFileName + " is not a '" + kFormat + "' file (it needs \"format\" and a "
+        report.note = "The baseline file " + baselineFileName + " is not a '" + kFormat +
+                      "' file (it needs \"format\" and a "
                       "\"benchmarks\" object), so nothing was compared. Write it with `fa_bench --update-baseline`.";
     } else if (baselineFile->contains("jobs") && (*baselineFile)["jobs"].is_string() &&
                (*baselineFile)["jobs"].get<std::string>() != jobs) {

@@ -109,11 +109,11 @@ const char* kBird = R"({"format":"factoria.model/1","nodes":[
 const char* kTail = R"({"format":"factoria.model/1","nodes":[
   {"op":"box","size":[0.2,0.2,0.4],"position":[0,0.5,0.2],"part":"body"},
   {"op":"box","size":[0.1,0.1,2.0],"position":[0,0.5,-1.0],"part":"tail"}]})";
-const char* kRod = R"({"format":"factoria.model/1","nodes":[{"op":"cylinder","radius":0.1,"height":3,"segments":12,"position":[0,1.5,0]}]})";
+const char* kRod =
+    R"({"format":"factoria.model/1","nodes":[{"op":"cylinder","radius":0.1,"height":3,"segments":12,"position":[0,1.5,0]}]})";
 const char* kBlob = R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[0.6,1.8,0.4],"position":[0,0.9,0]}]})";
 
 }  // namespace
-
 
 TEST_CASE("rig templates: the catalog, the canonical names and the bone counts") {
     std::vector<std::string> names;
@@ -136,14 +136,19 @@ TEST_CASE("rig templates: the catalog, the canonical names and the bone counts")
         return bones.size();
     };
     CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid"})") == 22);
-    CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":5,"neck":2,"tail":3,"toes":false}})") == 1 + 5 + 2 + 1 + 8 + 6 + 3);
+    CHECK(
+        count(
+            R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":5,"neck":2,"tail":3,"toes":false}})") ==
+        1 + 5 + 2 + 1 + 8 + 6 + 3);
     CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"quadruped"})") == 27);
     CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"bird"})") == 25);
-    CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":7}})") == 8);
+    CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":7}})") ==
+          8);
     CHECK(count(R"({"format":"factoria.rig/1","model":"a.model.json","template":"chain"})") == 7);
 
     // the index is there only when a role has more than one bone on a side; the sides are l and r
-    const auto h = rig_template_bones(rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid"})"));
+    const auto h =
+        rig_template_bones(rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid"})"));
     auto has = [&](const char* n) {
         for (const auto& b : h)
             if (b.name == n) return true;
@@ -154,14 +159,17 @@ TEST_CASE("rig templates: the catalog, the canonical names and the bone counts")
     CHECK_FALSE(has("neck_1"));
     CHECK(has("arm_upper_l"));
     CHECK(has("toe_r"));
-    const auto t = rig_template_bones(rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":2}})"));
+    const auto t = rig_template_bones(
+        rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":2}})"));
     CHECK(t.size() == 3);
     CHECK(t[1].name == "tail_1");
 }
 
 TEST_CASE("rig documents: every mistake is listed with a pointer, the fix and a suggestion") {
     std::vector<RigIssue> issues;
-    auto bad = parse_rig_doc(J(R"({"format":"factoria.rig/1","model":"a.glb","template":"humanoyd","options":{"spine":99},"colour":1})"), "t.rig.json", &issues);
+    auto bad = parse_rig_doc(
+        J(R"({"format":"factoria.rig/1","model":"a.glb","template":"humanoyd","options":{"spine":99},"colour":1})"),
+        "t.rig.json", &issues);
     CHECK_FALSE(bad.ok());
     CHECK(issues.size() >= 3);
     auto find = [&](const char* ptr) -> const RigIssue* {
@@ -175,18 +183,23 @@ TEST_CASE("rig documents: every mistake is listed with a pointer, the fix and a 
     CHECK(find("/colour") != nullptr);
 
     issues.clear();
-    auto badOption = parse_rig_doc(J(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":99}})"), "t.rig.json", &issues);
+    auto badOption = parse_rig_doc(
+        J(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":99}})"),
+        "t.rig.json", &issues);
     CHECK_FALSE(badOption.ok());
     REQUIRE(find("/options/spine") != nullptr);
 
     issues.clear();
-    auto badKey = parse_rig_doc(J(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spin":2}})"), "t.rig.json", &issues);
+    auto badKey = parse_rig_doc(
+        J(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spin":2}})"),
+        "t.rig.json", &issues);
     CHECK_FALSE(badKey.ok());
     REQUIRE(find("/options/spin") != nullptr);
     CHECK(find("/options/spin")->hint.find("spine") != std::string::npos);
 
     // checks that need the template: names of bones in parts and landmarks
-    RigDoc d = rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","parts":{"arm_uper_l":["x"]},"landmarks":{"head.tail":[0,2,0],"hand.tail":[1,1,1]}})");
+    RigDoc d = rig(
+        R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","parts":{"arm_uper_l":["x"]},"landmarks":{"head.tail":[0,2,0],"hand.tail":[1,1,1]}})");
     const auto problems = rig_check_doc(d);
     bool sawName = false, sawTail = false;
     for (const RigIssue& i : problems) {
@@ -197,7 +210,8 @@ TEST_CASE("rig documents: every mistake is listed with a pointer, the fix and a 
     CHECK(sawTail);
 
     // a document survives writing and reading
-    RigDoc ok = rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"quadruped","options":{"tail":6},"parts":{"head":["skull"]},"landmarks":{"head":[0,1,1]},"strict":true})");
+    RigDoc ok = rig(
+        R"({"format":"factoria.rig/1","model":"a.model.json","template":"quadruped","options":{"tail":6},"parts":{"head":["skull"]},"landmarks":{"head":[0,1,1]},"strict":true})");
     RigDoc again = rig(dump_json(rig_doc_to_json(ok)).c_str());
     CHECK(dump_json(rig_doc_to_json(again)) == dump_json(rig_doc_to_json(ok)));
     CHECK(again.strict);
@@ -247,30 +261,39 @@ TEST_CASE("rig fit: a humanoid with no parts is estimated and says so; strict re
     CHECK(f.bones[std::size_t(f.find("head"))].tailSource == RigSource::Geometry);
     CHECK(f.bones[std::size_t(f.find("hand_l"))].headSource == RigSource::Proportion);
 
-    const std::string err = error_of(kBlob, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","strict":true})");
+    const std::string err =
+        error_of(kBlob, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","strict":true})");
     CHECK(err.find("strict") != std::string::npos);
     CHECK(err.find("landmarks") != std::string::npos);
 }
 
 TEST_CASE("rig fit: landmarks override the fit, and a wrong name is explained") {
-    const RigFit f = fitted(kPerson, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","landmarks":{"neck":[0,1.6,0.05],"head.tail":[0,2,0.02]}})");
+    const RigFit f = fitted(
+        kPerson,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","landmarks":{"neck":[0,1.6,0.05],"head.tail":[0,2,0.02]}})");
     joint(f, "neck", 0, 1.6f, 0.05f);
     tail_of(f, "head", 0, 2.0f, 0.02f);
     CHECK(f.bones[std::size_t(f.find("neck"))].headSource == RigSource::Override);
     CHECK(f.overrides == 2);
     CHECK(f.bones[std::size_t(f.find("head"))].parts.size() == 1);
 
-    const std::string err = error_of(kPerson, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","landmarks":{"nek":[0,1.6,0]}})");
+    const std::string err = error_of(
+        kPerson,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","landmarks":{"nek":[0,1.6,0]}})");
     CHECK(err.find("/landmarks/nek") != std::string::npos);
     CHECK(err.find("neck") != std::string::npos);
 }
 
 TEST_CASE("rig fit: `parts` names the model parts of a bone, a missing part is a did-you-mean") {
     // the head bone is told to follow the neck and head parts together: its tail is still the top of the head
-    const RigFit f = fitted(kPerson, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","parts":{"head":["neck","head"]}})");
+    const RigFit f = fitted(
+        kPerson,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","parts":{"head":["neck","head"]}})");
     tail_of(f, "head", 0, 1.895f, 0.02f);
     joint(f, "head", 0, 1.55f, 0.01f, 0.1f);
-    const std::string err = error_of(kPerson, R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","parts":{"head":["hed"]}})");
+    const std::string err = error_of(
+        kPerson,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"humanoid","parts":{"head":["hed"]}})");
     CHECK(err.find("hed") != std::string::npos);
     CHECK(err.find("head") != std::string::npos);
 }
@@ -292,7 +315,9 @@ TEST_CASE("rig fit: a quadruped looks towards +Z, its legs and tail follow their
     joint(f, "tail_1", 0, 0.85f, -0.5f);
     tail_of(f, "tail_4", 0, 0.85f, -1.0f);
     // fewer tail bones are shorter segments of the same tail
-    const RigFit s = fitted(kDog, R"({"format":"factoria.rig/1","model":"p.model.json","template":"quadruped","options":{"tail":2,"neck":1,"spine":1}})");
+    const RigFit s = fitted(
+        kDog,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"quadruped","options":{"tail":2,"neck":1,"spine":1}})");
     tail_of(s, "tail_2", 0, 0.85f, -1.0f);
     joint(s, "tail_2", 0, 0.85f, -0.75f);
     CHECK(s.bones.size() == 1 + 1 + 1 + 1 + 8 + 8 + 2);
@@ -308,12 +333,14 @@ TEST_CASE("rig fit: a bird picks the pose of its wings") {
     joint(f, "tail_1", 0, 0.6f, -0.225f);
     tail_of(f, "tail_2", 0, 0.6f, -0.575f);
     joint(f, "thigh_r", -0.07f, 0.392f, 0);
-    const RigFit g = fitted(kBird, R"({"format":"factoria.rig/1","model":"p.model.json","template":"bird","options":{"pose":"spread"}})");
+    const RigFit g = fitted(
+        kBird, R"({"format":"factoria.rig/1","model":"p.model.json","template":"bird","options":{"pose":"spread"}})");
     joint(g, "hand_l", 0.96f, 0.7f, 0);
 }
 
 TEST_CASE("rig fit: a tail and a chain split a stretch of the model into equal segments") {
-    const RigFit t = fitted(kTail, R"({"format":"factoria.rig/1","model":"p.model.json","template":"tail","options":{"segments":4}})");
+    const RigFit t = fitted(
+        kTail, R"({"format":"factoria.rig/1","model":"p.model.json","template":"tail","options":{"segments":4}})");
     CHECK(t.bones.size() == 5);
     joint(t, "root", 0, 0.5f, 0);
     joint(t, "tail_1", 0, 0.5f, 0);
@@ -321,13 +348,16 @@ TEST_CASE("rig fit: a tail and a chain split a stretch of the model into equal s
     tail_of(t, "tail_4", 0, 0.5f, -2.0f);
     CHECK(mentions(t.warnings, "body"));  // the body part belongs to no bone and the fit says so
 
-    const RigFit c = fitted(kRod, R"({"format":"factoria.rig/1","model":"p.model.json","template":"chain","options":{"segments":3}})");
+    const RigFit c = fitted(
+        kRod, R"({"format":"factoria.rig/1","model":"p.model.json","template":"chain","options":{"segments":3}})");
     joint(c, "chain_1", 0, 3, 0);
     joint(c, "chain_2", 0, 2, 0);
     tail_of(c, "chain_3", 0, 0, 0);
     CHECK(c.bones[1].headSource == RigSource::Geometry);
     CHECK(c.estimated == 0);
-    const RigFit x = fitted(kRod, R"({"format":"factoria.rig/1","model":"p.model.json","template":"chain","options":{"segments":3,"axis":"+y"},"strict":true})");
+    const RigFit x = fitted(
+        kRod,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"chain","options":{"segments":3,"axis":"+y"},"strict":true})");
     joint(x, "chain_1", 0, 0, 0);
     tail_of(x, "chain_3", 0, 3, 0);
 }
@@ -347,7 +377,9 @@ TEST_CASE("rig fit: a generic rig places its own bones on the parts they move") 
     CHECK(f.bones[std::size_t(f.find("hips"))].role == "hips");
     joint(f, "root", 0, 0, 0);
 
-    const std::string err = error_of(kPerson, R"({"format":"factoria.rig/1","model":"p.model.json","template":"generic","bones":[{"name":"hips","part":"pelvs"}]})");
+    const std::string err = error_of(
+        kPerson,
+        R"({"format":"factoria.rig/1","model":"p.model.json","template":"generic","bones":[{"name":"hips","part":"pelvs"}]})");
     CHECK(err.find("pelvs") != std::string::npos);
     CHECK(err.find("pelvis") != std::string::npos);
 }
@@ -424,7 +456,8 @@ TEST_CASE("rig glb: the skeleton is a glTF skin that loads back and rests in the
     const auto palette = skin_palette(*sk, rest_pose(*sk), 0);
     REQUIRE(palette.size() == skin.joints.size());
     for (const Mat4& m : palette)
-        for (int k = 0; k < 16; ++k) CHECK(m.m[k] == doctest::Approx((k % 5 == 0) ? 1.0f : 0.0f).scale(1).epsilon(1e-4));
+        for (int k = 0; k < 16; ++k)
+            CHECK(m.m[k] == doctest::Approx((k % 5 == 0) ? 1.0f : 0.0f).scale(1).epsilon(1e-4));
     const auto bind = rig_rigid_binding(*fit, b.data);
     CHECK(bind.size() == b.data.positions.size() / 3);
     // the legs follow leg bones, the head follows the head
@@ -435,9 +468,15 @@ TEST_CASE("rig glb: the skeleton is a glTF skin that loads back and rests in the
     }
 }
 
-TEST_CASE("rig: no template reaches the renderer's 64 joints, and a generic rig over the limit is refused with the fix") {
-    CHECK(rig_template_bones(rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":5,"neck":3,"tail":12}})")).size() == 38);
-    CHECK(rig_template_bones(rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":32}})")).size() == 33);
+TEST_CASE(
+    "rig: no template reaches the renderer's 64 joints, and a generic rig over the limit is refused with the fix") {
+    CHECK(
+        rig_template_bones(
+            rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"humanoid","options":{"spine":5,"neck":3,"tail":12}})"))
+            .size() == 38);
+    CHECK(rig_template_bones(
+              rig(R"({"format":"factoria.rig/1","model":"a.model.json","template":"tail","options":{"segments":32}})"))
+              .size() == 33);
 
     Json bones = Json::array();
     for (int i = 0; i < 64; ++i) bones.push_back(Json::object({{"name", "b" + std::to_string(i)}}));

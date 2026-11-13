@@ -10,7 +10,8 @@
 
 namespace fa::editor {
 
-CommandResult Editor::edit_command(const std::string& key, const std::string& name, const Json& args, std::string* error) {
+CommandResult Editor::edit_command(const std::string& key, const std::string& name, const Json& args,
+                                   std::string* error) {
     CommandResult r;
     if (!engine_) {
         r.error = Json::object({{"message", "No project is open."}});
@@ -20,13 +21,15 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
     lastEditRecorded_ = false;
     // Record mode (Animation panel): a change of an animatable field of a part of the animated entity becomes a key at the
     // playhead; the scene keeps its rest value.
-    if (play_ == PlayState::Edit && name == "scene.set_component" && anim_recording() && anim_record_edit(key, args, r, error)) {
+    if (play_ == PlayState::Edit && name == "scene.set_component" && anim_recording() &&
+        anim_record_edit(key, args, r, error)) {
         lastEditRecorded_ = r.ok;
         return r;
     }
     const CommandInfo* ci = engine_->commands().info(name);
     const bool snapshot = play_ == PlayState::Edit && ci && !ci->readOnly && command_edits_scene(name, args);
-    if (snapshot && anim_.posed) {  // the undo step and the file must hold rest values, not the pose; the panel poses again
+    if (snapshot &&
+        anim_.posed) {  // the undo step and the file must hold rest values, not the pose; the panel poses again
         anim_unpose();
         anim_.dirtyPose = true;
     }
@@ -70,7 +73,10 @@ void Editor::hierarchy_spawn(const std::string& parentId, const std::string& nam
     if (!parentId.empty()) args["parent"] = parentId;
     std::string err;
     CommandResult r = edit_command("hier:spawn:" + std::to_string(uiFrame_), "scene.spawn", args, &err);
-    if (!r.ok) { notify("Could not create the entity: " + err, 2); return; }
+    if (!r.ok) {
+        notify("Could not create the entity: " + err, 2);
+        return;
+    }
     select_id(r.result.value("id", std::string()));
 }
 
@@ -81,14 +87,21 @@ void Editor::hierarchy_duplicate(Entity e) {
     if (Entity p = w.parent(e)) args["parent"] = w.id_of(p);
     std::string err;
     CommandResult r = edit_command("hier:duplicate:" + std::to_string(uiFrame_), "scene.spawn", args, &err);
-    if (!r.ok) { notify("Could not duplicate the entity: " + err, 2); return; }
+    if (!r.ok) {
+        notify("Could not duplicate the entity: " + err, 2);
+        return;
+    }
     select_id(r.result.value("id", std::string()));
 }
 
 void Editor::hierarchy_destroy(Entity e) {
     std::string err;
-    CommandResult r = edit_command("hier:destroy:" + std::to_string(uiFrame_), "scene.destroy", Json::object({{"id", world().id_of(e)}}), &err);
-    if (!r.ok) { notify("Could not delete the entity: " + err, 2); return; }
+    CommandResult r = edit_command("hier:destroy:" + std::to_string(uiFrame_), "scene.destroy",
+                                   Json::object({{"id", world().id_of(e)}}), &err);
+    if (!r.ok) {
+        notify("Could not delete the entity: " + err, 2);
+        return;
+    }
     if (selected().is_null()) select_id("");  // the selection was inside what was destroyed
 }
 
@@ -108,7 +121,10 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
     if (!filtered && !hierRevealId_.empty() && id != hierRevealId_) {
         // The selected entity may be deep: open the chain of its parents so it is on screen.
         for (Entity p = w.parent(w.find_by_id(hierRevealId_)); !p.is_null(); p = w.parent(p))
-            if (p == e) { ImGui::SetNextItemOpen(true, ImGuiCond_Always); break; }
+            if (p == e) {
+                ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+                break;
+            }
     }
 
     ImGui::PushID(id.c_str());
@@ -138,8 +154,10 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
             std::string err;
             CommandResult r = edit_command("hier:parent:" + std::to_string(uiFrame_), "scene.set_parent",
                                            Json::object({{"id", dragged}, {"parent", id}}), &err);
-            if (!r.ok) notify("Could not move '" + dragged + "' under '" + id + "': " + err, 2);
-            else hierRevealId_ = dragged;
+            if (!r.ok)
+                notify("Could not move '" + dragged + "' under '" + id + "': " + err, 2);
+            else
+                hierRevealId_ = dragged;
         }
         ImGui::EndDragDropTarget();
     }
@@ -212,7 +230,8 @@ void Editor::draw_hierarchy_panel() {
             if (w.alive(r)) draw_hierarchy_node(r, hierFilter_);
     } else {
         for (Entity e : w.entities())
-            if (w.alive(e) && tree_matches(hierFilter_, w.info(e).name, w.id_of(e))) draw_hierarchy_node(e, hierFilter_);
+            if (w.alive(e) && tree_matches(hierFilter_, w.info(e).name, w.id_of(e)))
+                draw_hierarchy_node(e, hierFilter_);
     }
 
     // The space under the tree: drop an entity here to move it to the top level; right-click to create one; click to deselect.
@@ -225,8 +244,10 @@ void Editor::draw_hierarchy_panel() {
             std::string err;
             CommandResult r = edit_command("hier:parent:" + std::to_string(uiFrame_), "scene.set_parent",
                                            Json::object({{"id", dragged}, {"parent", nullptr}}), &err);
-            if (!r.ok) notify("Could not move '" + dragged + "' to the top level: " + err, 2);
-            else hierRevealId_ = dragged;
+            if (!r.ok)
+                notify("Could not move '" + dragged + "' to the top level: " + err, 2);
+            else
+                hierRevealId_ = dragged;
         }
         ImGui::EndDragDropTarget();
     }
@@ -251,7 +272,8 @@ void Editor::draw_hierarchy_panel() {
     if (ImGui::BeginPopup("Rename entity")) {
         ImGui::TextDisabled("Name of '%s'", hierRenameId_.c_str());
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        const bool enter = ImGui::InputText("##rename", &hierRenameText_, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        const bool enter = ImGui::InputText("##rename", &hierRenameText_,
+                                            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         at_track("tree:rename:text");
         if (enter) {
             std::string err;

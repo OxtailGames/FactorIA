@@ -62,17 +62,21 @@ void Editor::at_section_R3(AtScript& at) {
             step(1, [this] {
                 atWaitCount_ = 0;
                 atWaitUntil_ = [this] {
-                    return levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed;
+                    return levelGen_.state() == LevelGenSession::State::Ready ||
+                           levelGen_.state() == LevelGenSession::State::Failed;
                 };
             });
             step(1, [this] {
-                at_check(levelGen_.state() == LevelGenSession::State::Ready, "the generation ended with a level (" + levelGen_.error() + ")");
+                at_check(levelGen_.state() == LevelGenSession::State::Ready,
+                         "the generation ended with a level (" + levelGen_.error() + ")");
             });
         };
         step(2, [this] {
-            run_console_line(
-                "scene.import_ascii {\"rows\":[\"............\",\"..####..##..\",\"..#..#..##..\",\"..#..#......\",\"..####..#...\",\"..........#.\","
-                "\"....#.......\",\"............\"],\"legend\":{\"#\":0},\"entity\":\"at_sample\",\"tilemap\":{\"tileSize\":[16,16],\"solidTiles\":[0]}}");
+            run_console_line("scene.import_ascii "
+                             "{\"rows\":[\"............\",\"..####..##..\",\"..#..#..##..\",\"..#..#......\",\"..####.."
+                             "#...\",\"..........#.\","
+                             "\"....#.......\",\"............\"],\"legend\":{\"#\":0},\"entity\":\"at_sample\","
+                             "\"tilemap\":{\"tileSize\":[16,16],\"solidTiles\":[0]}}");
         });
         click("menu:view");
         step(3, [] {});
@@ -88,33 +92,42 @@ void Editor::at_section_R3(AtScript& at) {
             levelGenOpt_.n = 2;
             select_id("at_sample");
         });
-        step(3, [this] { at_check(at_enabled("levelgen:use-selected") && at_shown("levelgen:use-selected"), "the sample button is on and on screen with a Tilemap selected"); });
+        step(3, [this] {
+            at_check(at_enabled("levelgen:use-selected") && at_shown("levelgen:use-selected"),
+                     "the sample button is on and on screen with a Tilemap selected");
+        });
         click("levelgen:use-selected");
         step(3, [this] {
-            at_check(levelGenOpt_.sampleEntity == "at_sample", "Use the selected Tilemap makes the selected level the sample (" + levelGenOpt_.sampleEntity + ")");
+            at_check(levelGenOpt_.sampleEntity == "at_sample",
+                     "Use the selected Tilemap makes the selected level the sample (" + levelGenOpt_.sampleEntity +
+                         ")");
         });
         click("levelgen:generate");
         wait_ready();
         step(3, [this, ps] {
             const LevelGenPreview& p = levelGen_.preview();
-            at_check(p.valid && p.width == 20 && p.height == 12 && p.rows.size() == 12, "Generate fills the preview: a 20 x 12 level");
+            at_check(p.valid && p.width == 20 && p.height == 12 && p.rows.size() == 12,
+                     "Generate fills the preview: a 20 x 12 level");
             at_check(p.cells.size() == 240, "...with a table of its 240 cells, built once when the generation ended");
             at_check(p.seed == 1, "...for the seed in the window");
             ps->first = p.rows;
             ps->firstSeed = p.seed;
-            at_check(at_shown("levelgen:stats") && at_shown("levelgen:preview"), "...the numbers and the plan are on screen");
+            at_check(at_shown("levelgen:stats") && at_shown("levelgen:preview"),
+                     "...the numbers and the plan are on screen");
         });
         snap("editor_level_generator.png");
         click("levelgen:next");
         wait_ready();
         step(3, [this] {
-            at_check(levelGenOpt_.seed == 2 && levelGen_.preview().seed == 2, "Next seed generates the level of seed 2 at once");
+            at_check(levelGenOpt_.seed == 2 && levelGen_.preview().seed == 2,
+                     "Next seed generates the level of seed 2 at once");
             at_check(levelGen_.tries().size() >= 2, "...and the history keeps both seeds");
         });
         click("levelgen:prev");
         wait_ready();
         step(3, [this, ps] {
-            at_check(levelGen_.preview().seed == ps->firstSeed && levelGen_.preview().rows == ps->first, "Previous seed brings the first level back, row by row");
+            at_check(levelGen_.preview().seed == ps->firstSeed && levelGen_.preview().rows == ps->first,
+                     "Previous seed brings the first level back, row by row");
             ps->undo = undo_depth();
         });
         click("levelgen:keep");
@@ -122,7 +135,8 @@ void Editor::at_section_R3(AtScript& at) {
             Entity kept = world().find_by_id("at_generated");
             at_check(!kept.is_null(), "Keep builds the level as the entity at_generated");
             const Tilemap* tm = kept.is_null() ? nullptr : world().get<Tilemap>(kept);
-            at_check(tm && tm->width == 20 && tm->height == 12 && tm->tileSize.x == 16.0f, "...a 20 x 12 Tilemap with the sample's tile size");
+            at_check(tm && tm->width == 20 && tm->height == 12 && tm->tileSize.x == 16.0f,
+                     "...a 20 x 12 Tilemap with the sample's tile size");
             at_check(tm && tm->solidTiles.is_array() && tm->solidTiles.size() == 1, "...and the sample's solid tiles");
             at_check(undo_depth() == ps->undo + 1 && dirty(), "...as one undo step, and the scene is marked changed");
             at_check(selected_id() == "at_generated", "...selected");
@@ -134,7 +148,8 @@ void Editor::at_section_R3(AtScript& at) {
             const Json doc = parsed.ok() ? parsed.value() : Json();
             at_check(doc.is_object() && doc.contains("rows") && doc["rows"].size() == 12 && doc.contains("legend"),
                      "Save level file writes the rows and the legend to levels/at-generated.json");
-            at_check(!levelGenMessageBad_ && levelGenMessage_.find("at-generated.json") != std::string::npos, "...and says so");
+            at_check(!levelGenMessageBad_ && levelGenMessage_.find("at-generated.json") != std::string::npos,
+                     "...and says so");
             at_check(!at_shown("levelgen:replace"), "...a new file is written without asking");
             undo();
             at_check(world().find_by_id("at_generated").is_null(), "Ctrl+Z takes the kept level away");
@@ -145,13 +160,16 @@ void Editor::at_section_R3(AtScript& at) {
         step(3, [] {});
         click("levelgen:save");
         step(4, [this, project_file, ps] {
-            at_check(at_shown("levelgen:replace") && at_shown("levelgen:replace-cancel"), "Saving over an existing file opens the Replace popup");
-            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and has not touched the file yet");
+            at_check(at_shown("levelgen:replace") && at_shown("levelgen:replace-cancel"),
+                     "Saving over an existing file opens the Replace popup");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved,
+                     "...and has not touched the file yet");
         });
         click("levelgen:replace-cancel");
         step(4, [this, project_file, ps] {
             at_check(!at_shown("levelgen:replace"), "Cancel closes the popup");
-            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved, "...and leaves the file as it was");
+            at_check(read_file(project_file("levels/at-generated.json")) == ps->saved,
+                     "...and leaves the file as it was");
         });
         click("levelgen:save");
         step(4, [this] { at_check(at_shown("levelgen:replace"), "Save asks again"); });
@@ -160,7 +178,8 @@ void Editor::at_section_R3(AtScript& at) {
             const std::string now = read_file(project_file("levels/at-generated.json"));
             at_check(now != ps->saved, "Replace writes the new level over the file");
             Result<Json> parsed = parse_json(now, "levels/at-generated.json");
-            at_check(parsed.ok() && parsed.value().contains("rows") && parsed.value()["rows"] == Json(levelGen_.preview().rows),
+            at_check(parsed.ok() && parsed.value().contains("rows") &&
+                         parsed.value()["rows"] == Json(levelGen_.preview().rows),
                      "...the rows shown in the window");
             at_check(!levelGenMessageBad_ && levelGenMessage_.find("Wrote") == 0, "...and says so");
             at_check(!at_shown("levelgen:replace"), "...and the popup is gone");
@@ -185,15 +204,16 @@ void Editor::at_section_A3(AtScript& at) {
     // Stop is the real button of a run (a stand-in AiRun, running, with no agent thread): its cancel flag ends the wait.
     {
         struct A3 {
-            ShareEnv env;                       // the scratch user folder; outlives the thread (the guard keeps a pointer to it)
+            ShareEnv env;  // the scratch user folder; outlives the thread (the guard keeps a pointer to it)
             std::thread th;
             std::mutex mu;
             std::string outcome;
             std::atomic<bool> done{false};
-            CancelFlag stop{false};             // what the thread's call waits on: set from the run's cancel flag, or when the section ends
+            CancelFlag stop{
+                false};  // what the thread's call waits on: set from the run's cancel flag, or when the section ends
             std::string chat, project, prompt;
             std::size_t items = 0;
-            ~A3() {                             // a section that aborts must not leave the thread waiting for a card nobody answers
+            ~A3() {  // a section that aborts must not leave the thread waiting for a card nobody answers
                 stop = true;
                 if (th.joinable()) th.join();
             }
@@ -208,7 +228,8 @@ void Editor::at_section_A3(AtScript& at) {
             x->th = std::thread([this, x, usd] {
                 std::string outcome;
                 try {
-                    ai::AssetRunScope scope(x->chat, [this](const ai::AssetApprovalRequest& r) { return aiApprovals_.ask(r); }, &x->env);
+                    ai::AssetRunScope scope(
+                        x->chat, [this](const ai::AssetApprovalRequest& r) { return aiApprovals_.ask(r); }, &x->env);
                     ai::Limits limits;
                     ai::AssetCall c;
                     c.command = "assets.generate_image";
@@ -261,11 +282,14 @@ void Editor::at_section_A3(AtScript& at) {
         };
         step(2, [this, x] {
             const std::string home = atOutDir_ + "/asset_home";
-            x->env.env = [home](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : ""; };
+            x->env.env = [home](const std::string& name) -> std::string {
+                return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? home : "";
+            };
             x->chat = chat_.current().id;
             x->project = projectDir_;
             // a long prompt: the card must keep its buttons in a narrow window
-            x->prompt = "a ruby, pixel art, 32x32, red with a white glint, on a transparent background, in the style of the house palette; " +
+            x->prompt = "a ruby, pixel art, 32x32, red with a white glint, on a transparent background, in the style "
+                        "of the house palette; " +
                         std::string(300, 'x') + " (end of a long prompt)";
             x->items = chat_.current().items.size();
             ai::asset_run_begin(x->chat);
@@ -275,7 +299,8 @@ void Editor::at_section_A3(AtScript& at) {
         step(3, [call] { call(1.20); });
         wait_card();
         step(4, [this, x, outcome] {
-            at_check(outcome().empty() && !x->done, "the paid call above the ask limit waits for the user (it has not been made)");
+            at_check(outcome().empty() && !x->done,
+                     "the paid call above the ask limit waits for the user (it has not been made)");
             at_check(aiApprovals_.waiting_for(x->chat), "...and the chat has a card");
             at_check(at_visible("ai:approve:yes") && at_visible("ai:approve:all") && at_visible("ai:approve:cancel"),
                      "the card has Approve, Approve all for this run and Cancel");
@@ -286,7 +311,8 @@ void Editor::at_section_A3(AtScript& at) {
                 at_check(t.title.find("$1.20") != std::string::npos && t.title.find("4 x image") != std::string::npos &&
                              t.title.find("openai") != std::string::npos,
                          "the card names the estimate, the count and the provider: " + t.title);
-                at_check(t.estimate.find("prices checked 2026-11-06") != std::string::npos, "...and when the prices were checked: " + t.estimate);
+                at_check(t.estimate.find("prices checked 2026-11-06") != std::string::npos,
+                         "...and when the prices were checked: " + t.estimate);
             }
             at_check(ai::asset_run_spent(x->chat) == 0.0, "nothing is counted as spent while the card waits");
         });
@@ -296,8 +322,10 @@ void Editor::at_section_A3(AtScript& at) {
         step(3, [this, x, outcome] {
             at_check(outcome() == "go", "Approve lets the call go ahead: " + outcome());
             at_check(!aiApprovals_.waiting_for(x->chat), "...and the card is gone");
-            at_check(std::abs(ai::asset_run_spent(x->chat) - 1.20) < 0.001, "...and the estimate is counted into the run");
-            at_check(chat_.current().items.size() > x->items && chat_.current().items.back().text.find("You approved") == 0,
+            at_check(std::abs(ai::asset_run_spent(x->chat) - 1.20) < 0.001,
+                     "...and the estimate is counted into the run");
+            at_check(chat_.current().items.size() > x->items &&
+                         chat_.current().items.back().text.find("You approved") == 0,
                      "...and the chat says what the user approved");
             at_check(!ai::asset_run_approves_all(x->chat), "Approve alone does not approve the next call");
         });
@@ -313,8 +341,10 @@ void Editor::at_section_A3(AtScript& at) {
         step(2, [call] { call(1.20); });
         wait_done();
         step(3, [this, x, outcome] {
-            at_check(outcome() == "go" && !aiApprovals_.waiting_for(x->chat), "the next paid call of the run goes without a card: " + outcome());
-            at_check(std::abs(ai::asset_run_spent(x->chat) - 3.60) < 0.001, "...and still counts into the run (3 x $1.20)");
+            at_check(outcome() == "go" && !aiApprovals_.waiting_for(x->chat),
+                     "the next paid call of the run goes without a card: " + outcome());
+            at_check(std::abs(ai::asset_run_spent(x->chat) - 3.60) < 0.001,
+                     "...and still counts into the run (3 x $1.20)");
         });
         // ---- Cancel: the call is declined, nothing is spent
         step(2, [x, call] {
@@ -326,14 +356,18 @@ void Editor::at_section_A3(AtScript& at) {
         wait_done();
         step(3, [this, x, outcome] {
             at_check(outcome() == "asset_declined", "Cancel declines the call (asset_declined): " + outcome());
-            at_check(ai::asset_run_spent(x->chat) == 0.0 && !ai::asset_run_approves_all(x->chat), "...and nothing is spent");
+            at_check(ai::asset_run_spent(x->chat) == 0.0 && !ai::asset_run_approves_all(x->chat),
+                     "...and nothing is spent");
             at_check(chat_.current().items.back().text.find("You declined") == 0, "...and the chat says so");
         });
         // ---- Stop while a card waits: the Stop button of the run ends the wait as "cancelled" (not "declined"), the card goes
         step(2, [this, x, call] {
-            auto run = std::make_unique<AiRun>(x->chat);   // a run with no agent thread: it only has to be running for Stop
+            auto run =
+                std::make_unique<AiRun>(x->chat);  // a run with no agent thread: it only has to be running for Stop
             run->running = true;
-            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count();
             run->lastActivityMs = nowMs;
             run->startMs = nowMs;
             aiRuns_.push_back(std::move(run));
@@ -341,13 +375,15 @@ void Editor::at_section_A3(AtScript& at) {
         });
         wait_card();
         step(3, [this, x] {
-            at_check(ai_run_of(x->chat) && !ai_run_of(x->chat)->cancel.load(), "a run is going and not stopped before the Stop button");
+            at_check(ai_run_of(x->chat) && !ai_run_of(x->chat)->cancel.load(),
+                     "a run is going and not stopped before the Stop button");
             at_check(at_shown("ai:stop"), "the run's Stop button is on screen while its card waits");
         });
         click("ai:stop");
         wait_done();
         step(3, [this, x, outcome] {
-            at_check(ai_run_of(x->chat) && ai_run_of(x->chat)->cancel.load(), "the Stop button set the run's cancel flag");
+            at_check(ai_run_of(x->chat) && ai_run_of(x->chat)->cancel.load(),
+                     "the Stop button set the run's cancel flag");
             at_check(outcome() == "cancelled" && !aiApprovals_.waiting_for(x->chat),
                      "stopping the run ends the wait as cancelled (not declined) and the card goes: " + outcome());
             at_check(ai::asset_run_spent(x->chat) == 0.0, "...and nothing is spent");
@@ -369,7 +405,8 @@ void Editor::at_section_A3(AtScript& at) {
             ai::asset_run_begin(x->chat);
             std::error_code ec;
             stdfs::remove_all(atOutDir_ + "/asset_home", ec);
-            if (chat_.current().id == x->chat) chat_.current().items.resize(std::min(chat_.current().items.size(), x->items));
+            if (chat_.current().id == x->chat)
+                chat_.current().items.resize(std::min(chat_.current().items.size(), x->items));
         });
     }
 }
@@ -409,8 +446,13 @@ void Editor::at_section_T2(AtScript& at) {
             const std::string dir = atOutDir_ + "/phone-player";
             std::error_code ec;
             stdfs::create_directories(dir, ec);
-            { std::ofstream(dir + "/factoria_player.js", std::ios::binary) << "// stand-in glue\n"; }
-            { std::ofstream(dir + "/factoria_player.wasm", std::ios::binary) << std::string("\0asm\1\0\0\0", 8) << std::string(512, 'w'); }
+            {
+                std::ofstream(dir + "/factoria_player.js", std::ios::binary) << "// stand-in glue\n";
+            }
+            {
+                std::ofstream(dir + "/factoria_player.wasm", std::ios::binary)
+                    << std::string("\0asm\1\0\0\0", 8) << std::string(512, 'w');
+            }
             phonePlayer_ = atOutDir_ + "/no-web-player-here";
             phoneAllowMismatch_ = true;
         });
@@ -420,13 +462,16 @@ void Editor::at_section_T2(AtScript& at) {
         step(4, [this] {
             at_check(showPhone_, "File > Play on Phone... opens the Play on phone window");
             at_check(at_shown("phone:start") && at_enabled("phone:start"), "...with a Start button on screen");
-            at_check(!at_visible("phone:stop") && !at_visible("phone:qr"), "...and no Stop button or code before it starts");
+            at_check(!at_visible("phone:stop") && !at_visible("phone:qr"),
+                     "...and no Stop button or code before it starts");
             at_check(at_visible("phone:help"), "...and the checklist for a phone that cannot connect");
             const std::vector<std::string>& help = phone_help_lines();
             auto mentions = [&help](const char* word) {
-                return std::any_of(help.begin(), help.end(), [word](const std::string& l) { return l.find(word) != std::string::npos; });
+                return std::any_of(help.begin(), help.end(),
+                                   [word](const std::string& l) { return l.find(word) != std::string::npos; });
             };
-            at_check(mentions("same Wi-Fi") && mentions("firewall") && mentions("Windows") && mentions("macOS") && mentions("Guest Wi-Fi") + mentions("guest Wi-Fi") > 0,
+            at_check(mentions("same Wi-Fi") && mentions("firewall") && mentions("Windows") && mentions("macOS") &&
+                         mentions("Guest Wi-Fi") + mentions("guest Wi-Fi") > 0,
                      "...which names the same Wi-Fi, the firewall prompt on Windows and macOS and guest networks");
         });
         click("phone:start");
@@ -436,48 +481,65 @@ void Editor::at_section_T2(AtScript& at) {
         });
         step(3, [this] {
             at_check(!web_server().running(), "Start without a web player does not start a server");
-            at_check(phoneError_.find("not found") != std::string::npos, "...and the window says why (" + phoneError_ + ")");
-            at_check(phoneHint_.find("factoria_player") != std::string::npos, "...and how to fix it (" + phoneHint_ + ")");
+            at_check(phoneError_.find("not found") != std::string::npos,
+                     "...and the window says why (" + phoneError_ + ")");
+            at_check(phoneHint_.find("factoria_player") != std::string::npos,
+                     "...and how to fix it (" + phoneHint_ + ")");
             at_check(at_shown("phone:start"), "...Start stays available");
             phonePlayer_ = atOutDir_ + "/phone-player";
         });
         click("phone:start");
         step(1, [this] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [] { return web_server().status().state == "ready" || web_server().status().state == "failed"; };
+            atWaitUntil_ = [] {
+                return web_server().status().state == "ready" || web_server().status().state == "failed";
+            };
         });
         step(4, [this, ps] {
             const ServeWebStatus st = web_server().status();
-            at_check(st.running && st.state == "ready", "Start with a player exports the web build and serves it (" + st.state + " " + st.error + ")");
-            at_check(phoneError_.empty() && at_shown("phone:stop") && !at_visible("phone:start"), "...the window offers Stop now");
-            at_check(st.lan && st.localUrl.rfind("http://127.0.0.1:", 0) == 0, "...for the Wi-Fi, with a token in the address");
+            at_check(st.running && st.state == "ready",
+                     "Start with a player exports the web build and serves it (" + st.state + " " + st.error + ")");
+            at_check(phoneError_.empty() && at_shown("phone:stop") && !at_visible("phone:start"),
+                     "...the window offers Stop now");
+            at_check(st.lan && st.localUrl.rfind("http://127.0.0.1:", 0) == 0,
+                     "...for the Wi-Fi, with a token in the address");
             ps->port = st.port;
             ps->base = st.localUrl.substr(st.localUrl.find('/', 8));
             ps->version = st.version;
             if (!st.lanUrls.empty()) {
                 const std::string url = st.lanUrls.front();
                 auto expect = qr_encode(url, QrEcc::Medium);
-                at_check(phoneQr_.has_value() && expect.ok() && phoneQr_->size == expect->size && phoneQr_->modules == expect->modules && phoneQrUrl_ == url,
+                at_check(phoneQr_.has_value() && expect.ok() && phoneQr_->size == expect->size &&
+                             phoneQr_->modules == expect->modules && phoneQrUrl_ == url,
                          "...the LAN address is drawn as its QR code");
-                at_check(at_shown("phone:qr") && at_shown("phone:url") && at_shown("phone:copy"), "...with the address and Copy address on screen");
-                at_check(phoneQr_.has_value() && phoneQr_->version <= 6, "...a code a phone camera reads at a glance (version " + std::to_string(phoneQr_ ? phoneQr_->version : 0) + ")");
+                at_check(at_shown("phone:qr") && at_shown("phone:url") && at_shown("phone:copy"),
+                         "...with the address and Copy address on screen");
+                at_check(phoneQr_.has_value() && phoneQr_->version <= 6,
+                         "...a code a phone camera reads at a glance (version " +
+                             std::to_string(phoneQr_ ? phoneQr_->version : 0) + ")");
             } else {
-                at_check(at_visible("phone:no-lan") && !phoneQr_.has_value(), "No Wi-Fi address on this computer: the window says so instead of drawing a code");
+                at_check(at_visible("phone:no-lan") && !phoneQr_.has_value(),
+                         "No Wi-Fi address on this computer: the window says so instead of drawing a code");
             }
-            at_check(at_shown("phone:open") && at_visible("phone:state"), "...Open on this computer and the state line are there");
+            at_check(at_shown("phone:open") && at_visible("phone:state"),
+                     "...Open on this computer and the state line are there");
         });
         snap("editor_play_phone.png");
         // The phone's page: it asks for its files and POSTs what it logs.
         step(3, [this, ps, http] {
             const std::string page = http(ps->port, "GET " + ps->base + " HTTP/1.1\r\nHost: x\r\n\r\n");
-            at_check(page.rfind("HTTP/1.1 200", 0) == 0 && page.find("__fa/client.js") != std::string::npos, "The address serves the page with the reload and log script");
-            at_check(http(ps->port, "GET /wrong-token/ HTTP/1.1\r\n\r\n").rfind("HTTP/1.1 404", 0) == 0, "...and a path without the token is a 404");
+            at_check(page.rfind("HTTP/1.1 200", 0) == 0 && page.find("__fa/client.js") != std::string::npos,
+                     "The address serves the page with the reload and log script");
+            at_check(http(ps->port, "GET /wrong-token/ HTTP/1.1\r\n\r\n").rfind("HTTP/1.1 404", 0) == 0,
+                     "...and a path without the token is a 404");
             const std::string body = R"([{"l":"error","t":"T2 phone says hello"}])";
-            const std::string reply = http(ps->port, "POST " + ps->base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+            const std::string reply = http(ps->port, "POST " + ps->base + "__fa/log HTTP/1.1\r\nContent-Length: " +
+                                                         std::to_string(body.size()) + "\r\n\r\n" + body);
             at_check(reply.rfind("HTTP/1.1 204", 0) == 0, "A log line POSTed like the phone's page does is accepted");
             bool found = false;
             for (const LogEntry& e : recent_logs(200, LogLevel::Trace))
-                if (e.category == "phone" && e.message == "T2 phone says hello" && e.level == LogLevel::Error) found = true;
+                if (e.category == "phone" && e.message == "T2 phone says hello" && e.level == LogLevel::Error)
+                    found = true;
             at_check(found, "...and comes back to the console as an error of category \"phone\"");
             at_check(web_server().status().phoneLogLines >= 1, "...and is counted in the window");
         });
@@ -485,17 +547,22 @@ void Editor::at_section_T2(AtScript& at) {
         step(2, [this] {
             std::error_code ec;
             stdfs::create_directories(projectDir_ + "/assets", ec);
-            std::ofstream(projectDir_ + "/assets/t2-live.txt", std::ios::binary) << "changed while the phone page is open";
+            std::ofstream(projectDir_ + "/assets/t2-live.txt", std::ios::binary)
+                << "changed while the phone page is open";
             web_server().refresh();
         });
         step(1, [this, ps] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [ps] { return web_server().status().version > ps->version && web_server().status().state == "ready"; };
+            atWaitUntil_ = [ps] {
+                return web_server().status().version > ps->version && web_server().status().state == "ready";
+            };
         });
         step(3, [this, ps, http] {
-            at_check(web_server().status().version > ps->version, "A new file in the project exports the web build again (the page reloads on the new version)");
+            at_check(web_server().status().version > ps->version,
+                     "A new file in the project exports the web build again (the page reloads on the new version)");
             const std::string pak = http(ps->port, "GET " + ps->base + "game.pak HTTP/1.1\r\n\r\n");
-            at_check(pak.rfind("HTTP/1.1 200", 0) == 0 && pak.find("application/octet-stream") != std::string::npos, "...and the new build is served");
+            at_check(pak.rfind("HTTP/1.1 200", 0) == 0 && pak.find("application/octet-stream") != std::string::npos,
+                     "...and the new build is served");
         });
         click("phone:stop");
         step(1, [this] {
@@ -505,7 +572,8 @@ void Editor::at_section_T2(AtScript& at) {
         });
         step(4, [this, ps, http] {
             at_check(!web_server().running(), "Stop ends the server");
-            at_check(http(ps->port, "GET " + ps->base + " HTTP/1.1\r\n\r\n").empty(), "...its port refuses connections");
+            at_check(http(ps->port, "GET " + ps->base + " HTTP/1.1\r\n\r\n").empty(),
+                     "...its port refuses connections");
             // The check above is a blocking request (seconds on a loaded VM, none of them drawn): the window shows the
             // new state a few frames after the server stopped, so wait for the frames instead of counting them.
             atWaitCount_ = 0;
@@ -556,7 +624,9 @@ void Editor::at_section_S3(AtScript& at) {
             setenv(name, value.c_str(), 1);
 #endif
         };
-        auto sessions_dir = [project_file](const std::string& name) { return project_file(".factoria/sessions/" + name); };
+        auto sessions_dir = [project_file](const std::string& name) {
+            return project_file(".factoria/sessions/" + name);
+        };
         auto row_of = [this](const std::string& name) -> const PlaySessionRow* {
             for (const PlaySessionRow& r : playSessionRows_)
                 if (r.name == name) return &r;
@@ -564,15 +634,19 @@ void Editor::at_section_S3(AtScript& at) {
         };
         step(2, [this, as, sessions_dir] {
             as->exe = !auto_play_executable().empty();
-            std::error_code rm;  // the sessions of an earlier section (or run) of this temp project are not part of what is counted below
+            std::error_code
+                rm;  // the sessions of an earlier section (or run) of this temp project are not part of what is counted below
             stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"), rm);
             stdfs::create_directories(stdfs::path(sessions_dir(as->person)));
             stdfs::create_directories(stdfs::path(sessions_dir(as->bot)));
-            write_file(sessions_dir(as->person) + "/session.json",
-                       R"({"scene":"scenes/main.scene.json","durationSec":4.0,"frames":240,"marks":[{"n":1,"frame":10,"time":0.2,"note":"fake person mark","screenshot":""}],"logs":[]})");
-            write_file(sessions_dir(as->bot) + "/session.json",
-                       R"({"source":"auto","scene":"scenes/main.scene.json","durationSec":30.0,"frames":1800,"ended":"stuck","endedWhy":"fake bot stuck","score":null,"phases":[{"name":"main","kind":"scene","scene":"scenes/main.scene.json","frame":0,"time":0.0,"screenshot":""}],"marks":[{"n":1,"frame":900,"time":15.0,"kind":"stuck","note":"fake bot problem","screenshot":""}],"logs":[],"notes":["fake note"],"auto":{"bot":"explorer","replay":"factoria player --replay x"}})");
-            autoPlaySeconds_ = 5;  // a real run below plays the least the window allows, with no pictures: no graphics device in the child
+            write_file(
+                sessions_dir(as->person) + "/session.json",
+                R"({"scene":"scenes/main.scene.json","durationSec":4.0,"frames":240,"marks":[{"n":1,"frame":10,"time":0.2,"note":"fake person mark","screenshot":""}],"logs":[]})");
+            write_file(
+                sessions_dir(as->bot) + "/session.json",
+                R"({"source":"auto","scene":"scenes/main.scene.json","durationSec":30.0,"frames":1800,"ended":"stuck","endedWhy":"fake bot stuck","score":null,"phases":[{"name":"main","kind":"scene","scene":"scenes/main.scene.json","frame":0,"time":0.0,"screenshot":""}],"marks":[{"n":1,"frame":900,"time":15.0,"kind":"stuck","note":"fake bot problem","screenshot":""}],"logs":[],"notes":["fake note"],"auto":{"bot":"explorer","replay":"factoria player --replay x"}})");
+            autoPlaySeconds_ =
+                5;  // a real run below plays the least the window allows, with no pictures: no graphics device in the child
             autoPlayPictures_ = false;
         });
         click("menu:play");
@@ -583,17 +657,23 @@ void Editor::at_section_S3(AtScript& at) {
             const PlaySessionRow* p = row_of(as->person);
             const PlaySessionRow* b = row_of(as->bot);
             at_check(p && !p->isAuto && p->marks == 1, "the list has the session you played, not marked as the AI's");
-            at_check(b && b->isAuto && b->ended == "stuck" && b->marks == 1, "...and the AI's bot session, marked as auto with how it ended");
-            at_check(b && play_session_label(*b).find("AI") != std::string::npos && p && play_session_label(*p).find("you") != std::string::npos,
+            at_check(b && b->isAuto && b->ended == "stuck" && b->marks == 1,
+                     "...and the AI's bot session, marked as auto with how it ended");
+            at_check(b && play_session_label(*b).find("AI") != std::string::npos && p &&
+                         play_session_label(*p).find("you") != std::string::npos,
                      "...the rows say who played");
-            at_check(at_shown("playsessions:row:" + as->person) && at_shown("playsessions:row:" + as->bot) && at_shown("playsessions:run"),
+            at_check(at_shown("playsessions:row:" + as->person) && at_shown("playsessions:row:" + as->bot) &&
+                         at_shown("playsessions:run"),
                      "...the rows and the Let the AI play button are on screen");
         });
         click("playsessions:row:" + as->bot);
         step(3, [this, as] {
             at_check(playSessionsPick_ == as->bot, "a click on a row picks it");
-            at_check(at_shown("playsessions:ended") && at_shown("playsessions:attach"), "...its report shows how the bot's run ended, and the Attach button");
-            at_check(playSessionDoc_.is_object() && playSessionDoc_.value("endedWhy", std::string()) == "fake bot stuck", "...read from its session.json");
+            at_check(at_shown("playsessions:ended") && at_shown("playsessions:attach"),
+                     "...its report shows how the bot's run ended, and the Attach button");
+            at_check(playSessionDoc_.is_object() &&
+                         playSessionDoc_.value("endedWhy", std::string()) == "fake bot stuck",
+                     "...read from its session.json");
         });
         snap("editor_play_sessions.png");
         // ---- "Attach last play session" is the person's, even when the bot's session is newer
@@ -602,8 +682,10 @@ void Editor::at_section_S3(AtScript& at) {
             chat_.current().input.clear();
             ai_attach_last_session();
             const std::string in = chat_.current().input;
-            at_check(in.find("fake person mark") != std::string::npos, "Attach last play session puts in the session you played...");
-            at_check(in.find("play.auto") == std::string::npos && in.find("bot") == std::string::npos, "...not the newer one of the AI's bot");
+            at_check(in.find("fake person mark") != std::string::npos,
+                     "Attach last play session puts in the session you played...");
+            at_check(in.find("play.auto") == std::string::npos && in.find("bot") == std::string::npos,
+                     "...not the newer one of the AI's bot");
             chat_.current().input.clear();
             std::error_code ec;
             stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->person), ec);
@@ -616,7 +698,8 @@ void Editor::at_section_S3(AtScript& at) {
             at_check(in.find("played with play.auto, not one the user played") != std::string::npos,
                      "with none of your own, the bot's session is attached and the text says whose play it was");
             at_check(in.find("fake bot problem") != std::string::npos, "...with its problems");
-            at_check(!toasts_.empty() && toasts_.back().text.find("no play session of your own") != std::string::npos, "...and a toast says so");
+            at_check(!toasts_.empty() && toasts_.back().text.find("no play session of your own") != std::string::npos,
+                     "...and a toast says so");
             chat_.current().input.clear();
             std::error_code ec;
             stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions/" + as->bot), ec);
@@ -627,7 +710,8 @@ void Editor::at_section_S3(AtScript& at) {
         auto sessions_count = [this] {
             std::error_code ec;
             std::size_t n = 0;
-            for (const auto& e : stdfs::directory_iterator(stdfs::path(projectDir_ + "/.factoria/sessions"), ec)) n += e.is_directory(ec) ? 1 : 0;
+            for (const auto& e : stdfs::directory_iterator(stdfs::path(projectDir_ + "/.factoria/sessions"), ec))
+                n += e.is_directory(ec) ? 1 : 0;
             return n;
         };
         auto wait_run_ends = [this, &step] {
@@ -645,26 +729,33 @@ void Editor::at_section_S3(AtScript& at) {
         click("playsessions:run");
         // A quick run (a tiny project gets stuck at once) can end between two frames: then it is neither running nor collected yet
         // (poll_auto_play takes the result on a later frame), so a finished result that waits counts as started too.
-        step(1, [this, as] { as->sawRunning = autoPlay_.running() || autoPlay_.has_result() || autoPlayLast_.has_value(); });
+        step(1, [this, as] {
+            as->sawRunning = autoPlay_.running() || autoPlay_.has_result() || autoPlayLast_.has_value();
+        });
         wait_run_ends();
         step(4, [this, as, row_of] {
             at_check(as->sawRunning, "Let the AI play starts the run at once (the button does not wait for the bot)");
             at_check(autoPlayLast_.has_value(), "the run ended");
             if (!autoPlayLast_) return;
             if (as->exe) {
-                at_check(autoPlayLast_->ok, "...with a session (" + autoPlayLast_->error + " " + autoPlayLast_->hint + ")");
+                at_check(autoPlayLast_->ok,
+                         "...with a session (" + autoPlayLast_->error + " " + autoPlayLast_->hint + ")");
                 at_check(atFramesDrawn_ - as->frames0 >= 5, "the window kept drawing frames while the bot played");
                 as->realSession = autoPlayLast_->session;
-                at_check(!as->realSession.empty() && playSessionsPick_ == as->realSession, "the finished run's session is picked in the list");
+                at_check(!as->realSession.empty() && playSessionsPick_ == as->realSession,
+                         "the finished run's session is picked in the list");
                 const PlaySessionRow* r = row_of(as->realSession);
                 at_check(r && r->isAuto, "...marked as the AI's");
                 at_check(r && !r->ended.empty(), "...with how the run ended (" + (r ? r->ended : std::string()) + ")");
                 at_check(at_shown("playsessions:ended"), "...and its report is open");
-                at_check(std::any_of(toasts_.begin(), toasts_.end(), [](const Toast& t) { return t.text.find("The AI played") == 0; }),
+                at_check(std::any_of(toasts_.begin(), toasts_.end(),
+                                     [](const Toast& t) { return t.text.find("The AI played") == 0; }),
                          "...and a toast says how it went");
             } else {
-                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the run's error path was tested instead");
-                at_check(!autoPlayLast_->ok && autoPlayLast_->error.find("not found") != std::string::npos && !autoPlayLast_->hint.empty(),
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the run's error path was "
+                                 "tested instead");
+                at_check(!autoPlayLast_->ok && autoPlayLast_->error.find("not found") != std::string::npos &&
+                             !autoPlayLast_->hint.empty(),
                          "with no factoria tool the run says what is missing and how to fix it");
                 at_check(at_shown("playsessions:error"), "...under the button");
             }
@@ -701,19 +792,23 @@ void Editor::at_section_S3(AtScript& at) {
         step(3, [this, as] {
             as->sawRunning = autoPlay_.running();
             at_check(as->sawRunning, "the run with the sleeping stand-in is going");
-            at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"), "while the bot plays the window shows its progress and Cancel");
+            at_check(at_shown("playsessions:cancel") && at_shown("playsessions:running"),
+                     "while the bot plays the window shows its progress and Cancel");
         });
         // The first run's toast ("Open report") is drawn at the top in the middle of the window and takes clicks: on a 1024 px
         // wide screen (the macOS runner) it lies over Cancel, and a toast with a button stays while the mouse is over it.
         step(1, [this] { toasts_.clear(); });
         step(2, [this] {
-            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
+            if (autoPlay_.running() && at_shown("playsessions:cancel"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("playsessions:cancel"));
         });
         step(2, [this] {
-            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("playsessions:cancel"));
+            if (autoPlay_.running() && at_shown("playsessions:cancel"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("playsessions:cancel"));
         });
         step(4, [this] {
-            if (autoPlay_.running() && at_shown("playsessions:cancel")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("playsessions:cancel"));
+            if (autoPlay_.running() && at_shown("playsessions:cancel"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("playsessions:cancel"));
         });
         wait_run_ends();
         step(3, [this, as, sessions_count] {
@@ -735,7 +830,8 @@ void Editor::at_section_S3(AtScript& at) {
 #endif
             std::error_code ec;
             if (!as->sleeper.empty()) stdfs::remove(stdfs::path(as->sleeper), ec);
-            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"), ec);  // none of ours is left for the sections after this one
+            stdfs::remove_all(stdfs::path(projectDir_ + "/.factoria/sessions"),
+                              ec);  // none of ours is left for the sections after this one
             toasts_.clear();
         });
     }
@@ -754,7 +850,8 @@ void Editor::at_section_R4(AtScript& at) {
         struct Rv {
             std::string sheet, seedsSheet;
             bool exe = false;
-            std::string candSheet, cand2, manifestBefore;   // the sheet of asset candidates, the second candidate's bytes, assets.json
+            std::string candSheet, cand2,
+                manifestBefore;  // the sheet of asset candidates, the second candidate's bytes, assets.json
             bool hadManifest = false;
         };
         auto rv = std::make_shared<Rv>();
@@ -770,12 +867,14 @@ void Editor::at_section_R4(AtScript& at) {
                 });
         };
         auto sheet_ready = [this, rv] {
-            return review_.sheet && review_.sheetId == rv->sheet && !review_.sheetLoading && review_.textures.count("sheet") &&
+            return review_.sheet && review_.sheetId == rv->sheet && !review_.sheetLoading &&
+                   review_.textures.count("sheet") &&
                    (review_.textures.at("sheet").tex.view || !review_.textures.at("sheet").error.empty());
         };
         step(2, [this, rv, project_file] {
             rv->exe = !factoria_executable().empty();
-            std::error_code ec;   // the sheets (and candidates) of an earlier run of this temp project are not part of this one
+            std::error_code
+                ec;  // the sheets (and candidates) of an earlier run of this temp project are not part of this one
             stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
             stdfs::remove_all(stdfs::path(project_file(".factoria/assets/candidates")), ec);
             stdfs::remove_all(stdfs::path(project_file("assets/at_review")), ec);
@@ -784,32 +883,50 @@ void Editor::at_section_R4(AtScript& at) {
                 img.width = 48;
                 img.height = 32;
                 img.rgba.assign(48 * 32 * 4, 255);
-                for (std::size_t p = 0; p < img.rgba.size(); p += 4) img.rgba[p + std::size_t(i % 3)] = std::uint8_t(60 * i);
-                at_check(save_png(img, project_file("art/at_review_" + std::to_string(i) + ".png")).ok(), "a candidate picture is written");
+                for (std::size_t p = 0; p < img.rgba.size(); p += 4)
+                    img.rgba[p + std::size_t(i % 3)] = std::uint8_t(60 * i);
+                at_check(save_png(img, project_file("art/at_review_" + std::to_string(i) + ".png")).ok(),
+                         "a candidate picture is written");
             }
             Json items = Json::array();
-            for (int i = 1; i <= 4; ++i) items.push_back(Json::object({{"image", "art/at_review_" + std::to_string(i) + ".png"}, {"label", "hero " + std::to_string(i)}}));
+            for (int i = 1; i <= 4; ++i)
+                items.push_back(Json::object({{"image", "art/at_review_" + std::to_string(i) + ".png"},
+                                              {"label", "hero " + std::to_string(i)}}));
             // Through the queued command path, like a call of the AI or of an MCP client.
-            const std::optional<CommandResult> r = run_queued("review.sheet", Json::object({{"label", "Which hero?"}, {"items", items}, {"candidates", true}}));
-            at_check(r && r->ok, "review.sheet makes a sheet of the four pictures (" + (r && !r->ok ? r->error.dump() : std::string()) + ")");
-            if (r && r->ok && r->result.is_object() && r->result.contains("sheet") && r->result["sheet"].is_string()) rv->sheet = r->result["sheet"].get<std::string>();
+            const std::optional<CommandResult> r = run_queued(
+                "review.sheet", Json::object({{"label", "Which hero?"}, {"items", items}, {"candidates", true}}));
+            at_check(r && r->ok, "review.sheet makes a sheet of the four pictures (" +
+                                     (r && !r->ok ? r->error.dump() : std::string()) + ")");
+            if (r && r->ok && r->result.is_object() && r->result.contains("sheet") && r->result["sheet"].is_string())
+                rv->sheet = r->result["sheet"].get<std::string>();
         });
         step(3, [this, rv] {
             at_check(!review_.show, "the sheet does not open a window by itself (the focus stays where it was)");
-            at_check(std::any_of(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.actionId == "review:open-announced" && t.text.find(rv->sheet) != std::string::npos; }),
+            at_check(std::any_of(toasts_.begin(), toasts_.end(),
+                                 [&](const Toast& t) {
+                                     return t.actionId == "review:open-announced" &&
+                                            t.text.find(rv->sheet) != std::string::npos;
+                                 }),
                      "...a toast offers to open " + rv->sheet + " in the Review window");
         });
         click("review:open-announced");
         wait_for(sheet_ready);
         step(3, [this, rv] {
-            at_check(review_.show && review_.sheetId == rv->sheet, "the toast's button opens the Review window on the sheet");
-            at_check(review_.sheet && review_.sheet->items.size() == 4 && !review_.sheet->is_picked(), "...four numbers, waiting for an answer");
-            at_check(review_.textures.count("sheet") && review_.textures.at("sheet").tex.view, "...the sheet's picture is on the GPU (" +
-                     (review_.textures.count("sheet") ? review_.textures.at("sheet").error : std::string("no slot")) + ")");
-            at_check(at_shown("review:picture") && at_shown("review:item:1") && at_shown("review:item:4") && at_shown("review:pick"),
+            at_check(review_.show && review_.sheetId == rv->sheet,
+                     "the toast's button opens the Review window on the sheet");
+            at_check(review_.sheet && review_.sheet->items.size() == 4 && !review_.sheet->is_picked(),
+                     "...four numbers, waiting for an answer");
+            at_check(
+                review_.textures.count("sheet") && review_.textures.at("sheet").tex.view,
+                "...the sheet's picture is on the GPU (" +
+                    (review_.textures.count("sheet") ? review_.textures.at("sheet").error : std::string("no slot")) +
+                    ")");
+            at_check(at_shown("review:picture") && at_shown("review:item:1") && at_shown("review:item:4") &&
+                         at_shown("review:pick"),
                      "...the picture, its numbered thumbnails and the Pick button are on screen at this window size");
             at_check(at_shown("review:row:" + rv->sheet), "...and the sheet is in the list");
-            at_check(review_.rows.size() == 1 && review_.rows[0].picked == 0, "...as the one sheet waiting for an answer");
+            at_check(review_.rows.size() == 1 && review_.rows[0].picked == 0,
+                     "...as the one sheet waiting for an answer");
         });
         // View > Review closes and opens it again on the same sheet.
         click("menu:view");
@@ -821,14 +938,17 @@ void Editor::at_section_R4(AtScript& at) {
         click("menu:review");
         wait_for(sheet_ready);
         step(3, [this, rv] {
-            at_check(review_.show && review_.sheetId == rv->sheet && review_.sheet, "...and opens it again on the same sheet");
-            review_.focus = true;   // the keys below go to the window in front
+            at_check(review_.show && review_.sheetId == rv->sheet && review_.sheet,
+                     "...and opens it again on the same sheet");
+            review_.focus = true;  // the keys below go to the window in front
             review_.selected = 0;
         });
         snap("editor_review.png");
         step(3, [this] { review_.focus = true; });
         key(SAPP_KEYCODE_3);
-        step(2, [this] { at_check(review_.selected == 3, "the key 3 selects number 3 (" + std::to_string(review_.selected) + ")"); });
+        step(2, [this] {
+            at_check(review_.selected == 3, "the key 3 selects number 3 (" + std::to_string(review_.selected) + ")");
+        });
         key(SAPP_KEYCODE_RIGHT);
         step(2, [this] { at_check(review_.selected == 4, "the right arrow moves to 4"); });
         key(SAPP_KEYCODE_LEFT);
@@ -847,8 +967,10 @@ void Editor::at_section_R4(AtScript& at) {
         });
         step(3, [this] {
             at_check(review_.compareA == 1 && review_.compareB == 2, "Compare shows 1 and 2");
-            at_check(review_.textures.count("src:1") && review_.textures.at("src:1").tex.w == 48, "...the candidates' own pictures, read off the UI thread");
-            at_check(at_shown("review:cmp-picture-a") && at_shown("review:cmp-picture-b") && at_shown("review:cmp-title-a") && at_shown("review:cmp-title-b"),
+            at_check(review_.textures.count("src:1") && review_.textures.at("src:1").tex.w == 48,
+                     "...the candidates' own pictures, read off the UI thread");
+            at_check(at_shown("review:cmp-picture-a") && at_shown("review:cmp-picture-b") &&
+                         at_shown("review:cmp-title-a") && at_shown("review:cmp-title-b"),
                      "...side by side with their labels");
         });
         snap("editor_review_compare.png");
@@ -861,23 +983,30 @@ void Editor::at_section_R4(AtScript& at) {
         key(SAPP_KEYCODE_ENTER);
         step(3, [this] {
             at_check(review_.confirmOpen && at_shown("review:confirm"), "Enter asks before it picks number 3");
-            const ReviewPickPlan plan = review_.sheet ? review_pick_plan(*review_.sheet, review_.confirmN, true, "") : ReviewPickPlan{};
-            at_check(review_.confirmN == 3 && plan.moves.size() == 3 && at_shown("review:confirm-moves"), "...and lists the three files that move to the drop folder");
+            const ReviewPickPlan plan =
+                review_.sheet ? review_pick_plan(*review_.sheet, review_.confirmN, true, "") : ReviewPickPlan{};
+            at_check(review_.confirmN == 3 && plan.moves.size() == 3 && at_shown("review:confirm-moves"),
+                     "...and lists the three files that move to the drop folder");
             at_check(at_shown("review:keep-files") && !review_.keepFiles, "...with the option to keep them, off");
         });
         click("review:confirm");
         // The pick runs in a child factoria (never on the UI thread): the window keeps drawing and says so meanwhile.
         step(1, [this] {
-            at_check(reviewPickJob_.running() || review_.pickSheet || review_.pickPending || !review_.pickMessage.empty(), "the pick starts off the UI thread");
+            at_check(reviewPickJob_.running() || review_.pickSheet || review_.pickPending ||
+                         !review_.pickMessage.empty(),
+                     "the pick starts off the UI thread");
         });
         wait_for([this] { return !reviewPickJob_.running() && !review_.pickSheet && !review_.pickPending; }, 2);
         step(3, [this, rv, project_file] {
             if (!rv->exe) {
-                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the pick's error path was tested instead");
-                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos, "with no factoria tool the pick says what is missing");
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the pick's error path "
+                                 "was tested instead");
+                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos,
+                         "with no factoria tool the pick says what is missing");
                 return;
             }
-            Result<Json> m = parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
+            Result<Json> m =
+                parse_json(read_file(project_file(".factoria/review/" + rv->sheet + "/manifest.json")), "manifest");
             const Json n = m.ok() ? json_at(m.value(), "/picked/n") : Json();
             at_check(!review_.pickBad, "the pick worked (" + review_.pickMessage + ")");
             at_check(n.is_number_integer() && n.get<int>() == 3, "...the manifest records number 3");
@@ -885,44 +1014,59 @@ void Editor::at_section_R4(AtScript& at) {
             const bool movedAway = !stdfs::exists(stdfs::path(project_file("art/at_review_1.png")), ec) &&
                                    !stdfs::exists(stdfs::path(project_file("art/at_review_2.png")), ec) &&
                                    !stdfs::exists(stdfs::path(project_file("art/at_review_4.png")), ec);
-            at_check(movedAway && stdfs::exists(stdfs::path(project_file("art/at_review_3.png")), ec), "...the other three files left art/, the picked one stayed");
+            at_check(movedAway && stdfs::exists(stdfs::path(project_file("art/at_review_3.png")), ec),
+                     "...the other three files left art/, the picked one stayed");
             std::size_t dropped = 0;
-            for (const auto& e : stdfs::directory_iterator(stdfs::path(project_file(".factoria/review/dropped/" + rv->sheet)), ec)) dropped += e.is_regular_file(ec) ? 1 : 0;
+            for (const auto& e :
+                 stdfs::directory_iterator(stdfs::path(project_file(".factoria/review/dropped/" + rv->sheet)), ec))
+                dropped += e.is_regular_file(ec) ? 1 : 0;
             at_check(dropped == 3, "...and are in the drop folder (" + std::to_string(dropped) + ")");
-            at_check(review_.pickLines.size() >= 3 && at_shown("review:pick-message"), "...the window says which files moved");
+            at_check(review_.pickLines.size() >= 3 && at_shown("review:pick-message"),
+                     "...the window says which files moved");
             at_check(!review_.confirmOpen, "...and the confirmation closed");
         });
         // ---- History
         click("review:tab:History");
         wait_for([this, rv] {
-            return !rv->exe || std::any_of(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& h) { return h.id == rv->sheet; });
+            return !rv->exe || std::any_of(review_.history.begin(), review_.history.end(),
+                                           [&](const ReviewHistoryRow& h) { return h.id == rv->sheet; });
         });
         step(3, [this, rv] {
             if (!rv->exe) return;
-            const auto h = std::find_if(review_.history.begin(), review_.history.end(), [&](const ReviewHistoryRow& r) { return r.id == rv->sheet; });
-            at_check(h != review_.history.end() && h->n == 3 && !h->who.empty() && !h->at.empty(), "History shows the pick: number 3, who and when");
+            const auto h = std::find_if(review_.history.begin(), review_.history.end(),
+                                        [&](const ReviewHistoryRow& r) { return r.id == rv->sheet; });
+            at_check(h != review_.history.end() && h->n == 3 && !h->who.empty() && !h->at.empty(),
+                     "History shows the pick: number 3, who and when");
             at_check(h != review_.history.end() && h->dropped.size() == 3 &&
-                         std::all_of(h->dropped.begin(), h->dropped.end(), [](const ReviewDroppedLine& d) { return d.status == "moved"; }),
+                         std::all_of(h->dropped.begin(), h->dropped.end(),
+                                     [](const ReviewDroppedLine& d) { return d.status == "moved"; }),
                      "...and the three dropped files, still in the drop folder");
-            at_check(at_shown("review:history:" + rv->sheet) && at_shown("review:history-open:" + rv->sheet), "...on screen, with Open");
+            at_check(at_shown("review:history:" + rv->sheet) && at_shown("review:history-open:" + rv->sheet),
+                     "...on screen, with Open");
         });
         // The sheet's id is known once the script runs: the click looks the button up then.
         for (int phase = 0; phase < 3; ++phase)
             step(phase == 2 ? 4 : 2, [this, rv, phase] {
                 if (!rv->exe) return;
-                const sapp_event_type type = phase == 0 ? SAPP_EVENTTYPE_MOUSE_MOVE : phase == 1 ? SAPP_EVENTTYPE_MOUSE_DOWN : SAPP_EVENTTYPE_MOUSE_UP;
+                const sapp_event_type type = phase == 0   ? SAPP_EVENTTYPE_MOUSE_MOVE
+                                             : phase == 1 ? SAPP_EVENTTYPE_MOUSE_DOWN
+                                                          : SAPP_EVENTTYPE_MOUSE_UP;
                 inject_mouse(type, at_widget("review:history-open:" + rv->sheet));
             });
-        wait_for([this, rv] { return !rv->exe || (review_.sheet && review_.sheet->is_picked() && !review_.sheetLoading); });
+        wait_for(
+            [this, rv] { return !rv->exe || (review_.sheet && review_.sheet->is_picked() && !review_.sheetLoading); });
         step(3, [this, rv] {
             if (!rv->exe) return;
-            at_check(review_.tab == 0 && review_.sheetId == rv->sheet && review_.sheet && review_.sheet->picked_n() == 3, "Open shows the answered sheet");
+            at_check(review_.tab == 0 && review_.sheetId == rv->sheet && review_.sheet &&
+                         review_.sheet->picked_n() == 3,
+                     "Open shows the answered sheet");
             at_check(at_shown("review:pick") && !at_enabled("review:pick"), "...read-only: its Pick button is off");
         });
         // ---- the Level generator's sheet of seeds
         step(2, [this, project_file] {
-            write_file(project_file("levels/at_review_sample.json"),
-                       R"({"rows":["............","..####..##..","..#..#..##..","..#..#......","..####..#...","..........#.","....#.......","............"],"legend":{"#":0}})");
+            write_file(
+                project_file("levels/at_review_sample.json"),
+                R"({"rows":["............","..####..##..","..#..#..##..","..#..#......","..####..#...","..........#.","....#.......","............"],"legend":{"#":0}})");
             showLevelGen_ = true;
             levelGenOpt_ = LevelGenOptions{};
             levelGenOpt_.sampleFile = "levels/at_review_sample.json";
@@ -933,22 +1077,31 @@ void Editor::at_section_R4(AtScript& at) {
             review_.seedsCount = 3;
             focus_window("Level generator");
         });
-        step(3, [this] { at_check(at_shown("levelgen:seeds-sheet") && at_enabled("levelgen:seeds-sheet"), "the Level generator has a Sheet of seeds button"); });
+        step(3, [this] {
+            at_check(at_shown("levelgen:seeds-sheet") && at_enabled("levelgen:seeds-sheet"),
+                     "the Level generator has a Sheet of seeds button");
+        });
         click("levelgen:seeds-sheet");
-        wait_for([this] { return !reviewSeedsJob_.running(); }, 4);   // a child factoria: four waits of at most 60 s on a loaded VM
+        wait_for([this] { return !reviewSeedsJob_.running(); },
+                 4);  // a child factoria: four waits of at most 60 s on a loaded VM
         step(3, [this, rv] {
             if (!rv->exe) {
-                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the sheet of seeds' error path was tested instead");
-                at_check(levelGenMessageBad_ && levelGenMessage_.find("not found") != std::string::npos, "with no factoria tool the button says what is missing");
+                atLog_.push_back("NOTE no factoria next to the editor and no FA_FACTORIA_EXE: the sheet of seeds' "
+                                 "error path was tested instead");
+                at_check(levelGenMessageBad_ && levelGenMessage_.find("not found") != std::string::npos,
+                         "with no factoria tool the button says what is missing");
                 return;
             }
             at_check(!levelGenMessageBad_, "the sheet of seeds was made (" + levelGenMessage_ + ")");
             rv->seedsSheet = review_.sheetId;
         });
-        wait_for([this, rv] { return !rv->exe || (review_.sheet && review_.sheetId != rv->sheet && !review_.sheetLoading); });
+        wait_for([this, rv] {
+            return !rv->exe || (review_.sheet && review_.sheetId != rv->sheet && !review_.sheetLoading);
+        });
         step(3, [this, rv] {
             if (!rv->exe) return;
-            at_check(review_.show && review_.sheet && review_.sheet->kind == "levelSeeds" && review_.sheet->items.size() == 3,
+            at_check(review_.show && review_.sheet && review_.sheet->kind == "levelSeeds" &&
+                         review_.sheet->items.size() == 3,
                      "...and opens in the Review window: three levels");
             at_check(review_.tab == 0, "...on its Sheet tab");
             rv->seedsSheet = review_.sheetId;
@@ -963,25 +1116,34 @@ void Editor::at_section_R4(AtScript& at) {
             at_check(!at_shown("review:confirm-moves"), "...a level is no file: nothing moves");
         });
         step(2, [this, rv] {
-            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("review:confirm"));
+            if (rv->exe && at_shown("review:confirm"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("review:confirm"));
         });
         step(2, [this, rv] {
-            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("review:confirm"));
+            if (rv->exe && at_shown("review:confirm"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("review:confirm"));
         });
         step(4, [this, rv] {
-            if (rv->exe && at_shown("review:confirm")) inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("review:confirm"));
+            if (rv->exe && at_shown("review:confirm"))
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget("review:confirm"));
         });
-        wait_for([this, rv] {
-            if (!rv->exe) return true;
-            if (reviewPickJob_.running() || review_.pickSheet || review_.pickPending) return false;   // the pick runs in a child factoria
-            return levelGen_.state() == LevelGenSession::State::Ready || levelGen_.state() == LevelGenSession::State::Failed || review_.pickBad;
-        }, 2);
+        wait_for(
+            [this, rv] {
+                if (!rv->exe) return true;
+                if (reviewPickJob_.running() || review_.pickSheet || review_.pickPending)
+                    return false;  // the pick runs in a child factoria
+                return levelGen_.state() == LevelGenSession::State::Ready ||
+                       levelGen_.state() == LevelGenSession::State::Failed || review_.pickBad;
+            },
+            2);
         step(3, [this, rv] {
             if (!rv->exe) return;
             at_check(!review_.pickBad, "the level is picked (" + review_.pickMessage + ")");
-            at_check(levelGenOpt_.seed == 6 && levelGenOpt_.sampleFile == "levels/at_review_sample.json" && levelGenOpt_.width == 16,
+            at_check(levelGenOpt_.seed == 6 && levelGenOpt_.sampleFile == "levels/at_review_sample.json" &&
+                         levelGenOpt_.width == 16,
                      "...the Level generator takes its seed (6), sample and size");
-            at_check(showLevelGen_ && levelGen_.state() == LevelGenSession::State::Ready && levelGen_.preview().seed == 6,
+            at_check(showLevelGen_ && levelGen_.state() == LevelGenSession::State::Ready &&
+                         levelGen_.preview().seed == 6,
                      "...and shows that level (" + levelGen_.error() + ")");
         });
         // ---- a sheet of asset candidates: assets.generate_image with count 2 and the offline fake provider, called through a run's proxy
@@ -994,22 +1156,27 @@ void Editor::at_section_R4(AtScript& at) {
             toasts_.clear();
             AiRun run("autotest-r4");
             auto proxy = make_proxy_registry(run);
-            const CommandResult r = proxy->call("assets.generate_image", Json::object({{"prompt", "a round gem"},
-                                                                                       {"path", "assets/at_review/gem.png"},
-                                                                                       {"width", 16},
-                                                                                       {"height", 16},
-                                                                                       {"count", 2},
-                                                                                       {"provider", "fake"}}));
-            at_check(r.ok, "assets.generate_image with count 2 makes two candidates and a sheet (" + (r.ok ? std::string() : r.error.dump()) + ")");
+            const CommandResult r =
+                proxy->call("assets.generate_image", Json::object({{"prompt", "a round gem"},
+                                                                   {"path", "assets/at_review/gem.png"},
+                                                                   {"width", 16},
+                                                                   {"height", 16},
+                                                                   {"count", 2},
+                                                                   {"provider", "fake"}}));
+            at_check(r.ok, "assets.generate_image with count 2 makes two candidates and a sheet (" +
+                               (r.ok ? std::string() : r.error.dump()) + ")");
             if (r.ok && r.result.is_object())
-                if (const auto it = r.result.find("sheet"); it != r.result.end() && it->is_string()) rv->candSheet = it->get<std::string>();
+                if (const auto it = r.result.find("sheet"); it != r.result.end() && it->is_string())
+                    rv->candSheet = it->get<std::string>();
             rv->cand2 = read_file(project_file("assets/at_review/gem.candidate-2.png"));
-            at_check(!rv->candSheet.empty() && !rv->cand2.empty(), "...the second candidate's file is next to the slot");
+            at_check(!rv->candSheet.empty() && !rv->cand2.empty(),
+                     "...the second candidate's file is next to the slot");
         });
         step(3, [this, rv] {
             at_check(std::any_of(toasts_.begin(), toasts_.end(),
                                  [&](const Toast& t) {
-                                     return t.actionId == "review:open-announced" && t.text.find(rv->candSheet) != std::string::npos &&
+                                     return t.actionId == "review:open-announced" &&
+                                            t.text.find(rv->candSheet) != std::string::npos &&
                                             t.text.find("assets/at_review/gem.png") != std::string::npos;
                                  }),
                      "...a toast offers the sheet of candidates and names the slot");
@@ -1017,14 +1184,17 @@ void Editor::at_section_R4(AtScript& at) {
         click("review:open-announced");
         // (the list too: "newest sheet of its slot" is read from the listing, which must include the sheet the toast announced)
         wait_for([this, rv] {
-            return review_.sheet && review_.sheetId == rv->candSheet && !review_.sheetLoading && review_.listLoaded && !review_.listLoading &&
-                   !review_.listDirty && std::any_of(review_.rows.begin(), review_.rows.end(), [&](const ReviewListRow& r) { return r.id == rv->candSheet; });
+            return review_.sheet && review_.sheetId == rv->candSheet && !review_.sheetLoading && review_.listLoaded &&
+                   !review_.listLoading && !review_.listDirty &&
+                   std::any_of(review_.rows.begin(), review_.rows.end(),
+                               [&](const ReviewListRow& r) { return r.id == rv->candSheet; });
         });
         step(3, [this, rv] {
             at_check(review_.sheet && review_.sheetId == rv->candSheet && review_.sheet->kind == "assetCandidates" &&
                          review_.sheet->slot == "assets/at_review/gem.png" && review_.sheet->items.size() == 2,
                      "the toast opens the sheet of candidates: two numbers for the slot");
-            at_check(review_.sheet && review_superseded_by(review_.superseded, *review_.sheet).empty(), "...the newest sheet of its slot");
+            at_check(review_.sheet && review_superseded_by(review_.superseded, *review_.sheet).empty(),
+                     "...the newest sheet of its slot");
             review_.focus = true;
             review_.tabSet = 0;
         });
@@ -1032,8 +1202,10 @@ void Editor::at_section_R4(AtScript& at) {
         key(SAPP_KEYCODE_2);
         key(SAPP_KEYCODE_ENTER);
         step(3, [this] {
-            at_check(review_.selected == 2 && review_.confirmOpen && at_shown("review:confirm"), "2 and Enter ask to pick the second candidate");
-            const ReviewPickPlan plan = review_.sheet ? review_pick_plan(*review_.sheet, 2, true, "") : ReviewPickPlan{};
+            at_check(review_.selected == 2 && review_.confirmOpen && at_shown("review:confirm"),
+                     "2 and Enter ask to pick the second candidate");
+            const ReviewPickPlan plan =
+                review_.sheet ? review_pick_plan(*review_.sheet, 2, true, "") : ReviewPickPlan{};
             at_check(plan.command == "assets.pick", "...with assets.pick, never review.pick");
         });
         step(2, [this] {
@@ -1048,17 +1220,21 @@ void Editor::at_section_R4(AtScript& at) {
         wait_for([this] { return !reviewPickJob_.running() && !review_.pickSheet && !review_.pickPending; }, 2);
         step(3, [this, rv, project_file] {
             if (!rv->exe) {
-                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos, "with no factoria tool the candidate pick says what is missing");
+                at_check(review_.pickBad && review_.pickMessage.find("not found") != std::string::npos,
+                         "with no factoria tool the candidate pick says what is missing");
                 return;
             }
             at_check(!review_.pickBad && review_.pickMessage.find("assets/at_review/gem.png") != std::string::npos,
                      "the candidate is picked and the window names the slot (" + review_.pickMessage + ")");
-            at_check(read_file(project_file("assets/at_review/gem.png")) == rv->cand2, "...the slot's file is the second candidate's picture");
+            at_check(read_file(project_file("assets/at_review/gem.png")) == rv->cand2,
+                     "...the slot's file is the second candidate's picture");
             std::error_code ec;
-            at_check(!stdfs::exists(stdfs::path(project_file("assets/at_review/gem.candidate-2.png")), ec), "...which moved into the slot");
+            at_check(!stdfs::exists(stdfs::path(project_file("assets/at_review/gem.candidate-2.png")), ec),
+                     "...which moved into the slot");
             const Json m = Json::parse(read_file(project_file("assets.json")), nullptr, false);
             const auto assets = m.is_object() ? m.find("assets") : m.end();
-            at_check(m.is_object() && assets != m.end() && assets->is_object() && assets->contains("assets/at_review/gem.png"),
+            at_check(m.is_object() && assets != m.end() && assets->is_object() &&
+                         assets->contains("assets/at_review/gem.png"),
                      "...and assets.json records the slot");
         });
         // ---- leave the editor as the other sections expect it
@@ -1068,12 +1244,15 @@ void Editor::at_section_R4(AtScript& at) {
             levelGen_.clear(level_gen_caller());
             std::error_code ec;
             stdfs::remove_all(stdfs::path(project_file(".factoria/review")), ec);
-            for (int i = 1; i <= 4; ++i) stdfs::remove(stdfs::path(project_file("art/at_review_" + std::to_string(i) + ".png")), ec);
+            for (int i = 1; i <= 4; ++i)
+                stdfs::remove(stdfs::path(project_file("art/at_review_" + std::to_string(i) + ".png")), ec);
             stdfs::remove(stdfs::path(project_file("levels/at_review_sample.json")), ec);
             stdfs::remove_all(stdfs::path(project_file("assets/at_review")), ec);
             stdfs::remove_all(stdfs::path(project_file(".factoria/assets/candidates")), ec);
-            if (rv->hadManifest) write_file(project_file("assets.json"), rv->manifestBefore);
-            else stdfs::remove(stdfs::path(project_file("assets.json")), ec);
+            if (rv->hadManifest)
+                write_file(project_file("assets.json"), rv->manifestBefore);
+            else
+                stdfs::remove(stdfs::path(project_file("assets.json")), ec);
             toasts_.clear();
         });
     }

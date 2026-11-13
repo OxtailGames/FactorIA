@@ -19,9 +19,11 @@ std::string compiled(TestHost& h, const std::string& path, const std::string& so
 }
 
 Json scene_with_script(const std::string& path) {
-    return Json::object({{"format", "factoria.scene/1"},
-                         {"entities", Json::array({Json::object({{"id", "p"},
-                                                                  {"components", Json::object({{"Script", Json::object({{"path", path}})}})}})})}});
+    return Json::object(
+        {{"format", "factoria.scene/1"},
+         {"entities",
+          Json::array({Json::object(
+              {{"id", "p"}, {"components", Json::object({{"Script", Json::object({{"path", path}})}})}})})}});
 }
 
 bool any_error_has(const TestHost& h, const std::string& needle) {
@@ -59,10 +61,13 @@ TEST_CASE("bytecode: behaviours, imports between modules, JSON data and tools ru
     compiled(h, "lib/util.js", "// UNIQUE_COMMENT_LIB\nexport const twice = (n) => n * 2;\n");
     h.file("scripts/data.json", "{\"base\": 21}");
     compiled(h, "scripts/a.js",
-             "import { Behaviour } from 'factoria';\nimport { twice } from '../lib/util.js';\nimport data from './data.json';\n"
-             "export default class A extends Behaviour {\n  speed = 3;\n  onStart() { globalThis.V = twice(data.base) + this.speed; }\n}\n");
+             "import { Behaviour } from 'factoria';\nimport { twice } from '../lib/util.js';\nimport data from "
+             "'./data.json';\n"
+             "export default class A extends Behaviour {\n  speed = 3;\n  onStart() { globalThis.V = twice(data.base) "
+             "+ this.speed; }\n}\n");
     compiled(h, "tools/hello.js",
-             "export default { name: 'hello', summary: 's', input: {type:'object', properties:{n:{type:'integer', default: 2}}}, "
+             "export default { name: 'hello', summary: 's', input: {type:'object', properties:{n:{type:'integer', "
+             "default: 2}}}, "
              "run({n}) { return { twice: n * 2 }; } };\n");
     h.file("scenes/main.scene.json", scene_with_script("scripts/a.js").dump());
     REQUIRE(h.start());
@@ -76,7 +81,8 @@ TEST_CASE("bytecode: behaviours, imports between modules, JSON data and tools ru
     CHECK(tool.result["twice"] == 4);
 
     // Plain source and compiled scripts can be mixed: the loader looks at each file.
-    h.file("scripts/plain.js", "import { Behaviour } from 'factoria';\nexport default class P extends Behaviour { onStart() { globalThis.W = 7; } }\n");
+    h.file("scripts/plain.js", "import { Behaviour } from 'factoria';\nexport default class P extends Behaviour { "
+                               "onStart() { globalThis.W = 7; } }\n");
     h.file("scenes/mixed.scene.json", scene_with_script("scripts/plain.js").dump());
     REQUIRE(h.load_scene_now("scenes/mixed.scene.json").empty());
     h.step_frames(1);
@@ -105,7 +111,9 @@ TEST_CASE("bytecode: an error inside a compiled module still names the file and 
 
     // Also an error thrown while the module loads (top level code), and through an import.
     compiled(h, "scripts/lib.js", "export const x = 1;\nthrow new Error('boom at load');\n");
-    compiled(h, "scripts/user.js", "import { Behaviour } from 'factoria';\nimport { x } from './lib.js';\nexport default class U extends Behaviour {}\n");
+    compiled(h, "scripts/user.js",
+             "import { Behaviour } from 'factoria';\nimport { x } from './lib.js';\nexport default class U extends "
+             "Behaviour {}\n");
     h.file("scenes/user.scene.json", scene_with_script("scripts/user.js").dump());
     h.scripts.clear_errors();
     h.load_scene_now("scenes/user.scene.json");

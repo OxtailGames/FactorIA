@@ -55,7 +55,7 @@ Shared& shared() {
 struct IoQueue::State {
     jobs::Owner* jobs = nullptr;
     LoadTrace::Owner traceOwner = LoadTrace::kNoOwner;
-    std::deque<ItemPtr> pending;     // not started yet, in submit order
+    std::deque<ItemPtr> pending;      // not started yet, in submit order
     std::map<Ticket, ItemPtr> items;  // every item not taken or cancelled
     int reading = 0;                  // items the IO thread is reading now
     Ticket nextTicket = 1;
@@ -95,11 +95,13 @@ bool run_read(Item& item) {
         return true;
     } catch (const std::bad_alloc&) {
         // Nothing was read yet, so the item has no path: name it by its ticket and its load's trace tag.
-        const std::string name = "background item " + std::to_string(item.id) + " (load-trace tag " + std::to_string(item.tag) + ")";
-        settle(item, failure("out of memory while reading " + name, "Load fewer or smaller files at once; load.status lists the loads that run."));
+        const std::string name =
+            "background item " + std::to_string(item.id) + " (load-trace tag " + std::to_string(item.tag) + ")";
+        settle(item, failure("out of memory while reading " + name,
+                             "Load fewer or smaller files at once; load.status lists the loads that run."));
     } catch (const std::exception& e) {
-        settle(item, failure("background item " + std::to_string(item.id) + " (load-trace tag " + std::to_string(item.tag) +
-                             "): the read failed: " + e.what()));
+        settle(item, failure("background item " + std::to_string(item.id) + " (load-trace tag " +
+                             std::to_string(item.tag) + "): the read failed: " + e.what()));
     }
     return false;
 }
@@ -129,8 +131,10 @@ void start_decode(const ItemPtr& item) {
             std::lock_guard<std::mutex> lock(shared().mu);
             skip = item->cancelled;
         }
-        if (skip) settle(*item, IoResult{false, true});
-        else run_decode(*item);
+        if (skip)
+            settle(*item, IoResult{false, true});
+        else
+            run_decode(*item);
         std::lock_guard<std::mutex> lock(shared().mu);
         item->state = ItemState::Done;
         shared().done.notify_all();

@@ -52,13 +52,13 @@ TEST_CASE("asset manifest: defaults and per-asset settings override, edits round
     REQUIRE(assets::update_manifest([](Json& doc) { doc["defaults"] = {{"audio", {{"normalize", true}}}}; }).ok());
     REQUIRE(assets::update_entry("assets/z.ogg", [](Json& e) { e["import"] = {{"stream", "never"}}; }).ok());
     REQUIRE(assets::update_entry("./assets/a.png", [](Json& e) {
-        e["provenance"] = {{"origin", "generated"}, {"date", "2026-10-16"}};
-    }).ok());
+                e["provenance"] = {{"origin", "generated"}, {"date", "2026-10-16"}};
+            }).ok());
 
     Json a = assets::import_settings("assets/z.ogg");
     CHECK(a["stream"] == "never");
-    CHECK(a["normalize"] == true);   // from defaults.audio
-    CHECK(a["convert"] == "none");   // built-in
+    CHECK(a["normalize"] == true);  // from defaults.audio
+    CHECK(a["convert"] == "none");  // built-in
     CHECK(assets::entry("assets/a.png")["provenance"]["origin"] == "generated");
 
     // Entries are written sorted by path, whatever order they were added in.
@@ -92,10 +92,11 @@ TEST_CASE("asset manifest: sheet() parses the sheet entry and follows edits of t
     TempProject p;
     CHECK(assets::sheet("assets/coin.png") == nullptr);
     REQUIRE(assets::update_entry("assets/coin.png", [](Json& e) {
-        e["sheet"] = Json::parse(R"({"columns":4,"rows":2,"frameWidth":16,"frameHeight":16,"frames":7,"padding":2,"pivot":[0.5,1],
+                e["sheet"] = Json::parse(
+                    R"({"columns":4,"rows":2,"frameWidth":16,"frameHeight":16,"frames":7,"padding":2,"pivot":[0.5,1],
             "clips":[{"name":"spin","firstFrame":0,"lastFrame":3,"fps":8,"loop":true},
                      {"name":"pop","firstFrame":4,"lastFrame":6,"fps":12,"loop":false,"pivot":[0.25,0.75]}]})");
-    }).ok());
+            }).ok());
     auto s = assets::sheet("./assets/coin.png");
     REQUIRE(s);
     CHECK(s->columns == 4);
@@ -141,12 +142,15 @@ TEST_CASE("asset manifest: a second write of the same size right after a read is
     CHECK(fs::disk_reads() == reads);
 }
 
-TEST_CASE("asset manifest: manifest_version changes when the file is read again, style_palette copies only the palette") {
+TEST_CASE(
+    "asset manifest: manifest_version changes when the file is read again, style_palette copies only the palette") {
     TempProject p;
     const std::uint64_t none = assets::manifest_version();
     CHECK(assets::manifest_version() == none);  // nothing changed: the same number
     CHECK(assets::style_palette().is_null());
-    REQUIRE(assets::update_manifest([](Json& doc) { doc["style"] = {{"palette", Json::array({"#112233", "#ffffff"})}}; }).ok());
+    REQUIRE(assets::update_manifest([](Json& doc) {
+                doc["style"] = {{"palette", Json::array({"#112233", "#ffffff"})}};
+            }).ok());
     const std::uint64_t first = assets::manifest_version();
     CHECK(first != none);
     CHECK(assets::manifest_version() == first);

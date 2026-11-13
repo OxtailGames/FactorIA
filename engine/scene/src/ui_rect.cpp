@@ -90,9 +90,12 @@ bool safe_area_profile(std::string_view name, Vec2 designSize, EdgeInsets& out) 
     if (name == "none") out = {};
     // iPhone 15 in points: 393 x 852, notch area 59 at the top and home indicator 34 at the bottom; turned, 59 on each
     // side and 21 at the bottom.
-    else if (name == "phone-portrait") out = {0, designSize.y * (59.0f / 852.0f), 0, designSize.y * (34.0f / 852.0f)};
-    else if (name == "phone-landscape") out = {designSize.x * (59.0f / 852.0f), 0, designSize.x * (59.0f / 852.0f), designSize.y * (21.0f / 393.0f)};
-    else return false;
+    else if (name == "phone-portrait")
+        out = {0, designSize.y * (59.0f / 852.0f), 0, designSize.y * (34.0f / 852.0f)};
+    else if (name == "phone-landscape")
+        out = {designSize.x * (59.0f / 852.0f), 0, designSize.x * (59.0f / 852.0f), designSize.y * (21.0f / 393.0f)};
+    else
+        return false;
     return true;
 }
 

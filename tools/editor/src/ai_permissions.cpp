@@ -21,7 +21,8 @@ const ai::PermissionMode* find_mode(const std::vector<ai::PermissionMode>& modes
 void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
     auto& d = aiSettings_;
     auto& a = d.agents;
-    ImGui::TextWrapped("How much each command-line agent may do without asking you. It applies to the roles that run on that agent; a role "
+    ImGui::TextWrapped("How much each command-line agent may do without asking you. It applies to the roles that run "
+                       "on that agent; a role "
                        "that only reads (a reviewer) is always held to read-only, whatever is chosen here.");
     ImGui::Spacing();
     bool any = false;
@@ -37,21 +38,29 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
         const bool explicitMode = !p.permissionMode.empty();
         const bool changed = shown != saved;
 
-        ImGui::SeparatorText((name + (p.kind == ai::ProviderKind::ClaudeCode ? "  (Claude Code)" : "  (Codex)")).c_str());
+        ImGui::SeparatorText(
+            (name + (p.kind == ai::ProviderKind::ClaudeCode ? "  (Claude Code)" : "  (Codex)")).c_str());
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Permission mode");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-        const std::string preview = shown + (current && current->dangerous ? "  (dangerous)" : (shown == ai::default_permission_mode(p.kind) ? "  (default)" : ""));
+        const std::string preview = shown + (current && current->dangerous
+                                                 ? "  (dangerous)"
+                                                 : (shown == ai::default_permission_mode(p.kind) ? "  (default)" : ""));
         if (ImGui::BeginCombo("##mode", preview.c_str())) {
             for (const ai::PermissionMode& m : modes) {
-                const std::string label = std::string(m.value) + (m.dangerous ? "  (dangerous)" : (std::string(m.value) == ai::default_permission_mode(p.kind) ? "  (default)" : ""));
+                const std::string label =
+                    std::string(m.value) +
+                    (m.dangerous ? "  (dangerous)"
+                                 : (std::string(m.value) == ai::default_permission_mode(p.kind) ? "  (default)" : ""));
                 if (m.dangerous) ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
                 const bool chosen = ImGui::Selectable(label.c_str(), shown == m.value);
                 if (m.dangerous) ImGui::PopStyleColor();
                 if (chosen) {
-                    if (std::string(m.value) == saved) a.mode.erase(name);
-                    else a.mode[name] = m.value;
+                    if (std::string(m.value) == saved)
+                        a.mode.erase(name);
+                    else
+                        a.mode[name] = m.value;
                     if (a.confirm == name) a.confirm.clear();
                     a.message.clear();
                 }
@@ -64,19 +73,23 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
         // One line per value: what it allows. The one picked is marked.
         for (const ai::PermissionMode& m : modes) {
             const bool is = shown == m.value;
-            const ImVec4 color = m.dangerous ? kStatusFailed : ImGui::GetStyleColorVec4(is ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+            const ImVec4 color =
+                m.dangerous ? kStatusFailed : ImGui::GetStyleColorVec4(is ? ImGuiCol_Text : ImGuiCol_TextDisabled);
             ImGui::PushStyleColor(ImGuiCol_Text, color);
             ImGui::TextWrapped("%s %s%s: %s", is ? ">" : " ", m.value, m.dangerous ? " (dangerous)" : "", m.allows);
             ImGui::PopStyleColor();
         }
         if (!p.argv.empty()) {
-            ImGui::TextDisabled("This provider has its own command line (argv): the flag below is added only when a mode is saved here, unless that line already has one.");
+            ImGui::TextDisabled("This provider has its own command line (argv): the flag below is added only when a "
+                                "mode is saved here, unless that line already has one.");
         }
 
         if (changed && current && current->dangerous) {
             ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
-            ImGui::TextWrapped("%s lifts the guard rails: the agent can run any command and change any file it can reach without asking. "
-                               "Use it only in a folder you can lose.", shown.c_str());
+            ImGui::TextWrapped("%s lifts the guard rails: the agent can run any command and change any file it can "
+                               "reach without asking. "
+                               "Use it only in a folder you can lose.",
+                               shown.c_str());
             ImGui::PopStyleColor();
         }
 
@@ -129,12 +142,14 @@ void Editor::draw_ai_agents_tab(const ai::AiConfig& cfg, bool configReadable) {
                     a.failed = false;
                     a.mode.erase(name);
                     a.confirm.clear();
-                    ai_agents_reload("Permission mode of " + name + " back to the default. The next message to the AI uses it.");
+                    ai_agents_reload("Permission mode of " + name +
+                                     " back to the default. The next message to the AI uses it.");
                 }
             }
             ImGui::EndDisabled();
             at_track("aiset:agents:reset:" + name, configReadable);
-            ImGui::SetItemTooltip("Takes the permission mode out of ai.json: the default of the agent applies (%s).", ai::default_permission_mode(p.kind).c_str());
+            ImGui::SetItemTooltip("Takes the permission mode out of ai.json: the default of the agent applies (%s).",
+                                  ai::default_permission_mode(p.kind).c_str());
         }
         ImGui::PopID();
     }

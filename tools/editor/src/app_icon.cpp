@@ -33,7 +33,8 @@ std::vector<AppIconImage> editor_window_icon() {
         AppIconImage icon = decode(f.path, f.data);
         if (icon.width > 0) icons.push_back(std::move(icon));
     }
-    std::sort(icons.begin(), icons.end(), [](const AppIconImage& a, const AppIconImage& b) { return a.width < b.width; });
+    std::sort(icons.begin(), icons.end(),
+              [](const AppIconImage& a, const AppIconImage& b) { return a.width < b.width; });
     return icons;
 }
 

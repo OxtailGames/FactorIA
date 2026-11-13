@@ -54,7 +54,8 @@ public:
         if (setLanguage_ && language != lastLanguage_) {
             lastLanguage_ = std::string(language);
             // speech-dispatcher takes an ISO 639 code ("es", "pt"): the primary subtag; "" keeps the default voice.
-            if (!lastLanguage_.empty()) setLanguage_(connection_, lastLanguage_.substr(0, lastLanguage_.find('-')).c_str());
+            if (!lastLanguage_.empty())
+                setLanguage_(connection_, lastLanguage_.substr(0, lastLanguage_.find('-')).c_str());
         }
         say_(connection_, kSpdText, std::string(text).c_str());
     }

@@ -57,7 +57,8 @@ TEST_CASE("anthropic headers") {
     ProviderConfig cfg;
     cfg.name = "anthropic";
     auto find = [](const auto& h, const std::string& k) -> std::string {
-        for (auto& [a, b] : h) if (a == k) return b;
+        for (auto& [a, b] : h)
+            if (a == k) return b;
         return "<none>";
     };
     ChatRequest opus = base_request("claude-opus-5-5", "high");
@@ -82,7 +83,8 @@ TEST_CASE("anthropic headers") {
 TEST_CASE("anthropic request: a context limit turns on server-side compaction") {
     ProviderConfig cfg;
     auto beta = [&](const ChatRequest& r) {
-        for (auto& [k, v] : anthropic::build_headers(r, {"k", ""}, cfg)) if (k == "anthropic-beta") return v;
+        for (auto& [k, v] : anthropic::build_headers(r, {"k", ""}, cfg))
+            if (k == "anthropic-beta") return v;
         return std::string();
     };
     ChatRequest r = base_request("claude-opus-5-5", "high");
@@ -109,9 +111,14 @@ TEST_CASE("anthropic request: a context limit turns on server-side compaction") 
 
     // Streamed: the summary arrives in one compaction_delta.
     anthropic::StreamAssembler as({});
-    as.feed("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"content\":[]}}\n\n"
-            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"compaction\",\"content\":null}}\n\n"
-            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"compaction_delta\",\"content\":\"Summary.\"}}\n\n"
+    as.feed("event: message_start\ndata: "
+            "{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"content\":[]}}\n\n"
+            "event: content_block_start\ndata: "
+            "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"compaction\",\"content\":null}"
+            "}\n\n"
+            "event: content_block_delta\ndata: "
+            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"compaction_delta\",\"content\":"
+            "\"Summary.\"}}\n\n"
             "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
             "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
     as.finish();
@@ -186,15 +193,18 @@ TEST_CASE("anthropic refusal reads stop_details only for refusals") {
 }
 
 TEST_CASE("anthropic stop reasons map") {
-    for (auto [raw, expected] : std::vector<std::pair<std::string, StopReason>>{
-             {"end_turn", StopReason::EndTurn}, {"max_tokens", StopReason::MaxTokens}, {"pause_turn", StopReason::PauseTurn},
-             {"tool_use", StopReason::ToolUse}, {"refusal", StopReason::Refusal}}) {
+    for (auto [raw, expected] : std::vector<std::pair<std::string, StopReason>>{{"end_turn", StopReason::EndTurn},
+                                                                                {"max_tokens", StopReason::MaxTokens},
+                                                                                {"pause_turn", StopReason::PauseTurn},
+                                                                                {"tool_use", StopReason::ToolUse},
+                                                                                {"refusal", StopReason::Refusal}}) {
         Json b = Json::object({{"content", Json::array()}, {"stop_reason", raw}});
         auto r = anthropic::parse_response(b);
         REQUIRE(r);
         CHECK(r->stopReason == expected);
     }
-    auto err = anthropic::parse_response(Json::parse(R"({"type":"error","error":{"type":"invalid_request_error","message":"bad"}})"));
+    auto err = anthropic::parse_response(
+        Json::parse(R"({"type":"error","error":{"type":"invalid_request_error","message":"bad"}})"));
     CHECK_FALSE(err.ok());
 }
 
@@ -206,7 +216,9 @@ TEST_CASE("anthropic SSE reconstructs the same message as non-streaming") {
     hooks.onThinking = [&](std::string_view t) { thinking += t; };
     hooks.onToolUseStart = [&](const std::string& n) { toolStart += n + ";"; };
     for (std::size_t chunk : {std::size_t(7), std::size_t(64), sse.size()}) {
-        text.clear(); thinking.clear(); toolStart.clear();
+        text.clear();
+        thinking.clear();
+        toolStart.clear();
         anthropic::StreamAssembler as(hooks);
         for (std::size_t i = 0; i < sse.size(); i += chunk) as.feed(std::string_view(sse).substr(i, chunk));
         as.finish();
@@ -239,11 +251,14 @@ TEST_CASE("anthropic SSE error event") {
 
 // ---- Provider over a fake transport -------------------------------------
 
-static ProviderRuntime fake_runtime(std::function<HttpResponse(const HttpRequest&)> t, std::vector<double>* sleeps = nullptr) {
+static ProviderRuntime fake_runtime(std::function<HttpResponse(const HttpRequest&)> t,
+                                    std::vector<double>* sleeps = nullptr) {
     ProviderRuntime rt;
     rt.transport = std::move(t);
     rt.env = fake_env({{"ANTHROPIC_API_KEY", "sk-ant-test-key-0000000000"}});
-    rt.sleep = [sleeps](double s) { if (sleeps) sleeps->push_back(s); };
+    rt.sleep = [sleeps](double s) {
+        if (sleeps) sleeps->push_back(s);
+    };
     rt.antToken = [] { return std::string("ant-token"); };
     return rt;
 }
@@ -258,8 +273,17 @@ TEST_CASE("anthropic provider: request wiring, retries honour retry-after") {
             ++calls;
             seen = req;
             HttpResponse r;
-            if (calls == 1) { r.status = 429; r.headers["retry-after"] = "7"; r.body = R"({"type":"error","error":{"type":"rate_limit_error","message":"slow down"}})"; return r; }
-            if (calls == 2) { r.status = 529; r.body = R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})"; return r; }
+            if (calls == 1) {
+                r.status = 429;
+                r.headers["retry-after"] = "7";
+                r.body = R"({"type":"error","error":{"type":"rate_limit_error","message":"slow down"}})";
+                return r;
+            }
+            if (calls == 2) {
+                r.status = 529;
+                r.body = R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})";
+                return r;
+            }
             r.status = 200;
             r.body = fixture("anthropic_tool_use.json");
             return r;
@@ -271,12 +295,13 @@ TEST_CASE("anthropic provider: request wiring, retries honour retry-after") {
     REQUIRE(resp);
     CHECK(calls == 3);
     REQUIRE(sleeps.size() == 2);
-    CHECK(sleeps[0] == 7.0);   // retry-after
-    CHECK(sleeps[1] == 2.0);   // exponential backoff
+    CHECK(sleeps[0] == 7.0);  // retry-after
+    CHECK(sleeps[1] == 2.0);  // exponential backoff
     CHECK(seen.url == "https://api.anthropic.com/v1/messages");
     CHECK(seen.method == "POST");
     bool hasKey = false;
-    for (auto& [k, v] : seen.headers) if (k == "x-api-key" && v == "sk-ant-test-key-0000000000") hasKey = true;
+    for (auto& [k, v] : seen.headers)
+        if (k == "x-api-key" && v == "sk-ant-test-key-0000000000") hasKey = true;
     CHECK(hasKey);
     Json sent = Json::parse(seen.body);
     CHECK(sent["output_config"]["effort"] == "xhigh");
@@ -316,7 +341,10 @@ TEST_CASE("anthropic provider: ant CLI token fallback and missing credentials") 
     auto resp = p->chat(base_request("claude-opus-5-5", "high"), {}, nullptr);
     REQUIRE(resp);
     std::string auth, beta;
-    for (auto& [k, v] : seen.headers) { if (k == "Authorization") auth = v; if (k == "anthropic-beta") beta = v; }
+    for (auto& [k, v] : seen.headers) {
+        if (k == "Authorization") auth = v;
+        if (k == "anthropic-beta") beta = v;
+    }
     CHECK(auth == "Bearer ant-token");
     CHECK(beta.find("oauth-2025-04-20") != std::string::npos);
 

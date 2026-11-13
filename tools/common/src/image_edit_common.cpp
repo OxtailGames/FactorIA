@@ -20,9 +20,12 @@ bool is_index_path(const std::string& s) {
     if (s.empty()) return false;
     bool digit = false;
     for (char c : s) {
-        if (c >= '0' && c <= '9') digit = true;
-        else if (c == '/' && digit) digit = false;
-        else return false;
+        if (c >= '0' && c <= '9')
+            digit = true;
+        else if (c == '/' && digit)
+            digit = false;
+        else
+            return false;
     }
     return digit;
 }
@@ -63,7 +66,8 @@ std::string pointer_of(const std::vector<int>& path) {
 
 std::string layer_label(const Entry& e) {
     const std::string name = e.layer->value("name", std::string());
-    return index_path_string(e.path) + (name.empty() ? "" : " " + name) + " (" + e.layer->value("kind", std::string("?")) + ")";
+    return index_path_string(e.path) + (name.empty() ? "" : " " + name) + " (" +
+           e.layer->value("kind", std::string("?")) + ")";
 }
 
 LayerRef to_ref(const Entry& e) {
@@ -124,15 +128,20 @@ std::string unique_layer_name(const Json& doc, const std::string& base) {
     }
 }
 
-static bool find_impl(Json& doc, const Json& ref, const char* command, const std::string& argName, LayerRef& out, bool must) {
+static bool find_impl(Json& doc, const Json& ref, const char* command, const std::string& argName, LayerRef& out,
+                      bool must) {
     std::vector<Entry> all;
     std::vector<int> path;
     if (doc.contains("layers")) collect(doc["layers"], nullptr, path, 0, 0, all);
     std::string text;
-    if (ref.is_number_integer()) text = std::to_string(ref.get<long long>());
-    else if (ref.is_string()) text = ref.get<std::string>();
+    if (ref.is_number_integer())
+        text = std::to_string(ref.get<long long>());
+    else if (ref.is_string())
+        text = ref.get<std::string>();
     else
-        assets_detail::arg_error(command, "/" + argName, "expected a layer name or an index path such as \"1/0\", got " + describe_json_value(ref) + ".",
+        assets_detail::arg_error(command, "/" + argName,
+                                 "expected a layer name or an index path such as \"1/0\", got " +
+                                     describe_json_value(ref) + ".",
                                  describe_layers(doc));
     // 1. an exact name
     std::vector<const Entry*> named;
@@ -146,7 +155,8 @@ static bool find_impl(Json& doc, const Json& ref, const char* command, const std
         std::vector<std::string> where;
         for (const Entry* e : named) where.push_back("\"" + index_path_string(e->path) + "\"");
         assets_detail::arg_error(command, "/" + argName, "several layers are named '" + text + "'.",
-                                 "Address one by its index path: " + join(where, ", ") + ". (Give layers distinct names with image.layer.set.)");
+                                 "Address one by its index path: " + join(where, ", ") +
+                                     ". (Give layers distinct names with image.layer.set.)");
     }
     // 2. an index path
     if (is_index_path(text)) {
@@ -163,8 +173,9 @@ static bool find_impl(Json& doc, const Json& ref, const char* command, const std
             const std::size_t n = list && list->is_array() ? list->size() : 0;
             const std::size_t idx = std::stoul(parts[i]);
             if (idx >= n) {
-                why = (i == 0 ? std::string("the document has ") : "the group '" + walked + "' has ") + std::to_string(n) +
-                      (n == 1 ? " layer" : " layers") + (n ? " (indexes 0.." + std::to_string(n - 1) + ")" : "");
+                why = (i == 0 ? std::string("the document has ") : "the group '" + walked + "' has ") +
+                      std::to_string(n) + (n == 1 ? " layer" : " layers") +
+                      (n ? " (indexes 0.." + std::to_string(n - 1) + ")" : "");
             } else {
                 walked += (walked.empty() ? "" : "/") + parts[i];
                 Json& l = (*list)[idx];
@@ -178,19 +189,22 @@ static bool find_impl(Json& doc, const Json& ref, const char* command, const std
                 }
             }
         }
-        assets_detail::arg_error(command, "/" + argName, "there is no layer at index path '" + text + "': " + why + ".", describe_layers(doc));
+        assets_detail::arg_error(command, "/" + argName, "there is no layer at index path '" + text + "': " + why + ".",
+                                 describe_layers(doc));
     }
     // 3. nothing
     if (!must) return false;
     const auto names = layer_names(doc);
     std::string hint = names.empty() ? std::string() : did_you_mean(text, names) + " ";
-    assets_detail::arg_error(command, "/" + argName, "there is no layer named '" + text + "'.", hint + describe_layers(doc));
+    assets_detail::arg_error(command, "/" + argName, "there is no layer named '" + text + "'.",
+                             hint + describe_layers(doc));
 }
 
 bool try_find_layer(Json& doc, const Json& ref, const char* command, const std::string& argName, LayerRef& out) {
     const bool found = find_impl(doc, ref, command, argName, out, false);
     if (found)
-        if (FrameScope* fs = FrameScope::current()) fs->open_layer(doc, out);   // the layer as it is in the frame the command works on
+        if (FrameScope* fs = FrameScope::current())
+            fs->open_layer(doc, out);  // the layer as it is in the frame the command works on
     return found;
 }
 
@@ -206,21 +220,29 @@ LayerRef find_layer(Json& doc, const Json& ref, const char* command, const std::
 std::string doc_path_arg(const std::string& relArg, const char* command, const char* key) {
     auto norm = fs::normalize_checked(relArg);
     if (!norm.ok() || norm->empty())
-        assets_detail::arg_error(command, std::string("/") + key, "'" + relArg + "' is not a path inside the project.", "Use a project-relative path such as \"assets/art/hero.image.json\".");
+        assets_detail::arg_error(command, std::string("/") + key, "'" + relArg + "' is not a path inside the project.",
+                                 "Use a project-relative path such as \"assets/art/hero.image.json\".");
     if (!ends_with(*norm, kImageDocSuffix))
-        assets_detail::arg_error(command, std::string("/") + key, "'" + *norm + "' is not an image document.", "A layered image's file name ends in .image.json, for example \"assets/art/hero.image.json\".");
+        assets_detail::arg_error(
+            command, std::string("/") + key, "'" + *norm + "' is not an image document.",
+            "A layered image's file name ends in .image.json, for example \"assets/art/hero.image.json\".");
     return *norm;
 }
 
 void check_write_target(const std::string& projectDir, const std::string& rel, const char* command, const char* key) {
-    auto path = fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel, /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
+    auto path = fs::resolve_for_write_in(fs::path_from_utf8(projectDir), fs::WriteRoot::Project, rel,
+                                         /*allowAnywhere=*/false, fs::ManagedFolders::Refuse);
     if (!path.ok())
-        assets_detail::arg_error(command, std::string("/") + key, "'" + rel + "' cannot be written: " + path.error().message,
-                                 path.error().hint.empty() ? "Use a path inside the project that is not in .git or .factoria." : path.error().hint);
+        assets_detail::arg_error(
+            command, std::string("/") + key, "'" + rel + "' cannot be written: " + path.error().message,
+            path.error().hint.empty() ? "Use a path inside the project that is not in .git or .factoria."
+                                      : path.error().hint);
 }
 
 void mark_image_paths(CommandInfo& info, bool writes) {
-    if (!info.inputSchema.is_object() || !info.inputSchema.contains("properties") || !info.inputSchema["properties"].is_object()) return;
+    if (!info.inputSchema.is_object() || !info.inputSchema.contains("properties") ||
+        !info.inputSchema["properties"].is_object())
+        return;
     Json& props = info.inputSchema["properties"];
     auto mark = [&](const char* name, const char* kind) {
         auto it = props.find(name);
@@ -247,12 +269,15 @@ DocFile open_doc(const std::string& projectDir, const std::string& relArg, const
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
     std::error_code ec;
     if (!stdfs::is_regular_file(*path, ec))
-        fail("not_found", "The image document '" + d.rel + "' does not exist.", "Make one with image.create {\"path\":\"" + d.rel + "\",\"width\":64,\"height\":64}.");
+        fail("not_found", "The image document '" + d.rel + "' does not exist.",
+             "Make one with image.create {\"path\":\"" + d.rel + "\",\"width\":64,\"height\":64}.");
     auto text = tooling_detail::read_file(*path);
     if (!text) fail("failed", "Cannot read '" + d.rel + "'.", "Check the file's permissions.");
     auto json = parse_json(*text, d.rel);
     if (!json.ok()) fail("invalid_argument", json.error().message, json.error().hint);
-    if (!json->is_object()) fail("invalid_argument", "'" + d.rel + "' is not an image document (the top level must be an object).", "Docs: docs.read IMAGES.");
+    if (!json->is_object())
+        fail("invalid_argument", "'" + d.rel + "' is not an image document (the top level must be an object).",
+             "Docs: docs.read IMAGES.");
     d.json = std::move(*json);
     if (!d.json.contains("layers") || !d.json["layers"].is_array()) d.json["layers"] = Json::array();
     return d;
@@ -281,7 +306,12 @@ Region changed_region(const Image& a, const Image& b) {
 }
 
 Json bake_result_json(const std::string& projectDir, const ImageBakeResult& r) {
-    Json out = Json::object({{"document", r.document}, {"path", r.output}, {"width", r.width}, {"height", r.height}, {"written", r.written}, {"ai", r.ai}});
+    Json out = Json::object({{"document", r.document},
+                             {"path", r.output},
+                             {"width", r.width},
+                             {"height", r.height},
+                             {"written", r.written},
+                             {"ai", r.ai}});
     if (!r.sha256.empty()) out["sha256"] = r.sha256;
     if (!r.inputs.empty()) out["inputs"] = r.inputs;
     if (!r.provenance.is_null()) out["provenance"] = r.provenance;
@@ -289,19 +319,21 @@ Json bake_result_json(const std::string& projectDir, const ImageBakeResult& r) {
     if (r.sheet.is_object()) out["sheet"] = r.sheet;
     auto png = resolve_project_path(projectDir, r.output);
     std::error_code ec;
-    if (png.ok() && stdfs::is_regular_file(*png, ec)) out["$image"] = Json::object({{"path", png->string()}, {"mimeType", "image/png"}});
+    if (png.ok() && stdfs::is_regular_file(*png, ec))
+        out["$image"] = Json::object({{"path", png->string()}, {"mimeType", "image/png"}});
     if (r.sheet.is_object()) {
         std::vector<std::string> steps = assets_detail::sheet_next_steps(r.output, r.sheet, 10);
-        steps.insert(steps.begin(), "The PNG is a sprite sheet of the document's frames and tags. To change a frame, edit it (image.pixel, image.draw, image.edit, image.paint with `frame`) and call image.bake again.");
+        steps.insert(steps.begin(),
+                     "The PNG is a sprite sheet of the document's frames and tags. To change a frame, edit it "
+                     "(image.pixel, image.draw, image.edit, image.paint with `frame`) and call image.bake again.");
         out["nextSteps"] = steps;
     } else {
-        out["nextSteps"] = Json::array({"Look at the picture in this result. To change it, edit the layers of '" + r.document + "' and call image.bake again.",
+        out["nextSteps"] = Json::array({"Look at the picture in this result. To change it, edit the layers of '" +
+                                            r.document + "' and call image.bake again.",
                                         "Use it as a Sprite texture: Sprite.texture \"" + r.output + "\"."});
     }
     return out;
 }
-
-
 
 std::optional<Image> read_png_file(const std::string& projectDir, const std::string& rel) {
     auto path = resolve_project_path(projectDir, rel);
@@ -318,11 +350,10 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
     if (!path.ok()) fail("invalid_argument", path.error().message, path.error().hint);
     const auto png = encode_png(img);
     std::string err;
-    if (!tooling_detail::write_file(*path, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+    if (!tooling_detail::write_file(*path, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    &err))
         fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
-
-
 
 std::optional<Image> render_document_json(const std::string& projectDir, const Json& doc) {
     const FrameScope* fs = FrameScope::current();
@@ -334,26 +365,31 @@ std::optional<Image> render_preview_json(const std::string& projectDir, const Js
     return render_frame_json(projectDir, doc, fs ? fs->frame() : 0, fs ? fs->onion() : std::nullopt);
 }
 
-Json commit_document(const std::string& projectDir, const std::string& rel, const Json& docIn, const std::optional<Image>& before, bool bake, Json extra,
+Json commit_document(const std::string& projectDir, const std::string& rel, const Json& docIn,
+                     const std::optional<Image>& before, bool bake, Json extra,
                      const std::vector<std::string>& warnings, const char* command) {
     FrameScope* fs = FrameScope::current();
     // in a frame, the layers the command opened are folded back into their cels first
     const Json doc = fs ? fs->folded(docIn) : docIn;
-    Json oldDoc;   // the document as it was on disk, for the pictures nothing reads any more
+    Json oldDoc;  // the document as it was on disk, for the pictures nothing reads any more
     if (auto oldPath = resolve_project_path(projectDir, rel); oldPath.ok())
         if (auto text = tooling_detail::read_file(*oldPath)) oldDoc = Json::parse(*text, nullptr, false);
     auto r = save_image_document(projectDir, rel, doc, bake);
     if (!r.ok()) fail("invalid_argument", r.error().message, r.error().hint);
     if (fs) fs->record_files(command);
-    const std::vector<std::string> pruned = oldDoc.is_object() ? prune_orphan_cels(projectDir, rel, oldDoc, doc) : std::vector<std::string>();
+    const std::vector<std::string> pruned =
+        oldDoc.is_object() ? prune_orphan_cels(projectDir, rel, oldDoc, doc) : std::vector<std::string>();
     Json out = bake_result_json(projectDir, *r);
     if (!pruned.empty()) out["removedFiles"] = pruned;
     // the picture of the frame (the bake of an animated document is the whole sheet)
     const bool animated = r->sheet.is_object();
     std::optional<Image> after;
-    if (animated || fs) after = render_frame_json(projectDir, doc, fs ? fs->frame() : 0);
-    else if (bake) after = read_png_file(projectDir, r->output);
-    else after = render_document_json(projectDir, doc);
+    if (animated || fs)
+        after = render_frame_json(projectDir, doc, fs ? fs->frame() : 0);
+    else if (bake)
+        after = read_png_file(projectDir, r->output);
+    else
+        after = render_document_json(projectDir, doc);
     if (!bake) out.erase("$image");
     if (fs && fs->frames() > 1) {
         out["frame"] = fs->frame();
@@ -365,11 +401,14 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
             }
     }
     Region region;
-    if (after) region = before ? changed_region(*before, *after) : Region{0, 0, after->width, after->height};
-    else region = {0, 0, r->width, r->height};
+    if (after)
+        region = before ? changed_region(*before, *after) : Region{0, 0, after->width, after->height};
+    else
+        region = {0, 0, r->width, r->height};
     out["region"] = region.to_json();
     out["changed"] = !region.empty();
-    if (!bake) out["note"] = "The document was written but not baked (bake: false): call image.bake to see the picture.";
+    if (!bake)
+        out["note"] = "The document was written but not baked (bake: false): call image.bake to see the picture.";
     for (auto it = extra.begin(); it != extra.end(); ++it) out[it.key()] = it.value();
     if (!warnings.empty()) {
         Json w = out.contains("warnings") ? out["warnings"] : Json::array();
@@ -379,7 +418,8 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
     return out;
 }
 
-Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY, std::vector<std::string>* warnings, const Json* docJson) {
+Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX,
+                         int offY, std::vector<std::string>* warnings, const Json* docJson) {
     Json layer = layerJson;
     if (layer.contains("cels")) {
         // outside a frame (FrameScope) a layer is what it shows in frame 0; a document of one frame has no cels
@@ -395,7 +435,8 @@ Image render_layer_alone(const std::string& projectDir, const Json& layerJson, i
     for (const char* k : {"visible", "opacity", "blend", "clip"}) layer.erase(k);
     layer["x"] = int_or(layerJson, "x", 0) + offX;
     layer["y"] = int_or(layerJson, "y", 0) + offY;
-    Json doc = Json::object({{"format", kImageDocFormat}, {"width", width}, {"height", height}, {"layers", Json::array({layer})}});
+    Json doc = Json::object(
+        {{"format", kImageDocFormat}, {"width", width}, {"height", height}, {"layers", Json::array({layer})}});
     if (docJson)
         for (const char* k : {"palette", "ramps"})
             if (docJson->contains(k)) doc[k] = (*docJson)[k];
@@ -460,7 +501,9 @@ void edt_1d(const std::vector<double>& f, std::vector<double>& d, std::vector<in
     z[0] = -1e30;
     z[1] = 1e30;
     for (int q = 1; q < n; ++q) {
-        auto cross = [&](int a, int b) { return ((f[b] + double(b) * b) - (f[a] + double(a) * a)) / (2.0 * b - 2.0 * a); };
+        auto cross = [&](int a, int b) {
+            return ((f[b] + double(b) * b) - (f[a] + double(a) * a)) / (2.0 * b - 2.0 * a);
+        };
         double s = cross(v[k], q);
         while (s <= z[k]) {
             --k;
@@ -518,7 +561,8 @@ void mask_shrink(Mask& m, float pixels) {
     std::vector<std::uint8_t> out(m.v.size());
     for (std::size_t i = 0; i < out.size(); ++i) out[i] = m.v[i] < 128;
     const auto d = distance_squared(m.w, m.h, out);
-    for (std::size_t i = 0; i < d.size(); ++i) m.v[i] = (m.v[i] >= 128 && d[i] > double(pixels) * pixels + 1e-3) ? 255 : 0;
+    for (std::size_t i = 0; i < d.size(); ++i)
+        m.v[i] = (m.v[i] >= 128 && d[i] > double(pixels) * pixels + 1e-3) ? 255 : 0;
 }
 
 void mask_feather(Mask& m, float pixels) {
@@ -526,7 +570,8 @@ void mask_feather(Mask& m, float pixels) {
     imgdoc::Plane plane(m.w, m.h, 0, 0);
     for (std::size_t i = 0; i < m.v.size(); ++i) plane.v[i] = m.v[i] / 255.0f;
     imgdoc::blur_plane(plane, pixels / 2.0f);
-    for (std::size_t i = 0; i < m.v.size(); ++i) m.v[i] = std::uint8_t(std::lround(std::clamp(plane.v[i], 0.0f, 1.0f) * 255.0f));
+    for (std::size_t i = 0; i < m.v.size(); ++i)
+        m.v[i] = std::uint8_t(std::lround(std::clamp(plane.v[i], 0.0f, 1.0f) * 255.0f));
 }
 
 // ---- selections on disk ---------------------------------------------------------------------------------------------
@@ -538,7 +583,9 @@ bool valid_selection_name(const std::string& name) {
     return true;
 }
 
-std::string selection_file(const std::string& rel, const std::string& name) { return ".factoria/selections/" + rel + "/" + name + ".png"; }
+std::string selection_file(const std::string& rel, const std::string& name) {
+    return ".factoria/selections/" + rel + "/" + name + ".png";
+}
 
 void save_selection(const std::string& projectDir, const std::string& rel, const std::string& name, const Mask& m) {
     Image img;
@@ -571,27 +618,34 @@ std::vector<std::string> list_selections(const std::string& projectDir, const st
     return out;
 }
 
-Mask load_selection(const std::string& projectDir, const std::string& rel, const std::string& name, int canvasW, int canvasH, const char* command) {
+Mask load_selection(const std::string& projectDir, const std::string& rel, const std::string& name, int canvasW,
+                    int canvasH, const char* command) {
     if (name == "all") return Mask(canvasW, canvasH, 255);
     if (!selection_exists(projectDir, rel, name)) {
         const auto names = list_selections(projectDir, rel);
-        std::string hint = names.empty() ? "This document has no stored selection yet: make one with image.select {\"path\":\"" + rel + "\",\"name\":\"" + name + "\",\"by\":\"rect\",...}."
-                                         : did_you_mean(name, names) + " Selections of this document: " + join(names, ", ") + ".";
+        std::string hint = names.empty()
+                               ? "This document has no stored selection yet: make one with image.select {\"path\":\"" +
+                                     rel + "\",\"name\":\"" + name + "\",\"by\":\"rect\",...}."
+                               : did_you_mean(name, names) + " Selections of this document: " + join(names, ", ") + ".";
         hint += " The name \"all\" selects the whole canvas.";
-        assets_detail::arg_error(command, "/selection", "there is no selection named '" + name + "' for '" + rel + "'.", hint);
+        assets_detail::arg_error(command, "/selection", "there is no selection named '" + name + "' for '" + rel + "'.",
+                                 hint);
     }
     auto img = read_png_file(projectDir, selection_file(rel, name));
     if (!img) fail("failed", "The stored selection '" + name + "' cannot be read.", "Make it again with image.select.");
     if (img->width != canvasW || img->height != canvasH)
-        assets_detail::arg_error(command, "/selection",
-                                 std::format("the selection '{}' was made for a {}x{} canvas and the document is {}x{} now.", name, img->width, img->height, canvasW, canvasH),
-                                 "Select again with image.select (the old selection is replaced when you reuse the name).");
+        assets_detail::arg_error(
+            command, "/selection",
+            std::format("the selection '{}' was made for a {}x{} canvas and the document is {}x{} now.", name,
+                        img->width, img->height, canvasW, canvasH),
+            "Select again with image.select (the old selection is replaced when you reuse the name).");
     Mask m(canvasW, canvasH);
     for (std::size_t i = 0; i < m.v.size(); ++i) m.v[i] = img->rgba[i * 4];
     return m;
 }
 
-std::string write_selection_preview(const std::string& projectDir, const std::string& rel, const std::string& name, const Image& picture, const Mask& m) {
+std::string write_selection_preview(const std::string& projectDir, const std::string& rel, const std::string& name,
+                                    const Image& picture, const Mask& m) {
     Image out = picture;
     if (out.width != m.w || out.height != m.h) {
         out = Image();
@@ -614,7 +668,8 @@ std::string write_selection_preview(const std::string& projectDir, const std::st
             }
             p[3] = 255;
             const bool inside = c >= 128;
-            const bool edge = inside && (m.at(x - 1, y) < 128 || m.at(x + 1, y) < 128 || m.at(x, y - 1) < 128 || m.at(x, y + 1) < 128);
+            const bool edge = inside && (m.at(x - 1, y) < 128 || m.at(x + 1, y) < 128 || m.at(x, y - 1) < 128 ||
+                                         m.at(x, y + 1) < 128);
             if (edge) {
                 const bool on = ((x + y) / 2) & 1;
                 p[0] = on ? 255 : 0;
@@ -631,20 +686,24 @@ std::string write_selection_preview(const std::string& projectDir, const std::st
 
 namespace {
 
-std::string layers_dir(const std::string& docRel) { return docRel.substr(0, docRel.size() - std::string(kImageDocSuffix).size()) + ".layers/"; }
+std::string layers_dir(const std::string& docRel) {
+    return docRel.substr(0, docRel.size() - std::string(kImageDocSuffix).size()) + ".layers/";
+}
 
 void collect_sources(const Json& list, std::vector<std::string>& out) {
     if (!list.is_array()) return;
     for (const Json& l : list) {
         if (!l.is_object()) continue;
-        if (l.contains("source") && l["source"].is_string()) out.push_back(fs::normalize(l["source"].get<std::string>()));
+        if (l.contains("source") && l["source"].is_string())
+            out.push_back(fs::normalize(l["source"].get<std::string>()));
         if (l.contains("layers")) collect_sources(l["layers"], out);
     }
 }
 
 }  // namespace
 
-std::string layer_png_path(const std::string& projectDir, const std::string& docRel, const std::string& layerName, const Json& doc) {
+std::string layer_png_path(const std::string& projectDir, const std::string& docRel, const std::string& layerName,
+                           const Json& doc) {
     std::string slug = tooling_detail::slugify(layerName, '-');
     if (slug.empty()) slug = "layer";
     std::vector<std::string> used;
@@ -658,33 +717,52 @@ std::string layer_png_path(const std::string& projectDir, const std::string& doc
     }
 }
 
-void write_layer_png(const std::string& projectDir, const std::string& pngRel, const std::string& docRel, const Image& img, const char* command, bool ai) {
+void write_layer_png(const std::string& projectDir, const std::string& pngRel, const std::string& docRel,
+                     const Image& img, const char* command, bool ai) {
     write_png_file(projectDir, pngRel, img);
     assets_detail::ProjectRootGuard root(projectDir);
-    Json prov = Json::object({{"origin", "generated"}, {"ai", ai}, {"kind", "image"}, {"provider", std::string("factoria ") + command},
-                              {"source", docRel}, {"date", assets::today()}});
+    Json prov = Json::object({{"origin", "generated"},
+                              {"ai", ai},
+                              {"kind", "image"},
+                              {"provider", std::string("factoria ") + command},
+                              {"source", docRel},
+                              {"date", assets::today()}});
     (void)assets::update_entry(pngRel, [&](Json& e) { e["provenance"] = prov; });
 }
 
-Work open_work(const std::string& projectDir, Json& doc, const LayerRef& ref, const char* command, bool expand, bool allowRasterize) {
+Work open_work(const std::string& projectDir, Json& doc, const LayerRef& ref, const char* command, bool expand,
+               bool allowRasterize) {
     Work w;
     const Json& L = *ref.layer;
     w.kind = L.value("kind", std::string());
-    const std::string label = "layer '" + (L.value("name", std::string()).empty() ? ref.indexPath : L.value("name", std::string())) + "' (" + ref.indexPath + ")";
+    const std::string label =
+        "layer '" + (L.value("name", std::string()).empty() ? ref.indexPath : L.value("name", std::string())) + "' (" +
+        ref.indexPath + ")";
     if (w.kind == "group")
-        assets_detail::arg_error(command, "/layer", label + " is a group, and a group has no pixels of its own to edit.",
-                                 "Edit a layer inside it (" + describe_layers(doc, 12) + "), or select with image.select by:\"layer\" and use a layer of the group.");
+        assets_detail::arg_error(command, "/layer",
+                                 label + " is a group, and a group has no pixels of its own to edit.",
+                                 "Edit a layer inside it (" + describe_layers(doc, 12) +
+                                     "), or select with image.select by:\"layer\" and use a layer of the group.");
     if (w.kind == "indexed")
-        assets_detail::arg_error(command, "/layer", label + " is an indexed pixel-art layer: it is locked to the palette, and this command would blend colours that are not in it.",
-                                 "Draw on it with image.pixel and image.draw, or turn it into a pixels layer first: image.layer.convert {\"layer\":\"" + (L.value("name", std::string()).empty() ? ref.indexPath : L.value("name", std::string())) + "\",\"to\":\"pixels\"}.");
+        assets_detail::arg_error(
+            command, "/layer",
+            label + " is an indexed pixel-art layer: it is locked to the palette, and this command would blend colours "
+                    "that are not in it.",
+            "Draw on it with image.pixel and image.draw, or turn it into a pixels layer first: image.layer.convert "
+            "{\"layer\":\"" +
+                (L.value("name", std::string()).empty() ? ref.indexPath : L.value("name", std::string())) +
+                "\",\"to\":\"pixels\"}.");
     if (w.kind == "adjustment")
-        assets_detail::arg_error(command, "/layer", label + " is an adjustment layer: it has no pixels, it changes the layers below it.",
+        assets_detail::arg_error(command, "/layer",
+                                 label + " is an adjustment layer: it has no pixels, it changes the layers below it.",
                                  "Change it with image.layer.set (its `adjustments`), or edit a pixels layer.");
     const int W = doc.value("width", 0), H = doc.value("height", 0);
     if (w.kind == "pixels") {
         const std::string src = L.value("source", std::string());
         auto img = read_png_file(projectDir, src);
-        if (!img) fail("failed", label + " reads '" + src + "', which cannot be read as a PNG.", "Check the file, or replace the layer's `source`.");
+        if (!img)
+            fail("failed", label + " reads '" + src + "', which cannot be read as a PNG.",
+                 "Check the file, or replace the layer's `source`.");
         w.img = std::move(*img);
         w.ox = w.originX = ref.parentX + int_or(L, "x", 0);
         w.oy = w.originY = ref.parentY + int_or(L, "y", 0);
@@ -708,14 +786,16 @@ Work open_work(const std::string& projectDir, Json& doc, const LayerRef& ref, co
         return w;
     }
     if (!allowRasterize)
-        assets_detail::arg_error(command, "/layer", label + " is a " + w.kind + " layer, not a pixels layer.", "Edit a pixels layer.");
+        assets_detail::arg_error(command, "/layer", label + " is a " + w.kind + " layer, not a pixels layer.",
+                                 "Edit a pixels layer.");
     w.rasterized = true;
     w.img = render_layer_alone(projectDir, L, W, H, ref.parentX, ref.parentY, &w.warnings);
     w.ox = w.oy = w.originX = w.originY = 0;
     return w;
 }
 
-void commit_work(const std::string& projectDir, const std::string& rel, Json& doc, const LayerRef& ref, Work& work, const char* command) {
+void commit_work(const std::string& projectDir, const std::string& rel, Json& doc, const LayerRef& ref, Work& work,
+                 const char* command) {
     Json& L = *ref.layer;
     Image out = work.img;
     int cx = work.ox, cy = work.oy;
@@ -740,7 +820,8 @@ void commit_work(const std::string& projectDir, const std::string& rel, Json& do
             c.height = y1 - y0 + 1;
             c.rgba.resize(std::size_t(c.width) * c.height * 4);
             for (int y = 0; y < c.height; ++y)
-                std::copy_n(&out.rgba[(std::size_t(y + y0) * out.width + x0) * 4], std::size_t(c.width) * 4, &c.rgba[std::size_t(y) * c.width * 4]);
+                std::copy_n(&out.rgba[(std::size_t(y + y0) * out.width + x0) * 4], std::size_t(c.width) * 4,
+                            &c.rgba[std::size_t(y) * c.width * 4]);
             cx += x0;
             cy += y0;
         }
@@ -764,7 +845,8 @@ void commit_work(const std::string& projectDir, const std::string& rel, Json& do
         return;
     }
     const bool ai = work.kind == "provider";
-    const std::string png = layer_png_path(projectDir, rel, L.value("name", std::string()).empty() ? work.kind : L.value("name", std::string()), doc);
+    const std::string png = layer_png_path(
+        projectDir, rel, L.value("name", std::string()).empty() ? work.kind : L.value("name", std::string()), doc);
     write_layer_png(projectDir, png, rel, out, command, ai);
     Json fresh = Json::object({{"kind", "pixels"}});
     for (const char* k : {"name", "visible", "opacity", "blend", "clip"})
@@ -774,13 +856,15 @@ void commit_work(const std::string& projectDir, const std::string& rel, Json& do
     fresh["source"] = png;
     const bool hadMasks = L.contains("masks") || L.contains("adjustments") || L.contains("effects");
     L = std::move(fresh);
-    work.warnings.push_back("Layer '" + label + "' was a " + work.kind + " layer; it is now a pixels layer ('" + png + "')" +
-                            (hadMasks ? ", with its masks, adjustments and effects drawn into the pixels" : "") +
-                            ". Its original settings are gone: use a pixels layer next time to keep the layer editable.");
+    work.warnings.push_back(
+        "Layer '" + label + "' was a " + work.kind + " layer; it is now a pixels layer ('" + png + "')" +
+        (hadMasks ? ", with its masks, adjustments and effects drawn into the pixels" : "") +
+        ". Its original settings are gone: use a pixels layer next time to keep the layer editable.");
 }
 
-std::string add_pixels_layer(const std::string& projectDir, const std::string& rel, Json& doc, const LayerRef* above, const std::string& name, const Image& img,
-                             int canvasX, int canvasY, const char* command, bool ai) {
+std::string add_pixels_layer(const std::string& projectDir, const std::string& rel, Json& doc, const LayerRef* above,
+                             const std::string& name, const Image& img, int canvasX, int canvasY, const char* command,
+                             bool ai) {
     const std::string png = layer_png_path(projectDir, rel, name, doc);
     write_layer_png(projectDir, png, rel, img, command, ai);
     Json layer = Json::object({{"kind", "pixels"}, {"name", name}});

@@ -32,7 +32,8 @@ TableFile read_table(const std::string& language) {
     t.exists = fs::exists(t.file);
     if (!t.exists) {
         t.message = t.file + " does not exist, although '" + language + "' is one of localization.languages";
-        t.hint = "Create it (start from {\"menu\": {\"play\": \"...\"}}: `factoria call i18n.import` fills a new table from a translator's file), or remove '" +
+        t.hint = "Create it (start from {\"menu\": {\"play\": \"...\"}}: `factoria call i18n.import` fills a new table "
+                 "from a translator's file), or remove '" +
                  language + "' from localization.languages in factoria.json.";
         return t;
     }
@@ -117,8 +118,10 @@ std::string excerpt(std::string_view text, std::size_t limit) {
     const std::u32string cps = utf8_decode(text);
     std::string out;
     for (std::size_t i = 0; i < cps.size() && i < limit; ++i) {
-        if (cps[i] == U'\n') out += "\\n";
-        else utf8_append(out, cps[i]);
+        if (cps[i] == U'\n')
+            out += "\\n";
+        else
+            utf8_append(out, cps[i]);
     }
     if (cps.size() > limit) out += "...";
     return out;

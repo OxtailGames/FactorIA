@@ -49,11 +49,13 @@ std::string check_shape(const ChangelogShape& shape) {
         if (minors.insert(minor).second) oldest = minor;  // the last new minor met is the oldest (newest first)
     }
     std::ostringstream msg;
-    if (shape.unreleased > 1) msg << "CHANGELOG.md has " << shape.unreleased << " \"## Unreleased\" sections; keep one. ";
+    if (shape.unreleased > 1)
+        msg << "CHANGELOG.md has " << shape.unreleased << " \"## Unreleased\" sections; keep one. ";
     if (minors.size() > 1)
         msg << "CHANGELOG.md holds versions of " << minors.size() << " minor versions:" << names.str()
             << ". It keeps `## Unreleased` and the newest minor version with its patch releases (they stay together): "
-            << "move the sections of the older minor version(s), the oldest being " << oldest << ".x, to changelog/" << oldest
+            << "move the sections of the older minor version(s), the oldest being " << oldest << ".x, to changelog/"
+            << oldest
             << ".md (one file per minor version) and add the link to the index line at the top of CHANGELOG.md "
             << "(docs/ARCHITECTURE.md, \"Versions\").";
     return msg.str();

@@ -25,11 +25,12 @@ Rect clamped_camera_viewport(const Camera& c);
 
 // An orthographic camera seen from outside: world units to design pixels.
 struct OrthoView {
-    Entity camera;         // the camera, null when the scene has none (then the view is centred on the origin)
-    Vec3 position{};       // the camera's world position AS DRAWN: a running camera shake (feel.h) is in it
-    float roll = 0.0f;     // radians the view is turned about z by a running camera shake (0 without one; the camera's own rotation is not here)
-    Vec2 center;           // the centre of the camera's rectangle, in design pixels
-    float scale = 1.0f;    // design pixels per world unit
+    Entity camera;    // the camera, null when the scene has none (then the view is centred on the origin)
+    Vec3 position{};  // the camera's world position AS DRAWN: a running camera shake (feel.h) is in it
+    float roll =
+        0.0f;  // radians the view is turned about z by a running camera shake (0 without one; the camera's own rotation is not here)
+    Vec2 center;         // the centre of the camera's rectangle, in design pixels
+    float scale = 1.0f;  // design pixels per world unit
     Rect viewport{0, 0, 1, 1};
 
     // The conversions map to what the player SEES, so the shake (offset and roll) is in them; the entities' own positions stay the

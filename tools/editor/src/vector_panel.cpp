@@ -30,17 +30,23 @@ bool toggle_button(const char* label, bool on, ImVec2 size = ImVec2(0, 0)) {
 }
 
 void eye_icon(ImDrawList* dl, ImVec2 c, bool on, bool hot) {
-    const ImU32 col = on ? (hot ? IM_COL32(255, 255, 255, 255) : IM_COL32(210, 210, 215, 255)) : IM_COL32(110, 110, 118, 255);
+    const ImU32 col =
+        on ? (hot ? IM_COL32(255, 255, 255, 255) : IM_COL32(210, 210, 215, 255)) : IM_COL32(110, 110, 118, 255);
     dl->AddEllipse(c, ImVec2(6.5f, 4.0f), col, 0.0f, 16, 1.4f);
-    if (on) dl->AddCircleFilled(c, 2.2f, col);
-    else dl->AddLine(ImVec2(c.x - 6, c.y + 5), ImVec2(c.x + 6, c.y - 5), col, 1.4f);
+    if (on)
+        dl->AddCircleFilled(c, 2.2f, col);
+    else
+        dl->AddLine(ImVec2(c.x - 6, c.y + 5), ImVec2(c.x + 6, c.y - 5), col, 1.4f);
 }
 
 void lock_icon(ImDrawList* dl, ImVec2 c, bool on, bool hot) {
-    const ImU32 col = on ? IM_COL32(240, 190, 90, 255) : (hot ? IM_COL32(190, 190, 195, 255) : IM_COL32(95, 95, 103, 255));
+    const ImU32 col =
+        on ? IM_COL32(240, 190, 90, 255) : (hot ? IM_COL32(190, 190, 195, 255) : IM_COL32(95, 95, 103, 255));
     dl->AddRectFilled(ImVec2(c.x - 4.5f, c.y - 1), ImVec2(c.x + 4.5f, c.y + 5), col, 1.0f);
-    if (on) dl->AddRect(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 0.5f), col, 3.0f, 0, 1.4f);
-    else dl->AddLine(ImVec2(c.x + 3, c.y - 1), ImVec2(c.x + 3, c.y - 4), col, 1.4f);
+    if (on)
+        dl->AddRect(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 0.5f), col, 3.0f, 0, 1.4f);
+    else
+        dl->AddLine(ImVec2(c.x + 3, c.y - 1), ImVec2(c.x + 3, c.y - 4), col, 1.4f);
 }
 
 std::string hex_of(const float c[4]) {
@@ -53,7 +59,11 @@ std::string hex_of(const float c[4]) {
 // "#rgb" or "#rrggbb" (any case) into 0..1 floats; false for a name, a url(#...) or "none".
 bool colour_of(const std::string& s, float out[4]) {
     if (s.size() < 4 || s[0] != '#') return false;
-    auto hv = [](char c) { return c >= '0' && c <= '9' ? c - '0' : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1)); };
+    auto hv = [](char c) {
+        return c >= '0' && c <= '9'
+                   ? c - '0'
+                   : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1));
+    };
     int v[3] = {0, 0, 0};
     if (s.size() == 4) {
         for (int i = 0; i < 3; ++i) {
@@ -113,7 +123,8 @@ const std::vector<ShapeParam>& shape_params(const std::string& kind) {
         {"radius", "Radius", 0.1, 5000, 30, false, "Distance from the centre to the tooth tips."},
         {"teeth", "Teeth", 3, 128, 8, true, "How many teeth."},
         {"depth", "Depth", 0, 2000, 6, false, "How tall a tooth is, in drawing units (default 0.2 of the radius)."},
-        {"toothWidth", "Tooth width", 0, 2000, 4, false, "The width of a tooth at its tip, in drawing units (default 0.5 of the pitch)."},
+        {"toothWidth", "Tooth width", 0, 2000, 4, false,
+         "The width of a tooth at its tip, in drawing units (default 0.5 of the pitch)."},
         {"hole", "Hole", 0, 5000, 9, false, "Radius of the centre hole; 0 for none (default 0.3 of the radius)."},
         {"rotation", "Rotation", -360, 360, 0, false, "Degrees."}};
     static const std::vector<ShapeParam> polygon = {
@@ -125,7 +136,8 @@ const std::vector<ShapeParam>& shape_params(const std::string& kind) {
         {"shaftWidth", "Shaft width", 0.1, 2000, 6, false, "Width of the shaft."},
         {"headLength", "Head length", 0.1, 2000, 14, false, "Length of the head."},
         {"headWidth", "Head width", 0.1, 2000, 16, false, "Width of the head."},
-        {"curve", "Curve", -0.5, 0.5, 0, false, "Bend as a fraction of the length; positive to the right of from -> to."}};
+        {"curve", "Curve", -0.5, 0.5, 0, false,
+         "Bend as a fraction of the length; positive to the right of from -> to."}};
     static const std::vector<ShapeParam> bubble = {
         {"width", "Width", 1, 5000, 50, false, "Width of the box."},
         {"height", "Height", 1, 5000, 30, false, "Height of the box."},
@@ -209,8 +221,10 @@ void Editor::vector_save() {
         return;
     }
     const VectorEditOutcome out = u.model->save();
-    if (!out.ok) notify(out.error, 2);
-    else project_files_changed();
+    if (!out.ok)
+        notify(out.error, 2);
+    else
+        project_files_changed();
 }
 
 void Editor::vector_edited(const VectorEditOutcome& out) {
@@ -247,8 +261,10 @@ void Editor::vector_apply_undo(const Json& entry, bool forward) {
     const std::string doc = u.model->step_document(id);
     const std::string layer = u.model->step_layer(id);
     if (!doc.empty() && (doc != u.model->path() || layer != u.model->layer())) {
-        if (layer.empty()) open_vector_document(doc);
-        else open_vector_layer(doc, layer);
+        if (layer.empty())
+            open_vector_document(doc);
+        else
+            open_vector_layer(doc, layer);
     }
     if (!u.model->apply_step(id, forward)) {
         notify("Could not " + std::string(forward ? "redo" : "undo") + " the vector edit: " + u.model->status(), 2);
@@ -282,7 +298,8 @@ void Editor::draw_vector_panel() {
         draw_vector_toolbar(m);
         ImGui::Spacing();
         ImGui::TextDisabled("Open a drawing (*.svg) from the list above, or double click one in the Project panel.");
-        ImGui::TextDisabled("An svg layer of an image document opens here from the Image panel (Edit in Vector panel).");
+        ImGui::TextDisabled(
+            "An svg layer of an image document opens here from the Image panel (Edit in Vector panel).");
         if (!u.openError.empty()) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", u.openError.c_str());
         ImGui::End();
         return;
@@ -301,7 +318,8 @@ void Editor::draw_vector_panel() {
         ImGui::End();
         return;
     }
-    if (play_ != PlayState::Edit) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "The game is running: stop it to edit the drawing.");
+    if (play_ != PlayState::Edit)
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "The game is running: stop it to edit the drawing.");
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float sideW = std::min(kSideW, std::max(230.0f, avail.x * 0.32f));
@@ -318,10 +336,13 @@ void Editor::draw_vector_panel() {
         canvas.y = std::max(60.0f, canvas.y - statusH - ImGui::GetStyle().ItemSpacing.y);
         draw_vector_canvas(m, canvas);
         std::string line = m.status();
-        if (u.mouseInside) line += (line.empty() ? "" : "   |   ") + std::format("x {:.1f} y {:.1f}", u.mouse.x, u.mouse.y);
+        if (u.mouseInside)
+            line += (line.empty() ? "" : "   |   ") + std::format("x {:.1f} y {:.1f}", u.mouse.x, u.mouse.y);
         VecRect b;
-        if (m.selection_bounds(b, false)) line += std::format("   |   {} selected, {:.1f} x {:.1f}", m.selection().size(), b.width(), b.height());
-        line += std::format("   |   {}%   |   read {:.1f} ms, draw {:.1f} ms", int(std::lround(u.zoom * 100)), m.last_scene_ms(), m.last_raster_ms());
+        if (m.selection_bounds(b, false))
+            line += std::format("   |   {} selected, {:.1f} x {:.1f}", m.selection().size(), b.width(), b.height());
+        line += std::format("   |   {}%   |   read {:.1f} ms, draw {:.1f} ms", int(std::lround(u.zoom * 100)),
+                            m.last_scene_ms(), m.last_raster_ms());
         ImGui::TextDisabled("%s", line.c_str());
     }
     ImGui::EndChild();
@@ -351,7 +372,8 @@ void Editor::draw_vector_toolbar(VectorModel& m) {
         ImGui::EndCombo();
     }
     at_track("vec:open");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The drawings (*.svg) of the project. A double click in the Project panel opens one too.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The drawings (*.svg) of the project. A double click in the Project panel opens one too.");
     ImGui::SameLine();
     if (ImGui::Button("New...")) ImGui::OpenPopup("##vecnew");
     at_track("vec:new");
@@ -366,8 +388,8 @@ void Editor::draw_vector_toolbar(VectorModel& m) {
         if (ImGui::Button("Create") && editable && !u.newDocName.empty()) {
             const std::string path = "assets/" + u.newDocName + ".svg";
             const std::string size = std::to_string(u.newDocSize);
-            const std::string text = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + size + " " + size + "\" width=\"" + size +
-                                     "\" height=\"" + size + "\">\n</svg>\n";
+            const std::string text = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + size + " " + size +
+                                     "\" width=\"" + size + "\" height=\"" + size + "\">\n</svg>\n";
             const Json args = Json::object({{"path", path}, {"content", text}});
             const CommandResult r = engine_->commands().call("fs.write", args);
             after_command("fs.write", args, r);
@@ -388,9 +410,11 @@ void Editor::draw_vector_toolbar(VectorModel& m) {
     at_track("vec:save");
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip(m.is_layer() ? "Bakes the image document's PNG from this layer (image.save), like the command. Ctrl+S while this panel has the keyboard.\n"
+        ImGui::SetTooltip(m.is_layer() ? "Bakes the image document's PNG from this layer (image.save), like the "
+                                         "command. Ctrl+S while this panel has the keyboard.\n"
                                          "Every edit is already written to the layer."
-                                       : "Every edit is written to the file as you make it, like the vector.* commands do; there is nothing left to save.");
+                                       : "Every edit is written to the file as you make it, like the vector.* commands "
+                                         "do; there is nothing left to save.");
     ImGui::SameLine();
     if (ImGui::Button("Reload")) {
         m.reload();
@@ -431,17 +455,21 @@ void Editor::draw_vector_toolbar(VectorModel& m) {
         u.fitNext = false;
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Zoom in percent (1 drawing unit = 1 pixel at 100%%). The wheel zooms around the pointer; the middle button, Space + drag or Shift + wheel pans.");
+        ImGui::SetTooltip("Zoom in percent (1 drawing unit = 1 pixel at 100%%). The wheel zooms around the pointer; "
+                          "the middle button, Space + drag or Shift + wheel pans.");
     ImGui::SameLine(0, 2);
     ImGui::TextDisabled("%%");
     ImGui::SameLine(0, 16);
     ImGui::Checkbox("Grid", &m.snapping.grid);
     at_track("vec:snap:grid");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Snap to a grid of the size set in Snap...; the grid lines show while this is on.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Snap to a grid of the size set in Snap...; the grid lines show while this is on.");
     ImGui::SameLine();
     ImGui::Checkbox("Points", &m.snapping.points);
     at_track("vec:snap:points");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Snap to the nodes, bounding-box corners and centres of the other shapes and to the canvas corners and centre. A point wins over the grid and the guides.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Snap to the nodes, bounding-box corners and centres of the other shapes and to the canvas "
+                          "corners and centre. A point wins over the grid and the guides.");
     ImGui::SameLine();
     ImGui::Checkbox("Guides", &m.snapping.guides);
     at_track("vec:snap:guides");
@@ -504,21 +532,44 @@ void Editor::draw_vector_tools(VectorModel& m) {
         if (t == VectorTool::Pen) ImGui::Separator();
         if (toggle_button(label.c_str(), u.tool == t, ImVec2(kToolsW - 8, 0))) {
             if (m.pen().active) {
-                if (m.pen_can_finish()) vector_edited(m.pen_finish(false));
-                else m.pen_cancel();
+                if (m.pen_can_finish())
+                    vector_edited(m.pen_finish(false));
+                else
+                    m.pen_cancel();
             }
             u.tool = t;
         }
         at_track(std::string("vec:tool:") + vector_tool_name(t));
         if (ImGui::IsItemHovered()) {
             switch (t) {
-                case VectorTool::Select: ImGui::SetTooltip("Click a shape, drag a box to select several (Shift adds), drag to move, drag a handle of the box to scale, outside a corner to rotate. Double click a group to go into it."); break;
-                case VectorTool::Node: ImGui::SetTooltip("Edit the nodes of the selected shape: drag anchors and handles, double click a segment to add a node, double click a node to switch corner and smooth. Alt while dragging a handle breaks the link between the two."); break;
-                case VectorTool::Pen: ImGui::SetTooltip("Click for a corner, drag for a curve, click the first node to close. Enter or a double click ends an open path, Esc drops it. A click on the end of the selected open path continues it."); break;
-                case VectorTool::Rectangle: ImGui::SetTooltip("Drag a box. Shift makes a square, Alt draws from the centre."); break;
-                case VectorTool::Ellipse: ImGui::SetTooltip("Drag a box. Shift makes a circle, Alt draws from the centre."); break;
-                case VectorTool::Line: ImGui::SetTooltip("Drag from one end to the other. Shift snaps the angle to 45 degrees."); break;
-                case VectorTool::Shape: ImGui::SetTooltip("Drag out a parametric shape (vector.shape): its parameters stay editable in the inspector."); break;
+                case VectorTool::Select:
+                    ImGui::SetTooltip(
+                        "Click a shape, drag a box to select several (Shift adds), drag to move, drag a handle of the "
+                        "box to scale, outside a corner to rotate. Double click a group to go into it.");
+                    break;
+                case VectorTool::Node:
+                    ImGui::SetTooltip("Edit the nodes of the selected shape: drag anchors and handles, double click a "
+                                      "segment to add a node, double click a node to switch corner and smooth. Alt "
+                                      "while dragging a handle breaks the link between the two.");
+                    break;
+                case VectorTool::Pen:
+                    ImGui::SetTooltip(
+                        "Click for a corner, drag for a curve, click the first node to close. Enter or a double click "
+                        "ends an open path, Esc drops it. A click on the end of the selected open path continues it.");
+                    break;
+                case VectorTool::Rectangle:
+                    ImGui::SetTooltip("Drag a box. Shift makes a square, Alt draws from the centre.");
+                    break;
+                case VectorTool::Ellipse:
+                    ImGui::SetTooltip("Drag a box. Shift makes a circle, Alt draws from the centre.");
+                    break;
+                case VectorTool::Line:
+                    ImGui::SetTooltip("Drag from one end to the other. Shift snaps the angle to 45 degrees.");
+                    break;
+                case VectorTool::Shape:
+                    ImGui::SetTooltip(
+                        "Drag out a parametric shape (vector.shape): its parameters stay editable in the inspector.");
+                    break;
             }
         }
     }
@@ -532,7 +583,8 @@ void Editor::draw_vector_tools(VectorModel& m) {
         fill[3] = 1;
     }
     ImGui::SetNextItemWidth(kToolsW - 8);
-    if (ImGui::ColorEdit3("##newfill", fill, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) m.style.fill = hex_of(fill);
+    if (ImGui::ColorEdit3("##newfill", fill, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel))
+        m.style.fill = hex_of(fill);
     at_track("vec:newfill");
     ImGui::SameLine();
     ImGui::TextDisabled("Fill");
@@ -549,7 +601,8 @@ void Editor::draw_vector_tools(VectorModel& m) {
     ImGui::SameLine();
     ImGui::Checkbox("Line", &m.style.useStroke);
     at_track("vec:newstroke:use");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Give new closed shapes an outline. Open paths and lines always have a stroke.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Give new closed shapes an outline. Open paths and lines always have a stroke.");
     float sw = float(m.style.strokeWidth);
     ImGui::SetNextItemWidth(kToolsW - 8);
     if (ImGui::DragFloat("##newsw", &sw, 0.1f, 0.1f, 200.0f, "%.1f")) m.style.strokeWidth = std::max(0.1f, sw);
@@ -561,7 +614,8 @@ void Editor::draw_vector_tools(VectorModel& m) {
             ImGui::PushID(hex.c_str());
             float c[4];
             colour_of(hex, c);
-            if (ImGui::ColorButton("##sw", ImVec4(c[0], c[1], c[2], 1), ImGuiColorEditFlags_NoTooltip, ImVec2(16, 16))) m.style.fill = hex;
+            if (ImGui::ColorButton("##sw", ImVec4(c[0], c[1], c[2], 1), ImGuiColorEditFlags_NoTooltip, ImVec2(16, 16)))
+                m.style.fill = hex;
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (new shapes' fill)", hex.c_str());
             ImGui::PopID();
             if (++col % 5 != 0) ImGui::SameLine(0, 2);
@@ -597,16 +651,24 @@ void Editor::draw_vector_actions(VectorModel& m) {
     };
     ImGui::TextDisabled("Shapes");
     ImGui::SameLine();
-    act("Union", "union", "vector.boolean union: merge the selected shapes into one path (it keeps the first one's id and style).", 2, [&] { vector_edited(m.boolean_op("union")); });
-    act("Subtract", "subtract", "vector.boolean subtract: remove the later shapes from the first.", 2, [&] { vector_edited(m.boolean_op("subtract")); });
-    act("Intersect", "intersect", "vector.boolean intersect: keep what all the shapes cover.", 2, [&] { vector_edited(m.boolean_op("intersect")); });
-    act("Exclude", "exclude", "vector.boolean exclude: keep what an odd number of shapes cover.", 2, [&] { vector_edited(m.boolean_op("exclude")); });
+    act("Union", "union",
+        "vector.boolean union: merge the selected shapes into one path (it keeps the first one's id and style).", 2,
+        [&] { vector_edited(m.boolean_op("union")); });
+    act("Subtract", "subtract", "vector.boolean subtract: remove the later shapes from the first.", 2,
+        [&] { vector_edited(m.boolean_op("subtract")); });
+    act("Intersect", "intersect", "vector.boolean intersect: keep what all the shapes cover.", 2,
+        [&] { vector_edited(m.boolean_op("intersect")); });
+    act("Exclude", "exclude", "vector.boolean exclude: keep what an odd number of shapes cover.", 2,
+        [&] { vector_edited(m.boolean_op("exclude")); });
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
     act("Group", "group", "vector.group (Ctrl+G).", 1, [&] { vector_edited(m.group_selection()); });
-    act("Ungroup", "ungroup", "vector.ungroup (Ctrl+Shift+G): the children stay where they are.", 1, [&] { vector_edited(m.ungroup_selection()); });
-    act("Front", "front", "vector.reorder front: draw the selection on top.", 1, [&] { vector_edited(m.reorder(m.selection(), "front")); });
-    act("Back", "back", "vector.reorder back: draw the selection behind the rest.", 1, [&] { vector_edited(m.reorder(m.selection(), "back")); });
+    act("Ungroup", "ungroup", "vector.ungroup (Ctrl+Shift+G): the children stay where they are.", 1,
+        [&] { vector_edited(m.ungroup_selection()); });
+    act("Front", "front", "vector.reorder front: draw the selection on top.", 1,
+        [&] { vector_edited(m.reorder(m.selection(), "front")); });
+    act("Back", "back", "vector.reorder back: draw the selection behind the rest.", 1,
+        [&] { vector_edited(m.reorder(m.selection(), "back")); });
     ImGui::NewLine();
 
     ImGui::TextDisabled("Path  ");
@@ -615,7 +677,8 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Offset...")) ImGui::OpenPopup("##vecoffset");
     at_track("vec:act:offset");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.offset: grow or shrink the outline.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.offset: grow or shrink the outline.");
     if (count < 1) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecoffset")) {
@@ -629,8 +692,10 @@ void Editor::draw_vector_actions(VectorModel& m) {
         ImGui::Checkbox("Keep the original (copy)", &u.offsetCopy);
         ImGui::TextDisabled("Positive grows, negative insets.");
         if (ImGui::Button("Apply") && std::abs(u.offsetDistance) > 1e-9) {
-            vector_edited(m.edit_selection("Offset", "vector.offset",
-                                           Json::object({{"distance", u.offsetDistance}, {"join", kJoins[u.offsetJoin]}, {"copy", u.offsetCopy}})));
+            vector_edited(m.edit_selection(
+                "Offset", "vector.offset",
+                Json::object(
+                    {{"distance", u.offsetDistance}, {"join", kJoins[u.offsetJoin]}, {"copy", u.offsetCopy}})));
             ImGui::CloseCurrentPopup();
         }
         at_track("vec:offset:apply");
@@ -639,7 +704,8 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Simplify...")) ImGui::OpenPopup("##vecsimplify");
     at_track("vec:act:simplify");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.simplify: fewer nodes within a tolerance.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.simplify: fewer nodes within a tolerance.");
     if (count < 1) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecsimplify")) {
@@ -648,7 +714,8 @@ void Editor::draw_vector_actions(VectorModel& m) {
         if (ImGui::InputDouble("Tolerance", &t, 0.1, 1, "%.2f")) u.simplifyTolerance = std::max(0.001, t);
         ImGui::TextDisabled("The largest distance the result may be from the outline.");
         if (ImGui::Button("Apply")) {
-            vector_edited(m.edit_selection("Simplify", "vector.simplify", Json::object({{"tolerance", u.simplifyTolerance}})));
+            vector_edited(
+                m.edit_selection("Simplify", "vector.simplify", Json::object({{"tolerance", u.simplifyTolerance}})));
             ImGui::CloseCurrentPopup();
         }
         at_track("vec:simplify:apply");
@@ -657,7 +724,8 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Smooth...")) ImGui::OpenPopup("##vecsmooth");
     at_track("vec:act:smooth");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.smooth: give the nodes that are not sharp corners smooth handles.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.smooth: give the nodes that are not sharp corners smooth handles.");
     if (count < 1) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecsmooth")) {
@@ -674,7 +742,9 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Mirror...")) ImGui::OpenPopup("##vecmirror");
     at_track("vec:act:mirror");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.mirror: reflect across the middle of the drawing; welded into one path or kept as a copy.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "vector.mirror: reflect across the middle of the drawing; welded into one path or kept as a copy.");
     if (count < 1) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecmirror")) {
@@ -682,15 +752,18 @@ void Editor::draw_vector_actions(VectorModel& m) {
         ImGui::SetNextItemWidth(120);
         ImGui::Combo("Axis", &u.mirrorAxis, kAxes, 2);
         ImGui::Checkbox("Weld into one path", &u.mirrorWeld);
-        ImGui::TextDisabled("The line is the middle of the drawing.\nWith an exact line, use vector.mirror `at` in the Console.");
+        ImGui::TextDisabled(
+            "The line is the middle of the drawing.\nWith an exact line, use vector.mirror `at` in the Console.");
         if (ImGui::Button("Apply")) {
-            vector_edited(m.edit_selection("Mirror", "vector.mirror", Json::object({{"axis", kAxes[u.mirrorAxis]}, {"weld", u.mirrorWeld}})));
+            vector_edited(m.edit_selection("Mirror", "vector.mirror",
+                                           Json::object({{"axis", kAxes[u.mirrorAxis]}, {"weld", u.mirrorWeld}})));
             ImGui::CloseCurrentPopup();
         }
         at_track("vec:mirror:apply");
         ImGui::EndPopup();
     }
-    act("Outline", "outline", "vector.stroke_to_path: turn the stroke into a filled outline.", 1, [&] { vector_edited(m.edit_selection("Stroke to path", "vector.stroke_to_path")); });
+    act("Outline", "outline", "vector.stroke_to_path: turn the stroke into a filled outline.", 1,
+        [&] { vector_edited(m.edit_selection("Stroke to path", "vector.stroke_to_path")); });
     ImGui::NewLine();
 
     ImGui::TextDisabled("Arrange");
@@ -698,7 +771,8 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Align...")) ImGui::OpenPopup("##vecalign");
     at_track("vec:act:align");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.align: to each other (two or more selected) or to the canvas (one).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.align: to each other (two or more selected) or to the canvas (one).");
     if (count < 1) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecalign")) {
@@ -707,12 +781,14 @@ void Editor::draw_vector_actions(VectorModel& m) {
             const char* axis;
             const char* value;
         };
-        static const A kAlign[] = {{"Left", "horizontal", "left"}, {"Centre", "horizontal", "center"}, {"Right", "horizontal", "right"},
-                                   {"Top", "vertical", "top"},     {"Middle", "vertical", "middle"},    {"Bottom", "vertical", "bottom"}};
+        static const A kAlign[] = {{"Left", "horizontal", "left"},   {"Centre", "horizontal", "center"},
+                                   {"Right", "horizontal", "right"}, {"Top", "vertical", "top"},
+                                   {"Middle", "vertical", "middle"}, {"Bottom", "vertical", "bottom"}};
         for (int i = 0; i < 6; ++i) {
             if (i % 3 != 0) ImGui::SameLine();
             if (ImGui::Button(kAlign[i].label)) {
-                vector_edited(m.edit_selection(std::string("Align ") + kAlign[i].label, "vector.align", Json::object({{kAlign[i].axis, kAlign[i].value}})));
+                vector_edited(m.edit_selection(std::string("Align ") + kAlign[i].label, "vector.align",
+                                               Json::object({{kAlign[i].axis, kAlign[i].value}})));
                 ImGui::CloseCurrentPopup();
             }
             at_track(std::string("vec:align:") + kAlign[i].value);
@@ -722,18 +798,21 @@ void Editor::draw_vector_actions(VectorModel& m) {
     if (count < 3) ImGui::BeginDisabled();
     if (ImGui::Button("Distribute...")) ImGui::OpenPopup("##vecdistribute");
     at_track("vec:act:distribute");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.distribute: equal gaps between three or more shapes.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.distribute: equal gaps between three or more shapes.");
     if (count < 3) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::BeginPopup("##vecdistribute")) {
         if (ImGui::Button("Horizontally")) {
-            vector_edited(m.edit_selection("Distribute horizontally", "vector.distribute", Json::object({{"axis", "horizontal"}})));
+            vector_edited(m.edit_selection("Distribute horizontally", "vector.distribute",
+                                           Json::object({{"axis", "horizontal"}})));
             ImGui::CloseCurrentPopup();
         }
         at_track("vec:distribute:horizontal");
         ImGui::SameLine();
         if (ImGui::Button("Vertically")) {
-            vector_edited(m.edit_selection("Distribute vertically", "vector.distribute", Json::object({{"axis", "vertical"}})));
+            vector_edited(
+                m.edit_selection("Distribute vertically", "vector.distribute", Json::object({{"axis", "vertical"}})));
             ImGui::CloseCurrentPopup();
         }
         at_track("vec:distribute:vertical");
@@ -743,17 +822,22 @@ void Editor::draw_vector_actions(VectorModel& m) {
     ImGui::SameLine();
     ImGui::TextDisabled("Style");
     ImGui::SameLine();
-    act("House style", "style", "vector.style: the outline and palette of the project's style (assets.json).", 1, [&] { vector_edited(m.edit_selection("House style", "vector.style")); });
-    act("To palette", "palette", "vector.style palette: snap fills and strokes to the nearest colour of the project's palette.", 1, [&] {
-        vector_edited(m.edit_selection("Snap to palette", "vector.style", Json::object({{"palette", true}, {"outline", false}})));
-    });
+    act("House style", "style", "vector.style: the outline and palette of the project's style (assets.json).", 1,
+        [&] { vector_edited(m.edit_selection("House style", "vector.style")); });
+    act("To palette", "palette",
+        "vector.style palette: snap fills and strokes to the nearest colour of the project's palette.", 1, [&] {
+            vector_edited(m.edit_selection("Snap to palette", "vector.style",
+                                           Json::object({{"palette", true}, {"outline", false}})));
+        });
     if (count < 1) ImGui::BeginDisabled();
     if (ImGui::Button("Shade...")) ImGui::OpenPopup("##vecshade");
     at_track("vec:act:shade");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.shade: shadow and highlight bands from a light direction.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("vector.shade: shadow and highlight bands from a light direction.");
     if (count < 1) ImGui::EndDisabled();
     if (ImGui::BeginPopup("##vecshade")) {
-        static const char* kLights[] = {"(project default)", "upper-left", "top", "upper-right", "left", "right", "lower-left", "bottom", "lower-right"};
+        static const char* kLights[] = {"(project default)", "upper-left", "top",        "upper-right", "left", "right",
+                                        "lower-left",        "bottom",     "lower-right"};
         ImGui::SetNextItemWidth(160);
         ImGui::Combo("Light", &u.shadeLight, kLights, 9);
         double d = u.shadeDepth;
@@ -777,10 +861,15 @@ void Editor::draw_vector_actions(VectorModel& m) {
         ImGui::SameLine();
         const std::vector<VectorNodeRef>& sel = m.selected_nodes();
         const bool any = !sel.empty() && editable;
-        auto nodes_of_one_shape = [&]() { return !sel.empty() && std::all_of(sel.begin(), sel.end(), [&](const VectorNodeRef& n) { return n.shape == sel[0].shape; }); };
+        auto nodes_of_one_shape = [&]() {
+            return !sel.empty() &&
+                   std::all_of(sel.begin(), sel.end(), [&](const VectorNodeRef& n) { return n.shape == sel[0].shape; });
+        };
         auto convert = [&](const char* kind) {
             Json ops = Json::array();
-            for (const VectorNodeRef& n : sel) ops.push_back(Json::object({{"op", "convert"}, {"subpath", n.subpath}, {"node", n.node}, {"to", kind}}));
+            for (const VectorNodeRef& n : sel)
+                ops.push_back(
+                    Json::object({{"op", "convert"}, {"subpath", n.subpath}, {"node", n.node}, {"to", kind}}));
             vector_edited(m.node_ops(sel[0].shape, ops, std::string("Make ") + kind));
         };
         ImGui::BeginDisabled(!any || !nodes_of_one_shape());
@@ -788,19 +877,27 @@ void Editor::draw_vector_actions(VectorModel& m) {
             // a node in the middle of each segment between selected neighbours; with one node selected, after it
             Json ops = Json::array();
             std::vector<VectorNodeRef> s = sel;
-            std::sort(s.begin(), s.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) { return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node; });
-            for (const VectorNodeRef& n : s) ops.push_back(Json::object({{"op", "insert"}, {"subpath", n.subpath}, {"segment", n.node}, {"t", 0.5}}));
+            std::sort(s.begin(), s.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) {
+                return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node;
+            });
+            for (const VectorNodeRef& n : s)
+                ops.push_back(
+                    Json::object({{"op", "insert"}, {"subpath", n.subpath}, {"segment", n.node}, {"t", 0.5}}));
             vector_edited(m.node_ops(sel[0].shape, ops, "Add node"));
             m.select_nodes({});
         }
         at_track("vec:node:add");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Insert a node in the middle of the segment after each selected node.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Insert a node in the middle of the segment after each selected node.");
         ImGui::SameLine();
         if (ImGui::Button("Delete")) {
             Json ops = Json::array();
             std::vector<VectorNodeRef> s = sel;
-            std::sort(s.begin(), s.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) { return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node; });
-            for (const VectorNodeRef& n : s) ops.push_back(Json::object({{"op", "delete"}, {"subpath", n.subpath}, {"node", n.node}}));
+            std::sort(s.begin(), s.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) {
+                return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node;
+            });
+            for (const VectorNodeRef& n : s)
+                ops.push_back(Json::object({{"op", "delete"}, {"subpath", n.subpath}, {"node", n.node}}));
             vector_edited(m.node_ops(sel[0].shape, ops, "Delete nodes"));
             m.select_nodes({});
         }
@@ -816,30 +913,44 @@ void Editor::draw_vector_actions(VectorModel& m) {
         at_track("vec:node:symmetric");
         ImGui::SameLine();
         if (ImGui::Button("Break")) {
-            vector_edited(m.node_ops(sel[0].shape, Json::array({Json::object({{"op", "break"}, {"subpath", sel[0].subpath}, {"node", sel[0].node}})}), "Break path"));
+            vector_edited(m.node_ops(
+                sel[0].shape,
+                Json::array({Json::object({{"op", "break"}, {"subpath", sel[0].subpath}, {"node", sel[0].node}})}),
+                "Break path"));
             m.select_nodes({});
         }
         at_track("vec:node:break");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Cut the path at the first selected node.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Cut the path at the first selected node.");
         ImGui::SameLine();
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!(editable && sel.size() == 2 && nodes_of_one_shape()));
         if (ImGui::Button("Join")) {
             vector_edited(m.node_ops(sel[0].shape,
-                                     Json::array({Json::object({{"op", "join"}, {"subpath", sel[0].subpath}, {"node", sel[0].node},
-                                                                {"other", sel[1].subpath}, {"otherNode", sel[1].node}})}),
+                                     Json::array({Json::object({{"op", "join"},
+                                                                {"subpath", sel[0].subpath},
+                                                                {"node", sel[0].node},
+                                                                {"other", sel[1].subpath},
+                                                                {"otherNode", sel[1].node}})}),
                                      "Join nodes"));
             m.select_nodes({});
         }
         at_track("vec:node:join");
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Join two selected ends of open paths (the two ends of one path close it).");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Join two selected ends of open paths (the two ends of one path close it).");
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(!any || !nodes_of_one_shape());
-        if (ImGui::Button("Close")) vector_edited(m.node_ops(sel[0].shape, Json::array({Json::object({{"op", "close"}, {"subpath", sel[0].subpath}})}), "Close path"));
+        if (ImGui::Button("Close"))
+            vector_edited(m.node_ops(sel[0].shape,
+                                     Json::array({Json::object({{"op", "close"}, {"subpath", sel[0].subpath}})}),
+                                     "Close path"));
         at_track("vec:node:close");
         ImGui::SameLine();
-        if (ImGui::Button("Reverse")) vector_edited(m.node_ops(sel[0].shape, Json::array({Json::object({{"op", "reverse"}, {"subpath", sel[0].subpath}})}), "Reverse path"));
+        if (ImGui::Button("Reverse"))
+            vector_edited(m.node_ops(sel[0].shape,
+                                     Json::array({Json::object({{"op", "reverse"}, {"subpath", sel[0].subpath}})}),
+                                     "Reverse path"));
         at_track("vec:node:reverse");
         ImGui::EndDisabled();
     }
@@ -868,7 +979,7 @@ void Editor::draw_vector_layers(VectorModel& m) {
     ImGui::BeginChild("##veclist", ImVec2(0, std::max(140.0f, ImGui::GetContentRegionAvail().y * 0.45f)), true);
     constexpr float rowH = 24.0f;
     std::string dropSrc;
-    int dropTarget = -1, dropZone = 0;   // -1 above the target in the list, 0 into it, 1 below
+    int dropTarget = -1, dropZone = 0;  // -1 above the target in the list, 0 into it, 1 below
     std::function<void(int, int)> rows = [&](int parent, int depth) {
         const std::vector<int> kids = parent < 0 ? sc.roots() : sc.items[std::size_t(parent)].children;
         for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
@@ -878,7 +989,9 @@ void Editor::draw_vector_layers(VectorModel& m) {
             const float w = ImGui::GetContentRegionAvail().x;
             const bool sel = m.is_selected(r.ref);
             const bool dim = r.hidden || r.hiddenByAncestor;
-            if (ImGui::Selectable("##row", sel, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap, ImVec2(w, rowH))) {
+            if (ImGui::Selectable("##row", sel,
+                                  ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                                  ImVec2(w, rowH))) {
                 const ImGuiIO& io = ImGui::GetIO();
                 const std::string ctx = r.parent >= 0 ? sc.items[std::size_t(r.parent)].ref : std::string();
                 if (io.KeyCtrl || io.KeySuper || io.KeyShift) {
@@ -901,7 +1014,8 @@ void Editor::draw_vector_layers(VectorModel& m) {
                 ImGui::EndDragDropSource();
             }
             if (editable && ImGui::BeginDragDropTarget()) {
-                const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(kItemPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+                const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(
+                    kItemPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
                 if (pl) {
                     const std::string src(static_cast<const char*>(pl->Data));
                     const float t = (ImGui::GetMousePos().y - p0.y) / rowH;
@@ -910,8 +1024,12 @@ void Editor::draw_vector_layers(VectorModel& m) {
                     const bool inside = si < 0 || r.ref == src || sc.is_descendant(r.index, si);
                     ImDrawList* dl = ImGui::GetWindowDrawList();
                     if (!inside) {
-                        if (zone == 0) dl->AddRect(p0, ImVec2(p0.x + w, p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f, 0, 2.0f);
-                        else dl->AddLine(ImVec2(p0.x, zone < 0 ? p0.y : p0.y + rowH), ImVec2(p0.x + w, zone < 0 ? p0.y : p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f);
+                        if (zone == 0)
+                            dl->AddRect(p0, ImVec2(p0.x + w, p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f, 0, 2.0f);
+                        else
+                            dl->AddLine(ImVec2(p0.x, zone < 0 ? p0.y : p0.y + rowH),
+                                        ImVec2(p0.x + w, zone < 0 ? p0.y : p0.y + rowH), IM_COL32(110, 170, 255, 255),
+                                        2.0f);
                     }
                     if (pl->IsDelivery() && !inside) {
                         dropSrc = src;
@@ -928,30 +1046,39 @@ void Editor::draw_vector_layers(VectorModel& m) {
                 const bool closed = u.collapsed.count(r.ref) > 0;
                 ImGui::SetCursorScreenPos(ImVec2(x, p0.y));
                 if (ImGui::InvisibleButton("##open", ImVec2(14, rowH))) {
-                    if (closed) u.collapsed.erase(r.ref);
-                    else u.collapsed.insert(r.ref);
+                    if (closed)
+                        u.collapsed.erase(r.ref);
+                    else
+                        u.collapsed.insert(r.ref);
                 }
                 at_track("vec:layer:" + label_of(r) + ":open");
                 const ImU32 col = IM_COL32(200, 200, 205, 255);
-                if (!closed) dl->AddTriangleFilled(ImVec2(x + 2, cy - 3), ImVec2(x + 11, cy - 3), ImVec2(x + 6.5f, cy + 3), col);
-                else dl->AddTriangleFilled(ImVec2(x + 3, cy - 5), ImVec2(x + 3, cy + 5), ImVec2(x + 9, cy), col);
+                if (!closed)
+                    dl->AddTriangleFilled(ImVec2(x + 2, cy - 3), ImVec2(x + 11, cy - 3), ImVec2(x + 6.5f, cy + 3), col);
+                else
+                    dl->AddTriangleFilled(ImVec2(x + 3, cy - 5), ImVec2(x + 3, cy + 5), ImVec2(x + 9, cy), col);
             }
             x += 16;
             ImGui::SetCursorScreenPos(ImVec2(x, p0.y));
             const bool eyeClicked = ImGui::InvisibleButton("##vis", ImVec2(18, rowH));
             at_track("vec:layer:" + label_of(r) + ":visible");
             eye_icon(dl, ImVec2(x + 9, cy), !r.hidden, ImGui::IsItemHovered());
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide (display=\"none\" in the SVG, so every renderer honours it).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show or hide (display=\"none\" in the SVG, so every renderer honours it).");
             if (eyeClicked && editable) vector_edited(m.set_hidden(r.ref, !r.hidden));
             x += 22;
             // a swatch of the fill (groups: a folder tab)
             if (r.isGroup) {
                 dl->AddRectFilled(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6), IM_COL32(110, 160, 160, 255), 2.0f);
             } else {
-                const ImU32 fillCol = colour_u32(r.fill, r.fill == "none" ? IM_COL32(60, 60, 66, 255) : IM_COL32(0, 0, 0, 255));
+                const ImU32 fillCol =
+                    colour_u32(r.fill, r.fill == "none" ? IM_COL32(60, 60, 66, 255) : IM_COL32(0, 0, 0, 255));
                 dl->AddRectFilled(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6), fillCol, 2.0f);
-                if (!r.stroke.empty() && r.stroke != "none") dl->AddRect(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6), colour_u32(r.stroke, IM_COL32(200, 200, 200, 255)), 2.0f, 0, 1.5f);
-                else dl->AddRect(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6), IM_COL32(0, 0, 0, 120), 2.0f);
+                if (!r.stroke.empty() && r.stroke != "none")
+                    dl->AddRect(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6),
+                                colour_u32(r.stroke, IM_COL32(200, 200, 200, 255)), 2.0f, 0, 1.5f);
+                else
+                    dl->AddRect(ImVec2(x, cy - 6), ImVec2(x + 18, cy + 6), IM_COL32(0, 0, 0, 120), 2.0f);
             }
             x += 24;
             const float lockX = p0.x + w - 24;
@@ -962,7 +1089,8 @@ void Editor::draw_vector_layers(VectorModel& m) {
                     ImGui::SetKeyboardFocusHere();
                     u.renameFocus = false;
                 }
-                if (ImGui::InputText("##rename", &u.renameBuf, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+                if (ImGui::InputText("##rename", &u.renameBuf,
+                                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
                     if (!u.renameBuf.empty() && u.renameBuf != r.id) vector_edited(m.rename(r.ref, u.renameBuf));
                     u.renaming.clear();
                 } else if (ImGui::IsItemDeactivated()) {
@@ -973,7 +1101,9 @@ void Editor::draw_vector_layers(VectorModel& m) {
                 std::string label = label_of(r);
                 if (r.isGroup) label += std::format("  ({})", r.children.size());
                 if (!r.shapeKind.empty()) label += "  " + r.shapeKind;
-                const ImU32 textCol = dim ? IM_COL32(130, 130, 138, 255) : (r.id.empty() ? IM_COL32(170, 170, 178, 255) : IM_COL32(230, 230, 235, 255));
+                const ImU32 textCol =
+                    dim ? IM_COL32(130, 130, 138, 255)
+                        : (r.id.empty() ? IM_COL32(170, 170, 178, 255) : IM_COL32(230, 230, 235, 255));
                 dl->PushClipRect(ImVec2(x, p0.y), ImVec2(lockX - 4, p0.y + rowH), true);
                 dl->AddText(ImVec2(x, cy - ImGui::GetTextLineHeight() * 0.5f), textCol, label.c_str());
                 dl->PopClipRect();
@@ -982,7 +1112,8 @@ void Editor::draw_vector_layers(VectorModel& m) {
             const bool lockClicked = ImGui::InvisibleButton("##lock", ImVec2(20, rowH));
             at_track("vec:layer:" + label_of(r) + ":lock");
             lock_icon(dl, ImVec2(lockX + 10, cy), r.locked, ImGui::IsItemHovered());
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lock: the canvas does not pick or move it (data-locked in the SVG).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Lock: the canvas does not pick or move it (data-locked in the SVG).");
             if (lockClicked && editable) vector_edited(m.set_locked(r.ref, !r.locked));
             ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
             ImGui::Dummy(ImVec2(0, 0));
@@ -1008,7 +1139,7 @@ void Editor::draw_vector_layers(VectorModel& m) {
             } else {
                 parent = t.parent >= 0 ? sc.items[std::size_t(t.parent)].ref : std::string();
                 if (dropZone > 0) {
-                    before = t.ref;   // below it in the list is behind it in the picture
+                    before = t.ref;  // below it in the list is behind it in the picture
                 } else {
                     // above it in the list is in front of it: before the next sibling that does not move too
                     const std::vector<int> sibs = t.parent >= 0 ? sc.items[std::size_t(t.parent)].children : sc.roots();
@@ -1036,25 +1167,33 @@ void Editor::draw_vector_inspector(VectorModel& m) {
     if (sel.empty()) {
         ImGui::TextDisabled("Nothing selected");
         ImGui::Text("Canvas %.4g x %.4g", sc.canvas.width(), sc.canvas.height());
-        if (sc.declaredWidth > 0 && (std::abs(sc.declaredWidth - sc.canvas.width()) > 1e-6 || std::abs(sc.declaredHeight - sc.canvas.height()) > 1e-6))
+        if (sc.declaredWidth > 0 && (std::abs(sc.declaredWidth - sc.canvas.width()) > 1e-6 ||
+                                     std::abs(sc.declaredHeight - sc.canvas.height()) > 1e-6))
             ImGui::TextDisabled("declared size %.4g x %.4g", sc.declaredWidth, sc.declaredHeight);
         if (sc.unnamed > 0) {
             ImGui::TextDisabled("%d elements have no id.", sc.unnamed);
             ImGui::BeginDisabled(!editable);
-            if (ImGui::Button("Give them ids")) vector_edited(m.edit("Name elements", "vector.assign_ids", Json::object()));
+            if (ImGui::Button("Give them ids"))
+                vector_edited(m.edit("Name elements", "vector.assign_ids", Json::object()));
             at_track("vec:assign_ids");
             ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("vector.assign_ids: name every shape and group (path, path-2, g...) so scripts and commands can pick them by id.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("vector.assign_ids: name every shape and group (path, path-2, g...) so scripts and "
+                                  "commands can pick them by id.");
         }
         for (const std::string& w : sc.warnings) ImGui::TextWrapped("%s", w.c_str());
         return;
     }
     const VecItem& first = sc.items[std::size_t(sel[0])];
     ImGui::BeginDisabled(!editable);
-    if (sel.size() == 1) ImGui::Text("%s  (%s)", label_of(first).c_str(), first.isGroup ? "group" : first.tag.c_str());
-    else ImGui::Text("%zu elements", sel.size());
+    if (sel.size() == 1)
+        ImGui::Text("%s  (%s)", label_of(first).c_str(), first.isGroup ? "group" : first.tag.c_str());
+    else
+        ImGui::Text("%zu elements", sel.size());
     if (!first.problem.empty()) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", first.problem.c_str());
-    if (sel.size() == 1 && !first.isGroup) ImGui::TextDisabled("%d nodes%s%s", first.nodeCount, first.curves ? ", curves" : "", first.closed ? ", closed" : ", open");
+    if (sel.size() == 1 && !first.isGroup)
+        ImGui::TextDisabled("%d nodes%s%s", first.nodeCount, first.curves ? ", curves" : "",
+                            first.closed ? ", closed" : ", open");
 
     // position and size of the selection
     VecRect b;
@@ -1066,11 +1205,14 @@ void Editor::draw_vector_inspector(VectorModel& m) {
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * (i % 2 == 0 ? 0.5f : 1.0f) - 28);
             double x = v[i];
             if (ImGui::InputDouble(kNames[i], &x, 0, 0, "%.2f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-                if (i == 0) vector_edited(m.move_selection(x - b.x0, 0));
-                else if (i == 1) vector_edited(m.move_selection(0, x - b.y0));
+                if (i == 0)
+                    vector_edited(m.move_selection(x - b.x0, 0));
+                else if (i == 1)
+                    vector_edited(m.move_selection(0, x - b.y0));
                 else if (x > 1e-6 && v[i] > 1e-9) {
                     const double f = x / v[i];
-                    Json args = Json::object({{"scale", i == 2 ? Json::array({f, 1.0}) : Json::array({1.0, f})}, {"about", Json::array({b.x0, b.y0})}});
+                    Json args = Json::object({{"scale", i == 2 ? Json::array({f, 1.0}) : Json::array({1.0, f})},
+                                              {"about", Json::array({b.x0, b.y0})}});
                     vector_edited(m.edit_selection("Resize", "vector.transform", args));
                 }
             }
@@ -1078,20 +1220,24 @@ void Editor::draw_vector_inspector(VectorModel& m) {
         }
     }
     // rotate / flip
-    if (ImGui::Button("Flip H")) vector_edited(m.edit_selection("Flip", "vector.transform", Json::object({{"flip", "horizontal"}})));
+    if (ImGui::Button("Flip H"))
+        vector_edited(m.edit_selection("Flip", "vector.transform", Json::object({{"flip", "horizontal"}})));
     at_track("vec:insp:flipH");
     ImGui::SameLine();
-    if (ImGui::Button("Flip V")) vector_edited(m.edit_selection("Flip", "vector.transform", Json::object({{"flip", "vertical"}})));
+    if (ImGui::Button("Flip V"))
+        vector_edited(m.edit_selection("Flip", "vector.transform", Json::object({{"flip", "vertical"}})));
     at_track("vec:insp:flipV");
     ImGui::SameLine();
-    if (ImGui::Button("Rotate 90")) vector_edited(m.edit_selection("Rotate", "vector.transform", Json::object({{"rotate", 90}})));
+    if (ImGui::Button("Rotate 90"))
+        vector_edited(m.edit_selection("Rotate", "vector.transform", Json::object({{"rotate", 90}})));
     at_track("vec:insp:rot90");
     ImGui::Separator();
 
     const std::vector<std::string> refs = m.selection();
     // fill and stroke: a colour button with a popup picker (a live preview while it is open, ONE undo step when it closes), the palette
     // swatches that set an exact colour, and "none".
-    auto paint_row = [&](const char* label, const char* prop, const std::string& value, float col[4], const char* popupId) {
+    auto paint_row = [&](const char* label, const char* prop, const std::string& value, float col[4],
+                         const char* popupId) {
         ImGui::PushID(prop);
         float shown[4] = {0.5f, 0.5f, 0.5f, 1};
         const bool isColour = colour_of(value, shown);
@@ -1105,13 +1251,16 @@ void Editor::draw_vector_inspector(VectorModel& m) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
         ImGui::SameLine(64);
-        if (ImGui::ColorButton("##c", isNone ? ImVec4(0, 0, 0, 0) : ImVec4(col[0], col[1], col[2], 1), ImGuiColorEditFlags_AlphaPreviewHalf, ImVec2(36, 20)))
+        if (ImGui::ColorButton("##c", isNone ? ImVec4(0, 0, 0, 0) : ImVec4(col[0], col[1], col[2], 1),
+                               ImGuiColorEditFlags_AlphaPreviewHalf, ImVec2(36, 20)))
             ImGui::OpenPopup(popupId);
         at_track(std::string("vec:insp:") + prop);
         ImGui::SameLine();
         bool none = isNone;
         if (ImGui::Checkbox("none", &none))
-            vector_edited(m.set_style(Json::object({{prop, none ? "none" : (std::string(prop) == "fill" ? "#6d9eeb" : "#101018")}}), std::string("Change ") + prop));
+            vector_edited(m.set_style(
+                Json::object({{prop, none ? "none" : (std::string(prop) == "fill" ? "#6d9eeb" : "#101018")}}),
+                std::string("Change ") + prop));
         at_track(std::string("vec:insp:") + prop + ":none");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", isColour ? value.c_str() : (value.empty() ? "(default)" : value.c_str()));
@@ -1134,10 +1283,12 @@ void Editor::draw_vector_inspector(VectorModel& m) {
                 ImGui::PushID(hex.c_str());
                 float c[4];
                 colour_of(hex, c);
-                if (ImGui::ColorButton("##p", ImVec4(c[0], c[1], c[2], 1), ImGuiColorEditFlags_NoTooltip, ImVec2(14, 14)))
+                if (ImGui::ColorButton("##p", ImVec4(c[0], c[1], c[2], 1), ImGuiColorEditFlags_NoTooltip,
+                                       ImVec2(14, 14)))
                     vector_edited(m.set_style(Json::object({{prop, hex}}), std::string("Change ") + prop));
                 at_track(std::string("vec:insp:") + prop + ":palette:" + hex);
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: the exact colour of the project's palette", hex.c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s: the exact colour of the project's palette", hex.c_str());
                 ImGui::PopID();
                 if (++n % 12 != 0) ImGui::SameLine(0, 2);
             }
@@ -1148,23 +1299,29 @@ void Editor::draw_vector_inspector(VectorModel& m) {
     paint_row("Fill", "fill", first.fill, u.fillCol, "##vecfillpick");
     paint_row("Stroke", "stroke", first.stroke, u.strokeCol, "##vecstrokepick");
 
-    auto slider = [&](const char* label, const char* prop, float value, float lo, float hi, const char* fmt, const char* tip) {
+    auto slider = [&](const char* label, const char* prop, float value, float lo, float hi, const char* fmt,
+                      const char* tip) {
         float v = value;
         ImGui::SetNextItemWidth(-90);
-        if (ImGui::SliderFloat(label, &v, lo, hi, fmt)) m.preview_edit("vector.set", Json::object({{"elements", refs_to_json(refs)}, {prop, v}}));
+        if (ImGui::SliderFloat(label, &v, lo, hi, fmt))
+            m.preview_edit("vector.set", Json::object({{"elements", refs_to_json(refs)}, {prop, v}}));
         at_track(std::string("vec:insp:") + prop);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
         if (ImGui::IsItemDeactivatedAfterEdit()) vector_edited(m.commit_preview(std::string("Change ") + prop));
     };
-    slider("Stroke width", "strokeWidth", float(first.strokeWidth), 0.0f, std::max(20.0f, float(first.strokeWidth) * 2), "%.2f", "In the element's own units.");
-    slider("Opacity", "opacity", float(first.opacity), 0.0f, 1.0f, "%.2f", "The element's own opacity (a group's applies to everything in it).");
+    slider("Stroke width", "strokeWidth", float(first.strokeWidth), 0.0f, std::max(20.0f, float(first.strokeWidth) * 2),
+           "%.2f", "In the element's own units.");
+    slider("Opacity", "opacity", float(first.opacity), 0.0f, 1.0f, "%.2f",
+           "The element's own opacity (a group's applies to everything in it).");
     {
         static const char* kRules[] = {"nonzero", "evenodd"};
         int rule = first.fillRule == "evenodd" ? 1 : 0;
         ImGui::SetNextItemWidth(-90);
-        if (ImGui::Combo("Fill rule", &rule, kRules, 2)) vector_edited(m.set_style(Json::object({{"fillRule", kRules[rule]}}), "Change fill rule"));
+        if (ImGui::Combo("Fill rule", &rule, kRules, 2))
+            vector_edited(m.set_style(Json::object({{"fillRule", kRules[rule]}}), "Change fill rule"));
         at_track("vec:insp:fillRule");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("evenodd leaves holes where subpaths overlap; nonzero fills them.");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("evenodd leaves holes where subpaths overlap; nonzero fills them.");
     }
     if (sel.size() == 1 && !first.shapeKind.empty()) {
         ImGui::Separator();
@@ -1207,7 +1364,8 @@ void Editor::draw_vector_shape_params(VectorModel& m, const VecItem& item) {
             next[p.key] = v;
             m.preview_shape_args(item.ref, item.shapeKind, next);
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && m.previewing()) vector_edited(m.commit_preview("Change " + item.shapeKind));
+        if (ImGui::IsItemDeactivatedAfterEdit() && m.previewing())
+            vector_edited(m.commit_preview("Change " + item.shapeKind));
     }
 }
 

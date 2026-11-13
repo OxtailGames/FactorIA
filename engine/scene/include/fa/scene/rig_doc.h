@@ -25,7 +25,8 @@ namespace fa {
 
 inline constexpr const char* kRigDocFormat = "factoria.rig/1";
 inline constexpr const char* kRigDocSuffix = ".rig.json";
-inline constexpr std::size_t kRigMaxBones = 64;  // joints one glTF skin may have for the renderer (render3d skinning palette)
+inline constexpr std::size_t kRigMaxBones =
+    64;  // joints one glTF skin may have for the renderer (render3d skinning palette)
 
 // One problem of a document: where (a JSON pointer such as "/options/spine"), what is wrong, and how to fix it.
 struct RigIssue {
@@ -39,16 +40,17 @@ struct RigOptionInfo {
     std::string key;
     std::string type;  // "integer", "choice" or "boolean"
     std::string doc;
-    Json def;          // the default
+    Json def;                          // the default
     std::optional<int> min, max;       // integers
     std::vector<std::string> choices;  // choices
 };
 
 struct RigTemplateInfo {
     std::string name;
-    std::string doc;                  // what it is for, the pose it assumes and which parts it looks for
+    std::string doc;  // what it is for, the pose it assumes and which parts it looks for
     std::vector<RigOptionInfo> options;
-    std::vector<std::string> partWords;  // the words in a part name the fit recognises (documented, one line per bone group)
+    std::vector<std::string>
+        partWords;  // the words in a part name the fit recognises (documented, one line per bone group)
 };
 // The templates, in the order the docs describe them: humanoid, quadruped, bird, tail, chain, generic.
 const std::vector<RigTemplateInfo>& rig_templates();
@@ -60,22 +62,26 @@ struct RigGenericBone {
     std::string parent;  // "" = root
     std::string role;    // retargeting role; "" = the name
     std::string part;    // the model part this bone moves; its joint sits at `anchor` of the part's bounds
-    Vec3 anchor{0, 0, 0};      // where in the part's bounds the joint is: -1..1 per axis around the centre (0,0,0 = centre; 0,-1,0 = bottom)
+    Vec3 anchor{
+        0, 0,
+        0};  // where in the part's bounds the joint is: -1..1 per axis around the centre (0,0,0 = centre; 0,-1,0 = bottom)
     std::optional<Vec3> tailAnchor;  // the same for the end of a bone with no children
-    std::string pointer;       // "/bones/2"
+    std::string pointer;             // "/bones/2"
 };
 
 struct RigDoc {
-    std::string doc;          // what the rig is for
-    std::string model;        // the model document it fits, project-relative (*.model.json)
+    std::string doc;    // what the rig is for
+    std::string model;  // the model document it fits, project-relative (*.model.json)
     std::string templateName;
     Json options = Json::object();  // checked, defaults filled in for the template
-    std::vector<std::pair<std::string, std::vector<std::string>>> parts;  // bone name -> the model parts that decide where it is
-    std::vector<std::pair<std::string, Vec3>> landmarks;                 // explicit joint positions in the model's space; "<bone>.tail" is the end of a leaf bone
-    std::optional<float> symmetryX;   // the x of the symmetry plane; left out: the centre of the model's bounds
-    bool strict = false;              // a landmark that could only be estimated from proportions is an error
-    RigSkinSettings skin;             // how the .glb binds vertices to bones (rig_skin_doc.h): the method per part and the edits
-    std::string outputPath;           // where rig.bake writes the .glb; "" = next to the document
+    std::vector<std::pair<std::string, std::vector<std::string>>>
+        parts;  // bone name -> the model parts that decide where it is
+    std::vector<std::pair<std::string, Vec3>>
+        landmarks;  // explicit joint positions in the model's space; "<bone>.tail" is the end of a leaf bone
+    std::optional<float> symmetryX;  // the x of the symmetry plane; left out: the centre of the model's bounds
+    bool strict = false;             // a landmark that could only be estimated from proportions is an error
+    RigSkinSettings skin;    // how the .glb binds vertices to bones (rig_skin_doc.h): the method per part and the edits
+    std::string outputPath;  // where rig.bake writes the .glb; "" = next to the document
     std::vector<RigGenericBone> bones;  // generic only
     int optionInt(std::string_view key, int fallback) const;
     std::string optionString(std::string_view key, std::string_view fallback) const;
@@ -98,6 +104,7 @@ Json rig_doc_to_json(const RigDoc& doc);
 Json rig_doc_schema();
 
 // A fresh document for a template (the starting point rig.create writes). `generic` with `partNames` gets one bone per part under `root`.
-RigDoc make_rig_doc(const std::string& model, const std::string& templateName, const std::vector<std::string>& partNames = {});
+RigDoc make_rig_doc(const std::string& model, const std::string& templateName,
+                    const std::vector<std::string>& partNames = {});
 
 }  // namespace fa

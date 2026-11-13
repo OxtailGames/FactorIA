@@ -26,17 +26,20 @@ Rect sanitize_camera_viewport(const Rect& v, std::string& warned) {
     }
     if (warned != problem) {
         warned = problem;
-        FA_WARN("render", "{}: the camera is drawn with the nearest valid rectangle. Hint: viewport is [x, y, width, height] as "
-                "fractions of the screen with [0, 0] the top-left corner, e.g. [0, 0, 0.5, 1] for the left half", problem);
+        FA_WARN("render",
+                "{}: the camera is drawn with the nearest valid rectangle. Hint: viewport is [x, y, width, height] as "
+                "fractions of the screen with [0, 0] the top-left corner, e.g. [0, 0, 0.5, 1] for the left half",
+                problem);
     }
-    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f)
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f ||
+        v.h <= 0.0f)
         return Rect{0, 0, 1, 1};
     const float x = std::clamp(v.x, 0.0f, 0.999f), y = std::clamp(v.y, 0.0f, 0.999f);
     return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
 }
 
-CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& target, std::string& warnedViewport, const Vec2* viewSize,
-                               bool renderTarget) {
+CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& target, std::string& warnedViewport,
+                               const Vec2* viewSize, bool renderTarget) {
     CameraGeometry ci;
     Camera cam;  // defaults when no camera exists
     Mat4 camWorld;
@@ -49,7 +52,8 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
         ci.viewport = sanitize_camera_viewport(cam.viewport, warnedViewport);
         if (cam.viewportSpace == ViewportSpace::Design && !viewSize) {
             // The fractions count the design resolution from the top-left corner: the same pixels in fractions of the target.
-            const float sx = float(target.designWidth) / float(std::max(1, target.width)), sy = float(target.designHeight) / float(std::max(1, target.height));
+            const float sx = float(target.designWidth) / float(std::max(1, target.width)),
+                        sy = float(target.designHeight) / float(std::max(1, target.height));
             const float x = std::min(ci.viewport.x * sx, 1.0f), y = std::min(ci.viewport.y * sy, 1.0f);
             ci.viewport = Rect{x, y, std::min(ci.viewport.w * sx, 1.0f - x), std::min(ci.viewport.h * sy, 1.0f - y)};
         }
@@ -57,7 +61,8 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
     // A CameraView's camera fills its image whatever its Camera.viewport says, and always clears it.
     if (viewSize) ci.viewport = Rect{0, 0, 1, 1};
     // The view is drawn into the viewport: its aspect and its height in design pixels are the rectangle's.
-    const float viewW = viewSize ? viewSize->x : float(target.width) * ci.viewport.w, viewH = viewSize ? viewSize->y : float(target.height) * ci.viewport.h;
+    const float viewW = viewSize ? viewSize->x : float(target.width) * ci.viewport.w,
+                viewH = viewSize ? viewSize->y : float(target.height) * ci.viewport.h;
     const float aspect = viewW / std::max(viewH, 1.0f);
     // Remove scale from the camera's world matrix: view = R^T * T^-1.
     Vec3 t = camWorld.translation();
@@ -65,13 +70,23 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
     Vec3 y = normalize(Vec3{camWorld.at(1, 0), camWorld.at(1, 1), camWorld.at(1, 2)});
     Vec3 z = normalize(Vec3{camWorld.at(2, 0), camWorld.at(2, 1), camWorld.at(2, 2)});
     Mat4 view;
-    view.at(0, 0) = x.x; view.at(1, 0) = x.y; view.at(2, 0) = x.z;
-    view.at(0, 1) = y.x; view.at(1, 1) = y.y; view.at(2, 1) = y.z;
-    view.at(0, 2) = z.x; view.at(1, 2) = z.y; view.at(2, 2) = z.z;
-    view.at(3, 0) = -dot(x, t); view.at(3, 1) = -dot(y, t); view.at(3, 2) = -dot(z, t);
+    view.at(0, 0) = x.x;
+    view.at(1, 0) = x.y;
+    view.at(2, 0) = x.z;
+    view.at(0, 1) = y.x;
+    view.at(1, 1) = y.y;
+    view.at(2, 1) = y.z;
+    view.at(0, 2) = z.x;
+    view.at(1, 2) = z.y;
+    view.at(2, 2) = z.z;
+    view.at(3, 0) = -dot(x, t);
+    view.at(3, 1) = -dot(y, t);
+    view.at(3, 2) = -dot(z, t);
     ci.view = view;
     ci.position = t;
-    ci.right = x; ci.up = y; ci.forward = -z;
+    ci.right = x;
+    ci.up = y;
+    ci.forward = -z;
     // proj for drawing (the backend's depth range) and for queries (always -1..1)
     Mat4 projGl;
     if (cam.projection == Projection::Perspective) {
@@ -93,7 +108,8 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
                 halfH = halfW / aspect;
             }
         }
-        ci.halfH = halfH; ci.halfW = halfW;
+        ci.halfH = halfH;
+        ci.halfW = halfW;
         ci.pixelsPerUnit = viewH / (2.0f * halfH);
         ci.proj = Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, target.zeroToOne);
         projGl = target.zeroToOne ? Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, false) : ci.proj;
@@ -118,7 +134,8 @@ Vec2 CameraGeometry::world_to_screen(Vec3 p, Vec2 target) const {
     const Vec4 c = queryViewProj * Vec4{p, 1.0f};
     const float w = std::fabs(c.w) > 1e-8f ? c.w : 1e-8f;
     const float nx = c.x / w, ny = c.y / w;
-    return {(viewport.x + (nx * 0.5f + 0.5f) * viewport.w) * target.x, (viewport.y + (1.0f - (ny * 0.5f + 0.5f)) * viewport.h) * target.y};
+    return {(viewport.x + (nx * 0.5f + 0.5f) * viewport.w) * target.x,
+            (viewport.y + (1.0f - (ny * 0.5f + 0.5f)) * viewport.h) * target.y};
 }
 
 void CameraGeometry::screen_ray(Vec2 s, Vec2 target, Vec3& origin, Vec3& dir) const {
@@ -149,9 +166,11 @@ void CameraSet::refresh(World& world, const CameraTarget& size) {
     if (total > entities.size()) {
         if (!warnedCameras_) {
             warnedCameras_ = true;
-            FA_WARN("render", "{} cameras are active (primary) but a frame draws at most {}: the ones with the highest depth are "
-                    "left out. Hint: set primary to false on the cameras you do not need, e.g. when a split screen ends",
-                    total, entities.size());
+            FA_WARN(
+                "render",
+                "{} cameras are active (primary) but a frame draws at most {}: the ones with the highest depth are "
+                "left out. Hint: set primary to false on the cameras you do not need, e.g. when a split screen ends",
+                total, entities.size());
         }
     }
     cameras_.clear();
@@ -187,7 +206,8 @@ Entity CameraSet::camera_at(Vec2 screen) const {
 }
 
 void update_parallax(World& world, Vec2 camPos) {
-    world.each<Parallax>([&](Entity, Parallax& p) { p.offset = {camPos.x * (1.0f - p.factor.x), camPos.y * (1.0f - p.factor.y)}; });
+    world.each<Parallax>(
+        [&](Entity, Parallax& p) { p.offset = {camPos.x * (1.0f - p.factor.x), camPos.y * (1.0f - p.factor.y)}; });
 }
 
 }  // namespace fa

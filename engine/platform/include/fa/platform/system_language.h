@@ -23,7 +23,7 @@ std::vector<std::string> normalize_language_list(const std::vector<std::string>&
 
 // The Linux rule on its own (the values of the environment variables; "" = unset). Every platform compiles it so that
 // tests can run it anywhere.
-std::vector<std::string> posix_environment_languages(std::string_view language, std::string_view lcAll, std::string_view lcMessages,
-                                                     std::string_view lang);
+std::vector<std::string> posix_environment_languages(std::string_view language, std::string_view lcAll,
+                                                     std::string_view lcMessages, std::string_view lang);
 
 }  // namespace fa

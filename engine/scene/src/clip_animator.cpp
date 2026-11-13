@@ -33,7 +33,8 @@ ClipRuntime& ClipRuntimeBox::ensure() {
 
 namespace {
 
-constexpr int kPollUpdates = 15;  // fixed steps between two checks of the clip files and of the entities the tracks name
+constexpr int kPollUpdates =
+    15;  // fixed steps between two checks of the clip files and of the entities the tracks name
 
 // ----------------------------------------------------------------------------------------------------- small helpers --
 
@@ -55,7 +56,8 @@ int field_floats(FieldKind k) {
         case FieldKind::Float: return 1;
         case FieldKind::Vec2: return 2;
         case FieldKind::Vec3: return 3;
-        case FieldKind::Vec4: case FieldKind::Color: return 4;
+        case FieldKind::Vec4:
+        case FieldKind::Color: return 4;
         default: return 0;
     }
 }
@@ -68,8 +70,10 @@ unsigned track_mask(const ClipTrack& tr) {
 
 float short_lerp(float a, float b, float f) {
     float d = std::fmod(b - a, 360.0f);
-    if (d > 180.0f) d -= 360.0f;
-    else if (d < -180.0f) d += 360.0f;
+    if (d > 180.0f)
+        d -= 360.0f;
+    else if (d < -180.0f)
+        d += 360.0f;
     return a + d * f;
 }
 
@@ -97,13 +101,15 @@ const ClipBinding* find_binding(const ClipRuntime& rt, const std::string& name) 
 Error issue_error(const ClipBinding& b) {
     const ClipIssue& first = b.issues.front();
     std::string msg = std::format("{} {}: {}", b.file, first.pointer, first.message);
-    if (b.issues.size() > 1) msg += std::format(" (and {} more problem{})", b.issues.size() - 1, b.issues.size() > 2 ? "s" : "");
+    if (b.issues.size() > 1)
+        msg += std::format(" (and {} more problem{})", b.issues.size() - 1, b.issues.size() > 2 ? "s" : "");
     return make_error(msg, first.hint);
 }
 
 void warn_issues(World& w, Entity e, ClipRuntime& rt, const ClipBinding& b) {
     for (const ClipIssue& is : b.issues)
-        warn(w, e, rt, std::format("{} {}: {}{}", b.file, is.pointer, is.message, is.hint.empty() ? "" : " " + is.hint));
+        warn(w, e, rt,
+             std::format("{} {}: {}{}", b.file, is.pointer, is.message, is.hint.empty() ? "" : " " + is.hint));
 }
 
 // ----------------------------------------------------------------------------------------------------------- slots ---
@@ -128,7 +134,10 @@ int slot_for(ClipRuntime& rt, World& w, Entity ent, const ClipTrack& tr) {
     int found = -1;
     for (std::size_t i = 0; i < rt.slots.size(); ++i) {
         const ClipSlot& s = rt.slots[i];
-        if (!s.dead && s.entity == ent && s.type == tr.type && s.field == tr.info) { found = int(i); break; }
+        if (!s.dead && s.entity == ent && s.type == tr.type && s.field == tr.info) {
+            found = int(i);
+            break;
+        }
     }
     if (found < 0) {
         ClipSlot s;
@@ -162,7 +171,8 @@ void release_unused_slots(World& w, ClipRuntime& rt) {
     std::vector<unsigned> used(rt.slots.size(), 0u);
     for (const auto& [name, b] : rt.bindings)
         for (std::size_t ti = 0; ti < b.slot.size(); ++ti)
-            if (b.slot[ti] >= 0 && std::size_t(b.slot[ti]) < used.size()) used[std::size_t(b.slot[ti])] |= track_mask(b.asset->tracks[ti]);
+            if (b.slot[ti] >= 0 && std::size_t(b.slot[ti]) < used.size())
+                used[std::size_t(b.slot[ti])] |= track_mask(b.asset->tracks[ti]);
     for (std::size_t i = 0; i < rt.slots.size(); ++i) {
         ClipSlot& s = rt.slots[i];
         if (s.dead) continue;
@@ -193,9 +203,10 @@ void resolve_binding(World& w, Entity e, ClipRuntime& rt, ClipBinding& b) {
         const Entity target = b.targets[std::size_t(tr.pathIndex)];
         if (target.is_null()) continue;
         if (!w.get(target, *tr.type)) {
-            b.issues.push_back({"/tracks/" + std::to_string(ti) + "/component",
-                                std::format("the entity '{}' has no {} component", entity_label(w, target), tr.component),
-                                std::format("Add a {} to it, or point the track at the entity that has one.", tr.component)});
+            b.issues.push_back(
+                {"/tracks/" + std::to_string(ti) + "/component",
+                 std::format("the entity '{}' has no {} component", entity_label(w, target), tr.component),
+                 std::format("Add a {} to it, or point the track at the entity that has one.", tr.component)});
             continue;
         }
         b.slot[ti] = slot_for(rt, w, target, tr);
@@ -223,7 +234,8 @@ Result<ClipBinding*> bind_clip(World& w, Entity e, Animator& a, ClipRuntime& rt,
     const std::string file = entry.get<std::string>();
     auto asset = load_anim_clip(file);
     if (!asset) return asset.error();
-    if (ClipBinding* have = find_binding(rt, name); have && have->file == file && have->asset.get() == asset->get()) return have;
+    if (ClipBinding* have = find_binding(rt, name); have && have->file == file && have->asset.get() == asset->get())
+        return have;
     ClipBinding b;
     b.name = name;
     b.file = file;
@@ -249,7 +261,8 @@ void validate_clips(World& w, Entity e, Animator& a, ClipRuntime& rt) {
             continue;
         }
         for (const ClipIssue& is : check_clip_paths(w, e, **r))
-            warn(w, e, rt, std::format("{} {}: {}{}", file, is.pointer, is.message, is.hint.empty() ? "" : " " + is.hint));
+            warn(w, e, rt,
+                 std::format("{} {}: {}{}", file, is.pointer, is.message, is.hint.empty() ? "" : " " + is.hint));
     }
 }
 
@@ -270,7 +283,8 @@ void poll(World& w, Entity e, Animator& a, ClipRuntime& rt) {
         bool rebind = false;
         auto r = load_anim_clip(file);
         if (!r) {
-            warn(w, e, rt, std::format("clip '{}': {}", name, r.error().to_string()));  // the last good clip keeps playing
+            warn(w, e, rt,
+                 std::format("clip '{}': {}", name, r.error().to_string()));  // the last good clip keeps playing
         } else if (file != b.file || r->get() != b.asset.get()) {
             b.file = file;
             b.asset = *r;
@@ -280,7 +294,8 @@ void poll(World& w, Entity e, Animator& a, ClipRuntime& rt) {
             auto t = resolve_clip_path(w, e, b.asset->paths[i]);
             rebind = (t ? *t : kNullEntity) != b.targets[i];
         }
-        for (std::size_t ti = 0; ti < b.asset->tracks.size() && !rebind; ++ti) {  // a component that appeared or went away
+        for (std::size_t ti = 0; ti < b.asset->tracks.size() && !rebind;
+             ++ti) {  // a component that appeared or went away
             const ClipTrack& tr = b.asset->tracks[ti];
             const Entity t = b.targets[std::size_t(tr.pathIndex)];
             rebind = (b.slot[ti] >= 0) != (!t.is_null() && w.get(t, *tr.type) != nullptr);
@@ -296,7 +311,7 @@ void poll(World& w, Entity e, Animator& a, ClipRuntime& rt) {
 
 struct Val {
     std::array<float, 4> v{};
-    unsigned mask = 0;              // channels with a value (a stepping field: bit 0 and `raw`)
+    unsigned mask = 0;  // channels with a value (a stepping field: bit 0 and `raw`)
     const Json* raw = nullptr;
 };
 
@@ -304,14 +319,17 @@ bool under_mask(const std::string& path, const std::vector<std::string>& mask) {
     if (mask.empty()) return true;
     for (const std::string& m : mask) {
         if (m.empty()) return true;
-        if (path.size() >= m.size() && path.compare(0, m.size(), m) == 0 && (path.size() == m.size() || path[m.size()] == '/')) return true;
+        if (path.size() >= m.size() && path.compare(0, m.size(), m) == 0 &&
+            (path.size() == m.size() || path[m.size()] == '/'))
+            return true;
     }
     return false;
 }
 
 // What the tracks of `b` give at `time`, per slot. `additive`: the change from the clip's first pose (interpolating
 // fields only). `layer`: only the tracks under its mask.
-void eval_clip(const ClipRuntime& rt, const ClipBinding& b, float time, bool additive, const ClipLayer* layer, std::vector<Val>& out) {
+void eval_clip(const ClipRuntime& rt, const ClipBinding& b, float time, bool additive, const ClipLayer* layer,
+               std::vector<Val>& out) {
     out.assign(rt.slots.size(), Val{});
     const ClipAsset& c = *b.asset;
     const float t = std::clamp(time, 0.0f, c.duration);
@@ -348,12 +366,14 @@ void eval_clip(const ClipRuntime& rt, const ClipBinding& b, float time, bool add
 
 // The pose a player gives: its clip, cross-faded from the clip it replaces. A channel one of the two clips does not drive
 // is taken from `base`. Angles take the short way, fields that only step switch at half the fade.
-void blend_player(const ClipRuntime& rt, const ClipPlayer& p, bool additive, const ClipLayer* layer, const std::vector<Val>& base,
-                  std::vector<Val>& res) {
+void blend_player(const ClipRuntime& rt, const ClipPlayer& p, bool additive, const ClipLayer* layer,
+                  const std::vector<Val>& base, std::vector<Val>& res) {
     const ClipBinding* to = find_binding(rt, p.name);
     std::vector<Val> B;
-    if (to) eval_clip(rt, *to, p.time, additive, layer, B);
-    else B.assign(rt.slots.size(), Val{});
+    if (to)
+        eval_clip(rt, *to, p.time, additive, layer, B);
+    else
+        B.assign(rt.slots.size(), Val{});
     const ClipBinding* from = p.from.empty() || p.fadeDuration <= 0.0f ? nullptr : find_binding(rt, p.from);
     if (!from) {
         res = std::move(B);
@@ -427,8 +447,10 @@ void compose_and_write(World& w, Animator& a, ClipRuntime& rt) {
             for (unsigned ch = 0; ch < 4; ++ch) {
                 if (!(res[s].mask & (1u << ch))) continue;
                 float& c = cur[s].v[ch];
-                if (L.additive) c += res[s].v[ch] * L.weight;
-                else c = rt.slots[s].angle ? short_lerp(c, res[s].v[ch], L.weight) : c + (res[s].v[ch] - c) * L.weight;
+                if (L.additive)
+                    c += res[s].v[ch] * L.weight;
+                else
+                    c = rt.slots[s].angle ? short_lerp(c, res[s].v[ch], L.weight) : c + (res[s].v[ch] - c) * L.weight;
             }
         }
     }
@@ -489,9 +511,13 @@ void switch_player(ClipPlayer& p, const std::string& name, float fade, bool curL
     p.finished = false;
 }
 
-void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& asset, const std::string& clip, const std::string* layer,
-                      float from, float to) {
-    struct Hit { float t; const ClipEvent* own; const Json* inlined; };
+void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& asset, const std::string& clip,
+                      const std::string* layer, float from, float to) {
+    struct Hit {
+        float t;
+        const ClipEvent* own;
+        const Json* inlined;
+    };
     std::vector<Hit> hits;
     for (const ClipEvent& ev : asset.events)
         if (ev.t > from && ev.t <= to) hits.push_back({ev.t, &ev, nullptr});
@@ -524,14 +550,15 @@ void fire_clip_events(World& w, Entity e, const Animator& a, const ClipAsset& as
             animdetail::emit_game_event(w, name, e, std::move(data));
         }
         if (!feel.empty())
-            feel_run_clip_actions(w, e, feel, std::format("Animator '{}' clip '{}' at {:.2f} s", w.id_of(e), clip, h.t));
+            feel_run_clip_actions(w, e, feel,
+                                  std::format("Animator '{}' clip '{}' at {:.2f} s", w.id_of(e), clip, h.t));
     }
 }
 
 // Moves a player forward `step` seconds of clip time (`dt` real seconds for the fade). True when a clip that does not loop
 // reached its end during this call.
-bool advance_player(World& w, Entity e, const Animator& a, ClipRuntime& rt, ClipPlayer& p, float dt, float step, bool loop,
-                    const std::string* layer) {
+bool advance_player(World& w, Entity e, const Animator& a, ClipRuntime& rt, ClipPlayer& p, float dt, float step,
+                    bool loop, const std::string* layer) {
     bool ended = false;
     if (const ClipBinding* b = find_binding(rt, p.name)) {
         const ClipAsset& c = *b->asset;
@@ -617,7 +644,8 @@ bool pick_transition(const Json& states, const Json& transitions, const std::str
 
 // Starts `name` on the main player. `strict`: a track that finds no entity or component is an error (play from a script);
 // otherwise it is a warning and the other tracks play.
-Result<void> start_main(World& w, Entity e, Animator& a, ClipRuntime& rt, const std::string& name, float fade, bool strict) {
+Result<void> start_main(World& w, Entity e, Animator& a, ClipRuntime& rt, const std::string& name, float fade,
+                        bool strict) {
     auto bound = bind_clip(w, e, a, rt, name);
     if (!bound) return bound.error();
     ClipBinding& b = **bound;
@@ -674,7 +702,8 @@ void run_main_machine(World& w, Entity e, Animator& a, ClipRuntime& rt) {
 
 // ---------------------------------------------------------------------------------------------------------- layers ----
 
-Result<void> start_layer_clip(World& w, Entity e, Animator& a, ClipRuntime& rt, ClipLayer& L, const std::string& clip, float fade, bool strict) {
+Result<void> start_layer_clip(World& w, Entity e, Animator& a, ClipRuntime& rt, ClipLayer& L, const std::string& clip,
+                              float fade, bool strict) {
     auto bound = bind_clip(w, e, a, rt, clip);
     if (!bound) return bound.error();
     ClipBinding& b = **bound;
@@ -694,7 +723,8 @@ Result<void> start_layer_clip(World& w, Entity e, Animator& a, ClipRuntime& rt, 
     return {};
 }
 
-void enter_layer_state(World& w, Entity e, Animator& a, ClipRuntime& rt, ClipLayer& L, const std::string& name, float fade) {
+void enter_layer_state(World& w, Entity e, Animator& a, ClipRuntime& rt, ClipLayer& L, const std::string& name,
+                       float fade) {
     const Json& states = L.config.contains("states") ? L.config["states"] : Json::object();
     auto it = states.is_object() ? states.find(name) : states.end();
     if (!states.is_object() || it == states.end() || !it->is_object()) {
@@ -712,7 +742,8 @@ void enter_layer_state(World& w, Entity e, Animator& a, ClipRuntime& rt, ClipLay
         if (!r) warn(w, e, rt, std::format("layer '{}' state '{}': {}", L.name, name, r.error().to_string()));
     }
     const std::string onEnter = jstr(*it, "onEnter");
-    if (!onEnter.empty()) animdetail::emit_game_event(w, onEnter, e, Json::object({{"state", name}, {"from", prev}, {"layer", L.name}}));
+    if (!onEnter.empty())
+        animdetail::emit_game_event(w, onEnter, e, Json::object({{"state", name}, {"from", prev}, {"layer", L.name}}));
 }
 
 // Rebuilds the layer list when Animator.layers changed (a script assigned it, or the editor did): players of layers that are
@@ -725,20 +756,27 @@ void sync_layers(World& w, Entity e, Animator& a, ClipRuntime& rt) {
         for (std::size_t i = 0; i < a.layers.size(); ++i) {
             const Json& cfg = a.layers[i];
             if (!cfg.is_object()) {
-                warn(w, e, rt, std::format("layers[{}] must be an object like {{\"name\": \"arms\", \"clip\": \"shoot\"}}, got {}", i, describe_json_value(cfg)));
+                warn(
+                    w, e, rt,
+                    std::format("layers[{}] must be an object like {{\"name\": \"arms\", \"clip\": \"shoot\"}}, got {}",
+                                i, describe_json_value(cfg)));
                 continue;
             }
             const std::string name = jstr(cfg, "name", "layer" + std::to_string(i));
             ClipLayer L;
             for (ClipLayer& old : rt.layers)
-                if (old.name == name) { L = old; break; }
+                if (old.name == name) {
+                    L = old;
+                    break;
+                }
             L.name = name;
             L.config = cfg;
             L.weight = std::clamp(jnum(cfg, "weight", 1.0f), 0.0f, 1.0f);
             const std::string mode = jstr(cfg, "mode", "override");
             if (mode != "override" && mode != "additive")
-                warn(w, e, rt, std::format("layers[{}] ('{}'): unknown mode '{}'. {} Valid: override, additive.", i, name, mode,
-                                           did_you_mean(mode, std::vector<std::string>{"override", "additive"})));
+                warn(w, e, rt,
+                     std::format("layers[{}] ('{}'): unknown mode '{}'. {} Valid: override, additive.", i, name, mode,
+                                 did_you_mean(mode, std::vector<std::string>{"override", "additive"})));
             L.additive = mode == "additive";
             L.speed = jnum(cfg, "speed", 1.0f);
             L.cfgLoopSet = cfg.contains("loop") && cfg["loop"].is_boolean();
@@ -747,18 +785,28 @@ void sync_layers(World& w, Entity e, Animator& a, ClipRuntime& rt) {
             if (auto m = cfg.find("mask"); m != cfg.end()) {
                 if (m->is_array()) {
                     for (const Json& p : *m) {
-                        if (!p.is_string()) { warn(w, e, rt, std::format("layer '{}': mask entries are paths (strings), got {}", name, describe_json_value(p))); continue; }
+                        if (!p.is_string()) {
+                            warn(w, e, rt,
+                                 std::format("layer '{}': mask entries are paths (strings), got {}", name,
+                                             describe_json_value(p)));
+                            continue;
+                        }
                         L.mask.push_back(p.get<std::string>());
                     }
                 } else if (m->is_string()) {
                     L.mask.push_back(m->get<std::string>());
                 } else {
-                    warn(w, e, rt, std::format("layer '{}': mask must be an array of paths like [\"body/arm_l\"], got {}", name, describe_json_value(*m)));
+                    warn(w, e, rt,
+                         std::format("layer '{}': mask must be an array of paths like [\"body/arm_l\"], got {}", name,
+                                     describe_json_value(*m)));
                 }
             }
             for (const std::string& path : L.mask) {
                 auto r = resolve_clip_path(w, e, path);
-                if (!r) warn(w, e, rt, std::format("layer '{}' mask '{}': {}{}", name, path, r.error().message, r.error().hint.empty() ? "" : " " + r.error().hint));
+                if (!r)
+                    warn(w, e, rt,
+                         std::format("layer '{}' mask '{}': {}{}", name, path, r.error().message,
+                                     r.error().hint.empty() ? "" : " " + r.error().hint));
             }
             const bool hasStates = cfg.contains("states") && cfg["states"].is_object() && !cfg["states"].empty();
             const std::string clip = jstr(cfg, "clip");
@@ -808,8 +856,8 @@ void update_layers(World& w, Entity e, Animator& a, ClipRuntime& rt, float dt) {
         if (hasStates) {
             Pick pick;
             const Json none = Json::array();
-            if (pick_transition(L.config["states"], L.config.contains("transitions") ? L.config["transitions"] : none, L.state, a.values,
-                                a.rt.triggers, L.player.finished, pick))
+            if (pick_transition(L.config["states"], L.config.contains("transitions") ? L.config["transitions"] : none,
+                                L.state, a.values, a.rt.triggers, L.player.finished, pick))
                 enter_layer_state(w, e, a, rt, L, pick.to, pick.fade);
         }
         if (L.player.name.empty() || dt <= 0.0f) continue;
@@ -985,8 +1033,9 @@ Result<void> set_layer_weight(World& w, Entity e, Animator& a, std::string_view 
         return {};
     }
     return make_error(std::format("the Animator has no layer '{}'", layer),
-                      names.empty() ? "Declare it in `layers`: [{\"name\": \"" + std::string(layer) + "\", \"clip\": \"shoot\"}]."
-                                    : did_you_mean(std::string(layer), names) + " Layers: " + join(names, ", ") + ".");
+                      names.empty()
+                          ? "Declare it in `layers`: [{\"name\": \"" + std::string(layer) + "\", \"clip\": \"shoot\"}]."
+                          : did_you_mean(std::string(layer), names) + " Layers: " + join(names, ", ") + ".");
 }
 
 Result<void> play_layer(World& w, Entity e, Animator& a, std::string_view layer, std::string_view clip, float fade) {
@@ -997,7 +1046,8 @@ Result<void> play_layer(World& w, Entity e, Animator& a, std::string_view layer,
         names.push_back(L.name);
         if (L.name != layer) continue;
         if (L.clipSeen == "states")
-            return make_error(std::format("layer '{}' is driven by `states`", layer), "Change its state with a transition, or give the layer a plain `clip`.");
+            return make_error(std::format("layer '{}' is driven by `states`", layer),
+                              "Change its state with a transition, or give the layer a plain `clip`.");
         if (clip.empty()) {
             L.player = ClipPlayer{};
             L.started = false;
@@ -1005,7 +1055,8 @@ Result<void> play_layer(World& w, Entity e, Animator& a, std::string_view layer,
             auto bound = bind_clip(w, e, a, rt, std::string(clip));
             if (!bound) return bound.error();
             if (L.weight > 0.0f) {
-                if (auto r = start_layer_clip(w, e, a, rt, L, std::string(clip), std::max(0.0f, fade), true); !r) return r.error();
+                if (auto r = start_layer_clip(w, e, a, rt, L, std::string(clip), std::max(0.0f, fade), true); !r)
+                    return r.error();
                 L.started = true;
             }
         }
@@ -1017,8 +1068,9 @@ Result<void> play_layer(World& w, Entity e, Animator& a, std::string_view layer,
         return {};
     }
     return make_error(std::format("the Animator has no layer '{}'", layer),
-                      names.empty() ? "Declare it in `layers`: [{\"name\": \"" + std::string(layer) + "\", \"clip\": \"shoot\"}]."
-                                    : did_you_mean(std::string(layer), names) + " Layers: " + join(names, ", ") + ".");
+                      names.empty()
+                          ? "Declare it in `layers`: [{\"name\": \"" + std::string(layer) + "\", \"clip\": \"shoot\"}]."
+                          : did_you_mean(std::string(layer), names) + " Layers: " + join(names, ", ") + ".");
 }
 
 }  // namespace clipanim

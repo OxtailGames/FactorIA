@@ -89,11 +89,14 @@ void Editor::at_section_X(AtScript& at) {
         step(4, [this, x] {
             at_check(showAiSettings_, "AI > AI Settings... opens the window");
             aiSettingsTab_ = 2;  // the Assets tab: the rest of this section works there
-            at_check(aiSettings_.loaded && aiSettings_.path == x->path, "it works on the AI config file (" + aiSettings_.path + ")");
+            at_check(aiSettings_.loaded && aiSettings_.path == x->path,
+                     "it works on the AI config file (" + aiSettings_.path + ")");
             at_check(aiSettings_.routes["image"].provider == "fake" && aiSettings_.routes["sound"].provider.empty(),
                      "the image row shows the provider of the file and the sound row none");
-            at_check(!aiSettings_.sources.onlyListed && aiSettings_.sources.empty(), "no site yet: 'Use only these sites' is off");
-            at_check(std::ranges::any_of(aiSettings_.status, [](const ai::ProviderStatus& s) { return s.name == "elevenlabs"; }),
+            at_check(!aiSettings_.sources.onlyListed && aiSettings_.sources.empty(),
+                     "no site yet: 'Use only these sites' is off");
+            at_check(std::ranges::any_of(aiSettings_.status,
+                                         [](const ai::ProviderStatus& s) { return s.name == "elevenlabs"; }),
                      "it knows the status of the providers (keys and programs found on this computer)");
             x->before = read_file(x->path);
         });
@@ -118,7 +121,8 @@ void Editor::at_section_X(AtScript& at) {
             at_check(aiSettings_.saveError.find("not a web address") != std::string::npos,
                      "a site that is not a web address stops Save and says so (" + aiSettings_.saveError + ")");
             at_check(read_file(x->path) == x->before, "...and the file is left as it was");
-            at_check(showAiSettings_ && !aiSettings_.keys.empty(), "...with the window and the typed values still there");
+            at_check(showAiSettings_ && !aiSettings_.keys.empty(),
+                     "...with the window and the typed values still there");
             aiSettings_.sources.fonts.clear();
         });
         click("aiset:save-defaults");  // a project is open: Save would write the project's file, this one ai.json
@@ -131,14 +135,20 @@ void Editor::at_section_X(AtScript& at) {
             at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet",
                      "the roles and limits of the file stayed");
             at_check(j["assets"]["image"]["provider"] == "fake" && j["assets"]["sound"]["provider"] == "elevenlabs" &&
-                         j["assets"]["voice"]["voice"] == "21m00Tcm4TlvDq8ikWAM" && j["assets"]["model3d"]["provider"] == "asset-command",
+                         j["assets"]["voice"]["voice"] == "21m00Tcm4TlvDq8ikWAM" &&
+                         j["assets"]["model3d"]["provider"] == "asset-command",
                      "the asset routes are in the file");
-            at_check(j["assetSources"]["onlyListed"] == true && j["assetSources"]["images"][0]["url"] == "https://opengameart.org/art-search" &&
-                         j["assetSources"]["images"][0]["note"] == "CC0 packs" && j["assetSources"]["models"][0]["url"] == "kenney.nl",
+            at_check(j["assetSources"]["onlyListed"] == true &&
+                         j["assetSources"]["images"][0]["url"] == "https://opengameart.org/art-search" &&
+                         j["assetSources"]["images"][0]["note"] == "CC0 packs" &&
+                         j["assetSources"]["models"][0]["url"] == "kenney.nl",
                      "the sites and 'Use only these sites' are in the file");
-            at_check(j["providers"]["elevenlabs"]["apiKey"] == "xi-autotest-secret-key-123", "the typed key is stored under its provider");
-            at_check(j["providers"]["asset-command"]["type"] == "asset-command" && j["providers"]["asset-command"]["command"] == "python" &&
-                         j["providers"]["asset-command"]["argv"].size() == 5 && j["providers"]["asset-command"]["argv"][4] == "{output}",
+            at_check(j["providers"]["elevenlabs"]["apiKey"] == "xi-autotest-secret-key-123",
+                     "the typed key is stored under its provider");
+            at_check(j["providers"]["asset-command"]["type"] == "asset-command" &&
+                         j["providers"]["asset-command"]["command"] == "python" &&
+                         j["providers"]["asset-command"]["argv"].size() == 5 &&
+                         j["providers"]["asset-command"]["argv"][4] == "{output}",
                      "the program of the asset-command provider is stored with its arguments split");
 #ifndef _WIN32
             std::error_code ec;
@@ -148,11 +158,16 @@ void Editor::at_section_X(AtScript& at) {
 #endif
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
-                at_check(aiConfig_.assetSources.onlyListed && aiConfig_.assets.count("voice") && aiConfig_.assets.at("music").provider == "elevenlabs",
+                at_check(aiConfig_.assetSources.onlyListed && aiConfig_.assets.count("voice") &&
+                             aiConfig_.assets.at("music").provider == "elevenlabs",
                          "the editor's config was reloaded with the new settings");
             }
-            at_check(std::ranges::all_of(aiSettings_.keys, [](const auto& kv) { return kv.second.empty(); }), "the typed key is forgotten after Save");
-            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("xi-autotest-secret-key-123") != std::string::npos; }),
+            at_check(std::ranges::all_of(aiSettings_.keys, [](const auto& kv) { return kv.second.empty(); }),
+                     "the typed key is forgotten after Save");
+            at_check(std::ranges::none_of(atLog_,
+                                          [](const std::string& line) {
+                                              return line.find("xi-autotest-secret-key-123") != std::string::npos;
+                                          }),
                      "the key is in no line of the autotest log");
         });
         step(1, [this] {
@@ -170,8 +185,10 @@ void Editor::at_section_X(AtScript& at) {
             Json j = Json::parse(read_file(x->path), nullptr, false);
             at_check(j.is_object() && (!j.contains("providers") || !j["providers"].contains("elevenlabs")),
                      "Remove stored key takes the key out of the file");
-            at_check(j.is_object() && j.contains("assets") && !j["assets"].contains("music") && j["assets"].contains("sound") &&
-                         j.contains("assetSources") && j["assetSources"].contains("images"), "a kind set to None leaves the file");
+            at_check(j.is_object() && j.contains("assets") && !j["assets"].contains("music") &&
+                         j["assets"].contains("sound") && j.contains("assetSources") &&
+                         j["assetSources"].contains("images"),
+                     "a kind set to None leaves the file");
             at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the roles stayed again");
         });
         click("aiset:close");
@@ -207,7 +224,8 @@ void Editor::at_section_Q2(AtScript& at) {
     // file shows its error and no Accept. ai.json is a scratch file (FACTORIA_AI_CONFIG, put back at the end).
     {
         struct Q2State {
-            std::string root, userPath, dirA, dirB, fixtureDir, previousEnv, cameWith, nameA = "Q2 Project A", nameB = "Q2 Project B";
+            std::string root, userPath, dirA, dirB, fixtureDir, previousEnv, cameWith, nameA = "Q2 Project A",
+                                                                                       nameB = "Q2 Project B";
             bool hadEnv = false;
             std::vector<ai::ProviderStatus> savedStatus;
             std::unique_ptr<AiRun> run;  // the run whose proxy registry the ai.settings.set checks call
@@ -229,15 +247,17 @@ void Editor::at_section_Q2(AtScript& at) {
             const std::uint64_t u0 = uiFrame_;
             atWaitCount_ = 0;
             atWaitUntil_ = [this, u0, name] {
-                return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && projectName_ == name && uiFrame_ >= u0 + 8;
+                return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 &&
+                       projectName_ == name && uiFrame_ >= u0 + 8;
             };
         };
         // The window shows the draft of the open project, with its resolution read.
         auto window_ready = [this](const std::string& name) {
             atWaitCount_ = 0;
             atWaitUntil_ = [this, name] {
-                return showAiSettings_ && aiSettings_.loaded && aiSettings_.project == projectDir_ && projectName_ == name && aiProj_.have &&
-                       aiProj_.dir == projectDir_ && !aiRolesOpen_ && aiDetected_.load() && !aiDetecting_.load();
+                return showAiSettings_ && aiSettings_.loaded && aiSettings_.project == projectDir_ &&
+                       projectName_ == name && aiProj_.have && aiProj_.dir == projectDir_ && !aiRolesOpen_ &&
+                       aiDetected_.load() && !aiDetecting_.load();
             };
         };
         step(1, [this] {
@@ -260,21 +280,26 @@ void Editor::at_section_Q2(AtScript& at) {
                 st->savedStatus = aiStatus_;
             }
             write_file(st->userPath, R"({ "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } } })");
-            set_env("FACTORIA_AI_CONFIG", st->userPath);  // ai-trust.json is written next to it, never in the real ~/.factoria
+            set_env("FACTORIA_AI_CONFIG",
+                    st->userPath);  // ai-trust.json is written next to it, never in the real ~/.factoria
             for (const auto& [dirKey, name] : {std::pair{&st->dirA, st->nameA}, std::pair{&st->dirB, st->nameB}}) {
                 ScaffoldOptions so;
                 so.name = name;
                 const std::string where = st->root + (dirKey == &st->dirA ? "/project-a" : "/project-b");
                 auto made = create_project(where, "2d-empty", so);
-                at_check(bool(made), "a scratch project was created for " + name + (made ? "" : ": " + made.error().message));
+                at_check(bool(made),
+                         "a scratch project was created for " + name + (made ? "" : ": " + made.error().message));
                 if (made) *dirKey = made->dir;
             }
             // A came with its own file (a copied project: nobody accepted it here); B's was saved on this computer through the editor.
             stdfs::create_directories(stdfs::path(st->dirA) / ".factoria" / "ai", ec);
-            write_file(st->dirA + "/.factoria/ai/settings.json", R"({ "roles": { "worker": { "model": "a-worker-model" } } })");
-            auto saved = ai::save_project_settings(st->dirB, Json::parse(R"({ "roles": { "worker": { "model": "b-worker-model" } } })"), st->userPath,
-                                                   ai::system_env(), true);
-            at_check(bool(saved), "B's file was saved with the trust recorded" + (saved ? std::string() : ": " + saved.error().message));
+            write_file(st->dirA + "/.factoria/ai/settings.json",
+                       R"({ "roles": { "worker": { "model": "a-worker-model" } } })");
+            auto saved = ai::save_project_settings(
+                st->dirB, Json::parse(R"({ "roles": { "worker": { "model": "b-worker-model" } } })"), st->userPath,
+                ai::system_env(), true);
+            at_check(bool(saved), "B's file was saved with the trust recorded" +
+                                      (saved ? std::string() : ": " + saved.error().message));
             ai_refresh_providers();  // the editor now reads the scratch ai.json
         });
         step(1, [this] {
@@ -288,21 +313,28 @@ void Editor::at_section_Q2(AtScript& at) {
         step(2, [this] { open_ai_settings(true); });  // the Roles tab
         step(1, [window_ready, st] { window_ready(st->nameA); });
         step(4, [this, st, run_model] {
-            at_check(aiSettings_.title == "AI settings - This project: " + st->nameA, "the title says which project this is (" + aiSettings_.title + ")");
+            at_check(aiSettings_.title == "AI settings - This project: " + st->nameA,
+                     "the title says which project this is (" + aiSettings_.title + ")");
             at_check(aiProj_.resolved.fileExists && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError,
                      "a file that came with the project waits for Accept");
-            at_check(std::ranges::any_of(aiProj_.resolved.pending, [](const ai::SettingChange& c) { return c.pointer == "/roles/worker/model"; }),
+            at_check(std::ranges::any_of(aiProj_.resolved.pending,
+                                         [](const ai::SettingChange& c) { return c.pointer == "/roles/worker/model"; }),
                      "...and the pending list says it would change the worker's model");
-            at_check(at_visible("aiset:project:accept") && at_visible("aiset:project:ignore"), "...with Accept and Ignore");
+            at_check(at_visible("aiset:project:accept") && at_visible("aiset:project:ignore"),
+                     "...with Accept and Ignore");
             at_check(run_model("worker") == "sonnet" && aiRolesEdit_["worker"].model == "sonnet",
-                     "until it is accepted the project runs, and the window shows, the user's worker model (" + run_model("worker") + ")");
-            at_check(at_visible("ai:roles:save") && !at_enabled("ai:roles:save"), "Save is locked while the file waits");
+                     "until it is accepted the project runs, and the window shows, the user's worker model (" +
+                         run_model("worker") + ")");
+            at_check(at_visible("ai:roles:save") && !at_enabled("ai:roles:save"),
+                     "Save is locked while the file waits");
         });
         snap("editor_ai_project_pending.png");
         click("aiset:project:ignore");
         step(4, [this, run_model] {
-            at_check(at_visible("aiset:project:review") && !at_visible("aiset:project:accept"), "Ignore hides the list and offers Review it");
-            at_check(at_enabled("ai:roles:save") && run_model("worker") == "sonnet", "...Save works again and the file still has no effect");
+            at_check(at_visible("aiset:project:review") && !at_visible("aiset:project:accept"),
+                     "Ignore hides the list and offers Review it");
+            at_check(at_enabled("ai:roles:save") && run_model("worker") == "sonnet",
+                     "...Save works again and the file still has no effect");
         });
         click("aiset:project:review");
         step(4, [this] { at_check(at_visible("aiset:project:accept"), "Review it brings the list and Accept back"); });
@@ -312,12 +344,16 @@ void Editor::at_section_Q2(AtScript& at) {
             atWaitUntil_ = [this] { return aiProj_.have && !aiProj_.resolved.pendingTrust && !aiRolesOpen_; };
         });
         step(4, [this, st, run_model] {
-            at_check(aiProj_.resolved.applied && ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::Project,
+            at_check(aiProj_.resolved.applied &&
+                         ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::Project,
                      "Accept applies the file: the worker row comes from this project");
-            at_check(run_model("worker") == "a-worker-model", "...and the next AI run uses the project's worker model (" + run_model("worker") + ")");
+            at_check(run_model("worker") == "a-worker-model",
+                     "...and the next AI run uses the project's worker model (" + run_model("worker") + ")");
             at_check(aiRolesEdit_["worker"].model == "a-worker-model", "...and the Roles tab shows it");
-            at_check(at_visible("ai:roles:reset:worker") && !at_visible("ai:roles:reset:orchestrator"), "only the row the project sets has Reset");
-            at_check(stdfs::exists(st->root + "/ai-trust.json"), "the acceptance is in ai-trust.json next to the scratch ai.json");
+            at_check(at_visible("ai:roles:reset:worker") && !at_visible("ai:roles:reset:orchestrator"),
+                     "only the row the project sets has Reset");
+            at_check(stdfs::exists(st->root + "/ai-trust.json"),
+                     "the acceptance is in ai-trust.json next to the scratch ai.json");
         });
         snap("editor_ai_project_applied.png");
         // Switching project: B's roles, then A's again, without closing the window.
@@ -327,9 +363,12 @@ void Editor::at_section_Q2(AtScript& at) {
         });
         step(1, [window_ready, st] { window_ready(st->nameB); });
         step(4, [this, st, run_model] {
-            at_check(showAiSettings_ && aiSettings_.title == "AI settings - This project: " + st->nameB, "switching project retitles the open window (" + aiSettings_.title + ")");
-            at_check(aiRolesEdit_["worker"].model == "b-worker-model", "...and shows the other project's worker model (" + aiRolesEdit_["worker"].model + ")");
-            at_check(run_model("worker") == "b-worker-model", "...and the next AI run uses it (" + run_model("worker") + ")");
+            at_check(showAiSettings_ && aiSettings_.title == "AI settings - This project: " + st->nameB,
+                     "switching project retitles the open window (" + aiSettings_.title + ")");
+            at_check(aiRolesEdit_["worker"].model == "b-worker-model",
+                     "...and shows the other project's worker model (" + aiRolesEdit_["worker"].model + ")");
+            at_check(run_model("worker") == "b-worker-model",
+                     "...and the next AI run uses it (" + run_model("worker") + ")");
             at_check(aiProj_.resolved.applied && !aiProj_.resolved.pendingTrust, "a file saved here needs no Accept");
         });
         step(2, [this, st, reopen] {
@@ -346,7 +385,8 @@ void Editor::at_section_Q2(AtScript& at) {
         step(4, [this, st, run_model] {
             at_check(aiRolesEdit_["worker"].model == "sonnet", "Reset puts the worker row back on the user's value");
             at_check(run_model("worker") == "sonnet", "...and the next AI run uses it (" + run_model("worker") + ")");
-            at_check(!at_visible("ai:roles:reset:worker") && ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::You,
+            at_check(!at_visible("ai:roles:reset:worker") &&
+                         ai_group_source(aiProj_.resolved, "/roles/worker") == ai::SettingSource::You,
                      "...the row says it comes from the user's defaults");
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
             at_check(json_at(file, "/roles/worker").is_null(),
@@ -371,7 +411,8 @@ void Editor::at_section_Q2(AtScript& at) {
                      "Save as my defaults writes the roles into the user's ai.json");
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
-                at_check(aiConfig_.role("orchestrator").model == "defaults-orchestrator", "...and the editor's copy of ai.json is reloaded");
+                at_check(aiConfig_.role("orchestrator").model == "defaults-orchestrator",
+                         "...and the editor's copy of ai.json is reloaded");
             }
             at_check(run_model("orchestrator") == "defaults-orchestrator" && run_model("worker") == "b-worker-model",
                      "...the project still runs with the same roles");
@@ -387,7 +428,8 @@ void Editor::at_section_Q2(AtScript& at) {
         step(1, [window_ready, st] { window_ready(st->nameA); });
         step(4, [this, run_model] {
             at_check(run_model("worker") == "b-worker-model" && aiRolesEdit_["worker"].model == "b-worker-model",
-                     "a project without its own worker model starts from the new defaults (" + run_model("worker") + ")");
+                     "a project without its own worker model starts from the new defaults (" + run_model("worker") +
+                         ")");
         });
         // A project's own Save writes its file only.
         step(2, [this] { aiRolesEdit_["worker"].model = "a-saved-model"; });
@@ -398,11 +440,13 @@ void Editor::at_section_Q2(AtScript& at) {
         });
         step(4, [this, st, run_model] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(json_at(file, "/roles/worker/model") == "a-saved-model" && json_at(file, "/roles/orchestrator").is_null(),
+            at_check(json_at(file, "/roles/worker/model") == "a-saved-model" &&
+                         json_at(file, "/roles/orchestrator").is_null(),
                      "Save writes the project's file with only what differs from the defaults");
             const Json user = Json::parse(read_file(st->userPath), nullptr, false);
             at_check(json_at(user, "/roles/worker/model") == "b-worker-model", "...and leaves ai.json alone");
-            at_check(run_model("worker") == "a-saved-model" && !aiProj_.resolved.pendingTrust, "...the next run uses it, with no Accept asked for the user's own Save");
+            at_check(run_model("worker") == "a-saved-model" && !aiProj_.resolved.pendingTrust,
+                     "...the next run uses it, with no Accept asked for the user's own Save");
         });
         // The Assets tab: a route and a site saved in the project's file only, each row with its own Reset.
         step(2, [this] {
@@ -416,21 +460,27 @@ void Editor::at_section_Q2(AtScript& at) {
         step(2, [this] {
             aiSettings_.routes["image"] = {"openai", "", ""};
             aiSettings_.sources.images.push_back({"opengameart.org", "CC0"});
-            at_check(at_visible("aiset:save") && at_enabled("aiset:save") && at_visible("aiset:save-defaults"), "the Assets tab has Save and Save as my defaults");
+            at_check(at_visible("aiset:save") && at_enabled("aiset:save") && at_visible("aiset:save-defaults"),
+                     "the Assets tab has Save and Save as my defaults");
         });
         click("aiset:save");
         step(1, [this] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return aiProj_.have && ai_group_source(aiProj_.resolved, "/assets/image") == ai::SettingSource::Project; };
+            atWaitUntil_ = [this] {
+                return aiProj_.have && ai_group_source(aiProj_.resolved, "/assets/image") == ai::SettingSource::Project;
+            };
         });
         step(4, [this, st] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(json_at(file, "/assets/image/provider") == "openai" && json_at(file, "/assetSources/images").size() == 1,
+            at_check(json_at(file, "/assets/image/provider") == "openai" &&
+                         json_at(file, "/assetSources/images").size() == 1,
                      "Save in the Assets tab writes the route and the site into the project's file");
             const Json user = Json::parse(read_file(st->userPath), nullptr, false);
-            at_check(user.is_object() && !user.contains("assets") && !user.contains("assetSources"), "...and not into ai.json");
+            at_check(user.is_object() && !user.contains("assets") && !user.contains("assetSources"),
+                     "...and not into ai.json");
             auto run = ai_project_config(true);
-            at_check(run && run->assets.count("image") && run->assets.at("image").provider == "openai" && run->assetSources.images.size() == 1,
+            at_check(run && run->assets.count("image") && run->assets.at("image").provider == "openai" &&
+                         run->assetSources.images.size() == 1,
                      "...the next AI run uses them");
             at_check(at_visible("aiset:reset:image"), "...and the image row says it is the project's, with Reset");
         });
@@ -447,7 +497,8 @@ void Editor::at_section_Q2(AtScript& at) {
         step(4, [this, st] {
             at_check(aiSettings_.sources.images.empty(), "Reset on a list of sites puts it back to the user's (empty)");
             auto run = ai_project_config(true);
-            at_check(run && run->assetSources.images.empty() && !run->assets.count("image"), "...and the next AI run has neither the route nor the site");
+            at_check(run && run->assetSources.images.empty() && !run->assets.count("image"),
+                     "...and the next AI run has neither the route nor the site");
         });
         // A file that cannot be accepted: its error, no Accept.
         step(2, [this, st] {
@@ -459,11 +510,14 @@ void Editor::at_section_Q2(AtScript& at) {
             atWaitUntil_ = [this] { return aiProj_.have && aiProj_.resolved.invalidError.has_value(); };
         });
         step(4, [this, run_model] {
-            at_check(aiProj_.resolved.pendingTrust && aiProj_.resolved.invalidError.has_value() && !aiProj_.resolved.invalidError->message.empty(),
+            at_check(aiProj_.resolved.pendingTrust && aiProj_.resolved.invalidError.has_value() &&
+                         !aiProj_.resolved.invalidError->message.empty(),
                      "a changed file that is not valid shows its error");
-            at_check(!at_visible("aiset:project:accept") && at_visible("aiset:project:ignore") && at_visible("aiset:project:delete"),
+            at_check(!at_visible("aiset:project:accept") && at_visible("aiset:project:ignore") &&
+                         at_visible("aiset:project:delete"),
                      "...with no Accept, and a way to ignore or delete it");
-            at_check(run_model("worker") == "b-worker-model", "...and it changes nothing the project runs with (" + run_model("worker") + ")");
+            at_check(run_model("worker") == "b-worker-model",
+                     "...and it changes nothing the project runs with (" + run_model("worker") + ")");
         });
         snap("editor_ai_project_invalid.png");
         // Delete the file: it asks first (Cancel keeps the file), and Delete removes it and forgets that it was accepted.
@@ -486,19 +540,23 @@ void Editor::at_section_Q2(AtScript& at) {
                      "Cancel closes the popup and keeps the file");
         });
         click("aiset:project:delete");
-        step(4, [this] { at_check(at_visible("aiset:project:delete-ok"), "Delete the file opens the confirmation again"); });
+        step(4, [this] {
+            at_check(at_visible("aiset:project:delete-ok"), "Delete the file opens the confirmation again");
+        });
         click("aiset:project:delete-ok");
         step(1, [this, st] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this, st] {
-                return !stdfs::exists(st->dirA + "/.factoria/ai/settings.json") && aiProj_.have && !aiProj_.resolved.fileExists;
+                return !stdfs::exists(st->dirA + "/.factoria/ai/settings.json") && aiProj_.have &&
+                       !aiProj_.resolved.fileExists;
             };
         });
         step(4, [this, st, run_model] {
             const Json trust = Json::parse(read_file(st->root + "/ai-trust.json"), nullptr, false);
             at_check(!json_at(trust, "/aiSettings").contains(ai::ai_settings_trust_key(st->dirA)),
                      "Delete removes the file and forgets its acceptance in ai-trust.json");
-            at_check(run_model("worker") == "b-worker-model" && aiProj_.actionError.empty(), "...the project runs with the user's defaults, no error");
+            at_check(run_model("worker") == "b-worker-model" && aiProj_.actionError.empty(),
+                     "...the project runs with the user's defaults, no error");
         });
         // Save after Ignore replaces a file that came with the project: it asks, and keeps a copy of that file.
         step(2, [this, st] {
@@ -509,8 +567,8 @@ void Editor::at_section_Q2(AtScript& at) {
         step(1, [this] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] {
-                return aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError && at_visible("aiset:project:ignore") &&
-                       !aiRolesOpen_;
+                return aiProj_.have && aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError &&
+                       at_visible("aiset:project:ignore") && !aiRolesOpen_;
             };
         });
         click("aiset:project:ignore");
@@ -523,13 +581,15 @@ void Editor::at_section_Q2(AtScript& at) {
         step(4, [this, st] {
             at_check(at_visible("aiset:project:replace-ok") && at_visible("aiset:project:replace-cancel"),
                      "Save after Ignore asks before it replaces the file that came with the project");
-            at_check(read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith && !stdfs::exists(st->dirA + "/.factoria/ai/settings.replaced.json"),
+            at_check(read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith &&
+                         !stdfs::exists(st->dirA + "/.factoria/ai/settings.replaced.json"),
                      "...and nothing was written yet");
         });
         snap("editor_ai_project_replace_confirm.png");
         click("aiset:project:replace-cancel");
         step(4, [this, st] {
-            at_check(!at_visible("aiset:project:replace-ok") && read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith,
+            at_check(!at_visible("aiset:project:replace-ok") &&
+                         read_file(st->dirA + "/.factoria/ai/settings.json") == st->cameWith,
                      "Cancel closes the popup and leaves the file as it came");
         });
         click("ai:roles:save");
@@ -537,14 +597,18 @@ void Editor::at_section_Q2(AtScript& at) {
         click("aiset:project:replace-ok");
         step(1, [this] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return aiProj_.have && !aiProj_.resolved.pendingTrust && aiProj_.resolved.applied && !aiRolesOpen_; };
+            atWaitUntil_ = [this] {
+                return aiProj_.have && !aiProj_.resolved.pendingTrust && aiProj_.resolved.applied && !aiRolesOpen_;
+            };
         });
         step(4, [this, st, run_model] {
             const Json file = Json::parse(read_file(st->dirA + "/.factoria/ai/settings.json"), nullptr, false);
-            at_check(json_at(file, "/roles/worker/model") == "my-own-model", "Replace saves the user's roles into the project's file");
+            at_check(json_at(file, "/roles/worker/model") == "my-own-model",
+                     "Replace saves the user's roles into the project's file");
             at_check(read_file(st->dirA + "/.factoria/ai/settings.replaced.json") == st->cameWith,
                      "...and the file that came with the project is kept as settings.replaced.json");
-            at_check(run_model("worker") == "my-own-model", "...the next run uses the saved model (" + run_model("worker") + ")");
+            at_check(run_model("worker") == "my-own-model",
+                     "...the next run uses the saved model (" + run_model("worker") + ")");
         });
         // ai.settings.set from an AI (the proxy registry of a run, as MCP and the agent use it): an MCP client cannot change the user's
         // defaults, a project-scope change reaches the windows, and a change the user's own caller makes (no scope) reloads them.
@@ -555,32 +619,43 @@ void Editor::at_section_Q2(AtScript& at) {
             CommandResult refused;
             {
                 CommandCallerScope as(CommandCaller::Mcp);
-                refused = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-mcp"}}));
+                refused = proxy->call(
+                    "ai.settings.set",
+                    Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-mcp"}}));
             }
             at_check(!refused.ok && refused.error.value("code", "") == "user_only" && read_file(st->userPath) == before,
                      "an MCP client cannot change the user's defaults (ai.json is untouched)");
-            CommandResult project = proxy->call("ai.settings.set", Json::object({{"scope", "project"}, {"pointer", "/roles/artist/enabled"}, {"value", false}}));
-            at_check(project.ok && project.result.value("needsAcceptance", false), "...but it can change the project's file (it then waits for the user)");
-            CommandResult user = proxy->call("ai.settings.set", Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-user"}}));
-            at_check(user.ok, "the user's own caller can change the user's defaults" + (user.ok ? std::string() : ": " + user.error.dump()));
+            CommandResult project = proxy->call(
+                "ai.settings.set",
+                Json::object({{"scope", "project"}, {"pointer", "/roles/artist/enabled"}, {"value", false}}));
+            at_check(project.ok && project.result.value("needsAcceptance", false),
+                     "...but it can change the project's file (it then waits for the user)");
+            CommandResult user = proxy->call(
+                "ai.settings.set",
+                Json::object({{"scope", "user"}, {"pointer", "/roles/orchestrator/model"}, {"value", "by-user"}}));
+            at_check(user.ok, "the user's own caller can change the user's defaults" +
+                                  (user.ok ? std::string() : ": " + user.error.dump()));
         });
         step(1, [this] {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] {
                 // A detection that was running can make this true one frame before the reload: wait until neither file's
                 // change flag is pending (the reload consumes them) as well.
-                return !aiDetecting_.load() && !aiRolesOpen_ && !aiUserFileChanged_.load() && !aiProjectFileChanged_.load() && aiProj_.have &&
-                       aiProj_.resolved.pendingTrust && !aiProj_.resolved.invalidError;
+                return !aiDetecting_.load() && !aiRolesOpen_ && !aiUserFileChanged_.load() &&
+                       !aiProjectFileChanged_.load() && aiProj_.have && aiProj_.resolved.pendingTrust &&
+                       !aiProj_.resolved.invalidError;
             };
         });
         step(4, [this, run_model] {
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
-                at_check(aiConfig_.role("orchestrator").model == "by-user", "the editor reloaded ai.json after the command wrote it");
+                at_check(aiConfig_.role("orchestrator").model == "by-user",
+                         "the editor reloaded ai.json after the command wrote it");
             }
             at_check(run_model("orchestrator") == "by-user" && aiRolesEdit_["orchestrator"].model == "by-user",
                      "...the next run and the Roles tab have the new value (" + run_model("orchestrator") + ")");
-            at_check(aiProj_.resolved.pendingTrust, "...and a project-scope change shows up as a file that waits for Accept (the cache was dropped)");
+            at_check(aiProj_.resolved.pendingTrust,
+                     "...and a project-scope change shows up as a file that waits for Accept (the cache was dropped)");
         });
         // Put everything back.
         step(2, [this, st, set_env] {
@@ -592,7 +667,10 @@ void Editor::at_section_Q2(AtScript& at) {
         });
         step(1, [this, st] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [this, st] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && projectDir_ == st->fixtureDir; };
+            atWaitUntil_ = [this, st] {
+                return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 &&
+                       projectDir_ == st->fixtureDir;
+            };
         });
         step(2, [this, st] {
             ai_refresh_providers();
@@ -677,10 +755,13 @@ void Editor::at_section_D2(AtScript& at) {
                                            {"serverInfo", Json::object({{"name", "FakeArt"}, {"version", "1.0"}})}});
                 } else if (method == "tools/list") {
                     result = Json::object(
-                        {{"tools", Json::array({Json::object({{"name", "generate_image"}, {"description", "Makes an image"},
-                                                              {"inputSchema", Json::object({{"type", "object"}})}}),
-                                                Json::object({{"name", "list_models"}, {"description", "Lists models"},
-                                                              {"inputSchema", Json::object({{"type", "object"}})}})})}});
+                        {{"tools",
+                          Json::array({Json::object({{"name", "generate_image"},
+                                                     {"description", "Makes an image"},
+                                                     {"inputSchema", Json::object({{"type", "object"}})}}),
+                                       Json::object({{"name", "list_models"},
+                                                     {"description", "Lists models"},
+                                                     {"inputSchema", Json::object({{"type", "object"}})}})})}});
                 }
                 rs.headers["content-type"] = "application/json";
                 rs.body = Json::object({{"jsonrpc", "2.0"}, {"id", body["id"]}, {"result", result}}).dump();
@@ -696,16 +777,19 @@ void Editor::at_section_D2(AtScript& at) {
         click("menu:ai");
         click("menu:ai-settings");
         step(4, [this, x] {
-            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path,
+                     "AI > AI Settings... opens the window on the scratch file");
             aiSettingsTab_ = 3;  // External tools
         });
         step(3, [this] {
             at_check(aiSettings_.tools.servers.empty(), "no tool server yet");
-            at_check(at_visible("aiset:tools:add") && at_visible("aiset:tools:paste"), "the External tools tab shows Add server and Paste JSON");
+            at_check(at_visible("aiset:tools:add") && at_visible("aiset:tools:paste"),
+                     "the External tools tab shows Add server and Paste JSON");
         });
         click("aiset:tools:add");
         step(3, [this] {
-            at_check(aiSettings_.tools.editing >= 0 && aiSettings_.tools.adding && at_visible("aiset:tools:apply"), "Add server opens the form");
+            at_check(aiSettings_.tools.editing >= 0 && aiSettings_.tools.adding && at_visible("aiset:tools:apply"),
+                     "Add server opens the form");
             auto& e = aiSettings_.tools.edit;
             e.name = "factoria";  // reserved
             e.type = "http";
@@ -727,7 +811,8 @@ void Editor::at_section_D2(AtScript& at) {
         click("aiset:tools:apply");
         step(3, [this] {
             const auto& s = aiSettings_.tools.servers;
-            at_check(s.size() == 1 && s[0].name == "scenario" && aiSettings_.tools.editing < 0, "Apply adds the server and closes the form");
+            at_check(s.size() == 1 && s[0].name == "scenario" && aiSettings_.tools.editing < 0,
+                     "Apply adds the server and closes the form");
             at_check(s.size() == 1 && s[0].headers.size() == 1 && s[0].headers[0].first == "Authorization" &&
                          s[0].headers[0].second == "Basic {key}" && s[0].roles.size() == 2,
                      "...with its header and roles");
@@ -746,8 +831,8 @@ void Editor::at_section_D2(AtScript& at) {
                 std::lock_guard<std::mutex> lock(aiSettings_.tools.tests->mu);
                 text = aiSettings_.tools.tests->text["scenario"];
             }
-            at_check(text.find("Connected to FakeArt") != std::string::npos && text.find("2 tools") != std::string::npos &&
-                         text.find("generate_image") != std::string::npos,
+            at_check(text.find("Connected to FakeArt") != std::string::npos &&
+                         text.find("2 tools") != std::string::npos && text.find("generate_image") != std::string::npos,
                      "Test connects and lists the tools (" + text + ")");
             at_check(*x->auth == "Basic autotest-tool-key-987", "...and the key went out in the Authorization header");
         });
@@ -755,28 +840,36 @@ void Editor::at_section_D2(AtScript& at) {
         click("aiset:tools:paste");
         step(3, [this] {
             at_check(aiSettings_.tools.showPaste && at_visible("aiset:tools:import"), "Paste JSON opens the paste box");
-            aiSettings_.tools.pasteText = R"({"mcpServers":{"fs":{"command":"npx","args":["-y","some-mcp","--root","/tmp/my dir"],"env":{"MODE":"fast"},"disabled":true}}})";
+            aiSettings_.tools.pasteText =
+                R"({"mcpServers":{"fs":{"command":"npx","args":["-y","some-mcp","--root","/tmp/my dir"],"env":{"MODE":"fast"},"disabled":true}}})";
         });
         click("aiset:tools:import");
         step(3, [this] {
             const auto& s = aiSettings_.tools.servers;
-            at_check(s.size() == 2 && s[1].name == "fs" && s[1].is_stdio() && s[1].command == "npx" && s[1].args.size() == 4 &&
-                         s[1].args[3] == "/tmp/my dir" && s[1].env.count("MODE"),
+            at_check(s.size() == 2 && s[1].name == "fs" && s[1].is_stdio() && s[1].command == "npx" &&
+                         s[1].args.size() == 4 && s[1].args[3] == "/tmp/my dir" && s[1].env.count("MODE"),
                      "Import adds the pasted stdio server (" + aiSettings_.tools.pasteMessage + ")");
-            at_check(aiSettings_.tools.pasteMessage.find("disabled") != std::string::npos, "...and says which keys FactorIA does not use");
-            at_check(s.size() == 2 && s[1].inheritEnvGlobal == std::vector<std::string>{"FA_AUTOTEST_*"}, "...with ai.json's global inheritEnv too");
+            at_check(aiSettings_.tools.pasteMessage.find("disabled") != std::string::npos,
+                     "...and says which keys FactorIA does not use");
+            at_check(s.size() == 2 && s[1].inheritEnvGlobal == std::vector<std::string>{"FA_AUTOTEST_*"},
+                     "...with ai.json's global inheritEnv too");
         });
         snap("editor_ai_tools.png");
         click("aiset:tools:save");
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
-            at_check(j.is_object() && aiSettings_.tools.saveError.empty(), "Save wrote a JSON object (" + aiSettings_.tools.saveError + ")");
+            at_check(j.is_object() && aiSettings_.tools.saveError.empty(),
+                     "Save wrote a JSON object (" + aiSettings_.tools.saveError + ")");
             if (!j.is_object()) return;
-            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet", "the other keys of the file stayed");
-            at_check(j["mcpServers"]["scenario"]["url"] == "https://mcp.example.test/mcp" && j["mcpServers"]["scenario"]["apiKey"] == "autotest-tool-key-987" &&
-                         j["mcpServers"]["scenario"]["headers"]["Authorization"] == "Basic {key}" && j["mcpServers"]["scenario"]["roles"].size() == 2,
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet",
+                     "the other keys of the file stayed");
+            at_check(j["mcpServers"]["scenario"]["url"] == "https://mcp.example.test/mcp" &&
+                         j["mcpServers"]["scenario"]["apiKey"] == "autotest-tool-key-987" &&
+                         j["mcpServers"]["scenario"]["headers"]["Authorization"] == "Basic {key}" &&
+                         j["mcpServers"]["scenario"]["roles"].size() == 2,
                      "the server is in the file with its header, key and roles");
-            at_check(j["mcpServers"]["fs"]["command"] == "npx" && j["mcpServers"]["fs"]["args"].size() == 4, "the program server is in the file");
+            at_check(j["mcpServers"]["fs"]["command"] == "npx" && j["mcpServers"]["fs"]["args"].size() == 4,
+                     "the program server is in the file");
 #ifndef _WIN32
             std::error_code ec;
             const auto perms = stdfs::status(x->path, ec).permissions();
@@ -787,7 +880,10 @@ void Editor::at_section_D2(AtScript& at) {
                 std::lock_guard<std::mutex> lock(aiMu_);
                 at_check(aiConfig_.toolServers.size() == 2, "the editor's config was reloaded with the servers");
             }
-            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("autotest-tool-key-987") != std::string::npos; }),
+            at_check(std::ranges::none_of(atLog_,
+                                          [](const std::string& line) {
+                                              return line.find("autotest-tool-key-987") != std::string::npos;
+                                          }),
                      "the key is in no line of the autotest log");
         });
         step(1, [this] {
@@ -798,7 +894,8 @@ void Editor::at_section_D2(AtScript& at) {
         click("aiset:tools:save");
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
-            at_check(j.is_object() && j["mcpServers"].contains("scenario") && !j["mcpServers"].contains("fs"), "Remove and Save take the server out of the file");
+            at_check(j.is_object() && j["mcpServers"].contains("scenario") && !j["mcpServers"].contains("fs"),
+                     "Remove and Save take the server out of the file");
             at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the other keys stayed again");
         });
         // The Agents tab: the permission mode of Claude Code and Codex (docs/AI_PROVIDERS.md, "Permission mode").
@@ -816,22 +913,27 @@ void Editor::at_section_D2(AtScript& at) {
         step(2, [this] { at_check(at_enabled("aiset:agents:save:claude-code"), "picking another mode enables Save"); });
         click("aiset:agents:save:claude-code");
         step(3, [this, x] {
-            at_check(aiSettings_.agents.confirm == "claude-code" && at_visible("aiset:agents:confirm") && at_visible("aiset:agents:cancel"),
+            at_check(aiSettings_.agents.confirm == "claude-code" && at_visible("aiset:agents:confirm") &&
+                         at_visible("aiset:agents:cancel"),
                      "a dangerous mode asks before it is saved");
             Json j = Json::parse(read_file(x->path), nullptr, false);
             at_check(j.is_object() && !j.contains("providers"), "...and nothing is written yet");
         });
         click("aiset:agents:cancel");
-        step(2, [this] { at_check(aiSettings_.agents.confirm.empty() && !at_visible("aiset:agents:confirm"), "Cancel closes the question"); });
+        step(2, [this] {
+            at_check(aiSettings_.agents.confirm.empty() && !at_visible("aiset:agents:confirm"),
+                     "Cancel closes the question");
+        });
         click("aiset:agents:save:claude-code");
         step(3, [this] { at_check(at_visible("aiset:agents:confirm"), "Save asks again"); });
         click("aiset:agents:confirm");
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
-            at_check(j.is_object() && j.contains("providers") && j["providers"]["claude-code"].value("permissionMode", std::string()) == "bypassPermissions",
+            at_check(j.is_object() && j.contains("providers") &&
+                         j["providers"]["claude-code"].value("permissionMode", std::string()) == "bypassPermissions",
                      "confirming writes permissionMode into the provider (" + aiSettings_.agents.message + ")");
-            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet" && j["mcpServers"].contains("scenario") &&
-                         j["inheritEnv"].size() == 1,
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet" &&
+                         j["mcpServers"].contains("scenario") && j["inheritEnv"].size() == 1,
                      "the other keys of the file stayed");
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
@@ -839,7 +941,8 @@ void Editor::at_section_D2(AtScript& at) {
                 at_check(it != aiConfig_.providers.end() && it->second.permissionMode == "bypassPermissions",
                          "the editor's config was reloaded with the mode");
             }
-            at_check(aiSettings_.agents.mode.empty() && aiSettings_.tools.servers.size() == 1, "the draft shows the saved mode and kept the other tab");
+            at_check(aiSettings_.agents.mode.empty() && aiSettings_.tools.servers.size() == 1,
+                     "the draft shows the saved mode and kept the other tab");
         });
         step(1, [this] {
             atWaitCount_ = 0;
@@ -849,7 +952,8 @@ void Editor::at_section_D2(AtScript& at) {
         click("aiset:agents:save:codex");  // not dangerous: saved at once
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
-            at_check(j.is_object() && j.contains("providers") && j["providers"]["codex"].value("permissionMode", std::string()) == "read-only" &&
+            at_check(j.is_object() && j.contains("providers") &&
+                         j["providers"]["codex"].value("permissionMode", std::string()) == "read-only" &&
                          j["providers"]["claude-code"].value("permissionMode", std::string()) == "bypassPermissions",
                      "a safe mode is saved without a question, next to the first");
         });
@@ -857,11 +961,15 @@ void Editor::at_section_D2(AtScript& at) {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return !aiDetecting_.load(); };
         });
-        step(3, [this] { at_check(at_visible("aiset:agents:reset:claude-code"), "a provider with a saved mode offers Use the default"); });
+        step(3, [this] {
+            at_check(at_visible("aiset:agents:reset:claude-code"),
+                     "a provider with a saved mode offers Use the default");
+        });
         click("aiset:agents:reset:claude-code");
         step(6, [this, x] {
             Json j = Json::parse(read_file(x->path), nullptr, false);
-            at_check(j.is_object() && j.contains("providers") && !j["providers"].contains("claude-code") && j["providers"].contains("codex"),
+            at_check(j.is_object() && j.contains("providers") && !j["providers"].contains("claude-code") &&
+                         j["providers"].contains("codex"),
                      "Use the default takes the key (and the empty provider entry) out of the file");
             std::lock_guard<std::mutex> lock(aiMu_);
             const auto it = aiConfig_.providers.find("claude-code");
@@ -876,7 +984,8 @@ void Editor::at_section_D2(AtScript& at) {
         });
         click("aiset:agents:close");
         step(4, [this] {
-            at_check(!showAiSettings_ && !aiSettings_.loaded && aiSettings_.tools.servers.empty(), "Close closes the window and drops the draft");
+            at_check(!showAiSettings_ && !aiSettings_.loaded && aiSettings_.tools.servers.empty(),
+                     "Close closes the window and drops the draft");
         });
         step(1, [this] {
             atWaitCount_ = 0;

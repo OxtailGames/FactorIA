@@ -5,11 +5,13 @@ namespace fa {
 Key android_key_to_key(int code) {
     if (code >= kAndroidKeyA && code <= kAndroidKeyZ) return Key(int(Key::A) + (code - kAndroidKeyA));
     if (code >= kAndroidKey0 && code <= kAndroidKey9) return Key(int(Key::Num0) + (code - kAndroidKey0));
-    if (code >= 144 && code <= 153) return Key(int(Key::Num0) + (code - 144));  // NUMPAD_0..9, like sokol_app on desktop
-    if (code >= 131 && code <= 142) return Key(int(Key::F1) + (code - 131));    // F1..F12
+    if (code >= 144 && code <= 153)
+        return Key(int(Key::Num0) + (code - 144));                            // NUMPAD_0..9, like sokol_app on desktop
+    if (code >= 131 && code <= 142) return Key(int(Key::F1) + (code - 131));  // F1..F12
     switch (code) {
         case 62: return Key::Space;
-        case 66: case 160: return Key::Enter;  // ENTER, NUMPAD_ENTER
+        case 66:
+        case 160: return Key::Enter;  // ENTER, NUMPAD_ENTER
         case 111: return Key::Escape;
         case 61: return Key::Tab;
         case 67: return Key::Backspace;  // KEYCODE_DEL is the key that deletes backwards
@@ -31,16 +33,21 @@ Key android_key_to_key(int code) {
         case 58: return Key::RightAlt;
         case 117: return Key::LeftSuper;
         case 118: return Key::RightSuper;
-        case 69: case 156: return Key::Minus;            // MINUS, NUMPAD_SUBTRACT
-        case 70: case 161: case 157: return Key::Equal;  // EQUALS, NUMPAD_EQUALS, NUMPAD_ADD
+        case 69:
+        case 156: return Key::Minus;  // MINUS, NUMPAD_SUBTRACT
+        case 70:
+        case 161:
+        case 157: return Key::Equal;  // EQUALS, NUMPAD_EQUALS, NUMPAD_ADD
         case 71: return Key::LeftBracket;
         case 72: return Key::RightBracket;
         case 73: return Key::Backslash;
         case 74: return Key::Semicolon;
         case 75: return Key::Apostrophe;
         case 55: return Key::Comma;
-        case 56: case 158: return Key::Period;  // PERIOD, NUMPAD_DOT
-        case 76: case 154: return Key::Slash;   // SLASH, NUMPAD_DIVIDE
+        case 56:
+        case 158: return Key::Period;  // PERIOD, NUMPAD_DOT
+        case 76:
+        case 154: return Key::Slash;  // SLASH, NUMPAD_DIVIDE
         case 68: return Key::GraveAccent;
         default: return Key::Unknown;
     }
@@ -58,7 +65,8 @@ bool AndroidKeys::may_type(int code) {
 
 bool AndroidKeys::on_key(int code, bool down, std::uint32_t unicode, bool repeat) {
     if (code == kAndroidKeyBack) {
-        if (down && !repeat) items_.push_back({Item::Kind::Back});  // the lift of the button is consumed too, and ignored
+        if (down && !repeat)
+            items_.push_back({Item::Kind::Back});  // the lift of the button is consumed too, and ignored
         return true;
     }
     const Key key = android_key_to_key(code);

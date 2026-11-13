@@ -88,7 +88,7 @@ TEST_CASE("AiRun: a delegated worker still running when the turn ends keeps the 
     run.turn_ended(r);
     CHECK_FALSE(run.running.load());
     CHECK(run.detached.load());
-    CHECK(run.active());  // no flicker between running and detached
+    CHECK(run.active());                 // no flicker between running and detached
     CHECK(run.processes().size() == 1);  // the orchestrator's own process is gone, the worker's stays
     {
         auto d = run.drain();
@@ -179,22 +179,24 @@ TEST_CASE("project_relative: inside the project only") {
 
 TEST_CASE("command_touched_files: path arguments, the saved scene and the open scene") {
     using V = std::vector<std::string>;
-    CHECK(command_touched_files("fs.write", Json::object({{"path", "scripts/a.js"}, {"content", "x"}}), Json::object(), false, false,
-                                "", "/p") == V{"scripts/a.js"});
-    CHECK(command_touched_files("fs.read", Json::object({{"path", "scripts/a.js"}}), Json::object(), true, false, "", "/p").empty());
-    CHECK(command_touched_files("fs.move", Json::object({{"from", "a.js"}, {"to", "b.js"}}), Json::object(), false, false, "", "/p") ==
-          V{"a.js", "b.js"});
-    CHECK(command_touched_files("x.y", Json::object({{"paths", Json::array({"a.js", "../out.js"})}}), Json::object(), false, false, "",
-                                "/p") == V{"a.js"});
-    CHECK(command_touched_files("scene.import", Json::object(), Json::object({{"saved", "scenes/x.scene.json"}}), false, false, "",
-                                "/p") == V{"scenes/x.scene.json"});
+    CHECK(command_touched_files("fs.write", Json::object({{"path", "scripts/a.js"}, {"content", "x"}}), Json::object(),
+                                false, false, "", "/p") == V{"scripts/a.js"});
+    CHECK(command_touched_files("fs.read", Json::object({{"path", "scripts/a.js"}}), Json::object(), true, false, "",
+                                "/p")
+              .empty());
+    CHECK(command_touched_files("fs.move", Json::object({{"from", "a.js"}, {"to", "b.js"}}), Json::object(), false,
+                                false, "", "/p") == V{"a.js", "b.js"});
+    CHECK(command_touched_files("x.y", Json::object({{"paths", Json::array({"a.js", "../out.js"})}}), Json::object(),
+                                false, false, "", "/p") == V{"a.js"});
+    CHECK(command_touched_files("scene.import", Json::object(), Json::object({{"saved", "scenes/x.scene.json"}}), false,
+                                false, "", "/p") == V{"scenes/x.scene.json"});
     // A command that edits the open scene changes the scene's file; saving with no path writes it too.
-    CHECK(command_touched_files("entity.set", Json::object({{"id", 3}}), Json::object(), false, true, "scenes/main.scene.json", "/p") ==
-          V{"scenes/main.scene.json"});
-    CHECK(command_touched_files("scene.save", Json::object(), Json::object(), false, false, "scenes/main.scene.json", "/p") ==
-          V{"scenes/main.scene.json"});
-    CHECK(command_touched_files("scene.save", Json::object({{"path", "scenes/other.scene.json"}}), Json::object(), false, false,
-                                "scenes/main.scene.json", "/p") == V{"scenes/other.scene.json"});
+    CHECK(command_touched_files("entity.set", Json::object({{"id", 3}}), Json::object(), false, true,
+                                "scenes/main.scene.json", "/p") == V{"scenes/main.scene.json"});
+    CHECK(command_touched_files("scene.save", Json::object(), Json::object(), false, false, "scenes/main.scene.json",
+                                "/p") == V{"scenes/main.scene.json"});
+    CHECK(command_touched_files("scene.save", Json::object({{"path", "scenes/other.scene.json"}}), Json::object(),
+                                false, false, "scenes/main.scene.json", "/p") == V{"scenes/other.scene.json"});
 }
 
 TEST_CASE("tool_touched_files: the CLI agent's own file tools") {
@@ -321,7 +323,8 @@ TEST_CASE("plan_revert: with other chats only the run's files go back and the sh
     RunRecord unrelated;
     unrelated.chat = "Audio";
     unrelated.files = {"sfx.js"};
-    auto p = plan_revert({"a.js", "b.js", "scenes/main.scene.json"}, "scenes/main.scene.json", false, {other, unrelated});
+    auto p =
+        plan_revert({"a.js", "b.js", "scenes/main.scene.json"}, "scenes/main.scene.json", false, {other, unrelated});
     CHECK_FALSE(p.whole);
     CHECK(p.files == std::vector<std::string>{"a.js", "b.js", "scenes/main.scene.json"});
     REQUIRE(p.shared.size() == 2);
