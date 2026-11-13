@@ -36,6 +36,19 @@
     return null;
   }
 
+  // A component view (factoria.js) keeps its fields as accessors; it has a hook on its prototype (found through
+  // descriptors, nothing of the inspected value runs) that gives a plain object with the values the fields have now.
+  const DEBUG_VIEW = Symbol.for("factoria.debugView");
+  function viewSnapshot(o) {
+    try {
+      for (let p = getProto(o), i = 0; p !== null && i < 3; p = getProto(p), i++) {
+        const d = getDesc(p, DEBUG_VIEW);
+        if (d) return typeof d.value === "function" ? d.value.call(o) : null;
+      }
+    } catch (e) { /* not a view */ }
+    return null;
+  }
+
   function isTyped(v) { return isView(v) && !(v instanceof DataView); }
 
   function fnPreview(f) {
@@ -106,18 +119,19 @@
     let prefix = "";
     if (proto === null) prefix = "[Object: null prototype] ";
     else { const n = ctorName(v); if (n && n !== "Object") prefix = n + " "; }
-    const keys = ownKeys(v).filter((k) => typeof k === "string");
+    const src = viewSnapshot(v) || v;
+    const keys = ownKeys(src).filter((k) => typeof k === "string");
     const parts = [];
     let shown = 0;
     for (const k of keys) {
       if (shown >= 5) break;
-      const d = getDesc(v, k);
+      const d = getDesc(src, k);
       if (!d || !d.enumerable) continue;
       parts.push(k + ": " + ("value" in d ? brief(d.value) : "(getter)"));
       shown++;
     }
     let enumerable = shown;
-    if (shown >= 5) { enumerable = 0; for (const k of keys) { const d = getDesc(v, k); if (d && d.enumerable) enumerable++; } }
+    if (shown >= 5) { enumerable = 0; for (const k of keys) { const d = getDesc(src, k); if (d && d.enumerable) enumerable++; } }
     let out = prefix + "{" + parts.join(", ") + (enumerable > shown ? ", …" : "") + "}";
     if (out.length > MAX_PREVIEW) out = out.slice(0, MAX_PREVIEW - 2) + "…}";
     return out;
@@ -156,10 +170,11 @@
     } else if (typed || (arr && n > 5000)) {
       rest.push(["length", n, 0]);
     } else {
-      for (const k of ownKeys(o)) {
+      const src = viewSnapshot(o) || o;
+      for (const k of ownKeys(src)) {
         if (typeof k !== "string") continue;
         if (arr && isIndex(k)) continue;
-        const d = getDesc(o, k);
+        const d = getDesc(src, k);
         if (!d) continue;
         if ("value" in d) rest.push([k, d.value, 0]);
         else rest.push([k, undefined, d.get ? 1 : 2]);

@@ -31,6 +31,16 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   still queued runs it at once. With several worker threads, small jobs, dependency graphs and nested waits run faster
   than before, nested waits about four times faster, and use less CPU (`fa_bench --filter jobs.`). Same contracts as
   before: waits run only what they need, a wait that can never end still returns an error, idle workers still sleep.
+- Script component access is cheaper (M94.3b): `entity.get("Sprite")`, `entity.transform` and `entity.position` give the
+  same view object every time (kept on the entity's JS object; a view is only a handle, so it never goes stale: after
+  `remove` or `destroy` its fields still throw the same teaching errors), a view no longer sits behind a Proxy (the fields
+  are accessors with their index fixed once per type, and only a name that does not exist reaches the Proxy that says
+  "did you mean"), the views of vector and colour fields are kept too, and `entity.get` asks the engine for the
+  component by type index instead of by name. `Object.keys`, spread, JSON and the debugger's variables show the same
+  fields as before. New benchmarks `script.field_read`, `script.field_write` and `script.component_get`. Measured
+  before and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7,
+  100000 field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access`
+  43 -> 17 and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
 
 ## 0.26.0
 
