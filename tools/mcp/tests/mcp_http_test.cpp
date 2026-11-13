@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -54,7 +55,13 @@ ai::HttpResponse send(const std::string& url, const std::string& body, const std
 // A registry with a stand-in scene.spawn, served the way the editor serves its proxy registry.
 struct Endpoint {
     CommandRegistry registry;
+    // Written by the server's connection threads, read by the test: every access holds spawnedMutex.
+    std::mutex spawnedMutex;
     std::vector<std::string> spawned;
+    std::vector<std::string> spawned_names() {
+        std::lock_guard lock(spawnedMutex);
+        return spawned;
+    }
     McpHttpServer server;
     std::string url;
     explicit Endpoint(std::chrono::milliseconds streamAfter = std::chrono::seconds(10)) {
@@ -65,6 +72,7 @@ struct Endpoint {
         i.inputSchema =
             Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Entity name."}}})");
         registry.add(i, [this](const Json& a) {
+            std::lock_guard lock(spawnedMutex);
             spawned.push_back(a.value("name", std::string()));
             return Json::object({{"id", spawned.back()}});
         });
@@ -126,8 +134,9 @@ TEST_CASE("MCP over loopback HTTP: JSON replies, 202 for notifications, 405 for 
         ep.url,
         R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"A"}}})");
     CHECK(call.status == 200);
-    REQUIRE(ep.spawned.size() == 1);
-    CHECK(ep.spawned[0] == "A");
+    const auto spawned = ep.spawned_names();
+    REQUIRE(spawned.size() == 1);
+    CHECK(spawned[0] == "A");
     CHECK(Json::parse(Json::parse(call.body)["result"]["content"][0]["text"].get<std::string>())["id"] == "A");
 
     CHECK(send(ep.url, "", "GET").status == 405);  // no server stream: the client goes on without one
@@ -219,8 +228,9 @@ TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude
           Json::object(
               {{"type", "http"}, {"url", ep.url}, {"timeout", ai::kMcpToolTimeoutMs}}));  // long calls are allowed
     // ...and its tool call ran on the endpoint's registry, with the result sent back.
-    REQUIRE(ep.spawned.size() == 1);
-    CHECK(ep.spawned[0] == "CliCoin");
+    const auto spawned = ep.spawned_names();
+    REQUIRE(spawned.size() == 1);
+    CHECK(spawned[0] == "CliCoin");
     const std::string reply = read_file(argvFile.string() + ".mcp");
     INFO("reply: " << reply);
     CHECK(Json::parse(reply)["result"]["isError"] == false);

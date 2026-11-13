@@ -46,7 +46,9 @@ The whole C++ code base is formatted with `.clang-format` (the commit is listed 
   file name (GCC `-Wdangling-reference`, a real bug); the audio tests' allocation counter, which replaces the global
   `operator new`, is off in sanitizer builds, whose runtimes define it too (the TSan link failed); and
   `scripts/tidy-changed.sh` leaves out the files only a commit of `.git-blame-ignore-revs` changed, so the reformat
-  does not make clang-tidy check every file.
+  does not make clang-tidy check every file. The first TSan run: the MCP HTTP test read the names its command handler
+  recorded on the server's threads without a lock (now behind a mutex), and Mesa llvmpipe's own races on the headless
+  runner are suppressed in `tools/ci/sanitizers/tsan.supp` with the reason.
 - Formatting and lint (M93.3): `.clang-format`, `.clang-format-ignore` and `.editorconfig` describe the code style; `scripts/format.sh [--check] [--changed <base>]` formats or checks first-party C and C++ with a pinned clang-format (a pip wheel in `build/lint-venv`), and `.clang-tidy` with `scripts/tidy-changed.sh <base>` runs a few bug-finding checks over the changed sources. A new `lint` CI job runs both on what a change touches. docs/BUILDING.md, "Formatting and lint".
 - **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
   AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,
