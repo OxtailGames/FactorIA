@@ -2,4 +2,8 @@
 # Policy: a race in engine or tool code is fixed, never listed. Only races inside system libraries we do not build may be
 # listed, each with its reason above it. Format: race:<function or library pattern>
 #
-# (nothing needed suppressing yet)
+# Mesa's llvmpipe (libgallium), the software GL driver of the headless CI runner: its worker threads lock a mutex that
+# the driver itself destroys when a frame's resources are freed (pthread_mutex_destroy / pthread_cond_destroy against
+# pthread_mutex_lock, every frame inside libgallium). The driver is a system library built without TSan, so TSan sees
+# only its pthread calls and not the synchronization around them.
+race:libgallium
