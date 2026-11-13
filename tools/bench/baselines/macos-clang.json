@@ -267,6 +267,28 @@
       "cpuMedianMs": 1.053,
       "items": 160000,
       "unit": "entities walked"
+    },
+    "hierarchy.moving": {
+      "medianMs": 0.301,
+      "minMs": 0.3,
+      "maxMs": 0.315,
+      "p25Ms": 0.301,
+      "p75Ms": 0.307,
+      "spread": 0.021,
+      "cpuMedianMs": 0.301,
+      "items": 79200,
+      "unit": "leaves"
+    },
+    "hierarchy.active": {
+      "medianMs": 0.119,
+      "minMs": 0.119,
+      "maxMs": 0.125,
+      "p25Ms": 0.119,
+      "p75Ms": 0.12,
+      "spread": 0.007,
+      "cpuMedianMs": 0.12,
+      "items": 79200,
+      "unit": "leaves"
     }
   }
 }

@@ -89,7 +89,7 @@ public:
     std::vector<Entity> entities() const;  // alive entities, creation order
     void clear();                          // destroy everything immediately, reset settings
 
-    // Active = EntityInfo.active and all ancestors active.
+    // Active = EntityInfo.active and all ancestors active. Answered from the hierarchy cache (see world_matrix).
     bool active_in_hierarchy(Entity e) const;
     void set_active(Entity e, bool active);
 
@@ -224,13 +224,29 @@ public:
     std::vector<Entity> roots() const;  // creation order
     bool is_ancestor(Entity ancestor, Entity e) const;
 
-    Mat4 world_matrix(Entity e) const;  // parent chain * local TRS
+    // The parent's world matrix * the local TRS, from the root down (identity for a dead entity). It comes from a cache that
+    // is filled on demand and kept until something that can change it is written, so reading the same entities again costs
+    // a copy of 16 floats. THE RULES (docs/ARCHITECTURE.md, "The hierarchy cache"):
+    //  * Every MUTABLE access to a Transform or an EntityInfo invalidates: World::get<T>(e) / get(e, type) / add / info(e) on a
+    //    non-const World, a callback of each<Transform>, set_parent, set_world_position and set_active. So any way of writing
+    //    (C++, reflection, scripts, commands, the inspector, animation) is seen, and a reader that only reads should hold a
+    //    `const World&` (or call get through a const reference): reading through a mutable World counts as a write.
+    //  * A Transform or EntityInfo reference KEPT from an earlier get and written to AFTER a world_matrix / active_in_hierarchy
+    //    call is not seen (nothing marks that write): get it again after the read, or write before it.
+    //  * Several threads may read (world_matrix, world_position, active_in_hierarchy, drawn_matrix) at once, a missing entry
+    //    is filled under a small lock; none may write meanwhile (the usual rule for jobs: they read, the main thread writes).
+    // hierarchy_version() counts the invalidations (it grows when a cached value is dropped), so a system can tell that
+    // nothing moved since it last looked.
+    Mat4 world_matrix(Entity e) const;
     Vec3 world_position(Entity e) const;
     // world_matrix() with the visual poses of the game feel effects (shake, squash; feel.h) multiplied into each entity of the
     // chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing uses it; picking, bounds, physics, audio
     // and scripts read world_matrix() / the Transform, which an effect never changes.
     Mat4 drawn_matrix(Entity e) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
+    // How many times a cached world matrix or active-in-hierarchy answer was dropped because something that can change it was
+    // written (see world_matrix). It never goes down; reading through a const World does not move it.
+    std::uint64_t hierarchy_version() const;
 
     // --------------------------------------------------------------- misc
     SceneSettings& settings() { return settings_; }
@@ -332,6 +348,9 @@ public:
 
 private:
     struct Impl;
+    // A mutable reference to a component of `type` of `e` is about to be given out: drops what the hierarchy cache keeps
+    // when it is a Transform or an EntityInfo.
+    void note_mutable_access(Entity e, const TypeInfo& type);
     std::unique_ptr<Impl> impl_;
     SceneSettings settings_;
     WorldEvents events_;
