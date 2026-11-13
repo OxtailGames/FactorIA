@@ -974,7 +974,7 @@ private:
             sizeFormat = 3;
             bits = 18;
         }
-        if (comp >= (1u << bits) || n >= (1u << bits)) return false;
+        if (comp >= (std::uint64_t{1} << bits) || n >= (std::uint64_t{1} << bits)) return false;
         const std::uint64_t head = 2u | (static_cast<std::uint64_t>(sizeFormat) << 2) |
                                    (static_cast<std::uint64_t>(n) << 4) |
                                    (static_cast<std::uint64_t>(comp) << (4 + bits));
