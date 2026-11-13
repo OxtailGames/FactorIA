@@ -3788,8 +3788,9 @@
       }
       return navPathResult(N.navFindTilePath(args));
     },
-    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles change (setTile, tilemap.set_tile or a write
-    // that replaces `tiles`); compare it with the value you saw when you searched to know a path is stale.
+    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles (or its width or height) change (setTile,
+    // tilemap.set_tile or a write that changes `tiles`); compare it with the value you saw when you searched to know a path
+    // is stale.
     tileVersion(tilemap) {
       const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
       if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);

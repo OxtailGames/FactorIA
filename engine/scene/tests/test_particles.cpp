@@ -646,7 +646,7 @@ TEST_CASE("particle collision: a tilemap floor holds particles, walls turn them 
             const bool solid = r == 0 || r == 3 || c == 0 || c == 11;
             tiles += std::string(tiles.empty() ? "" : ",") + (solid ? "0" : "-1");
         }
-    tm.tiles = Json::parse("[" + tiles + "]");
+    set_tilemap_tiles(tm, Json::parse("[" + tiles + "]"));
     tm.solidTiles = Json::parse("[0]");
     // A room: row 0 is the ceiling (its underside is y = -16), row 3 the floor (its top is y = -48), column 0 is x in [0, 16] and
     // column 11 is x in [176, 192].
@@ -1084,7 +1084,7 @@ TEST_CASE("particle noise: a NaN position or time counts as zero and the answer 
     tm.width = 4;
     tm.height = 4;
     tm.tileSize = {16, 16};
-    tm.tiles = Json::parse("[0,0,0,0, 0,-1,-1,0, 0,-1,-1,0, 0,0,0,0]");
+    set_tilemap_tiles(tm, Json::parse("[0,0,0,0, 0,-1,-1,0, 0,-1,-1,0, 0,0,0,0]"));
     tm.solidTiles = Json::parse("[0]");
     ParticleEmitter em = quiet();
     em.collision = ParticleCollision::Tilemap;
@@ -1148,7 +1148,7 @@ TEST_CASE("sub-emitters: collision against a tilemap works for a sub-emitter, an
             const bool solid = r == 0 || r == 3 || c == 0 || c == 11;
             tiles += std::string(tiles.empty() ? "" : ",") + (solid ? "0" : "-1");
         }
-    tm.tiles = Json::parse("[" + tiles + "]");
+    set_tilemap_tiles(tm, Json::parse("[" + tiles + "]"));
     tm.solidTiles = Json::parse("[0]");
     ParticleEmitter em = quiet();  // the parent itself does not collide
     em.lifetime = 0.05f;

@@ -16,6 +16,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 #include "fa/scene/skeleton.h"
 
@@ -390,11 +391,12 @@ struct Tilemap {
     std::int32_t columns = 0;   // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
     std::int32_t margin = 0;    // pixels between the tileset image edge and the first tile (0 = packed)
     std::int32_t spacing = 0;   // pixels between two neighbouring tiles of the tileset image (0 = packed)
-    std::int32_t width = 0;     // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
+    std::int32_t width = 0;     // map width in tiles (see tilemap_size)
     std::int32_t height = 0;    // map height in tiles (flat tiles)
-    Json tiles =
-        Json::array();  // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
-                        // A value is the tile index plus optional flip/rotate flag bits (fa/scene/tilemap.h)
+    ArrayI32 tiles;  // flat row-major tile values (width*height), row 0 = TOP row. A value is the tile index plus
+                     // optional flip/rotate flag bits (fa/scene/tilemap.h); -1 (any negative) = empty. Written through
+                     // set_tilemap_tile() or the typed array's write calls, which count the change (tiles.version(), the
+                     // dirty range): reads must use the const accessors, see fa/core/typed_array.h
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
     Json terrains = Json::array();  // autotile rules: terrains painted with tilemap.paint_terrain (fa/scene/autotile.h)
     Color color{1, 1, 1, 1};
@@ -404,12 +406,12 @@ struct Tilemap {
     bool occludesLight = false;  // the tiles in solidTiles block the light of Light2D with castShadows
     // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
     std::vector<TileEdit> edits;
-    // Runtime only: goes up whenever `tiles` (or width / height) changes, so `nav.tileVersion` tells a script that the map
-    // changed. set_tilemap_tile() bumps it directly; a write that replaces `tiles` as a whole (script, scene.set_component,
-    // editor, load) is noticed by tilemap_version(), which compares a hash of the tiles with `versionHash`.
-    std::uint32_t version = 0;
-    std::uint64_t versionHash = 0;  // runtime: hash of width, height and tiles when tilemap_version() last looked
-    bool versionHashValid = false;  // false until tilemap_version() looked once, and after a set_tilemap_tile()
+    // Runtime only: how often `width` / `height` changed as tilemap_version() saw it (the part of the map's change counter
+    // that `tiles.version()` does not count). `sizeSeen` is false until tilemap_version() looked once.
+    std::int32_t seenWidth = 0;
+    std::int32_t seenHeight = 0;
+    std::uint32_t sizeChanges = 0;
+    bool sizeSeen = false;
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so

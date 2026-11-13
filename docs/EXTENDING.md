@@ -452,8 +452,11 @@ writes, so a system that derives data from one (a physics body, a render chunk) 
 - `set(i, x)`, `fill`, `assign` and copy assignment write only what differs: the same contents change nothing, so a
   `scene.set_component` that repeats the array, or a patch of another field of the component, does not trigger a rebuild.
   `a[i] = x` cannot see whether `x` differs and always counts.
-- The version and the range only mean something on one array object: drop a per-component cache when the component is
-  removed or added again. Not thread safe.
+- The version and the range only mean something on one array object (a copy starts at version 0 again). A cache per
+  component keeps `id()` next to the version: `id()` is unique in the process for every constructed or copy-constructed
+  array (a component removed and added again, a world restored from a copy), kept by a move construction (a pool
+  relocating the component) and by assignment (the destination's). The cache is valid while both `id()` and `version()`
+  equal what it was built from. Not thread safe.
 - JSON: an array of numbers, validated whole before anything is written (errors name the field and the element index;
   an integer kind refuses `2.5`, `ArrayU8` refuses 256, `ArrayF32` refuses what a 32-bit float cannot hold; at most
   16 Mi elements). `type_json_schema` gives `{"type": "array", "items": {"type": "integer"|"number", "minimum", "maximum"}}`.

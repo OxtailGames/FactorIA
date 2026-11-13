@@ -23,12 +23,17 @@
 //     Reflection patches go through this, so patching another field of a component does not dirty its arrays.
 //   * A new or copy-constructed array starts at version 0 with everything dirty (when not empty). A move
 //     construction keeps version and dirty range (a pool that relocates a component must not look like a change).
-//   * version() and the dirty range only mean something on ONE array object. A consumer that caches per component
-//     drops its cache when the component is removed or added again.
+//   * version() and the dirty range only mean something on ONE array object. A copy starts again at version 0, so a
+//     consumer that caches per component (physics bodies, render chunks, nav grids) keeps `id()` next to the version:
+//     id() is unique in the process for every array that is constructed or copy-constructed (a component removed and
+//     added again, a world restored from a copy) and kept by a move construction (the component only moved in its
+//     pool); copy/move assignment keep the id of the destination. The cache is valid while (id, version) are both
+//     equal to what it was built from.
 //   * Not thread safe: one writer, no concurrent reads while it writes (the same rule as any component field).
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -45,6 +50,14 @@ namespace fa {
 // Checked before anything is allocated.
 inline constexpr std::size_t kMaxTypedArrayElements = std::size_t(1) << 24;
 
+namespace detail {
+// The next TypedArray::id(): never 0, never repeated in the process.
+inline std::uint64_t next_typed_array_id() {
+    static std::atomic<std::uint64_t> counter{0};
+    return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+}  // namespace detail
+
 template <class T>
 class TypedArray {
     static_assert(std::is_arithmetic_v<T>, "TypedArray holds numbers");
@@ -57,8 +70,9 @@ public:
     TypedArray(std::initializer_list<T> values) : v_(values) { dirty_all(); }
     TypedArray(const TypedArray& o) : v_(o.v_) { dirty_all(); }
     TypedArray(TypedArray&& o) noexcept
-        : v_(std::move(o.v_)), version_(o.version_), dirtyBegin_(o.dirtyBegin_), dirtyEnd_(o.dirtyEnd_) {
+        : v_(std::move(o.v_)), id_(o.id_), version_(o.version_), dirtyBegin_(o.dirtyBegin_), dirtyEnd_(o.dirtyEnd_) {
         o.v_.clear();
+        o.id_ = detail::next_typed_array_id();  // the moved-from array is a different object now
         o.acknowledge();
     }
     TypedArray& operator=(const TypedArray& o) {
@@ -164,8 +178,11 @@ public:
     }
 
     // ---- change tracking
-    // Counts the writes (never reset). Equal versions of the same array mean equal contents.
+    // Counts the writes (never reset). Equal versions of the same array (same id()) mean equal contents.
     std::uint64_t version() const { return version_; }
+    // Which array this is: a cache that must also notice the array being replaced by another object (removed and
+    // added again, copied) keeps (id(), version()).
+    std::uint64_t id() const { return id_; }
     bool has_dirty() const { return dirtyBegin_ < dirtyEnd_; }
     // Half-open index range of the writes since the last acknowledge(); begin == end == 0 when there are none. The end
     // can exceed size() after a shrink.
@@ -210,6 +227,7 @@ private:
     }
 
     std::vector<T> v_;
+    std::uint64_t id_ = detail::next_typed_array_id();
     std::uint64_t version_ = 0;
     std::size_t dirtyBegin_ = kNone;
     std::size_t dirtyEnd_ = 0;

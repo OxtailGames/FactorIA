@@ -1355,17 +1355,22 @@ void register_builtin_components(TypeRegistry& r) {
             "(M + col*(tileSize.x+S), M + row*(tileSize.y+S)).")
         .range(0, 4096)
         .field("width", &Tilemap::width,
-               "Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define "
-               "the "
-               "size; drawing and collision both use it).")
+               "Map width in tiles: the length of one row of the flat tiles array (drawing and collision both use it). "
+               "Not needed when a scene or prefab file writes tiles as an array of rows: the loader takes the size "
+               "from the rows.")
         .range(0, 65536)
         .field("height", &Tilemap::height,
-               "Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.")
+               "Map height in tiles: the number of rows of the flat tiles array. Not needed when a scene or prefab "
+               "file writes tiles as an array of rows.")
         .range(0, 65536)
         .field(
             "tiles", &Tilemap::tiles,
-            "Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width "
-            "and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, "
+            "Tile values: ONE flat array of width*height integers, row-major with row 0 at the TOP (set width and "
+            "height); stored as an Int32Array in scripts (a COPY: read it, change it and assign it back, "
+            "`const t = comp.tiles; t[3] = 5; comp.tiles = t`; for single cells use entity.tilemap.setTile). A scene "
+            "or prefab file may also write an array of rows ([[0, 1], [2, 3]]): the loader flattens it and takes "
+            "width and height from the rows, and the file is always saved flat. -1 = empty. A value is the tileset "
+            "index, "
             "optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), "
             "536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is "
             "transposed "

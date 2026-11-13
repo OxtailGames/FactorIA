@@ -271,8 +271,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   is the `Rect` every other API uses, so the result can go straight into `physics.overlapBox(rect)` or
   `debug.rect(...)`. `r.x + r.w` is the right edge and `r.y + r.h` the top edge. The numbers are world units after the
   entity's world transform (parents included).
-- **Tilemap.** The size of the map as it is drawn and collides (the rows form, or `width` x `height` of the flat form;
-  the same helper as the renderer) times `tileSize`. The entity position is the map's TOP-left corner, so the map spans
+- **Tilemap.** The size of the map as it is drawn and collides (`width` x `height`, as the renderer reads it;
+  the same helper) times `tileSize`. The entity position is the map's TOP-left corner, so the map spans
   `x .. x + w` and `y - h .. y` at scale 1. An empty map has no bounds (`null`). An isometric map is the box around all
   its diamonds and the images drawn on them.
 - **Sprite, Shape2D.** The drawn box from `size` and `pivot`. A sprite without `size` uses its `region`, else the
@@ -772,7 +772,7 @@ is silent. Give `fade` when you switch a low-pass or reverb on or off in the mid
 - `nav.findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal })` → `{ found, complete, cells:
   {col, row}[], points: Vec2[], cost, length }` or `{ found: false, reason, message, hint }`: A* over a `Tilemap` entity
   (solid tiles block; `costs` per tile index) or your own `{ width, height, cost }` grid; `nav.tileVersion(tilemap)` counts
-  the changes of the tiles. See NAVIGATION.md, section 7.
+  the changes of the tiles (a number read from the array's change counter: it costs nothing). See NAVIGATION.md, section 7.
 - `nav.createGrid({ width, height, cost?, origin?, cellSize? })` → a `NavGrid` kept natively (`setCost(col, row, cost)`,
   `getCost`, `setCosts`, `version`): pass it to `nav.findTilePath` instead of the array when you ask many times on one map.
   `nav.flowField(grid, goals, { diagonals })` → a `NavFlowField`: `stepToward(col, row)` is the next cell toward the nearest
@@ -873,7 +873,7 @@ Both are described with examples in [ANIMATION.md](ANIMATION.md).
 
 ### entity.tilemap
 `entity.tilemap` edits the `Tilemap` component one tile at a time, in place. Do not read `tiles`, change one entry and
-write the whole array back: that copies the grid on every call.
+write the whole array back for a single tile: that copies the grid on every call.
 - `getTile(col, row)` returns the tile index (`-1` for an empty tile or a cell outside the map). Row 0 is the top row.
 - `setTile(col, row, id)` writes one tile: `-1` empties it, otherwise a tile index (with the flip/rotate flags that
   `scene.import_ascii` writes). It returns `false`, and changes nothing, for a cell outside the map or a bad value.
@@ -882,6 +882,19 @@ write the whole array back: that copies the grid on every call.
 2D physics sees the change on the next step and rebuilds only the colliders of the tiles that changed, so `setTile(x, y,
 -1)` opens a hole a body falls through. The same edit from outside a script is the command `tilemap.set_tile`
 (`{id, col, row, tile}`). Writing the whole `tiles` array still works and rebuilds the colliders.
+
+`Tilemap.tiles` is a flat `Int32Array` of `width * height` entries (row-major, row 0 on top, `-1` = empty). Reading
+`component.tiles` gives a COPY, so `comp.tiles[i] = x` writes into that copy and changes nothing. To rewrite many tiles at
+once, copy, change and assign the array back; the engine compares it with the old one and only the cells that differ count
+as changed:
+```js
+const comp = map.get("Tilemap");
+const t = comp.tiles;               // Int32Array copy
+for (let i = 0; i < t.length; i++) if (t[i] === DIRT) t[i] = FLOOR;
+comp.tiles = t;                     // writes the whole field (a plain array of numbers works too)
+```
+A file or a `set(...)` call may still give `tiles` as an array of rows (`[[0, 1], [1, 0]]`); it is stored flat and the rows set
+`width` and `height`.
 
 **Autotile (terrains).** A `Tilemap` with `terrains` rules ([COMPONENTS.md](COMPONENTS.md), `Tilemap.terrains`; the rules file
 of a tileset made by `image.tileset.build`, [IMAGES.md](IMAGES.md), "Tiles") draws the edge, corner or inside tile that fits the

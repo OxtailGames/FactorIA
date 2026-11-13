@@ -369,7 +369,7 @@ TEST_CASE("Tint covers Shape2D (and its gradient), Text, Tilemap, particles and 
         tm.columns = 2;
         tm.width = 2;
         tm.height = 1;
-        tm.tiles = Json::array({0, 1});
+        set_tilemap_tiles(tm, Json::array({0, 1}));
     }
     Entity fx = child(make(w, "fx", {60, -40, 0}));
     {
