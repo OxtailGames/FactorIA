@@ -438,6 +438,36 @@ platform.
 `tools/fuzz/run.sh build/fuzz 60` and uploads `build/fuzz/fuzz-crashes` as the artifact `fuzz-crashes` when a target fails.
 It is part of `CI result`.
 
+## Coverage
+
+`-DFA_COVERAGE=ON` (Clang only, `cmake/FactoriaCoverage.cmake`; Apple clang works, GCC and MSVC stop with an error that says so)
+builds every target with `-fprofile-instr-generate -fcoverage-mapping`, and every ctest process writes its raw profile to
+`<build>/coverage/raw/` (`LLVM_PROFILE_FILE=.../%4m.profraw` is set on each test by the `add_test` wrapper of
+`cmake/FactoriaHelpers.cmake`: `%m` is online merge mode, so the many processes of one binary, cli_integration and the examples
+start thousands, update a pool of 4 shared files per binary instead of leaving a full profile each; the `factoria` the editor
+autotest starts is covered too). The `TIMEOUT` of every test is multiplied by `FA_COVERAGE_TIMEOUT_SCALE` (default 3), because
+instrumented Debug runs are slow and a test killed by its timeout writes no profile. `external/` is instrumented too, and left
+out of the report.
+
+```bash
+cmake -S . -B build/cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON
+cmake --build build/cov -j4
+xvfb-run -a -s "-screen 0 1280x720x24" ctest --test-dir build/cov --output-on-failure   # Linux; macOS needs no xvfb-run
+scripts/coverage-report.sh build/cov            # report in build/cov/coverage/report, or pass an out-dir
+```
+
+`scripts/coverage-report.sh` merges the profiles (`llvm-profdata`), reads every `fa_test_*` program, `factoria` and
+`fa_editor_autotest` in one merged `llvm-cov export`, and writes `coverage.md` and `coverage.json` (lines, functions and
+regions per module: `engine/<m>/` and `tools/<m>/`, with `tools/common` as `tooling`; test code, `external/`, `tools/fuzz` and
+`tools/bench` are not counted) and `html/index.html` (every file, line by line). It finds `llvm-cov` with `xcrun` on macOS and
+`llvm-cov-<version>` on Linux (`LLVM_COV` / `LLVM_PROFDATA` override). Only the `fa_test_*` programs, `factoria` and
+`fa_editor_autotest` are read: `factoria_player` and the plugin `.so` files are not passed as `-object`, so code only they run
+is not counted. A report of a subset of the tests is valid: it counts
+only what ran. The CI job `coverage` (Ubuntu, Clang, Debug, the whole suite with the editor autotest) does this on every code
+change (ctest with `--parallel 2`, without the `perf` label; it can still go red on a timeout of an instrumented test, and the
+report is made anyway from the profiles that exist), writes the table to the job summary and uploads the report as the artifact `coverage-report`. It is informative: it is
+not part of `CI result`, so a failure of the job (or a number going down) never blocks a merge.
+
 ## Golden images
 
 Rendering tests compare a headless picture with a committed PNG: `engine/render/tests/golden/*.png` (`expect_golden`), and

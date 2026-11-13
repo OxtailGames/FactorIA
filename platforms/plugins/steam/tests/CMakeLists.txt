@@ -86,4 +86,4 @@ foreach(scenario ${steam_scenarios})
         COMMAND fa_test_steam_plugin "--test-case=${scenario_filter}"
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endforeach()
-set_tests_properties(steam_plugin_next PROPERTIES ENVIRONMENT "FA_STEAM_TEST_VARIANT=next")
+set_property(TEST steam_plugin_next APPEND PROPERTY ENVIRONMENT "FA_STEAM_TEST_VARIANT=next")
