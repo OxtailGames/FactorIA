@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- Job system (M94.5b2): every worker has its own queue of ready jobs and steals from the others when it runs out,
+  instead of one queue under one lock that every thread took for every job. A job with no dependency and no dependent
+  never takes the pool's graph lock, a worker runs the first job a finished job releases itself, and a wait for a job
+  still queued runs it at once. With several worker threads, small jobs, dependency graphs and nested waits run faster
+  than before, nested waits about four times faster, and use less CPU (`fa_bench --filter jobs.`). Same contracts as
+  before: waits run only what they need, a wait that can never end still returns an error, idle workers still sleep.
+
 ## 0.26.0
 
 FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite
