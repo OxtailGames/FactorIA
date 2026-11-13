@@ -3,6 +3,7 @@
 // and keeps every step deterministic (fixed iteration order, total orderings, no hashing of pointers).
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <vector>
@@ -126,6 +127,14 @@ public:
     std::size_t walkable_body_count() const { return walk_.size(); }
     int dynamic_count() const { return dynLive_; }
 
+    // Reachability labels: `search` answers "unreachable" from them without running A*. They cover every usable span
+    // (static and dynamic) and are recomputed by `refresh()` when a change made them stale AND a search had to run to
+    // exhaustion since (so a grid nobody fails to search on never pays for them). While stale, search runs A* as usual.
+    // `set_reach_shortcut(false)` turns the shortcut off (tests compare both paths).
+    void set_reach_shortcut(bool on) { reachShortcut_ = on; }
+    bool reach_valid() const { return !reachDirty_; }
+    int reach_label(int s) const { return std::size_t(s) < reach_.size() ? reach_[std::size_t(s)] : 0; }
+
 private:
     NavParams p_;
     std::vector<std::int32_t> cellFirst_;  // spans of cell c: [cellFirst_[c], cellFirst_[c + 1])
@@ -159,6 +168,26 @@ private:
     std::vector<std::uint8_t> cellMark_;  // erosion scratch (by cell)
     // Search scratch of the plain search() (one query at a time), reset by a stamp instead of clearing.
     mutable Scratch scratch_;
+    // Reachability: the connected component of every usable span over all steps and links (a superset of what A* can
+    // reach, since one-way links and picky steps are counted both ways); 0 = not usable.
+    struct Flag {
+        std::atomic<bool> v{false};
+        Flag() = default;
+        Flag(const Flag& o) : v(o.v.load()) {}
+        Flag& operator=(const Flag& o) {
+            v = o.v.load();
+            return *this;
+        }
+    };
+    std::vector<std::int32_t> reach_;         // per span: component label (its lowest span + 1), 0 = not usable
+    std::vector<std::uint8_t> reachAsym_;     // per component (by lowest span): some step or link has no way back
+    std::vector<std::int32_t> reachBegin_, reachMembers_;  // the spans of each component, ascending
+    bool reachDirty_ = true, reachShortcut_ = true;
+    mutable Flag reachWanted_;  // a search ran to exhaustion on stale labels
+    void make_reach();
+    int flood_nearest(int start, int goal, Scratch& sc) const;
+    void flood_from(int start, Scratch& sc, std::vector<int>& seen) const;
+    float heuristic_to(int s, const Vec3& goalCenter) const;
 
     Span& sp(int s) {
         return std::size_t(s) < spans_.size() ? spans_[std::size_t(s)] : dyn_[std::size_t(s) - spans_.size()];
