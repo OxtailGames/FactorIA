@@ -13,3 +13,20 @@
 # of the host window, which that window does not use (NoScrollbar, no auto-resize), so no platform lays anything out differently.
 [float-cast-overflow]
 src:*external/imgui/*
+
+# -fsanitize=function (Clang, C and C++): a call through a function pointer whose type differs from the function's own type is
+# undefined behaviour, and the check aborts it. Both vendored libraries below cast a function to the pointer type their interface
+# declares, on purpose. The check is compiled into the function that makes the call, and the list matches the file that declares that function.
+#
+# tinysoundfont (external/tinysoundfont/tsf.h, compiled into engine/audio/src/audio_tsf.c): tsf_load_memory() stores
+# tsf_stream_memory_read(struct tsf_stream_memory*, void*, unsigned) in tsf_stream::read, whose type takes (void*, void*, unsigned),
+# and tsf_riffchunk_read() calls it through that pointer (the same for tsf_stream_memory_skip). Found by the Linux ASan run. Both
+# types have the same size and calling convention on every platform we build for, so the call works.
+#
+# xatlas (external/xatlas/xatlas.cpp): its OpenNL part stores nlSparseMatrixDestroy(NLSparseMatrix*) and the other destructors in
+# NLMatrixStruct::destroy_func (NLDestroyMatrixFunc, taking an NLMatrix = NLMatrixStruct*) and nlDeleteMatrix() calls it through
+# that pointer; every matrix type begins with the NLMatrixStruct fields, so the pointer conversion is the C-style "base class" idiom.
+# Found by the Linux ASan run (the model UV unwrap in the scene tests).
+[function]
+src:*external/tinysoundfont/*
+src:*external/xatlas/*
