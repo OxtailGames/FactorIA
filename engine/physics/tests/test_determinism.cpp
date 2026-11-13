@@ -33,7 +33,7 @@ namespace {
 constexpr float kDt = 1.0f / 60.0f;
 
 // The hash every platform is expected to produce (SHA-256 of the replay, first 16 hex digits).
-constexpr const char* kReferenceHash = "5fcd3b55f16ef6de";
+constexpr const char* kReferenceHash = "1932444b10ea066c";
 
 struct PlatformHash {
     const char* key;   // "<platform>-<arch>", see platform_key()

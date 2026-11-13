@@ -24,6 +24,7 @@ namespace fa::detail {
 namespace {
 constexpr float kSlop = 0.001f;           // allowed penetration (m)
 constexpr float kPercent = 0.9f;          // positional correction strength
+constexpr float kMaxCorrection = 0.2f;    // the most a manifold point is pushed out per correction pass (m)
 constexpr float kBounceThreshold = 0.5f;  // m/s below which restitution is ignored
 constexpr float kBeginMargin = 0.01f;     // solid contact begins within this gap
 constexpr float kEndMargin = 0.05f;       // ...and ends once the gap exceeds this
@@ -283,12 +284,14 @@ void Physics3D::sphere_box(const Body& box, const Body& sph, float margin, Conta
 }
 
 // Oriented box vs oriented box (at least one turned): 15-axis SAT. The normal is the least-penetration axis, preferring
-// the six face axes over the nine edge-edge axes unless an edge axis is clearly shallower (stable resting contacts).
+// the six face axes over the nine edge-edge axes unless an edge axis is clearly shallower (stable resting contacts), and
+// the faces of `a` over those of `b` unless b's is clearly shallower (so a pair keeps its reference face from step to step).
 void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact& c, bool manifold) {
     const Vec3 d = b.center - a.center;
-    float faceOv = 1e30f, edgeOv = 1e30f;
-    Vec3 faceN, edgeN;
-    int faceOwner = 0, faceAxis = 0;  // which body (0 = a, 1 = b) and axis index gave the least-penetration face axis
+    float edgeOv = 1e30f;
+    float faceOv[2] = {1e30f, 1e30f};  // least overlap along a face axis of a (0) and of b (1)
+    Vec3 faceN[2], edgeN;
+    int faceAxis[2] = {0, 0}, edgeI = 0, edgeJ = 0;
     auto test = [&](Vec3 axis, bool edge, int owner, int index) {  // false = separated by more than the margin
         float ra = 0.0f, rb = 0.0f;
         for (int i = 0; i < 3; ++i) {
@@ -298,14 +301,17 @@ void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact&
         const float proj = dot(d, axis);
         const float ov = ra + rb - std::fabs(proj);
         if (ov <= -margin) return false;
-        float& best = edge ? edgeOv : faceOv;
-        if (ov < best) {
-            best = ov;
-            (edge ? edgeN : faceN) = proj >= 0.0f ? axis : -axis;
-            if (!edge) {
-                faceOwner = owner;
-                faceAxis = index;
+        if (edge) {
+            if (ov < edgeOv) {
+                edgeOv = ov;
+                edgeN = proj >= 0.0f ? axis : -axis;
+                edgeI = owner;  // an edge axis is a x b: the axis of a and the axis of b
+                edgeJ = index;
             }
+        } else if (ov < faceOv[owner]) {
+            faceOv[owner] = ov;
+            faceN[owner] = proj >= 0.0f ? axis : -axis;
+            faceAxis[owner] = index;
         }
         return true;
     };
@@ -316,12 +322,42 @@ void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact&
             Vec3 x = cross(a.ax[i], b.ax[j]);
             const float len = length(x);
             if (len < 1e-4f) continue;  // parallel edges: the face axes cover them
-            if (!test(x / len, true, 0, 0)) return;
+            if (!test(x / len, true, i, j)) return;
         }
     }
-    const bool useEdge = edgeOv < faceOv * 0.95f - 0.01f;
-    c.depth = useEdge ? edgeOv : faceOv;
-    c.normal = useEdge ? edgeN : faceN;
+    const int refOwner = faceOv[1] < faceOv[0] - 0.001f - 0.02f * std::fabs(faceOv[0]) ? 1 : 0;
+    const float bestFace = std::min(faceOv[0], faceOv[1]);
+    const bool useEdge = edgeOv < bestFace * 0.95f - 0.01f;
+    c.depth = useEdge ? edgeOv : faceOv[refOwner];
+    c.normal = useEdge ? edgeN : faceN[refOwner];
+    c.hit = true;
+    if (useEdge) {
+        // Edge against edge: the closest points of the two supporting edges (the edge of a along its axis i at the corner
+        // furthest along the normal, the edge of b along its axis j at the corner furthest against it), one contact point.
+        Vec3 pa = a.center, pb = b.center;
+        std::uint32_t signs = 0;
+        for (int m = 0; m < 3; ++m) {
+            const float sa = dot(c.normal, a.ax[m]) >= 0.0f ? 1.0f : -1.0f;
+            const float sb = dot(c.normal, b.ax[m]) >= 0.0f ? 1.0f : -1.0f;
+            if (m != edgeI) pa += a.ax[m] * (a.half[m] * sa);
+            if (m != edgeJ) pb -= b.ax[m] * (b.half[m] * sb);
+            signs |= (sa > 0.0f ? 1u : 0u) << m;
+            signs |= (sb > 0.0f ? 1u : 0u) << (3 + m);
+        }
+        const Vec3 u = a.ax[edgeI], v = b.ax[edgeJ], r = pa - pb;
+        const float uv = dot(u, v), ru = dot(r, u), rv = dot(r, v), den = std::max(1.0f - uv * uv, 1e-8f);
+        float s = std::clamp((uv * rv - ru) / den, -a.half[edgeI], a.half[edgeI]);
+        const float t = std::clamp(rv + s * uv, -b.half[edgeJ], b.half[edgeJ]);
+        s = std::clamp(t * uv - ru, -a.half[edgeI], a.half[edgeI]);
+        c.point = ((pa + u * s) + (pb + v * t)) * 0.5f;
+        if (manifold) {
+            c.n = 1;
+            c.pts[0] = c.point;
+            c.depths[0] = c.depth;
+            c.ids[0] = mix_id(0xED6Eu, std::uint32_t(edgeI * 3 + edgeJ), signs);
+        }
+        return;
+    }
     // Contact point: b's deepest point against the normal (a face centre where b's face is parallel), averaged with its
     // closest point on a.
     Vec3 p = b.center;
@@ -331,25 +367,20 @@ void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact&
     }
     const Vec3 q = a.center + frame_to_world(a.ax, min(max(world_to_frame(a.ax, p - a.center), -a.half), a.half));
     c.point = (p + q) * 0.5f;
-    c.hit = true;
-    if (manifold &&
-        !useEdge) {  // face contact: the incident face clipped to the reference face (edge contacts: one point)
-        if (faceOwner == 0)
-            face_manifold(a, faceAxis, c.normal, b, c);
+    if (manifold) {  // face contact: the incident face clipped to the reference face
+        if (refOwner == 0)
+            face_manifold(a, faceAxis[0], c.normal, b, 0, c);
         else
-            face_manifold(b, faceAxis, -c.normal, a, c);
-        if (c.n > 0) {
-            c.point = {};
-            for (int i = 0; i < c.n; ++i) c.point += c.pts[i];
-            c.point = c.point / float(c.n);
-        }
+            face_manifold(b, faceAxis[1], -c.normal, a, 1, c);
     }
 }
 
 // Contact manifold of a face-to-face box contact: the face of `inc` that points most against `refNormal` (the outward
 // normal of face `refAxis` of `ref`) is clipped to the side planes of that reference face, and the corners of the result
-// that are not more than kManifoldGap above the reference plane become the contact points (depth < 0 = still apart).
-void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& c) {
+// that are not more than kManifoldGap above the reference plane become the contact points (depth < 0 = still apart),
+// reduced to at most kMaxPts. Each corner carries the id of its feature (a corner of the incident face, or the crossing of
+// one of its edges with a side plane), so the same corner has the same id for as long as the faces overlap that way.
+void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, int refOwner, Contact& c) {
     int k = 0;
     float bestDot = 0.0f;
     for (int i = 0; i < 3; ++i) {
@@ -360,33 +391,137 @@ void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, cons
         }
     }
     const float side = dot(inc.ax[k], refNormal) > 0.0f ? -1.0f : 1.0f;  // outward direction of the incident face
+    const int u = (k + 1) % 3, v = (k + 2) % 3;
     const Vec3 fc = inc.center + inc.ax[k] * (side * inc.half[k]);
-    const Vec3 up = inc.ax[(k + 1) % 3] * inc.half[(k + 1) % 3], uq = inc.ax[(k + 2) % 3] * inc.half[(k + 2) % 3];
-    Vec3 poly[16] = {fc + up + uq, fc - up + uq, fc - up - uq, fc + up - uq}, tmp[16];
+    const Vec3 up = inc.ax[u] * inc.half[u], uq = inc.ax[v] * inc.half[v];
+    struct Vert {
+        Vec3 p;
+        std::uint32_t id;
+    };
+    // The corners of the incident face; an id is the corner's index in the box (one bit per axis: on the + side).
+    const std::uint32_t base = side > 0.0f ? 1u << k : 0u;
+    Vert poly[16] = {{fc + up + uq, base | (1u << u) | (1u << v)},
+                     {fc - up + uq, base | (1u << v)},
+                     {fc - up - uq, base},
+                     {fc + up - uq, base | (1u << u)}},
+         tmp[16];
     int cnt = 4;
+    constexpr float kClipEps = 1e-6f;  // a corner this far outside a side plane still counts as on it (no near-duplicates)
     for (int s = 0; s < 4 && cnt > 0; ++s) {  // Sutherland-Hodgman against the reference face's four side planes
-        const int u = (refAxis + 1 + (s >> 1)) % 3;
-        const Vec3 m = (s & 1) ? -ref.ax[u] : ref.ax[u];
-        const float h = ref.half[u];
+        const int w = (refAxis + 1 + (s >> 1)) % 3;
+        const Vec3 m = (s & 1) ? -ref.ax[w] : ref.ax[w];
+        const float h = ref.half[w];
         int out = 0;
         for (int i = 0; i < cnt; ++i) {
-            const Vec3 cur = poly[i], nxt = poly[(i + 1) % cnt];
-            const float dc = dot(cur - ref.center, m) - h, dn = dot(nxt - ref.center, m) - h;
-            if (dc <= 0.0f) tmp[out++] = cur;
-            if ((dc <= 0.0f) != (dn <= 0.0f)) tmp[out++] = cur + (nxt - cur) * (dc / (dc - dn));
+            const Vert cur = poly[i], nxt = poly[(i + 1) % cnt];
+            const float dc = dot(cur.p - ref.center, m) - h, dn = dot(nxt.p - ref.center, m) - h;
+            const bool inC = dc <= kClipEps, inN = dn <= kClipEps;
+            if (inC) tmp[out++] = cur;
+            if (inC != inN)
+                tmp[out++] = {cur.p + (nxt.p - cur.p) * (dc / (dc - dn)),
+                              mix_id(std::min(cur.id, nxt.id), std::max(cur.id, nxt.id), 100u + std::uint32_t(s))};
         }
         for (int i = 0; i < out; ++i) poly[i] = tmp[i];
         cnt = out;
     }
     const Vec3 faceCenter = ref.center + refNormal * ref.half[refAxis];
-    c.n = 0;
-    for (int i = 0; i < cnt && c.n < kMaxPts; ++i) {
-        const float sep = dot(poly[i] - faceCenter, refNormal);
+    const std::uint32_t refFace =
+        std::uint32_t(refOwner * 8 + refAxis * 2 + (dot(refNormal, ref.ax[refAxis]) > 0.0f ? 1 : 0));
+    const std::uint32_t incFace = std::uint32_t(k * 2 + (side > 0.0f ? 1 : 0));
+    Vec3 pts[16];
+    float depths[16];
+    std::uint32_t ids[16];
+    int m = 0;
+    for (int i = 0; i < cnt; ++i) {
+        const float sep = dot(poly[i].p - faceCenter, refNormal);
         if (sep > kManifoldGap) continue;
-        c.pts[c.n] = poly[i] - refNormal * (sep * 0.5f);  // half way between the corner and the reference plane
-        c.depths[c.n] = -sep;
-        ++c.n;
+        pts[m] = poly[i].p - refNormal * (sep * 0.5f);  // half way between the corner and the reference plane
+        depths[m] = -sep;
+        ids[m] = mix_id(refFace, incFace, poly[i].id);
+        ++m;
     }
+    c.n = 0;
+    if (m > 0) reduce_manifold(c, pts, depths, ids, m);
+}
+
+// The points of a manifold: merged when closer than kMergeDist and reduced to at most kMaxPts. Four points are chosen:
+// the deepest one, the one farthest from it, and the two that span the largest triangles with them on either side of that
+// line (a thin sliver keeps three points). Every comparison has a tolerance and falls back to the lowest index, so float
+// noise in the inputs does not change the choice, and the output is in the winding order of the polygon.
+void Physics3D::reduce_manifold(Contact& c, const Vec3* pts, const float* depths, const std::uint32_t* ids, int n) {
+    constexpr float kMergeDist = 1e-4f;  // points closer than this are one point (m)
+    constexpr float kDepthTie = 1e-3f;   // depths within this of the deepest are tied (m)
+    constexpr float kTie = 1e-5f;        // ties of squared distances and areas
+    constexpr int kCap = 16;
+    Vec3 p[kCap];
+    float d[kCap];
+    std::uint32_t id[kCap];
+    int m = 0;
+    for (int i = 0; i < n && i < kCap; ++i) {
+        int same = -1;
+        for (int j = 0; j < m && same < 0; ++j)
+            if (length_sq(p[j] - pts[i]) < kMergeDist * kMergeDist) same = j;
+        if (same >= 0) {
+            d[same] = std::max(d[same], depths[i]);
+            continue;
+        }
+        p[m] = pts[i];
+        d[m] = depths[i];
+        id[m] = ids[i];
+        ++m;
+    }
+    int sel[kMaxPts];
+    int count = 0;
+    if (m <= kMaxPts) {
+        for (int i = 0; i < m; ++i) sel[count++] = i;
+    } else {
+        float deepest = d[0];
+        for (int i = 1; i < m; ++i) deepest = std::max(deepest, d[i]);
+        int i0 = 0;
+        while (d[i0] < deepest - kDepthTie) ++i0;
+        float far2 = -1.0f;
+        for (int i = 0; i < m; ++i)
+            if (i != i0) far2 = std::max(far2, length_sq(p[i] - p[i0]));
+        int i1 = -1;
+        for (int i = 0; i < m && i1 < 0; ++i)
+            if (i != i0 && length_sq(p[i] - p[i0]) >= far2 - kTie) i1 = i;
+        const Vec3 edge = p[i1] - p[i0];
+        float area[kCap];
+        float hi = -1e30f, lo = 1e30f;
+        for (int i = 0; i < m; ++i) {
+            area[i] = (i == i0 || i == i1) ? 0.0f : dot(cross(edge, p[i] - p[i0]), c.normal);
+            if (i != i0 && i != i1) {
+                hi = std::max(hi, area[i]);
+                lo = std::min(lo, area[i]);
+            }
+        }
+        int i2 = -1, i3 = -1;
+        for (int i = 0; i < m && i2 < 0; ++i)
+            if (i != i0 && i != i1 && area[i] >= hi - kTie) i2 = i;
+        if (lo < -kTie) {  // the other side of the line
+            for (int i = 0; i < m && i3 < 0; ++i)
+                if (i != i0 && i != i1 && area[i] <= lo + kTie) i3 = i;
+        } else {  // everything on one side: the next largest triangle
+            float second = -1e30f;
+            for (int i = 0; i < m; ++i)
+                if (i != i0 && i != i1 && i != i2) second = std::max(second, area[i]);
+            for (int i = 0; i < m && i3 < 0; ++i)
+                if (i != i0 && i != i1 && i != i2 && area[i] >= second - kTie) i3 = i;
+        }
+        sel[count++] = i0;
+        sel[count++] = i2;
+        sel[count++] = i1;
+        if (i3 >= 0) sel[count++] = i3;
+    }
+    c.n = count;
+    c.point = {};
+    for (int i = 0; i < count; ++i) {
+        c.pts[i] = p[sel[i]];
+        c.depths[i] = d[sel[i]];
+        c.ids[i] = id[sel[i]];
+        c.point += c.pts[i];
+    }
+    c.point = c.point / float(std::max(count, 1));
 }
 
 // Contact between a and b; normal points from a to b. depth > 0 means penetrating; hit when depth > -margin.
@@ -426,16 +561,23 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
         c.hit = true;
         if (manifold) {  // the four corners of the overlap rectangle, on the plane half way through the overlap
             const int i = (axis + 1) % 3, j = (axis + 2) % 3;
+            Vec3 pts[4];
+            float depths[4];
+            std::uint32_t ids[4];
+            int m = 0;
             for (int si = 0; si < 2; ++si) {
                 for (int sj = 0; sj < 2; ++sj) {
                     Vec3 p;
                     p[axis] = (lo[axis] + hi[axis]) * 0.5f;
                     p[i] = si ? hi[i] : lo[i];
                     p[j] = sj ? hi[j] : lo[j];
-                    c.pts[c.n] = p;
-                    c.depths[c.n++] = best;
+                    pts[m] = p;
+                    depths[m] = best;
+                    ids[m] = mix_id(std::uint32_t(axis * 2 + (d[axis] >= 0.0f ? 1 : 0)), 0x10u + std::uint32_t(si * 2 + sj));
+                    ++m;
                 }
             }
+            reduce_manifold(c, pts, depths, ids, m);
         }
     } else if (a.kind == Body::Kind::Box) {
         sphere_box(a, b, margin, c);
@@ -910,8 +1052,11 @@ bool Physics3D::build_rigid_contact(const Body& a, const Body& b, std::size_t ia
         RigidContact::Pt& p = rc.pt[i];
         const Vec3 pos = c.n > 0 ? c.pts[i] : c.point;
         p.depth = c.n > 0 ? c.depths[i] : c.depth;
+        p.id = c.n > 0 ? c.ids[i] : 0u;
         p.ra = pos - a.center;
         p.rb = pos - b.center;
+        p.la = world_to_frame(a.rot, p.ra);
+        p.lb = world_to_frame(b.rot, p.rb);
         const Vec3 rna = cross(p.ra, c.normal), rnb = cross(p.rb, c.normal);
         p.kn = a.invMass + b.invMass + dot(rna, inv_inertia_mul(a, rna)) + dot(rnb, inv_inertia_mul(b, rnb));
         const float vn = dot(point_velocity(b, p.rb) - point_velocity(a, p.ra), c.normal);
@@ -965,19 +1110,28 @@ void Physics3D::solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool
     }
 }
 
-// Pushes the pair apart along the normal by the part of its deepest point's penetration that exceeds kSlop (translation
-// only; rotation is left to the velocity pass). The depth is kept up to date from the centres' motion since the build.
+// Pushes the pair apart at every manifold point whose penetration exceeds kSlop, along the normal and by the impulse the
+// point's lever arms allow (so a tilted box is also turned back flat, which the velocity pass cannot do: it aims for
+// zero closing speed, not for the depth). Each point's depth is kept up to date from the bodies' motion since the build
+// (its anchors live in each body's frame), and a pass moves a point by at most kMaxCorrection.
 void Physics3D::correct_position(std::vector<Body>& bodies, const RigidContact& rc) {
     Body& a = bodies[rc.ia];
     Body& b = bodies[rc.ib];
-    const float sum = a.invMass + b.invMass;
-    float depth = -1e30f;
-    for (int i = 0; i < rc.count; ++i) depth = std::max(depth, rc.pt[i].depth);
-    depth -= dot((b.center - rc.cb) - (a.center - rc.ca), rc.n);
-    if (depth > kSlop) {
-        const Vec3 corr = rc.n * ((depth - kSlop) * kPercent / sum);
-        a.center -= corr * a.invMass;
-        b.center += corr * b.invMass;
+    const Vec3 n = rc.n;
+    for (int i = 0; i < rc.count; ++i) {
+        const RigidContact::Pt& p = rc.pt[i];
+        const Vec3 rA = frame_to_world(a.rot, p.la), rB = frame_to_world(b.rot, p.lb);
+        // Both bodies' copies of the point coincided at the build: what they have moved apart along n shrinks the depth.
+        const float depth = p.depth - dot((b.center + rB) - (a.center + rA), n);
+        if (depth <= kSlop) continue;
+        const Vec3 rna = cross(rA, n), rnb = cross(rB, n);
+        const float k = a.invMass + b.invMass + dot(rna, inv_inertia_mul(a, rna)) + dot(rnb, inv_inertia_mul(b, rnb));
+        if (!(k > 0.0f)) continue;
+        const Vec3 impulse = n * (std::min((depth - kSlop) * kPercent, kMaxCorrection) / k);
+        a.center -= impulse * a.invMass;
+        turn_by(a, inv_inertia_mul(a, cross(rA, -impulse)));
+        b.center += impulse * b.invMass;
+        turn_by(b, inv_inertia_mul(b, cross(rB, impulse)));
     }
 }
 
@@ -1352,23 +1506,38 @@ void Physics3D::step(World& world, float dt) {
                 if (positional) {  // warm start: re-apply what the same contact points carried in the previous sub-step
                     if (const WarmEntry* cached = warm_find(rc.key)) {
                         const WarmEntry& old = *cached;
-                        char used[kMaxPts] = {};
+                        // Each point takes the impulses its feature (same id) carried in the previous sub-step; the points whose
+                        // feature is new take those of the nearest point left over, if it is within kWarmRadius.
+                        char taken[kMaxPts] = {};
+                        int oldOf[kMaxPts];
                         for (int pi = 0; pi < rc.count; ++pi) {
-                            RigidContact::Pt& p = rc.pt[pi];
-                            const Vec3 pos = a.center + p.ra;
-                            int best = -1;
+                            oldOf[pi] = -1;
+                            if (rc.pt[pi].id == 0) continue;
+                            for (int oi = 0; oi < old.count; ++oi)
+                                if (!taken[oi] && old.pt[oi].id == rc.pt[pi].id) {
+                                    taken[oi] = 1;
+                                    oldOf[pi] = oi;
+                                    break;
+                                }
+                        }
+                        for (int pi = 0; pi < rc.count; ++pi) {
+                            if (oldOf[pi] >= 0) continue;
+                            const Vec3 pos = a.center + rc.pt[pi].ra;
                             float bestD = kWarmRadius * kWarmRadius;
-                            for (std::size_t oi = 0; oi < std::size_t(old.count); ++oi) {
-                                const float d = length_sq(old.pt[oi].pos - pos);
-                                if (!used[oi] && d < bestD) {
-                                    bestD = d;
-                                    best = int(oi);
+                            for (int oi = 0; oi < old.count; ++oi) {
+                                const float dd = length_sq(old.pt[oi].pos - pos);
+                                if (!taken[oi] && dd < bestD) {
+                                    bestD = dd;
+                                    oldOf[pi] = oi;
                                 }
                             }
-                            if (best < 0) continue;
-                            used[best] = 1;
-                            p.jn = old.pt[best].jn;
-                            p.jt = old.pt[best].jt;
+                            if (oldOf[pi] >= 0) taken[oldOf[pi]] = 1;
+                        }
+                        for (int pi = 0; pi < rc.count; ++pi) {
+                            if (oldOf[pi] < 0) continue;
+                            RigidContact::Pt& p = rc.pt[pi];
+                            p.jn = old.pt[oldOf[pi]].jn;
+                            p.jt = old.pt[oldOf[pi]].jt;
                             const Vec3 impulse = rc.n * p.jn + p.jt;
                             b.vel += impulse * b.invMass;
                             b.angVel += inv_inertia_mul(b, cross(p.rb, impulse)) * kRadToDeg;
@@ -1432,7 +1601,7 @@ void Physics3D::step(World& world, float dt) {
                 WarmEntry& e = warm_.emplace_back();
                 e.key = rc.key;
                 e.count = std::min(rc.count, int(kMaxPts));
-                for (int pi = 0; pi < e.count; ++pi) e.pt[pi] = {rc.ca + rc.pt[pi].ra, rc.pt[pi].jn, rc.pt[pi].jt};
+                for (int pi = 0; pi < e.count; ++pi) e.pt[pi] = {rc.ca + rc.pt[pi].ra, rc.pt[pi].id, rc.pt[pi].jn, rc.pt[pi].jt};
             }
             if (!ordered)  // never in practice (the pair scan walks the bodies in seq order); keeps the lookup right
                 std::stable_sort(warm_.begin(), warm_.end(),

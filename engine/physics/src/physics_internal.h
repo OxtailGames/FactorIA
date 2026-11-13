@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -194,7 +195,22 @@ private:
 };
 
 // ------------------------------------------------------------------ 3D ----
+// The id of a contact point's feature (Physics3D::Contact::ids): three small numbers mixed into one that is never 0 (FNV-1a
+// steps). Pure integer arithmetic: the same on every platform.
+inline std::uint32_t mix_id(std::uint32_t a, std::uint32_t b, std::uint32_t c = 0) {
+    std::uint32_t h = 2166136261u;
+    for (const std::uint32_t v : {a, b, c}) {
+        h = (h ^ v) * 16777619u;
+        h ^= h >> 15;
+    }
+    return h != 0 ? h : 1u;
+}
+
+struct Physics3DTestAccess;  // the manifold tests call collide() on hand-made bodies
+
 class Physics3D {
+    friend struct Physics3DTestAccess;
+
 public:
     void sync(World& world);  // bodies <-> components without simulating
     void init(const PhysicsSettings& s) { settings_ = s; }
@@ -230,7 +246,7 @@ public:
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
 private:
-    static constexpr int kMaxPts = 8;  // contact points of a box-box manifold (a quad clipped by 4 planes)
+    static constexpr int kMaxPts = 4;  // contact points of a manifold (reduced to at most 4: see reduce_manifold)
     struct Body {
         Entity e;
         std::string id;
@@ -361,10 +377,14 @@ private:
         Vec3 normal;         // from a to b
         float depth = 0.0f;  // > 0 penetrating; may be slightly negative within margin
         Vec3 point;
-        // Box-box face contacts (collide(..., manifold = true)): the clipped incident face. depths[i] < 0 = still apart.
+        // Manifold (collide(..., manifold = true)): up to kMaxPts points of a face contact, a capsule lying flat or a box on
+        // a mesh. depths[i] < 0 = still apart. ids[i] names the geometric feature that made the point (a corner of the
+        // clipped face, an end of a capsule...) and stays the same while the contact slides, so the solver gives the point
+        // the impulse the same feature carried in the previous sub-step. 0 = no feature (single-point contacts).
         int n = 0;
         Vec3 pts[kMaxPts];
         float depths[kMaxPts] = {};
+        std::uint32_t ids[kMaxPts] = {};
     };
     using PairKey = std::pair<std::uint64_t, std::uint64_t>;  // body seq numbers, lo < hi
     struct PairState {
@@ -382,6 +402,8 @@ private:
         int count = 0;
         struct Pt {
             Vec3 ra, rb;
+            Vec3 la, lb;  // ra, rb in the frame of each body (they turn with it during the position pass)
+            std::uint32_t id = 0;
             float depth = 0.0f, kn = 1.0f, target = 0.0f, jn = 0.0f;
             Vec3 jt;
         } pt[kMaxPts];
@@ -403,7 +425,11 @@ private:
     static bool ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
-    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
+    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, int refOwner, Contact& out);
+    // Stores the n candidate points (any number) in c: near-duplicates merged and at most kMaxPts kept, chosen by a rule that
+    // depends only on the points (deepest, farthest from it, the two that span the most area), never on a thread or an
+    // address, and tolerant of float noise so the same contact keeps the same points from one step to the next.
+    static void reduce_manifold(Contact& c, const Vec3* pts, const float* depths, const std::uint32_t* ids, int n);
     static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
     // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
     static float turning_reach(const Body& b, Vec3 spin) {
@@ -450,10 +476,11 @@ private:
         return it != touching_.end() && it->first == key ? &it->second : nullptr;
     }
     // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
-    // previous sub-step (world position of the point + normal impulse + friction impulse). Sorted by key (the order
+    // previous sub-step (world position and feature id of the point + normal impulse + friction impulse). Sorted by key (the order
     // the contacts are built in), at most kMaxPts points per pair, cleared without freeing its storage.
     struct WarmPt {
         Vec3 pos;
+        std::uint32_t id = 0;
         float jn = 0.0f;
         Vec3 jt;
     };
