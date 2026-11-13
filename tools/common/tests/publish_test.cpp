@@ -106,7 +106,7 @@ struct Fixture {
         testing::write_all(dir + "/steam_appid.txt", "1234560\n");
 
         const std::string out = dir + "/build/export/";
-        for (const std::string& platform : {"windows", "macos", "linux"}) {
+        for (const std::string platform : {"windows", "macos", "linux"}) {
             testing::write_all(out + "space-dodge-" + platform + "/.factoria-export", "written by an export");
             testing::write_all(out + "space-dodge-" + platform + "/AI_CONTENT_DISCLOSURE.md", "ai");
         }

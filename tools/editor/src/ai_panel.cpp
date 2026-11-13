@@ -1134,20 +1134,20 @@ void Editor::ai_drain_run(AiRun& run) {
         const bool cont = found && run.detachedOk && !run.cancel.load() && engine_ && play_ == PlayState::Edit;
         run.clear_live();
         if (cont) {
-            ChatItem note;
-            note.kind = ChatItem::Kind::Info;
-            note.text = "continuing the orchestrator with the worker's report";
-            items.push_back(std::move(note));
+            ChatItem continueItem;
+            continueItem.kind = ChatItem::Kind::Info;
+            continueItem.text = "continuing the orchestrator with the worker's report";
+            items.push_back(std::move(continueItem));
             run.detachedOk = false;
             ai_launch(run, continuation_prompt(reports), {});  // `running` is true before the flag below drops
             run.detached = false;
             c.updated = now_epoch();
         } else {
             if (run.cancel.load()) {
-                ChatItem note;
-                note.kind = ChatItem::Kind::Info;
-                note.text = "stopped";
-                items.push_back(std::move(note));
+                ChatItem stoppedItem;
+                stoppedItem.kind = ChatItem::Kind::Info;
+                stoppedItem.text = "stopped";
+                items.push_back(std::move(stoppedItem));
             }
             ai_end_run(run, found);
         }
@@ -1213,12 +1213,12 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
       ImGui::SeparatorText(ai::role_group_title(group));
       if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), columns, ImGuiTableFlags_SizingFixedFit)) {
         // Fixed widths so the three tables line up like one (narrower with the "From" column, so it fits the window).
-        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, res ? 56 : 64);
-        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, res ? 84 : 96);
-        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, res ? 150 : 180);
-        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, res ? 176 : 270);
-        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, res ? 96 : 90);
-        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, res ? 76 : 90);
+        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, res ? 56.0f : 64.0f);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, res ? 84.0f : 96.0f);
+        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, res ? 150.0f : 180.0f);
+        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, res ? 176.0f : 270.0f);
+        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, res ? 96.0f : 90.0f);
+        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, res ? 76.0f : 90.0f);
         if (res) ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 150);
         ImGui::TableHeadersRow();
         for (const char* name : kRoleNames) {
@@ -1246,7 +1246,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", ai::role_summary(name));
             ImGui::BeginDisabled(!orchestrator && !r.enabled);  // an off role keeps its settings but they are not used
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 140 : 170);
+            ImGui::SetNextItemWidth(res ? 140.0f : 170.0f);
             if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
                 for (const auto& [pname, pc] : cfg.providers) {
                     if (ai::is_asset_only_kind(pc.kind)) continue;  // they generate assets, they cannot play a role
@@ -1262,7 +1262,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                 ImGui::EndCombo();
             }
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 166 : 260);
+            ImGui::SetNextItemWidth(res ? 166.0f : 260.0f);
             const auto rstatus = std::ranges::find(status, r.provider, &ai::ProviderStatus::name);
             const auto listed = models.find(r.provider);
             const bool listOk = listed != models.end() && listed->second.error.empty();
@@ -1319,7 +1319,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
                                       listed != models.end() ? listed->second.error.c_str() : "");
             }
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 88 : 90);
+            ImGui::SetNextItemWidth(res ? 88.0f : 90.0f);
             if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
                 for (const char* e : kEfforts) {
                     if (ImGui::Selectable(*e ? e : "default", r.effort == e)) r.effort = e;
@@ -1328,7 +1328,7 @@ void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::Pr
             }
             ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(res ? 68 : 80);
+            ImGui::SetNextItemWidth(res ? 68.0f : 80.0f);
             const auto context_label = [](u64 n) { return n == 0 ? std::string("full") : format_tokens(n); };
             if (ImGui::BeginCombo("##context", context_label(r.maxContextTokens).c_str())) {
                 for (const u64 n : kContextLimits) {

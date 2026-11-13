@@ -352,8 +352,6 @@ std::optional<std::pair<double, double>> pivot_arg(const char* cmd, const Json& 
     return std::make_pair((*it)[0].get<double>(), (*it)[1].get<double>());
 }
 
-std::string region_text(const Json& v) { return v.dump(); }
-
 }  // namespace
 
 // ===================================================================================================================================

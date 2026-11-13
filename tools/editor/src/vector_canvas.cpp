@@ -669,7 +669,7 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                         for (int dy = -1; dy <= 1; dy += 2)
                             for (int dx = -1; dx <= 1; dx += 2) {
                                 const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f, (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
-                                const float d = dist2(mouseScreen, s);
+                                const float d = static_cast<float>(dist2(mouseScreen, s));
                                 const bool outside = (mouseScreen.x - s.x) * float(dx) > 0 || (mouseScreen.y - s.y) * float(dy) > 0;
                                 if (d > kBoxHandle + 3.0f && d <= 22.0f && outside) rotate = true;
                             }

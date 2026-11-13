@@ -70,7 +70,7 @@ bool parse_css_colour(const std::string& textIn, std::array<std::uint8_t, 3>& rg
     }
     if (t[0] == '#') {
         const std::string h = t.substr(1);
-        int d[8];
+        int d[8] = {};
         if (h.size() != 3 && h.size() != 4 && h.size() != 6 && h.size() != 8) return false;
         for (std::size_t i = 0; i < h.size(); ++i) {
             d[i] = hex_value(h[i]);

@@ -180,7 +180,9 @@ void on_frame() {
     if (g.desc.frame) g.desc.frame(dt);
 }
 
+#if !(defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE))  // phones never reach run_app() or the macOS exit below
 int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
+#endif
 
 void on_cleanup() {
     if (g.desc.cleanup) g.desc.cleanup();
@@ -448,7 +450,9 @@ bool app_has_window_modes() {
 
 WindowMode app_window_mode() {
     if (app_is_mobile()) return WindowMode::Fullscreen;
-    if (kNativeFullscreenSpace && fa_sapp_is_borderless()) return WindowMode::Borderless;
+    if (kNativeFullscreenSpace) {
+        if (fa_sapp_is_borderless()) return WindowMode::Borderless;
+    }
     if (!sapp_is_fullscreen()) {
         g.borderlessWanted = false;
         return WindowMode::Windowed;

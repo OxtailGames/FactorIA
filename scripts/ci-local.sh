@@ -94,7 +94,7 @@ job_linux() {
     # In the emulated x86-64 container of ci-docker.sh the example games run over twice as long as on GitHub's runners.
     local timeout=300
     [ "${FA_CI_IN_DOCKER:-}" = 1 ] && timeout=900
-    run_logged "$LOGDIR/linux-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_EXAMPLE_TEST_TIMEOUT=$timeout \
+    run_logged "$LOGDIR/linux-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_EXAMPLE_TEST_TIMEOUT=$timeout \
         || { record linux FAIL "configure (see $LOGDIR/linux-configure.log)"; return; }
     run_logged "$LOGDIR/linux-build.log" cmake --build "$b" -j "$JOBS" \
         || { record linux FAIL "build (see $LOGDIR/linux-build.log)"; return; }
@@ -126,7 +126,7 @@ job_windows() {
         record windows SKIP "no MinGW-w64 (Debian/Ubuntu: apt install g++-mingw-w64-x86-64-posix)"; return
     fi
     local b=build/ci-windows-mingw
-    run_logged "$LOGDIR/windows-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    run_logged "$LOGDIR/windows-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON \
         -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake \
         || { record windows FAIL "configure (see $LOGDIR/windows-configure.log)"; return; }
     run_logged "$LOGDIR/windows-build.log" cmake --build "$b" -j "$JOBS" \
@@ -176,7 +176,7 @@ job_android() {
     if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" ]; then
         record android SKIP "set ANDROID_NDK_HOME to an NDK r27+ (Android Studio > SDK Manager > NDK)"; return
     fi
-    if run_logged "$LOGDIR/android.log" bash -c "cmake --preset android-arm64 && cmake --build --preset android-arm64 --target factoria_player -j $JOBS"; then
+    if run_logged "$LOGDIR/android.log" bash -c "cmake --preset android-arm64 -DFA_WARNINGS_AS_ERRORS=ON && cmake --build --preset android-arm64 --target factoria_player -j $JOBS"; then
         record android PASS "factoria_player arm64-v8a"
     else
         record android FAIL "see $LOGDIR/android.log"
@@ -208,10 +208,10 @@ job_web() {
         && ! command -v chromium-browser >/dev/null && ! command -v chrome >/dev/null; then
         record web SKIP "needs Chrome or Chromium (or CHROME_BIN=/path/to/chrome)"; return
     fi
-    run_logged "$LOGDIR/web-player.log" bash -c "cmake --preset web-release && cmake --build --preset web-release -j $JOBS" \
+    run_logged "$LOGDIR/web-player.log" bash -c "cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON && cmake --build --preset web-release -j $JOBS" \
         || { record web FAIL "web player (see $LOGDIR/web-player.log)"; return; }
     local b=build/ci-web-tools
-    run_logged "$LOGDIR/web-cli.log" bash -c "cmake -S . -B $b -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF \
+    run_logged "$LOGDIR/web-cli.log" bash -c "cmake -S . -B $b -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF \
         && cmake --build $b --target factoria -j $JOBS" \
         || { record web FAIL "factoria CLI (see $LOGDIR/web-cli.log)"; return; }
     if run_logged "$LOGDIR/web-smoke.log" ./scripts/web-smoke.sh "$b/tools/cli/factoria" build/web-release/player build/ci-web-smoke; then
@@ -227,7 +227,7 @@ job_macos() {
     # The CI job's configuration: a release package built here (release.yml's macOS steps) leaves build/macos-release
     # universal, with FA_BUILD_TESTS=OFF and the release URLs in its cache, and ctest would then run stale test binaries.
     local ci_cache="-DFA_BUILD_TESTS=ON -UCMAKE_OSX_ARCHITECTURES -UFA_UPDATE_REPO -UFA_FEEDBACK_URL -UFA_FEEDBACK_GITHUB_CLIENT_ID"
-    if run_logged "$LOGDIR/macos.log" bash -c "$(declare -f install_shaders); cmake --preset macos-release $ci_cache && cmake --build --preset macos-release -j $JOBS && install_shaders build/macos-release && FA_REQUIRE_SHDC=1 ctest --preset macos-release -j $JOBS"; then
+    if run_logged "$LOGDIR/macos.log" bash -c "$(declare -f install_shaders); cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON $ci_cache && cmake --build --preset macos-release -j $JOBS && install_shaders build/macos-release && FA_REQUIRE_SHDC=1 ctest --preset macos-release -j $JOBS"; then
         record macos PASS "build + ctest"
     else
         record macos FAIL "see $LOGDIR/macos.log"
@@ -239,7 +239,7 @@ job_ios() {
     if [ "$HOST" != "Darwin" ] || ! command -v xcodebuild >/dev/null; then
         record ios SKIP "needs a Mac with Xcode"; return
     fi
-    if run_logged "$LOGDIR/ios.log" bash -c "cmake --preset ios-simulator -DFA_GAME_PROJECT_DIR=$ROOT/templates/2d-platformer && cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO"; then
+    if run_logged "$LOGDIR/ios.log" bash -c "cmake --preset ios-simulator -DFA_WARNINGS_AS_ERRORS=ON -DFA_GAME_PROJECT_DIR=$ROOT/templates/2d-platformer && cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO"; then
         record ios PASS "factoria_player.app (simulator)"
     else
         record ios FAIL "see $LOGDIR/ios.log"

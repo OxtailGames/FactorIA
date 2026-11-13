@@ -25,6 +25,7 @@ std::string generic(const stdfs::path& p) { return p.generic_string(); }
 
 [[noreturn]] void fail(const std::string& what, const std::string& hint) { throw CommandError("failed", what, hint); }
 
+#if defined(__APPLE__)  // pick_device and simctl_fail_text serve only the macOS code of run_ios_sim
 // The simulator to use: `want` is a UDID or a name ("iPad Pro 13-inch (M5)", or a part of it); empty = a booted iPhone, else the
 // first iPhone of the newest iOS runtime. Returns {udid, name}.
 std::pair<std::string, std::string> pick_device(const Json& list, const std::string& want) {
@@ -68,6 +69,7 @@ std::string simctl_fail_text(const ProcessResult& r) {
     std::string t = r.stderrText.empty() ? r.stdoutText : r.stderrText;
     return t.size() > 600 ? t.substr(0, 600) : t;
 }
+#endif
 
 Json run_ios_sim(const std::string& projectDir, const Json& args) {
     const bool dryRun = arg_bool(args, "dryRun", false);
@@ -113,7 +115,6 @@ Json run_ios_sim(const std::string& projectDir, const Json& args) {
         shot = r->generic_string();
     }
     const std::string device = arg_string(args, "device", false);
-    const double settle = std::max(0L, arg_int(args, "settleMilliseconds", 1500)) / 1000.0;
 
     Json report = Json::object();
     report["app"] = generic(app);
@@ -150,6 +151,7 @@ Json run_ios_sim(const std::string& projectDir, const Json& args) {
     fail("player.run_ios_sim needs a Mac with Xcode: the iOS Simulator runs only there.",
          "Run it on macOS, or use dryRun to see the simctl commands. On Android the same check is `adb`-based (docs/MOBILE.md).");
 #else
+    const double settle = std::max(0L, arg_int(args, "settleMilliseconds", 1500)) / 1000.0;
     auto simctl = [&](std::vector<std::string> argv, double timeout, const std::map<std::string, std::string>& env = {}) {
         ProcessOptions po;
         po.argv = {"xcrun", "simctl"};

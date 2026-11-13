@@ -111,9 +111,9 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
         basist::ktx2_image_level_info info{};
         if (!ktx.get_image_level_info(info, level, 0, 0)) return make_error("the KTX2 file is damaged", "Export the project again.");
         const std::uint32_t units = target ? info.m_total_blocks : info.m_orig_width * info.m_orig_height;
-        const auto format = target ? target->basis : basist::transcoder_texture_format::cTFRGBA32;
-        std::vector<std::uint8_t> bytes(std::size_t(units) * basist::basis_get_bytes_per_block_or_pixel(format));
-        if (!ktx.transcode_image_level(level, 0, 0, bytes.data(), units, format))
+        const auto blockFormat = target ? target->basis : basist::transcoder_texture_format::cTFRGBA32;
+        std::vector<std::uint8_t> bytes(std::size_t(units) * basist::basis_get_bytes_per_block_or_pixel(blockFormat));
+        if (!ktx.transcode_image_level(level, 0, 0, bytes.data(), units, blockFormat))
             return make_error("mip level " + std::to_string(level) + " of the KTX2 file cannot be transcoded", "Export the project again.");
         out.levels.push_back(std::move(bytes));
     }

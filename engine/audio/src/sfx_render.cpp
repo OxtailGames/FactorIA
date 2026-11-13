@@ -338,9 +338,9 @@ std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, s
                 if (def.fm.enabled) {
                     const double mf = def.fm.hz > 0.0 ? def.fm.hz : f * def.fm.ratio;
                     st.modPhase = frac(st.modPhase + mf * dtBase);
-                    const double index = def.fm.index * (def.fm.hasIndexEnv ? def.fm.indexEnv.level(t, gate) : 1.0);
+                    const double fmIndex = def.fm.index * (def.fm.hasIndexEnv ? def.fm.indexEnv.level(t, gate) : 1.0);
                     const double m = tone(def.fm.wave, st.modPhase, 0.0, 0.5, nullptr);
-                    v = tone(def.wave, st.phase + index * m / kTwoPi, 0.0, def.duty, &def.table);
+                    v = tone(def.wave, st.phase + fmIndex * m / kTwoPi, 0.0, def.duty, &def.table);
                 } else {
                     v = tone(def.wave, st.phase, dt, def.duty, &def.table);
                 }

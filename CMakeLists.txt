@@ -58,6 +58,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(FactoriaPlatform)   # sets FA_PLATFORM, FA_SOKOL_BACKEND, FA_DESKTOP
 include(FactoriaHelpers)    # fa_add_module(), fa_add_tests(), fa_embed_files()
 include(FactoriaFuzz)       # FA_FUZZ, fa_add_fuzz_target() (tools/fuzz)
+include(FactoriaCoverage)   # FA_COVERAGE (scripts/coverage-report.sh)
 
 # ---- options ----------------------------------------------------------------
 option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
