@@ -2155,6 +2155,16 @@ NATIVE(hasComp) {
     return JS_NewBool(ctx, W.get(e, *t) != nullptr);
 }
 
+NATIVE(hasCompT) {  // (entity, type index) -> bool: hasComp without the lookup of the name
+    SETUP;
+    ENTITY(e, 0);
+    double tid = 0;
+    if (argc > 1) JS_ToFloat64(ctx, &tid, argv[1]);
+    const TypeInfo* t = TypeRegistry::global().get(static_cast<TypeId>(tid));
+    if (!t) return throw_err(ctx, "internal error: unknown component type index");
+    return JS_NewBool(ctx, W.get(e, *t) != nullptr);
+}
+
 NATIVE(compType) {  // component name -> type index (throws on unknown)
     SETUP;
     JSValue exc = JS_UNDEFINED;
@@ -4815,6 +4825,7 @@ const Reg kRegs[] = {
     R(behaviour, 1),
     R(isGrounded, 2),
     R(hasComp, 2),
+    R(hasCompT, 2),
     R(compType, 1),
     R(addComp, 3),
     R(removeComp, 2),

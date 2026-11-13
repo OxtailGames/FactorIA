@@ -148,24 +148,24 @@
       "unit": "calls"
     },
     "script.component_access": {
-      "medianMs": 61.828,
-      "minMs": 58.932,
-      "maxMs": 66.724,
-      "p25Ms": 60.647,
-      "p75Ms": 63.379,
-      "spread": 0.044,
-      "cpuMedianMs": 61.14,
+      "medianMs": 14.639,
+      "minMs": 14.42,
+      "maxMs": 14.84,
+      "p25Ms": 14.572,
+      "p75Ms": 14.726,
+      "spread": 0.01,
+      "cpuMedianMs": 14.607,
       "items": 10000,
       "unit": "entity passes"
     },
     "script.behaviours": {
-      "medianMs": 62.432,
-      "minMs": 60.488,
-      "maxMs": 67.113,
-      "p25Ms": 61.814,
-      "p75Ms": 63.878,
-      "spread": 0.033,
-      "cpuMedianMs": 61.26,
+      "medianMs": 26.553,
+      "minMs": 26.369,
+      "maxMs": 26.876,
+      "p25Ms": 26.441,
+      "p75Ms": 26.65,
+      "spread": 0.008,
+      "cpuMedianMs": 26.474,
       "items": 9000,
       "unit": "behaviour frames"
     },
@@ -256,6 +256,39 @@
       "cpuMedianMs": 1.558,
       "items": 96000,
       "unit": "tasks"
+    },
+    "script.field_read": {
+      "medianMs": 6.864,
+      "minMs": 6.705,
+      "maxMs": 7.003,
+      "p25Ms": 6.791,
+      "p75Ms": 6.94,
+      "spread": 0.022,
+      "cpuMedianMs": 6.836,
+      "items": 100000,
+      "unit": "field reads"
+    },
+    "script.field_write": {
+      "medianMs": 8.479,
+      "minMs": 7.401,
+      "maxMs": 9.009,
+      "p25Ms": 7.573,
+      "p75Ms": 8.528,
+      "spread": 0.113,
+      "cpuMedianMs": 8.458,
+      "items": 100000,
+      "unit": "field writes"
+    },
+    "script.component_get": {
+      "medianMs": 13.817,
+      "minMs": 13.645,
+      "maxMs": 14.16,
+      "p25Ms": 13.791,
+      "p75Ms": 13.863,
+      "spread": 0.005,
+      "cpuMedianMs": 13.784,
+      "items": 40000,
+      "unit": "component gets"
     }
   }
 }

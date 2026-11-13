@@ -225,6 +225,46 @@ globalThis.bench = function () {
   }
   return sum;
 };)"));
+    // The three accesses a behaviour repeats most: reading a numeric field of a component, writing it, and asking an
+    // entity for a component (entity.get) in a loop over many entities (docs/PERFORMANCE.md, "Microbenchmarks").
+    out.push_back(script_function("script.field_read",
+                                  "One numeric field of one component read 100000 times (Sprite.layer, then "
+                                  "Transform.position.x through a vector field)",
+                                  100000, "field reads", R"(
+globalThis.bench = function () {
+  const e = world.find('e3');
+  const s = e.get('Sprite');
+  let n = 0;
+  for (let i = 0; i < 50000; i++) n += s.layer;
+  const p = e.transform.position;
+  for (let i = 0; i < 50000; i++) n += p.x;
+  return n;
+};)"));
+    out.push_back(script_function("script.field_write",
+                                  "One numeric field of one component written 100000 times (Sprite.layer, then "
+                                  "Transform.position.x)",
+                                  100000, "field writes", R"(
+globalThis.bench = function () {
+  const e = world.find('e3');
+  const s = e.get('Sprite');
+  for (let i = 0; i < 50000; i++) s.layer = i % 100;
+  const p = e.transform.position;
+  for (let i = 0; i < 50000; i++) p.x = i % 100;
+  return s.layer + p.x;
+};)"));
+    out.push_back(script_function("script.component_get",
+                                  "entity.get('Sprite') and entity.get('Transform') for 100 entities, 200 passes "
+                                  "(a read of one field each)",
+                                  100 * 200 * 2, "component gets", R"(
+globalThis.entities = [];
+for (let i = 0; i < 100; i++) globalThis.entities.push(world.find('e' + i));
+globalThis.bench = function () {
+  let n = 0;
+  for (let pass = 0; pass < 200; pass++) {
+    for (const e of globalThis.entities) n += e.get('Sprite').layer + e.get('Transform').position.x;
+  }
+  return n;
+};)"));
     out.push_back(script_behaviours());
 }
 

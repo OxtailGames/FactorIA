@@ -240,7 +240,7 @@ stick values are the state at the time of the call. Consequences:
 | `position` | shortcut for `transform.position` (assignable: `e.position = vec2(10, 0)`). On an entity with a physics body (2D or 3D) it teleports the body (also when it was asleep: it wakes, with whatever touches it, and falls from the new place), and `isGrounded()` reflects the new place after the next physics step |
 | `worldPosition` | world-space position (get/set) |
 | `bounds()` | world-space rectangle of the entity's 2D visual, `Rect \| null` (see below) |
-| `get(name)` | live view of a component or `null` (`e.get("Sprite").color.a = 0.5`) |
+| `get(name)` | live view of a component or `null` (`e.get("Sprite").color.a = 0.5`). The same entity and component give the same view object (`e.get("Sprite") === e.get("Sprite")`), so keeping it in a variable costs nothing; it holds no data, every read and write goes to the engine. After `remove(name)` its fields throw "has no Sprite component" until the component is added again, and after the entity is destroyed they throw "entity 'x' was destroyed" |
 | `add(name, fields?)` | adds (or returns) a component, applies `fields` |
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
