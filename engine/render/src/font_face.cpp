@@ -34,6 +34,41 @@ bool FontFace::has_glyph(std::uint32_t cp) const {
     return hbFont && hb_font_get_nominal_glyph(hbFont, cp, &glyph) && glyph != 0;
 }
 
+// Parses the bytes of `f` (data and size are set) with stb_truetype and HarfBuzz; `ok` is set when both accept them. The one place
+// that reads a font file's content, whether the file came from the project, from the built-in set or from memory.
+namespace {
+std::unique_ptr<FontFace> finish_font_face(std::unique_ptr<FontFace> f) {
+    const int offset = f->data && f->size >= 16 ? stbtt_GetFontOffsetForIndex(f->data, 0) : -1;  // -1: not a font file at all (and stb would read before it)
+    if (offset >= 0) {
+        FontCheck check = check_font_bytes(f->data, f->size, offset);
+        f->unsafeGlyphs = std::move(check.unsafeGlyphs);
+        if (!check.problem.empty()) {
+            f->error = std::format("'{}' is damaged: {}", f->key, check.problem);
+            f->hint = "Get the font file again from where you downloaded it, or re-save it with a font editor (FontForge, fontTools).";
+            return f;
+        }
+    }
+    if (offset < 0 || !stbtt_InitFont(&f->info, f->data, offset)) {
+        f->error = std::format("'{}' is not a usable TrueType font (stb_truetype cannot parse it)", f->key);
+        f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
+        return f;
+    }
+    f->blob = hb_blob_create(reinterpret_cast<const char*>(f->data), static_cast<unsigned>(f->size), HB_MEMORY_MODE_READONLY,
+                             nullptr, nullptr);
+    f->hbFace = hb_face_create(f->blob, 0);
+    if (hb_face_get_glyph_count(f->hbFace) == 0) {
+        f->error = std::format("'{}' is not a usable font (HarfBuzz finds no glyphs in it)", f->key);
+        f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
+        return f;
+    }
+    f->unitsPerEm = std::max(16, int(hb_face_get_upem(f->hbFace)));
+    f->hbFont = hb_font_create(f->hbFace);
+    hb_font_set_scale(f->hbFont, f->unitsPerEm, f->unitsPerEm);
+    f->ok = true;
+    return f;
+}
+}  // namespace
+
 std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
     auto f = std::make_unique<FontFace>();
     f->key = keyIn.empty() ? "builtin" : keyIn;
@@ -100,25 +135,16 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         f->data = f->ownedData.data();
         f->size = f->ownedData.size();
     }
-    const int offset = f->data ? stbtt_GetFontOffsetForIndex(f->data, 0) : -1;  // -1: not a font file at all (and stb would read before it)
-    if (offset < 0 || !stbtt_InitFont(&f->info, f->data, offset)) {
-        f->error = std::format("'{}' is not a usable TrueType font (stb_truetype cannot parse it)", font);
-        f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
-        return f;
-    }
-    f->blob = hb_blob_create(reinterpret_cast<const char*>(f->data), static_cast<unsigned>(f->size), HB_MEMORY_MODE_READONLY,
-                             nullptr, nullptr);
-    f->hbFace = hb_face_create(f->blob, 0);
-    if (hb_face_get_glyph_count(f->hbFace) == 0) {
-        f->error = std::format("'{}' is not a usable font (HarfBuzz finds no glyphs in it)", font);
-        f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
-        return f;
-    }
-    f->unitsPerEm = std::max(16, int(hb_face_get_upem(f->hbFace)));
-    f->hbFont = hb_font_create(f->hbFace);
-    hb_font_set_scale(f->hbFont, f->unitsPerEm, f->unitsPerEm);
-    f->ok = true;
-    return f;
+    return finish_font_face(std::move(f));
+}
+
+std::unique_ptr<FontFace> load_font_face_from_memory(std::vector<unsigned char> bytes, const std::string& key) {
+    auto f = std::make_unique<FontFace>();
+    f->key = key.empty() ? "memory" : key;
+    f->ownedData = std::move(bytes);
+    f->data = f->ownedData.empty() ? nullptr : f->ownedData.data();
+    f->size = f->ownedData.size();
+    return finish_font_face(std::move(f));
 }
 
 // ---- text ------------------------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # Fuzzing (tools/fuzz, docs/BUILDING.md "Fuzzing").
 #
 #   FA_FUZZ=ON   Clang only: every target of tools/fuzz links libFuzzer, and the whole tree is built with AddressSanitizer
-#                and UndefinedBehaviorSanitizer (a UBSan finding stops the run like a crash), so the fuzzer sees the coverage
+#                and UndefinedBehaviorSanitizer (a UBSan finding stops the run like a crash, except inside external/: tools/fuzz/ubsan_ignorelist.txt), so the fuzzer sees the coverage
 #                of the engine libraries. Not for the normal test suite: the CI job `linux-fuzz` is the only user.
 #   FA_FUZZ=OFF  (default, every compiler, MSVC included) every target links a small replay driver (tools/fuzz/replay_main.cpp)
 #                instead and is a ctest (label `fuzz`) that runs each file of its corpus once: the corpus is a regression suite.
@@ -18,7 +18,9 @@ if(FA_FUZZ)
                             "without FA_FUZZ the fuzz targets still build and replay their corpus as ctests.")
     endif()
     # fuzzer-no-link: coverage instrumentation in every library, the fuzzer's own main only in the fuzz executables.
-    add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+    # UBSan stays silent inside external/ (tools/fuzz/ubsan_ignorelist.txt); ASan does not.
+    add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+                        "-fsanitize-ignorelist=${CMAKE_CURRENT_LIST_DIR}/../tools/fuzz/ubsan_ignorelist.txt")
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "FactorIA: FA_FUZZ is on (libFuzzer + ASan + UBSan)")
 endif()

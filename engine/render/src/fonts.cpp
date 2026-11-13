@@ -125,7 +125,8 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
     g.empty = true;
     const float s = stbtt_ScaleForMappingEmToPixels(&ff->info, float(px));
     int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBox(&ff->info, int(gid), s, s, &x0, &y0, &x1, &y1);
+    const int stbGid = ff->stb_glyph(gid);
+    stbtt_GetGlyphBitmapBox(&ff->info, stbGid, s, s, &x0, &y0, &x1, &y1);
     const int w0 = x1 - x0, h = y1 - y0;
     // An emboldened glyph is smeared to the right by `extra` pixels (a whole part and a fraction), so it is wider.
     const float extra = synthBold ? synthetic_bold_extra(px) : 0.0f;
@@ -151,7 +152,7 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
         }
         if (!im.pack(w, h, ax, ay)) return g;
     }
-    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w0, h, im.atlasSize, s, s, int(gid));
+    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w0, h, im.atlasSize, s, s, stbGid);
     if (extraCols > 0) {  // out[x] = max of in[x - k] for k = 0..whole, and the fraction of in[x - whole - 1]; right to left, in place
         const float frac = extra - float(extraWhole);
         for (int yy = 0; yy < h; ++yy) {

@@ -274,7 +274,7 @@ Result<Json> Impl::eval(std::string_view code) {
     }
     if (!JS_IsString(ser.get())) return Json(nullptr);
     std::string text = js_to_string(ctx, ser.get());
-    Json j = Json::parse(text, nullptr, false);
+    Json j = parse_json_lenient(text);
     if (j.is_discarded()) return Json(text);
     return j;
 }

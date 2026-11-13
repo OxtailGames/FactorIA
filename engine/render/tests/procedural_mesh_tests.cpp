@@ -501,7 +501,7 @@ TEST_CASE("vertex colors: a glTF model with COLOR_0 is drawn with it (normalized
             "meshes":[{"primitives":[{"attributes":{"POSITION":0,"COLOR_0":1},"indices":2}]}],
             "buffers":[{"byteLength":)" + std::to_string(data.size()) + R"(,"uri":")" + uri + R"("}],
             "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":48},{"buffer":0,"byteOffset":48,"byteLength":16},
-                           {"buffer":0,"byteOffset":64,"byteLength":12},{"buffer":0,"byteOffset":76,"byteLength":48}],
+                           {"buffer":0,"byteOffset":64,"byteLength":12})" + (data.size() > 76 ? std::string(R"(,{"buffer":0,"byteOffset":76,"byteLength":48})") : std::string()) + R"(],
             "accessors":[{"bufferView":0,"componentType":5126,"count":4,"type":"VEC3","min":[-1.5,-1.5,0],"max":[1.5,1.5,0]},
                          )" + colorAccessor + R"(,
                          {"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}]})");

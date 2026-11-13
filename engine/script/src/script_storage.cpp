@@ -64,7 +64,7 @@ std::string encode(const std::string& key, const std::string& valueText, bool co
 }
 
 bool decode(const std::string& text, Decoded& out, std::string& problem) {
-    Json j = Json::parse(text, nullptr, false);
+    Json j = parse_json_lenient(text);
     if (!j.is_object()) {
         problem = "it is not a JSON object";
         return false;
@@ -86,7 +86,7 @@ bool decode(const std::string& text, Decoded& out, std::string& problem) {
             problem = plain.error().message;
             return false;
         }
-        out.value = Json::parse(plain.value(), nullptr, false);
+        out.value = parse_json_lenient(plain.value());
         if (out.value.is_discarded()) {
             problem = "its compressed value does not parse as JSON";
             return false;

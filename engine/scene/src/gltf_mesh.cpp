@@ -54,10 +54,14 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
         return make_error(std::format("'{}' is not a .glb or .gltf file", path), "Give a glTF 2.0 file, e.g. \"assets/models/robot.glb\". An OBJ or FBX goes through assets.import first.");
     auto bytes = fs::read_bytes(path);
     if (!bytes) return make_error(std::format("cannot read '{}': {}", path, bytes.error().message), "Give a project-relative path to a file that exists, e.g. \"assets/models/robot.glb\".");
+    return read_gltf_mesh_bytes(*bytes, path);
+}
+
+Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, const std::string& path) {
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
-    if (cgltf_parse(&opts, bytes->data(), bytes->size(), &data) != cgltf_result_success)
+    if (cgltf_parse(&opts, bytes.data(), bytes.size(), &data) != cgltf_result_success)
         return make_error(std::format("cgltf could not parse '{}'", path), "The file must be a valid glTF 2.0 (.gltf or .glb) file; export it again from the tool that made it.");
     struct Guard {
         cgltf_data* d;
@@ -66,6 +70,7 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
     if (cgltf_load_buffers(&opts, data, path.c_str()) != cgltf_result_success)
         return make_error(std::format("cannot load the buffers of '{}'", path), "External .bin files must sit next to the .gltf and inside the project.");
 
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
     GltfMesh out;
     const std::string dir = directory_of(fs::normalize(path));
 
@@ -133,7 +138,7 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
     bool allNormals = true, anyUvs = false, allUvs = true, anyColors = false, allColors = true;
     std::vector<Group> groups;
     std::vector<std::string> plusParts;  // part names with a "+" already warned about
-    std::size_t skipped = 0, skinned = 0;
+    std::size_t skipped = 0, skinned = 0, indexTotal = 0;
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
         if (!node.mesh) continue;
@@ -173,6 +178,9 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                 else if (at.type == cgltf_attribute_type_color) col = at.data;
             }
             if (!pos || pos->count == 0) continue;
+            // Nodes may share one mesh, so a few thousand bytes of file can place millions of vertices: stop before the arrays grow.
+            if (positions.size() / 3 + pos->count > kMaxProceduralVertices)
+                return make_error(std::format("'{}' has more than the {} vertices a mesh can hold once every node is placed", path, kMaxProceduralVertices), "Decimate it in the tool that made it, or split it into several files.");
             const auto base = std::uint32_t(positions.size() / 3);
             for (cgltf_size i = 0; i < pos->count; ++i) {
                 float p[3] = {0, 0, 0};
@@ -223,6 +231,9 @@ Result<GltfMesh> read_gltf_mesh(const std::string& path) {
                 it = groups.end() - 1;
             }
             const cgltf_size count = prim.indices ? prim.indices->count : pos->count;
+            indexTotal += count - count % 3;
+            if (indexTotal > kMaxProceduralIndices)
+                return make_error(std::format("'{}' has more than the {} triangles a mesh can hold once every node is placed", path, kMaxProceduralIndices / 3), "Decimate it in the tool that made it, or split it into several files.");
             for (cgltf_size i = 0; i + 2 < count; i += 3) {
                 std::uint32_t t[3];
                 for (int k = 0; k < 3; ++k) {

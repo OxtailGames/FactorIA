@@ -10,12 +10,16 @@ looking for crashes, hangs, runaway memory and undefined behaviour. Full instruc
 | `corpus/<name>/` | small seed files of the target, and every input that ever crashed it |
 | `fuzz_support.h` | what the targets share: quiet logging, an empty project folder, `fail()` |
 | `replay_main.cpp` | the `main()` of a target in a normal build: runs each corpus file once (and `--mutate N`) |
-| `run.sh` | runs the libFuzzer programs of an `FA_FUZZ` build for N seconds each; CI uses it |
+| `run.sh` | runs the libFuzzer programs of an `FA_FUZZ` build for N seconds each; CI uses it. Exit 0: nothing found; 1: an input crashed a target (left in `fuzz-crashes/`); 2: the run itself is broken |
 | `CMakeLists.txt` | one `fa_add_fuzz_target(<name> DEPS <library>)` line per target |
 
 Targets: `json` (parse_json), `json_schema` (validate_json and the schema helpers), `scene` (load_scene), `prefab`
 (entity_from_json), `pak` (PackReader::open_memory), `mcp_jsonrpc` (McpServer::handle_message, read-only capabilities, an
-empty project) and `translations` (read_csv, read_xliff).
+empty project), `translations` (read_csv, read_xliff), and the decoders of project files: `image` (decode_image, image_size),
+`ktx2` (ktx2_size, decode_ktx2), `gltf` (parse_skeleton, read_gltf_mesh_bytes), `font` (rasterize_text with a font in memory),
+`audio` (decode_audio; the first byte picks the format: 0 .wav, 1 .ogg, 2 .mp3, 3 .qoa), `midi` (parse_midi, write_midi) and
+`soundfont` (Soundfont::from_memory, one rendered note). `ubsan_ignorelist.txt` keeps UBSan quiet inside `external/` (ASan is
+not); `.github/workflows/fuzz-weekly.yml` is the long run.
 
 Two builds, one source:
 

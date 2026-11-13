@@ -125,6 +125,7 @@ Result<std::shared_ptr<const MeshSurface>> load_gltf_surface(const std::string& 
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
                           "External .bin files must sit next to the .gltf and be inside the project.");
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
     auto s = std::make_shared<MeshSurface>();
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];

@@ -55,6 +55,9 @@ struct TextBitmap {
 // then the built-in DejaVu Sans for characters the font lacks. Plain left-to-right advance: no kerning, shaping or line
 // breaks (a '\n' is dropped). Text with no ink (empty, spaces) gives an empty bitmap. An unreadable font is an error.
 Result<TextBitmap> rasterize_text(std::string_view utf8, const std::string& font, float pixelSize);
+// The same with the font file (.ttf / .otf) already in memory instead of a key: a damaged or truncated file is an error that says what
+// is wrong, never a crash. For tools and tests, and what the fuzz target `font` calls.
+Result<TextBitmap> rasterize_text(std::string_view utf8, const std::vector<std::uint8_t>& fontBytes, float pixelSize);
 
 // One line or more of text as vector outlines, for turning text into paths (vector.text_to_path): the glyphs the engine itself
 // would draw (HarfBuzz shaping: kerning, ligatures, joining scripts, right-to-left text), taken from the font and then the
