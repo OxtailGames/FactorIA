@@ -109,13 +109,9 @@ std::uint64_t hash_tilemap_layout(const Tilemap& tm, const TilemapSize& size, co
     return h.h;
 }
 
-// One cell's contribution to the tiles hash. The hash is the SUM of these over every cell, so writing one tile changes
-// it by a known amount (see Tilemap::edits): flip / rotate flags do not change the collision, so only the index counts.
-std::uint64_t cell_mix(int cell, int index) {
-    std::uint64_t z = (std::uint64_t(std::uint32_t(cell)) << 32 | std::uint32_t(index)) + 0x9e3779b97f4a7c15ull;
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
-    return z ^ (z >> 31);
+// Flip / rotate flags do not change the collision, so only the tile index counts.
+bool is_solid_index(const std::vector<int>& solid, int t) {
+    return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
 }
 
 b2BodyType to_b2(BodyType t) {
@@ -247,8 +243,8 @@ void Physics2D::destroy_body(Body& b) {
 void Physics2D::destroy_tile_body(std::uint64_t key) {
     auto it = tiles_.find(key);
     if (it == tiles_.end()) return;
-    for (const TileBody::Chunk& ch : it->second.chunks)
-        for (std::uint64_t k : ch.shapeKeys) deadNow_.push_back(k);
+    for (const TileBody::Box& box : it->second.boxes)
+        if (box.alive) deadNow_.push_back(box.key);
     if (B2_IS_NON_NULL(it->second.body) && b2Body_IsValid(it->second.body)) b2DestroyBody(it->second.body);
     tiles_.erase(it);
 }
@@ -416,46 +412,28 @@ void Physics2D::push_state(World&, Entity, Body& b, RigidBody2D* rb) {
 
 namespace {
 
-// The cells of chunk `ci` of a body built for `cols` x `rows` cells, both ends included.
-struct ChunkCells {
-    int c0, c1, r0, r1;
+// Is the tile at (c, r) one of the solid indexes? Reads the flat array in place, as tilemap_tile_at does (a list shorter than
+// the map is empty past its end).
+struct TileSolid {
+    const std::int32_t* data;
+    std::size_t have;
+    int width;
+    const std::vector<int>* solid;
+    bool operator()(int c, int r) const {
+        const std::size_t at = std::size_t(r) * std::size_t(width) + std::size_t(c);
+        return at < have && is_solid_index(*solid, tile_index(data[at]));
+    }
 };
-ChunkCells chunk_cells(int ci, int chunkCols, int cols, int rows, int chunk) {
-    const int cc = ci % chunkCols, cr = ci / chunkCols;
-    return {cc * chunk, std::min(cc * chunk + chunk, cols) - 1, cr * chunk, std::min(cr * chunk + chunk, rows) - 1};
-}
 
-bool is_solid_index(const std::vector<int>& solid, int t) {
-    return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
-}
-
-// Which cells of a chunk are solid: a flag per cell (row-major, kTileChunk wide) and the same as one number, the sum of a
-// per-cell mix over the solid cells. Two chunks with the same solid cells have the same hash whatever tile images, flip flags
-// or non-solid tiles they hold (a flipped solid tile is still solid: only the index counts), and an edit that makes one cell
-// solid or empty moves the hash by exactly that cell's mix, so the hash of an edited chunk needs no scan.
-struct ChunkScan {
-    std::array<std::uint8_t, kTileChunk * kTileChunk> cells;
-    std::uint64_t hash = 0;
+// One horizontal run of solid cells (columns c0..c1 of a row).
+struct RowRun {
+    int row, c0, c1;
 };
-void scan_chunk(const Tilemap& tm, const TilemapSize& size, const std::vector<int>& solid, const ChunkCells& cc,
-                ChunkScan& out) {
-    out.hash = 0;
-    // The flat array read in place, as tilemap_tile_at does (a list shorter than the map is empty past its end).
-    const std::int32_t* data = std::as_const(tm.tiles).cdata();
-    const std::size_t have = tm.tiles.size();
-    for (int r = cc.r0; r <= cc.r1; ++r)
-        for (int c = cc.c0; c <= cc.c1; ++c) {
-            const std::size_t at = std::size_t(r) * std::size_t(size.width) + std::size_t(c);
-            const bool on = at < have && is_solid_index(solid, tile_index(data[at]));
-            out.cells[std::size_t(r - cc.r0) * kTileChunk + std::size_t(c - cc.c0)] = on ? 1 : 0;
-            if (on) out.hash += cell_mix(r * size.width + c, 1);
-        }
-}
 
 }  // namespace
 
-void Physics2D::rebuild_tile_chunk(TileBody& tb, int ci, const Tilemap& tm, const WorldPose& pose,
-                                   const std::uint8_t* cells, std::uint64_t solidHash) {
+std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const WorldPose& pose, int c0, int c1, int r0,
+                                      int r1) {
     const float inv = 1.0f / settings_.pixelsPerMeter;
     const bool iso = tilemap_isometric(tm);
     const float tw = tm.tileSize.x * pose.scale.x,
@@ -468,110 +446,205 @@ void Physics2D::rebuild_tile_chunk(TileBody& tb, int ci, const Tilemap& tm, cons
     sd.enableSensorEvents = false;
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
-    const ChunkCells cc = chunk_cells(ci, tb.chunkCols, tb.cols, tb.rows, kTileChunk);
-    TileBody::Chunk& ch = tb.chunks[std::size_t(ci)];
-    auto solid_at = [&](int c, int r) { return cells[std::size_t(r - cc.r0) * kTileChunk + std::size_t(c - cc.c0)] != 0; };
+    TileBody::Box box;
+    box.c0 = c0;
+    box.c1 = c1;
+    box.r0 = r0;
+    box.r1 = r1;
+    // Tilemap origin = TOP-LEFT corner, +Y up: tile (c, r) spans x in [c*tw, (c+1)*tw], y in [-(r+1)*th, -r*th].
+    if (iso) {
+        // The diamond of tile (c, r): centre ((c - r) * tw / 2, -(c + r + 1) * th / 2) (tw, th = the footprint, scaled).
+        const float cx = float(c0 - r0) * tw * 0.5f, cy = -float(c0 + r0 + 1) * th * 0.5f;
+        const float hx = std::max(tw * 0.5f * inv, kMinHalf), hy = std::max(th * 0.5f * inv, kMinHalf);
+        const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy},
+                               {cx * inv - hx, cy * inv},
+                               {cx * inv, cy * inv - hy},
+                               {cx * inv + hx, cy * inv}};
+        const b2Hull hull = b2ComputeHull(pts, 4);
+        const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
+        box.shape = b2CreatePolygonShape(tb.body, &sd, &poly);
+        box.rect = Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv});
+    } else {
+        const float cx = (float(c0 + c1 + 1) * 0.5f) * tw;
+        const float cy = -(float(r0 + r1 + 1) * 0.5f) * th;
+        const float hx = std::max(float(c1 - c0 + 1) * tw * 0.5f * inv, kMinHalf);
+        const float hy = std::max(float(r1 - r0 + 1) * th * 0.5f * inv, kMinHalf);
+        const b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
+        box.shape = b2CreatePolygonShape(tb.body, &sd, &poly);
+        box.rect = Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv});  // rotation ignored (debug)
+    }
+    register_shape(box.shape, tb.e, false, false);
+    box.key = shape_key(box.shape);
+    box.alive = true;
+    std::uint32_t id;
+    if (!tb.freeBoxes.empty()) {
+        id = tb.freeBoxes.back();
+        tb.freeBoxes.pop_back();
+        tb.boxes[id] = box;
+    } else {
+        id = std::uint32_t(tb.boxes.size());
+        tb.boxes.push_back(box);
+    }
+    for (int r = r0; r <= r1; ++r)
+        std::fill(tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(c0)),
+                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(c1) + 1), id + 1);
+    ++tb.boxesBuilt;
+    return id;
+}
 
-    // Horizontal runs per row, then identical runs of consecutive rows merged into taller boxes, inside the chunk.
-    struct CellRun {
+void Physics2D::remove_tile_box(TileBody& tb, std::uint32_t id) {
+    TileBody::Box& box = tb.boxes[id];
+    deadNow_.push_back(box.key);
+    b2DestroyShape(box.shape, false);
+    for (int r = box.r0; r <= box.r1; ++r)
+        std::fill(tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(box.c0)),
+                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(box.c1) + 1), 0u);
+    box.alive = false;
+    tb.freeBoxes.push_back(id);
+}
+
+// The colliders of a map are ONE decomposition of its solid cells, whatever the edits that led there: every row is cut into
+// its maximal horizontal runs, and a box is a maximal vertical stack of identical runs (same columns, consecutive rows). A
+// fresh build and any sequence of edits give the same boxes, so a flat floor is one box however long it is (no seam for a
+// body sliding along it to catch on), and a tall wall is one box. An edit changes the runs of its row only, and so the boxes
+// that hold those runs, or that touch a new run above or below it: those are taken apart and stacked again (a box that comes
+// out the same is not touched: its contacts and its shape stay). The work follows the run and the boxes the edit touches,
+// not the size of the map.
+bool Physics2D::update_tile_boxes(TileBody& tb, const Tilemap& tm, const TilemapSize& size, const WorldPose& pose,
+                                  std::vector<int>& cells, bool all) {
+    const int cols = tb.cols, rows = tb.rows;
+    const std::size_t total = std::size_t(cols) * std::size_t(rows);
+    const TileSolid solid{std::as_const(tm.tiles).cdata(), tm.tiles.size(), size.width, &tb.solid};
+    // 1. The cells whose solidity is not what the boxes show (a write and its revert, a flag on a solid tile: none).
+    std::vector<int> dirty;
+    auto visit = [&](int cell) {
+        if (cell < 0 || std::size_t(cell) >= total) return;
+        if (solid(cell % cols, cell / cols) != (tb.boxAt[std::size_t(cell)] != 0)) dirty.push_back(cell);
+    };
+    if (all) {
+        for (std::size_t i = 0; i < total; ++i) visit(int(i));
+    } else {
+        std::sort(cells.begin(), cells.end());
+        cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
+        for (int cell : cells) visit(cell);
+    }
+    if (dirty.empty()) return false;
+
+    if (tilemap_isometric(tm)) {  // a diamond is its own shape: one per solid cell, nothing to merge
+        for (int cell : dirty) {
+            const std::uint32_t at = tb.boxAt[std::size_t(cell)];
+            if (at != 0)
+                remove_tile_box(tb, at - 1);
+            else
+                add_tile_box(tb, tm, pose, cell % cols, cell % cols, cell / cols, cell / cols);
+        }
+        return true;
+    }
+
+    // 2. Per row with a dirty cell: the columns a..b that cover every old run and every new run that touches one (extended
+    // through the solid cells next to the dirty ones, which are the same in the old and the new state).
+    struct Region {
+        int row, a, b;
+    };
+    std::vector<Region> regions;
+    for (int cell : dirty) {  // ascending: a row's cells come together, left to right
+        const int r = cell / cols, c = cell % cols;
+        if (!regions.empty() && regions.back().row == r)
+            regions.back().b = c;
+        else
+            regions.push_back({r, c, c});
+    }
+    std::vector<std::uint32_t> affected;  // old boxes to take apart
+    std::vector<RowRun> runs;             // the runs of the cells to stack again
+    for (Region& g : regions) {
+        while (g.a > 0 && solid(g.a - 1, g.row)) --g.a;
+        while (g.b < cols - 1 && solid(g.b + 1, g.row)) ++g.b;
+        const std::size_t rowBase = std::size_t(g.row) * std::size_t(cols);
+        for (int c = g.a; c <= g.b; ++c)
+            if (const std::uint32_t at = tb.boxAt[rowBase + std::size_t(c)]) affected.push_back(at - 1);
+        // The new runs of the row inside the region; a box right above or below that is the same run joins them.
+        for (int c = g.a; c <= g.b;) {
+            if (!solid(c, g.row)) {
+                ++c;
+                continue;
+            }
+            const int start = c;
+            while (c <= g.b && solid(c, g.row)) ++c;
+            runs.push_back({g.row, start, c - 1});
+            for (int nr : {g.row - 1, g.row + 1}) {
+                if (nr < 0 || nr >= rows) continue;
+                const std::uint32_t at = tb.boxAt[std::size_t(nr) * std::size_t(cols) + std::size_t(start)];
+                if (at != 0 && tb.boxes[at - 1].c0 == start && tb.boxes[at - 1].c1 == c - 1) affected.push_back(at - 1);
+            }
+        }
+    }
+    std::sort(affected.begin(), affected.end());
+    affected.erase(std::unique(affected.begin(), affected.end()), affected.end());
+    // The rest of the runs of the old boxes: every row of a box, except where the row's region replaces its run.
+    auto region_of = [&](int row) -> const Region* {
+        auto it = std::lower_bound(regions.begin(), regions.end(), row, [](const Region& g, int r) { return g.row < r; });
+        return it != regions.end() && it->row == row ? &*it : nullptr;
+    };
+    for (std::uint32_t id : affected) {
+        const TileBody::Box& box = tb.boxes[id];
+        for (int r = box.r0; r <= box.r1; ++r) {
+            const Region* g = region_of(r);
+            if (g && box.c0 <= g->b && box.c1 >= g->a) continue;  // inside the region: its new runs stand for it
+            runs.push_back({r, box.c0, box.c1});
+        }
+    }
+
+    // 3. Stack identical runs of consecutive rows into boxes (the same rule as a build from nothing).
+    std::sort(runs.begin(), runs.end(), [](const RowRun& x, const RowRun& y) {
+        return x.row != y.row ? x.row < y.row : x.c0 < y.c0;
+    });
+    struct NewBox {
         int c0, c1, r0, r1;
     };
-    std::vector<CellRun> runs;
-    if (iso) {  // a diamond is its own shape: one per solid cell, nothing to merge
-        for (int r = cc.r0; r <= cc.r1; ++r)
-            for (int c = cc.c0; c <= cc.c1; ++c)
-                if (solid_at(c, r)) runs.push_back({c, c, r, r});
-    } else {
-        std::vector<std::size_t> prevIdx;
-        for (int r = cc.r0; r <= cc.r1; ++r) {
-            std::vector<std::size_t> curIdx;
-            int c = cc.c0;
-            while (c <= cc.c1) {
-                if (!solid_at(c, r)) {
-                    ++c;
-                    continue;
+    std::vector<NewBox> boxes;
+    std::vector<std::size_t> prevIdx, curIdx;
+    int prevRow = -2;
+    for (std::size_t i = 0; i < runs.size();) {
+        const int row = runs[i].row;
+        if (row != prevRow + 1) prevIdx.clear();
+        curIdx.clear();
+        for (; i < runs.size() && runs[i].row == row; ++i) {
+            bool joined = false;
+            for (std::size_t k : prevIdx)
+                if (boxes[k].c0 == runs[i].c0 && boxes[k].c1 == runs[i].c1) {
+                    boxes[k].r1 = row;
+                    curIdx.push_back(k);
+                    joined = true;
+                    break;
                 }
-                const int start = c;
-                while (c <= cc.c1 && solid_at(c, r)) ++c;
-                bool found = false;
-                for (std::size_t idx : prevIdx) {
-                    if (runs[idx].c0 == start && runs[idx].c1 == c - 1) {
-                        runs[idx].r1 = r;
-                        curIdx.push_back(idx);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    runs.push_back({start, c - 1, r, r});
-                    curIdx.push_back(runs.size() - 1);
-                }
+            if (!joined) {
+                boxes.push_back({runs[i].c0, runs[i].c1, row, row});
+                curIdx.push_back(boxes.size() - 1);
             }
-            prevIdx = std::move(curIdx);
         }
+        prevIdx.swap(curIdx);
+        prevRow = row;
     }
 
-    // A box that is in both the old and the new decomposition stays: its contacts (a body standing on it) are not
-    // ended and begun again by an edit elsewhere in the chunk.
-    std::vector<bool> reused(runs.size(), false);
-    std::vector<TileBody::Run> keptRuns;
-    std::vector<std::uint64_t> keptKeys;
-    std::vector<Rect> keptBoxes;
-    for (std::size_t i = 0; i < ch.runs.size(); ++i) {
-        const TileBody::Run& old = ch.runs[i];
-        bool keep = false;
-        for (std::size_t j = 0; j < runs.size() && !keep; ++j)
-            if (!reused[j] && runs[j].c0 == old.c0 && runs[j].c1 == old.c1 && runs[j].r0 == old.r0 &&
-                runs[j].r1 == old.r1) {
-                reused[j] = true;
-                keep = true;
-            }
-        if (keep) {
-            keptRuns.push_back(old);
-            keptKeys.push_back(ch.shapeKeys[i]);
-            keptBoxes.push_back(ch.boxes[i]);
-        } else {
-            deadNow_.push_back(ch.shapeKeys[i]);
-            b2DestroyShape(old.shape, false);
-        }
+    // 4. The old boxes that come out the same stay; the others go, and the new ones are made in the order of a fresh build
+    // (by their first row, then their first column).
+    std::sort(boxes.begin(), boxes.end(), [](const NewBox& x, const NewBox& y) {
+        return x.r0 != y.r0 ? x.r0 < y.r0 : x.c0 < y.c0;
+    });
+    std::vector<bool> kept(boxes.size(), false);
+    for (std::uint32_t id : affected) {
+        const TileBody::Box& old = tb.boxes[id];
+        auto it = std::lower_bound(boxes.begin(), boxes.end(), old, [](const NewBox& x, const TileBody::Box& y) {
+            return x.r0 != y.r0 ? x.r0 < y.r0 : x.c0 < y.c0;
+        });
+        if (it != boxes.end() && it->r0 == old.r0 && it->c0 == old.c0 && it->c1 == old.c1 && it->r1 == old.r1)
+            kept[std::size_t(it - boxes.begin())] = true;
+        else
+            remove_tile_box(tb, id);
     }
-    ch.runs = std::move(keptRuns);
-    ch.shapeKeys = std::move(keptKeys);
-    ch.boxes = std::move(keptBoxes);
-
-    // Tilemap origin = TOP-LEFT corner, +Y up: tile (c, r) spans x in [c*tw, (c+1)*tw], y in [-(r+1)*th, -r*th].
-    for (std::size_t j = 0; j < runs.size(); ++j) {
-        if (reused[j]) continue;
-        const CellRun& run = runs[j];
-        if (iso) {
-            // The diamond of tile (c, r): centre ((c - r) * tw / 2, -(c + r + 1) * th / 2) (tw, th = the footprint, scaled).
-            const float cx = float(run.c0 - run.r0) * tw * 0.5f, cy = -float(run.c0 + run.r0 + 1) * th * 0.5f;
-            const float hx = std::max(tw * 0.5f * inv, kMinHalf), hy = std::max(th * 0.5f * inv, kMinHalf);
-            const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy},
-                                   {cx * inv - hx, cy * inv},
-                                   {cx * inv, cy * inv - hy},
-                                   {cx * inv + hx, cy * inv}};
-            const b2Hull hull = b2ComputeHull(pts, 4);
-            const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
-            b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
-            register_shape(sid, tb.e, false, false, &ch.shapeKeys);
-            ch.runs.push_back({run.c0, run.c1, run.r0, run.r1, sid});
-            ch.boxes.push_back(Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv}));
-            continue;
-        }
-        const float cx = (float(run.c0 + run.c1 + 1) * 0.5f) * tw;
-        const float cy = -(float(run.r0 + run.r1 + 1) * 0.5f) * th;
-        const float hx = std::max(float(run.c1 - run.c0 + 1) * tw * 0.5f * inv, kMinHalf);
-        const float hy = std::max(float(run.r1 - run.r0 + 1) * th * 0.5f * inv, kMinHalf);
-        const b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
-        b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
-        register_shape(sid, tb.e, false, false, &ch.shapeKeys);
-        ch.runs.push_back({run.c0, run.c1, run.r0, run.r1, sid});
-        // world-space AABB (rotation ignored for debug)
-        ch.boxes.push_back(Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv}));
-    }
-    ch.solidHash = solidHash;
-    ++tb.chunkRebuilds;
+    for (std::size_t i = 0; i < boxes.size(); ++i)
+        if (!kept[i]) add_tile_box(tb, tm, pose, boxes[i].c0, boxes[i].c1, boxes[i].r0, boxes[i].r1);
+    return true;
 }
 
 void Physics2D::sync_tilemaps(World& world) {
@@ -594,56 +667,27 @@ void Physics2D::sync_tilemaps(World& world) {
 
         if (it != tiles_.end()) {
             // The map is read again only when it is not what the colliders were built from (the stamp: same array, same
-            // version, same size). Then the chunks to look at are those of the cells the recorded edits turned solid or
-            // empty; when the edits do not explain the change (a whole-array write, a write that bypassed
-            // set_tilemap_tile, an assignment from another Tilemap) every chunk is looked at. Either way a chunk is
-            // rebuilt only when its solid cells differ from what it was built from, so a write and its revert, or a
-            // flag on a solid tile, rebuild nothing; and the stamp is refreshed in every case.
+            // version, same size). The cells to look at are those of the recorded edits; when the edits do not explain the
+            // change (a whole-array write, a write that bypassed set_tilemap_tile, an assignment from another Tilemap)
+            // every cell is compared with what the boxes show. Either way only the cells whose solidity differs change a
+            // box, so a write and its revert, or a flag on a solid tile, change nothing; and the stamp is refreshed in
+            // every case.
             TileBody& tb = it->second;
             const TilemapStamp stamp = tilemap_stamp(*tm);
             if (!(tb.stamp == stamp)) {
-                // The chunks to look at, each with the hash its solid cells must now have when the edits say.
-                std::vector<std::pair<int, std::uint64_t>> candidates;
+                std::vector<int> cells;
                 std::span<const TileEdit> edits;
                 const bool explained = tilemap_edits_since(*tm, tb.stamp, edits);
                 if (explained) {
-                    // Each edit that made a cell solid or empty moves its chunk's hash by that cell's mix; the sum over the
-                    // edits is the hash of the chunk now, and a chunk the edits left as it was (a write and its revert) has
-                    // the hash it was built with and is not read at all.
-                    for (const TileEdit& ed : edits) {
-                        const bool was = is_solid_index(tb.solid, ed.oldIndex), now = is_solid_index(tb.solid, ed.newIndex);
-                        if (was == now || ed.cell < 0 || tb.cols <= 0 || ed.cell >= tb.cols * tb.rows) continue;
-                        const std::uint64_t mix = cell_mix(ed.cell, 1);
-                        candidates.push_back({(ed.cell / tb.cols / kTileChunk) * tb.chunkCols + (ed.cell % tb.cols) / kTileChunk,
-                                              now ? mix : std::uint64_t(0) - mix});
-                    }
-                    std::sort(candidates.begin(), candidates.end(),
-                              [](const auto& a, const auto& b) { return a.first < b.first; });
-                    std::size_t out = 0;
-                    for (std::size_t i = 0; i < candidates.size(); ++i) {
-                        if (out > 0 && candidates[out - 1].first == candidates[i].first)
-                            candidates[out - 1].second += candidates[i].second;
-                        else
-                            candidates[out++] = candidates[i];
-                    }
-                    candidates.resize(out);
+                    cells.reserve(edits.size());
+                    for (const TileEdit& ed : edits)
+                        if (is_solid_index(tb.solid, ed.oldIndex) != is_solid_index(tb.solid, ed.newIndex))
+                            cells.push_back(ed.cell);
                 } else {
                     ++tb.fullScans;
-                    candidates.resize(tb.chunks.size());
-                    for (std::size_t i = 0; i < candidates.size(); ++i) candidates[i] = {int(i), 0};
-                }
-                bool changed = false;
-                ChunkScan scan;
-                for (const auto& [ci, delta] : candidates) {
-                    if (explained && delta == 0) continue;  // the edits cancel out: this chunk is as it was built
-                    const ChunkCells cc = chunk_cells(ci, tb.chunkCols, tb.cols, tb.rows, kTileChunk);
-                    scan_chunk(*tm, size, tb.solid, cc, scan);
-                    if (scan.hash == tb.chunks[std::size_t(ci)].solidHash) continue;
-                    rebuild_tile_chunk(tb, ci, *tm, pose, scan.cells.data(), scan.hash);
-                    changed = true;
                 }
                 // Bodies resting on a removed tile must not stay asleep on thin air.
-                if (changed) wake_after_teleport(tb.body);
+                if (update_tile_boxes(tb, *tm, size, pose, cells, !explained)) wake_after_teleport(tb.body);
                 tb.stamp = stamp;
             }
         } else {
@@ -656,9 +700,7 @@ void Physics2D::sync_tilemaps(World& world) {
             tb.stamp = tilemap_stamp(*tm);
             tb.cols = size.width;
             tb.rows = size.height;
-            tb.chunkCols = (size.width + kTileChunk - 1) / kTileChunk;
-            tb.chunkRows = (size.height + kTileChunk - 1) / kTileChunk;
-            tb.chunks.resize(std::size_t(tb.chunkCols) * std::size_t(tb.chunkRows));
+            tb.boxAt.assign(std::size_t(size.width) * std::size_t(size.height), 0u);
             tb.solid = std::move(solid);
             tb.pos = pose.position;
             tb.rotZ = pose.rotZ;
@@ -667,11 +709,8 @@ void Physics2D::sync_tilemaps(World& world) {
             bd.position = {pose.position.x * inv, pose.position.y * inv};
             bd.rotation = b2MakeRot(radians(pose.rotZ));
             tb.body = b2CreateBody(world_, &bd);
-            ChunkScan scan;
-            for (std::size_t ci = 0; ci < tb.chunks.size(); ++ci) {
-                scan_chunk(*tm, size, tb.solid, chunk_cells(int(ci), tb.chunkCols, tb.cols, tb.rows, kTileChunk), scan);
-                rebuild_tile_chunk(tb, int(ci), *tm, pose, scan.cells.data(), scan.hash);
-            }
+            std::vector<int> none;
+            update_tile_boxes(tb, *tm, size, pose, none, true);
             it = tiles_.emplace(key, std::move(tb)).first;
         }
         TileBody& tb = it->second;
@@ -692,6 +731,7 @@ void Physics2D::sync_tilemaps(World& world) {
         }
     }
 }
+
 
 void Physics2D::writeback(World& world, Entity e, Body& b, RigidBody2D* rb) {
     if (b.type == BodyType::Static || !b.enabled) return;
@@ -1608,8 +1648,7 @@ void Physics2D::debug_state(const World& world, Json& out) const {
             j["kind"] = "tilemap";
             j["position"] = Json::array({tt->second.pos.x, tt->second.pos.y});
             j["shapeCount"] = tt->second.shape_count();
-            j["chunks"] = tt->second.chunks.size();
-            j["chunkRebuilds"] = tt->second.chunkRebuilds;
+            j["boxesBuilt"] = tt->second.boxesBuilt;
             j["fullScans"] = tt->second.fullScans;
             out.push_back(j);
         }
@@ -1650,10 +1689,13 @@ void Physics2D::debug_shapes(const World& world, std::vector<Physics::DebugShape
         }
         auto tt = tiles_.find(e.bits());
         if (tt != tiles_.end()) {
-            for (const TileBody::Chunk& ch : tt->second.chunks)
-                for (const Rect& r : ch.boxes)
-                    out.push_back(
-                        {Physics::DebugShape::Box, {r.center().x, r.center().y, 0.0f}, {r.w, r.h, 0.0f}, 0.0f, false});
+            for (const TileBody::Box& box : tt->second.boxes)
+                if (box.alive)
+                    out.push_back({Physics::DebugShape::Box,
+                                   {box.rect.center().x, box.rect.center().y, 0.0f},
+                                   {box.rect.w, box.rect.h, 0.0f},
+                                   0.0f,
+                                   false});
         }
     }
 }

@@ -61,9 +61,6 @@ public:
     static void finish(void* userTask, void* userContext);
 };
 
-// Tilemap colliders are built in chunks of kTileChunk x kTileChunk cells (see Physics2D::TileBody).
-inline constexpr int kTileChunk = 32;
-
 class Physics2D {
 public:
     ~Physics2D();
@@ -147,46 +144,42 @@ private:
     Entity entity_of(b2ShapeId s, bool* trigger = nullptr) const;
     Entity entity_of_alive(const World& world, b2ShapeId s, bool* trigger) const;
 
-    // The colliders of one Tilemap: static boxes in chunks of kTileChunk x kTileChunk cells, merged inside a chunk only, so
-    // a changed cell rebuilds its chunk and nothing else (and a long floor is one box per chunk: a seam every 32 cells).
+    // The colliders of one Tilemap: static boxes, ONE decomposition of the solid cells whatever the edits that led to it
+    // (every row cut into its maximal runs, identical runs of consecutive rows stacked), so a long floor is one box with no
+    // seam. `boxAt` says which box holds each cell (id + 1, 0 = none): an edit finds the boxes it touches without a scan.
     struct TileBody {
         Entity e;
         std::string id;
         b2BodyId body = b2_nullBodyId;
         std::uint64_t hash = 0;  // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
-        TilemapStamp stamp;      // the array the chunks were built from (fa/scene/tilemap.h): same stamp = same tiles
+        TilemapStamp stamp;      // the array the boxes were built from (fa/scene/tilemap.h): same stamp = same tiles
         int cols = 0;            // grid size the colliders were built for
         int rows = 0;
-        int chunkCols = 0;  // chunks per row / number of chunk rows
-        int chunkRows = 0;
         std::vector<int> solid;  // sorted solid tile indices
-        // One box per run of solid tiles inside the chunk (cells c0..c1 x r0..r1), parallel to shapeKeys and boxes.
-        struct Run {
-            int c0, c1, r0, r1;
-            b2ShapeId shape;
+        struct Box {
+            int c0 = 0, c1 = 0, r0 = 0, r1 = 0;  // cells, both ends included
+            b2ShapeId shape = b2_nullShapeId;
+            std::uint64_t key = 0;  // shape_key(shape)
+            Rect rect;              // world-space AABB (for debug)
+            bool alive = false;
         };
-        struct Chunk {
-            std::uint64_t solidHash = 0;  // which cells of the chunk are solid (sum of per-cell mixes): 0 = none
-            std::vector<Run> runs;
-            std::vector<std::uint64_t> shapeKeys;
-            std::vector<Rect> boxes;  // world-space AABBs (for debug)
-        };
-        std::vector<Chunk> chunks;  // row-major, chunkCols x chunkRows
+        std::vector<Box> boxes;                // by id; a removed box stays (alive = false) until its id is reused
+        std::vector<std::uint32_t> freeBoxes;  // ids to reuse, last removed first
+        std::vector<std::uint32_t> boxAt;      // cols x rows (4 bytes per cell): id + 1 of the box holding the cell, 0 = none
         Vec3 pos;
         float rotZ = 0;
         std::uint64_t seen = 0;
-        int fullScans = 0;                // times every cell had to be read to find the changed chunks (no edit list explained it)
-        std::int64_t chunkRebuilds = 0;   // chunks (re)built since the body was made, the first build included
-        std::size_t shape_count() const {
-            std::size_t n = 0;
-            for (const Chunk& c : chunks) n += c.runs.size();
-            return n;
-        }
+        int fullScans = 0;               // times every cell had to be compared (no edit list explained the change)
+        std::int64_t boxesBuilt = 0;     // boxes made since the body was made, the first build included
+        std::size_t shape_count() const { return boxes.size() - freeBoxes.size(); }
     };
-    // Rebuilds chunk `ci` of `tb`, keeping the boxes that did not change (and with them their contacts). `cells` says which
-    // cells of the chunk are solid (kTileChunk wide, row-major from the chunk's first cell), `solidHash` is their hash.
-    void rebuild_tile_chunk(TileBody& tb, int ci, const Tilemap& tm, const WorldPose& pose, const std::uint8_t* cells,
-                            std::uint64_t solidHash);
+    // Makes the box of cells c0..c1 x r0..r1 (one diamond per cell on an isometric map) and returns its id.
+    std::uint32_t add_tile_box(TileBody& tb, const Tilemap& tm, const WorldPose& pose, int c0, int c1, int r0, int r1);
+    void remove_tile_box(TileBody& tb, std::uint32_t id);
+    // Brings the boxes of `tb` to the map now: `cells` are the cells that may have changed solidity (`all`: every cell).
+    // Boxes that come out the same are kept, with their contacts. Returns whether any box changed.
+    bool update_tile_boxes(TileBody& tb, const Tilemap& tm, const TilemapSize& size, const WorldPose& pose,
+                           std::vector<int>& cells, bool all);
 
     // A Joint2D as built in Box2D. `shape` is what forces a rebuild (type, bodies, anchors, axis, collideConnected); `tuning`
     // (limits, motor, spring, length) is applied to the live joint when it changes.
