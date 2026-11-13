@@ -168,6 +168,72 @@
       "cpuMedianMs": 17.641,
       "items": 4233600,
       "unit": "voice frames"
+    },
+    "jobs.tiny": {
+      "medianMs": 1.918,
+      "minMs": 1.889,
+      "maxMs": 2.574,
+      "p25Ms": 1.897,
+      "p75Ms": 2.314,
+      "spread": 0.217,
+      "cpuMedianMs": 1.918,
+      "items": 20000,
+      "unit": "jobs"
+    },
+    "jobs.for_small_grain": {
+      "medianMs": 4.283,
+      "minMs": 4.22,
+      "maxMs": 4.686,
+      "p25Ms": 4.231,
+      "p75Ms": 4.334,
+      "spread": 0.024,
+      "cpuMedianMs": 4.268,
+      "items": 125000,
+      "unit": "chunks"
+    },
+    "jobs.for_large_grain": {
+      "medianMs": 19.905,
+      "minMs": 19.737,
+      "maxMs": 20.085,
+      "p25Ms": 19.853,
+      "p75Ms": 20.012,
+      "spread": 0.008,
+      "cpuMedianMs": 19.883,
+      "items": 320,
+      "unit": "chunks"
+    },
+    "jobs.graph": {
+      "medianMs": 1.499,
+      "minMs": 1.466,
+      "maxMs": 2.061,
+      "p25Ms": 1.479,
+      "p75Ms": 1.581,
+      "spread": 0.068,
+      "cpuMedianMs": 1.5,
+      "items": 12600,
+      "unit": "jobs"
+    },
+    "jobs.nested_wait": {
+      "medianMs": 1.006,
+      "minMs": 0.987,
+      "maxMs": 1.224,
+      "p25Ms": 0.991,
+      "p75Ms": 1.201,
+      "spread": 0.208,
+      "cpuMedianMs": 1.006,
+      "items": 9216,
+      "unit": "jobs"
+    },
+    "jobs.main_queue": {
+      "medianMs": 1.558,
+      "minMs": 1.515,
+      "maxMs": 1.791,
+      "p25Ms": 1.54,
+      "p75Ms": 1.607,
+      "spread": 0.043,
+      "cpuMedianMs": 1.558,
+      "items": 96000,
+      "unit": "tasks"
     }
   }
 }

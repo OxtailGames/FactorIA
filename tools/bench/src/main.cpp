@@ -254,6 +254,7 @@ int main(int argc, char** argv) {
     add_command_benches(all);
     add_script_benches(all);
     add_audio_benches(all);
+    add_jobs_benches(all);
 
     if (args.list) {
         for (const Bench& b : all) std::printf("%-26s %s\n", b.name.c_str(), b.summary.c_str());
