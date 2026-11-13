@@ -31,17 +31,24 @@ count=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
 fixcmd="scripts/format.sh${base:+ --changed $base}"
 
 if [ $check -eq 0 ]; then
-    printf '%s\n' "$files" | xargs "$tool" -i --style=file
+    printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 "$tool" -i --style=file
+    rc=$?
+    if [ $rc -ne 0 ]; then echo "format: clang-format failed (exit $rc, see above)" >&2; exit 2; fi
     echo "format: $count files formatted"
     exit 0
 fi
 
-# --dry-run reports "code should be clang-formatted" with the file name for each file it would change.
-out="$(printf '%s\n' "$files" | xargs "$tool" --dry-run --style=file 2>&1)"
+# --dry-run reports "code should be clang-formatted" with the file name for each file it would change; it exits 0 for
+# those, so a non-zero exit is a real failure (bad config, unreadable file).
+out="$(printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 "$tool" --dry-run --style=file 2>&1)"
+rc=$?
 bad="$(grep -E ': (warning|error): code should be clang-formatted' <<< "$out" | sed -E 's/:[0-9]+:[0-9]+: .*//' | sort -u)"
-# Any other error (bad config, unreadable file) must not pass silently.
 other="$(grep -E '^[^ ]+:[0-9]+:[0-9]+: error:|^clang-format:' <<< "$out" | grep -v 'code should be clang-formatted' | head -5)"
-if [ -n "$other" ]; then echo "$other"; echo "format: clang-format failed (see above)"; exit 2; fi
+if [ -n "$other" ] || { [ $rc -ne 0 ] && [ -z "$bad" ]; }; then
+    echo "${other:-$out}" | head -20
+    echo "format: clang-format failed (exit $rc, see above)" >&2
+    exit 2
+fi
 if [ -n "$bad" ]; then
     echo "These files need formatting:"
     sed 's/^/  /' <<< "$bad"

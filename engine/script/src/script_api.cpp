@@ -275,7 +275,7 @@ std::string emit_components(const ScriptSystem::SinceFn& since) {
             out += std::string(first ? " " : "; ") + f.name + "?: " + init_type(f);
             first = false;
         }
-        out += first ? " }" : " }";
+        out += " }";
         out += ";\n";
     }
     out += "  }\n";

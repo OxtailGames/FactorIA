@@ -33,7 +33,18 @@ end_of_line = crlf
 [gradlew]
 end_of_line = lf
 
-# Binary-like or byte-exact files.
+# Byte-exact files: third party code, fuzz corpora, test data and golden files, fonts (CRLF, BOM and missing final
+# newlines are part of them).
+[{external/**,tools/fuzz/corpus/**,**/tests/data/**,**/tests/golden/**,engine/render/assets/fonts/**}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset
+max_line_length = unset
+
+# Binary-like files.
 [*.{ktx2,png,zst,lz4,bin,jar}]
 charset = unset
 end_of_line = unset

@@ -130,7 +130,7 @@ Json info_tree(const std::string& projectDir, const Json& list, std::vector<int>
         path.push_back(int(i));
         Json n = Json::object({{"index", index_path_string(path)}});
         std::string ptr;
-        for (std::size_t k = 0; k < path.size(); ++k) ptr += (k ? "/layers/" : "/layers/") + std::to_string(path[k]);
+        for (std::size_t k = 0; k < path.size(); ++k) ptr += "/layers/" + std::to_string(path[k]);
         n["pointer"] = ptr;
         n["name"] = l.value("name", std::string());
         n["kind"] = l.value("kind", std::string());

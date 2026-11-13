@@ -794,7 +794,7 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                 c.key = c.pattern.dump();
             } else {
                 std::vector<Note> cut = in;
-                const std::int64_t limit = (wholeSection ? sectionEndBar : sectionEndBar) * barTicks;
+                const std::int64_t limit = sectionEndBar * barTicks;
                 for (Note& n : cut) {
                     if (n.end > limit) {
                         n.end = limit;
