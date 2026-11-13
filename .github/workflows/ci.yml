@@ -1317,11 +1317,54 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # Formatting and bug-finding lint (docs/BUILDING.md, "Formatting and lint"). Cheap: nothing is compiled, CMake only
+  # writes compile_commands.json for clang-tidy.
+  lint:
+    name: Lint (format, clang-tidy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # `changed`: only the C/C++ files this change touches (the base of the pull request, or the commit before a push).
+      # After the repository-wide reformat, set this to `all` (one line) to check every file.
+      FORMAT_SCOPE: changed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the merge base of the diff
+
+      - name: Pick the base of the diff
+        id: base
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A tag, "Run workflow" or a push without a usable base (new branch: all zeros) compares with the first parent.
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE=HEAD~1; fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Diff base: $BASE"
+
+      # The pinned clang-format and clang-tidy come from scripts/lint-tools.sh (pip wheels in build/lint-venv).
+      - name: Format check
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          if [[ "$FORMAT_SCOPE" == "all" ]]; then ./scripts/format.sh --check; else ./scripts/format.sh --check --changed "$BASE"; fi
+
+      - name: Install build dependencies (for the CMake configure)
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: clang-tidy on the changed sources
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+          FA_TIDY_JOBS: 4
+        run: ./scripts/tidy-changed.sh "$BASE"
+
   # The one check main's branch protection requires: every job that ran passed (a skipped job had nothing to check).
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, linux-fuzz, linux-sniper, windows, macos, bench, ios-build, ios, android, android-apk, android-emulator, web]
+    needs: [changes, lint, linux, linux-fuzz, linux-sniper, windows, macos, bench, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
     permissions:
       actions: write  # gh cache delete

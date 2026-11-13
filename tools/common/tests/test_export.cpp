@@ -1476,7 +1476,7 @@ TEST_CASE("export ios: Products.storekit is written without the Apple plugin, wi
 // A player stand-in the exporter treats as an executable (starts with MZ) and carries the given build fingerprint.
 static std::string fingerprinted_player(const testing::TempDir& tmp, const std::string& fingerprint, const char* name = "factoria_player.exe") {
     const std::string p = tmp.sub(std::string("fp_player/") + name);
-    std::string bytes = std::string("MZ\x90\0 padding ", 14);
+    std::string bytes = std::string("MZ\x90\0 padding \0", 14);
     if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
     testing::write_all(p, bytes + " end");
     return p;

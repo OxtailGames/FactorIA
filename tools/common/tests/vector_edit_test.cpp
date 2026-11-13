@@ -373,7 +373,7 @@ TEST_CASE("vector.reorder: z order and regrouping keep the look") {
     const std::string base = svg_of(R"X(<rect id="a" width="10" height="10"/><rect id="b" width="10" height="10"/><rect id="c" width="10" height="10"/><g id="g" transform="translate(30 0)"></g>)X");
     auto order = [](const std::string& svg) {
         std::string out;
-        for (const char* id : {"a", "b", "c"}) out += (svg.find(std::string("id=\"") + id + "\"") < svg.size() ? std::string(1, id[0]) : "") + std::string(0, ' ');
+        for (const char* id : {"a", "b", "c"}) out += (svg.find(std::string("id=\"") + id + "\"") < svg.size() ? std::string(1, id[0]) : "");
         return out;
     };
     (void)order;
