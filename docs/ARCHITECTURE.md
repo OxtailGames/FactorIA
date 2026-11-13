@@ -90,6 +90,34 @@ plain data; systems in other modules read them. Pointers to components are
 stable until removal. `destroy()` is deferred to the end of the frame (physics treats a
 pending-destroy entity as gone at once: no body, no collisions, no query hits).
 
+#### The hierarchy cache
+`World::world_matrix`, `world_position`, `active_in_hierarchy` and `pending_destroy` are answered from a cache kept per
+entity, instead of walking the parent chain on every call (`engine/scene/src/world.cpp`, `World::Impl`):
+
+- **What is cached**: the world matrix (the parent's world matrix times the local TRS, from the root down: the one
+  definition of `world_matrix`, cached or not) and "active in hierarchy" (own `EntityInfo.active` and every ancestor's).
+  `pending_destroy` is a flag `destroy()` sets on the whole subtree (a pending subtree takes no new child, so it stays true
+  until the flush). `drawn_matrix` is the same product with the game feel poses and is not cached while one runs.
+- **Invalidation**: every MUTABLE access to a `Transform` or an `EntityInfo` drops the entity's entry and, below it, the
+  entries that are valid: `get<T>(e)` / `get(e, type)` / `add` / `info(e)` on a non-const `World`, each callback of
+  `each<Transform, ...>` / `each<EntityInfo, ...>`, `set_parent` (the child's subtree), `set_world_position`,
+  `set_active`. No setter of `Transform` is involved, so any way of writing (C++, scripts, reflection, commands, the
+  inspector, animation) is seen. The cost of a write is one flag when the entry was already dropped. `create()` resets the
+  entry of a reused entity index.
+- **Rules for code**: read through a `const World&` (or `std::as_const(world).get<Transform>(e)`): a read through a mutable
+  `World` counts as a write and throws the cache away for nothing (`resolve_obj` in the script bridge, the UI and render
+  passes already read through const). A `Transform&` or `EntityInfo&` KEPT from an earlier `get` and written after a
+  `world_matrix` call is not seen: get the reference again after the read (the engine does not do it anywhere; the tests
+  of `test_hierarchy_cache.cpp` check every write path against a walk up the chain, bit for bit).
+- **Threads**: jobs may read (the render gather does, `world_matrix` from several threads at once): a valid entry is read
+  with an acquire load and no lock, a missing one is filled under a small spin lock and published with a release store.
+  Nothing may write while jobs read (the rule of every job), so an entry never changes under a reader.
+  `World::hierarchy_version()` counts the dropped entries (tests, and a system that wants to know nothing moved).
+- **Same results on every run**: the matrices are the same bits however the entries were filled (the order of reads, the
+  threads), and `game.state_hash` does not read them. Since M94.1c the product is `parent * local` from the root down
+  (before it was grouped from the leaf up), which can differ in the last bit of a float from earlier versions of the
+  engine for an entity two or more levels deep.
+
 ### Reflection
 `fa::TypeRegistry::global()` (core/reflect.h) holds every component type with
 documented fields. From it we derive: JSON load/save, `scene.set_component`, script

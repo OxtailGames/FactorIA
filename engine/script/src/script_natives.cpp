@@ -195,9 +195,10 @@ const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc)
     return t;
 }
 
-// Resolves (entity handle | -1 for scene settings, type index) to engine memory.
+// Resolves (entity handle | -1 for scene settings, type index) to engine memory. `write` false: the caller only reads
+// through `obj` (the const lookup: a read of a Transform or an EntityInfo must not drop the hierarchy cache, World::world_matrix).
 bool resolve_obj(Impl* I, JSContext* ctx, JSValueConst h, JSValueConst ti, void*& obj, const TypeInfo*& type,
-                 Entity& ent, JSValue& exc) {
+                 Entity& ent, JSValue& exc, bool write) {
     World& W = I->host->world();
     double tid = 0;
     JS_ToFloat64(ctx, &tid, ti);
@@ -214,7 +215,7 @@ bool resolve_obj(Impl* I, JSContext* ctx, JSValueConst h, JSValueConst ti, void*
         return true;
     }
     if (!need_entity(I, ctx, h, ent, exc)) return false;
-    obj = W.get(ent, *type);
+    obj = write ? W.get(ent, *type) : const_cast<void*>(std::as_const(W).get(ent, *type));
     if (!obj) {
         exc = throw_err(ctx, "entity '" + W.id_of(ent) + "' has no " + type->name +
                                  " component (it was removed, or never added: entity.add(\"" + type->name + "\"))");
@@ -885,7 +886,7 @@ NATIVE(tags) {
     ENTITY(e, 0);
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (const auto& t : W.info(e).tags) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, t.c_str()));
+    for (const auto& t : std::as_const(W).info(e).tags) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, t.c_str()));
     return a;
 }
 
@@ -944,7 +945,7 @@ NATIVE(setId) {
 NATIVE(getName) {
     SETUP;
     ENTITY(e, 0);
-    return JS_NewString(ctx, W.info(e).name.c_str());
+    return JS_NewString(ctx, std::as_const(W).info(e).name.c_str());
 }
 
 NATIVE(setName) {
@@ -957,7 +958,7 @@ NATIVE(setName) {
 NATIVE(getActive) {
     SETUP;
     ENTITY(e, 0);
-    return JS_NewBool(ctx, W.info(e).active);
+    return JS_NewBool(ctx, std::as_const(W).info(e).active);
 }
 
 NATIVE(setActive) {
@@ -2210,10 +2211,10 @@ NATIVE(compJson) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     Json j = e.is_null() ? object_to_json(*t, obj, true, true) : component_to_json(W, e, *t, true, true);
     if (e.is_null() == false && t->name == "EntityInfo") {
-        j["tags"] = W.info(e).tags;
+        j["tags"] = std::as_const(W).info(e).tags;
     }
     return I->from_json(j);
 }
@@ -2248,7 +2249,7 @@ NATIVE(fget) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
@@ -2292,7 +2293,7 @@ NATIVE(fgetn) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     int32_t fi = 0, k = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     JS_ToInt32(ctx, &k, argv[3]);
@@ -2306,7 +2307,7 @@ NATIVE(fsetn) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
     int32_t fi = 0, k = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     JS_ToInt32(ctx, &k, argv[3]);
@@ -2329,7 +2330,7 @@ NATIVE(fset) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
