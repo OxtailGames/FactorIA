@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- 3D physics: the solver has a broad phase. A dynamic AABB tree with fat boxes finds the candidate pairs of the
+  sub-step, the first impacts, the contact events and the sleeping bodies a mover wakes, instead of testing every pair.
+  The result of the simulation is the same (the replay hash does not change); a scene of 1000 bodies steps about 4.5
+  times faster (macOS, Release: `physics.step3d_1000` 471 ms to 106 ms), a pit of 1000 bodies falling into a walled
+  box now costs about 12 ms per step, and the pair scan of 64 or more rows runs in chunks of 16 rows on the job
+  threads.
+
 ## 0.26.0
 
 FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite

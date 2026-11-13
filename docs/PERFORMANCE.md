@@ -535,7 +535,7 @@ queues a job. The sizes below are counts of items, the same on every machine (ne
 | Work | Runs on the job threads when | Not split further than |
 | --- | --- | --- |
 | 2D physics step (Box2D) | at least 1536 awake bodies or 4096 contacts | 4 pieces per task (the pool's size above 4 is not used) |
-| 3D physics, contact tests and events | bodies^2 >= about 16384 (128 bodies or more) | chunks of about 4096 body pairs |
+| 3D physics, contact tests and events | 64 or more rows (bodies) in the scan | chunks of 16 rows (each row asks the broad phase for its partners) |
 | `nav.findPaths` / `nav.findTilePaths` | 8 or more queries in one call | 4 queries per chunk |
 | `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
 
@@ -555,7 +555,8 @@ orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker th
 
 The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
 sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
-bigger because its pair loops dominate. The solver's iterations, the time-of-impact islands,
+bigger because its narrow phase dominates (the table was measured before the broad phase of M94, which made the pair search itself
+cheap; the threshold is now counted in rows). The solver's iterations, the time-of-impact islands,
 sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
 below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
 `4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
@@ -579,7 +580,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `ecs.each`, `ecs.entities_with`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::entities_with`, creating and destroying 30000 entities |
 | `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep |
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
-| `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case a broadphase must make cheap: every pair is tested today), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
+| `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case the broad phase makes cheap: only bodies whose boxes are close are tested), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
 | `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
 | `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |
