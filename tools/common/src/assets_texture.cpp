@@ -852,7 +852,7 @@ TextureSpec parse_texture_spec(const ArgCtx& ctx, const Json& a) {
     Params& p = spec.p;
     p.w = size_arg(ctx, a, "width", 512);
     p.h = size_arg(ctx, a, "height", a.contains("width") ? p.w : 512);
-    p.seed = u32(mix_bits(u32(tooling_detail::arg_int(a, "seed", 0))) ^ mix_bits(u32(tooling_detail::arg_int(a, "seed", 0) >> 32) + 0x51ed27u));
+    p.seed = u32(mix_bits(u32(tooling_detail::arg_int(a, "seed", 0))) ^ mix_bits(u32(static_cast<std::int64_t>(tooling_detail::arg_int(a, "seed", 0)) >> 32) + 0x51ed27u));
     p.base = preset->base;
     p.accent = preset->accent;
     if (a.contains("color")) p.base = from_color(colour_arg(ctx.command.c_str(), a["color"], ctx.prefix + "/color"));

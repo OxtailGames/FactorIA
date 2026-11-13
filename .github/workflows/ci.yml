@@ -106,7 +106,7 @@ jobs:
       - name: Configure and build (linux-release)
         run: |
           ccache --zero-stats
-          cmake --preset linux-release
+          cmake --preset linux-release -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset linux-release
           ccache --show-stats --verbose
 
@@ -189,7 +189,7 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-sniper-
 
       - name: Build in the sniper SDK container (GCC 14, static libstdc++)
-        run: ./scripts/build-sniper.sh build
+        run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON
 
       - name: Check the symbol versions the programs need
         run: ./scripts/build-sniper.sh check
@@ -239,7 +239,7 @@ jobs:
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
       - name: Configure (windows-release)
-        run: cmake --preset windows-release
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON
 
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
@@ -335,7 +335,7 @@ jobs:
       - name: Configure and build (macos-release)
         run: |
           ccache --zero-stats
-          cmake --preset macos-release
+          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset macos-release
           ccache --show-stats --verbose
 
@@ -416,7 +416,7 @@ jobs:
 
       - name: Configure and build fa_bench (linux-release)
         run: |
-          cmake --preset linux-release
+          cmake --preset linux-release -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset linux-release --target fa_bench --parallel
 
       - name: Run the microbenchmarks
@@ -472,7 +472,7 @@ jobs:
       - name: Configure and build fa_bench (${{ matrix.preset }})
         shell: bash
         run: |
-          cmake --preset ${{ matrix.preset }}
+          cmake --preset ${{ matrix.preset }} -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset ${{ matrix.preset }} --target fa_bench --parallel
 
       - name: Measure the baseline
@@ -555,7 +555,7 @@ jobs:
       - name: Configure and build factoria (${{ matrix.preset }})
         shell: bash
         run: |
-          cmake --preset ${{ matrix.preset }}
+          cmake --preset ${{ matrix.preset }} -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset ${{ matrix.preset }} --target factoria --parallel
 
       - name: Measure the baselines
@@ -657,7 +657,7 @@ jobs:
       - name: Configure (ios-simulator, with the demo game and its native plugins)
         run: |
           frameworks=$(python3 -c "import json,sys; print(';'.join(json.load(open(sys.argv[1]))['frameworks']))" "$RUNNER_TEMP/plugins/apple/plugin.json")
-          cmake --preset ios-simulator -DFA_GAME_PROJECT_DIR="$RUNNER_TEMP/plugin-game" -DFA_GAME_PLUGINS="example;apple" \
+          cmake --preset ios-simulator -DFA_WARNINGS_AS_ERRORS=ON -DFA_GAME_PROJECT_DIR="$RUNNER_TEMP/plugin-game" -DFA_GAME_PLUGINS="example;apple" \
                 -DFA_GAME_PLUGIN_DIR="$RUNNER_TEMP/plugins" -DFA_GAME_PLUGIN_FRAMEWORKS="$frameworks" -DFA_GAME_PLUGIN_SWIFT=ON \
                 -DFA_GAME_BUNDLE_ID=dev.factoria.ci -DFA_GAME_NAME="CI Game"
 
@@ -783,13 +783,13 @@ jobs:
         run: |
           EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
           emcc --version | head -n 1
-          cmake --preset web-release
+          cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset web-release
           ls -l build/web-release/player
 
       - name: Build the factoria CLI (no editor, no tests)
         run: |
-          cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
           cmake --build build/tools --target factoria
 
       - name: Trim ccache to what this build used (see the linux job)
@@ -855,7 +855,7 @@ jobs:
 
       - name: Configure and build factoria_player (android-arm64)
         run: |
-          cmake --preset android-arm64
+          cmake --preset android-arm64 -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset android-arm64 --target factoria_player
 
       - name: Trim ccache to what this build used (see the linux job)
@@ -913,7 +913,7 @@ jobs:
 
       - name: Build the factoria CLI (no editor, no tests)
         run: |
-          cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
           cmake --build build/tools --target factoria
 
       - name: Install SDK packages (CMake 3.31, NDK, platform 36, build-tools 35)
@@ -1205,7 +1205,7 @@ jobs:
           ccache --zero-stats
           cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
               -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-              -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+              -DFA_FUZZ=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
           cmake --build build/fuzz --target fa_fuzz_all
           ccache --show-stats --verbose
 

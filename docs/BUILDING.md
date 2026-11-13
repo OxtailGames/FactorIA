@@ -298,6 +298,31 @@ starts that build directory over, because CMake would otherwise keep using the o
 Desktop presets build the tools (`factoria` CLI, MCP server, AI agent, editor)
 and the unit tests. Mobile and web presets build the engine libraries and `factoria_player`.
 
+### Strict builds (warnings as errors)
+
+CI builds with `-DFA_WARNINGS_AS_ERRORS=ON`: a compiler warning in FactorIA's own code (the engine, the tools, the player,
+the plugins and test programs that are built here) fails the build on GCC and Clang (`-Werror`) and on MSVC (`/WX`). The
+warning set does not change (`-Wall -Wextra`, `/W4`); the option only makes it fatal. Code under `external/` is never
+strict: its targets do not link `fa_warnings` and its headers are `SYSTEM` includes. Every first-party target links the
+`fa_warnings` interface target (cmake/FactoriaHelpers.cmake); `fa_add_module` and `fa_add_tests` do it themselves, a target
+declared by hand (a tool, a test program, a plugin) must add `fa_warnings` to its `target_link_libraries`, or it escapes
+the strict build.
+
+The option is OFF in the presets and in a plain `cmake -S . -B build/dev`, so a local build stays tolerant of the
+warnings of a compiler newer than CI's. CI turns it on in `.github/workflows/ci.yml` (and `scripts/ci-local.sh`, which
+mirrors it), by passing `-DFA_WARNINGS_AS_ERRORS=ON` to each `cmake --preset ...` and `scripts/build-sniper.sh build --`
+step, not in `CMakePresets.json`: `release.yml` configures the same presets, and a release must not fail because a new
+compiler release warns about code CI already built. To build strict yourself:
+
+```bash
+cmake --preset macos-debug -DFA_WARNINGS_AS_ERRORS=ON      # or: cmake -S . -B build/strict -G Ninja -DFA_WARNINGS_AS_ERRORS=ON
+cmake --build --preset macos-debug -- -k 0                 # -k 0: list every warning, not only the first
+```
+
+The option is cached: to go back, configure again with `-DFA_WARNINGS_AS_ERRORS=OFF`. Fix a warning in the code. A
+`#pragma` that silences one is only for a warning raised inside an external header that `SYSTEM` does not cover, with a
+comment that names the header and the warning.
+
 ### Web player
 
 ```bash

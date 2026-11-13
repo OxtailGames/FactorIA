@@ -84,8 +84,6 @@ Bytes conductor(int loopAt, std::uint32_t endDelta) {
     return t;
 }
 
-Json notes_of(const MidiImportResult& r, const std::string& track, const std::string& pattern) { return r.song["tracks"][track]["patterns"][pattern]; }
-
 // One note of a timeline, reduced to what a round trip keeps.
 using Sounded = std::tuple<std::string, std::int64_t, std::int64_t, int, std::string, int>;
 

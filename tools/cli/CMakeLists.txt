@@ -66,6 +66,7 @@ if(FA_BUILD_TESTS)
         add_library(fa_test_plugin_example SHARED ${FA_ROOT}/platforms/plugin/src/plugin.c)
         target_include_directories(fa_test_plugin_example PRIVATE ${FA_ROOT}/engine/runtime/include/fa/runtime)
         target_compile_definitions(fa_test_plugin_example PRIVATE FA_PLUGIN_NAME=example)
+        target_link_libraries(fa_test_plugin_example PRIVATE fa_warnings)
         set_target_properties(fa_test_plugin_example PROPERTIES OUTPUT_NAME example C_VISIBILITY_PRESET hidden)
         add_test(NAME cli_plugin
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>

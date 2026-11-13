@@ -131,12 +131,12 @@ void CameraGeometry::screen_ray(Vec2 s, Vec2 target, Vec3& origin, Vec3& dir) co
     if (perspective) origin = position;
 }
 
-Vec3 CameraGeometry::screen_to_world(Vec2 s, Vec2 target, float depth) const {
+Vec3 CameraGeometry::screen_to_world(Vec2 s, Vec2 target, float planeDepth) const {
     Vec3 o, d;
     screen_ray(s, target, o, d);
-    if (perspective) return o + d * depth;
-    if (std::fabs(d.z) < 1e-6f) return {o.x, o.y, depth};
-    const float t = (depth - o.z) / d.z;
+    if (perspective) return o + d * planeDepth;
+    if (std::fabs(d.z) < 1e-6f) return {o.x, o.y, planeDepth};
+    const float t = (planeDepth - o.z) / d.z;
     return o + d * t;
 }
 

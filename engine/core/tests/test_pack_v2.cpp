@@ -172,7 +172,7 @@ TEST_CASE("pack v2: store round trip across block boundaries, mapped and read") 
         const PackReader& p = *opened.value();
         CHECK(p.format_version() == 2);
 #if !defined(__EMSCRIPTEN__)
-        if (sizeof(void*) == 8) CHECK(p.mapped() == map);
+        if constexpr (sizeof(void*) == 8) CHECK(p.mapped() == map);
 #endif
         for (std::size_t i = 0; i < kSizes.size(); ++i) {
             const std::string path = "data/f" + std::to_string(i) + ".bin";
@@ -441,7 +441,7 @@ TEST_CASE("pack v2: FA_PACK_MAP=0 makes every pack read without a mapping") {
     auto on = PackReader::open(s.pak());
     REQUIRE(on.ok());
 #if !defined(__EMSCRIPTEN__)
-    if (sizeof(void*) == 8) CHECK(on.value()->mapped());
+    if constexpr (sizeof(void*) == 8) CHECK(on.value()->mapped());
 #endif
 }
 
@@ -487,7 +487,7 @@ TEST_CASE("pack v2: views share the mapping and outlive the reader and the mount
     auto v = fs::read_view("assets/big.png");
     REQUIRE(v.ok());
 #if !defined(__EMSCRIPTEN__)
-    if (sizeof(void*) == 8) CHECK(v.value().mapped());
+    if constexpr (sizeof(void*) == 8) CHECK(v.value().mapped());
 #endif
     fs::unmount_pack();  // the view keeps the pack mapped
     CHECK(v.value().size() == big.size());

@@ -7,6 +7,17 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 ## Unreleased
 
 - Coverage (M93.4): `-DFA_COVERAGE=ON` (Clang) instruments the build for llvm-cov and `scripts/coverage-report.sh <build-dir>` turns the profiles of a ctest run, the editor autotest included, into a table per module (Markdown and JSON) and an HTML report. The new informative CI job `coverage` uploads both and writes the table to its summary. docs/BUILDING.md, "Coverage".
+- Warnings as errors in CI (M93.3a): the CI jobs (Linux, Linux sniper, Windows, macOS, iOS, Android and Web, and
+  `scripts/ci-local.sh`) configure with `-DFA_WARNINGS_AS_ERRORS=ON`, so a compiler warning in the engine, the tools, the
+  player or the test programs fails the build (`-Werror` on GCC and Clang, `/WX` on MSVC); `external/` stays out. The
+  warning set is the same as before and the option stays OFF in the presets, so local builds and `release.yml` are not
+  affected (docs/BUILDING.md, "Strict builds"). The plugin test program `fa_test_plugin_example` now links `fa_warnings` too.
+  The warnings the CI logs of 0.25.0 showed are fixed: unused functions, constants, captures and members (some now only
+  compiled where they are used: the GPU timer ring, the iOS Simulator helpers, the folder picker's glob list), a trigraph in
+  `classify_path`, date buffers too small for GCC's range analysis, loop variables bound to temporaries, locals and
+  parameters that hid a member or an outer variable (MSVC C4456-C4459), narrowing conversions, an unhandled `Tileset` case
+  in the image panel's layer badge, `''` in the web HTTP script (Emscripten) and a 32-bit shift of the texture seed
+  (`>> 32` of a 32-bit `long` on Windows, now taken from a 64-bit value).
 - Microbenchmarks (M93.5): `fa_bench` measures the engine's hot paths (ECS queries, the transform hierarchy, 2D and 3D physics steps, a headless render frame, command dispatch, the JS bridge, the audio mixer) from fixed seeds, with warm-up, repeats, median and spread. `--compare` checks a run against `tools/bench/baselines/<runner>.json` with a warning band and a fail limit (x2 on the median) and a teaching message; a new `bench` CI job runs it on Linux, and a `benchBaselines` run of the workflow refreshes the baselines. docs/PERFORMANCE.md, "Microbenchmarks".
 - Editor autotest: the 9900-line `autotest_tools.cpp` is split by section into `autotest_<group>.cpp` files (one
   `Editor::at_section_<id>` per section, the shared helpers in `autotest_common.{h,cpp}`); no change in what it checks.

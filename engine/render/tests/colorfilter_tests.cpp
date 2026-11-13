@@ -8,8 +8,6 @@ using namespace fa::test;
 
 namespace {
 
-constexpr int kW = 320;
-constexpr int kH = 180;
 const Color kClear{0.2f, 0.2f, 0.2f, 1.0f};
 
 struct Swatch {
