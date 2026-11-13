@@ -169,8 +169,8 @@ TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collap
             p.y > 0.5f + 1.1f * float(i))
             ++misplaced;
     }
-    std::printf("[scale] column100: %d steps, awake %d, misplaced %d, top drift %.3f m, top y %.2f, cpu %.2f s\n", steps,
-                s.awake_count(), misplaced, double(drift_xz(s.world, boxes.back(), {0, 0, 0})),
+    std::printf("[scale] column100: %d steps, awake %d, misplaced %d, top drift %.3f m, top y %.2f, cpu %.2f s\n",
+                steps, s.awake_count(), misplaced, double(drift_xz(s.world, boxes.back(), {0, 0, 0})),
                 double(s.world.world_position(boxes.back()).y), cpu);
     CHECK(misplaced == 0);
     CHECK(drift_xz(s.world, boxes.back(), {0, 0, 0}) < 0.5f);
@@ -209,24 +209,26 @@ TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps
     CHECK(s.awake_count() == 0);
 }
 
-// The budget the broadphase package must meet: 1000 mixed bodies from the drop (the busiest steps: every body falls, then
-// the first impacts). Debug builds only run a short stretch and a loose bound.
-TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU budget" * doctest::may_fail(true)) {
+// The budget of the broad phase: 1000 mixed bodies from the drop (the busiest steps: every body falls, then the first
+// impacts). Debug builds only run a short stretch; the time is checked in optimized builds (a Debug, sanitizer or
+// coverage build is far slower than the scale of test_speed_budget_scale() knows).
+TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU budget") {
     Sim s;
     build_pit(s.world, 1000);
     s.run(1);  // the bodies exist after the first step
-    const int kSteps = kOptimized ? 20 : 10;  // the first layer is 0.3 m above the floor: impacts start at about step 10
+    const int kSteps =
+        kOptimized ? 20 : 10;  // the first layer is 0.3 m above the floor: impacts start at about step 10
     const double t0 = process_cpu_seconds();
     s.run(kSteps);
     const double perStepMs = (process_cpu_seconds() - t0) * 1000.0 / double(kSteps);
     std::printf("[scale] pit1000: %d steps from the drop, %.2f ms/step CPU\n", kSteps, perStepMs);
-    // Today's solver tests every pair; the broadphase package must meet this (scaled for slow Debug builds).
-    CHECK(perStepMs < (kOptimized ? 15.0 : 400.0) * test_speed_budget_scale());
+    if (kOptimized) CHECK(perStepMs < 15.0 * test_speed_budget_scale());
 }
 
 // Release only (a settled Debug run of 1000 bodies takes minutes today): the pit comes to rest, every body asleep, and a
 // step of sleeping bodies costs almost nothing.
-TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing" * doctest::may_fail(true)) {
+TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing" *
+          doctest::may_fail(true)) {
     // Opt in (FA_PHYSICS_SCALE_SETTLE=1, an optimized build) until the broadphase package makes it cheap: today it runs
     // minutes. That package removes this line.
     if (!kOptimized || !std::getenv("FA_PHYSICS_SCALE_SETTLE")) return;
@@ -248,8 +250,8 @@ TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost alm
     const double t1 = process_cpu_seconds();
     s.run(60);
     const double nextMs = (process_cpu_seconds() - t1) * 1000.0 / 60.0;
-    std::printf("[scale] pit1000 settle: %d steps, awake %d, outside %d, next step %.3f ms CPU\n", steps, awake, outside,
-                nextMs);
+    std::printf("[scale] pit1000 settle: %d steps, awake %d, outside %d, next step %.3f ms CPU\n", steps, awake,
+                outside, nextMs);
     CHECK(outside == 0);
     CHECK(awake == 0);
     if (awake == 0) CHECK(nextMs < 1.0 * test_speed_budget_scale());

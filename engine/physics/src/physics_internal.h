@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "box2d/box2d.h"
+#include "broadphase3d.h"
 #include "fa/physics/physics.h"
 #include "nav_grid.h"
 #include "shape3d.h"
@@ -306,6 +307,7 @@ private:
         float sleepTime = 0.0f;
         std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
+        int proxy = Broadphase3D::kNone;  // its leaf in Physics3D::bp_ (enabled bodies with a shape only)
         // What a sleeping body's neighbours depend on: when any of it changes (a platform resized, disabled, made dynamic...)
         // the body and the bodies that touched it wake up.
         struct Sig {
@@ -418,11 +420,18 @@ private:
                                     float h, int carrier, float& impact, RigidContact& out);
     static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
-    void wake(Body& b);                     // b and everything that fell asleep with it
+    static Aabb3 tight_box(const Body& b) {
+        Aabb3 box;
+        aabb(b, box.lo, box.hi);
+        return box;
+    }
+    void bp_reconcile();  // one leaf per enabled body with a shape, payloads = current indices (after every sync)
+    void wake(Body& b);   // b and everything that fell asleep with it
     void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
-    std::vector<Body> bodies_;                              // sorted by seq (creation order)
+    std::vector<Body> bodies_;  // sorted by seq (creation order)
+    Broadphase3D bp_;  // fat boxes of the bodies with a shape; payload = index in bodies_ (renumbered every step)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
@@ -435,8 +444,9 @@ private:
     std::vector<std::pair<PairKey, PairState>> touching_;
     std::vector<std::pair<PairKey, PairState>> touchingNext_;
     const PairState* touching_find(PairKey key) const {
-        auto it = std::lower_bound(touching_.begin(), touching_.end(), key,
-                                   [](const std::pair<PairKey, PairState>& e, const PairKey& k) { return e.first < k; });
+        auto it =
+            std::lower_bound(touching_.begin(), touching_.end(), key,
+                             [](const std::pair<PairKey, PairState>& e, const PairKey& k) { return e.first < k; });
         return it != touching_.end() && it->first == key ? &it->second : nullptr;
     }
     // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
