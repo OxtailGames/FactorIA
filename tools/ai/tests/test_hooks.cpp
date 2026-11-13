@@ -647,6 +647,29 @@ TEST_CASE("command hooks: a JS module hooks beforeCommand, and a project's progr
     CHECK(prog.ok);  // the project's program is not trusted
 }
 
+TEST_CASE("command hooks: the registry owns the interceptor and the hooks' state goes with it (no ownership cycle)") {
+    // The interceptor's lambdas own the State; the State used to own the interceptor back, so every registry that installed hooks
+    // (register_ai_commands does, for every caller) leaked the State with the configuration loader it holds. LeakSanitizer found it.
+    auto token = std::make_shared<int>(1);
+    std::weak_ptr<int> watch = token;
+    {
+        CommandRegistry registry;
+        CommandHooksOptions opt;
+        opt.refreshSeconds = 0;
+        opt.loadConfig = [token]() -> Result<AiConfig> { return AiConfig{}; };
+        token.reset();
+        // The CommandHooks the call returns is dropped at once: the registry's interceptor alone keeps the State alive.
+        std::shared_ptr<CommandHooks> hooks = install_command_hooks(registry, std::move(opt));
+        if (!hooks) return;  // a process started by a hook (FACTORIA_IN_HOOK) installs nothing
+        const auto first = hooks->interceptor();
+        CHECK(hooks->interceptor() == first);  // while the interceptor lives, the same one is given again
+        hooks.reset();
+        CHECK_FALSE(watch.expired());
+        CHECK_FALSE(registry.call("no.such.command", Json::object()).ok);  // the interceptor still works: it reads the config
+    }
+    CHECK(watch.expired());
+}
+
 TEST_CASE("ai.hooks and ai.hooks_test: the report, a sample run, and the teaching errors") {
     CommandHookHarness h;
     h.cfg.extensions.entries.push_back(hooks_entry(
