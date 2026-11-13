@@ -492,12 +492,30 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     pieces wrote in bit sets (OR), and its solver colours constraints so that no two pieces touch the same body, so the
     merge order is fixed by the data, not by who finishes first. Joints, the sleeping rules, the callbacks into scripts and
     the write-back to the components stay on the main thread.
-  - *3D physics* (`physics3d.cpp`): the pair loops are O(n^2) and sequential, because a contact changes the bodies the next
-    pair sees. Two read-only scans run as `parallel_for` jobs when `rows * bodies >= 16384` (about 128 bodies): the
-    rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
-    reads positions and writes its own slots; the main thread then replays the slots in `(chunk, row, k)` order, which is
-    the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
-    character controllers stay sequential.
+  - *3D physics* (`physics3d.cpp`): the pair loops are sequential, because a contact changes the bodies the next
+    pair sees, and each row of a pair loop asks the broad phase (`broadphase3d.h`, "3D broad phase" below) for its
+    partners. Two read-only scans run as `parallel_for` jobs when they have 64 or more rows (`kMinParallelRows`, chunks of 16
+    rows): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
+    reads positions and the tree and writes its own slots; the main thread then replays the slots in `(chunk, row, k)`
+    order, which is the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
+    character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
+  - *3D broad phase* (`broadphase3d.h`): the 3D solver keeps a dynamic AABB tree with one leaf per enabled collider with a
+    shape (created, removed and renumbered after every `sync`). A leaf holds a FAT box: the collider's bounds plus a margin
+    (0.1 m when it moves, 0.02 m at rest) and, for a body in motion, its velocity over two steps; the leaf stays where it is
+    while the boxes a phase asks about fit inside it. Before each phase that looks for pairs (the time-of-impact sweep,
+    the contact test, the position pass of the solver, the contact events and the wake-up check) the solver makes
+    every fat box contain the box that phase asks about (`cover`: for the sweep the bounds of the whole move, a turning
+    body as its bounding sphere; elsewhere the body's bounds), and the position pass also puts a body back in the tree the
+    moment a contact pushes it out of its box. A row of a pair loop then asks the tree for the bodies whose fat box overlaps
+    its own box grown by the phase's reach (0 for contacts, the 0.05 m end margin for events, `kRiderGap` for waking) and
+    takes the answer sorted by index. A body the tree does not return is further than the reach, so the narrow phase would
+    have said no: the partners and the order are those of the old all-pairs loop, whatever the shape of the tree, the
+    order bodies were added in or the number of threads, and the simulation result did not change. Pairs that keep their
+    state because both bodies are asleep or static are not geometry: they come from `touching_`. Raycasts, overlaps, shape
+    casts and the character controller do not use the tree yet. Besides the pair loops, the tree answers which bodies are near
+    a platform (the riders it carries) and which movers are close enough to share a time-of-impact island; a mover whose
+    reach is over 2 m, or whose centre is outside its box, is tried against every mover instead, and a platform finds the
+    characters it carries among the few that can be carried.
   - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
     more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
     `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the
