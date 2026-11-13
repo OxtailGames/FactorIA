@@ -216,20 +216,19 @@ Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {
 // different size now was written by the game (or the file) and is the new design size.
 template <class T, class Memo>
 void autosize_kind(World& w, Memo& memo, const VisualMeasure& m) {
-    for (Entity e : w.entities_with(&World::type_of<T>())) {
-        if (!w.alive(e)) continue;
-        T* c = w.get<T>(e);
+    w.each<T>([&](Entity e, T& widget) {
+        T* c = &widget;
         const auto it = memo.find(e.bits());
         if (!c->autoSize) {
             if (it != memo.end()) memo.erase(it);
-            continue;
+            return;
         }
-        if (!w.active_in_hierarchy(e)) continue;
+        if (!w.active_in_hierarchy(e)) return;
         const bool ours = it != memo.end() && it->second.applied.x == c->size.x && it->second.applied.y == c->size.y;
         const Vec2 design = ours ? it->second.design : c->size;
         c->size = fitted_size(*c, design, m);
         memo[e.bits()] = {design, c->size};
-    }
+    });
 }
 
 // Panel.uniformSize: every autoSize Button / Toggle / Slider below `root` takes the largest width and height among them.
@@ -400,8 +399,9 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
     autosize_kind<Slider>(w, autoSizes_, m);
     for (auto it = autoSizes_.begin(); it != autoSizes_.end();)
         it = w.alive(Entity::from_bits(it->first)) ? std::next(it) : autoSizes_.erase(it);
-    for (Entity e : w.entities_with(&World::type_of<Panel>()))
-        if (w.alive(e) && w.active_in_hierarchy(e) && w.get<Panel>(e)->uniformSize) uniform_size(w, e, autoSizes_);
+    w.each<Panel>([&](Entity e, Panel& p) {
+        if (w.active_in_hierarchy(e) && p.uniformSize) uniform_size(w, e, autoSizes_);
+    });
     for (const TypeInfo* type : {&World::type_of<Panel>(), &World::type_of<ScrollList>()})
         for (Entity e : w.entities_with(type))
             if (w.alive(e) && w.active_in_hierarchy(e)) containers.push_back({depth_of(w, e), e});

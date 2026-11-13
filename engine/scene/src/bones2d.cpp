@@ -248,13 +248,11 @@ Result<void> skin_bind(World& w, Entity e) {
 }
 
 void bind_pending_skins(World& w) {
-    for (Entity e : w.entities_with(&World::type_of<SpriteSkin>())) {
-        if (!w.alive(e)) continue;
-        const SpriteSkin* skin = w.get<SpriteSkin>(e);
-        if (!skin || !skin->bones.is_array() || skin->bones.empty()) continue;
-        if (!skin_bind_matrices(*skin, std::min<std::size_t>(skin->bones.size(), kMaxSkinBones)).empty()) continue;
+    w.each<SpriteSkin>([&](Entity e, SpriteSkin& skin) {
+        if (!skin.bones.is_array() || skin.bones.empty()) return;
+        if (!skin_bind_matrices(skin, std::min<std::size_t>(skin.bones.size(), kMaxSkinBones)).empty()) return;
         (void)skin_bind(w, e);
-    }
+    });
 }
 
 namespace {
@@ -799,10 +797,9 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
 }
 
 void update_ik2d(World& w, const GroundRaycast2D& ground) {
-    for (Entity e : w.entities_with(&World::type_of<IK2D>())) {
-        if (!w.alive(e) || !w.active_in_hierarchy(e)) continue;
-        IK2D* ik = w.get<IK2D>(e);
-        if (!ik || ik->weight <= 0.0f || ik->target.is_null()) continue;
+    w.each<IK2D>([&](Entity e, IK2D& ikRef) {
+        IK2D* ik = &ikRef;
+        if (!w.active_in_hierarchy(e) || ik->weight <= 0.0f || ik->target.is_null()) return;
         Result<float> r = solve_ik2d(w, e, ground);
         if (ik->groundMask == 0) ik->groundMisses = 0;  // switched off (e.g. in the air): the count starts again
         if (ground && ik->groundMask != 0 && !ik->groundHit && ik->groundMisses >= 300 && !ik->warnedGround) {
@@ -820,7 +817,7 @@ void update_ik2d(World& w, const GroundRaycast2D& ground) {
             ik->warned = true;
             FA_WARN("animation", "{}", r.error().to_string());
         }
-    }
+    });
 }
 
 }  // namespace fa

@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- `World::each<A, B, ...>` walks the pool with the fewest owners in place, instead of copying the first type's owner list and looking the others up for each entity: `each<Sprite, Collider2D>` costs what the colliders cost. With several types the order is therefore the smallest pool's insertion order, not always the first type's (use `entities_with(type)` when one type's order matters; no engine system depends on it). Adding or removing components of any type (the walked one too), `destroy()` and a nested `each` over the same type stay safe inside the callback; the pool holds its compaction back until the walk ends. Entities that gain the walked component during the walk are not visited. The UI autosize, camera lookup, `vfx.list`, `anim.list`, bone and IK2D loops use it.
 - `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
 
 ## 0.26.0
