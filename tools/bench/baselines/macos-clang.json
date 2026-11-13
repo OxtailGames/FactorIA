@@ -5,13 +5,13 @@
   "repeats": 15,
   "benchmarks": {
     "ecs.each": {
-      "medianMs": 14.901,
-      "minMs": 11.983,
-      "maxMs": 18.969,
-      "p25Ms": 14.586,
-      "p75Ms": 16.449,
-      "spread": 0.125,
-      "cpuMedianMs": 14.6,
+      "medianMs": 3.361,
+      "minMs": 3.141,
+      "maxMs": 4.05,
+      "p25Ms": 3.247,
+      "p75Ms": 3.536,
+      "spread": 0.086,
+      "cpuMedianMs": 3.318,
       "items": 440000,
       "unit": "entities walked"
     },
@@ -256,6 +256,17 @@
       "cpuMedianMs": 1.558,
       "items": 96000,
       "unit": "tasks"
+    },
+    "ecs.each_skewed": {
+      "medianMs": 1.056,
+      "minMs": 1.029,
+      "maxMs": 1.478,
+      "p25Ms": 1.039,
+      "p75Ms": 1.206,
+      "spread": 0.159,
+      "cpuMedianMs": 1.053,
+      "items": 160000,
+      "unit": "entities walked"
     }
   }
 }

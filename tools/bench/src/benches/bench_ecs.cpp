@@ -57,6 +57,27 @@ Bench ecs_each() {
     return b;
 }
 
+Bench ecs_each_skewed() {
+    Bench b;
+    b.name = "ecs.each_skewed";
+    b.summary = "World::each<Sprite, Collider2D> 64 times: the first type has 20000 owners, the second 2500 (the walk "
+                "starts from the smaller pool, so it visits 2500 entities, not 20000)";
+    b.make = [] {
+        auto w = make_populated_world();
+        Prepared p;
+        p.items = 64 * 2500;
+        p.unit = "entities walked";
+        p.run = [w] {
+            double sum = 0;
+            for (int pass = 0; pass < 64; ++pass)
+                w->each<Sprite, Collider2D>([&](Entity, Sprite& s, Collider2D& c) { sum += s.color.a + c.friction; });
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench ecs_entities_with() {
     Bench b;
     b.name = "ecs.entities_with";
@@ -213,6 +234,7 @@ Bench hierarchy_wide() {
 
 void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_each());
+    out.push_back(ecs_each_skewed());
     out.push_back(ecs_entities_with());
     out.push_back(ecs_count());
     out.push_back(ecs_spawn_destroy());

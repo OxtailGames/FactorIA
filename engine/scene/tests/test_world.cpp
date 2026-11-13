@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include <algorithm>
+#include <vector>
+
 #include "fa/scene/world.h"
 
 using namespace fa;
@@ -438,4 +441,185 @@ TEST_CASE("world: an entity being destroyed refuses a new parent, a new child an
     CHECK_FALSE(w.alive(kid));
     CHECK(w.id_of(w.create("Again", "kid")) == "kid");
     CHECK(w.find_by_id("safe_2") == safe);
+}
+
+namespace {
+std::vector<Entity> make_sprites(World& w, int n) {
+    std::vector<Entity> out;
+    for (int i = 0; i < n; ++i) {
+        out.push_back(w.create());
+        w.add<Sprite>(out.back());
+    }
+    return out;
+}
+}  // namespace
+
+TEST_CASE("world each: walks the pool with the fewest owners, in that pool's insertion order") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 10);
+    w.add<Collider2D>(es[7]);
+    w.add<Collider2D>(es[3]);
+    w.add<Collider2D>(es[9]);
+
+    std::vector<Entity> seen;
+    w.each<Sprite, Collider2D>([&](Entity e, Sprite&, Collider2D&) { seen.push_back(e); });
+    CHECK(seen == std::vector<Entity>{es[7], es[3], es[9]});  // the colliders' order, not the sprites'
+    seen.clear();
+    w.each<Collider2D, Sprite>([&](Entity e, Collider2D&, Sprite&) { seen.push_back(e); });
+    CHECK(seen == std::vector<Entity>{es[7], es[3], es[9]});
+
+    // The references are the components of the entity, whichever pool drives.
+    w.get<Sprite>(es[3])->color.a = 0.5f;
+    w.each<Sprite, Collider2D>([&](Entity e, Sprite& s, Collider2D& c) {
+        CHECK(&s == w.get<Sprite>(e));
+        CHECK(&c == w.get<Collider2D>(e));
+    });
+
+    // The same count: the first type drives.
+    for (Entity e : es) w.add<Camera>(e);
+    seen.clear();
+    w.each<Camera, Sprite>([&](Entity e, Camera&, Sprite&) { seen.push_back(e); });
+    CHECK(seen == es);
+
+    // A type nobody owns: nothing runs.
+    int calls = 0;
+    w.each<Sprite, Bone2D>([&](Entity, Sprite&, Bone2D&) { ++calls; });
+    CHECK(calls == 0);
+}
+
+TEST_CASE("world each: removing components during the walk skips the owners that lost them") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 6);
+    for (Entity e : es) w.add<Camera>(e);
+
+    std::vector<Entity> seen;
+    w.each<Sprite, Camera>([&](Entity e, Sprite&, Camera&) {
+        seen.push_back(e);
+        if (e == es[0]) {
+            w.remove<Sprite>(es[2]);  // the driving type (Sprite and Camera tie: Sprite drives)
+            w.remove<Camera>(es[3]);  // the other one
+            w.remove<Sprite>(es[0]);  // its own, after the fact
+        }
+    });
+    CHECK(seen == std::vector<Entity>{es[0], es[1], es[4], es[5]});
+    CHECK(w.count<Sprite>() == 4);
+    CHECK(w.count<Camera>() == 5);
+}
+
+TEST_CASE("world each: entities that gain the driving component during the walk are not visited") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 4);
+    std::vector<Entity> added;
+    std::vector<Entity> seen;
+    w.each<Sprite>([&](Entity e, Sprite&) {
+        seen.push_back(e);
+        Entity n = w.create();
+        w.add<Sprite>(n);
+        added.push_back(n);
+    });
+    CHECK(seen == es);
+    CHECK(added.size() == 4);
+    CHECK(w.count<Sprite>() == 8);
+
+    // Removed and added again: a new entry at the end, so it is not visited twice.
+    seen.clear();
+    w.each<Sprite>([&](Entity e, Sprite&) {
+        seen.push_back(e);
+        if (e == es[1]) {
+            w.remove<Sprite>(es[1]);
+            w.add<Sprite>(es[1]);
+        }
+    });
+    CHECK(seen.size() == 8);
+    CHECK(std::count(seen.begin(), seen.end(), es[1]) == 1);
+    CHECK(w.entities_with(&World::type_of<Sprite>()).back() == es[1]);
+
+    // Another type gaining the component of the other Ts: visited when its turn comes with all of them.
+    World v;
+    const std::vector<Entity> vs = make_sprites(v, 3);
+    v.add<Camera>(vs[0]);
+    v.add<Camera>(vs[1]);
+    v.add<Camera>(vs[2]);
+    std::vector<Entity> got;
+    v.each<Camera, Sprite>([&](Entity e, Camera&, Sprite&) { got.push_back(e); });
+    CHECK(got == vs);
+}
+
+TEST_CASE("world each: destroy inside the walk is deferred and the walk finishes") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 5);
+    std::vector<Entity> seen;
+    w.each<Sprite>([&](Entity e, Sprite&) {
+        seen.push_back(e);
+        w.destroy(es[4 - (seen.size() - 1)]);  // the current one, then the ones ahead
+    });
+    CHECK(seen.size() == 5);  // destroy() is deferred: everything still alive when its turn comes
+    w.flush();
+    CHECK(w.count<Sprite>() == 0);
+    int calls = 0;
+    w.each<Sprite>([&](Entity, Sprite&) { ++calls; });
+    CHECK(calls == 0);
+}
+
+TEST_CASE("world each: a nested walk over the same type sees every pair, and removals in it are safe") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 20);
+    int pairs = 0;
+    w.each<Sprite>([&](Entity, Sprite&) { w.each<Sprite>([&](Entity, Sprite&) { ++pairs; }); });
+    CHECK(pairs == 400);
+
+    // The inner walk removes the sprites of the entities behind it: the outer one skips them afterwards.
+    int outer = 0;
+    w.each<Sprite>([&](Entity e, Sprite&) {
+        ++outer;
+        w.each<Sprite>([&](Entity inner, Sprite&) {
+            if (inner != e && inner.index % 2 == 0) w.remove<Sprite>(inner);
+        });
+    });
+    CHECK(outer >= 10);
+    CHECK(outer < 20);
+    for (Entity e : w.entities_with(&World::type_of<Sprite>())) CHECK(w.get<Sprite>(e) != nullptr);
+}
+
+TEST_CASE("world each: the pool does not compact in the middle of a walk, and does when it ends") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 400);
+    std::vector<Entity> seen;
+    w.each<Sprite>([&](Entity e, Sprite&) {
+        seen.push_back(e);
+        if (e == es[0])
+            for (std::size_t i = 1; i < 300; ++i) w.remove<Sprite>(es[i]);  // far past the compaction threshold
+        if (e == es[350]) {
+            // Adding and removing after the tombstones piled up: positions must still be right.
+            for (std::size_t i = 100; i < 150; ++i) w.add<Sprite>(es[i]);
+            w.remove<Sprite>(es[399]);
+        }
+    });
+    std::vector<Entity> expected{es[0]};
+    for (std::size_t i = 300; i < 399; ++i) expected.push_back(es[i]);
+    CHECK(seen == expected);  // not es[399] (removed before its turn), not the re-added es[100..149]
+
+    // Compacted by now: the order is the insertion order and every owner resolves.
+    std::vector<Entity> expectedAll{es[0]};
+    for (std::size_t i = 300; i < 399; ++i) expectedAll.push_back(es[i]);
+    for (std::size_t i = 100; i < 150; ++i) expectedAll.push_back(es[i]);
+    CHECK(w.entities_with(&World::type_of<Sprite>()) == expectedAll);
+    CHECK(w.count<Sprite>() == expectedAll.size());
+    for (Entity e : expectedAll) CHECK(w.get<Sprite>(e) != nullptr);
+    w.remove<Sprite>(es[0]);
+    CHECK(w.get<Sprite>(es[0]) == nullptr);
+    CHECK(w.count<Sprite>() == expectedAll.size() - 1);
+}
+
+TEST_CASE("world each: clear() inside the walk ends it") {
+    World w;
+    make_sprites(w, 5);
+    int calls = 0;
+    w.each<Sprite>([&](Entity, Sprite&) {
+        ++calls;
+        w.clear();
+        make_sprites(w, 5);  // new owners at the positions the walk would reach
+    });
+    CHECK(calls == 1);
+    CHECK(w.count<Sprite>() == 5);
 }

@@ -270,8 +270,7 @@ void register_bones_commands(Engine& engine, Engine::Impl& I) {
                     const Entity be = I.world.find(b.get<std::string>());
                     if (be == kNullEntity) {
                         std::vector<std::string> names;
-                        for (Entity x : I.world.entities_with(TypeRegistry::global().of<Bone2D>()))
-                            names.push_back(I.world.info(x).name);
+                        I.world.each<Bone2D>([&](Entity x, Bone2D&) { names.push_back(I.world.info(x).name); });
                         throw CommandError("not_found",
                                            "No entity '" + b.get<std::string>() + "'. " +
                                                did_you_mean(b.get<std::string>(), names),

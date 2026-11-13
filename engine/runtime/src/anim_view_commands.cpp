@@ -294,15 +294,13 @@ void check_clip_alone(const std::string& label, const ClipAsset& clip, std::vect
 std::optional<Rect> camera_view_rect(Engine::Impl& I) {
     Entity best = kNullEntity;
     int bestDepth = 0;
-    const TypeInfo* ct = TypeRegistry::global().of<Camera>();
-    for (Entity e : I.world.entities_with(ct)) {
-        const Camera* c = I.world.get<Camera>(e);
-        if (!c || !c->primary || !c->renderTarget.empty() || !I.world.active_in_hierarchy(e)) continue;
-        if (best == kNullEntity || c->depth < bestDepth) {
+    I.world.each<Camera>([&](Entity e, Camera& c) {
+        if (!c.primary || !c.renderTarget.empty() || !I.world.active_in_hierarchy(e)) return;
+        if (best == kNullEntity || c.depth < bestDepth) {
             best = e;
-            bestDepth = c->depth;
+            bestDepth = c.depth;
         }
-    }
+    });
     if (best == kNullEntity) return std::nullopt;
     const Camera& c = *I.world.get<Camera>(best);
     if (c.projection != Projection::Orthographic) return std::nullopt;
@@ -511,10 +509,9 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
                 return describe(e);
             }
             Json all = Json::array();
-            for (Entity e : I.world.entities_with(TypeRegistry::global().of<Animator>())) {
-                const Animator* an = I.world.get<Animator>(e);
-                if (an && an->clips.is_object() && !an->clips.empty()) all.push_back(describe(e));
-            }
+            I.world.each<Animator>([&](Entity e, Animator& an) {
+                if (an.clips.is_object() && !an.clips.empty()) all.push_back(describe(e));
+            });
             return Json::object({{"animators", all}});
         });
 
