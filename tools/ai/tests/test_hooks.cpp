@@ -665,7 +665,8 @@ TEST_CASE("command hooks: the registry owns the interceptor and the hooks' state
         CHECK(hooks->interceptor() == first);  // while the interceptor lives, the same one is given again
         hooks.reset();
         CHECK_FALSE(watch.expired());
-        CHECK_FALSE(registry.call("no.such.command", Json::object()).ok);  // the interceptor still works: it reads the config
+        CHECK_FALSE(registry.call("no.such.command", Json::object())
+                        .ok);  // a call through the registry runs its interceptor: nothing dangles
     }
     CHECK(watch.expired());
 }

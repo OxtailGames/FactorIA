@@ -32,7 +32,9 @@ struct CommandHooksOptions {
 class CommandHooks {
 public:
     explicit CommandHooks(CommandHooksOptions options);
-    // The interceptor to give CommandRegistry::set_interceptor.
+    // The interceptor to give CommandRegistry::set_interceptor. The CommandHooks does not own it (its lambdas own the hooks'
+    // state, so owning it back would be a cycle): the caller keeps it, and once every holder has dropped it the next call makes
+    // a new one.
     std::shared_ptr<const CommandInterceptor> interceptor();
     // Reads the configuration now.
     void refresh();
