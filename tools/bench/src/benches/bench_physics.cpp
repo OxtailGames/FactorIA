@@ -14,6 +14,7 @@ namespace {
 constexpr float kDt = 1.0f / 60.0f;
 constexpr int kSteps = 60;
 constexpr int k3dSteps = 20;  // the 3D solver costs more per body
+constexpr int k3dPitSteps = 10;  // 1000 bodies: the first steps of the fall, then the first impacts
 
 // A world and its physics, rebuilt before every run: bodies fall asleep, so a second run on the same world would measure a
 // sleeping pile instead of the same work.
@@ -99,6 +100,93 @@ void build_3d(World& w) {
     }
 }
 
+// 1000 spheres, capsules and boxes (one every 1.4 m in layers of 10 x 10) falling into a pit of four walls and a floor.
+void build_pit_3d(World& w) {
+    auto wall = [&](Vec3 pos, Vec3 size) {
+        Entity e = w.create();
+        w.get<Transform>(e)->position = pos;
+        w.add<Collider3D>(e).size = size;  // no RigidBody3D: static
+    };
+    wall({0, -0.5f, 0}, {30, 1, 30});
+    wall({-15.5f, 5, 0}, {1, 12, 32});
+    wall({15.5f, 5, 0}, {1, 12, 32});
+    wall({0, 5, -15.5f}, {32, 12, 1});
+    wall({0, 5, 15.5f}, {32, 12, 1});
+    Rng rng(94);
+    for (int i = 0; i < 1000; ++i) {
+        const int layer = i / 100, k = i % 100;
+        Entity e = w.create();
+        w.get<Transform>(e)->position = {-6.3f + 1.4f * float(k % 10) + 0.01f * float(rng.next_u32() % 20),
+                                         0.8f + 1.3f * float(layer),
+                                         -6.3f + 1.4f * float(k / 10) + 0.01f * float(rng.next_u32() % 20)};
+        Collider3D& c = w.add<Collider3D>(e);
+        if (i % 3 == 0) {
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.5f;
+        } else if (i % 3 == 1) {
+            c.shape = ColliderShape3D::Capsule;
+            c.radius = 0.3f;
+            c.height = 1.2f;
+        } else {
+            c.size = {0.9f, 0.9f, 0.9f};
+        }
+        w.add<RigidBody3D>(e);
+    }
+}
+
+// A column of 100 boxes with a 2 cm gap each on a static floor.
+void build_stack_3d(World& w) {
+    Entity ground = w.create();
+    w.get<Transform>(ground)->position = {0, -0.5f, 0};
+    w.add<Collider3D>(ground).size = {20, 1, 20};
+    for (int i = 0; i < 100; ++i) {
+        Entity e = w.create();
+        w.get<Transform>(e)->position = {0, 0.5f + 1.02f * float(i), 0};
+        w.add<Collider3D>(e).size = {1, 1, 1};
+        w.add<RigidBody3D>(e);
+    }
+}
+
+Bench physics_3d_pit() {
+    Bench b;
+    b.name = "physics.step3d_1000";
+    b.summary = "Physics::step x10: 1000 spheres, capsules and boxes falling into a walled pit (3D)";
+    b.make = [] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 1000 * k3dPitSteps;
+        p.unit = "body steps";
+        p.prepare = [sim] {
+            sim->reset();
+            build_pit_3d(*sim->world);
+            sim->physics.sync(*sim->world);
+        };
+        p.run = [sim] { return sim->run_steps(k3dPitSteps); };
+        return p;
+    };
+    return b;
+}
+
+Bench physics_3d_stack() {
+    Bench b;
+    b.name = "physics.step3d_stack100";
+    b.summary = "Physics::step x60: a column of 100 boxes dropped on a floor (3D)";
+    b.make = [] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 100 * kSteps;
+        p.unit = "body steps";
+        p.prepare = [sim] {
+            sim->reset();
+            build_stack_3d(*sim->world);
+            sim->physics.sync(*sim->world);
+        };
+        p.run = [sim] { return sim->run_steps(kSteps); };
+        return p;
+    };
+    return b;
+}
+
 Bench physics_2d() {
     Bench b;
     b.name = "physics.step2d";
@@ -144,6 +232,8 @@ Bench physics_3d() {
 void add_physics_benches(std::vector<Bench>& out) {
     out.push_back(physics_2d());
     out.push_back(physics_3d());
+    out.push_back(physics_3d_pit());
+    out.push_back(physics_3d_stack());
 }
 
 }  // namespace fa::bench
