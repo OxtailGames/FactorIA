@@ -44,6 +44,31 @@
     },
 
     {
+      "name": "linux-asan",
+      "displayName": "Linux x64, Debug, Clang, AddressSanitizer + UndefinedBehaviorSanitizer (CI job linux-asan; docs/BUILDING.md, Sanitizers)",
+      "inherits": "linux-debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_FLAGS_DEBUG": "-O1 -g1",
+        "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g1",
+        "FA_SANITIZE": "address;undefined"
+      }
+    },
+    {
+      "name": "linux-tsan",
+      "displayName": "Linux x64, Debug, Clang, ThreadSanitizer (CI job linux-tsan; docs/BUILDING.md, Sanitizers)",
+      "inherits": "linux-debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_FLAGS_DEBUG": "-O1 -g1",
+        "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g1",
+        "FA_SANITIZE": "thread"
+      }
+    },
+
+    {
       "name": "macos-debug",
       "displayName": "macOS, Debug",
       "inherits": "base",
@@ -56,6 +81,19 @@
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "macos-asan",
+      "displayName": "macOS, Debug, Apple Clang, AddressSanitizer + UndefinedBehaviorSanitizer (local runs; no leak detection on macOS)",
+      "inherits": "macos-debug",
+      "cacheVariables": {
+        "FA_SANITIZE": "address;undefined",
+        "CMAKE_C_FLAGS_DEBUG": "-O1 -g1",
+        "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g1",
+        "CMAKE_OBJC_FLAGS_DEBUG": "-O1 -g1",
+        "CMAKE_OBJCXX_FLAGS_DEBUG": "-O1 -g1"
+      }
     },
 
     {
@@ -158,7 +196,10 @@
     { "name": "linux-debug",        "configurePreset": "linux-debug",        "configuration": "Debug" },
     { "name": "linux-release",      "configurePreset": "linux-release",      "configuration": "Release" },
     { "name": "linux-sniper",       "configurePreset": "linux-sniper",       "configuration": "Release" },
+    { "name": "linux-asan",         "configurePreset": "linux-asan",         "configuration": "Debug" },
+    { "name": "linux-tsan",         "configurePreset": "linux-tsan",         "configuration": "Debug" },
     { "name": "macos-debug",        "configurePreset": "macos-debug",        "configuration": "Debug" },
+    { "name": "macos-asan",         "configurePreset": "macos-asan",         "configuration": "Debug" },
     { "name": "macos-release",      "configurePreset": "macos-release",      "configuration": "Release" },
     { "name": "windows-debug",      "configurePreset": "windows-debug",      "configuration": "Debug" },
     { "name": "windows-release",    "configurePreset": "windows-release",    "configuration": "Release" },
@@ -174,7 +215,10 @@
   "testPresets": [
     { "name": "linux-debug",         "configurePreset": "linux-debug",         "configuration": "Debug",   "output": { "outputOnFailure": true } },
     { "name": "linux-release",       "configurePreset": "linux-release",       "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "linux-asan",          "configurePreset": "linux-asan",          "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "linux-tsan",          "configurePreset": "linux-tsan",          "configuration": "Debug",   "output": { "outputOnFailure": true } },
     { "name": "macos-debug",         "configurePreset": "macos-debug",         "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "macos-asan",          "configurePreset": "macos-asan",          "configuration": "Debug",   "output": { "outputOnFailure": true } },
     { "name": "macos-release",       "configurePreset": "macos-release",       "configuration": "Release", "output": { "outputOnFailure": true } },
     { "name": "windows-debug",       "configurePreset": "windows-debug",       "configuration": "Debug",   "output": { "outputOnFailure": true } },
     { "name": "windows-release",     "configurePreset": "windows-release",     "configuration": "Release", "output": { "outputOnFailure": true } },

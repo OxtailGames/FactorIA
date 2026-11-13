@@ -132,6 +132,10 @@ foreach(_lang ${_fa_fp_langs})
     endif()
 endforeach()
 
+# ---- sanitizers (FA_SANITIZE; docs/BUILDING.md, "Sanitizers") --------------------------------------------------------
+# Before the first add_subdirectory: the flags reach every target, external/ included.
+include(FactoriaSanitize)
+
 # ---- third party ------------------------------------------------------------
 find_package(Threads REQUIRED)
 add_subdirectory(external)
@@ -174,3 +178,22 @@ endif()
 
 # The feedback server (JavaScript, Cloudflare Worker): only its tests belong to the build, and only when Node is found.
 add_subdirectory(tools/feedback-server)
+
+# ---- ThreadSanitizer: the tests that run threads (FA_SANITIZE=thread; label `tsan`) -------------------------------------
+# The whole suite under TSan takes hours and most of it is single-threaded, so the CI job linux-tsan (and
+# `ctest --preset linux-tsan -L tsan` locally) runs only: the job system and the background reads (core), the jobs engine and the
+# background loads (runtime), the audio thread (all of audio) and the MCP server (all of mcp). The full binaries stay registered too.
+# (engine/audio and tools/mcp label their own tests with fa_label_tsan(): a test is only visible in its own directory.)
+if(FA_SANITIZE_THREAD AND FA_BUILD_TESTS)
+    if(TARGET fa_test_core)
+        add_test(NAME tsan_core COMMAND fa_test_core "-tc=jobs*,background io*" WORKING_DIRECTORY ${FA_ROOT})
+    endif()
+    if(TARGET fa_test_runtime)
+        add_test(NAME tsan_runtime COMMAND fa_test_runtime "-tc=jobs engine*,background load*" WORKING_DIRECTORY ${FA_ROOT})
+    endif()
+    foreach(_t tsan_core tsan_runtime)
+        if(TEST ${_t})
+            set_property(TEST ${_t} PROPERTY LABELS tsan)
+        endif()
+    endforeach()
+endif()

@@ -1,0 +1,15 @@
+# UndefinedBehaviorSanitizer ignorelist (FA_SANITIZE=address;undefined, Clang's -fsanitize-ignorelist; cmake/FactoriaSanitize.cmake).
+# Code matching an entry is compiled WITHOUT that check. It is not a runtime suppression file on purpose: the build uses
+# -fno-sanitize-recover=undefined (a finding must fail the test), and the UBSan runtime ignores its suppressions file for the
+# checks of such a build. GCC has no ignorelist: a GCC build reports these findings.
+#
+# Policy: one entry per finding, with the reason above it. Third-party code under external/ (never edited) may be listed by source
+# file; code of ours is never listed: fix it. Format: a [check] section, then src:<glob> lines.
+
+# Dear ImGui (external/imgui): ImGui::EndTable() computes ColumnsAutoFitWidth for a table whose stretch columns cannot be resized
+# as column_width / (StretchWeight / ColumnsStretchSumWeights); on a table's first frames the weights are not known yet, the
+# result is NaN, and CalcWindowContentSizes() casts it to a 64-bit integer (ImTrunc64, imgui_internal.h). The editor's feedback
+# table does it (tools/editor/src/feedback_panel.cpp). Found by the macOS ASan+UBSan run. The value only feeds the content size
+# of the host window, which that window does not use (NoScrollbar, no auto-resize), so no platform lays anything out differently.
+[float-cast-overflow]
+src:*external/imgui/*

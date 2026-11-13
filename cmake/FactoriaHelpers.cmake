@@ -143,4 +143,14 @@ function(add_test)
     if(NOT WIN32 AND FA_TEST_WINDOWS_FILE_RULES AND "${ARGV0}" STREQUAL "NAME")
         set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT "FA_FS_WINDOWS_RULES_DEFAULT=1")
     endif()
+    # A tree built with FA_SANITIZE: ASAN_OPTIONS / UBSAN_OPTIONS / LSAN_OPTIONS / TSAN_OPTIONS with the suppressions of
+    # tools/ci/sanitizers (cmake/FactoriaSanitize.cmake). Here and not in the test presets, so a plain
+    # `cmake -DFA_SANITIZE=... && ctest` and scripts/agent-build.sh get them too.
+    if(FA_SANITIZE AND "${ARGV0}" STREQUAL "NAME")
+        fa_sanitizer_test_environment(_fa_san_env)
+        set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT ${_fa_san_env})
+        # Its TIMEOUT times FA_SANITIZE_TIMEOUT_FACTOR, once the directory has set it (fa_sanitizer_scale_test_timeout).
+        # (EVAL: the name has to be in the deferred call itself; a ${} in it would be read when the call runs, after this function)
+        cmake_language(EVAL CODE "cmake_language(DEFER CALL fa_sanitizer_scale_test_timeout ${ARGV1})")
+    endif()
 endfunction()
