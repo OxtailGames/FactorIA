@@ -96,7 +96,8 @@ TEST_CASE("scene layout: vectors on one line and Tilemap tiles one map row per l
     REQUIRE(tm != nullptr);
     CHECK(tm->width == 4);
     CHECK(tm->height == 3);
-    CHECK(tm->tiles == Json::parse("[-1,-1,-1,-1,-1,2,10,-1,0,1,1,0]"));
+    CHECK(std::vector<std::int32_t>(tm->tiles.cdata(), tm->tiles.cdata() + tm->tiles.size()) ==
+          std::vector<std::int32_t>{-1, -1, -1, -1, -1, 2, 10, -1, 0, 1, 1, 0});
     CHECK(tm->solidTiles == Json::parse("[0,1,2,10]"));
 }
 

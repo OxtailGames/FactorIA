@@ -191,7 +191,7 @@ TEST_CASE("2d: tilemap solid tiles collide (origin = top-left corner)") {
     Json tiles = Json::array();
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 10; ++c) tiles.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1, 2});
     Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);
     s.run(180);
@@ -221,7 +221,7 @@ TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly
         for (int c = 0; c < 10; ++c) row.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
         rows.push_back(row);
     }
-    tm.tiles = rows;
+    set_tilemap_tiles(tm, rows);
     tm.solidTiles = Json::array({1, 2});
     CHECK(check_tilemap(tm).empty());
     const TilemapGrid grid = tilemap_grid(tm);
@@ -238,20 +238,22 @@ TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly
     CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
 }
 
-TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list without width is one row") {
+TEST_CASE("2d: a rows form sets width and height; a flat list without width is one row") {
     {
         Sim s;
         Entity map = s.world.create("map", "map");
         s.world.get<Transform>(map)->position = {-80, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        tm.width = 2;  // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
+        tm.width = 2;  // stale: the rows below replace it (a file's rows form is flattened with its size)
         tm.height = 5;
         Json row = Json::array();
         for (int c = 0; c < 10; ++c) row.push_back(1);
-        tm.tiles = Json::array({row});
+        set_tilemap_tiles(tm, Json::array({row}));
         tm.solidTiles = Json::array({1});
-        CHECK_FALSE(check_tilemap(tm).empty());
+        CHECK(tm.width == 10);
+        CHECK(tm.height == 1);
+        CHECK(check_tilemap(tm).empty());
         Entity box = add_box(s.world, "box", {70, 100}, {16, 16}, BodyType::Dynamic);  // over column 9, outside width 2
         s.run(180);
         CHECK(pos_of(s.world, box).y ==
@@ -263,7 +265,7 @@ TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list wi
         s.world.get<Transform>(map)->position = {-40, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        tm.tiles = Json::array({-1, -1, 1, 1, -1});  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
+        set_tilemap_tiles(tm, Json::array({-1, -1, 1, 1, -1}));  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
         tm.solidTiles = Json::array({1});
         Entity box =
             add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
@@ -669,7 +671,7 @@ TEST_CASE("2d: shape cast against tilemap tiles reports the Tilemap entity") {
     Json tiles = Json::array();
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 10; ++c) tiles.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1, 2});
     s.run(2);
     // wall tile: x in [64, 80], y in [-32, -16]; a circle r=4 along y=-24 stops with its centre at x=60
@@ -1239,7 +1241,7 @@ TEST_CASE("2d: moving a tilemap wakes the body asleep on it") {
     tm.height = 1;
     Json tiles = Json::array();
     for (int c = 0; c < 10; ++c) tiles.push_back(1);
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1});  // one row of solid tiles, top edge at y = -100
     Entity box = add_box(s.world, "box", {0, -60}, {16, 16}, BodyType::Dynamic);
     REQUIRE(run_until_asleep(s, "box"));

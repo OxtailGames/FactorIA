@@ -87,7 +87,7 @@ TEST_CASE("tilemap.paint_terrain paints a rect, re-tiles the edges and reports t
     CHECK(s.tile(0, 0) == -1);
     // the cells are written in place and physics/navigation see the edits
     Entity e = s.engine.world().find("map");
-    CHECK(s.engine.world().get<Tilemap>(e)->version > 0);
+    CHECK(s.engine.world().get<Tilemap>(e)->tiles.version() > 0);
 }
 
 TEST_CASE("tilemap.paint_terrain with erase empties the cells and re-tiles the neighbours") {

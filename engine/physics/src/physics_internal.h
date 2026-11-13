@@ -11,6 +11,7 @@
 
 #include "box2d/box2d.h"
 #include "fa/physics/physics.h"
+#include "fa/scene/tilemap.h"
 #include "nav_grid.h"
 #include "shape3d.h"
 
@@ -147,6 +148,7 @@ private:
         std::string id;
         b2BodyId body = b2_nullBodyId;
         std::uint64_t hash = 0;       // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
+        TilemapStamp stamp;           // the array the tiles were read from (fa/scene/tilemap.h): same stamp = same tiles
         std::uint64_t tilesHash = 0;  // the tiles (sum of per-cell mixes), kept in step with Tilemap::edits
         int cols = 0;                 // grid size the colliders were built for
         int rows = 0;

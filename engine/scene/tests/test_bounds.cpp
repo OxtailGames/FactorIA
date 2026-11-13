@@ -5,6 +5,7 @@
 
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
 
 using namespace fa;
@@ -110,7 +111,7 @@ TEST_CASE("bounds: Tilemap in rows form, flat form and empty") {
     Entity rows = f.make("rows", {100, 300, 0});
     Tilemap& t = f.w.add<Tilemap>(rows);
     t.tileSize = {32, 16};
-    t.tiles = Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]");
+    set_tilemap_tiles(t, Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]"));
     // Top-left corner at the entity, local y down: x 100..228, y 252..300.
     check_rect(entity_world_rect(f.w, rows), 100, 252, 128, 48);
     const auto parts = visual_footprints(f.w, rows);
@@ -123,7 +124,7 @@ TEST_CASE("bounds: Tilemap in rows form, flat form and empty") {
     tf.tileSize = {10, 8};
     tf.width = 5;
     tf.height = 2;
-    tf.tiles = Json::parse("[0,0,0,0,0,1,1,1,1,1]");
+    set_tilemap_tiles(tf, Json::parse("[0,0,0,0,0,1,1,1,1,1]"));
     check_rect(entity_world_rect(f.w, flat), -50, 4, 50, 16);
 
     Entity empty = f.make("empty");
