@@ -60,7 +60,7 @@ if(FA_SANITIZE)
             set(_fa_san_compile_only -fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/tools/ci/sanitizers/ubsan_ignorelist.txt)
         else()
             message(STATUS "FactorIA: ${CMAKE_CXX_COMPILER_ID} has no sanitizer ignorelist: the UBSan findings listed in "
-                "tools/ci/sanitizers/ubsan_ignorelist.txt (Dear ImGui) will be reported. Use Clang for the clean run.")
+                "tools/ci/sanitizers/ubsan_ignorelist.txt (vendored code) will be reported. Use Clang for the clean run.")
         endif()
     endif()
     add_compile_options(${_fa_san_flags} ${_fa_san_compile_only})
