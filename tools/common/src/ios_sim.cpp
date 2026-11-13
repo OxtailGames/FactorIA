@@ -115,6 +115,8 @@ Json run_ios_sim(const std::string& projectDir, const Json& args) {
         shot = r->generic_string();
     }
     const std::string device = arg_string(args, "device", false);
+    // Read before the dry run, so that a bad value is reported there too; only a real run (a Mac) uses it.
+    [[maybe_unused]] const double settle = std::max(0L, arg_int(args, "settleMilliseconds", 1500)) / 1000.0;
 
     Json report = Json::object();
     report["app"] = generic(app);
@@ -151,7 +153,6 @@ Json run_ios_sim(const std::string& projectDir, const Json& args) {
     fail("player.run_ios_sim needs a Mac with Xcode: the iOS Simulator runs only there.",
          "Run it on macOS, or use dryRun to see the simctl commands. On Android the same check is `adb`-based (docs/MOBILE.md).");
 #else
-    const double settle = std::max(0L, arg_int(args, "settleMilliseconds", 1500)) / 1000.0;
     auto simctl = [&](std::vector<std::string> argv, double timeout, const std::map<std::string, std::string>& env = {}) {
         ProcessOptions po;
         po.argv = {"xcrun", "simctl"};

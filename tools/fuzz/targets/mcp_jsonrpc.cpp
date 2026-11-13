@@ -4,7 +4,8 @@
 //
 // Nothing here can write a file, start a program or open a socket: the server runs with the capabilities of
 // `factoria mcp --read-only` ({read, state}; core/capability.h) over the tooling commands and two test commands. The project
-// is an empty temporary folder. A command that asks for more than {read, state} (every command that writes, starts a process
+// is an empty temporary folder, and, as in `factoria mcp --read-only`, only the commands of ai::is_read_only_tool are offered.
+// A command that asks for more than {read, state} (every command that writes, starts a process
 // or uses the network declares it) is refused by the dispatcher before it runs.
 #include <algorithm>
 #include <cstddef>
@@ -17,6 +18,7 @@
 #include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/ai/session.h"
 #include "fa/mcp/server.h"
 #include "fa/tooling/tooling.h"
 #include "fuzz_support.h"
@@ -58,6 +60,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     static Setup setup;
     fa::McpServer server(*setup.host);
     server.set_capabilities(fa::capability_sets::mcp_read_only());
+    // As `factoria mcp --read-only` does (cmd_mcp.cpp): only the commands a read-only role may use are offered and run.
+    server.set_command_filter([](const fa::CommandInfo& info) { return fa::ai::is_read_only_tool(info); });
     server.set_result_cap(64 * 1024);
 
     std::string_view rest = fa::fuzz::as_text(data, size);

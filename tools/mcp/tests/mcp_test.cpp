@@ -178,6 +178,15 @@ TEST_CASE("mcp: malformed input yields JSON-RPC errors") {
     CHECK(emptyBatch["error"]["code"] == -32600);
 }
 
+TEST_CASE("mcp: a message nested too deep is a parse error that says the line and the column") {
+    Fixture f;
+    const std::string open(kMaxJsonDepth + 1, '[');
+    Json deep = Json::parse(*f.server.handle_message("\n  " + open));  // the bracket over the limit is the last one
+    CHECK(deep["error"]["code"] == -32700);
+    const std::string text = deep["error"]["message"].get<std::string>();
+    CHECK(text.find("line 2, column " + std::to_string(2 + kMaxJsonDepth + 1)) != std::string::npos);
+}
+
 TEST_CASE("mcp: a value of the wrong type is an Invalid Request, never an exception") {
     Fixture f;
     f.initialize();

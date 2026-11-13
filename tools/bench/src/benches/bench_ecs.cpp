@@ -1,5 +1,6 @@
 // ECS and hierarchy benchmarks: World::each, entities_with, spawn / destroy, world_matrix.
 #include <memory>
+#include <vector>
 
 #include "benches.h"
 #include "fa/core/math.h"

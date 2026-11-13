@@ -44,7 +44,7 @@ struct AtScript {
 
 namespace at_support {
 
-// Section U and others: where a panel is now. Floating panels have no dock node; a docked one names its node.
+// Sections U (layout), E2 and E4: where a panel is now. Floating panels have no dock node; a docked one names its node.
 ImGuiWindow* panel_window(const char* name);
 bool panel_floating(const char* name);
 ImGuiID panel_node(const char* name);

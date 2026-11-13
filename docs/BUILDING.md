@@ -437,7 +437,8 @@ every race of the run and fails the test with its exit code.
   So any `ctest` of such a tree has them, with a preset or without. A program you run by hand needs them exported.
 - **Timeouts are scaled:** instrumented code is 2-3x slower (ASan + UBSan) or 5-15x slower (TSan), so `add_test()` also
   multiplies the `TIMEOUT` of every test by `FA_SANITIZE_TIMEOUT_FACTOR` (3 for ASan + UBSan, 5 for TSan; a CMake cache
-  variable); a test with no `TIMEOUT` gets ctest's 1500 s times the factor. The limits inside the programs are not scaled:
+  variable); a test with no `TIMEOUT` gets ctest's 1500 s times the factor. With `FA_COVERAGE` on too the factors are multiplied (one
+  helper, `fa_scale_test_timeout`, scales each test once). The limits inside the programs are not scaled:
   the script limits (60 s per `factoria test` test, 5 s of `script.eval`, 2 s of a callback) count CPU time of the script
   thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
   `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
@@ -473,7 +474,7 @@ and `write_midi`) and `soundfont` (`Soundfont::from_memory` and one rendered not
 `extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t*, std::size_t)`, and a corpus folder of small seed files in
 `tools/fuzz/corpus/<name>/`.
 
-**Every build replays the corpus.** Without `FA_FUZZ` (every compiler and platform, MSVC included) each target is linked
+**Every desktop build with `FA_BUILD_TESTS` replays the corpus.** Without `FA_FUZZ` (every desktop compiler and platform, MSVC included; not Android, iOS or the web) each target is linked
 with a small `main()` (`tools/fuzz/replay_main.cpp`) and registered as a ctest `fuzz_<name>` with the label `fuzz`: it runs
 every file of the corpus once, so the seeds and every crash ever found stay regression tests of the normal suite
 (`ctest --test-dir build/dev -L fuzz`). The same program also mutates: `build/dev/tools/fuzz/fa_fuzz_pak --mutate 20000 --seed 3
@@ -565,8 +566,8 @@ builds every target with `-fprofile-instr-generate -fcoverage-mapping`, and ever
 `<build>/coverage/raw/` (`LLVM_PROFILE_FILE=.../%4m.profraw` is set on each test by the `add_test` wrapper of
 `cmake/FactoriaHelpers.cmake`: `%m` is online merge mode, so the many processes of one binary, cli_integration and the examples
 start thousands, update a pool of 4 shared files per binary instead of leaving a full profile each; the `factoria` the editor
-autotest starts is covered too). The `TIMEOUT` of every test is multiplied by `FA_COVERAGE_TIMEOUT_SCALE` (default 3), because
-instrumented Debug runs are slow and a test killed by its timeout writes no profile. `external/` is instrumented too, and left
+autotest starts is covered too). The `TIMEOUT` of every test is multiplied by `FA_COVERAGE_TIMEOUT_SCALE` (default 3; times the sanitizer factor when both
+are on), because instrumented Debug runs are slow and a test killed by its timeout writes no profile. `external/` is instrumented too, and left
 out of the report.
 
 ```bash
