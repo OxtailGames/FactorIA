@@ -71,18 +71,17 @@ public:
     // Calls visit(payload) for every leaf whose fat box overlaps `box` (any order).
     template <class F>
     void query(const Aabb3& box, F&& visit) const {
-        if (root_ == kNone) return;
+        if (root_ == kNone || !aabb_overlap(nodes_[std::size_t(root_)].box, box)) return;
         int stack[kStack];
         int top = 0;
         stack[top++] = root_;
-        while (top > 0) {
+        while (top > 0) {  // a node on the stack overlaps `box`: its children are tested before they are pushed
             const Node& n = nodes_[std::size_t(stack[--top])];
-            if (!aabb_overlap(n.box, box)) continue;
             if (n.child1 == kNone) {
                 visit(n.payload);
             } else if (top + 2 <= kStack) {
-                stack[top++] = n.child1;
-                stack[top++] = n.child2;
+                if (aabb_overlap(nodes_[std::size_t(n.child1)].box, box)) stack[top++] = n.child1;
+                if (aabb_overlap(nodes_[std::size_t(n.child2)].box, box)) stack[top++] = n.child2;
             } else {
                 query_deep(n, box, visit);
             }

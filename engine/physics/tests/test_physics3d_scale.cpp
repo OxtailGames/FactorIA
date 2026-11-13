@@ -210,19 +210,34 @@ TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps
 }
 
 // The budget of the broad phase: 1000 mixed bodies from the drop (the busiest steps: every body falls, then the first
-// impacts). Debug builds only run a short stretch; the time is checked in optimized builds (a Debug, sanitizer or
-// coverage build is far slower than the scale of test_speed_budget_scale() knows).
+// impacts). The time of a step grows with the bodies near each other, not with every pair: a pit of 1000 bodies costs about
+// 6 times a pit of 250 (the same layers, a quarter as tall), where a candidate list of every pair (the old solver's
+// loops) costs about 16 times. The test checks that RATIO, measured in the same process (the faster of two runs of each, so a busy machine does
+// not matter), and only a loose absolute bound: a CI VM can be several times slower than a laptop, which a number of
+// milliseconds cannot know. Debug builds only run a short stretch and print; sanitizer and coverage builds are far slower
+// than the scale of test_speed_budget_scale() knows, so only optimized builds check.
 TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU budget") {
-    Sim s;
-    build_pit(s.world, 1000);
-    s.run(1);  // the bodies exist after the first step
     const int kSteps =
-        kOptimized ? 20 : 10;  // the first layer is 0.3 m above the floor: impacts start at about step 10
-    const double t0 = process_cpu_seconds();
-    s.run(kSteps);
-    const double perStepMs = (process_cpu_seconds() - t0) * 1000.0 / double(kSteps);
-    std::printf("[scale] pit1000: %d steps from the drop, %.2f ms/step CPU\n", kSteps, perStepMs);
-    if (kOptimized) CHECK(perStepMs < 15.0 * test_speed_budget_scale());
+        kOptimized ? 20 : 10;        // the first layer is 0.3 m above the floor: impacts start at about step 10
+    auto pit_ms = [&](int bodies) {  // ms per step of the stretch, the faster of two runs
+        double best = 1e30;
+        for (int run = 0; run < (kOptimized ? 2 : 1); ++run) {
+            Sim s;
+            build_pit(s.world, bodies);
+            s.run(1);  // the bodies exist after the first step
+            const double t0 = process_cpu_seconds();
+            s.run(kSteps);
+            best = std::min(best, (process_cpu_seconds() - t0) * 1000.0 / double(kSteps));
+        }
+        return best;
+    };
+    const double small = pit_ms(250), big = pit_ms(1000);
+    std::printf("[scale] pit1000: %d steps from the drop, %.2f ms/step CPU (pit250 %.2f ms/step, ratio %.1f)\n", kSteps,
+                big, small, big / small);
+    if (kOptimized) {
+        CHECK(big / small < 10.0);
+        CHECK(big < 120.0 * test_speed_budget_scale());
+    }
 }
 
 // Release only (a settled Debug run of 1000 bodies takes minutes today): the pit comes to rest, every body asleep, and a

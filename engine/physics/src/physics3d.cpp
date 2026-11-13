@@ -1088,11 +1088,27 @@ void Physics3D::step(World& world, float dt) {
     std::vector<char> charCarried(n, 0);  // per character: already carried by a platform this sub-step
     std::vector<int> carrier(n, -1);      // per body: index of the kinematic body carrying it this sub-step
 
-    // Dynamic bodies resting on top of body k (k at its current center, optionally shifted).
+    // Keeps the fat box of body i around the box `need` (the tree is written only when it no longer contains it).
+    auto cover_one = [&](std::size_t i, const Aabb3& need) {
+        const Body& b = bodies_[i];
+        if (b.proxy < 0) return;
+        const bool moving = b.type != BodyType::Static && !b.asleep;
+        bp_.cover(b.proxy, need, moving ? kFatMarginMoving : kFatMarginStill,
+                  moving ? b.vel * (dt * kFatStretchSteps) : Vec3{}, false);
+    };
+    // The characters a platform can carry (fixed for the step), so looking for the ones on a platform is not a scan of
+    // every body.
+    std::vector<std::size_t> carriable;
+    for (std::size_t i = 0; i < n; ++i)
+        if (bodies_[i].character && bodies_[i].enabled && bodies_[i].carriedByPlatforms) carriable.push_back(i);
+    // Dynamic bodies resting on top of body k (k at its current center, optionally shifted): the tree gives the bodies near
+    // k, ascending. A body that was moved since its fat box was last covered is covered by whoever moved it.
     auto find_riders = [&](std::size_t k, std::vector<std::size_t>& out) {
         const Body& p = bodies_[k];
         if (!p.enabled || !p.hasShape || p.trigger) return;
-        for (std::size_t i = 0; i < n; ++i) {
+        thread_local std::vector<std::uint32_t> near;
+        bp_.sorted_query(aabb_grow(tight_box(p), kRiderGap + kBpEps), near);
+        for (const std::uint32_t i : near) {
             const Body& d = bodies_[i];
             if (i == k || d.type != BodyType::Dynamic || !d.enabled || !d.hasShape || d.trigger) continue;
             if (!filters_pass(p, d)) continue;
@@ -1105,9 +1121,9 @@ void Physics3D::step(World& world, float dt) {
     auto find_characters = [&](std::size_t k, std::vector<std::size_t>& out) {
         const Body& p = bodies_[k];
         if (!p.enabled || !p.hasShape || p.trigger || p.character) return;
-        for (std::size_t i = 0; i < n; ++i) {
+        for (const std::size_t i : carriable) {
             const Body& c = bodies_[i];
-            if (!c.character || !c.enabled || !c.carriedByPlatforms || !filters_pass(p, c)) continue;
+            if (!filters_pass(p, c)) continue;
             const Contact ct = collide(p, c, c.skin + 0.04f);
             if (ct.hit && ct.normal.y > 0.7f) out.push_back(i);
         }
@@ -1126,6 +1142,7 @@ void Physics3D::step(World& world, float dt) {
         for (std::size_t i : riders) {
             wake(bodies_[i]);
             bodies_[i].center += dp;
+            cover_one(i, tight_box(bodies_[i]));
         }
     }
 
@@ -1145,12 +1162,6 @@ void Physics3D::step(World& world, float dt) {
     // phase asks about (cover), then asks the tree row by row: the partners of body i are the bodies whose fat box overlaps
     // the box of i grown by the phase's reach, ascending, which is exactly the order the old all-pairs loop visited them in
     // (a body the tree does not return is further than the phase's reach, so the narrow phase would have said no).
-    auto cover_one = [&](std::size_t i, const Aabb3& need) {
-        const Body& b = bodies_[i];
-        const bool moving = b.type != BodyType::Static && !b.asleep;
-        bp_.cover(b.proxy, need, moving ? kFatMarginMoving : kFatMarginStill,
-                  moving ? b.vel * (dt * kFatStretchSteps) : Vec3{}, false);
-    };
     auto cover = [&](auto&& need, bool tighten = false) {  // need(i, body): the box of body i this phase asks about
         for (std::size_t i = 0; i < n; ++i) {
             const Body& b = bodies_[i];
@@ -1431,6 +1442,7 @@ void Physics3D::step(World& world, float dt) {
 
     cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
     for (int s = 0; s < subs; ++s) {
+        cover_tight();  // the previous sub-step moved the bodies after the last phase covered them
         std::fill(carrier.begin(), carrier.end(), -1);
         std::fill(charCarried.begin(), charCarried.end(), 0);
         for (std::size_t k = 0; k < n; ++k) {
@@ -1445,6 +1457,7 @@ void Physics3D::step(World& world, float dt) {
                     if (carrier[i] >= 0) continue;
                     carrier[i] = int(k);
                     bodies_[i].center += d;
+                    cover_one(i, tight_box(bodies_[i]));
                 }
             }
             // A character is kinematic too, so nothing pushes it up: it takes the whole displacement, and the turn of a
@@ -1468,6 +1481,7 @@ void Physics3D::step(World& world, float dt) {
                     }
                     c.pendingTurn += p.angVel.y * h;
                 }
+                cover_one(i, tight_box(c));
             }
         }
         // A character presses on the dynamic body it stands on with mass * gravity, at its feet.
@@ -1517,18 +1531,47 @@ void Physics3D::step(World& world, float dt) {
             }
             for (const JointLink& l : jlinks)
                 if (l.b != kNoBody && movable(bodies_[l.a]) && movable(bodies_[l.b])) islands.unite(l.a, l.b);
+            // Two movers join when their centres are closer than their reaches (plus 0.1 m). A mover of small reach (the
+            // centre of every one is inside its fat box) finds its partners in the tree; the few movers the tree cannot
+            // answer for (a big reach, or a centre outside the box) are tried against every mover. The islands do not depend
+            // on the order the pairs are united in.
+            constexpr float kSmallReach = 2.0f;
+            auto try_unite = [&](std::size_t i, std::size_t k) {  // i < k, both movers
+                const Body& a = bodies_[i];
+                const Body& b = bodies_[k];
+                if (!b.hasShape || b.trigger) return;
+                if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) return;
+                const float lim = reach[i] + reach[k] + 0.1f;
+                if (length_sq(a.center - b.center) > lim * lim) return;
+                if (islands.find(i) != islands.find(k) && filters_pass(a, b)) islands.unite(i, k);
+            };
+            std::vector<std::size_t> special;
+            std::vector<char> isSpecial(n, 0);
+            float maxSmall = 0.0f;  // the biggest reach among the movers the tree answers for
+            for (std::size_t i : movers) {
+                const Body& b = bodies_[i];
+                if (!b.hasShape || b.trigger) continue;
+                if (b.proxy < 0 || reach[i] > kSmallReach || !aabb_contains(tight_box(b), Aabb3{b.center, b.center})) {
+                    special.push_back(i);
+                    isSpecial[i] = 1;
+                } else {
+                    maxSmall = std::max(maxSmall, reach[i]);
+                }
+            }
             for (std::size_t mi = 0; mi < movers.size(); ++mi) {
                 const std::size_t i = movers[mi];
                 const Body& a = bodies_[i];
                 if (!a.hasShape || a.trigger) continue;
-                for (std::size_t mk = mi + 1; mk < movers.size(); ++mk) {
-                    const std::size_t k = movers[mk];
-                    const Body& b = bodies_[k];
-                    if (!b.hasShape || b.trigger || islands.find(i) == islands.find(k)) continue;
-                    if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
-                    const float lim = reach[i] + reach[k] + 0.1f;
-                    if (length_sq(a.center - b.center) <= lim * lim && filters_pass(a, b)) islands.unite(i, k);
+                if (isSpecial[i]) {
+                    for (std::size_t mk = mi + 1; mk < movers.size(); ++mk) try_unite(i, movers[mk]);
+                    continue;
                 }
+                const float rr = reach[i] + maxSmall + 0.1f + kBpEps;
+                bp_.query(Aabb3{a.center - Vec3{rr}, a.center + Vec3{rr}}, [&](std::uint32_t k) {
+                    if (k > i && bodies_[k].enabled && movable(bodies_[k])) try_unite(i, k);
+                });
+                for (std::size_t k : special)
+                    if (k > i) try_unite(i, k);
             }
             std::vector<std::vector<std::size_t>> groups;
             std::vector<std::size_t> groupOf(n, kNoBody);
