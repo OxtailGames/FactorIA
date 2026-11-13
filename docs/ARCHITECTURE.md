@@ -156,6 +156,15 @@ listed). The one key the registry removes before validating is `_meta`, the MCP 
 declares a property of that name. Defaults are applied first, then the check. When you add a command, declare every key
 the handler reads, with a `description`; the same rule applies to `project.<name>` tools (their `input`).
 
+**The schema is compiled once, at registration.** `CommandRegistry::add` builds a `fa::CompiledSchema` (core/json_schema.h)
+from the closed `inputSchema` and keeps it in the command's entry; `call` validates and fills defaults against it instead
+of walking the Json: `$ref`s are already resolved (a recursive one too), the keywords are read out, the defaults are
+collected and each `pattern` is a compiled regex. It reports exactly what `validate_json(const Json&, ...)` reports (same
+message, JSON pointer and hint, an invalid `pattern` at the same point, when a string is checked against it), and the
+unit tests and the `json_schema` fuzz target run both and compare. `call` copies the arguments only when it has to (a `_meta`
+key to remove, or a schema with defaults to fill); otherwise the handler receives the caller's Json. A schema that is
+parsed for one validation (a project file, a config) keeps using the Json overloads: compiling costs more than one walk.
+
 **A path argument says what the command does with it: `"x-fa-path": "read" | "write"`.** An annotation on a string property
 (or on an object whose values are paths, such as `publish`'s `folders`) in the `inputSchema`. The validator ignores `x-`
 keys (an unknown keyword is not an error, and `close_object_schemas` keeps them), so the annotation changes nothing at

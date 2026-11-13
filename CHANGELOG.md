@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- Command arguments are checked against a schema compiled at registration (M94.3a): `fa::CompiledSchema`
+  (core/json_schema.h) resolves the `$ref`s, reads the keywords, collects the defaults and compiles each `pattern` once, and
+  `CommandRegistry::call` uses it instead of walking the JSON schema on every call; it also copies the arguments only when
+  it has to remove `_meta` or fill defaults. The errors are the same, byte for byte (the tests and the `json_schema` fuzz
+  target compare both paths). The validator's depth limit of 64 levels is exact now: a schema position that
+  holds a value that is not a schema (for example `"properties": {"a": "string"}`) used to lower the depth counter by one
+  for the rest of the validation.
+
 ## 0.26.0
 
 FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite
