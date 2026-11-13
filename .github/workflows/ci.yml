@@ -193,7 +193,7 @@ jobs:
       - name: Configure and build (linux-asan)
         run: |
           ccache --zero-stats
-          cmake --preset linux-asan
+          cmake --preset linux-asan -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset linux-asan
           ccache --show-stats --verbose
 
@@ -262,7 +262,7 @@ jobs:
       - name: Configure and build (linux-tsan)
         run: |
           ccache --zero-stats
-          cmake --preset linux-tsan
+          cmake --preset linux-tsan -DFA_WARNINGS_AS_ERRORS=ON
           cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp
           ccache --show-stats --verbose
 
