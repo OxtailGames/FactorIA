@@ -146,10 +146,11 @@ std::string run_pit_hash(int threads, int n, int frames) {
 
 }  // namespace
 
-// Today (before the broadphase and manifold packages) the stack and pit tests below fail: the solver does not keep a pile
-// of 100 boxes together nor put a big pile to sleep, and a pit of 1000 bodies costs more than the budget. They are
-// `may_fail` so the suite stays green; the package that fixes each removes the decorator. doctest counts a may_fail test
-// that passes as a pass, so nothing breaks if one starts to work earlier.
+// The column of 100 and the settling pit still fail: the solver (4 sub-steps of 8 iterations) does not keep a stack of
+// 100 boxes together (a stack of 20 sleeps, one of 50 leans a few degrees). They are `may_fail` so the suite stays green;
+// the package that fixes each removes the decorator. doctest counts a may_fail test that passes as a pass, so nothing
+// breaks if one starts to work earlier. The block of 5 x 5 x 4 (contact manifolds with several persistent points) works
+// and is checked for real.
 
 // A column of 100 boxes (2 cm gap each) on a floor. The per-box checks run on a count, so a collapse prints one line.
 TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collapsing" * doctest::may_fail(true)) {
@@ -179,7 +180,7 @@ TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collap
 }
 
 // The second shape: a 5 x 5 x 4 block (100 boxes in 4 layers of 5 x 5): wide, so many contacts per box.
-TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps its shape" * doctest::may_fail(true)) {
+TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps its shape") {
     Sim s;
     add_static_box(s.world, {0, -0.5f, 0}, {20, 1, 20});
     std::vector<Entity> boxes;
@@ -192,7 +193,7 @@ TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps
                 start.push_back(p);
             }
     int steps = 0;
-    while (steps < 60 * 10 && (steps < 10 || s.awake_count() > 0)) {
+    while (steps < 200 && (steps < 10 || s.awake_count() > 0)) {  // it sleeps after about 40 steps: 5x the margin
         s.run(20);
         steps += 20;
     }
