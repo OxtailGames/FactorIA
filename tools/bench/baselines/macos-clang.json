@@ -81,6 +81,28 @@
       "items": 3920,
       "unit": "body steps"
     },
+    "physics.step3d_1000": {
+      "medianMs": 1190.0,
+      "minMs": 1150.0,
+      "maxMs": 1260.0,
+      "p25Ms": 1170.0,
+      "p75Ms": 1210.0,
+      "spread": 0.05,
+      "cpuMedianMs": 1167.13,
+      "items": 10000,
+      "unit": "body steps"
+    },
+    "physics.step3d_stack100": {
+      "medianMs": 186.0,
+      "minMs": 180.0,
+      "maxMs": 200.0,
+      "p25Ms": 183.0,
+      "p75Ms": 190.0,
+      "spread": 0.05,
+      "cpuMedianMs": 184.505,
+      "items": 6000,
+      "unit": "body steps"
+    },
     "render.frame2d": {
       "medianMs": 19.28,
       "minMs": 17.652,
