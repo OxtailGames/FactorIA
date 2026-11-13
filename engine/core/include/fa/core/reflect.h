@@ -22,7 +22,9 @@
 //   bool->Bool, int/int32->Int, float->Float, std::string->String,
 //   Vec2/Vec3/Vec4/Color/Rect, fa::Entity->Entity, fa::Json->Json,
 //   any `enum class E : int32_t`->Enum (via .enum_field), std::string asset
-//   paths->Asset (via .asset_field).
+//   paths->Asset (via .asset_field), fa::ArrayI32 / ArrayF32 / ArrayU8 (core/typed_array.h)->ArrayI32 / ArrayF32 /
+//   ArrayU8: a flat JSON array of numbers, typed in memory (with a version counter and a dirty range) and in scripts
+//   (Int32Array, Float32Array, Uint8Array). range(lo, hi) bounds every element.
 #pragma once
 
 #include <cstddef>
@@ -36,6 +38,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 
 namespace fa {
@@ -53,9 +56,12 @@ enum class FieldKind : std::uint8_t {
     Entity,
     Enum,
     Asset,
-    Json
+    Json,
+    ArrayI32,  // fa::ArrayI32: flat JSON array of integers (32-bit)
+    ArrayF32,  // fa::ArrayF32: flat JSON array of numbers (32-bit floats)
+    ArrayU8    // fa::ArrayU8: flat JSON array of integers 0..255
 };
-const char* field_kind_name(FieldKind k);  // "bool", "int", "float", "string", "vec2", ...
+const char* field_kind_name(FieldKind k);  // "bool", "int", "float", "string", "vec2", "arrayI32", ...
 
 struct FieldInfo {
     std::string name;  // JSON / script key, camelCase
@@ -195,6 +201,12 @@ constexpr FieldKind kind_of() {
         return FieldKind::Entity;
     else if constexpr (std::is_same_v<T, Json>)
         return FieldKind::Json;
+    else if constexpr (std::is_same_v<T, ArrayI32>)
+        return FieldKind::ArrayI32;
+    else if constexpr (std::is_same_v<T, ArrayF32>)
+        return FieldKind::ArrayF32;
+    else if constexpr (std::is_same_v<T, ArrayU8>)
+        return FieldKind::ArrayU8;
     else
         static_assert(sizeof(T) == 0, "Unsupported reflected field type; see reflect.h");
 }

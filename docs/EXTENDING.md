@@ -434,10 +434,36 @@ Do not add a component for something a script can already do with `props`. Add o
 | `Vec2`, `Vec3`, `Vec4`, `Color`, `Rect` | Vec2, Vec3, Vec4, Color, Rect | JSON arrays. See `json.h` for the accepted forms. |
 | `fa::Entity` | Entity | Scene files reference entities by string id. |
 | `fa::Json` | Json | Plain JSON value, for example `Script.props`. |
+| `fa::ArrayI32`, `fa::ArrayF32`, `fa::ArrayU8` (`core/typed_array.h`) | ArrayI32, ArrayF32, ArrayU8 | A flat JSON array of integers, numbers or bytes 0..255, typed in memory and in scripts (below the table). `.range(lo, hi)` bounds every element. |
 | `enum class E : std::int32_t` | Enum | `enum_field(name, &T::m, {"a", "b"}, doc)`. Names are lowercase and their index is the value. |
 | `std::string` path | Asset | `asset_field(name, &T::m, "texture", doc)`. Types: `texture`, `mesh`, `audio`, `font`, `script`, `scene`, `prefab`, `any`. Validation checks that the file exists. |
 
 Modifiers apply to the last field: `.range(lo, hi)`, `.runtime_only()` (not saved to scene files) and `.read_only()` (scripts may read but not write).
+
+**Array fields.** `ArrayI32`, `ArrayF32` and `ArrayU8` are thin wrappers of a contiguous `std::vector` that count their
+writes, so a system that derives data from one (a physics body, a render chunk) rebuilds only what changed:
+
+- `version()` grows on every write through a mutable accessor (`a[i] = x`, a mutable `data()`, `set`, `fill`, `assign`,
+  `resize`...). Read through a `const` reference (`std::as_const(a)[i]`, `cdata()`, `span()`) and nothing is counted. A
+  consumer keeps the version it built from and rebuilds when it differs.
+- `dirty_begin()` / `dirty_end()` is the smallest half-open index range written since the consumer called
+  `acknowledge()` (a chunk size C means chunks `dirty_begin() / C` to `(dirty_end() - 1) / C`). A write that changes the
+  size dirties the whole array, and `dirty_end()` may exceed `size()` after a shrink.
+- `set(i, x)`, `fill`, `assign` and copy assignment write only what differs: the same contents change nothing, so a
+  `scene.set_component` that repeats the array, or a patch of another field of the component, does not trigger a rebuild.
+  `a[i] = x` cannot see whether `x` differs and always counts.
+- The version and the range only mean something on one array object: drop a per-component cache when the component is
+  removed or added again. Not thread safe.
+- JSON: an array of numbers, validated whole before anything is written (errors name the field and the element index;
+  an integer kind refuses `2.5`, `ArrayU8` refuses 256, `ArrayF32` refuses what a 32-bit float cannot hold; at most
+  16 Mi elements). `type_json_schema` gives `{"type": "array", "items": {"type": "integer"|"number", "minimum", "maximum"}}`.
+- Scripts: reading the field gives an `Int32Array`, `Float32Array` or `Uint8Array` that is a COPY (writing into it changes
+  nothing); assigning a typed array or a plain array of numbers replaces the whole field after every element is checked
+  (`TestComponent.tiles[17] must be an integer from 0 to 255, got 300`). A typed array of the field's own type is copied
+  as bytes.
+- The editor's Inspector shows it as a JSON box with the array on one line, up to 512 elements; a longer array shows only
+  its length (edit it with `scene.set_component` or a script).
+- Not animatable by a clip, and `scene.set_component` with `merge` replaces the array (like any non-object value).
 
 ### C.2 Full example: `Wobble`
 
