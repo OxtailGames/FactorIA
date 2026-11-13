@@ -404,7 +404,10 @@ void Editor::on_init() {
                     body = Json::object({{"device_code", "autotest-device-code"},
                                          {"user_code", "ABCD-1234"},
                                          {"verification_uri", "https://github.com/login/device"},
-                                         {"expires_in", 900},
+                                         // The poll naps 10 ms per `interval` (env.sleep above) and gives up after expires_in
+                                         // seconds of naps: with the real 900 s the code ran out after ~2 s of wall time, before
+                                         // the autotest (slow under a sanitizer) approved it. About 200 s of wall time at least.
+                                         {"expires_in", 100000},
                                          {"interval", 5}});
                 } else if (rq.url == "https://github.com/login/oauth/access_token") {
                     body = net->authorize

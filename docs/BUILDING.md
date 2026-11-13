@@ -443,7 +443,8 @@ every race of the run and fails the test with its exit code.
   thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
   `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
 - **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
-  the example games' tests off as in any Debug build. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
+  the example games' tests off as in any Debug build, and the `_perf` budgets (`example_*_perf`, `fixture_skinned_sprites_perf`)
+  off too: a sanitizer build has no baseline and its times and memory are not an optimized build's. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
   four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
   core, the jobs engine and the background loads of runtime, and all of audio and mcp. Both are part of `CI result` and run
   when the change touches anything but docs. Each runs `sudo sysctl vm.mmap_rnd_bits=28` before the tests: the runner's kernel
@@ -452,7 +453,8 @@ every race of the run and fails the test with its exit code.
   in our own code (engine, tools, player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside
   `external/`, which is never edited, may be suppressed by file pattern, one entry each with the reason above it
   (`ubsan_ignorelist.txt` is a Clang `-fsanitize-ignorelist` that compiles the listed files without the check, because the UBSan
-  runtime ignores its suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer).
+  runtime ignores its suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer, and
+  tinysoundfont and xatlas call a function through a pointer of another function type, which `-fsanitize=function` aborts).
   `asan.supp` names an Apple system library whose own code ASan flags (CoreGraphics' PDF parser, reached from the editor
   window's controls); LeakSanitizer suppressions name system libraries we cannot free (Mesa, X11, ALSA). A suppression you add
   says why, in the file and in the commit.

@@ -56,7 +56,9 @@ struct CommandHooks::State {
     std::chrono::steady_clock::time_point lastRead{};
     bool everRead = false;
     std::string sessionId;
-    std::shared_ptr<const CommandInterceptor> interceptor;
+    // Weak: the interceptor's lambdas own this State, so a shared_ptr here would be a cycle (State -> interceptor -> State)
+    // that nothing frees. Whoever installed the interceptor (the CommandRegistry) owns it.
+    std::weak_ptr<const CommandInterceptor> interceptor;
 
     void read() {
         auto fresh = std::make_shared<CommandHookConfig>();
@@ -121,7 +123,7 @@ std::string CommandHooks::configError() const {
 void CommandHooks::refresh() { state_->read(); }
 
 std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
-    if (state_->interceptor) return state_->interceptor;
+    if (auto existing = state_->interceptor.lock()) return existing;
     auto st = state_;
     auto ic = std::make_shared<CommandInterceptor>();
     ic->wants = [st](std::string_view name) {
