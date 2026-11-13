@@ -14,8 +14,8 @@
 
 using namespace fa;
 
-TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and quits"
-          * doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
+TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and quits" *
+          doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     namespace stdfs = std::filesystem;
     stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed").value();
     stdfs::create_directories(dir / "scenes");

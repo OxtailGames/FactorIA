@@ -96,7 +96,11 @@ EngineConfig project_engine_config(const std::string& projectDir, const std::str
 // The --date flag: "" when absent, else the date checked with parse_calendar_date. A date that does not exist (2026-02-29) or
 // is not YYYY-MM-DD throws a UsageError that says what is wrong and how to fix it, before any engine starts.
 std::string date_flag(const Args& args);
-inline const FlagSpec kDateFlag{"date", "YYYY-MM-DD[THH:MM[:SS]]", "The calendar date (and optionally the local time of day, default 00:00:00) game.today() answers (default 2026-01-01: a run never reads the clock). A daily seed, a calendar event or a weekend bonus is tested by choosing the date. A replay (--input) carries its own date; --date overrides it."};
+inline const FlagSpec kDateFlag{
+    "date", "YYYY-MM-DD[THH:MM[:SS]]",
+    "The calendar date (and optionally the local time of day, default 00:00:00) game.today() answers (default "
+    "2026-01-01: a run never reads the clock). A daily seed, a calendar event or a weekend bonus is tested by choosing "
+    "the date. A replay (--input) carries its own date; --date overrides it."};
 // Makes `cfg` a headless run (`factoria run --headless`, the debugger's headless mode): no window, no audio device,
 // the fake platform backend (a development run never talks to a real store, docs/PLATFORM.md). Frames are simulated
 // but drawn only on demand unless `renderAll`; `storage.*` stays in memory unless `persistStorage`.
@@ -113,7 +117,8 @@ public:
     bool has_graphics() const { return graphics_; }
     bool scratch() const { return !scratchDir_.empty(); }
 
-    static std::unique_ptr<Session> open(const std::string& projectDir, const SessionOptions& options);  // throws CliError
+    static std::unique_ptr<Session> open(const std::string& projectDir,
+                                         const SessionOptions& options);  // throws CliError
 
 private:
     std::unique_ptr<Engine> engine_;
@@ -130,7 +135,8 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
 // Runs tests/**/*.test.js on the engine's scripts.
 // `testFiles`: files, folders or globs relative to the project (empty: every tests/**/*.test.js); throws CliError for a path
 // that is not a test file.
-TestReport run_project_tests(Engine& engine, const std::string& nameFilter, const std::vector<std::string>& testFiles = {});
+TestReport run_project_tests(Engine& engine, const std::string& nameFilter,
+                             const std::vector<std::string>& testFiles = {});
 
 // --- batch / session helpers (cmd_session.cpp) ---
 // Runs `{"command": "...", "args": {...}}` on `registry`; returns {"ok":true,"result":...} or

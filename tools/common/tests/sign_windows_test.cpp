@@ -62,7 +62,8 @@ struct WinGame {
         const std::string fake = tmp.sub("tools") + (host == "windows" ? "/signtool.exe" : "/osslsigncode");
         testing::write_all(fake, "tool");
         vars[host == "windows" ? "FACTORIA_SIGNTOOL" : "FACTORIA_OSSLSIGNCODE"] = fake;
-        const std::string openssl = tmp.sub("tools") + "/openssl";  // a fake one: the result must not depend on this computer's openssl
+        const std::string openssl =
+            tmp.sub("tools") + "/openssl";  // a fake one: the result must not depend on this computer's openssl
         testing::write_all(openssl, "tool");
         vars["FACTORIA_OPENSSL"] = openssl;
         o.env = [vars](const std::string& name) {
@@ -80,13 +81,16 @@ std::string decode_script(const std::vector<std::string>& argv) {
     REQUIRE(at + 1 != argv.end());
     const std::vector<unsigned char> bytes = base64_decode(*(at + 1));
     std::string text;
-    for (std::size_t i = 0; i + 1 < bytes.size(); i += 2) text += static_cast<char>(bytes[i]);  // the scripts of this test are ASCII
+    for (std::size_t i = 0; i + 1 < bytes.size(); i += 2)
+        text += static_cast<char>(bytes[i]);  // the scripts of this test are ASCII
     return text;
 }
 
 bool is_powershell(const ProcessOptions& po) { return stdfs::path(po.argv.at(0)).filename() == "powershell.exe"; }
 
-std::string decode_scripts_or_empty(const ProcessOptions& po) { return is_powershell(po) ? decode_script(po.argv) : std::string(); }
+std::string decode_scripts_or_empty(const ProcessOptions& po) {
+    return is_powershell(po) ? decode_script(po.argv) : std::string();
+}
 
 std::string joined_command(const std::vector<std::string>& v) {
     std::string s;
@@ -97,12 +101,13 @@ std::string joined_command(const std::vector<std::string>& v) {
 struct Calls {
     std::vector<ProcessOptions> list;     // every call but the openssl ones
     std::vector<ProcessOptions> openssl;  // the (optional) check of the certificate's subject
-    bool present = false;           // the thumbprint step prints PRESENT=1: the certificate (with its key) is in the store already
-    bool importedByUs = true;       // the import step prints IMPORTED=1 (false: the certificate was in the store already)
-    bool bom = false;               // Windows PowerShell can print a byte order mark before the first line
+    bool present =
+        false;  // the thumbprint step prints PRESENT=1: the certificate (with its key) is in the store already
+    bool importedByUs = true;  // the import step prints IMPORTED=1 (false: the certificate was in the store already)
+    bool bom = false;          // Windows PowerShell can print a byte order mark before the first line
     int thumbprintExit = 0;
     int importExit = 0;
-    bool importCancelled = false;   // the import is cancelled half way
+    bool importCancelled = false;  // the import is cancelled half way
     int signExit = 0;
     int removeExit = 0;
 
@@ -120,7 +125,8 @@ struct Calls {
                 const std::string script = decode_script(po.argv);
                 if (has_text(script, "PRESENT=")) {  // step 1: the thumbprint
                     pr.exitCode = thumbprintExit;
-                    pr.stdoutText = std::string(bom ? "\xEF\xBB\xBF" : "") + "THUMBPRINT=" + kThumbprint + "\r\nPRESENT=" + (present ? "1" : "0") + "\r\n";
+                    pr.stdoutText = std::string(bom ? "\xEF\xBB\xBF" : "") + "THUMBPRINT=" + kThumbprint +
+                                    "\r\nPRESENT=" + (present ? "1" : "0") + "\r\n";
                 } else if (has_text(script, "X509Store")) {  // step 2: the import
                     pr.exitCode = importExit;
                     pr.cancelled = importCancelled;
@@ -133,7 +139,8 @@ struct Calls {
                 pr.stderrText = std::string("bad password ") + kSecret;  // a careless tool
             } else if (po.argv.size() > 1 && po.argv[1] == "--version") {
                 pr.stdoutText = "osslsigncode 2.9.0, using:\n";
-            } else if (stdfs::path(po.argv.at(0)).filename() == "osslsigncode" && po.argv.size() > 1 && po.argv[1] == "sign") {
+            } else if (stdfs::path(po.argv.at(0)).filename() == "osslsigncode" && po.argv.size() > 1 &&
+                       po.argv[1] == "sign") {
                 const auto it = std::find(po.argv.begin(), po.argv.end(), "-out");
                 if (it != po.argv.end()) testing::write_all(*(it + 1), "SIGNED");
             }
@@ -157,7 +164,8 @@ void check_no_secret_in_argv(const Calls& calls) {
 
 }  // namespace
 
-TEST_CASE("sign.windows dry run on Windows: import the .pfx, sign by thumbprint, remove it; the password only in an environment variable") {
+TEST_CASE("sign.windows dry run on Windows: import the .pfx, sign by thumbprint, remove it; the password only in an "
+          "environment variable") {
     WinGame g;
     SignWindowsOptions o = g.options("windows");
     o.dryRun = true;
@@ -194,7 +202,8 @@ TEST_CASE("sign.windows dry run on Windows: import the .pfx, sign by thumbprint,
     CHECK(has_text(r->to_json().dump(), kPasswordVar));  // the NAME of the variable is listed, never the value
 }
 
-TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and removes in that order; the password is in the environment of the first two only") {
+TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and removes in that order; the password is in "
+          "the environment of the first two only") {
     WinGame g;
     Calls calls;
     SignWindowsOptions o = g.options("windows");
@@ -231,19 +240,22 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK_FALSE(has_text(importScript, kSecret));
     CHECK(has_text(importScript, "$env:FACTORIA_WINDOWS_PFX_PASSWORD"));
     CHECK(has_text(importScript, "X509Store('My', 'CurrentUser')"));
-    CHECK(has_text(importScript, "$_.Thumbprint -eq $t -and $_.HasPrivateKey"));  // "already there" counts only with its key
+    CHECK(has_text(importScript,
+                   "$_.Thumbprint -eq $t -and $_.HasPrivateKey"));  // "already there" counts only with its key
     CHECK(has_text(importScript, std::string("'") + kThumbprint + "'"));
     CHECK(has_text(importScript, "System.Threading.Mutex"));
     CHECK_FALSE(has_text(importScript, "Import-PfxCertificate"));  // that would import the chain certificates too
     // the mutex is the user's, across logon sessions
-    CHECK(has_text(importScript, "'Global\\FactorIA-sign-windows-store-' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"));
+    CHECK(has_text(importScript, "'Global\\FactorIA-sign-windows-store-' + "
+                                 "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"));
     // a mutex an elevated PowerShell of the user holds denies the creation: the script opens it instead, and teaches if it cannot
     CHECK(has_text(importScript, "[System.Threading.Mutex]::OpenExisting($mn, 'Synchronize, Modify')"));
     CHECK(has_text(importScript, "started as administrator"));
     CHECK(importScript.find("New-Object System.Threading.Mutex") < importScript.find("OpenExisting"));
     // the order inside the mutex: look in the store first, only then load the file (PersistKeySet writes the key to disk), then add
     const std::size_t check = importScript.find("$had = ");
-    const std::size_t load = importScript.find("PersistKeySet, UserKeySet");  // UserKeySet: never the machine's key folder
+    const std::size_t load =
+        importScript.find("PersistKeySet, UserKeySet");  // UserKeySet: never the machine's key folder
     const std::size_t add = importScript.find("$store.Add($x)");
     REQUIRE(check != std::string::npos);
     REQUIRE(load != std::string::npos);
@@ -272,7 +284,8 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     // 3. sign: by thumbprint, no password anywhere
     REQUIRE(stdfs::path(calls.list[2].argv.at(0)).filename() == "signtool.exe");
     const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};
-    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) != calls.list[2].argv.end());
+    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) !=
+          calls.list[2].argv.end());
     CHECK(calls.list[2].env.count(kPasswordVar) == 0);
     // 4. remove, by that thumbprint, under the same mutex
     REQUIRE(is_powershell(calls.list.back()));
@@ -281,7 +294,8 @@ TEST_CASE("sign.windows on Windows reads the thumbprint, imports, signs and remo
     CHECK(has_text(removeScript, kThumbprint));
     CHECK(has_text(removeScript, "System.Threading.Mutex"));
     CHECK(calls.list.back().env.count(kPasswordVar) == 0);
-    CHECK(calls.list.back().timeoutSeconds > 120);  // longer than the mutex wait, so a hung PowerShell cannot hold the run for ever
+    CHECK(calls.list.back().timeoutSeconds >
+          120);  // longer than the mutex wait, so a hung PowerShell cannot hold the run for ever
     CHECK(calls.list.back().timeoutSeconds < 600);
     for (const std::string& line : shown) CHECK_FALSE(has_text(line, kSecret));
     CHECK_FALSE(has_text(r->to_json().dump(), kSecret));
@@ -296,12 +310,15 @@ TEST_CASE("sign.windows parses the thumbprint when PowerShell prints a byte orde
     auto r = sign_windows(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     REQUIRE(calls.list.size() == 4);
-    const std::vector<std::string> want = {"/sha1", kThumbprint, "/s", "My"};  // the whole thumbprint, nothing of the BOM or the CR
-    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) != calls.list[2].argv.end());
+    const std::vector<std::string> want = {"/sha1", kThumbprint, "/s",
+                                           "My"};  // the whole thumbprint, nothing of the BOM or the CR
+    CHECK(std::search(calls.list[2].argv.begin(), calls.list[2].argv.end(), want.begin(), want.end()) !=
+          calls.list[2].argv.end());
     CHECK(has_text(decode_script(calls.list.back().argv), std::string("My\\") + kThumbprint + "'"));
 }
 
-TEST_CASE("sign.windows removes the imported certificate also when signtool fails, and keeps one that was in the store already") {
+TEST_CASE("sign.windows removes the imported certificate also when signtool fails, and keeps one that was in the store "
+          "already") {
     WinGame g;
     {
         Calls calls;
@@ -370,17 +387,21 @@ TEST_CASE("sign.windows removes the certificate after an import that failed or w
         auto r = sign_windows(o);
         REQUIRE_FALSE(r.ok());
         CHECK_FALSE(has_text(r.error().message + r.error().hint, kSecret));
-        if (cancelled) CHECK(has_text(r.error().message, "cancelled"));
-        else CHECK(has_text(r.error().hint, kPasswordVar));
+        if (cancelled)
+            CHECK(has_text(r.error().message, "cancelled"));
+        else
+            CHECK(has_text(r.error().hint, kPasswordVar));
         const std::vector<std::string> scripts = calls.titles_of_powershell();
-        REQUIRE(scripts.size() == 3);  // thumbprint, import, remove: the import may have put the key in the store before it stopped
+        REQUIRE(scripts.size() ==
+                3);  // thumbprint, import, remove: the import may have put the key in the store before it stopped
         CHECK(has_text(scripts.back(), "Remove-Item"));
         CHECK(has_text(scripts.back(), kThumbprint));
         CHECK(calls.list.size() == 3);  // signtool never started
     }
 }
 
-TEST_CASE("sign.windows: a certificate that could not be removed is named in the hint of the error that stopped the run") {
+TEST_CASE(
+    "sign.windows: a certificate that could not be removed is named in the hint of the error that stopped the run") {
     WinGame g;
     Calls calls;
     calls.signExit = 1;
@@ -404,12 +425,18 @@ TEST_CASE("sign.windows quotes text for PowerShell: the ASCII quote and the typo
     CHECK(powershell_quote("it's") == "'it''s'");
     CHECK(powershell_quote("''") == "''''''");
     // U+2018 U+2019 U+201A U+201B
-    CHECK(powershell_quote("\xE2\x80\x98" "a\xE2\x80\x99") == "'\xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99'");
+    CHECK(powershell_quote("\xE2\x80\x98"
+                           "a\xE2\x80\x99") == "'\xE2\x80\x98\xE2\x80\x98"
+                                               "a\xE2\x80\x99\xE2\x80\x99'");
     CHECK(powershell_quote("\xE2\x80\x9A\xE2\x80\x9B x") == "'\xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x'");
-    CHECK(powershell_quote("it's \xE2\x80\x98" "a\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9B x") ==
-          "'it''s \xE2\x80\x98\xE2\x80\x98" "a\xE2\x80\x99\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x'");
+    CHECK(powershell_quote("it's \xE2\x80\x98"
+                           "a\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9B x") ==
+          "'it''s \xE2\x80\x98\xE2\x80\x98"
+          "a\xE2\x80\x99\xE2\x80\x99 \xE2\x80\x9A\xE2\x80\x9A\xE2\x80\x9B\xE2\x80\x9B x'");
     // other characters that share the first bytes are left alone: U+201C and U+201D are double quotes
-    CHECK(powershell_quote("say \xE2\x80\x9C" "hi\xE2\x80\x9D") == "'say \xE2\x80\x9C" "hi\xE2\x80\x9D'");
+    CHECK(powershell_quote("say \xE2\x80\x9C"
+                           "hi\xE2\x80\x9D") == "'say \xE2\x80\x9C"
+                                                "hi\xE2\x80\x9D'");
     CHECK(powershell_quote("\xE2\x80\x97") == "'\xE2\x80\x97'");  // U+2017, just below the range
     // a cut sequence at the end of the text is kept as it is, not read past the end
     CHECK(powershell_quote("a\xE2\x80") == "'a\xE2\x80'");
@@ -473,7 +500,8 @@ TEST_CASE("sign.windows with osslsigncode: the password goes on stdin (-readpass
     }
 }
 
-TEST_CASE("sign.windows testCertificate makes no password step: it signs with the thumbprint of the certificate it made") {
+TEST_CASE(
+    "sign.windows testCertificate makes no password step: it signs with the thumbprint of the certificate it made") {
     WinGame g;
     SignWindowsOptions o = g.options("windows");
     o.pfx.clear();
@@ -484,5 +512,6 @@ TEST_CASE("sign.windows testCertificate makes no password step: it signs with th
     REQUIRE(r->steps.size() == 2);
     for (const SignStep& s : r->steps) CHECK(s.env.empty());
     const std::vector<std::string> want = {"/sha1", "<thumbprint>", "/s", "My"};
-    CHECK(std::search(r->steps[1].command.begin(), r->steps[1].command.end(), want.begin(), want.end()) != r->steps[1].command.end());
+    CHECK(std::search(r->steps[1].command.begin(), r->steps[1].command.end(), want.begin(), want.end()) !=
+          r->steps[1].command.end());
 }

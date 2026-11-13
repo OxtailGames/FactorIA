@@ -27,11 +27,14 @@ MusicModel& Editor::music_ensure_model() {
             return r;
         });
         if (autotest_) {
-            music_.model->set_async(false);   // the autotest renders inline: what it waits for is state, not a worker thread
+            music_.model->set_async(
+                false);  // the autotest renders inline: what it waits for is state, not a worker thread
             music_.model->set_debounce_ticks(1);
         }
     }
-    if (!music_.preview) music_.preview = std::make_unique<MusicPreview>(&engine_->audio(), [this] { return play_ == PlayState::Playing; });
+    if (!music_.preview)
+        music_.preview =
+            std::make_unique<MusicPreview>(&engine_->audio(), [this] { return play_ == PlayState::Playing; });
     return *music_.model;
 }
 
@@ -77,8 +80,10 @@ void Editor::music_save() {
     }
     u.model->set_overwrite_on_save(u.overwriteBaked);
     const MusicEditOutcome out = u.model->save();
-    if (!out.ok) notify(out.error, 2);
-    else project_files_changed();
+    if (!out.ok)
+        notify(out.error, 2);
+    else
+        project_files_changed();
 }
 
 void Editor::music_edited(const MusicEditOutcome& out) {
@@ -126,7 +131,8 @@ void Editor::music_apply_undo(const Json& entry, bool forward) {
 Vec2 Editor::music_screen_pos(std::int64_t tick, int pitch) const {
     const MusicUi& u = music_;
     const float px = u.pxPerBeat / float(kSongPpq);
-    return Vec2{u.rollX0 + music_ui::kGutter + float(tick) * px, u.rollY0 + float(u.pitchTop - pitch) * music_ui::kRowH + music_ui::kRowH * 0.5f};
+    return Vec2{u.rollX0 + music_ui::kGutter + float(tick) * px,
+                u.rollY0 + float(u.pitchTop - pitch) * music_ui::kRowH + music_ui::kRowH * 0.5f};
 }
 
 Vec2 Editor::music_drum_cell_pos(const std::string& lane, int step) const {
@@ -143,8 +149,9 @@ void Editor::draw_music_panel() {
     // One tick per frame: collects a finished render, starts the next one, tops the preview's queue up.
     if (m.is_open()) m.tick();
     u.preview->update(double(ImGui::GetIO().DeltaTime));
-    if (m.is_open() && m.source() && u.preview->playing() && u.preview->source() != m.source().get() && m.source_is_fresh())
-        u.preview->replace_source(m.source());   // an edit was rendered again: cross over at the next bar line
+    if (m.is_open() && m.source() && u.preview->playing() && u.preview->source() != m.source().get() &&
+        m.source_is_fresh())
+        u.preview->replace_source(m.source());  // an edit was rendered again: cross over at the next bar line
     if (u.pendingSection != -2) {
         if (m.source()) {
             music_play(u.pendingSection, u.pendingLoop);
@@ -167,7 +174,8 @@ void Editor::draw_music_panel() {
     if (!m.is_open()) {
         ImGui::Spacing();
         ImGui::TextDisabled("Open a song (*.song.json) from the list above, or double click one in the Project panel.");
-        ImGui::TextDisabled("music.create makes one: a drum groove, a bass line and a chord pattern in a key, ready to play.");
+        ImGui::TextDisabled(
+            "music.create makes one: a drum groove, a bass line and a chord pattern in a key, ready to play.");
         if (!u.openError.empty()) ImGui::TextColored(music_ui::kBad, "%s", u.openError.c_str());
         ImGui::End();
         return;
@@ -180,12 +188,14 @@ void Editor::draw_music_panel() {
         ImGui::Spacing();
         ImGui::TextColored(music_ui::kBad, "This song does not load:");
         ImGui::TextWrapped("%s", m.error().c_str());
-        ImGui::TextDisabled("Fix it with the Console (music.edit, fs.edit) or an editor, then Reload. music.check says what is wrong.");
+        ImGui::TextDisabled(
+            "Fix it with the Console (music.edit, fs.edit) or an editor, then Reload. music.check says what is wrong.");
         ImGui::End();
         return;
     }
     if (play_ != PlayState::Edit) ImGui::TextColored(music_ui::kWarn, "The game is running: stop it to edit the song.");
-    if (!m.render_error().empty()) ImGui::TextColored(music_ui::kBad, "The song cannot be rendered to play: %s", m.render_error().c_str());
+    if (!m.render_error().empty())
+        ImGui::TextColored(music_ui::kBad, "The song cannot be rendered to play: %s", m.render_error().c_str());
     if (u.focused && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false)) music_toggle_play();
 
     draw_music_transport(m);
@@ -195,8 +205,10 @@ void Editor::draw_music_panel() {
         const char* label;
         const char* id;
     };
-    static const TabInfo tabs[] = {{MusicUi::Tab::Roll, "Piano roll", "mus:tab_roll"}, {MusicUi::Tab::Drums, "Drums", "mus:tab_drums"},
-                                   {MusicUi::Tab::Arrangement, "Arrangement", "mus:tab_arrangement"}, {MusicUi::Tab::Mixer, "Mixer", "mus:tab_mixer"}};
+    static const TabInfo tabs[] = {{MusicUi::Tab::Roll, "Piano roll", "mus:tab_roll"},
+                                   {MusicUi::Tab::Drums, "Drums", "mus:tab_drums"},
+                                   {MusicUi::Tab::Arrangement, "Arrangement", "mus:tab_arrangement"},
+                                   {MusicUi::Tab::Mixer, "Mixer", "mus:tab_mixer"}};
     for (const TabInfo& t : tabs) {
         if (music_ui::toggle_button(t.label, u.tab == t.tab)) u.tab = t.tab;
         at_track(t.id);
@@ -229,7 +241,9 @@ void Editor::draw_music_toolbar(MusicModel& m) {
         ImGui::EndCombo();
     }
     at_track("mus:open");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The songs of the project (*.song.json). A double click in the Project panel opens one too. music.create makes a new one.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The songs of the project (*.song.json). A double click in the Project panel opens one too. "
+                          "music.create makes a new one.");
     if (!m.is_open()) return;
     ImGui::SameLine();
     ImGui::BeginDisabled(!editable || !m.valid());
@@ -237,12 +251,16 @@ void Editor::draw_music_toolbar(MusicModel& m) {
     at_track("mus:save");
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Bakes the song next to its file (music.render: the mix and, when the song declares layers, one stem per layer). Ctrl+S while this panel has the keyboard.\n"
-                          "Every edit is already written to the song file; baking is what changes the audio the game plays when it plays stems.");
+        ImGui::SetTooltip("Bakes the song next to its file (music.render: the mix and, when the song declares layers, "
+                          "one stem per layer). Ctrl+S while this panel has the keyboard.\n"
+                          "Every edit is already written to the song file; baking is what changes the audio the game "
+                          "plays when it plays stems.");
     ImGui::SameLine();
     ImGui::Checkbox("Replace foreign file", &u.overwriteBaked);
     at_track("mus:overwrite");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bake over a sound file that nothing of ours made (no recipe in assets.json). Off: the bake stops with a message instead.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Bake over a sound file that nothing of ours made (no recipe in assets.json). Off: the bake "
+                          "stops with a message instead.");
     ImGui::SameLine();
     if (ImGui::Button("Reload")) m.reload();
     at_track("mus:reload");
@@ -263,7 +281,7 @@ void Editor::music_play(int section, bool loop) {
     if (!u.model || !u.model->is_open() || !u.model->valid()) return;
     MusicSourcePtr src = u.model->source();
     if (!src) {
-        u.pendingSection = section;   // the first render is not ready: play when it is
+        u.pendingSection = section;  // the first render is not ready: play when it is
         u.pendingLoop = loop;
         u.model->request_render();
         return;
@@ -293,12 +311,15 @@ void Editor::draw_music_transport(MusicModel& m) {
     const bool playing = u.preview->playing();
     if (ImGui::Button(playing ? "Stop" : "Play", ImVec2(60, 0))) music_toggle_play();
     at_track("mus:play");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Plays the song from the start with the layers at the intensity below (the same player a game's entity.music uses). Space while this panel has the keyboard.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plays the song from the start with the layers at the intensity below (the same player a "
+                          "game's entity.music uses). Space while this panel has the keyboard.");
     ImGui::SameLine();
     const int nsec = doc ? int(doc->sections.size()) : 0;
     u.section = std::clamp(u.section, 0, std::max(0, nsec - 1));
     ImGui::SetNextItemWidth(130);
-    if (ImGui::BeginCombo("##mussection", nsec > 0 ? doc->sections[std::size_t(u.section)].name.c_str() : "(no sections)")) {
+    if (ImGui::BeginCombo("##mussection",
+                          nsec > 0 ? doc->sections[std::size_t(u.section)].name.c_str() : "(no sections)")) {
         for (int i = 0; i < nsec; ++i) {
             if (ImGui::Selectable(doc->sections[std::size_t(i)].name.c_str(), i == u.section)) u.section = i;
             at_track("mus:section:" + doc->sections[std::size_t(i)].name);
@@ -306,20 +327,23 @@ void Editor::draw_music_transport(MusicModel& m) {
         ImGui::EndCombo();
     }
     at_track("mus:section");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The section Play section and Loop mean. The Arrangement tab selects one too.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The section Play section and Loop mean. The Arrangement tab selects one too.");
     ImGui::SameLine();
     ImGui::BeginDisabled(nsec == 0);
     if (ImGui::Button("Play section")) music_play(u.section, u.loopSection);
     at_track("mus:play_section");
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Starts at the first pass of the section (a section is the granularity of play-from-here).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Starts at the first pass of the section (a section is the granularity of play-from-here).");
     ImGui::SameLine();
     if (ImGui::Checkbox("Loop", &u.loopSection) && playing) {
         const MusicPreview::Where w = u.preview->where();
         u.preview->set_loop_section(u.loopSection ? (w.section >= 0 ? w.section : u.section) : -1);
     }
     at_track("mus:loop");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Plays the section again and again: when a pass of it ends it starts over.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plays the section again and again: when a pass of it ends it starts over.");
     ImGui::SameLine(0, 18);
 
     // The readout keeps a fixed width so the widgets after it stay put while the playhead's digits change.
@@ -327,9 +351,12 @@ void Editor::draw_music_transport(MusicModel& m) {
     std::string where = "stopped";
     if (playing || u.preview->position_frames() > 0.0) {
         const MusicPreview::Where w = u.preview->where();
-        const std::string sec = (w.section >= 0 && u.preview->source() && std::size_t(w.section) < u.preview->source()->map.sections.size())
-                                    ? u.preview->source()->map.sections[std::size_t(w.section)].name : "-";
-        where = std::format("bar {} beat {}  {}  {}", w.bar, w.beat, music_ui::seconds_text(u.preview->position_seconds()), sec);
+        const std::string sec =
+            (w.section >= 0 && u.preview->source() && std::size_t(w.section) < u.preview->source()->map.sections.size())
+                ? u.preview->source()->map.sections[std::size_t(w.section)].name
+                : "-";
+        where = std::format("bar {} beat {}  {}  {}", w.bar, w.beat,
+                            music_ui::seconds_text(u.preview->position_seconds()), sec);
     }
     ImGui::TextDisabled("%s", where.c_str());
     ImGui::SameLine(readoutX + ImGui::CalcTextSize("bar 000 beat 0  00:00.0  mmmmmmmmmm").x);
@@ -345,11 +372,15 @@ void Editor::draw_music_transport(MusicModel& m) {
     float groupW = 18.0f + 170.0f;
     for (const char* label : {"Calm", "Tense", "Intense"})
         groupW += style.ItemSpacing.x + ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
-    if (ImGui::GetItemRectMax().x + groupW <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine(0, 18);
+    if (ImGui::GetItemRectMax().x + groupW <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+        ImGui::SameLine(0, 18);
     ImGui::SetNextItemWidth(170);
-    if (ImGui::SliderFloat("##musintensity", &u.intensity, 0.0f, 1.0f, "intensity %.2f") && playing) u.preview->set_intensity(u.intensity);
+    if (ImGui::SliderFloat("##musintensity", &u.intensity, 0.0f, 1.0f, "intensity %.2f") && playing)
+        u.preview->set_intensity(u.intensity);
     at_track("mus:intensity", layered);
-    for (const auto& [label, v, id] : {std::tuple<const char*, float, const char*>{"Calm", 0.0f, "mus:int_0"}, {"Tense", 0.5f, "mus:int_half"}, {"Intense", 1.0f, "mus:int_1"}}) {
+    for (const auto& [label, v, id] : {std::tuple<const char*, float, const char*>{"Calm", 0.0f, "mus:int_0"},
+                                       {"Tense", 0.5f, "mus:int_half"},
+                                       {"Intense", 1.0f, "mus:int_1"}}) {
         ImGui::SameLine();
         if (ImGui::SmallButton(label)) {
             u.intensity = v;
@@ -359,8 +390,11 @@ void Editor::draw_music_transport(MusicModel& m) {
     }
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip(layered ? "0 plays the base layer only; each layer fades in from its own intensity (the Arrangement tab sets them). The game sets this with entity.music.setIntensity."
-                                  : "This song has no layers, so the intensity changes nothing. Declare layers in the Arrangement tab.");
+        ImGui::SetTooltip(
+            layered
+                ? "0 plays the base layer only; each layer fades in from its own intensity (the Arrangement tab sets "
+                  "them). The game sets this with entity.music.setIntensity."
+                : "This song has no layers, so the intensity changes nothing. Declare layers in the Arrangement tab.");
     if (layered && playing) {
         const std::vector<float> gains = u.preview->stem_gains();
         const MusicSource* ps = u.preview->source();
@@ -368,7 +402,8 @@ void Editor::draw_music_transport(MusicModel& m) {
             for (std::size_t i = 0; i < ps->stems.size() && i < gains.size(); ++i) {
                 ImGui::SameLine();
                 ImGui::ProgressBar(gains[i], ImVec2(46, ImGui::GetFrameHeight() * 0.6f), "");
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("layer %s: %.0f%%", ps->stems[i].name.c_str(), double(gains[i]) * 100.0);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("layer %s: %.0f%%", ps->stems[i].name.c_str(), double(gains[i]) * 100.0);
             }
         }
     }
@@ -380,8 +415,9 @@ namespace {
 using music_ui::kGutter;
 using music_ui::kRowH;
 
-const music_ui::SnapChoice kSnaps[] = {{"1/1", 4 * kSongPpq}, {"1/2", 2 * kSongPpq}, {"1/4", kSongPpq}, {"1/8", kSongPpq / 2},
-                                       {"1/16", kSongPpq / 4}, {"1/32", kSongPpq / 8}, {"1/8t", kSongPpq / 3}, {"1/16t", kSongPpq / 6}};
+const music_ui::SnapChoice kSnaps[] = {{"1/1", 4 * kSongPpq},  {"1/2", 2 * kSongPpq},  {"1/4", kSongPpq},
+                                       {"1/8", kSongPpq / 2},  {"1/16", kSongPpq / 4}, {"1/32", kSongPpq / 8},
+                                       {"1/8t", kSongPpq / 3}, {"1/16t", kSongPpq / 6}};
 
 std::int64_t floor_to(double v, std::int64_t unit) { return std::int64_t(std::floor(v / double(unit))) * unit; }
 std::int64_t round_to(double v, std::int64_t unit) { return std::int64_t(std::llround(v / double(unit))) * unit; }
@@ -413,7 +449,8 @@ void Editor::draw_music_roll(MusicModel& m) {
     const bool canEdit = play_ == PlayState::Edit;
     const std::vector<std::string> tracks = m.pitched_tracks();
     if (tracks.empty()) {
-        ImGui::TextWrapped("This song has no pitched track. The Mixer tab adds one; the Drums tab edits the drum tracks.");
+        ImGui::TextWrapped(
+            "This song has no pitched track. The Mixer tab adds one; the Drums tab edits the drum tracks.");
         return;
     }
     if (std::find(tracks.begin(), tracks.end(), u.track) == tracks.end()) {
@@ -458,7 +495,8 @@ void Editor::draw_music_roll(MusicModel& m) {
         ImGui::EndCombo();
     }
     at_track("mus:pattern");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The patterns of the track. A section plays them in order (the Arrangement tab).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The patterns of the track. A section plays them in order (the Arrangement tab).");
     ImGui::SameLine();
     ImGui::BeginDisabled(!canEdit);
     if (ImGui::SmallButton("New pattern")) {
@@ -487,13 +525,15 @@ void Editor::draw_music_roll(MusicModel& m) {
     const std::int64_t length = pat ? pat->lengthTicks : 0;
     if (ImGui::SmallButton("-##bars") && pat && pat->bars > 1) {
         const std::int64_t newLen = std::int64_t(pat->bars - 1) * doc->meter.barTicks();
-        music_edited(m.set_notes(u.track, u.pattern, clipped(m.notes(u.track, u.pattern), newLen), pat->bars - 1, "Shorten pattern"));
+        music_edited(m.set_notes(u.track, u.pattern, clipped(m.notes(u.track, u.pattern), newLen), pat->bars - 1,
+                                 "Shorten pattern"));
     }
     at_track("mus:bars_minus");
     ImGui::SameLine();
     ImGui::Text("%d", pat ? pat->bars : 0);
     ImGui::SameLine();
-    if (ImGui::SmallButton("+##bars") && pat && pat->bars < kSongMaxBars) music_edited(m.set_notes(u.track, u.pattern, m.notes(u.track, u.pattern), pat->bars + 1, "Lengthen pattern"));
+    if (ImGui::SmallButton("+##bars") && pat && pat->bars < kSongMaxBars)
+        music_edited(m.set_notes(u.track, u.pattern, m.notes(u.track, u.pattern), pat->bars + 1, "Lengthen pattern"));
     at_track("mus:bars_plus");
     ImGui::EndDisabled();
     ImGui::SameLine(0, 18);
@@ -507,26 +547,33 @@ void Editor::draw_music_roll(MusicModel& m) {
         ImGui::EndCombo();
     }
     at_track("mus:snap");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The grid notes snap to when they are drawn, moved and resized. Written notes are rounded to 40 ticks (a 1/24 of a quarter note).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The grid notes snap to when they are drawn, moved and resized. Written notes are rounded to "
+                          "40 ticks (a 1/24 of a quarter note).");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(70);
     const bool velEdited = ImGui::DragInt("##rollvel", &u.velocity, 0.5f, 1, 127, "vel %d");
     at_track("mus:velocity");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The velocity a new note gets. With notes selected, letting go of the drag sets theirs too.");
-    if (ImGui::IsItemDeactivatedAfterEdit() && velEdited && canEdit && !u.sel.empty() && u.drag == MusicUi::Drag::None) {
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The velocity a new note gets. With notes selected, letting go of the drag sets theirs too.");
+    if (ImGui::IsItemDeactivatedAfterEdit() && velEdited && canEdit && !u.sel.empty() &&
+        u.drag == MusicUi::Drag::None) {
         std::vector<SongRollNote> next = u.notes;
         for (int i : u.sel)
             if (i >= 0 && std::size_t(i) < next.size()) next[std::size_t(i)].velocity = u.velocity;
         std::vector<std::pair<std::int64_t, int>> keys;
         for (int i : u.sel)
-            if (i >= 0 && std::size_t(i) < next.size()) keys.emplace_back(next[std::size_t(i)].tick, next[std::size_t(i)].pitch);
+            if (i >= 0 && std::size_t(i) < next.size())
+                keys.emplace_back(next[std::size_t(i)].tick, next[std::size_t(i)].pitch);
         u.selKeys = keys;
         music_edited(m.set_notes(u.track, u.pattern, next, 0, "Set velocity"));
     }
     ImGui::SameLine();
     ImGui::Checkbox("Scale", &u.scaleHighlight);
     at_track("mus:scale");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shades the rows that are not in the song's key (%s %s).", doc->key.c_str(), doc->mode.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shades the rows that are not in the song's key (%s %s).", doc->key.c_str(),
+                          doc->mode.c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("-##zoom")) u.pxPerBeat = std::max(16.0f, u.pxPerBeat / 1.25f);
     at_track("mus:zoom_out");
@@ -570,7 +617,8 @@ void Editor::draw_music_roll(MusicModel& m) {
     const float px = u.pxPerBeat / float(kSongPpq);
     const float lenPx = float(length) * px;
     const float rulerH = music_ui::kRulerH, rollH = float(music_ui::kRows) * kRowH, velH = music_ui::kVelH;
-    ImGui::BeginChild("##musicroll", ImVec2(0, rulerH + rollH + velH + 28), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##musicroll", ImVec2(0, rulerH + rollH + velH + 28), false,
+                      ImGuiWindowFlags_HorizontalScrollbar);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float x0 = origin.x, y0 = origin.y + rulerH;
@@ -578,7 +626,8 @@ void Editor::draw_music_roll(MusicModel& m) {
     u.rollY0 = y0;
     u.rollW = kGutter + lenPx;
     u.rollH = rollH;
-    ImGui::InvisibleButton("##rollhit", ImVec2(kGutter + lenPx + 24, rulerH + rollH), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##rollhit", ImVec2(kGutter + lenPx + 24, rulerH + rollH),
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool rollHot = ImGui::IsItemHovered();
     const bool rollActive = ImGui::IsItemActive();
     const bool rollPressed = rollHot && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
@@ -616,10 +665,13 @@ void Editor::draw_music_roll(MusicModel& m) {
         u.cursorTick = std::max<std::int64_t>(0, floor_to(mt, snapT));
         if (hit >= 0) {
             const SongRollNote& n = u.notes[std::size_t(hit)];
-            const bool edge = double(n.tick + n.duration - mt) * double(px) < 7.0 && double(n.duration) * double(px) > 16.0;
+            const bool edge =
+                double(n.tick + n.duration - mt) * double(px) < 7.0 && double(n.duration) * double(px) > 16.0;
             if (io.KeyShift) {
-                if (u.sel.count(hit)) u.sel.erase(hit);
-                else u.sel.insert(hit);
+                if (u.sel.count(hit))
+                    u.sel.erase(hit);
+                else
+                    u.sel.insert(hit);
             } else if (!u.sel.count(hit)) {
                 u.sel = {hit};
             }
@@ -675,7 +727,9 @@ void Editor::draw_music_roll(MusicModel& m) {
                 const int dp = pitch - u.anchorPitch;
                 for (int i : u.sel) {
                     if (i < 0 || std::size_t(i) >= w.size() || std::size_t(i) >= u.orig.size()) continue;
-                    w[std::size_t(i)].tick = std::clamp<std::int64_t>(u.orig[std::size_t(i)].tick + dt, 0, std::max<std::int64_t>(0, length - u.orig[std::size_t(i)].duration));
+                    w[std::size_t(i)].tick =
+                        std::clamp<std::int64_t>(u.orig[std::size_t(i)].tick + dt, 0,
+                                                 std::max<std::int64_t>(0, length - u.orig[std::size_t(i)].duration));
                     w[std::size_t(i)].pitch = std::clamp(u.orig[std::size_t(i)].pitch + dp, 0, 127);
                 }
                 break;
@@ -687,14 +741,16 @@ void Editor::draw_music_roll(MusicModel& m) {
                 for (int i : u.sel) {
                     if (i < 0 || std::size_t(i) >= w.size() || std::size_t(i) >= u.orig.size()) continue;
                     const SongRollNote& oi = u.orig[std::size_t(i)];
-                    w[std::size_t(i)].duration = std::clamp<std::int64_t>(oi.duration + delta, snapT, std::max(snapT, length - oi.tick));
+                    w[std::size_t(i)].duration =
+                        std::clamp<std::int64_t>(oi.duration + delta, snapT, std::max(snapT, length - oi.tick));
                 }
                 break;
             }
             case MusicUi::Drag::Draw: {
                 if (u.dragNote < 0 || std::size_t(u.dragNote) >= w.size()) break;
                 SongRollNote& n = w[std::size_t(u.dragNote)];
-                n.duration = std::clamp<std::int64_t>(ceil_to(mt, snapT) - n.tick, snapT, std::max(snapT, length - n.tick));
+                n.duration =
+                    std::clamp<std::int64_t>(ceil_to(mt, snapT) - n.tick, snapT, std::max(snapT, length - n.tick));
                 break;
             }
             case MusicUi::Drag::Velocity: {
@@ -712,7 +768,8 @@ void Editor::draw_music_roll(MusicModel& m) {
         }
         bool changed = w.size() != u.orig.size();
         for (std::size_t i = 0; !changed && i < w.size(); ++i)
-            changed = w[i].tick != u.orig[i].tick || w[i].pitch != u.orig[i].pitch || w[i].duration != u.orig[i].duration || w[i].velocity != u.orig[i].velocity;
+            changed = w[i].tick != u.orig[i].tick || w[i].pitch != u.orig[i].pitch ||
+                      w[i].duration != u.orig[i].duration || w[i].velocity != u.orig[i].velocity;
         u.dragChanged = changed;
     }
 
@@ -723,12 +780,18 @@ void Editor::draw_music_roll(MusicModel& m) {
         if (u.dragChanged) {
             std::vector<std::pair<std::int64_t, int>> keys;
             for (int i : u.sel)
-                if (i >= 0 && std::size_t(i) < u.work.size()) keys.emplace_back(u.work[std::size_t(i)].tick, u.work[std::size_t(i)].pitch);
-            const char* label = kind == MusicUi::Drag::Draw ? "Draw note" : kind == MusicUi::Drag::Move ? "Move notes" : kind == MusicUi::Drag::Resize ? "Resize notes" : "Set velocity";
+                if (i >= 0 && std::size_t(i) < u.work.size())
+                    keys.emplace_back(u.work[std::size_t(i)].tick, u.work[std::size_t(i)].pitch);
+            const char* label = kind == MusicUi::Drag::Draw     ? "Draw note"
+                                : kind == MusicUi::Drag::Move   ? "Move notes"
+                                : kind == MusicUi::Drag::Resize ? "Resize notes"
+                                                                : "Set velocity";
             const MusicEditOutcome out = m.set_notes(u.track, u.pattern, u.work, 0, label);
             music_edited(out);
-            if (out.ok) u.selKeys = keys;
-            else u.notesKey.clear();
+            if (out.ok)
+                u.selKeys = keys;
+            else
+                u.notesKey.clear();
         }
         u.dragChanged = false;
         shown = u.notes;
@@ -741,8 +804,11 @@ void Editor::draw_music_roll(MusicModel& m) {
             const double mt = mouse_tick();
             const int pitch = mouse_pitch();
             for (std::size_t i = 0; i < u.notes.size(); ++i)
-                if (u.notes[i].pitch == pitch && mt >= double(u.notes[i].tick) && mt < double(u.notes[i].tick + u.notes[i].duration)) doomed.insert(int(i));
-        } else if (u.focused && !io.WantTextInput && !u.sel.empty() && (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
+                if (u.notes[i].pitch == pitch && mt >= double(u.notes[i].tick) &&
+                    mt < double(u.notes[i].tick + u.notes[i].duration))
+                    doomed.insert(int(i));
+        } else if (u.focused && !io.WantTextInput && !u.sel.empty() &&
+                   (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
             doomed = u.sel;
         }
         if (!doomed.empty()) {
@@ -750,7 +816,8 @@ void Editor::draw_music_roll(MusicModel& m) {
             for (std::size_t i = 0; i < u.notes.size(); ++i)
                 if (!doomed.count(int(i))) next.push_back(u.notes[i]);
             u.sel.clear();
-            const MusicEditOutcome out = m.set_notes(u.track, u.pattern, next, 0, doomed.size() > 1 ? "Delete notes" : "Delete note");
+            const MusicEditOutcome out =
+                m.set_notes(u.track, u.pattern, next, 0, doomed.size() > 1 ? "Delete notes" : "Delete note");
             music_edited(out);
             u.notesKey.clear();
         }
@@ -765,22 +832,29 @@ void Editor::draw_music_roll(MusicModel& m) {
         const bool black = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
         const bool inKey = !u.scaleHighlight || music_in_scale(*doc, pitch);
         ImU32 col = black ? IM_COL32(30, 32, 38, 255) : IM_COL32(40, 43, 51, 255);
-        if (!inKey) col = black ? IM_COL32(22, 23, 27, 255) : IM_COL32(29, 30, 35, 255);
-        else if (u.scaleHighlight && pc == doc->keyRoot) col = IM_COL32(48, 58, 84, 255);
+        if (!inKey)
+            col = black ? IM_COL32(22, 23, 27, 255) : IM_COL32(29, 30, 35, 255);
+        else if (u.scaleHighlight && pc == doc->keyRoot)
+            col = IM_COL32(48, 58, 84, 255);
         const float y = y0 + float(r) * kRowH;
         dl->AddRectFilled(ImVec2(x0 + kGutter, y), ImVec2(x0 + kGutter + lenPx, y + kRowH), col);
-        if (pc == 0) dl->AddLine(ImVec2(x0 + kGutter, y + kRowH), ImVec2(x0 + kGutter + lenPx, y + kRowH), IM_COL32(70, 74, 88, 255));
+        if (pc == 0)
+            dl->AddLine(ImVec2(x0 + kGutter, y + kRowH), ImVec2(x0 + kGutter + lenPx, y + kRowH),
+                        IM_COL32(70, 74, 88, 255));
     }
     (void)scale;
     // grid lines: snap (faint), beats, bars
     const std::int64_t beatT = doc->meter.beatTicks(), barT = doc->meter.barTicks();
     for (std::int64_t t = 0; t <= length; t += snapT) {
         const bool bar = t % barT == 0, beat = t % beatT == 0;
-        const ImU32 c = bar ? IM_COL32(150, 156, 176, 255) : beat ? IM_COL32(86, 90, 106, 255) : IM_COL32(56, 59, 70, 255);
+        const ImU32 c = bar    ? IM_COL32(150, 156, 176, 255)
+                        : beat ? IM_COL32(86, 90, 106, 255)
+                               : IM_COL32(56, 59, 70, 255);
         dl->AddLine(ImVec2(tick_x(double(t)), y0), ImVec2(tick_x(double(t)), y0 + rollH), c);
     }
     for (std::int64_t t = 0; t < length; t += barT) {
-        dl->AddText(ImVec2(tick_x(double(t)) + 3, origin.y), IM_COL32(190, 195, 210, 255), std::to_string(t / barT + 1).c_str());
+        dl->AddText(ImVec2(tick_x(double(t)) + 3, origin.y), IM_COL32(190, 195, 210, 255),
+                    std::to_string(t / barT + 1).c_str());
         dl->AddLine(ImVec2(tick_x(double(t)), origin.y), ImVec2(tick_x(double(t)), y0), IM_COL32(150, 156, 176, 255));
     }
     // notes
@@ -794,10 +868,12 @@ void Editor::draw_music_roll(MusicModel& m) {
         dl->AddRectFilled(ImVec2(xa, ya + 1), ImVec2(xb, ya + kRowH - 1), fill, 2.0f);
         if (n.staccato) dl->AddRectFilled(ImVec2(xa + 1, ya + 4), ImVec2(xa + 4, ya + 7), IM_COL32(20, 20, 30, 255));
         if (n.accent) dl->AddText(ImVec2(xa + 2, ya - 2), IM_COL32(255, 255, 255, 255), "!");
-        dl->AddRect(ImVec2(xa, ya + 1), ImVec2(xb, ya + kRowH - 1), u.sel.count(int(i)) ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 30, 50, 255), 2.0f);
+        dl->AddRect(ImVec2(xa, ya + 1), ImVec2(xb, ya + kRowH - 1),
+                    u.sel.count(int(i)) ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 30, 50, 255), 2.0f);
     }
     // the cursor and the playhead
-    dl->AddLine(ImVec2(tick_x(double(u.cursorTick)), y0), ImVec2(tick_x(double(u.cursorTick)), y0 + rollH), IM_COL32(255, 210, 90, 160), 1.0f);
+    dl->AddLine(ImVec2(tick_x(double(u.cursorTick)), y0), ImVec2(tick_x(double(u.cursorTick)), y0 + rollH),
+                IM_COL32(255, 210, 90, 160), 1.0f);
     if (u.preview->playing() && u.preview->source()) {
         if (auto t = m.pattern_tick(u.preview->source()->map, u.preview->position_frames(), u.track, u.pattern)) {
             const float x = tick_x(*t);
@@ -805,12 +881,14 @@ void Editor::draw_music_roll(MusicModel& m) {
         }
     }
     // the velocity lane
-    dl->AddRectFilled(ImVec2(x0 + kGutter, velOrigin.y), ImVec2(x0 + kGutter + lenPx, velOrigin.y + velH), IM_COL32(26, 28, 34, 255));
+    dl->AddRectFilled(ImVec2(x0 + kGutter, velOrigin.y), ImVec2(x0 + kGutter + lenPx, velOrigin.y + velH),
+                      IM_COL32(26, 28, 34, 255));
     for (std::size_t i = 0; i < shown.size(); ++i) {
         const SongRollNote& n = shown[i];
         const float xa = tick_x(double(n.tick));
         const float h = velH * float(n.velocity) / 127.0f;
-        dl->AddRectFilled(ImVec2(xa, velOrigin.y + velH - h), ImVec2(xa + 4, velOrigin.y + velH), u.sel.count(int(i)) ? IM_COL32(255, 255, 255, 255) : IM_COL32(110, 190, 240, 255));
+        dl->AddRectFilled(ImVec2(xa, velOrigin.y + velH - h), ImVec2(xa + 4, velOrigin.y + velH),
+                          u.sel.count(int(i)) ? IM_COL32(255, 255, 255, 255) : IM_COL32(110, 190, 240, 255));
     }
     // the pitch names on the left: they stay put while the roll scrolls sideways
     const float labelX = ImGui::GetWindowPos().x;
@@ -819,7 +897,10 @@ void Editor::draw_music_roll(MusicModel& m) {
         const int pitch = u.pitchTop - r;
         if (pitch < 0 || pitch > 127) continue;
         const bool root = pitch % 12 == doc->keyRoot;
-        if (pitch % 12 == 0 || root) dl->AddText(ImVec2(labelX + 3, y0 + float(r) * kRowH - 1), root ? IM_COL32(150, 190, 255, 255) : IM_COL32(170, 175, 190, 255), song_pitch_name(pitch).c_str());
+        if (pitch % 12 == 0 || root)
+            dl->AddText(ImVec2(labelX + 3, y0 + float(r) * kRowH - 1),
+                        root ? IM_COL32(150, 190, 255, 255) : IM_COL32(170, 175, 190, 255),
+                        song_pitch_name(pitch).c_str());
     }
     ImGui::EndChild();
 
@@ -828,7 +909,8 @@ void Editor::draw_music_roll(MusicModel& m) {
     ImGui::SetNextItemWidth(90);
     music_ui::text_field("##chordname", u.chordName, 24);
     at_track("mus:chord_name");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A chord by name: Am7, Cmaj7/G, F#dim, Dsus4 (music.chord lists the spellings).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A chord by name: Am7, Cmaj7/G, F#dim, Dsus4 (music.chord lists the spellings).");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(50);
     ImGui::DragInt("##chordoct", &u.chordOctave, 0.1f, 0, 7, "oct %d");
@@ -840,7 +922,8 @@ void Editor::draw_music_roll(MusicModel& m) {
             notify("Chord '" + u.chordName + "': " + why, 1);
         } else {
             std::vector<SongRollNote> next = m.notes(u.track, u.pattern);
-            const std::int64_t at = std::clamp<std::int64_t>(u.cursorTick, 0, std::max<std::int64_t>(0, length - snapT));
+            const std::int64_t at =
+                std::clamp<std::int64_t>(u.cursorTick, 0, std::max<std::int64_t>(0, length - snapT));
             const std::int64_t dur = std::min<std::int64_t>(std::max(snapT, doc->meter.beatTicks()), length - at);
             for (int p : pitches) {
                 SongRollNote n;
@@ -854,16 +937,22 @@ void Editor::draw_music_roll(MusicModel& m) {
         }
     }
     at_track("mus:insert_chord");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("music.chord: the chord's notes are added at the yellow cursor (click in the roll to move it), one beat long.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("music.chord: the chord's notes are added at the yellow cursor (click in the roll to move "
+                          "it), one beat long.");
     ImGui::SameLine(0, 18);
     if (u.progression.empty()) {
         const std::string& md = doc->mode;
-        u.progression = (md == "minor" || md == "aeolian" || md == "dorian" || md == "phrygian" || md == "locrian") ? "i VI III VII" : "I V vi IV";
+        u.progression = (md == "minor" || md == "aeolian" || md == "dorian" || md == "phrygian" || md == "locrian")
+                            ? "i VI III VII"
+                            : "I V vi IV";
     }
     ImGui::SetNextItemWidth(140);
     music_ui::text_field("##progression", u.progression, 120);
     at_track("mus:progression");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Chord names (Am F C G) or Roman numerals in the song's key (i VI III VII); *N holds a chord N bars.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Chord names (Am F C G) or Roman numerals in the song's key (i VI III VII); *N holds a chord N bars.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(80);
     if (ImGui::BeginCombo("##arpdir", kDirections[u.arpDirection])) {
@@ -880,12 +969,18 @@ void Editor::draw_music_roll(MusicModel& m) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Arpeggio")) {
-        music_edited(m.generate("music.arpeggio", Json::object({{"progression", u.progression}, {"track", u.track}, {"pattern", u.pattern}, {"direction", kDirections[u.arpDirection]},
-                                                                  {"octaves", u.arpOctaves}, {"rate", kRates[u.arpRate]}})));
+        music_edited(m.generate("music.arpeggio", Json::object({{"progression", u.progression},
+                                                                {"track", u.track},
+                                                                {"pattern", u.pattern},
+                                                                {"direction", kDirections[u.arpDirection]},
+                                                                {"octaves", u.arpOctaves},
+                                                                {"rate", kRates[u.arpRate]}})));
         u.notesKey.clear();
     }
     at_track("mus:arpeggio");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("music.arpeggio: replaces this pattern with an arpeggio over the progression (direction and note value as set).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("music.arpeggio: replaces this pattern with an arpeggio over the progression (direction and "
+                          "note value as set).");
     ImGui::SameLine();
     const auto& bassStyles = song_bass_styles();
     u.bassStyle = std::clamp(u.bassStyle, 0, int(bassStyles.size()) - 1);
@@ -897,13 +992,20 @@ void Editor::draw_music_roll(MusicModel& m) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Bass line")) {
-        music_edited(m.generate("music.bassline", Json::object({{"progression", u.progression}, {"track", u.track}, {"pattern", u.pattern}, {"style", bassStyles[std::size_t(u.bassStyle)].first}})));
+        music_edited(
+            m.generate("music.bassline", Json::object({{"progression", u.progression},
+                                                       {"track", u.track},
+                                                       {"pattern", u.pattern},
+                                                       {"style", bassStyles[std::size_t(u.bassStyle)].first}})));
         u.notesKey.clear();
     }
     at_track("mus:bassline");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("music.bassline: replaces this pattern with a bass part over the progression, in the style chosen.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "music.bassline: replaces this pattern with a bass part over the progression, in the style chosen.");
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Click to draw a note, drag to size it; drag a note to move it, its right edge to resize; right click or Delete removes. Shift adds to the selection.");
+    ImGui::TextDisabled("Click to draw a note, drag to size it; drag a note to move it, its right edge to resize; "
+                        "right click or Delete removes. Shift adds to the selection.");
 }
 
 // ----------------------------------------------------------------------------------------------------------- drum grid --
@@ -917,7 +1019,8 @@ void Editor::draw_music_drums(MusicModel& m) {
     const bool canEdit = play_ == PlayState::Edit;
     const std::vector<std::string> tracks = m.drum_tracks();
     if (tracks.empty()) {
-        ImGui::TextWrapped("This song has no drum track (a track whose instrument is \"kit\"). music.drums with a path adds one; the Mixer tab adds a track too.");
+        ImGui::TextWrapped("This song has no drum track (a track whose instrument is \"kit\"). music.drums with a path "
+                           "adds one; the Mixer tab adds a track too.");
         return;
     }
     if (std::find(tracks.begin(), tracks.end(), u.drumTrack) == tracks.end()) {
@@ -973,7 +1076,8 @@ void Editor::draw_music_drums(MusicModel& m) {
 
     std::optional<MusicDrumGrid> grid = pat ? music_drum_grid(*pat) : std::nullopt;
     if (!grid) {
-        ImGui::TextWrapped("This pattern is written as note text, not as a drum grid, so the grid cannot show it. Edit it with music.edit set_pattern, or replace it here with a grid.");
+        ImGui::TextWrapped("This pattern is written as note text, not as a drum grid, so the grid cannot show it. Edit "
+                           "it with music.edit set_pattern, or replace it here with a grid.");
         ImGui::BeginDisabled(!canEdit);
         if (ImGui::Button("Replace with an empty grid")) {
             MusicDrumGrid g;
@@ -1005,7 +1109,8 @@ void Editor::draw_music_drums(MusicModel& m) {
                     for (std::size_t i = 0; i < src.size(); ++i) {
                         if (src[i] == '.') continue;
                         const std::int64_t tick = std::int64_t(i) * oldT;
-                        if (newT > 0 && tick % newT == 0 && std::size_t(tick / newT) < row.size()) row[std::size_t(tick / newT)] = src[i];
+                        if (newT > 0 && tick % newT == 0 && std::size_t(tick / newT) < row.size())
+                            row[std::size_t(tick / newT)] = src[i];
                     }
                     next.lanes.emplace_back(lane, row);
                 }
@@ -1016,14 +1121,17 @@ void Editor::draw_music_drums(MusicModel& m) {
         ImGui::EndCombo();
     }
     at_track("mus:drumstep");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("The note value of one cell. Changing it keeps the hits that fall on a cell of the new grid and drops the others.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("The note value of one cell. Changing it keeps the hits that fall on a cell of the new grid "
+                          "and drops the others.");
     ImGui::SameLine();
     ImGui::TextDisabled("bars");
     ImGui::SameLine();
     if (ImGui::SmallButton("-##drumbars") && grid->bars > 1) {
         MusicDrumGrid next = *grid;
         next.bars = grid->bars - 1;
-        for (auto& [lane, text] : next.lanes) text = grid->row(lane, meter).substr(0, std::size_t(next.total_steps(meter)));
+        for (auto& [lane, text] : next.lanes)
+            text = grid->row(lane, meter).substr(0, std::size_t(next.total_steps(meter)));
         music_edited(m.set_grid(u.drumTrack, u.drumPattern, next, "Shorten drum pattern"));
     }
     at_track("mus:drumbars_minus");
@@ -1065,7 +1173,8 @@ void Editor::draw_music_drums(MusicModel& m) {
     u.cellW = cellW;
     u.cellH = cellH;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + labelW, origin.y));
-    ImGui::InvisibleButton("##drumgrid", ImVec2(cellW * float(steps), gridH), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##drumgrid", ImVec2(cellW * float(steps), gridH),
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     at_track("mus:drumgrid");
     const bool left = ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
     const bool right = ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
@@ -1079,7 +1188,8 @@ void Editor::draw_music_drums(MusicModel& m) {
             const char next = right ? '.' : now == '.' ? 'x' : now == 'x' ? 'X' : now == 'X' ? 'o' : '.';
             MusicDrumGrid g = *grid;
             g.set(lane, col, next, meter);
-            music_edited(m.set_grid(u.drumTrack, u.drumPattern, g, std::string("Drum ") + lane + " step " + std::to_string(col + 1)));
+            music_edited(m.set_grid(u.drumTrack, u.drumPattern, g,
+                                    std::string("Drum ") + lane + " step " + std::to_string(col + 1)));
         }
     }
     for (std::size_t r = 0; r < u.gridLanes.size(); ++r) {
@@ -1089,17 +1199,25 @@ void Editor::draw_music_drums(MusicModel& m) {
         for (int s = 0; s < steps; ++s) {
             const float x = u.gridX0 + float(s) * cellW;
             const bool onBeat = s % perBeat == 0;
-            dl->AddRectFilled(ImVec2(x + 1, y + 1), ImVec2(x + cellW - 1, y + cellH - 1), onBeat ? IM_COL32(52, 56, 68, 255) : IM_COL32(40, 43, 52, 255), 2.0f);
+            dl->AddRectFilled(ImVec2(x + 1, y + 1), ImVec2(x + cellW - 1, y + cellH - 1),
+                              onBeat ? IM_COL32(52, 56, 68, 255) : IM_COL32(40, 43, 52, 255), 2.0f);
             const char c = grid->at(lane, s, meter);
-            if (c == 'x') dl->AddRectFilled(ImVec2(x + 2, y + 2), ImVec2(x + cellW - 2, y + cellH - 2), IM_COL32(110, 190, 240, 255), 2.0f);
-            else if (c == 'X') dl->AddRectFilled(ImVec2(x + 2, y + 2), ImVec2(x + cellW - 2, y + cellH - 2), IM_COL32(255, 200, 90, 255), 2.0f);
-            else if (c == 'o') dl->AddCircleFilled(ImVec2(x + cellW * 0.5f, y + cellH * 0.5f), 3.0f, IM_COL32(150, 160, 190, 255));
+            if (c == 'x')
+                dl->AddRectFilled(ImVec2(x + 2, y + 2), ImVec2(x + cellW - 2, y + cellH - 2),
+                                  IM_COL32(110, 190, 240, 255), 2.0f);
+            else if (c == 'X')
+                dl->AddRectFilled(ImVec2(x + 2, y + 2), ImVec2(x + cellW - 2, y + cellH - 2),
+                                  IM_COL32(255, 200, 90, 255), 2.0f);
+            else if (c == 'o')
+                dl->AddCircleFilled(ImVec2(x + cellW * 0.5f, y + cellH * 0.5f), 3.0f, IM_COL32(150, 160, 190, 255));
         }
     }
     for (int s = 0; s <= steps; s += perBar)
-        dl->AddLine(ImVec2(u.gridX0 + float(s) * cellW, u.gridY0), ImVec2(u.gridX0 + float(s) * cellW, u.gridY0 + gridH), IM_COL32(170, 176, 196, 255), 2.0f);
+        dl->AddLine(ImVec2(u.gridX0 + float(s) * cellW, u.gridY0),
+                    ImVec2(u.gridX0 + float(s) * cellW, u.gridY0 + gridH), IM_COL32(170, 176, 196, 255), 2.0f);
     if (u.preview->playing() && u.preview->source()) {
-        if (auto t = m.pattern_tick(u.preview->source()->map, u.preview->position_frames(), u.drumTrack, u.drumPattern)) {
+        if (auto t =
+                m.pattern_tick(u.preview->source()->map, u.preview->position_frames(), u.drumTrack, u.drumPattern)) {
             const float x = u.gridX0 + float(*t / double(music_step_ticks(grid->step))) * cellW;
             dl->AddLine(ImVec2(x, u.gridY0 - 4), ImVec2(x, u.gridY0 + gridH + 4), IM_COL32(255, 90, 90, 255), 2.0f);
         }
@@ -1151,10 +1269,16 @@ void Editor::draw_music_drums(MusicModel& m) {
     ImGui::Checkbox("Fill", &u.drumFill);
     ImGui::SameLine();
     if (ImGui::Button("Generate")) {
-        music_edited(m.generate("music.drums", Json::object({{"style", styles[std::size_t(u.drumStyle)].name}, {"bars", grid->bars}, {"fill", u.drumFill}, {"track", u.drumTrack}, {"pattern", u.drumPattern}})));
+        music_edited(m.generate("music.drums", Json::object({{"style", styles[std::size_t(u.drumStyle)].name},
+                                                             {"bars", grid->bars},
+                                                             {"fill", u.drumFill},
+                                                             {"track", u.drumTrack},
+                                                             {"pattern", u.drumPattern}})));
     }
     at_track("mus:drum_generate");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("music.drums: replaces this pattern with a groove in the style chosen (a tom fill on the last beat with Fill).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("music.drums: replaces this pattern with a groove in the style chosen (a tom fill on the "
+                          "last beat with Fill).");
     ImGui::EndDisabled();
 }
 

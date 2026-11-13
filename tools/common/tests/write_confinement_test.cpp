@@ -22,7 +22,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 // Every "x-fa-path" in a schema says "read" or "write".
 void collect_paths(const Json& schema, const std::string& where, std::vector<std::string>& bad, int& count) {
@@ -32,12 +34,14 @@ void collect_paths(const Json& schema, const std::string& where, std::vector<std
         if (!schema["x-fa-path"].is_string() || (schema["x-fa-path"] != "read" && schema["x-fa-path"] != "write"))
             bad.push_back(where);
     }
-    for (auto it = schema.begin(); it != schema.end(); ++it) collect_paths(it.value(), where + "/" + it.key(), bad, count);
+    for (auto it = schema.begin(); it != schema.end(); ++it)
+        collect_paths(it.value(), where + "/" + it.key(), bad, count);
 }
 
 }  // namespace
 
-TEST_CASE("resolve_write_path: the project root refuses managed folders, the caller's right decides on absolute paths") {
+TEST_CASE(
+    "resolve_write_path: the project root refuses managed folders, the caller's right decides on absolute paths") {
     testing::TempDir tmp;
     testing::TempDir other;
     const std::string dir = tmp.str();
@@ -58,7 +62,8 @@ TEST_CASE("resolve_write_path: the project root refuses managed folders, the cal
             REQUIRE_FALSE(r.ok());
             CHECK_FALSE(r.error().hint.empty());
         }
-        CHECK(fs::path_error_code(resolve_write_path(dir, (other.path / "out.png").generic_string()).error()) == "absolute_path_denied");
+        CHECK(fs::path_error_code(resolve_write_path(dir, (other.path / "out.png").generic_string()).error()) ==
+              "absolute_path_denied");
         CHECK(fs::path_error_code(resolve_write_path(dir, "../x.png").error()) == "path_outside_root");
         CHECK(resolve_write_path(dir, "build/x.png").ok());
     }
@@ -74,7 +79,8 @@ TEST_CASE("resolve_write_path: the project root refuses managed folders, the cal
     CHECK(resolve_write_path(dir, ".factoria/settings.json", fs::WriteRoot::Project, fs::ManagedFolders::Allow).ok());
 }
 
-TEST_CASE("project.new_plugin: path stays inside the project for MCP and agents, the command-line user may name any folder") {
+TEST_CASE(
+    "project.new_plugin: path stays inside the project for MCP and agents, the command-line user may name any folder") {
     testing::TempDir tmp;
     testing::TempDir other;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
@@ -95,7 +101,8 @@ TEST_CASE("project.new_plugin: path stays inside the project for MCP and agents,
         }
         CHECK_FALSE(stdfs::exists(other.path / "plug"));
         // Inside the project the same call works.
-        auto ok = reg.call("project.new_plugin", Json::object({{"name", "p1"}, {"path", "plugins/p1"}, {"dryRun", true}}));
+        auto ok =
+            reg.call("project.new_plugin", Json::object({{"name", "p1"}, {"path", "plugins/p1"}, {"dryRun", true}}));
         CHECK_MESSAGE(ok.ok, ok.error.dump());
     }
     // The user: an absolute folder is accepted (a dry run writes nothing).
@@ -114,7 +121,8 @@ TEST_CASE("project.export: out stays inside the project for MCP and agents (refu
     REQUIRE(reg.has("project.export"));
 
     CommandCapabilityScope mcp(capability_sets::mcp());
-    for (const std::string& bad : {std::string("../export"), (other.path / "export").generic_string(), std::string(".git/export")}) {
+    for (const std::string& bad :
+         {std::string("../export"), (other.path / "export").generic_string(), std::string(".git/export")}) {
         CAPTURE(bad);
         auto r = reg.call("project.export", Json::object({{"platform", "linux"}, {"out", bad}}));
         REQUIRE_FALSE(r.ok);
@@ -125,7 +133,8 @@ TEST_CASE("project.export: out stays inside the project for MCP and agents (refu
     CHECK_FALSE(stdfs::exists(tmp.path / "export"));
 }
 
-TEST_CASE("x-fa-path: every annotation in the registered commands' schemas says read or write, and the writing ones are marked") {
+TEST_CASE("x-fa-path: every annotation in the registered commands' schemas says read or write, and the writing ones "
+          "are marked") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     CommandRegistry reg;
@@ -136,10 +145,19 @@ TEST_CASE("x-fa-path: every annotation in the registered commands' schemas says 
     CHECK(bad.empty());
     CHECK(count > 10);
     // The commands that write to a caller-given path say so.
-    for (const auto& [command, argument] : std::vector<std::pair<std::string, std::string>>{
-             {"fs.write", "path"}, {"project.export", "out"}, {"i18n.export", "out"}, {"project.new_plugin", "path"},
-             {"perf.baseline", "file"}, {"player.run_ios_sim", "screenshot"}, {"project.new_ci_workflow", "path"},
-             {"sign.macos", "out"}, {"sign.macos", "zip"}, {"sign.macos", "pkg"}, {"sign.windows", "msix"}, {"sign.windows", "out"}}) {
+    for (const auto& [command, argument] :
+         std::vector<std::pair<std::string, std::string>>{{"fs.write", "path"},
+                                                          {"project.export", "out"},
+                                                          {"i18n.export", "out"},
+                                                          {"project.new_plugin", "path"},
+                                                          {"perf.baseline", "file"},
+                                                          {"player.run_ios_sim", "screenshot"},
+                                                          {"project.new_ci_workflow", "path"},
+                                                          {"sign.macos", "out"},
+                                                          {"sign.macos", "zip"},
+                                                          {"sign.macos", "pkg"},
+                                                          {"sign.windows", "msix"},
+                                                          {"sign.windows", "out"}}) {
         CAPTURE(command);
         const CommandInfo* info = reg.info(command);
         REQUIRE(info != nullptr);
@@ -209,7 +227,8 @@ TEST_CASE("commands that write a caller's path refuse .git and a link into it (s
     const bool linked = make_dir_link(game / "assets" / "meta", game / ".git");
     CommandRegistry reg;
     register_tooling_commands(reg, game.generic_string());
-    for (const char* name : {"sfx.preset", "assets.pack_atlas", "assets.subset_font", "sign.macos", "sign.windows", "project.new_ci_workflow"})
+    for (const char* name : {"sfx.preset", "assets.pack_atlas", "assets.subset_font", "sign.macos", "sign.windows",
+                             "project.new_ci_workflow"})
         REQUIRE_MESSAGE(reg.has(name), name);
 
     struct Call {
@@ -225,8 +244,10 @@ TEST_CASE("commands that write a caller's path refuse .git and a link into it (s
     };
     if (linked) {
         inGit.push_back({"sfx.preset", Json::object({{"name", "coin"}, {"path", "assets/meta/hooks/coin.sfx.json"}})});
-        inGit.push_back({"assets.pack_atlas", Json::object({{"folder", "assets/frames"}, {"out", "assets/meta/atlas.png"}})});
-        inGit.push_back({"assets.subset_font", Json::object({{"source", "assets/f.ttf"}, {"out", "assets/meta/f.ttf"}})});
+        inGit.push_back(
+            {"assets.pack_atlas", Json::object({{"folder", "assets/frames"}, {"out", "assets/meta/atlas.png"}})});
+        inGit.push_back(
+            {"assets.subset_font", Json::object({{"source", "assets/f.ttf"}, {"out", "assets/meta/f.ttf"}})});
     }
     // Closed to the command-line user and to an MCP client alike.
     for (const bool mcp : {false, true}) {
@@ -263,7 +284,8 @@ TEST_CASE("commands that write a caller's path refuse .git and a link into it (s
 
 // project.new_ci_workflow: inside the project it writes (a dry run here), the command-line user may name the file by its
 // absolute path, and the file stays a GitHub workflow.
-TEST_CASE("project.new_ci_workflow: path is confined like the other writers, an absolute path inside the project is the user's") {
+TEST_CASE("project.new_ci_workflow: path is confined like the other writers, an absolute path inside the project is "
+          "the user's") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const stdfs::path game = tmp.path / "game";
@@ -272,7 +294,8 @@ TEST_CASE("project.new_ci_workflow: path is confined like the other writers, an 
     const std::string absolute = (game / ".github" / "workflows" / "ci.yml").generic_string();
     {
         CommandCapabilityScope mcp(capability_sets::mcp());
-        auto ok = reg.call("project.new_ci_workflow", Json::object({{"path", ".github/workflows/ci.yml"}, {"dryRun", true}}));
+        auto ok =
+            reg.call("project.new_ci_workflow", Json::object({{"path", ".github/workflows/ci.yml"}, {"dryRun", true}}));
         CHECK_MESSAGE(ok.ok, ok.error.dump());
         CHECK_FALSE(reg.call("project.new_ci_workflow", Json::object({{"path", absolute}, {"dryRun", true}})).ok);
     }

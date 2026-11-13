@@ -377,7 +377,8 @@ TEST_CASE("fixed-step view: a step run inside another step leaves the outer step
     in.set_actions(Json::parse(R"({"jump": ["Space"]})"));
     {
         Input::FixedScope outer(in);
-        in.on_key(Key::Space, true);  // arrives while the outer step runs: readers after it see it, and so does the next step
+        in.on_key(Key::Space,
+                  true);  // arrives while the outer step runs: readers after it see it, and so does the next step
         CHECK(in.action_pressed("jump"));
         {
             Input::FixedScope inner(in);  // a script that steps the game from onFixedUpdate
@@ -389,7 +390,8 @@ TEST_CASE("fixed-step view: a step run inside another step leaves the outer step
     }
     {
         Input::FixedScope next(in);
-        CHECK(in.action_pressed("jump"));  // the press that arrived during the outer step was not lost by the inner step's end
+        CHECK(in.action_pressed(
+            "jump"));  // the press that arrived during the outer step was not lost by the inner step's end
         in.end_fixed_step();
     }
     {

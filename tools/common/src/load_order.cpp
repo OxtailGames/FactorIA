@@ -27,7 +27,9 @@ stdfs::path cache_dir(const stdfs::path& projectDir) { return projectDir / ".fac
 
 // A project-relative path the engine reads: no absolute path, no "..", no backslash.
 bool usable_path(const std::string& p) {
-    if (p.empty() || p.size() > 4096 || p[0] == '/' || p.find('\\') != std::string::npos || (p.size() > 1 && p[1] == ':')) return false;
+    if (p.empty() || p.size() > 4096 || p[0] == '/' || p.find('\\') != std::string::npos ||
+        (p.size() > 1 && p[1] == ':'))
+        return false;
     std::size_t start = 0;
     while (start <= p.size()) {
         const std::size_t slash = std::min(p.find('/', start), p.size());
@@ -127,8 +129,10 @@ bool load_order_recordable(const stdfs::path& projectDir, std::string* why) {
     // app): the folder and its four parents, no higher, so a project kept somewhere inside an old export's tree still records.
     for (int depth = 0; depth <= 4 && !dir.empty(); ++depth) {
         if (stdfs::exists(dir / kExportMarkerFile, ec)) {
-            if (why) *why = fs::path_to_utf8(projectDir) + " is inside an exported game (" + fs::path_to_utf8(dir / kExportMarkerFile) +
-                            "): the order is recorded by the sessions of the project itself";
+            if (why)
+                *why = fs::path_to_utf8(projectDir) + " is inside an exported game (" +
+                       fs::path_to_utf8(dir / kExportMarkerFile) +
+                       "): the order is recorded by the sessions of the project itself";
             return false;
         }
         stdfs::path parent = dir.parent_path();
@@ -148,12 +152,15 @@ Result<LoadOrder> read_load_order(const stdfs::path& projectDir) {
     auto parsed = parse_json(text.value(), where);
     if (!parsed.ok()) return parsed.error();
     const Json& j = parsed.value();
-    const std::string fix = "It is a cache the play sessions write: delete it and play the game again (the editor's Play, factoria run or "
-                            "play.auto) to record the order anew.";
+    const std::string fix =
+        "It is a cache the play sessions write: delete it and play the game again (the editor's Play, factoria run or "
+        "play.auto) to record the order anew.";
     if (!j.is_object() || j.value("format", std::string()) != kLoadOrderFormat)
-        return make_error(where + ": not a load order (\"format\" must be \"" + std::string(kLoadOrderFormat) + "\")", fix);
+        return make_error(where + ": not a load order (\"format\" must be \"" + std::string(kLoadOrderFormat) + "\")",
+                          fix);
     auto sc = j.find("scenes");
-    if (sc == j.end() || !sc->is_array()) return make_error(where + "#/scenes: expected an array of {scene, files}", fix);
+    if (sc == j.end() || !sc->is_array())
+        return make_error(where + "#/scenes: expected an array of {scene, files}", fix);
     LoadOrder out;
     for (std::size_t i = 0; i < sc->size() && out.size() < kLoadOrderMaxScenes; ++i) {
         const Json& e = (*sc)[i];
@@ -161,18 +168,21 @@ Result<LoadOrder> read_load_order(const stdfs::path& projectDir) {
         if (!e.is_object()) return make_error(ptr + ": expected an object {scene, files}", fix);
         auto name = e.find("scene");
         auto files = e.find("files");
-        if (name == e.end() || !name->is_string()) return make_error(ptr + "/scene: expected the scene's path as a string", fix);
+        if (name == e.end() || !name->is_string())
+            return make_error(ptr + "/scene: expected the scene's path as a string", fix);
         if (files == e.end() || !files->is_array()) return make_error(ptr + "/files: expected an array of paths", fix);
         SceneFiles s{name->get<std::string>(), {}};
         if (auto src = e.find("source"); src != e.end()) {  // missing (older files): an editor session's
             const std::string v = src->is_string() ? src->get<std::string>() : std::string();
             if (v != "run" && v != "editor")
-                return make_error(ptr + "/source: expected \"run\" (factoria run, play.auto) or \"editor\" (the editor's Play)", fix);
+                return make_error(
+                    ptr + "/source: expected \"run\" (factoria run, play.auto) or \"editor\" (the editor's Play)", fix);
             s.cold = v == "run";
         }
         for (std::size_t k = 0; k < files->size(); ++k) {
             if (!(*files)[k].is_string())
-                return make_error(ptr + "/files/" + std::to_string(k) + ": expected a project-relative path as a string", fix);
+                return make_error(
+                    ptr + "/files/" + std::to_string(k) + ": expected a project-relative path as a string", fix);
             s.files.push_back((*files)[k].get<std::string>());
         }
         out.push_back(std::move(s));
@@ -186,7 +196,8 @@ Result<LoadOrder> read_load_order(const stdfs::path& projectDir) {
 
 namespace {
 
-Result<LoadOrderMerge> record_with(const ShareEnv& env, const stdfs::path& projectDir, const LoadOrder& seen, LoadOrderSource source) {
+Result<LoadOrderMerge> record_with(const ShareEnv& env, const stdfs::path& projectDir, const LoadOrder& seen,
+                                   LoadOrderSource source) {
     if (std::string why; !load_order_recordable(projectDir, &why)) {
         FA_DEBUG("loadorder", "not recorded: {}", why);
         LoadOrderMerge skipped;
@@ -197,10 +208,12 @@ Result<LoadOrderMerge> record_with(const ShareEnv& env, const stdfs::path& proje
     ShareLock lock(env, dir);
     if (!lock.held()) {
         const std::string why = lock.error().empty() ? std::string("the lock is busy") : lock.error();
-        return make_error("The load order of " + fs::path_to_utf8(projectDir) + " was not recorded: " + why,
-                          lock.unwritable() ? "The project's .factoria/cache folder cannot be written: check its permissions. The order is a "
-                                              "cache only, so the export packs by path until a session records it."
-                                            : "Another FactorIA program is writing it now; the next play session records the order again.");
+        return make_error(
+            "The load order of " + fs::path_to_utf8(projectDir) + " was not recorded: " + why,
+            lock.unwritable()
+                ? "The project's .factoria/cache folder cannot be written: check its permissions. The order is a "
+                  "cache only, so the export packs by path until a session records it."
+                : "Another FactorIA program is writing it now; the next play session records the order again.");
     }
     LoadOrder recorded;
     if (auto r = read_load_order(projectDir); r.ok()) {
@@ -213,13 +226,16 @@ Result<LoadOrderMerge> record_with(const ShareEnv& env, const stdfs::path& proje
     if (!stats.changed) return stats;  // nothing new: the file stays as it is
     const std::string text = dump_json(to_json(merged)) + "\n";
     if (auto w = fs::write_bytes(fs::path_to_utf8(load_order_file(projectDir)), text.data(), text.size()); !w.ok())
-        return make_error("The load order of " + fs::path_to_utf8(projectDir) + " was not recorded: " + w.error().message, w.error().hint);
+        return make_error("The load order of " + fs::path_to_utf8(projectDir) +
+                              " was not recorded: " + w.error().message,
+                          w.error().hint);
     return stats;
 }
 
 void record_logged(const ShareEnv& env, const stdfs::path& projectDir, const LoadOrder& seen, LoadOrderSource source) {
     if (seen.empty()) return;
-    if (auto r = record_with(env, projectDir, seen, source); !r.ok()) FA_WARN("loadorder", "{} ({})", r.error().message, r.error().hint);
+    if (auto r = record_with(env, projectDir, seen, source); !r.ok())
+        FA_WARN("loadorder", "{} ({})", r.error().message, r.error().hint);
 }
 
 }  // namespace

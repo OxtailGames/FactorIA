@@ -57,10 +57,15 @@ void Editor::ai_plugin_start(const ai::AiConfig& cfg, const ai::PluginInstallReq
                 const std::string status = step.value("status", std::string());
                 const std::string id = step.value("id", std::string());
                 std::string line;
-                if (status == "running") line = "Running: " + (id == "entry" ? std::string("adding the entry to ai.json") : command_text(step["command"]));
-                else if (status == "done") line = "Done: " + id;
-                else if (status == "skipped") line = "Skipped " + id + ": " + step.value("detail", std::string());
-                else if (status == "failed") line = "Failed " + id + ": " + step.value("detail", std::string());
+                if (status == "running")
+                    line = "Running: " +
+                           (id == "entry" ? std::string("adding the entry to ai.json") : command_text(step["command"]));
+                else if (status == "done")
+                    line = "Done: " + id;
+                else if (status == "skipped")
+                    line = "Skipped " + id + ": " + step.value("detail", std::string());
+                else if (status == "failed")
+                    line = "Failed " + id + ": " + step.value("detail", std::string());
                 if (line.empty()) return;
                 std::lock_guard<std::mutex> lock(job->mu);
                 job->lines.push_back(line);
@@ -93,7 +98,8 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
     };
 
     ImGui::SeparatorText("TokenEconomizer");
-    ImGui::TextWrapped("TokenEconomizer is Microsoft's plugin for Claude Code that cuts the tokens a coding agent spends. One click installs it with "
+    ImGui::TextWrapped("TokenEconomizer is Microsoft's plugin for Claude Code that cuts the tokens a coding agent "
+                       "spends. One click installs it with "
                        "Claude Code's own plugin commands and adds it to the list above.");
 
     // An install that ended: take its result, merge the entry into the working copy, ask the CLI again.
@@ -123,7 +129,9 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
             for (const ai::Extension& e : loaded->extensions.entries) {
                 if (e.kind != ai::ExtensionKind::Plugin || lower_copy(e.plugin) != lower_copy(preset.plugin)) continue;
                 const auto has = [&](const std::vector<ai::Extension>& list) {
-                    return std::ranges::any_of(list, [&](const ai::Extension& o) { return o.kind == e.kind && lower_copy(o.plugin) == lower_copy(e.plugin); });
+                    return std::ranges::any_of(list, [&](const ai::Extension& o) {
+                        return o.kind == e.kind && lower_copy(o.plugin) == lower_copy(e.plugin);
+                    });
                 };
                 if (!has(x.user)) x.user.push_back(e);
                 if (!has(x.userLoaded)) x.userLoaded.push_back(e);
@@ -145,7 +153,8 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
         probeError = job->probeError;
         lines = job->lines;
     }
-    if (!running && !probeDone && configReadable && (!autotest_ || aiPluginProbeInTest_)) ai_plugin_start(cfg, preset, false);
+    if (!running && !probeDone && configReadable && (!autotest_ || aiPluginProbeInTest_))
+        ai_plugin_start(cfg, preset, false);
 
     const Json steps = probe.value("steps", Json::array());
     const auto needed = [&](std::size_t i) { return i < steps.size() ? steps[i].value("needed", true) : true; };
@@ -178,15 +187,18 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
         ImGui::EndDisabled();
         at_track("aiset:eco:installed", false);
     } else if (pluginDone) {
-        wrapped(kStatusWarn, "TokenEconomizer is installed in Claude Code, but it is not in your extensions list, so FactorIA's runs do not load it.");
+        wrapped(kStatusWarn, "TokenEconomizer is installed in Claude Code, but it is not in your extensions list, so "
+                             "FactorIA's runs do not load it.");
         ImGui::BeginDisabled(!configReadable);
         if (ImGui::Button("Add the entry")) ai_plugin_start(cfg, preset, true);
         ImGui::EndDisabled();
         at_track("aiset:eco:entry", configReadable);
-        ImGui::SetItemTooltip("Adds only the entry %s to %s; nothing is installed. It is written now; your other unsaved changes stay in this window.",
+        ImGui::SetItemTooltip("Adds only the entry %s to %s; nothing is installed. It is written now; your other "
+                              "unsaved changes stay in this window.",
                               preset.plugin.c_str(), aiSettings_.path.c_str());
     } else {
-        if (ImGui::Button(aiEconomizerConfirm_ ? "Hide" : "Add TokenEconomizer...")) aiEconomizerConfirm_ = !aiEconomizerConfirm_;
+        if (ImGui::Button(aiEconomizerConfirm_ ? "Hide" : "Add TokenEconomizer..."))
+            aiEconomizerConfirm_ = !aiEconomizerConfirm_;
         at_track("aiset:eco:add");
         ImGui::SetItemTooltip("Shows what will be installed. Nothing runs until you confirm.");
     }
@@ -198,23 +210,32 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
         for (std::size_t i = 0; i < steps.size() && i < 3; ++i) {
             const bool need = steps[i].value("needed", true);
             std::string line = std::string(kWhat[i]) + " ";
-            if (i == 0) line += preset.marketplace + " (GitHub)";
-            else if (i == 1) line += preset.plugin;
-            else line += "'" + preset.entryName + "' to " + aiSettings_.path + " (your other keys stay)";
+            if (i == 0)
+                line += preset.marketplace + " (GitHub)";
+            else if (i == 1)
+                line += preset.plugin;
+            else
+                line += "'" + preset.entryName + "' to " + aiSettings_.path + " (your other keys stay)";
             const std::string cmd = command_text(steps[i]["command"]);
-            if (!need) line += ": already done";
-            else if (!cmd.empty()) line += ": " + cmd;
+            if (!need)
+                line += ": already done";
+            else if (!cmd.empty())
+                line += ": " + cmd;
             ImGui::Bullet();
             ImGui::TextWrapped("%s", line.c_str());
         }
-        wrapped(pythonOk ? kStatusReady : kStatusFailed,
-                "Needs Python " + preset.requiresPython + " or newer: " + python.value("message", std::string("not checked")) +
-                    (pythonOk ? "." : ". Install it first (python.org or your package manager), then press Check again."));
+        wrapped(
+            pythonOk ? kStatusReady : kStatusFailed,
+            "Needs Python " + preset.requiresPython +
+                " or newer: " + python.value("message", std::string("not checked")) +
+                (pythonOk ? "." : ". Install it first (python.org or your package manager), then press Check again."));
         ImGui::TextUnformatted("What TokenEconomizer does:");
-        ImGui::BulletText("learns micro-skills per repository, so the agent stops re-reading what it already worked out");
+        ImGui::BulletText(
+            "learns micro-skills per repository, so the agent stops re-reading what it already worked out");
         ImGui::BulletText("prunes the tools the agent is offered, with one command to give the tools back");
         ImGui::BulletText("guards against failure loops (the same failing call over and over)");
-        wrapped(kStatusWarn, "It is a third-party plugin: its hooks run on this computer whenever Claude Code runs for you.");
+        wrapped(kStatusWarn,
+                "It is a third-party plugin: its hooks run on this computer whenever Claude Code runs for you.");
         ImGui::BeginDisabled(!pythonOk || !configReadable);
         if (ImGui::Button("Install")) ai_plugin_start(cfg, preset, true);
         ImGui::EndDisabled();
@@ -232,7 +253,8 @@ void Editor::draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadabl
     }
     if (!aiEconomizerMessage_.empty()) {
         wrapped(aiEconomizerOk_ ? kStatusReady : kStatusFailed, aiEconomizerMessage_);
-        if (aiEconomizerOk_) ImGui::TextDisabled("It is in ai.json already; Save keeps any other change you made here.");
+        if (aiEconomizerOk_)
+            ImGui::TextDisabled("It is in ai.json already; Save keeps any other change you made here.");
     }
 }
 

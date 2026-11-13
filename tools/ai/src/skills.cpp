@@ -64,14 +64,19 @@ std::string source_of(const std::string& dir, const SkillsContext& ctx) {
 // Name, description and problem of one skill folder (on disk or inside the binary).
 void load_meta(SkillInfo& info) {
     const bool engine = is_engine_skill_path(info.dir);
-    const std::string folderName = engine ? info.dir.substr(kEngineSkillPrefix.size()) : fsys::path(info.dir).filename().string();
+    const std::string folderName =
+        engine ? info.dir.substr(kEngineSkillPrefix.size()) : fsys::path(info.dir).filename().string();
     info.name = folderName;
     std::optional<std::string> text;
-    if (engine) text = fa::engine_skill_read(folderName);
-    else text = read_whole(fsys::path(info.dir) / "SKILL.md");
+    if (engine)
+        text = fa::engine_skill_read(folderName);
+    else
+        text = read_whole(fsys::path(info.dir) / "SKILL.md");
     if (!text) {
-        info.problem = engine ? "the engine skill '" + folderName + "' has no SKILL.md" : "'" + info.dir + "' has no SKILL.md";
-        info.fix = "A skill is a folder with a SKILL.md in it (capitals) that starts with the frontmatter `name:` and `description:`.";
+        info.problem =
+            engine ? "the engine skill '" + folderName + "' has no SKILL.md" : "'" + info.dir + "' has no SKILL.md";
+        info.fix = "A skill is a folder with a SKILL.md in it (capitals) that starts with the frontmatter `name:` and "
+                   "`description:`.";
         return;
     }
     auto fm = fa::parse_skill_md(*text, engine ? "skills/" + folderName + "/SKILL.md" : info.dir + "/SKILL.md");
@@ -132,11 +137,11 @@ bool SkillInfo::serves_role(std::string_view role) const {
     return std::find(list.begin(), list.end(), role) != list.end();
 }
 
-bool SkillInfo::offered_to(std::string_view role) const { return problem.empty() && shadowedBy.empty() && serves_role(role); }
-
-std::vector<std::string> SkillInfo::effective_roles() const {
-    return roles.empty() ? defaultRoles : roles;
+bool SkillInfo::offered_to(std::string_view role) const {
+    return problem.empty() && shadowedBy.empty() && serves_role(role);
 }
+
+std::vector<std::string> SkillInfo::effective_roles() const { return roles.empty() ? defaultRoles : roles; }
 
 std::vector<std::string> engine_skill_default_roles(std::string_view name) {
     // The roles that build the game. Reading order of the table: who does the work the skill is about.
@@ -169,12 +174,13 @@ std::string project_skills_dir(const SkillsContext& ctx) {
     return (fsys::path(ctx.projectDir) / "skills").string();
 }
 
-std::vector<SkillInfo> scan_skills(const std::vector<Extension>& userEntries, const std::vector<Extension>& projectEntries,
-                                   const SkillsContext& ctx) {
+std::vector<SkillInfo> scan_skills(const std::vector<Extension>& userEntries,
+                                   const std::vector<Extension>& projectEntries, const SkillsContext& ctx) {
     ExtensionContext ext;
     ext.projectDir = ctx.projectDir;
     ext.env = env_of(ctx);
-    std::vector<SkillInfo> found;  // insertion order: project entries, user entries, project folder, user folder, engine
+    std::vector<SkillInfo>
+        found;  // insertion order: project entries, user entries, project folder, user folder, engine
     auto from_entries = [&](const std::vector<Extension>& entries, const char* scope) {
         for (const Extension& e : entries) {
             if (e.kind != ExtensionKind::Skill) continue;
@@ -223,7 +229,8 @@ std::vector<SkillInfo> scan_skills(const std::vector<Extension>& userEntries, co
             s.source = source_of(s.dir, ctx);
             load_meta(s);
             s.defaultRoles = s.source == "engine" ? engine_skill_default_roles(s.name)
-                                                  : std::vector<std::string>(std::begin(kDefaultExtensionRoles), std::end(kDefaultExtensionRoles));
+                                                  : std::vector<std::string>(std::begin(kDefaultExtensionRoles),
+                                                                             std::end(kDefaultExtensionRoles));
         }
         out.push_back(std::move(s));
     }
@@ -257,7 +264,9 @@ std::vector<const SkillInfo*> skills_for_role(const std::vector<SkillInfo>& all,
 
 std::vector<SkillBrief> skills_for_prompt(const std::vector<SkillInfo>& all, std::string_view role,
                                           const std::vector<std::string>& disabledRoles) {
-    auto off = [&](const char* r) { return std::find(disabledRoles.begin(), disabledRoles.end(), r) != disabledRoles.end(); };
+    auto off = [&](const char* r) {
+        return std::find(disabledRoles.begin(), disabledRoles.end(), r) != disabledRoles.end();
+    };
     std::vector<SkillBrief> out;
     for (const SkillInfo* s : skills_for_role(all, role)) {
         if (role == "orchestrator" && s->is_engine() && s->name == "make-art" && !off("artist")) continue;
@@ -269,8 +278,9 @@ std::vector<SkillBrief> skills_for_prompt(const std::vector<SkillInfo>& all, std
 
 std::string skills_prompt(const std::vector<SkillBrief>& skills, std::string_view toolName) {
     if (skills.empty()) return {};
-    std::string out = "# Skills\nTopic guides. Read one with " + std::string(toolName) + " {\"name\"} before that kind of work; it lists its other files (" +
-                      std::string(toolName) + " {\"name\", \"file\"}).\n";
+    std::string out = "# Skills\nTopic guides. Read one with " + std::string(toolName) +
+                      " {\"name\"} before that kind of work; it lists its other files (" + std::string(toolName) +
+                      " {\"name\", \"file\"}).\n";
     for (const SkillBrief& s : skills) out += "- " + s.name + ": " + one_line(s.description, 160) + "\n";
     return out;
 }
@@ -291,7 +301,8 @@ std::vector<SkillFile> skill_files(const SkillInfo& skill, std::size_t max, std:
     } else if (!skill.dir.empty()) {
         std::vector<SkillFile> all;
         std::error_code ec;
-        for (auto it = fsys::recursive_directory_iterator(skill.dir, fsys::directory_options::skip_permission_denied, ec);
+        for (auto it =
+                 fsys::recursive_directory_iterator(skill.dir, fsys::directory_options::skip_permission_denied, ec);
              it != fsys::recursive_directory_iterator(); it.increment(ec)) {
             if (ec) break;
             const std::string fname = it->path().filename().string();
@@ -305,7 +316,8 @@ std::vector<SkillFile> skill_files(const SkillInfo& skill, std::size_t max, std:
                 continue;
             }
             if (!it->is_regular_file(e2) || (!fname.empty() && fname[0] == '.')) continue;
-            all.push_back({fsys::relative(it->path(), skill.dir, e2).generic_string(), static_cast<u64>(it->file_size(e2))});
+            all.push_back(
+                {fsys::relative(it->path(), skill.dir, e2).generic_string(), static_cast<u64>(it->file_size(e2))});
             if (all.size() > 2000) break;
         }
         std::sort(all.begin(), all.end(), [](const SkillFile& a, const SkillFile& b) {
@@ -321,7 +333,8 @@ std::vector<SkillFile> skill_files(const SkillInfo& skill, std::size_t max, std:
 Json SkillRead::to_json() const {
     Json files_json = Json::array();
     for (const SkillFile& f : files) files_json.push_back(Json::object({{"path", f.path}, {"bytes", f.bytes}}));
-    Json j = Json::object({{"name", name}, {"source", source}, {"file", file}, {"content", content}, {"totalBytes", totalBytes}});
+    Json j = Json::object(
+        {{"name", name}, {"source", source}, {"file", file}, {"content", content}, {"totalBytes", totalBytes}});
     if (!description.empty()) j["description"] = description;
     if (truncated) {
         j["truncated"] = true;
@@ -332,7 +345,8 @@ Json SkillRead::to_json() const {
 }
 
 Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u64 offset, u64 limit) {
-    if (!skill.problem.empty()) return make_error("The skill '" + skill.name + "' cannot be read: " + skill.problem, skill.fix);
+    if (!skill.problem.empty())
+        return make_error("The skill '" + skill.name + "' cannot be read: " + skill.problem, skill.fix);
     std::string file(fileIn);
     std::replace(file.begin(), file.end(), '\\', '/');
     const bool main = file.empty() || file == "SKILL.md";
@@ -343,7 +357,9 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u6
     out.file = file;
     std::size_t total = 0;
     out.files = skill_files(skill, 60, &total);
-    out.files.erase(std::remove_if(out.files.begin(), out.files.end(), [](const SkillFile& f) { return f.path == "SKILL.md"; }), out.files.end());
+    out.files.erase(
+        std::remove_if(out.files.begin(), out.files.end(), [](const SkillFile& f) { return f.path == "SKILL.md"; }),
+        out.files.end());
 
     std::optional<std::string> text;
     if (is_engine_skill_path(skill.dir)) {
@@ -357,25 +373,31 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u6
     } else {
         const fsys::path rel(file);
         if (rel.is_absolute() || rel.has_root_path() || file.find("..") != std::string::npos) {
-            return make_error("'" + file + "' is not inside the skill's folder",
-                              "Name a file beside SKILL.md by its path relative to the skill, for example \"reference.md\".");
+            return make_error(
+                "'" + file + "' is not inside the skill's folder",
+                "Name a file beside SKILL.md by its path relative to the skill, for example \"reference.md\".");
         }
         const fsys::path full = fsys::path(skill.dir) / rel;
         std::error_code ec;
         if (!fsys::is_regular_file(full, ec)) {
             std::vector<std::string> names;
             for (const SkillFile& f : skill_files(skill, 200)) names.push_back(f.path);
-            return make_error("The skill '" + skill.name + "' has no file '" + file + "'", fa::did_you_mean(file, names));
+            return make_error("The skill '" + skill.name + "' has no file '" + file + "'",
+                              fa::did_you_mean(file, names));
         }
         if (!inside_dir(fsys::path(skill.dir), full)) {
-            return make_error("'" + file + "' leaves the skill's folder (a link points outside it)", "Only files that really live in the skill's folder can be read.");
+            return make_error("'" + file + "' leaves the skill's folder (a link points outside it)",
+                              "Only files that really live in the skill's folder can be read.");
         }
         text = read_whole(full);
-        if (!text) return make_error("Cannot read '" + file + "' of the skill '" + skill.name + "'", "Check that the file is readable.");
+        if (!text)
+            return make_error("Cannot read '" + file + "' of the skill '" + skill.name + "'",
+                              "Check that the file is readable.");
     }
     // A file that is not text (an image, a program) is not read into the conversation.
     if (text->find('\0') != std::string::npos) {
-        return make_error("'" + file + "' of the skill '" + skill.name + "' is not a text file", "Skills are read as text; open a binary file with the tool that handles it.");
+        return make_error("'" + file + "' of the skill '" + skill.name + "' is not a text file",
+                          "Skills are read as text; open a binary file with the tool that handles it.");
     }
     std::string body = *text;
     if (main) {
@@ -388,7 +410,8 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u6
     out.totalBytes = body.size();
     const u64 maxBytes = limit ? limit : kDefaultReadBytes;
     if (offset > body.size()) {
-        return make_error("offset " + std::to_string(offset) + " is past the end of '" + file + "' (" + std::to_string(body.size()) + " bytes)",
+        return make_error("offset " + std::to_string(offset) + " is past the end of '" + file + "' (" +
+                              std::to_string(body.size()) + " bytes)",
                           "Read from offset 0, or from a smaller offset.");
     }
     u64 end = std::min<u64>(body.size(), offset + maxBytes);
@@ -403,23 +426,27 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u6
 
 Result<std::string> create_skill(const std::string& skillsDir, std::string_view name, std::string_view description) {
     if (const std::string problem = fa::skill_name_problem(name); !problem.empty()) {
-        return make_error("Cannot create the skill: " + problem, "A skill's name is also its folder: lowercase letters, digits and hyphens.");
+        return make_error("Cannot create the skill: " + problem,
+                          "A skill's name is also its folder: lowercase letters, digits and hyphens.");
     }
     const fsys::path folder = fsys::path(skillsDir) / std::string(name);
     std::error_code ec;
     if (fsys::exists(folder, ec)) {
-        return make_error("The skill '" + std::string(name) + "' already exists at " + folder.string(), "Edit its SKILL.md, or choose another name.");
+        return make_error("The skill '" + std::string(name) + "' already exists at " + folder.string(),
+                          "Edit its SKILL.md, or choose another name.");
     }
     const fsys::path md = folder / "SKILL.md";
     if (auto ok = fs::write_text(md.string(), fa::skill_template(name, description)); !ok) return ok.error();
     return md.string();
 }
 
-
 namespace {
 
 Json skill_json(const SkillInfo& s, bool withFiles) {
-    Json j = Json::object({{"name", s.name}, {"description", s.description}, {"source", s.source}, {"enabled", s.enabled},
+    Json j = Json::object({{"name", s.name},
+                           {"description", s.description},
+                           {"source", s.source},
+                           {"enabled", s.enabled},
                            {"roles", s.effective_roles()}});
     if (!s.dir.empty()) j["dir"] = s.dir;
     if (!s.entry.empty()) {
@@ -433,7 +460,8 @@ Json skill_json(const SkillInfo& s, bool withFiles) {
     }
     if (withFiles) {
         Json files = Json::array();
-        for (const SkillFile& f : skill_files(s, 40)) files.push_back(Json::object({{"path", f.path}, {"bytes", f.bytes}}));
+        for (const SkillFile& f : skill_files(s, 40))
+            files.push_back(Json::object({{"path", f.path}, {"bytes", f.bytes}}));
         j["files"] = files;
     }
     return j;
@@ -467,10 +495,14 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
         info.category = "skills";
         info.summary = "List the skills (topic guides) available to a role: name, description, where each lives.";
         info.description =
-            "Skills are folders with a SKILL.md (Agent Skills format) that you read only when a task needs them: the engine's own "
-            "(make-art, make-audio, custom-shaders...), the user's (~/.factoria/skills) and the project's (skills/). Returns "
-            "{skills:[{name, description, source engine|user|project, enabled, roles, dir, entry?, shadowedBy? (another skill of "
-            "the same name wins), problem + fix? (SKILL.md invalid: not offered)}], count}. With `role`, only the skills that "
+            "Skills are folders with a SKILL.md (Agent Skills format) that you read only when a task needs them: the "
+            "engine's own "
+            "(make-art, make-audio, custom-shaders...), the user's (~/.factoria/skills) and the project's (skills/). "
+            "Returns "
+            "{skills:[{name, description, source engine|user|project, enabled, roles, dir, entry?, shadowedBy? "
+            "(another skill of "
+            "the same name wins), problem + fix? (SKILL.md invalid: not offered)}], count}. With `role`, only the "
+            "skills that "
             "role is offered; without it, every skill with its settings. Read one with skills.read. docs/SKILLS.md. "
             "Example: {\"role\":\"worker\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -497,13 +529,17 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
         info.name = "skills.read";
         info.category = "skills";
         info.summary = "Read a skill: its SKILL.md instructions, or another file of the skill.";
-        info.description =
-            "Loads the instructions of the skill `name` (see the Skills list in your prompt, or skills.list) before you start the "
-            "kind of work it covers. Without `file` it returns the body of SKILL.md and lists the other files beside it; read one "
-            "with `file` (a path relative to the skill, \"reference.md\"). Long files come in pieces: `truncated` and `nextOffset` "
-            "say where the next call continues (`offset`, `limit` are bytes). Returns {name, source, file, description?, content, "
-            "totalBytes, truncated?, nextOffset?, files?}. Unknown names and files answer with the ones that exist. docs/SKILLS.md. "
-            "Example: {\"name\":\"make-art\"} or {\"name\":\"make-art\",\"file\":\"reference.md\"}";
+        info.description = "Loads the instructions of the skill `name` (see the Skills list in your prompt, or "
+                           "skills.list) before you start the "
+                           "kind of work it covers. Without `file` it returns the body of SKILL.md and lists the other "
+                           "files beside it; read one "
+                           "with `file` (a path relative to the skill, \"reference.md\"). Long files come in pieces: "
+                           "`truncated` and `nextOffset` "
+                           "say where the next call continues (`offset`, `limit` are bytes). Returns {name, source, "
+                           "file, description?, content, "
+                           "totalBytes, truncated?, nextOffset?, files?}. Unknown names and files answer with the ones "
+                           "that exist. docs/SKILLS.md. "
+                           "Example: {\"name\":\"make-art\"} or {\"name\":\"make-art\",\"file\":\"reference.md\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "name":{"type":"string","description":"Skill name, as in the Skills list."},
             "file":{"type":"string","description":"File of the skill, relative to its folder. Default SKILL.md."},
@@ -516,7 +552,8 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
             auto cfg = load();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             const std::string name = str(args, "name");
-            if (name.empty()) throw CommandError("missing_name", "skills.read needs a `name`", "Call skills.list for the names.");
+            if (name.empty())
+                throw CommandError("missing_name", "skills.read needs a `name`", "Call skills.list for the names.");
             const std::string role = str(args, "role");
             check_role(role);
             const std::vector<SkillInfo> all = scan_skills(*cfg, context());
@@ -535,13 +572,18 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
             }
             if (!hit) {
                 if (hiddenFromRole)
-                    throw CommandError("skill_not_offered", "The skill '" + name + "' is not offered to the role '" + role + "'",
-                                       "It is switched off for that role (AI settings > Extensions, or the skill's entry in the extensions). "
-                                       "Skills you can read: " + (names.empty() ? std::string("none") : join(names, ", ")) + ".");
+                    throw CommandError("skill_not_offered",
+                                       "The skill '" + name + "' is not offered to the role '" + role + "'",
+                                       "It is switched off for that role (AI settings > Extensions, or the skill's "
+                                       "entry in the extensions). "
+                                       "Skills you can read: " +
+                                           (names.empty() ? std::string("none") : join(names, ", ")) + ".");
                 throw CommandError("unknown_skill", "No skill named '" + name + "'",
-                                   names.empty() ? "There are no skills yet; skills.new creates one." : fa::did_you_mean(name, names));
+                                   names.empty() ? "There are no skills yet; skills.new creates one."
+                                                 : fa::did_you_mean(name, names));
             }
-            auto r = read_skill(*hit, str(args, "file"), static_cast<u64>(num(args, "offset", 0)), static_cast<u64>(num(args, "limit", 0)));
+            auto r = read_skill(*hit, str(args, "file"), static_cast<u64>(num(args, "offset", 0)),
+                                static_cast<u64>(num(args, "limit", 0)));
             if (!r) throw CommandError("skill_read_failed", r.error().message, r.error().hint);
             return r->to_json();
         });
@@ -552,12 +594,17 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
         info.category = "skills";
         info.summary = "Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).";
         info.description =
-            "Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lowercase letters, digits and hyphens, up "
-            "to 64, the folder's name) and `description` (what the skill is for and WHEN to read it, up to 1024 characters), then a "
-            "body to fill in. Add other files beside it and name them in the body. Never overwrites an existing skill. scope "
-            "\"project\" (default) writes into the project's skills/ folder, which the game's other AIs and `factoria validate` see; "
+            "Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lowercase letters, digits and "
+            "hyphens, up "
+            "to 64, the folder's name) and `description` (what the skill is for and WHEN to read it, up to 1024 "
+            "characters), then a "
+            "body to fill in. Add other files beside it and name them in the body. Never overwrites an existing skill. "
+            "scope "
+            "\"project\" (default) writes into the project's skills/ folder, which the game's other AIs and `factoria "
+            "validate` see; "
             "\"user\" writes into ~/.factoria/skills for every project. Returns {path, name, scope}. docs/SKILLS.md. "
-            "Example: {\"name\":\"enemy-design\",\"description\":\"How enemies are built in this game. Read before adding an enemy.\"}";
+            "Example: {\"name\":\"enemy-design\",\"description\":\"How enemies are built in this game. Read before "
+            "adding an enemy.\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "name":{"type":"string","description":"Skill name and folder: lowercase letters, digits, single hyphens."},
             "description":{"type":"string","description":"What the skill covers and when to read it (up to 1024 characters)."},
@@ -568,28 +615,39 @@ void register_skills_commands(CommandRegistry& registry, SkillsCommandOptions op
             const std::string name = str(args, "name");
             const std::string scope = str(args, "scope", "project");
             if (scope != "project" && scope != "user")
-                throw CommandError("invalid_scope", "scope '" + scope + "' is not known", "Use \"project\" or \"user\".");
-            if (scope == "user") require_capability(Capability::WriteAnywhere, "skills.new", "writing into ~/.factoria/skills (scope \"user\")");
+                throw CommandError("invalid_scope", "scope '" + scope + "' is not known",
+                                   "Use \"project\" or \"user\".");
+            if (scope == "user")
+                require_capability(Capability::WriteAnywhere, "skills.new",
+                                   "writing into ~/.factoria/skills (scope \"user\")");
             const SkillsContext ctx = context();
             const std::string dir = scope == "project" ? project_skills_dir(ctx) : user_skills_dir(ctx);
             if (dir.empty())
-                throw CommandError("no_folder", scope == "project" ? "There is no project folder to put the skill in" : "There is no home folder",
-                                   scope == "project" ? "Run this from a game project, or use scope \"user\"." : "Set HOME, or use scope \"project\".");
+                throw CommandError("no_folder",
+                                   scope == "project" ? "There is no project folder to put the skill in"
+                                                      : "There is no home folder",
+                                   scope == "project" ? "Run this from a game project, or use scope \"user\"."
+                                                      : "Set HOME, or use scope \"project\".");
             std::string description = str(args, "description");
             if (description.size() > fa::kMaxSkillDescription)
-                throw CommandError("description_too_long", "The description has " + std::to_string(description.size()) + " characters; the limit is " +
-                                                               std::to_string(fa::kMaxSkillDescription),
+                throw CommandError("description_too_long",
+                                   "The description has " + std::to_string(description.size()) +
+                                       " characters; the limit is " + std::to_string(fa::kMaxSkillDescription),
                                    "Say what the skill is for and when to read it; put the details in the body.");
             auto path = create_skill(dir, name, description);
             if (!path) throw CommandError("skill_not_created", path.error().message, path.error().hint);
             return Json::object({{"path", *path}, {"name", name}, {"scope", scope}});
         });
     }
-    declare_command_capabilities(registry, {
-        {"skills.list", capability_sets::reads()},
-        {"skills.read", capability_sets::reads()},
-        {"skills.new", capability_sets::writes_project()},  // scope "user" writes ~/.factoria/skills and asks for writeAnywhere on top
-    });
+    declare_command_capabilities(
+        registry,
+        {
+            {"skills.list", capability_sets::reads()},
+            {"skills.read", capability_sets::reads()},
+            {"skills.new",
+             capability_sets::
+                 writes_project()},  // scope "user" writes ~/.factoria/skills and asks for writeAnywhere on top
+        });
 }
 
 }  // namespace fa::ai

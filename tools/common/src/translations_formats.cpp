@@ -40,7 +40,8 @@ std::string xml_escape(const std::string& text, bool attribute) {
             case U'\n': out += attribute ? "&#10;" : "\n"; break;
             case U'\t': out += attribute ? "&#9;" : "\t"; break;
             default:
-                utf8_append(out, cp < 0x20 ? kReplacementChar : cp);  // XML 1.0 cannot hold the other control characters
+                utf8_append(out,
+                            cp < 0x20 ? kReplacementChar : cp);  // XML 1.0 cannot hold the other control characters
         }
     }
     return out;
@@ -59,11 +60,16 @@ std::string xml_unescape(std::string_view text) {
             continue;
         }
         const std::string_view name = text.substr(i + 1, end - i - 1);
-        if (name == "amp") out += '&';
-        else if (name == "lt") out += '<';
-        else if (name == "gt") out += '>';
-        else if (name == "quot") out += '"';
-        else if (name == "apos") out += '\'';
+        if (name == "amp")
+            out += '&';
+        else if (name == "lt")
+            out += '<';
+        else if (name == "gt")
+            out += '>';
+        else if (name == "quot")
+            out += '"';
+        else if (name == "apos")
+            out += '\'';
         else if (name.size() > 1 && name[0] == '#') {
             const bool hex = name[1] == 'x' || name[1] == 'X';
             const char* const digits = name.data() + (hex ? 2 : 1);
@@ -122,9 +128,12 @@ public:
             } else if (s_.compare(pos_, 2, "<!") == 0) {
                 int depth = 0;  // <!DOCTYPE x [ ... ]>
                 for (; pos_ < s_.size(); ++pos_) {
-                    if (s_[pos_] == '[') ++depth;
-                    else if (s_[pos_] == ']') --depth;
-                    else if (s_[pos_] == '>' && depth <= 0) break;
+                    if (s_[pos_] == '[')
+                        ++depth;
+                    else if (s_[pos_] == ']')
+                        --depth;
+                    else if (s_[pos_] == '>' && depth <= 0)
+                        break;
                 }
                 if (pos_ >= s_.size()) return fail("a declaration that never ends");
                 ++pos_;
@@ -134,9 +143,11 @@ public:
                 const std::string name = local_name(trim(s_.substr(pos_ + 2, close - pos_ - 2)));
                 const std::size_t line = line_at(pos_);
                 if (open.empty() || open.back() != name)
-                    return make_error("line " + std::to_string(line) + ": </" + name + "> " +
-                                          (open.empty() ? "closes an element that was never opened" : "does not close <" + open.back() + ">"),
-                                      "The file is not well-formed XML: check the tags around that line, or export it again.");
+                    return make_error(
+                        "line " + std::to_string(line) + ": </" + name + "> " +
+                            (open.empty() ? "closes an element that was never opened"
+                                          : "does not close <" + open.back() + ">"),
+                        "The file is not well-formed XML: check the tags around that line, or export it again.");
                 open.pop_back();
                 h.end(name);
                 pos_ = close + 1;
@@ -146,14 +157,16 @@ public:
             }
         }
         if (!open.empty())
-            return make_error("the file ends inside <" + open.back() + ">",
-                              "The file is not well-formed XML (it may be cut short): export it again or repair the end of it.");
+            return make_error(
+                "the file ends inside <" + open.back() + ">",
+                "The file is not well-formed XML (it may be cut short): export it again or repair the end of it.");
         return {};
     }
 
 private:
     Result<void> fail(const std::string& what) const {
-        return make_error("line " + std::to_string(line_at(pos_)) + ": " + what, "The file is not well-formed XML: export it again.");
+        return make_error("line " + std::to_string(line_at(pos_)) + ": " + what,
+                          "The file is not well-formed XML: export it again.");
     }
     bool skip_to(const char* end, std::size_t skip) {
         const std::size_t at = s_.find(end, pos_ + skip);
@@ -167,7 +180,8 @@ private:
             linePos_ = 0;
             line_ = 1;
         }
-        line_ += std::size_t(std::count(s_.begin() + std::ptrdiff_t(linePos_), s_.begin() + std::ptrdiff_t(std::min(pos, s_.size())), '\n'));
+        line_ += std::size_t(std::count(s_.begin() + std::ptrdiff_t(linePos_),
+                                        s_.begin() + std::ptrdiff_t(std::min(pos, s_.size())), '\n'));
         linePos_ = std::min(pos, s_.size());
         return line_;
     }
@@ -200,14 +214,16 @@ private:
             while (i < s_.size() && is_space(s_[i])) ++i;
             if (attribute.empty() || i >= s_.size() || s_[i] != '=') {
                 pos_ = start;
-                return make_error("line " + std::to_string(line_at(start)) + ": the tag <" + name + "> has an attribute without a value",
+                return make_error("line " + std::to_string(line_at(start)) + ": the tag <" + name +
+                                      "> has an attribute without a value",
                                   "The file is not well-formed XML: attributes are written name=\"value\".");
             }
             ++i;
             while (i < s_.size() && is_space(s_[i])) ++i;
             if (i >= s_.size() || (s_[i] != '"' && s_[i] != '\'')) {
                 pos_ = start;
-                return make_error("line " + std::to_string(line_at(start)) + ": the attribute '" + attribute + "' of <" + name + "> is not quoted",
+                return make_error("line " + std::to_string(line_at(start)) + ": the attribute '" + attribute +
+                                      "' of <" + name + "> is not quoted",
                                   "The file is not well-formed XML: attribute values are in quotes.");
             }
             const char quote = s_[i++];
@@ -219,8 +235,10 @@ private:
         const std::size_t line = line_at(start);
         pos_ = i;
         h.start(name, attributes, line);
-        if (selfClosing) h.end(name);
-        else open.push_back(name);
+        if (selfClosing)
+            h.end(name);
+        else
+            open.push_back(name);
         return {};
     }
 
@@ -275,10 +293,13 @@ struct XliffReader {
                 return;
             }
             if (targetLanguage.empty()) {
-                if (error.empty()) error = "line " + std::to_string(unitLine) + ": the <file> of the unit '" + key + "' has no target-language";
+                if (error.empty())
+                    error = "line " + std::to_string(unitLine) + ": the <file> of the unit '" + key +
+                            "' has no target-language";
                 return;
             }
-            if (std::find(file.languages.begin(), file.languages.end(), targetLanguage) == file.languages.end()) file.languages.push_back(targetLanguage);
+            if (std::find(file.languages.begin(), file.languages.end(), targetLanguage) == file.languages.end())
+                file.languages.push_back(targetLanguage);
             file.rows[targetLanguage].push_back({key, targetText, unitLine});
         }
     }
@@ -292,7 +313,8 @@ struct XliffReader {
 std::string write_csv(const TranslationSheet& sheet, char delimiter) {
     const auto row = [&](const std::vector<std::string>& cells) {
         std::string line;
-        for (std::size_t i = 0; i < cells.size(); ++i) line += (i ? std::string(1, delimiter) : std::string()) + csv_field(cells[i], delimiter);
+        for (std::size_t i = 0; i < cells.size(); ++i)
+            line += (i ? std::string(1, delimiter) : std::string()) + csv_field(cells[i], delimiter);
         return line + "\r\n";
     };
     std::string out = kBom;
@@ -310,15 +332,17 @@ std::string write_csv(const TranslationSheet& sheet, char delimiter) {
 std::string write_xliff(const TranslationSheet& sheet, std::size_t languageIndex, const std::string& original) {
     std::string out = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                       "<xliff version=\"1.2\" xmlns=\"urn:oasis:names:tc:xliff:document:1.2\">\n";
-    out += "  <file original=\"" + xml_escape(original, true) + "\" source-language=\"" + xml_escape(sheet.sourceLanguage, true) +
-           "\" target-language=\"" + xml_escape(sheet.languages.at(languageIndex), true) + "\" datatype=\"plaintext\">\n    <body>\n";
+    out += "  <file original=\"" + xml_escape(original, true) + "\" source-language=\"" +
+           xml_escape(sheet.sourceLanguage, true) + "\" target-language=\"" +
+           xml_escape(sheet.languages.at(languageIndex), true) + "\" datatype=\"plaintext\">\n    <body>\n";
     for (const TranslationSheet::Row& r : sheet.rows) {
         const std::string& translation = r.texts.at(languageIndex);
         const std::string key = xml_escape(r.key, true);
         out += "      <trans-unit id=\"" + key + "\" resname=\"" + key + "\" xml:space=\"preserve\">\n";
         out += "        <source>" + xml_escape(r.source, false) + "</source>\n";
-        out += translation.empty() ? "        <target state=\"needs-translation\"></target>\n"
-                                   : "        <target state=\"translated\">" + xml_escape(translation, false) + "</target>\n";
+        out += translation.empty()
+                   ? "        <target state=\"needs-translation\"></target>\n"
+                   : "        <target state=\"translated\">" + xml_escape(translation, false) + "</target>\n";
         if (!r.note.empty()) out += "        <note>" + xml_escape(r.note, false) + "</note>\n";
         out += "      </trans-unit>\n";
     }
@@ -331,7 +355,8 @@ Result<TranslationFile> read_csv(std::string_view text) {
     std::size_t counts[3] = {0, 0, 0};
     constexpr char kDelimiters[3] = {',', ';', '\t'};
     for (std::size_t i = 0, quotes = 0; i < text.size() && text[i] != '\n' && text[i] != '\r'; ++i) {
-        if (text[i] == '"') ++quotes;
+        if (text[i] == '"')
+            ++quotes;
         else if (quotes % 2 == 0)
             for (int d = 0; d < 3; ++d) counts[d] += text[i] == kDelimiters[d];
     }
@@ -388,41 +413,49 @@ Result<TranslationFile> read_csv(std::string_view text) {
         }
     }
     if (inQuotes)
-        return make_error("row " + std::to_string(current.line) + ": a quoted field never ends",
-                          "A text with a line break or a comma goes in double quotes, and a quote inside it is written twice (\"\"). "
-                          "Check the last quote of that row.");
+        return make_error(
+            "row " + std::to_string(current.line) + ": a quoted field never ends",
+            "A text with a line break or a comma goes in double quotes, and a quote inside it is written twice (\"\"). "
+            "Check the last quote of that row.");
     if (!field.empty() || !current.cells.empty()) end_record();
-    if (records.empty()) return make_error("the CSV file is empty", "It needs a header row `key,<languages>` (i18n.export writes one).");
+    if (records.empty())
+        return make_error("the CSV file is empty", "It needs a header row `key,<languages>` (i18n.export writes one).");
 
     TranslationFile file;
     file.format = "csv";
     const Record& header = records.front();
     if (to_lower(trim(header.cells[0])) != "key")
         return make_error("row 1: the first column is called '" + std::string(trim(header.cells[0])) + "', not 'key'",
-                          "Keep the header row `key,<languages>` that i18n.export wrote: one column per language, named by its tag (en, es, pt-BR).");
+                          "Keep the header row `key,<languages>` that i18n.export wrote: one column per language, "
+                          "named by its tag (en, es, pt-BR).");
     std::vector<std::size_t> columns;
     for (std::size_t c = 1; c < header.cells.size(); ++c) {
         const std::string language(trim(header.cells[c]));
         if (language.empty()) continue;
         if (std::find(file.languages.begin(), file.languages.end(), language) != file.languages.end())
-            return make_error("row 1: the language column '" + language + "' appears twice", "Keep one column per language.");
+            return make_error("row 1: the language column '" + language + "' appears twice",
+                              "Keep one column per language.");
         file.languages.push_back(language);
         file.rows[language];
         columns.push_back(c);
     }
     if (file.languages.empty())
-        return make_error("row 1: the header has no language columns", "The header is `key,<languages>`, e.g. key,en,es.");
+        return make_error("row 1: the header has no language columns",
+                          "The header is `key,<languages>`, e.g. key,en,es.");
     for (std::size_t r = 1; r < records.size(); ++r) {
         const Record& record = records[r];
         const std::string key(trim(record.cells[0]));
         if (key.empty()) continue;
         for (std::size_t c = header.cells.size(); c < record.cells.size(); ++c)
             if (!trim(record.cells[c]).empty())
-                return make_error("row " + std::to_string(record.line) + ": '" + key + "' has " + std::to_string(record.cells.size()) +
-                                      " columns but the header has " + std::to_string(header.cells.size()),
-                                  "A text with a comma must be in double quotes; spreadsheets do that when they save as CSV.");
+                return make_error(
+                    "row " + std::to_string(record.line) + ": '" + key + "' has " +
+                        std::to_string(record.cells.size()) + " columns but the header has " +
+                        std::to_string(header.cells.size()),
+                    "A text with a comma must be in double quotes; spreadsheets do that when they save as CSV.");
         for (std::size_t k = 0; k < columns.size(); ++k)
-            file.rows[file.languages[k]].push_back({key, columns[k] < record.cells.size() ? record.cells[columns[k]] : std::string(), record.line});
+            file.rows[file.languages[k]].push_back(
+                {key, columns[k] < record.cells.size() ? record.cells[columns[k]] : std::string(), record.line});
     }
     return file;
 }
@@ -433,15 +466,22 @@ Result<TranslationFile> read_xliff(std::string_view text) {
     reader.file.format = "xliff";
     XmlWalker walker(text);
     if (auto walked = walker.walk(reader); !walked.ok()) return walked.error();
-    if (!reader.error.empty()) return make_error(reader.error, "Every <trans-unit> needs an id (or resname) and sits in a <file> with a target-language.");
-    if (!reader.sawXliff) return make_error("not an XLIFF file: there is no <xliff> element", "i18n.export writes XLIFF 1.2 files (.xlf); translate those.");
+    if (!reader.error.empty())
+        return make_error(reader.error,
+                          "Every <trans-unit> needs an id (or resname) and sits in a <file> with a target-language.");
+    if (!reader.sawXliff)
+        return make_error("not an XLIFF file: there is no <xliff> element",
+                          "i18n.export writes XLIFF 1.2 files (.xlf); translate those.");
     if (reader.file.languages.empty())
-        return make_error("the XLIFF file has no translation units", "A unit is <trans-unit id=\"menu.play\"><source>..</source><target>..</target></trans-unit>.");
+        return make_error(
+            "the XLIFF file has no translation units",
+            "A unit is <trans-unit id=\"menu.play\"><source>..</source><target>..</target></trans-unit>.");
     return std::move(reader.file);
 }
 
 Result<TranslationFile> read_translation_file(std::string_view text, std::string_view name) {
-    const std::string extension = to_lower(name.substr(name.rfind('.') == std::string_view::npos ? name.size() : name.rfind('.')));
+    const std::string extension =
+        to_lower(name.substr(name.rfind('.') == std::string_view::npos ? name.size() : name.rfind('.')));
     std::string_view head = text;
     if (starts_with(head, kBom)) head.remove_prefix(3);
     head = trim(head);

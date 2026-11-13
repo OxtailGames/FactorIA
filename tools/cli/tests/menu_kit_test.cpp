@@ -45,7 +45,8 @@ std::string new_game(const char* tag) {
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = fa::create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string()
+                                          : made.error().to_string()));  // doctest -s builds the message on success too
     return dir;
 }
 
@@ -55,7 +56,8 @@ fa::Json add(const std::string& dir, std::vector<std::string> parts = {}, bool o
     o.parts = std::move(parts);
     o.overwrite = overwrite;
     auto r = fa::add_menu_kit(o);
-    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));  // doctest -s builds the message on success too
+    REQUIRE_MESSAGE(r.ok(),
+                    (r.ok() ? std::string() : r.error().to_string()));  // doctest -s builds the message on success too
     return *r;
 }
 
@@ -73,7 +75,8 @@ bool skipped_file(const fa::Json& skipped, const std::string& file) {
 
 }  // namespace
 
-TEST_CASE("project.add_menu_kit: a new project gets the whole kit, validates and passes the kit's test; a second run changes nothing") {
+TEST_CASE("project.add_menu_kit: a new project gets the whole kit, validates and passes the kit's test; a second run "
+          "changes nothing") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const std::string dir = new_game("all");
     const fa::Json first = add(dir);
@@ -114,7 +117,8 @@ TEST_CASE("project.add_menu_kit: a new project gets the whole kit, validates and
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     auto session = fa::cli::Session::open(dir, so);
-    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    const fa::Json v =
+        fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
     REQUIRE(v["ok"] == true);
     CAPTURE(v["result"].dump(2));
     CHECK(v["result"]["ok"] == true);
@@ -154,7 +158,8 @@ TEST_CASE("project.add_menu_kit: one part brings what it needs, and nothing else
     CHECK(read_json(stdfs::path(dir2) / "locales" / "en.json").size() == 2);  // $name and loading
 }
 
-TEST_CASE("project.add_menu_kit: the cameraRig part adds its input actions, and never replaces a binding the game has") {
+TEST_CASE(
+    "project.add_menu_kit: the cameraRig part adds its input actions, and never replaces a binding the game has") {
     const std::string dir = new_game("camerarig");
     // The game already binds camera_left to its own keys.
     {
@@ -168,7 +173,9 @@ TEST_CASE("project.add_menu_kit: the cameraRig part adds its input actions, and 
     CHECK(has(r["added"], "scripts/camera_rig.js"));
     CHECK(has(r["added"], "tests/camera_rig.test.js"));
     const fa::Json actions = read_json(stdfs::path(dir) / "factoria.json")["input"]["actions"];
-    for (const char* name : {"camera_drag", "camera_right", "camera_up", "camera_down", "camera_zoom_in", "camera_zoom_out"}) CHECK(actions.contains(name));
+    for (const char* name :
+         {"camera_drag", "camera_right", "camera_up", "camera_down", "camera_zoom_in", "camera_zoom_out"})
+        CHECK(actions.contains(name));
     CHECK(actions["camera_left"] == fa::Json::parse(R"(["J"])"));
     CHECK(actions["camera_drag"] == fa::Json::parse(R"(["MouseMiddle"])"));
     CHECK(r["settings"].size() == 6);
@@ -192,7 +199,8 @@ TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and
         CHECK_FALSE(en.contains("options"));
     }
     bool mentionsAudience = false;
-    for (const fa::Json& step : r["nextSteps"]) mentionsAudience = mentionsAudience || step.get<std::string>().find("\"mixed\"") != std::string::npos;
+    for (const fa::Json& step : r["nextSteps"])
+        mentionsAudience = mentionsAudience || step.get<std::string>().find("\"mixed\"") != std::string::npos;
     CHECK(mentionsAudience);
 
     // Its own test passes in a game that has nothing else of the kit.
@@ -210,7 +218,8 @@ TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and
     CHECK_FALSE(has(add(dir2, {"main-menu"})["parts"], "ageGate"));
 }
 
-TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Options switch and the main menu follow the game's analytics section") {
+TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Options switch and the main menu follow "
+          "the game's analytics section") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const std::string dir = new_game("analytics");
     const fa::Json r = add(dir, {"analyticsConsent"});
@@ -221,7 +230,8 @@ TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Op
     CHECK(has(r["added"], "tests/analytics_consent.test.js"));
     CHECK(read_json(stdfs::path(dir) / "locales" / "en.json")["analyticsConsent"].contains("deny"));
     bool mentionsSection = false;
-    for (const fa::Json& step : r["nextSteps"]) mentionsSection = mentionsSection || step.get<std::string>().find("\"analytics\" section") != std::string::npos;
+    for (const fa::Json& step : r["nextSteps"])
+        mentionsSection = mentionsSection || step.get<std::string>().find("\"analytics\" section") != std::string::npos;
     CHECK(mentionsSection);
 
     // Without an "analytics" section there is nothing to ask: its test passes and says so.
@@ -238,7 +248,8 @@ TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Op
 
     // With the section (and its host declared) the question is real: the same test now checks the answers, and the game validates.
     fa::Json project = read_json(stdfs::path(dir) / "factoria.json");
-    project["network"] = fa::Json::parse(R"({"hosts": ["stats.example.com"], "purpose": "Anonymous usage counts the player agreed to."})");
+    project["network"] = fa::Json::parse(
+        R"({"hosts": ["stats.example.com"], "purpose": "Anonymous usage counts the player agreed to."})");
     project["analytics"] = fa::Json::parse(R"({"endpoint": "https://stats.example.com/events"})");
     {
         std::ofstream out(stdfs::path(dir) / "factoria.json", std::ios::binary);
@@ -247,7 +258,8 @@ TEST_CASE("project.add_menu_kit: the analyticsConsent part asks once, and the Op
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     auto session = fa::cli::Session::open(dir, so);
-    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    const fa::Json v =
+        fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
     REQUIRE(v["ok"] == true);
     CAPTURE(v["result"].dump(2));
     CHECK(v["result"]["errors"].empty());
@@ -266,7 +278,8 @@ void validate_and_test(const std::string& dir, int minPassed) {
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     auto session = fa::cli::Session::open(dir, so);
-    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    const fa::Json v =
+        fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
     REQUIRE(v["ok"] == true);
     CAPTURE(v["result"].dump(2));
     CHECK(v["result"]["ok"] == true);
@@ -311,7 +324,8 @@ TEST_CASE("project.add_menu_kit: the textSpeed part adds the options row, and op
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     auto session = fa::cli::Session::open(withRow, so);
-    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    const fa::Json v =
+        fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
     REQUIRE(v["ok"] == true);
     CHECK(v["result"]["errors"].empty());
     session.reset();
@@ -339,7 +353,8 @@ TEST_CASE("project.add_menu_kit: the slots part brings the keyboard, its screen 
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     auto session = fa::cli::Session::open(dir, so);
-    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    const fa::Json v =
+        fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
     REQUIRE(v["ok"] == true);
     CAPTURE(v["result"].dump(2));
     CHECK(v["result"]["errors"].empty());
@@ -448,7 +463,8 @@ test("the Controls tab lists the game's actions, not the ui_* ones, and rebinds 
     add(dir2, {"main-menu"});
     const stdfs::path prefab = stdfs::path(dir2) / "prefabs" / "ui" / "options.prefab.json";
     fa::Json options = read_json(prefab);
-    options["entity"]["components"]["Script"]["props"] = fa::Json::parse(R"({"actions": ["place", "nothing", "jump"]})");
+    options["entity"]["components"]["Script"]["props"] =
+        fa::Json::parse(R"({"actions": ["place", "nothing", "jump"]})");
     write_text(prefab, options.dump(2));
     write_text(stdfs::path(dir2) / "tests" / "controls.test.js", R"(import { test, expect, game } from "factoria:test";
 import { scene } from "factoria";
@@ -471,7 +487,8 @@ test("Options.actions picks and orders the rows", () => {
     validate_and_test(dir2, 2);
 }
 
-TEST_CASE("project.add_menu_kit: a file the game edited stays unless overwrite is true; keys the game has are never replaced") {
+TEST_CASE("project.add_menu_kit: a file the game edited stays unless overwrite is true; keys the game has are never "
+          "replaced") {
     const std::string dir = new_game("edit");
     add(dir, {"credits"});
     const stdfs::path script = stdfs::path(dir) / "scripts" / "ui" / "credits.js";
@@ -500,27 +517,32 @@ TEST_CASE("project.add_menu_kit: a file the game edited stays unless overwrite i
     const fa::Json o = add(dir, {"credits"}, true);
     CHECK(has(o["overwritten"], "scripts/ui/credits.js"));
     CHECK(read_text(script) == kit);
-    CHECK(read_json(stdfs::path(dir) / "locales" / "en.json")["credits"]["madeWith"] == "Built with love");  // still the game's
+    CHECK(read_json(stdfs::path(dir) / "locales" / "en.json")["credits"]["madeWith"] ==
+          "Built with love");  // still the game's
 }
 
-TEST_CASE("project.add_menu_kit: an unknown part says which parts exist; the command is registered with documented arguments") {
+TEST_CASE("project.add_menu_kit: an unknown part says which parts exist; the command is registered with documented "
+          "arguments") {
     const std::string dir = new_game("unknown");
     fa::cli::SessionOptions so;
     so.gfx = fa::cli::Gfx::None;
     const stdfs::path oldRoot = fa::fs::project_root();
     auto session = fa::cli::Session::open(dir, so);
-    const fa::Json bad = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"parts":["pauze"]}})"));
+    const fa::Json bad = fa::cli::run_command_json(
+        session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"parts":["pauze"]}})"));
     CHECK(bad["ok"] == false);
     const std::string message = bad["error"]["message"].get<std::string>();
     CHECK(message.find("pauze") != std::string::npos);
     CHECK(message.find("pause") != std::string::npos);  // did you mean
     CHECK(bad["error"]["hint"].get<std::string>().find("main-menu") != std::string::npos);
     CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "scripts" / "settings.js"));  // nothing was written
-    const fa::Json typo = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"overwite":true}})"));
+    const fa::Json typo = fa::cli::run_command_json(
+        session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"overwite":true}})"));
     CHECK(typo["ok"] == false);
     CHECK(typo["error"]["message"].get<std::string>().find("/overwite") != std::string::npos);
     CHECK(typo["error"]["hint"].get<std::string>().find("Did you mean 'overwrite'") != std::string::npos);
-    const fa::Json good = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"parts":["loading"]}})"));
+    const fa::Json good = fa::cli::run_command_json(
+        session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"parts":["loading"]}})"));
     CHECK(good["ok"] == true);
     CHECK(has(good["result"]["added"], "scripts/loading.js"));
     session.reset();

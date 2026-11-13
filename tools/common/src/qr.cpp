@@ -16,16 +16,24 @@ int ecc_index(QrEcc ecc) { return static_cast<int>(ecc); }
 
 // ISO 18004 Table 9: error correction codewords per block, then the number of blocks, by [level][version] (index 0 unused).
 constexpr std::int8_t kEccPerBlock[4][41] = {
-    {-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
-    {-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
-    {-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
-    {-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+    {-1, 7,  10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28,
+     28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+    {-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26,
+     26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+    {-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30,
+     28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+    {-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28,
+     30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
 };
 constexpr std::int8_t kBlocks[4][41] = {
-    {-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
-    {-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49},
-    {-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68},
-    {-1, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
+    {-1, 1, 1, 1,  1,  1,  2,  2,  2,  2,  4,  4,  4,  4,  4,  6,  6,  6,  6,  7, 8,
+     8,  9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
+    {-1, 1,  1,  1,  2,  2,  4,  4,  4,  5,  5,  5,  8,  9,  9,  10, 10, 11, 13, 14, 16,
+     17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49},
+    {-1, 1,  1,  2,  2,  4,  4,  6,  6,  8,  8,  8,  10, 12, 16, 12, 17, 16, 18, 21, 20,
+     23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68},
+    {-1, 1,  1,  2,  4,  4,  4,  5,  6,  8,  8,  11, 11, 16, 16, 18, 16, 19, 21, 25, 25,
+     25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
 };
 
 // The modules of version `version` that can hold data and error correction bits (all but the function patterns).
@@ -57,7 +65,8 @@ std::uint8_t gf_multiply(std::uint8_t x, std::uint8_t y) {
 
 std::vector<std::uint8_t> rs_divisor(int degree) {
     std::vector<std::uint8_t> result(static_cast<std::size_t>(degree), 0);
-    result.back() = 1;  // the polynomial "x^0" of the product (x - r^0)(x - r^1)...(x - r^(degree-1)), highest power first
+    result.back() =
+        1;  // the polynomial "x^0" of the product (x - r^0)(x - r^1)...(x - r^(degree-1)), highest power first
     std::uint8_t root = 1;
     for (int i = 0; i < degree; ++i) {
         for (std::size_t j = 0; j < result.size(); ++j) {
@@ -112,7 +121,9 @@ private:
     int size_;
     std::vector<std::uint8_t> modules_, isFunction_;
 
-    std::size_t at(int x, int y) const { return static_cast<std::size_t>(y) * static_cast<std::size_t>(size_) + static_cast<std::size_t>(x); }
+    std::size_t at(int x, int y) const {
+        return static_cast<std::size_t>(y) * static_cast<std::size_t>(size_) + static_cast<std::size_t>(x);
+    }
     bool module(int x, int y) const { return modules_[at(x, y)] != 0; }
     void set_function(int x, int y, bool dark) {
         modules_[at(x, y)] = dark ? 1 : 0;
@@ -131,7 +142,8 @@ private:
         const int n = static_cast<int>(align.size());
         for (int i = 0; i < n; ++i)
             for (int j = 0; j < n; ++j)
-                if (!((i == 0 && j == 0) || (i == 0 && j == n - 1) || (i == n - 1 && j == 0))) draw_alignment(align[static_cast<std::size_t>(i)], align[static_cast<std::size_t>(j)]);
+                if (!((i == 0 && j == 0) || (i == 0 && j == n - 1) || (i == n - 1 && j == 0)))
+                    draw_alignment(align[static_cast<std::size_t>(i)], align[static_cast<std::size_t>(j)]);
         draw_format_bits(0);  // reserves the format area; the real mask is drawn last
         draw_version();
     }
@@ -155,7 +167,8 @@ private:
         const int numAlign = version_ / 7 + 2;
         const int step = version_ == 32 ? 26 : (version_ * 4 + numAlign * 2 + 1) / (numAlign * 2 - 2) * 2;
         std::vector<int> result{6};
-        for (int pos = size_ - 7; static_cast<int>(result.size()) < numAlign; pos -= step) result.insert(result.begin() + 1, pos);
+        for (int pos = size_ - 7; static_cast<int>(result.size()) < numAlign; pos -= step)
+            result.insert(result.begin() + 1, pos);
         return result;
     }
 
@@ -193,8 +206,10 @@ private:
         std::vector<std::vector<std::uint8_t>> blocks;
         std::size_t k = 0;
         for (int i = 0; i < numBlocks; ++i) {
-            const std::size_t len = static_cast<std::size_t>(shortBlockLen - blockEccLen + (i < numShortBlocks ? 0 : 1));
-            std::vector<std::uint8_t> block(data.begin() + static_cast<std::ptrdiff_t>(k), data.begin() + static_cast<std::ptrdiff_t>(k + len));
+            const std::size_t len =
+                static_cast<std::size_t>(shortBlockLen - blockEccLen + (i < numShortBlocks ? 0 : 1));
+            std::vector<std::uint8_t> block(data.begin() + static_cast<std::ptrdiff_t>(k),
+                                            data.begin() + static_cast<std::ptrdiff_t>(k + len));
             k += len;
             const std::vector<std::uint8_t> ecc = qr_reed_solomon(block, blockEccLen);
             if (i < numShortBlocks) block.push_back(0);  // the slot the longer blocks use, skipped below
@@ -205,14 +220,16 @@ private:
         result.reserve(static_cast<std::size_t>(rawCodewords));
         for (std::size_t i = 0; i < blocks[0].size(); ++i)
             for (std::size_t j = 0; j < blocks.size(); ++j)
-                if (i != static_cast<std::size_t>(shortBlockLen - blockEccLen) || j >= static_cast<std::size_t>(numShortBlocks)) result.push_back(blocks[j][i]);
+                if (i != static_cast<std::size_t>(shortBlockLen - blockEccLen) ||
+                    j >= static_cast<std::size_t>(numShortBlocks))
+                    result.push_back(blocks[j][i]);
         return result;
     }
 
     void draw_codewords(const std::vector<std::uint8_t>& data) {
-        std::size_t i = 0;  // bit index
+        std::size_t i = 0;                                     // bit index
         for (int right = size_ - 1; right >= 1; right -= 2) {  // pairs of columns, right to left
-            if (right == 6) right = 5;                          // the vertical timing column is skipped
+            if (right == 6) right = 5;                         // the vertical timing column is skipped
             for (int vert = 0; vert < size_; ++vert)
                 for (int j = 0; j < 2; ++j) {
                     const int x = right - j;
@@ -255,8 +272,10 @@ private:
             for (int x = 0; x < size_; ++x) {
                 if (module(x, y) == runColor) {
                     ++runX;
-                    if (runX == 5) result += kN1;
-                    else if (runX > 5) ++result;
+                    if (runX == 5)
+                        result += kN1;
+                    else if (runX > 5)
+                        ++result;
                 } else {
                     history_add(runX, history);
                     if (!runColor) result += static_cast<long>(count_patterns(history)) * kN3;
@@ -273,8 +292,10 @@ private:
             for (int y = 0; y < size_; ++y) {
                 if (module(x, y) == runColor) {
                     ++runY;
-                    if (runY == 5) result += kN1;
-                    else if (runY > 5) ++result;
+                    if (runY == 5)
+                        result += kN1;
+                    else if (runY > 5)
+                        ++result;
                 } else {
                     history_add(runY, history);
                     if (!runColor) result += static_cast<long>(count_patterns(history)) * kN3;
@@ -369,8 +390,10 @@ Result<QrCode> qr_encode(std::string_view data, QrEcc ecc, int minVersion) {
         }
     if (version == 0) {
         static const char* const kLevels[4] = {"Low", "Medium", "Quartile", "High"};
-        return make_error("qr: " + std::to_string(data.size()) + " bytes do not fit in a QR code at error correction level " + kLevels[ecc_index(ecc)] +
-                              " (the biggest symbol, version 40, holds " + std::to_string(qr_capacity_bytes(kMaxVersion, ecc)) + " bytes)",
+        return make_error("qr: " + std::to_string(data.size()) +
+                              " bytes do not fit in a QR code at error correction level " + kLevels[ecc_index(ecc)] +
+                              " (the biggest symbol, version 40, holds " +
+                              std::to_string(qr_capacity_bytes(kMaxVersion, ecc)) + " bytes)",
                           "encode something shorter, or a lower error correction level");
     }
     // Bit stream: mode 0100, the character count, the bytes, a terminator of up to four zero bits, zeros to a byte boundary,
@@ -386,8 +409,10 @@ Result<QrCode> qr_encode(std::string_view data, QrEcc ecc, int minVersion) {
     for (int i = 0; i < 4 && bits.size() < capacityBits; ++i) bits.push_back(0);
     while (bits.size() % 8 != 0) bits.push_back(0);
     std::vector<std::uint8_t> codewords(bits.size() / 8, 0);
-    for (std::size_t i = 0; i < bits.size(); ++i) codewords[i >> 3] = static_cast<std::uint8_t>(codewords[i >> 3] | bits[i] << (7 - (i & 7)));
-    for (std::uint8_t pad = 0xEC; codewords.size() < capacityBits / 8; pad = pad == 0xEC ? 0x11 : 0xEC) codewords.push_back(pad);
+    for (std::size_t i = 0; i < bits.size(); ++i)
+        codewords[i >> 3] = static_cast<std::uint8_t>(codewords[i >> 3] | bits[i] << (7 - (i & 7)));
+    for (std::uint8_t pad = 0xEC; codewords.size() < capacityBits / 8; pad = pad == 0xEC ? 0x11 : 0xEC)
+        codewords.push_back(pad);
     return Builder(version, ecc).build(codewords);
 }
 

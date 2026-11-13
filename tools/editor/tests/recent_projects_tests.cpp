@@ -16,7 +16,8 @@ struct TempDir {
     stdfs::path dir;
     TempDir() {
         static int n = 0;
-        dir = stdfs::temp_directory_path() / ("fa_recent_test_" + std::to_string(n++) + "_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+        dir = stdfs::temp_directory_path() /
+              ("fa_recent_test_" + std::to_string(n++) + "_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
         stdfs::remove_all(dir);
         stdfs::create_directories(dir);
     }
@@ -49,7 +50,8 @@ TEST_CASE("recent: opening a project keeps the existing history") {
     remember_recent_project(t.file(), b);
     // A second editor that never loaded the file opens c: a and b survive.
     auto list = remember_recent_project(t.file(), c);
-    CHECK(list == std::vector<std::string>{normalize_project_path(c), normalize_project_path(b), normalize_project_path(a)});
+    CHECK(list ==
+          std::vector<std::string>{normalize_project_path(c), normalize_project_path(b), normalize_project_path(a)});
     CHECK(read_recent_projects(t.file()) == list);
     // Opening a again moves it to the front without a duplicate.
     list = remember_recent_project(t.file(), a);
@@ -63,7 +65,8 @@ TEST_CASE("recent: a missing folder is hidden but kept in the file") {
     remember_recent_project(t.file(), gone);
     auto list = remember_recent_project(t.file(), a);
     CHECK(list.size() == 2);
-    CHECK(existing_recent_projects(read_recent_projects(t.file())) == std::vector<std::string>{normalize_project_path(a)});
+    CHECK(existing_recent_projects(read_recent_projects(t.file())) ==
+          std::vector<std::string>{normalize_project_path(a)});
     CHECK(read_recent_projects(t.file()).size() == 2);
     // The folder comes back (a drive mounted again): shown again.
     t.project("gone");

@@ -26,11 +26,11 @@ namespace fa {
 // to (an index into the evaluator's part list); a primitive leaves it at 0 and the evaluator sets it.
 struct ModelMesh {
     std::vector<Vec3> positions;
-    std::vector<Vec3> normals;           // unit length, pointing out of the solid
+    std::vector<Vec3> normals;  // unit length, pointing out of the solid
     std::vector<Vec2> uvs;
-    std::vector<Vec4> colors;            // empty, or one RGBA per vertex
-    std::vector<std::uint32_t> indices;  // three per triangle, counter-clockwise seen from outside
-    std::vector<std::uint32_t> triParts; // one per triangle
+    std::vector<Vec4> colors;             // empty, or one RGBA per vertex
+    std::vector<std::uint32_t> indices;   // three per triangle, counter-clockwise seen from outside
+    std::vector<std::uint32_t> triParts;  // one per triangle
 
     std::size_t vertex_count() const { return positions.size(); }
     std::size_t triangle_count() const { return indices.size() / 3; }
@@ -42,7 +42,7 @@ struct ModelMesh {
     // (negative determinant) reverses the winding so the triangles keep facing out.
     void transform(const Mat4& m);
     void set_part(std::uint32_t part);
-    void set_color(Vec4 rgba);  // every vertex
+    void set_color(Vec4 rgba);                  // every vertex
     void bounds(Vec3& bmin, Vec3& bmax) const;  // (0,0,0) twice when empty
 };
 
@@ -71,7 +71,7 @@ struct ModelConeParams {
     float height = 1;
     int segments = 24;
     int heightSegments = 1;
-    bool cap = true;      // the disc closing the base
+    bool cap = true;  // the disc closing the base
 };
 struct ModelSphereParams {
     float radius = 0.5f;
@@ -80,9 +80,9 @@ struct ModelSphereParams {
 };
 struct ModelCapsuleParams {
     float radius = 0.5f;
-    float height = 2;   // tip to tip, hemispheres included (at least 2 * radius)
+    float height = 2;  // tip to tip, hemispheres included (at least 2 * radius)
     int segments = 24;
-    int rings = 8;      // per hemisphere
+    int rings = 8;  // per hemisphere
     int heightSegments = 1;
 };
 // The ranges of the torus' `segments` and `sides`: the model.* schema (model_doc.cpp) and the builder clamp use these.
@@ -100,14 +100,15 @@ struct ModelGridParams {
 };
 struct ModelStairsParams {
     int steps = 6;
-    float width = 1;    // along X
-    float height = 1;   // top of the last step above the bottom
-    float depth = 1.5f; // along Z; the stairs climb towards -Z
+    float width = 1;     // along X
+    float height = 1;    // top of the last step above the bottom
+    float depth = 1.5f;  // along Z; the stairs climb towards -Z
 };
 struct ModelArchParams {
     float width = 2, height = 2.5f, depth = 0.4f;  // the wall: X, Y, Z
-    float openingWidth = 1, openingHeight = 1.8f;  // the doorway through it, from the bottom edge, its top a half circle
-    int segments = 12;                             // in the half circle
+    float openingWidth = 1,
+          openingHeight = 1.8f;  // the doorway through it, from the bottom edge, its top a half circle
+    int segments = 12;           // in the half circle
 };
 struct ModelPipeParams {
     float radius = 0.5f;       // outer
@@ -144,9 +145,9 @@ struct ModelTextOutline {
     std::vector<char32_t> missing;  // visible characters no font has
 };
 struct ModelTextParams {
-    float size = 1;          // meters per em
-    float depth = 0.2f;      // thickness along Z
-    int curveSegments = 6;   // lines per curve of a glyph
+    float size = 1;         // meters per em
+    float depth = 0.2f;     // thickness along Z
+    int curveSegments = 6;  // lines per curve of a glyph
 };
 // The text of `outline` as a solid: front face towards +Z (it reads left to right along +X), baseline at y = 0, centred in Z.
 // Empty when the outline has no ink.
@@ -157,11 +158,12 @@ ModelMesh model_text(const ModelTextOutline& outline, const ModelTextParams& p);
 // Fills the polygon `outer` (counter-clockwise) minus `holes` (clockwise) with triangles: indices into the concatenation
 // outer, hole 0, hole 1, ... Ear clipping with the holes bridged to the outline; a polygon that is not simple still ends, with
 // the triangles that could be made. Empty when there are fewer than 3 points.
-std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer, const std::vector<std::vector<Vec2>>& holes);
+std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer,
+                                               const std::vector<std::vector<Vec2>>& holes);
 
 struct ModelPolygon {
-    std::vector<Vec2> outer;                 // counter-clockwise
-    std::vector<std::vector<Vec2>> holes;    // clockwise
+    std::vector<Vec2> outer;               // counter-clockwise
+    std::vector<std::vector<Vec2>> holes;  // clockwise
 };
 // Pushes the polygons (in the XY plane, y up) along Z from -depth/2 to +depth/2: a front cap facing +Z, a back cap facing -Z and the
 // side walls. A wall corner whose two edges turn less than `creaseDeg` shares one smooth normal; sharper corners stay hard.

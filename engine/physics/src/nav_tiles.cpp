@@ -22,24 +22,30 @@ namespace {
 // rule on every compiler and CPU (a float f = g + h would differ where one build fuses the multiply and the add and another
 // does not, and the tie would break the other way). The reported cost is the integer sum converted back.
 constexpr double kSqrt2 = 1.4142135623730951;
-constexpr std::int64_t kOne = std::int64_t(1) << 20;                 // fixed-point 1.0
-constexpr std::int64_t kMaxStep = std::int64_t(1) << 50;             // the dearest single step (a cost of 2^30)
-constexpr std::int64_t kInfinite = std::int64_t(1) << 62;            // sums saturate here, so they never overflow
+constexpr std::int64_t kOne = std::int64_t(1) << 20;       // fixed-point 1.0
+constexpr std::int64_t kMaxStep = std::int64_t(1) << 50;   // the dearest single step (a cost of 2^30)
+constexpr std::int64_t kInfinite = std::int64_t(1) << 62;  // sums saturate here, so they never overflow
 
-std::int64_t fixed_up(double v) {   // a cost as fixed point, rounded to nearest; NaN and negatives are 0, huge values saturate
+std::int64_t
+fixed_up(double v) {  // a cost as fixed point, rounded to nearest; NaN and negatives are 0, huge values saturate
     if (!(v > 0.0)) return 0;
-    if (std::isinf(v)) return kInfinite;   // an infinite cost is passable at an infinite price (the reported cost is infinity)
+    if (std::isinf(v))
+        return kInfinite;  // an infinite cost is passable at an infinite price (the reported cost is infinity)
     if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
     return std::int64_t(std::llround(v * double(kOne)));
 }
-std::int64_t fixed_down(double v) {   // the same rounded DOWN: the heuristic must never exceed the true cost
+std::int64_t fixed_down(double v) {  // the same rounded DOWN: the heuristic must never exceed the true cost
     if (!(v > 0.0)) return 0;
     if (v >= double(kMaxStep) / double(kOne)) return kMaxStep;
     return std::int64_t(std::floor(v * double(kOne)));
 }
-std::int64_t diagonal_of(std::int64_t q) { return q >= kInfinite ? kInfinite : std::int64_t(std::llround(double(q) * kSqrt2)); }
+std::int64_t diagonal_of(std::int64_t q) {
+    return q >= kInfinite ? kInfinite : std::int64_t(std::llround(double(q) * kSqrt2));
+}
 std::int64_t add_sat(std::int64_t a, std::int64_t b) { return a >= kInfinite - b ? kInfinite : a + b; }
-std::int64_t mul_sat(std::int64_t count, std::int64_t step) { return count > 0 && step > kInfinite / count ? kInfinite : count * step; }
+std::int64_t mul_sat(std::int64_t count, std::int64_t step) {
+    return count > 0 && step > kInfinite / count ? kInfinite : count * step;
+}
 
 // Search state that survives between queries (a script asks every few frames on the same map): stamps say which entries
 // belong to the current query, so nothing is cleared.
@@ -89,19 +95,23 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     const std::size_t total = std::size_t(std::max(W, 0)) * std::size_t(std::max(H, 0));
     auto inside = [&](int c, int r) { return c >= 0 && r >= 0 && c < W && r < H; };
     if (W <= 0 || H <= 0 || grid.cost.size() < total)
-        return fail("start_off_map", "the grid is empty", "Pass a Tilemap with tiles, or a grid {width, height, cost} with width * height costs.");
+        return fail("start_off_map", "the grid is empty",
+                    "Pass a Tilemap with tiles, or a grid {width, height, cost} with width * height costs.");
     if (!inside(fromCol, fromRow))
-        return fail("start_off_map", std::format("the start cell ({}, {}) is outside the {} x {} map", fromCol, fromRow, W, H),
+        return fail("start_off_map",
+                    std::format("the start cell ({}, {}) is outside the {} x {} map", fromCol, fromRow, W, H),
                     "Cells are 0-based (col, row) with row 0 at the top.");
     if (!inside(toCol, toRow))
-        return fail("goal_off_map", std::format("the goal cell ({}, {}) is outside the {} x {} map", toCol, toRow, W, H),
+        return fail("goal_off_map",
+                    std::format("the goal cell ({}, {}) is outside the {} x {} map", toCol, toRow, W, H),
                     "Cells are 0-based (col, row) with row 0 at the top.");
     auto idx = [&](int c, int r) { return std::int32_t(std::size_t(r) * std::size_t(W) + std::size_t(c)); };
     auto blocked = [&](std::int32_t i) { return !(grid.cost[std::size_t(i)] >= 0.0f); };  // also NaN
     const std::int32_t start = idx(fromCol, fromRow), goal = idx(toCol, toRow);
     if (blocked(goal) && !o.allowBlockedGoal && !o.closest)
         return fail("goal_blocked", std::format("the goal cell ({}, {}) is blocked", toCol, toRow),
-                    "Aim at an open cell, pass closest: true to get the nearest reachable one, or allowBlockedGoal: true to end ON a blocked cell.");
+                    "Aim at an open cell, pass closest: true to get the nearest reachable one, or allowBlockedGoal: "
+                    "true to end ON a blocked cell.");
 
     // The cheapest cell bounds how cheap a step can be, so the heuristic never overestimates.
     // (A grid kept by a script has it already: a short route must not sweep the whole map.)
@@ -109,10 +119,11 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     if (!(minCost >= 0.0f)) minCost = nav_tile_min_open_cost(grid);
     if (o.allowBlockedGoal) minCost = std::min(minCost, 1.0f);
     const std::int64_t minStep = fixed_down(double(minCost));
-    const std::int64_t minDiag = std::int64_t(std::floor(double(minStep) * kSqrt2));   // <= the rounded diagonal of any dearer step
+    const std::int64_t minDiag =
+        std::int64_t(std::floor(double(minStep) * kSqrt2));  // <= the rounded diagonal of any dearer step
     auto heuristic = [&](int c, int r) {
         const std::int64_t dx = std::abs(c - toCol), dy = std::abs(r - toRow);
-        if (!o.diagonals) return mul_sat(dx + dy, minStep);   // saturating: a lower bound stays a lower bound
+        if (!o.diagonals) return mul_sat(dx + dy, minStep);  // saturating: a lower bound stays a lower bound
         const std::int64_t diag = std::min(dx, dy);
         return add_sat(mul_sat(dx + dy - 2 * diag, minStep), mul_sat(diag, minDiag));
     };
@@ -190,10 +201,13 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     if (!reached) {
         if (!o.closest) {
             if (tooFar)
-                return fail("too_far", std::format("gave up after {} cells without reaching ({}, {})", o.maxNodes, toCol, toRow),
-                            "Raise maxNodes, search from nearer, or pass closest: true to walk toward the goal anyway.");
-            return fail("blocked", std::format("no route from ({}, {}) to ({}, {}): walls or blocked cells close every way",
-                                               fromCol, fromRow, toCol, toRow),
+                return fail(
+                    "too_far",
+                    std::format("gave up after {} cells without reaching ({}, {})", o.maxNodes, toCol, toRow),
+                    "Raise maxNodes, search from nearer, or pass closest: true to walk toward the goal anyway.");
+            return fail("blocked",
+                        std::format("no route from ({}, {}) to ({}, {}): walls or blocked cells close every way",
+                                    fromCol, fromRow, toCol, toRow),
                         "Open a way, make a blocked tile passable with a cost in `costs`, or pass closest: true.");
         }
         end = nearest;
@@ -202,7 +216,8 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
     out.found = true;
     for (std::int32_t i = end; i >= 0; i = sc.parent[std::size_t(i)]) out.cells.push_back({int(i % W), int(i / W)});
     std::reverse(out.cells.begin(), out.cells.end());
-    out.cost = sc.g[std::size_t(end)] >= kInfinite ? std::numeric_limits<float>::infinity() : float(double(sc.g[std::size_t(end)]) / double(kOne));
+    out.cost = sc.g[std::size_t(end)] >= kInfinite ? std::numeric_limits<float>::infinity()
+                                                   : float(double(sc.g[std::size_t(end)]) / double(kOne));
     for (std::size_t i = 1; i < out.cells.size(); ++i) {
         const Vec2 a = nav_tile_cell_center(grid, out.cells[i - 1].first, out.cells[i - 1].second);
         const Vec2 b = nav_tile_cell_center(grid, out.cells[i].first, out.cells[i].second);
@@ -213,13 +228,16 @@ NavTilePath nav_find_tile_path(const NavTileGrid& grid, int fromCol, int fromRow
 
 Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row) {
     if (grid.isometric)
-        return {grid.origin.x + float(col - row) * grid.cellSize.x * 0.5f, grid.origin.y - float(col + row + 1) * grid.cellSize.y * 0.5f};
-    return {grid.origin.x + (float(col) + 0.5f) * grid.cellSize.x, grid.origin.y - (float(row) + 0.5f) * grid.cellSize.y};
+        return {grid.origin.x + float(col - row) * grid.cellSize.x * 0.5f,
+                grid.origin.y - float(col + row + 1) * grid.cellSize.y * 0.5f};
+    return {grid.origin.x + (float(col) + 0.5f) * grid.cellSize.x,
+            grid.origin.y - (float(row) + 0.5f) * grid.cellSize.y};
 }
 
 float NavTileRules::cost(int tileIndex) const {
     float c = std::find(solid.begin(), solid.end(), tileIndex) != solid.end() ? -1.0f : 1.0f;
-    auto o = std::lower_bound(costs.begin(), costs.end(), std::make_pair(tileIndex, -std::numeric_limits<float>::infinity()));
+    auto o = std::lower_bound(costs.begin(), costs.end(),
+                              std::make_pair(tileIndex, -std::numeric_limits<float>::infinity()));
     if (o != costs.end() && o->first == tileIndex) c = o->second;
     return c;
 }
@@ -256,7 +274,8 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs) {
     rules.sort_costs();
     std::vector<int> tiles(std::size_t(size.width) * std::size_t(size.height));
     for (int r = 0; r < size.height; ++r)
-        for (int c = 0; c < size.width; ++c) tiles[std::size_t(r) * std::size_t(size.width) + std::size_t(c)] = tilemap_tile_at(tm, size, c, r);
+        for (int c = 0; c < size.width; ++c)
+            tiles[std::size_t(r) * std::size_t(size.width) + std::size_t(c)] = tilemap_tile_at(tm, size, c, r);
     g = nav_tile_grid_from_tiles(tiles, size.width, size.height, rules);
     g.cellSize = {tm.tileSize.x, tilemap_ground_height(tm)};
     g.isometric = tilemap_isometric(tm);
@@ -269,32 +288,43 @@ Result<std::pair<int, int>> cell_value(const Json& v, const char* who, const std
     if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number())
         return Error{std::format("{}: '{}' must be a cell [col, row] of two numbers, but got {}.", who, key, v.dump()),
                      "Cells are 0-based with row 0 at the top, e.g. \"" + key + "\":[3,2]."};
-    auto whole = [](double d) { return int(std::floor(std::clamp(d, -1e9, 1e9))); };  // a huge number must not overflow int
+    auto whole = [](double d) {
+        return int(std::floor(std::clamp(d, -1e9, 1e9)));
+    };  // a huge number must not overflow int
     return std::make_pair(whole(v[0].get<double>()), whole(v[1].get<double>()));
 }
 
-Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) { return cell_value(a.value(key, Json()), "nav.findTilePath", key); }
+Result<std::pair<int, int>> cell_arg(const Json& a, const char* key) {
+    return cell_value(a.value(key, Json()), "nav.findTilePath", key);
+}
 
 }  // namespace
 
-Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld, bool& worldPoints) {
+Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTileGrid& grid, Mat4& toWorld,
+                          bool& worldPoints) {
     const bool hasMap = args.contains("tilemap") && !args["tilemap"].is_null();
     const bool hasGrid = args.contains("grid") && !args["grid"].is_null();
     if (hasMap == hasGrid)
-        return Error{std::string(who) + ": pass exactly one of `tilemap` (an entity with a Tilemap) or `grid` ({width, height, cost}).",
-                     "Example: {\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3]} or {\"grid\":{\"width\":4,\"height\":3,\"cost\":[1,1,1,1,1,-1,-1,1,1,1,1,1]},\"from\":[0,0],\"to\":[3,2]}."};
+        return Error{
+            std::string(who) +
+                ": pass exactly one of `tilemap` (an entity with a Tilemap) or `grid` ({width, height, cost}).",
+            "Example: {\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3]} or "
+            "{\"grid\":{\"width\":4,\"height\":3,\"cost\":[1,1,1,1,1,-1,-1,1,1,1,1,1]},\"from\":[0,0],\"to\":[3,2]}."};
     if (hasMap) {
-        const std::string id = args["tilemap"].is_string() ? args["tilemap"].get<std::string>() : args["tilemap"].dump();
+        const std::string id =
+            args["tilemap"].is_string() ? args["tilemap"].get<std::string>() : args["tilemap"].dump();
         const Entity e = world.find_by_id(id);
         if (e.is_null())
-            return Error{std::string(who) + ": no entity '" + id + "'.", "Pass the id of an entity that has a Tilemap component."};
+            return Error{std::string(who) + ": no entity '" + id + "'.",
+                         "Pass the id of an entity that has a Tilemap component."};
         const Tilemap* tm = world.get<Tilemap>(e);
         if (!tm)
             return Error{std::string(who) + ": entity '" + id + "' has no Tilemap component.",
                          "Pass a Tilemap entity, or a plain grid {width, height, cost}."};
         grid = nav_tile_grid_from_tilemap(*tm, args.value("costs", Json()));
         if (grid.width <= 0 || grid.height <= 0)
-            return Error{std::string(who) + ": the Tilemap on '" + id + "' has no tiles.", "Fill Tilemap.tiles (and width/height for a flat list)."};
+            return Error{std::string(who) + ": the Tilemap on '" + id + "' has no tiles.",
+                         "Fill Tilemap.tiles (and width/height for a flat list)."};
         toWorld = world.world_matrix(e);
         worldPoints = true;
     } else {
@@ -303,9 +333,13 @@ Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTi
         const int h = gj.is_object() && gj.value("height", Json()).is_number() ? int(gj["height"].get<double>()) : 0;
         const Json cost = gj.is_object() ? gj.value("cost", Json()) : Json();
         if (w <= 0 || h <= 0 || !cost.is_array() || cost.size() != std::size_t(w) * std::size_t(h))
-            return Error{std::string(who) + ": `grid` needs width > 0, height > 0 and a `cost` array of width * height numbers (got " +
-                             (cost.is_array() ? std::format("{} entries for {} x {}", cost.size(), w, h) : std::string("no cost array")) + ").",
-                         "cost is row-major with row 0 at the top; a number >= 0 is the cost of entering the cell, null or a negative number blocks it."};
+            return Error{std::string(who) +
+                             ": `grid` needs width > 0, height > 0 and a `cost` array of width * height numbers (got " +
+                             (cost.is_array() ? std::format("{} entries for {} x {}", cost.size(), w, h)
+                                              : std::string("no cost array")) +
+                             ").",
+                         "cost is row-major with row 0 at the top; a number >= 0 is the cost of entering the cell, "
+                         "null or a negative number blocks it."};
         grid.width = w;
         grid.height = h;
         grid.cost.resize(std::size_t(w) * std::size_t(h));
@@ -316,7 +350,8 @@ Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTi
         auto vec2 = [&](const char* key, Vec2 def) {
             const Json v = gj.value(key, Json());
             if (v.is_number()) return Vec2{v.get<float>(), v.get<float>()};
-            if (v.is_array() && v.size() == 2 && v[0].is_number() && v[1].is_number()) return Vec2{v[0].get<float>(), v[1].get<float>()};
+            if (v.is_array() && v.size() == 2 && v[0].is_number() && v[1].is_number())
+                return Vec2{v[0].get<float>(), v[1].get<float>()};
             return def;
         };
         grid.origin = vec2("origin", {0, 0});
@@ -345,8 +380,9 @@ namespace {
 Result<NavTileOptions> tile_options(const Json& args) {
     for (const char* key : {"diagonals", "closest", "allowBlockedGoal"})
         if (args.contains(key) && !args[key].is_boolean())
-            return Error{std::format("nav.findTilePath: `{}` must be true or false, but got {}.", key, args[key].dump()),
-                         std::format("Pass {}: true, or leave it out (default false).", key)};
+            return Error{
+                std::format("nav.findTilePath: `{}` must be true or false, but got {}.", key, args[key].dump()),
+                std::format("Pass {}: true, or leave it out (default false).", key)};
     if (args.contains("maxNodes") && !args["maxNodes"].is_number())
         return Error{std::format("nav.findTilePath: `maxNodes` must be a number, but got {}.", args["maxNodes"].dump()),
                      "Pass the most cells the search may expand, e.g. maxNodes: 5000 (default 100000)."};
@@ -391,7 +427,8 @@ Result<Json> nav_tile_run(const NavTileGrid& grid, const Mat4* toWorld, const Js
                           std::pair<int, int> to) {
     auto o = tile_options(args);
     if (!o.ok()) return o.error();
-    return tile_path_json(grid, toWorld, nav_find_tile_path(grid, from.first, from.second, to.first, to.second, o.value()));
+    return tile_path_json(grid, toWorld,
+                          nav_find_tile_path(grid, from.first, from.second, to.first, to.second, o.value()));
 }
 
 Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, const Json& args,
@@ -399,14 +436,16 @@ Result<Json> nav_tile_run_many(const NavTileGrid& grid, const Mat4* toWorld, con
     auto o = tile_options(args);
     if (!o.ok()) return o.error();
     if (queries.size() > kNavMaxBatch)
-        return Error{std::format("nav.findTilePaths: {} queries in one call, the most is {}.", queries.size(), kNavMaxBatch),
-                     "Split the list into several calls."};
+        return Error{
+            std::format("nav.findTilePaths: {} queries in one call, the most is {}.", queries.size(), kNavMaxBatch),
+            "Split the list into several calls."};
     std::vector<Json> results(queries.size());
     auto run = [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
             const auto& q = queries[i];
-            results[i] = tile_path_json(grid, toWorld, nav_find_tile_path(grid, q.first.first, q.first.second, q.second.first,
-                                                                          q.second.second, o.value()));
+            results[i] = tile_path_json(
+                grid, toWorld,
+                nav_find_tile_path(grid, q.first.first, q.first.second, q.second.first, q.second.second, o.value()));
         }
     };
     if (queries.size() < kNavBatchMinQueries || !jobs::running() || jobs::inline_mode() || jobs::worker_count() <= 0) {
@@ -430,11 +469,14 @@ Result<Json> nav_tile_query_many(World& world, const Json& args) {
     if (!map.ok()) return map.error();
     grid.minOpenCost = nav_tile_min_open_cost(grid);  // once for the whole list, not by every query
     if (!args.contains("queries") || !args["queries"].is_array())
-        return Error{"nav.findTilePaths /queries: pass a list of {from: [col,row], to: [col,row]}.",
-                     "Example: {\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}."};
+        return Error{
+            "nav.findTilePaths /queries: pass a list of {from: [col,row], to: [col,row]}.",
+            "Example: "
+            "{\"tilemap\":\"ground\",\"queries\":[{\"from\":[0,0],\"to\":[5,3]},{\"from\":[1,1],\"to\":[9,2]}]}."};
     const Json& list = args["queries"];
     if (list.size() > kNavMaxBatch)
-        return Error{std::format("nav.findTilePaths /queries: {} queries in one call, the most is {}.", list.size(), kNavMaxBatch),
+        return Error{std::format("nav.findTilePaths /queries: {} queries in one call, the most is {}.", list.size(),
+                                 kNavMaxBatch),
                      "Split the list into several calls."};
     // Every query is checked before any search runs.
     std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> pairs;
@@ -466,7 +508,8 @@ Result<Json> nav_flow_query(World& world, const Json& args) {
                      "Example: {\"tilemap\":\"ground\",\"goals\":[[3,2],[9,9]],\"from\":[0,0]}."};
     for (const char* key : {"diagonals"})
         if (args.contains(key) && !args[key].is_boolean())
-            return Error{std::format("{}: `{}` must be true or false, but got {}.", who, key, args[key].dump()), "Pass true, or leave it out (default false)."};
+            return Error{std::format("{}: `{}` must be true or false, but got {}.", who, key, args[key].dump()),
+                         "Pass true, or leave it out (default false)."};
     auto cg = std::make_shared<NavCostGrid>(grid.width, grid.height, grid.origin, grid.cellSize);
     cg->assign(grid.cost);
     std::vector<std::pair<int, int>> goals;
@@ -474,7 +517,8 @@ Result<Json> nav_flow_query(World& world, const Json& args) {
         auto g = cell_value(args["goals"][i], who, "goals[" + std::to_string(i) + "]");
         if (!g.ok()) return g.error();
         if (!cg->inside(g.value().first, g.value().second))
-            return Error{std::format("{}: goal ({}, {}) is outside the {} x {} map.", who, g.value().first, g.value().second, grid.width, grid.height),
+            return Error{std::format("{}: goal ({}, {}) is outside the {} x {} map.", who, g.value().first,
+                                     g.value().second, grid.width, grid.height),
                          "Cells are 0-based (col, row) with row 0 at the top."};
         goals.push_back(g.value());
     }

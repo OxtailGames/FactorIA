@@ -42,8 +42,10 @@ std::string scene(const std::string& mesh, const std::string& scale) {
                                       "Interactable": { "kind": "slider" } } },
     { "id": "back", "components": { "Transform": { "position": [1050, 20, 0] }, "Shape2D": { "size": [30, 20], "color": "#ffffff" },
                                     "Interactable": { "kind": "toggle" } } },
-    { "id": "screen", "components": { "Transform": { "scale": )" + scale + R"( },
-                                      "MeshRenderer": { "mesh": ")" + mesh + R"(", "texture": "target:page", "unlit": true } } }
+    { "id": "screen", "components": { "Transform": { "scale": )" +
+           scale + R"( },
+                                      "MeshRenderer": { "mesh": ")" +
+           mesh + R"(", "texture": "target:page", "unlit": true } } }
   ]
 })";
 }
@@ -67,7 +69,8 @@ struct Rig {
     Engine e;
     bool cylinder;
 
-    Rig(const char* name, const char* mesh, const char* scale) : project(name, mesh, scale), cylinder(std::string(mesh) == "cylinder") {
+    Rig(const char* name, const char* mesh, const char* scale)
+        : project(name, mesh, scale), cylinder(std::string(mesh) == "cylinder") {
         EngineConfig c;
         c.projectDir = project.dir.generic_string();
         c.headless = true;
@@ -83,7 +86,8 @@ struct Rig {
     // The screen point where the mesh shows page pixel (px, py): the quad maps u to x and v down to y; the cylinder wraps u round it.
     Vec2 screen(float px, float py) {
         const float u = px / 200.0f, v = py / 100.0f;
-        Vec3 local = cylinder ? Vec3{0.5f * std::cos(u * kTau), 0.5f - v, 0.5f * std::sin(u * kTau)} : Vec3{u - 0.5f, 0.5f - v, 0.0f};
+        Vec3 local = cylinder ? Vec3{0.5f * std::cos(u * kTau), 0.5f - v, 0.5f * std::sin(u * kTau)}
+                              : Vec3{u - 0.5f, 0.5f - v, 0.0f};
         return e.renderer()->world_to_screen(e.world().world_matrix(id("screen")).transform_point(local));
     }
     void mouse(Vec2 p, bool down) {
@@ -158,7 +162,8 @@ TEST_CASE("render target pointer: a curved, stretched cylinder gives the same by
 
 TEST_CASE("render target pointer: a mesh that does not show a target leaves the main view's Interactables alone") {
     Rig r("plain", "quad", "[2, 1, 1]");
-    r.e.commands().call("scene.set_component", Json{{"id", "screen"}, {"component", "MeshRenderer"}, {"fields", Json{{"texture", ""}}}});
+    r.e.commands().call("scene.set_component",
+                        Json{{"id", "screen"}, {"component", "MeshRenderer"}, {"fields", Json{{"texture", ""}}}});
     r.e.step(2);
     r.mouse(r.screen(60, 50), false);
     CHECK_FALSE(r.ia("toggle").hovered);
@@ -214,7 +219,8 @@ struct ProceduralRig : Rig {
     Vec2 at(float px, float py) {
         const float u = px / 200.0f, v = py / 100.0f;
         const float x = x0 + (u - 0.5f) * width;
-        return e.renderer()->world_to_screen(e.world().world_matrix(id("screen")).transform_point({x, 0.5f - v, bend * x * x}));
+        return e.renderer()->world_to_screen(
+            e.world().world_matrix(id("screen")).transform_point({x, 0.5f - v, bend * x * x}));
     }
 };
 
@@ -286,14 +292,16 @@ TEST_CASE("render target pointer: a procedural page that is bent and moved by me
     CHECK_FALSE(r.ia("slider").pressed);
 }
 
-TEST_CASE("render target pointer: a procedural mesh shows the target through a submesh material, and a destroyed mesh is reported") {
+TEST_CASE("render target pointer: a procedural mesh shows the target through a submesh material, and a destroyed mesh "
+          "is reported") {
     ProceduralRig r("proc_sub", 1, 1);
     // Move the target from MeshRenderer.texture to the submesh material: the pointer follows.
     Json args = page_mesh(1, 1, 0.0f, 2.0f, 0.0f);
     args["id"] = r.meshId;
     args["submeshes"] = Json::array({Json{{"material", Json{{"name", "page"}, {"texture", "target:page"}}}}});
     REQUIRE(r.e.commands().call("mesh.update", args).ok);
-    r.e.commands().call("scene.set_component", Json{{"id", "screen"}, {"component", "MeshRenderer"}, {"fields", Json{{"texture", ""}}}});
+    r.e.commands().call("scene.set_component",
+                        Json{{"id", "screen"}, {"component", "MeshRenderer"}, {"fields", Json{{"texture", ""}}}});
     r.e.step(2);
     r.mouse(r.at(60, 50), false);
     CHECK(r.ia("toggle").hovered);
@@ -301,8 +309,10 @@ TEST_CASE("render target pointer: a procedural mesh shows the target through a s
     CHECK(r.ia("back").hovered);
     // Triangles outside every submesh are not drawn, so they do not answer the pointer: keep only the upper-left triangle (0, 2, 1) of
     // the quad. Page pixel (60, 50) is in it (u + v < 1), (150, 30) is in the other one (u + v > 1).
-    args = Json::object({{"id", r.meshId}, {"indices", Json::array({0, 2, 1})},
-                         {"submeshes", Json::array({Json{{"material", Json{{"name", "page"}, {"texture", "target:page"}}}}})}});
+    args = Json::object(
+        {{"id", r.meshId},
+         {"indices", Json::array({0, 2, 1})},
+         {"submeshes", Json::array({Json{{"material", Json{{"name", "page"}, {"texture", "target:page"}}}}})}});
     REQUIRE(r.e.commands().call("mesh.update", args).ok);
     r.e.step(1);
     r.mouse(r.at(60, 50), false);

@@ -49,7 +49,8 @@ Json song_of(const std::vector<T>& tracks, double tempo = 120.0) {
 }
 
 Json drums_song(const Json& instrument, const Json& grid, double tempo = 120.0) {
-    Json j = Json::parse(R"({"format": "factoria.song/1", "tracks": {}, "sections": [{"name": "main", "play": {"d": "g"}}]})");
+    Json j = Json::parse(
+        R"({"format": "factoria.song/1", "tracks": {}, "sections": [{"name": "main", "play": {"d": "g"}}]})");
     j["tempo"] = tempo;
     j["volume"] = 1.0;
     j["mixer"] = Json{{"master", Json{{"loudness", "off"}}}};
@@ -97,7 +98,8 @@ SongRender render(const Json& j, int rate = 44100) {
 
 double channel_energy(const SongRender& r, int channel, double from = 0.0, double to = 1e9) {
     const std::size_t n = r.clip.frames();
-    const std::size_t a = std::min(n, std::size_t(from * r.clip.sampleRate)), b = std::min(n, std::size_t(to * r.clip.sampleRate));
+    const std::size_t a = std::min(n, std::size_t(from * r.clip.sampleRate)),
+                      b = std::min(n, std::size_t(to * r.clip.sampleRate));
     double e = 0.0;
     for (std::size_t i = a; i < b; ++i) {
         const double v = r.clip.samples[i * 2 + std::size_t(channel)];
@@ -105,11 +107,14 @@ double channel_energy(const SongRender& r, int channel, double from = 0.0, doubl
     }
     return e;
 }
-double energy(const SongRender& r, double from = 0.0, double to = 1e9) { return channel_energy(r, 0, from, to) + channel_energy(r, 1, from, to); }
+double energy(const SongRender& r, double from = 0.0, double to = 1e9) {
+    return channel_energy(r, 0, from, to) + channel_energy(r, 1, from, to);
+}
 
 double amplitude_at(const SongRender& r, double hz, double from, double to) {
     const std::size_t n = r.clip.frames();
-    const std::size_t a = std::min(n, std::size_t(from * r.clip.sampleRate)), b = std::min(n, std::size_t(to * r.clip.sampleRate));
+    const std::size_t a = std::min(n, std::size_t(from * r.clip.sampleRate)),
+                      b = std::min(n, std::size_t(to * r.clip.sampleRate));
     double re = 0.0, im = 0.0;
     for (std::size_t i = a; i < b; ++i) {
         const double ph = 2.0 * std::numbers::pi * hz * double(i) / double(r.clip.sampleRate);
@@ -124,7 +129,8 @@ double amplitude_at(const SongRender& r, double hz, double from, double to) {
 double estimate_hz(const SongRender& r, double from, double to) {
     const int rate = r.clip.sampleRate;
     std::vector<double> x;
-    for (std::size_t i = std::size_t(from * rate); i < std::min(r.clip.frames(), std::size_t(to * rate)); ++i) x.push_back(r.clip.samples[i * 2]);
+    for (std::size_t i = std::size_t(from * rate); i < std::min(r.clip.frames(), std::size_t(to * rate)); ++i)
+        x.push_back(r.clip.samples[i * 2]);
     const int minLag = rate / 2200, maxLag = rate / 60;
     std::vector<double> corr;
     double best = -1e30;
@@ -150,7 +156,7 @@ double estimate_hz(const SongRender& r, double from, double to) {
 double midi_hz(int note) { return 440.0 * std::pow(2.0, (note - 69) / 12.0); }
 
 // the tiny SoundFont comes from tiny_sf2.h
- 
+
 // A project folder in the temp dir; the project root is it while the fixture lives.
 struct Project {
     std::filesystem::path dir;
@@ -159,7 +165,9 @@ struct Project {
         fs::set_project_root(dir);
     }
     ~Project() { std::filesystem::remove_all(dir); }
-    void bytes(const std::string& rel, const std::vector<std::uint8_t>& data) { REQUIRE(fs::write_bytes(rel, data.data(), data.size()).ok()); }
+    void bytes(const std::string& rel, const std::vector<std::uint8_t>& data) {
+        REQUIRE(fs::write_bytes(rel, data.data(), data.size()).ok());
+    }
     void text(const std::string& rel, const std::string& body) { REQUIRE(fs::write_text(rel, body).ok()); }
 };
 
@@ -167,14 +175,16 @@ struct Project {
 
 // ---- the instrument library --------------------------------------------------------------------------------------------
 
-TEST_CASE("instruments: the library has every family, each instrument says what it is and has a range and a polyphony") {
+TEST_CASE(
+    "instruments: the library has every family, each instrument says what it is and has a range and a polyphony") {
     const auto& families = song_instrument_families();
     std::set<std::string> familyNames;
     for (const SongInstrumentFamily& f : families) {
         familyNames.insert(f.name);
         CHECK_FALSE(f.what.empty());
     }
-    for (const char* want : {"keys", "pluck", "bass", "lead", "pad", "bell", "ensemble", "chiptune"}) CHECK_MESSAGE(familyNames.count(want) == 1, want);
+    for (const char* want : {"keys", "pluck", "bass", "lead", "pad", "bell", "ensemble", "chiptune"})
+        CHECK_MESSAGE(familyNames.count(want) == 1, want);
     std::set<std::string> names;
     std::set<std::string> used;
     for (const SongInstrumentInfo& i : song_instruments()) {
@@ -196,7 +206,8 @@ TEST_CASE("instruments: the library has every family, each instrument says what 
     CHECK_FALSE(song_kit_variant("pad").has_value());
 }
 
-TEST_CASE("instruments: every pitched instrument plays its C4 at the calibrated level and stays near it across its range") {
+TEST_CASE(
+    "instruments: every pitched instrument plays its C4 at the calibrated level and stays near it across its range") {
     for (const SongInstrumentInfo& i : song_instruments()) {
         const double ref = render(song_of({{"t", i.name, "v100 C4:2 r:2"}})).clip.peakDb;
         CHECK_MESSAGE(std::abs(ref + 12.0) < 0.7, i.name << " C4 peaks at " << ref << " dBFS, not -12");
@@ -210,7 +221,9 @@ TEST_CASE("instruments: every pitched instrument plays its C4 at the calibrated 
 }
 
 TEST_CASE("instruments: the same song renders to the same samples, and another seed changes only what is random") {
-    const Json j = song_of({{"a", "lead_acid", "C3:8 E3 G3 C4 r:2"}, {"b", "choir", "[C4 E4 G4]:2 r:2"}, {"c", "chip_noise", "C4:4 C4 r:2"}});
+    const Json j = song_of({{"a", "lead_acid", "C3:8 E3 G3 C4 r:2"},
+                            {"b", "choir", "[C4 E4 G4]:2 r:2"},
+                            {"c", "chip_noise", "C4:4 C4 r:2"}});
     const SongRender a = render(j), b = render(j);
     CHECK(a.clip.samples == b.clip.samples);
 }
@@ -220,7 +233,8 @@ TEST_CASE("instruments: a note plays at the pitch it names, an octave apart doub
         for (int note : {48, 60, 69, 76}) {
             const SongRender r = render(song_of({{"t", name, "v100 " + song_pitch_name(note) + ":2 r:2"}}));
             const double hz = estimate_hz(r, 0.1, 0.4);
-            CHECK_MESSAGE(hz == doctest::Approx(midi_hz(note)).epsilon(0.03), name << " " << song_pitch_name(note) << " measured " << hz);
+            CHECK_MESSAGE(hz == doctest::Approx(midi_hz(note)).epsilon(0.03),
+                          name << " " << song_pitch_name(note) << " measured " << hz);
         }
     }
 }
@@ -293,11 +307,13 @@ TEST_CASE("voices: the same key struck again replaces the ringing note instead o
     CHECK(r.notes == 4);
 }
 
-TEST_CASE("drum kit: every variant has every lane, each lane renders at a sensible level, and a later hat chokes an open hat") {
+TEST_CASE("drum kit: every variant has every lane, each lane renders at a sensible level, and a later hat chokes an "
+          "open hat") {
     std::set<std::string> lanes;
     for (const SongDrumLane& l : song_drum_lanes()) lanes.insert(l.name);
     CHECK(lanes.size() == 15);
-    for (const char* want : {"kick", "snare", "clap", "rim", "hat", "openhat", "hat_pedal", "shaker", "tambourine", "tom_low", "tom_mid", "tom_high", "ride", "crash", "cowbell"})
+    for (const char* want : {"kick", "snare", "clap", "rim", "hat", "openhat", "hat_pedal", "shaker", "tambourine",
+                             "tom_low", "tom_mid", "tom_high", "ride", "crash", "cowbell"})
         CHECK_MESSAGE(lanes.count(want) == 1, want);
     std::map<std::string, std::vector<float>> kicks;
     for (const char* kit : {"kit", "kit:electronic", "kit:chiptune"}) {
@@ -323,7 +339,8 @@ TEST_CASE("drum kit: every variant has every lane, each lane renders at a sensib
     // Choke: an open hat rings for about a quarter second; a closed hat struck at 0.125 s (step 1 of 16 at 120 bpm) cuts it short.
     const SongRender ring = render(drums_song("kit", Json::object({{"openhat", "x..............."}})));
     const SongRender hatOnly = render(drums_song("kit", Json::object({{"hat", ".x.............."}})));
-    const SongRender cut = render(drums_song("kit", Json::object({{"openhat", "x..............."}, {"hat", ".x.............."}})));
+    const SongRender cut =
+        render(drums_song("kit", Json::object({{"openhat", "x..............."}, {"hat", ".x.............."}})));
     REQUIRE(cut.clip.samples.size() == hatOnly.clip.samples.size());
     auto window = [&](const SongRender& r, double from, double to) { return energy(r, from, to); };
     // what the open hat still adds after the closed hat: the difference between both together and the closed hat alone
@@ -380,7 +397,8 @@ TEST_CASE("mixer: a full mixer parses into the document, with defaults for what 
     CHECK(lead->effects.size() == 1);
     CHECK(lead->sends.at("hall") == doctest::Approx(0.3));
     // no mixer: the defaults are a limiter at -1 dBFS and the style's loudness
-    const SongDoc plain = parsed(Json::parse(R"({"format": "factoria.song/1", "tracks": {"a": {"instrument": "pad", "patterns": {"p": "C4:1"}}}, "sections": [{"name": "m", "play": {"a": "p"}}]})"));
+    const SongDoc plain = parsed(Json::parse(
+        R"({"format": "factoria.song/1", "tracks": {"a": {"instrument": "pad", "patterns": {"p": "C4:1"}}}, "sections": [{"name": "m", "play": {"a": "p"}}]})"));
     CHECK(plain.mixer.buses.empty());
     CHECK(plain.mixer.master.limiter);
     CHECK(plain.mixer.master.ceilingDb == doctest::Approx(-1.0));
@@ -388,7 +406,8 @@ TEST_CASE("mixer: a full mixer parses into the document, with defaults for what 
     CHECK(parsed(song_of({{"a", "pad", "C4:1"}})).mixer.master.loudness == SongMaster::Loudness::Off);
 }
 
-TEST_CASE("mixer: a mistake names its pointer, what is wrong and how to fix it, with a suggestion when a name is close") {
+TEST_CASE(
+    "mixer: a mistake names its pointer, what is wrong and how to fix it, with a suggestion when a name is close") {
     auto base = [] { return song_of({{"lead", "lead", "C4:2 r:2"}}); };
     {
         Json j = base();
@@ -408,7 +427,8 @@ TEST_CASE("mixer: a mistake names its pointer, what is wrong and how to fix it, 
     }
     {
         Json j = base();
-        j["mixer"] = Json{{"buses", Json{{"hall", Json{{"effects", Json::array({Json{{"type", "reverb"}, {"deccay", 2}}})}}}}}};
+        j["mixer"] =
+            Json{{"buses", Json{{"hall", Json{{"effects", Json::array({Json{{"type", "reverb"}, {"deccay", 2}}})}}}}}};
         const auto issues = issues_of(j);
         const SongIssue* i = issue_at(issues, "/mixer/buses/hall/effects/0/deccay");
         REQUIRE(i != nullptr);
@@ -416,7 +436,8 @@ TEST_CASE("mixer: a mistake names its pointer, what is wrong and how to fix it, 
     }
     {
         Json j = base();
-        j["mixer"] = Json{{"buses", Json{{"hall", Json{{"effects", Json::array({Json{{"type", "trim"}, {"start", 0}}})}}}}}};
+        j["mixer"] =
+            Json{{"buses", Json{{"hall", Json{{"effects", Json::array({Json{{"type", "trim"}, {"start", 0}}})}}}}}};
         const auto issues = issues_of(j);
         const SongIssue* i = issue_at(issues, "/mixer/buses/hall/effects/0/type");
         REQUIRE(i != nullptr);
@@ -547,7 +568,8 @@ TEST_CASE("mixer: volume is the fader, mute silences a track and solo leaves onl
     CHECK(silent.clip.peakDb < -100.0);
 }
 
-TEST_CASE("mixer: a track's insert effects change its sound, a bus effect is only the effect and a send adds it to the mix") {
+TEST_CASE(
+    "mixer: a track's insert effects change its sound, a bus effect is only the effect and a send adds it to the mix") {
     Json plain = song_of({{"t", "keys", "C4:4 r r r"}});
     Json filtered = plain;
     filtered["tracks"]["t"]["effects"] = Json::parse(R"([{"type": "filter", "mode": "lowpass", "cutoff": 300}])");
@@ -557,12 +579,14 @@ TEST_CASE("mixer: a track's insert effects change its sound, a bus effect is onl
 
     // a reverb bus: the first milliseconds are the dry track alone, the sound goes on after the track and the file grows by the tail
     Json send = plain;
-    send["mixer"]["buses"] = Json::parse(R"({"hall": {"effects": [{"type": "reverb", "decay": 2.5, "mix": 1, "preDelay": 0.03}]}})");
+    send["mixer"]["buses"] =
+        Json::parse(R"({"hall": {"effects": [{"type": "reverb", "decay": 2.5, "mix": 1, "preDelay": 0.03}]}})");
     send["tracks"]["t"]["sends"] = Json{{"hall", 1.0}};
     const SongRender dry = render(plain), wet = render(send);
     const std::size_t early = std::size_t(0.025 * 44100);
     double worst = 0.0;
-    for (std::size_t i = 0; i < early * 2; ++i) worst = std::max(worst, double(std::abs(dry.clip.samples[i] - wet.clip.samples[i])));
+    for (std::size_t i = 0; i < early * 2; ++i)
+        worst = std::max(worst, double(std::abs(dry.clip.samples[i] - wet.clip.samples[i])));
     CHECK(worst < 1e-4);  // a bus that passed the dry sound too would be twice as loud here
     CHECK(energy(wet, 1.5, 3.0) > energy(dry, 1.5, 3.0) * 4.0 + 1e-9);
     CHECK(wet.clip.seconds() > dry.clip.seconds() + 0.5);
@@ -581,7 +605,8 @@ TEST_CASE("mixer: a track's insert effects change its sound, a bus effect is onl
     // master effects run on the sum
     Json masterFx = plain;
     masterFx["mixer"]["master"]["effects"] = Json::parse(R"([{"type": "filter", "mode": "lowpass", "cutoff": 300}])");
-    CHECK(amplitude_at(render(masterFx), midi_hz(60) * 6.0, 0.05, 0.4) < amplitude_at(a, midi_hz(60) * 6.0, 0.05, 0.4) * 0.5);
+    CHECK(amplitude_at(render(masterFx), midi_hz(60) * 6.0, 0.05, 0.4) <
+          amplitude_at(a, midi_hz(60) * 6.0, 0.05, 0.4) * 0.5);
 }
 
 TEST_CASE("mixer: the render reports each track's level and the master's work") {
@@ -601,7 +626,8 @@ TEST_CASE("mixer: the render reports each track's level and the master's work") 
 
 // ---- the master --------------------------------------------------------------------------------------------------------
 
-TEST_CASE("master: the limiter keeps every sample under its ceiling, however hot the mix, and reports how hard it worked") {
+TEST_CASE(
+    "master: the limiter keeps every sample under its ceiling, however hot the mix, and reports how hard it worked") {
     std::vector<T> loud;
     for (int i = 0; i < 8; ++i) loud.push_back({"t" + std::to_string(i), "organ", "[C3 E3 G3]:1"});
     Json j = song_of(loud);
@@ -628,14 +654,16 @@ TEST_CASE("master: the limiter keeps every sample under its ceiling, however hot
 }
 
 TEST_CASE("master: the loudness is brought to the target of the style, a number of LUFS, or left alone") {
-    const Json base = song_of({{"pad", "pad", "[C3 G3 E4]:1 [F3 A3 C4]:1"}, {"lead", "lead", "E5:4 G5 C6 G5 | F5:4 A5 C6 A5"}});
+    const Json base =
+        song_of({{"pad", "pad", "[C3 G3 E4]:1 [F3 A3 C4]:1"}, {"lead", "lead", "E5:4 G5 C6 G5 | F5:4 A5 C6 A5"}});
     const SongRender off = render(base);
     CHECK_FALSE(off.master.targetLufs.has_value());
     for (double target : {-14.0, -20.0, -26.0}) {
         Json number = base;
         number["mixer"]["master"]["loudness"] = target;
         const SongRender r = render(number);
-        CHECK_MESSAGE(r.clip.lufs == doctest::Approx(target).epsilon(0.02), "target " << target << " got " << r.clip.lufs);
+        CHECK_MESSAGE(r.clip.lufs == doctest::Approx(target).epsilon(0.02),
+                      "target " << target << " got " << r.clip.lufs);
         CHECK(r.master.targetLufs == target);
         CHECK(r.master.normalizeGainDb == doctest::Approx(target - off.clip.lufs).epsilon(0.1));
     }
@@ -703,7 +731,9 @@ TEST_CASE("soundfont: a file lists its presets, finds one by name or number, and
     REQUIRE_FALSE(badNumber.ok());
     CHECK_FALSE(badNumber.error().hint.empty());
 
-    auto notFont = Soundfont::from_memory(std::vector<std::uint8_t>{'h', 'e', 'l', 'l', 'o', 'h', 'e', 'l', 'l', 'o', 'h', 'e', 'l', 'l', 'o', 'h', 'e', 'l', 'l', 'o'}, "x.sf2");
+    auto notFont = Soundfont::from_memory(std::vector<std::uint8_t>{'h', 'e', 'l', 'l', 'o', 'h', 'e', 'l', 'l', 'o',
+                                                                    'h', 'e', 'l', 'l', 'o', 'h', 'e', 'l', 'l', 'o'},
+                                          "x.sf2");
     REQUIRE_FALSE(notFont.ok());
     CHECK(notFont.error().message.find("x.sf2") != std::string::npos);
     CHECK_FALSE(notFont.error().hint.empty());
@@ -728,7 +758,8 @@ TEST_CASE("soundfont: a preset renders the note's pitch deterministically, held 
     };
     auto crossings = [&](const std::vector<double>& x, double t0, double t1) {
         int n = 0;
-        for (std::size_t i = std::size_t(t0 * rate) + 1; i < std::size_t(t1 * rate); ++i) n += x[i - 1] < 0 && x[i] >= 0;
+        for (std::size_t i = std::size_t(t0 * rate) + 1; i < std::size_t(t1 * rate); ++i)
+            n += x[i - 1] < 0 && x[i] >= 0;
         return n / (t1 - t0);
     };
     const auto a4 = play(69), a5 = play(81), again = play(69);
@@ -737,19 +768,24 @@ TEST_CASE("soundfont: a preset renders the note's pitch deterministically, held 
     CHECK(crossings(a4.first, 0.1, 0.4) == doctest::Approx(441.0).epsilon(0.03));
     CHECK(crossings(a5.first, 0.1, 0.4) == doctest::Approx(882.0).epsilon(0.03));
     double sound = 0.0, tail = 0.0;
-    for (std::size_t i = std::size_t(0.1 * rate); i < std::size_t(0.4 * rate); ++i) sound = std::max(sound, std::abs(a4.first[i]));
-    for (std::size_t i = std::size_t(0.95 * rate); i < std::size_t(rate); ++i) tail = std::max(tail, std::abs(a4.first[i]));
+    for (std::size_t i = std::size_t(0.1 * rate); i < std::size_t(0.4 * rate); ++i)
+        sound = std::max(sound, std::abs(a4.first[i]));
+    for (std::size_t i = std::size_t(0.95 * rate); i < std::size_t(rate); ++i)
+        tail = std::max(tail, std::abs(a4.first[i]));
     CHECK(sound > 0.05);
     CHECK(tail < sound * 0.05);  // released at 0.5 s: it has died away by the end
 }
 
-TEST_CASE("soundfont: a track plays a preset from a project file at the calibrated level, in every form of the instrument") {
+TEST_CASE(
+    "soundfont: a track plays a preset from a project file at the calibrated level, in every form of the instrument") {
     Project p;
     p.bytes("assets/audio/tiny.sf2", tiny_sf2());
     const std::vector<Json> forms = {Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Sine"}},
                                      Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 5}},
                                      Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 0}},
-                                     Json("assets/audio/tiny.sf2#Test Sine"), Json("assets/audio/tiny.sf2#0:5"), Json("assets/audio/tiny.sf2")};
+                                     Json("assets/audio/tiny.sf2#Test Sine"),
+                                     Json("assets/audio/tiny.sf2#0:5"),
+                                     Json("assets/audio/tiny.sf2")};
     std::vector<std::vector<float>> sounds;
     for (const Json& form : forms) {
         Json j = song_of({{"t", "x", "v100 C4:1"}});
@@ -775,7 +811,8 @@ TEST_CASE("soundfont: a track plays a preset from a project file at the calibrat
     const SongRender panned = render(j);
     CHECK(channel_energy(panned, 1) < channel_energy(panned, 0) * 1e-4);
     // a drum preset (bank 128) plays a kit track's lanes by General MIDI key
-    Json drums = drums_song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Kit"}, {"drums", true}}, Json{{"kick", "x..............."}, {"snare", "........x......."}});
+    Json drums = drums_song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "Test Kit"}, {"drums", true}},
+                            Json{{"kick", "x..............."}, {"snare", "........x......."}});
     const SongRender kit = render(drums);
     CHECK(kit.clip.peakDb > -20.0);
     CHECK(kit.clip.peakDb < -4.0);
@@ -823,8 +860,12 @@ TEST_CASE("soundfont: mistakes say which file, which track and how to fix them")
         REQUIRE(i != nullptr);
         CHECK(i->hint.find("preset") != std::string::npos);
     }
-    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 200}})), "/tracks/keys/instrument/preset") != nullptr);
-    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 1.5}})), "/tracks/keys/instrument/preset") != nullptr);
-    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "A"}, {"bank", 1}})), "/tracks/keys/instrument/bank") != nullptr);
-    CHECK(issue_at(issues_of(song(Json{{"soundfont", "../tiny.sf2"}})), "/tracks/keys/instrument/soundfont") != nullptr);
+    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 200}})),
+                   "/tracks/keys/instrument/preset") != nullptr);
+    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", 1.5}})),
+                   "/tracks/keys/instrument/preset") != nullptr);
+    CHECK(issue_at(issues_of(song(Json{{"soundfont", "assets/audio/tiny.sf2"}, {"preset", "A"}, {"bank", 1}})),
+                   "/tracks/keys/instrument/bank") != nullptr);
+    CHECK(issue_at(issues_of(song(Json{{"soundfont", "../tiny.sf2"}})), "/tracks/keys/instrument/soundfont") !=
+          nullptr);
 }

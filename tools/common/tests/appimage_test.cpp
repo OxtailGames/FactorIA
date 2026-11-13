@@ -65,7 +65,9 @@ struct Lab {
     }
 
     stdfs::path tools_dir() const { return stdfs::path(home) / "tools" / "appimage"; }
-    std::string tool_name() const { return std::string("appimagetool-") + kSetupAppimagetoolVersion + "-x86_64.AppImage"; }
+    std::string tool_name() const {
+        return std::string("appimagetool-") + kSetupAppimagetoolVersion + "-x86_64.AppImage";
+    }
     std::string runtime_name() const { return std::string("runtime-") + kSetupAppImageRuntimeVersion + "-x86_64"; }
     void install_fake_tools() {
         testing::write_all(tools_dir() / tool_name(), "fake appimagetool");
@@ -73,7 +75,9 @@ struct Lab {
     }
 };
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 bool any_has(const std::vector<std::string>& v, const std::string& needle) {
     return std::any_of(v.begin(), v.end(), [&](const std::string& s) { return has_text(s, needle); });
@@ -82,12 +86,15 @@ bool any_has(const std::vector<std::string>& v, const std::string& needle) {
 std::vector<std::string> listing(const stdfs::path& dir) {
     std::vector<std::string> out;
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) out.push_back(stdfs::relative(it->path(), dir).generic_string());
+    for (stdfs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+        out.push_back(stdfs::relative(it->path(), dir).generic_string());
     std::sort(out.begin(), out.end());
     return out;
 }
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::string make_player(const testing::TempDir& tmp) {
     const std::string p = tmp.sub("fake_player/factoria_player");
@@ -136,7 +143,8 @@ struct Seen {
     std::map<std::string, std::string> env;
 };
 
-void fake_appimagetool(Lab& lab, Seen& seen, int exitCode = 0, bool writeArtifact = true, const std::string& slug = "space-dodge") {
+void fake_appimagetool(Lab& lab, Seen& seen, int exitCode = 0, bool writeArtifact = true,
+                       const std::string& slug = "space-dodge") {
     lab.program = [&seen, exitCode, writeArtifact, slug](const ProcessOptions& o) -> Result<ProcessResult> {
         seen.argv = o.argv;
         seen.env = o.env;
@@ -160,7 +168,8 @@ void fake_appimagetool(Lab& lab, Seen& seen, int exitCode = 0, bool writeArtifac
 // ---- setup appimage ---------------------------------------------------------------------------------------------------------
 
 TEST_CASE("setup appimage: only Linux x86_64 can build an AppImage") {
-    for (auto [host, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"windows", "x64"}, {"linux", "aarch64"}}) {
+    for (auto [host, arch] : std::vector<std::pair<std::string, std::string>>{
+             {"macos", "aarch64"}, {"windows", "x64"}, {"linux", "aarch64"}}) {
         INFO(host << "-" << arch);
         Lab lab;
         SetupContext c = lab.ctx(host, arch);
@@ -211,8 +220,10 @@ TEST_CASE("setup appimage: status names what an install downloads and finds what
 
 TEST_CASE("setup appimage: a download that is not the pinned file installs nothing") {
     Lab lab;
-    const std::string toolUrl = std::string("https://github.com/AppImage/appimagetool/releases/download/") + kSetupAppimagetoolVersion + "/appimagetool-x86_64.AppImage";
-    const std::string runtimeUrl = std::string("https://github.com/AppImage/type2-runtime/releases/download/") + kSetupAppImageRuntimeVersion + "/runtime-x86_64";
+    const std::string toolUrl = std::string("https://github.com/AppImage/appimagetool/releases/download/") +
+                                kSetupAppimagetoolVersion + "/appimagetool-x86_64.AppImage";
+    const std::string runtimeUrl = std::string("https://github.com/AppImage/type2-runtime/releases/download/") +
+                                   kSetupAppImageRuntimeVersion + "/runtime-x86_64";
     lab.served[toolUrl] = "somebody replaced this file";
     lab.served[runtimeUrl] = "and this one";
     SetupContext c = lab.ctx();
@@ -278,9 +289,11 @@ TEST_CASE("setup appimage: setup.status and setup.install know the component") {
 TEST_CASE("setup appimage: the pinned files are the ones scripts/package-appimage.sh uses") {
     const std::string script = testing::read_all(stdfs::path(FA_REPO_ROOT) / "scripts" / "package-appimage.sh");
     REQUIRE_FALSE(script.empty());
-    CHECK(has_text(script, std::string("appimagetool/releases/download/") + kSetupAppimagetoolVersion + "/appimagetool-x86_64.AppImage"));
+    CHECK(has_text(script, std::string("appimagetool/releases/download/") + kSetupAppimagetoolVersion +
+                               "/appimagetool-x86_64.AppImage"));
     CHECK(has_text(script, std::string("appimagetool_sha256=") + kSetupAppimagetoolSha256));
-    CHECK(has_text(script, std::string("type2-runtime/releases/download/") + kSetupAppImageRuntimeVersion + "/runtime-x86_64"));
+    CHECK(has_text(script,
+                   std::string("type2-runtime/releases/download/") + kSetupAppImageRuntimeVersion + "/runtime-x86_64"));
     CHECK(has_text(script, std::string("runtime_sha256=") + kSetupAppImageRuntimeSha256));
 }
 
@@ -343,7 +356,8 @@ TEST_CASE("export appimage: the AppDir and the appimagetool command line") {
     CHECK(contains(seen.files, "usr/bin/space-dodge"));
     CHECK(contains(seen.files, "usr/bin/game"));
     CHECK(contains(seen.files, "usr/bin/FACTORIA_NOTICES.txt"));
-    CHECK(contains(seen.files, "usr/bin/libdemo.so"));  // the plugins' libraries sit next to the player, where it looks for them
+    CHECK(contains(seen.files,
+                   "usr/bin/libdemo.so"));  // the plugins' libraries sit next to the player, where it looks for them
     CHECK_FALSE(contains(seen.files, "usr/bin/.factoria-export"));
     CHECK_FALSE(contains(seen.files, "usr/bin/space-dodge.desktop"));
     CHECK_FALSE(contains(seen.files, "usr/bin/space-dodge.png"));
@@ -431,7 +445,8 @@ TEST_CASE("export appimage: a game without an icon gets a placeholder and a warn
 
 TEST_CASE("export appimage: other computers, other platforms and missing tools get an error that teaches") {
     SUBCASE("a Mac, Windows or a Linux that is not x86_64") {
-        for (auto [host, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"windows", "x64"}, {"linux", "aarch64"}}) {
+        for (auto [host, arch] : std::vector<std::pair<std::string, std::string>>{
+                 {"macos", "aarch64"}, {"windows", "x64"}, {"linux", "aarch64"}}) {
             INFO(host << "-" << arch);
             Lab lab;
             SetupContext c = lab.ctx(host, arch);
@@ -494,7 +509,8 @@ TEST_CASE("export appimage: other computers, other platforms and missing tools g
         Lab lab;
         CommandRegistry registry;
         register_export_commands(registry, make_game(lab.tmp));
-        auto r = registry.call("project.export", Json::object({{"platform", "linux"}, {"format", "flatpak"}, {"dryRun", true}}));
+        auto r = registry.call("project.export",
+                               Json::object({{"platform", "linux"}, {"format", "flatpak"}, {"dryRun", true}}));
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "invalid_arguments");  // the schema's enum lists appimage
         CHECK(has_text(r.error["message"].get<std::string>(), "flatpak"));

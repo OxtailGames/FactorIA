@@ -24,12 +24,14 @@ void append_progress_line(const std::string& projectDir, const std::string& line
     const sfs::path path = progress_file_path(projectDir);
     sfs::create_directories(path.parent_path(), ec);
     if (ec) return;
-    if (sfs::exists(path, ec) && sfs::file_size(path, ec) > (1u << 20)) sfs::resize_file(path, 0, ec);  // never grows past 1 MB
+    if (sfs::exists(path, ec) && sfs::file_size(path, ec) > (1u << 20))
+        sfs::resize_file(path, 0, ec);  // never grows past 1 MB
     std::ofstream out(path, std::ios::app | std::ios::binary);
     if (out) out << clean << '\n';
 }
 
-ProgressTail::ProgressTail(const std::string& projectDir, std::function<void(const std::string&)> onLine, int pollMillis)
+ProgressTail::ProgressTail(const std::string& projectDir, std::function<void(const std::string&)> onLine,
+                           int pollMillis)
     : path_(progress_file_path(projectDir)), onLine_(std::move(onLine)), pollMillis_(pollMillis) {
     std::error_code ec;
     const auto size = sfs::exists(path_, ec) ? sfs::file_size(path_, ec) : 0;

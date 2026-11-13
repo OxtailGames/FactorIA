@@ -27,7 +27,8 @@ void Editor::refresh_play_sessions() {
     playSessionsDirty_ = false;
     playSessionsGen_++;
     if (!playSessionsPick_.empty() &&
-        std::none_of(playSessionRows_.begin(), playSessionRows_.end(), [&](const PlaySessionRow& r) { return r.name == playSessionsPick_; }))
+        std::none_of(playSessionRows_.begin(), playSessionRows_.end(),
+                     [&](const PlaySessionRow& r) { return r.name == playSessionsPick_; }))
         playSessionsPick_.clear();
     if (playSessionsPick_.empty() && !playSessionRows_.empty()) playSessionsPick_ = playSessionRows_.front().name;
 }
@@ -46,7 +47,8 @@ void Editor::start_auto_play() {
         return;
     }
     AutoPlayRequest req;
-    req.projectDir = std::filesystem::path(projectDir_);  // the editor keeps the folder as a native string: back to the path it names
+    req.projectDir = std::filesystem::path(
+        projectDir_);  // the editor keeps the folder as a native string: back to the path it names
     req.seconds = autoPlaySeconds_;
     req.screenshots = autoPlayPictures_;
     if (!autoPlay_.start(req)) return;
@@ -62,7 +64,8 @@ void Editor::poll_auto_play() {
     notify(auto_play_summary(*done), done->ok ? (done->problems > 0 ? 1 : 0) : (done->cancelled ? 0 : 2));
     if (done->ok) {
         const std::string name = done->session;
-        notify_action("Report of the AI's play", "Open report", [this, name] { open_play_sessions(name); }, "autoplay:report");
+        notify_action(
+            "Report of the AI's play", "Open report", [this, name] { open_play_sessions(name); }, "autoplay:report");
         open_play_sessions(name);
     }
     autoPlayLast_ = std::move(done);
@@ -111,15 +114,16 @@ void Editor::ai_attach_last_session() {
     // The button means the session the person played. Only when there is none is the newest automatic one attached, and the
     // message says whose play it was, so the AI does not take the bot's session for the person's.
     if (fellBack) notify("You have no play session of your own yet: attached the latest session of the AI's bot.", 1);
-    ai_attach_session(row->name, fellBack ? "(This is a session the AI's bot played with play.auto, not one the user played.) " : "");
+    ai_attach_session(
+        row->name, fellBack ? "(This is a session the AI's bot played with play.auto, not one the user played.) " : "");
 }
 
 void Editor::draw_play_sessions_window() {
     if (!showPlaySessions_ || !engine_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(860, 560)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (playSessionsFocus_) {
         ImGui::SetNextWindowFocus();
         playSessionsFocus_ = false;
@@ -139,25 +143,33 @@ void Editor::draw_play_sessions_window() {
     ImGui::EndDisabled();
     // The widgets below can be disabled (a run is going, or Play is on): their tooltips still show, and the first says why.
     const auto tip = [](const std::string& text) {
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text.c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s", text.c_str());
     };
     {
-        std::string text = "play.auto: a bot plays the project from its start for this many seconds of game time, faster than real time, "
-                           "and\nfinds what is stuck or broken. It plays the project as saved on disk, in a separate process: the editor "
+        std::string text = "play.auto: a bot plays the project from its start for this many seconds of game time, "
+                           "faster than real time, "
+                           "and\nfinds what is stuck or broken. It plays the project as saved on disk, in a separate "
+                           "process: the editor "
                            "stays free.";
-        if (play_ != PlayState::Edit) text += "\n\nStop Play first: the bot plays the project from the start, as saved on disk.";
-        else if (running) text += "\n\nA run is going: wait for it or press Cancel.";
+        if (play_ != PlayState::Edit)
+            text += "\n\nStop Play first: the bot plays the project from the start, as saved on disk.";
+        else if (running)
+            text += "\n\nA run is going: wait for it or press Cancel.";
         tip(text);  // one tooltip per frame
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90);
     ImGui::BeginDisabled(running);
     float secs = float(autoPlaySeconds_);
-    if (ImGui::DragFloat("##aisecs", &secs, 1.0f, float(kAutoPlayMinSeconds), float(kAutoPlayMaxSeconds), "%.0f s")) autoPlaySeconds_ = double(secs);
-    if (ImGui::IsItemDeactivatedAfterEdit() || autoPlaySeconds_ < kAutoPlayMinSeconds || autoPlaySeconds_ > kAutoPlayMaxSeconds)
+    if (ImGui::DragFloat("##aisecs", &secs, 1.0f, float(kAutoPlayMinSeconds), float(kAutoPlayMaxSeconds), "%.0f s"))
+        autoPlaySeconds_ = double(secs);
+    if (ImGui::IsItemDeactivatedAfterEdit() || autoPlaySeconds_ < kAutoPlayMinSeconds ||
+        autoPlaySeconds_ > kAutoPlayMaxSeconds)
         autoPlaySeconds_ = std::clamp(autoPlaySeconds_, kAutoPlayMinSeconds, kAutoPlayMaxSeconds);
     at_track("playsessions:seconds", !running);
-    tip(std::format("Seconds of GAME time the bot plays ({:.0f} to {:.0f}). A run ends sooner when the bot wins, loses or gets stuck.",
+    tip(std::format("Seconds of GAME time the bot plays ({:.0f} to {:.0f}). A run ends sooner when the bot wins, loses "
+                    "or gets stuck.",
                     kAutoPlayMinSeconds, kAutoPlayMaxSeconds));
     ImGui::SameLine();
     ImGui::Checkbox("Take pictures", &autoPlayPictures_);
@@ -211,7 +223,9 @@ void Editor::draw_play_sessions_window() {
         if (r.isAuto) ImGui::PopStyleColor();
         at_track("playsessions:row:" + r.name);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\n%s", r.isAuto ? "Played by the AI's bot (play.auto)" : "Played by you (Play .. Stop)", r.scene.c_str());
+            ImGui::SetTooltip("%s\n%s",
+                              r.isAuto ? "Played by the AI's bot (play.auto)" : "Played by you (Play .. Stop)",
+                              r.scene.c_str());
         ImGui::PopID();
     }
     ImGui::EndChild();
@@ -223,13 +237,15 @@ void Editor::draw_play_sessions_window() {
 }
 
 void Editor::draw_play_session_report() {
-    const auto it = std::find_if(playSessionRows_.begin(), playSessionRows_.end(), [&](const PlaySessionRow& r) { return r.name == playSessionsPick_; });
+    const auto it = std::find_if(playSessionRows_.begin(), playSessionRows_.end(),
+                                 [&](const PlaySessionRow& r) { return r.name == playSessionsPick_; });
     if (it == playSessionRows_.end()) {
         ImGui::TextDisabled("Pick a session to read its report.");
         return;
     }
     const PlaySessionRow& row = *it;
-    if (playSessionDocName_ != row.name || playSessionDocGen_ != playSessionsGen_) {  // read once per pick and per refresh
+    if (playSessionDocName_ != row.name ||
+        playSessionDocGen_ != playSessionsGen_) {  // read once per pick and per refresh
         auto r = load_json_file(std::string(kPlaySessionsDir) + "/" + row.name + "/session.json");
         playSessionDoc_ = r.ok() ? r.value() : Json();
         playSessionDocError_ = r.ok() ? std::string() : r.error().to_string();
@@ -237,7 +253,8 @@ void Editor::draw_play_session_report() {
         playSessionDocGen_ = playSessionsGen_;
     }
     ImGui::PushTextWrapPos(0);
-    ImGui::TextColored(row.isAuto ? kAutoColor : ImVec4(1, 1, 1, 1), "%s", row.isAuto ? "Played by the AI's bot (play.auto)" : "Played by you (Play .. Stop)");
+    ImGui::TextColored(row.isAuto ? kAutoColor : ImVec4(1, 1, 1, 1), "%s",
+                       row.isAuto ? "Played by the AI's bot (play.auto)" : "Played by you (Play .. Stop)");
     ImGui::TextDisabled("%s", row.name.c_str());
     if (!playSessionDocError_.empty() || !playSessionDoc_.is_object()) {
         ImGui::TextColored(kStatusFailed, "Cannot read this session: %s", playSessionDocError_.c_str());
@@ -246,9 +263,11 @@ void Editor::draw_play_session_report() {
     }
     const Json& j = playSessionDoc_;
     const std::string folder = std::string(kPlaySessionsDir) + "/" + row.name;
-    if (ImGui::Button("Attach to the AI chat")) ai_attach_session(row.name, row.isAuto ? "(This session was played by the AI's bot with play.auto.) " : "");
+    if (ImGui::Button("Attach to the AI chat"))
+        ai_attach_session(row.name, row.isAuto ? "(This session was played by the AI's bot with play.auto.) " : "");
     at_track("playsessions:attach");
-    ImGui::SetItemTooltip("Puts the summary and the pictures of the problems into the message you are writing to the AI");
+    ImGui::SetItemTooltip(
+        "Puts the summary and the pictures of the problems into the message you are writing to the AI");
     const std::string replay = j.contains("auto") ? session_text(j["auto"], "replay") : std::string();
     if (!replay.empty()) {
         ImGui::SameLine();
@@ -290,14 +309,16 @@ void Editor::draw_play_session_report() {
         for (const Json& m : j["marks"]) {
             if (++n > 40) break;
             const std::string kind = session_text(m, "kind");
-            ImGui::Text("#%d%s%s  at %.1f s", int(std::clamp(session_number(m, "n", n), -1e6, 1e6)), kind.empty() ? "" : "  ", kind.c_str(), session_number(m, "time"));
+            ImGui::Text("#%d%s%s  at %.1f s", int(std::clamp(session_number(m, "n", n), -1e6, 1e6)),
+                        kind.empty() ? "" : "  ", kind.c_str(), session_number(m, "time"));
             ImGui::TextWrapped("%s", session_text(m, "note").c_str());
             const std::string shot = session_text(m, "screenshot");
             if (!shot.empty()) {
                 const TextureEntry* t = texture_for(folder + "/" + shot);
                 if (t && t->w > 0 && t->h > 0) {
                     const float scale = std::min(240.0f / float(t->w), 160.0f / float(t->h));
-                    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(t->view, true))), ImVec2(float(t->w) * scale, float(t->h) * scale));
+                    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(t->view, true))),
+                                 ImVec2(float(t->w) * scale, float(t->h) * scale));
                 }
             }
         }
@@ -307,7 +328,8 @@ void Editor::draw_play_session_report() {
             ImGui::Spacing();
             ImGui::SeparatorText("The last frame");
             const float scale = std::min(240.0f / float(t->w), 160.0f / float(t->h));
-            ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(t->view, true))), ImVec2(float(t->w) * scale, float(t->h) * scale));
+            ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(t->view, true))),
+                         ImVec2(float(t->w) * scale, float(t->h) * scale));
         }
     }
     ImGui::PopTextWrapPos();

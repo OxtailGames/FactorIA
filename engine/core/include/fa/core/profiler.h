@@ -39,10 +39,10 @@ enum class ProfSystem : int {
     Ui,                  // layout, focus, widget events
     ScriptsUpdate,       // timers, onUpdate of every behaviour, promise jobs
     Audio,
-    ScriptsLateUpdate,   // onLateUpdate, then onStart/onEnable/onDisable of what changed
-    Localization,        // string keys of new or edited entities
-    Render,              // particles, sprite animators, recording the draw calls (the CPU side of drawing)
-    EndOfFrame,          // deferred destroys, scene change, hot-reload poll
+    ScriptsLateUpdate,  // onLateUpdate, then onStart/onEnable/onDisable of what changed
+    Localization,       // string keys of new or edited entities
+    Render,             // particles, sprite animators, recording the draw calls (the CPU side of drawing)
+    EndOfFrame,         // deferred destroys, scene change, hot-reload poll
     Count
 };
 inline constexpr int kProfSystemCount = int(ProfSystem::Count);
@@ -82,12 +82,14 @@ struct ProfFrame {
 
 // Memory the engine can name. Bytes; what the build cannot measure stays 0.
 struct ProfMemory {
-    std::uint64_t processBytes = 0;       // resident memory of the process now
-    std::uint64_t peakProcessBytes = 0;   // peak resident memory so far
-    std::uint64_t jsHeapBytes = 0;        // QuickJS heap
-    std::uint64_t textureBytes = 0;       // textures the renderer holds
-    std::uint64_t audioDecodedBytes = 0;  // decoded audio: clips, streaming buffers and music (musicBytes is part of it)
-    std::uint64_t musicBytes = 0;         // music: cached stems and windows of streamed ones, sources evicted but still playing, finished loads
+    std::uint64_t processBytes = 0;      // resident memory of the process now
+    std::uint64_t peakProcessBytes = 0;  // peak resident memory so far
+    std::uint64_t jsHeapBytes = 0;       // QuickJS heap
+    std::uint64_t textureBytes = 0;      // textures the renderer holds
+    std::uint64_t audioDecodedBytes =
+        0;  // decoded audio: clips, streaming buffers and music (musicBytes is part of it)
+    std::uint64_t musicBytes =
+        0;  // music: cached stems and windows of streamed ones, sources evicted but still playing, finished loads
     int entities = 0;
 };
 
@@ -118,8 +120,8 @@ public:
 private:
     static inline std::atomic<bool> flag_{false};
     ProfFrame cur_, last_;
-    std::mutex jobsMu_;                    // jobLanes_: workers add while the main thread publishes
-    std::vector<ProfLane> jobLanes_;       // indexed by lane, grown on demand
+    std::mutex jobsMu_;                                   // jobLanes_: workers add while the main thread publishes
+    std::vector<ProfLane> jobLanes_;                      // indexed by lane, grown on demand
     std::unordered_map<std::string, std::size_t> index_;  // path + '\n' + className -> slots_ index
     std::vector<ProfClassSample> slots_;
     double t0_ = 0;

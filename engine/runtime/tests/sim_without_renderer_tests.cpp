@@ -128,7 +128,8 @@ TEST_CASE("sim: with graphics=false the animators advance, a clip ends and a fin
     e.shutdown();
 }
 
-TEST_CASE("sim: a burst queued on a world is born in the next step without a renderer, and two worlds do not share emitters") {
+TEST_CASE("sim: a burst queued on a world is born in the next step without a renderer, and two worlds do not share "
+          "emitters") {
     TempProject p("burst");
     Engine e;
     std::string err;
@@ -171,7 +172,8 @@ TEST_CASE("sim: the world state is the same frame by frame with a renderer that 
         const Entity cam = e.world().find_by_id("cam");
         REQUIRE(cam);
         for (int i = 0; i < 70; ++i) {
-            e.world().get<Transform>(cam)->position.x = 2.0f * float(i);  // a moving camera: the Parallax layer follows it
+            e.world().get<Transform>(cam)->position.x =
+                2.0f * float(i);  // a moving camera: the Parallax layer follows it
             e.frame(1.0 / 60.0);  // simulates one fixed step and, with a renderer, draws it
             hashes[mode].push_back(state_hash_hex(world_state_hash(e.world()).hash));
             particles[mode].push_back(e.world().particles().particle_count());
@@ -206,7 +208,8 @@ TEST_CASE("sim: the camera queries of a script answer right after a load, before
     // The loaded scene's camera is in the set already (a script's onStart runs before the first frame ends).
     REQUIRE(e.camera_set() != nullptr);
     REQUIRE_FALSE(e.camera_set()->all().empty());
-    const char* code = "JSON.stringify([camera.worldToScreen([10, 20, 0]), camera.screenToWorld([200, 50]), camera.screenRay([200, 50])])";
+    const char* code = "JSON.stringify([camera.worldToScreen([10, 20, 0]), camera.screenToWorld([200, 50]), "
+                       "camera.screenRay([200, 50])])";
     auto before = e.commands().call("script.eval", Json::object({{"code", code}}));
     REQUIRE_MESSAGE(before.ok, before.error.dump());
     e.step(1);
@@ -233,7 +236,8 @@ TEST_CASE("game.state_hash components: hashes only the named component types and
     auto whole = e.commands().call("game.state_hash", Json::object());
     REQUIRE(whole.ok);
     CHECK(only.result["hash"] != whole.result["hash"]);
-    CHECK(only.result["components"].get<int>() == 5);  // Sprite + SpriteAnimator on two entities, and the Sprite of the Parallax layer
+    CHECK(only.result["components"].get<int>() ==
+          5);  // Sprite + SpriteAnimator on two entities, and the Sprite of the Parallax layer
     // The other components are not part of it: moving an entity that has none of these changes nothing.
     Transform* t = e.world().get<Transform>(e.world().find_by_id("wait"));
     REQUIRE(t);

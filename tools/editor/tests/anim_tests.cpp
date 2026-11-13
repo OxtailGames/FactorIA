@@ -70,7 +70,7 @@ TEST_CASE("anim model: dragging keys: the offset stays inside the clip, snaps to
     CHECK(clamp_move_offset(sel, -1.0) == doctest::Approx(-0.2));
     CHECK(snapped_move_offset(sel, 0.13, 10) == doctest::Approx(0.1));  // 0.2 + 0.13 = 0.33 -> 0.3
     CHECK(snapped_move_offset(sel, -5.0, 10) == doctest::Approx(-0.2));
-    CHECK(snapped_scale(sel, 2.0, 10) == doctest::Approx(2.0));         // the latest key goes from 0.4 to 0.6: a frame
+    CHECK(snapped_scale(sel, 2.0, 10) == doctest::Approx(2.0));  // the latest key goes from 0.4 to 0.6: a frame
     CHECK(snapped_scale(sel, 0.0, 0) == doctest::Approx(0.05));
     const KeySet after = moved_keys(sel, 0.1, 2.0);
     CHECK(after.count(make_key_id(0, 0.3)) == 1);

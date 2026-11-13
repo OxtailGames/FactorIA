@@ -13,6 +13,7 @@ namespace {
 thread_local bool g_counting = false;
 thread_local std::size_t g_count = 0;
 
+#if !defined(FA_ALLOC_COUNTER_OFF)  // the replacement operators below are the only users
 inline void note() {
     if (g_counting) ++g_count;
 }
@@ -45,6 +46,7 @@ void release_aligned(void* p) {
 #endif
 }
 
+#endif  // !FA_ALLOC_COUNTER_OFF
 }  // namespace
 
 namespace audio_test {
@@ -67,6 +69,7 @@ void AllocCounter::release_for_test(void* p) { ::operator delete(p); }
 
 }  // namespace audio_test
 
+#if !defined(FA_ALLOC_COUNTER_OFF)
 void* operator new(std::size_t size) {
     if (void* p = allocate(size)) return p;
     throw std::bad_alloc();
@@ -104,3 +107,4 @@ void operator delete(void* p, std::size_t, std::align_val_t) noexcept { release_
 void operator delete[](void* p, std::size_t, std::align_val_t) noexcept { release_aligned(p); }
 void operator delete(void* p, std::align_val_t, const std::nothrow_t&) noexcept { release_aligned(p); }
 void operator delete[](void* p, std::align_val_t, const std::nothrow_t&) noexcept { release_aligned(p); }
+#endif  // !FA_ALLOC_COUNTER_OFF

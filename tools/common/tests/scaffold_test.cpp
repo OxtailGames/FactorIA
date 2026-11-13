@@ -38,8 +38,9 @@ TEST_CASE("scaffold: every template produces a valid project") {
         if (!r.ok()) MESSAGE(r.error().to_string());
         REQUIRE(r.ok());
 
-        for (const char* f : {"factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md", "CLAUDE.md", ".gitignore", "jsconfig.json",
-                              ".mcp.json", "types/factoria.d.ts", "README.md", "scenes/main.scene.json"})
+        for (const char* f :
+             {"factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md", "CLAUDE.md", ".gitignore", "jsconfig.json",
+              ".mcp.json", "types/factoria.d.ts", "README.md", "scenes/main.scene.json"})
             CHECK_MESSAGE(stdfs::exists(stdfs::path(dir) / f), f);
         CHECK(testing::read_all(stdfs::path(dir) / "CLAUDE.md") == "@AGENTS.md\n");
         CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find(".factoria/") != std::string::npos);
@@ -75,7 +76,8 @@ TEST_CASE("scaffold: every template produces a valid project") {
         REQUIRE(mcp.ok());
         CHECK((*mcp)["mcpServers"]["factoria"]["command"] == "factoria");
         CHECK((*mcp)["mcpServers"]["factoria"]["args"] == Json::array({"mcp", "--project", "."}));
-        CHECK((*mcp)["mcpServers"]["factoria"]["timeout"] == kClaudeCodeMcpToolTimeoutMs);  // ai_run calls run for minutes
+        CHECK((*mcp)["mcpServers"]["factoria"]["timeout"] ==
+              kClaudeCodeMcpToolTimeoutMs);  // ai_run calls run for minutes
 
         CHECK(stdfs::exists(stdfs::path(dir) / "tests"));
         CHECK(stdfs::exists(stdfs::path(dir) / "tools"));
@@ -89,11 +91,11 @@ TEST_CASE("scaffold: AGENTS.md is a crisp guide") {
     CHECK(guide.find("feedback") != std::string::npos);
     CHECK(guide.find("factoria validate") != std::string::npos);
     CHECK(std::count(guide.begin(), guide.end(), '\n') < 200);
-    CHECK(guide.find("--heading") != std::string::npos);  // read by section, never the whole ai-guide
+    CHECK(guide.find("--heading") != std::string::npos);                 // read by section, never the whole ai-guide
     CHECK(guide.find("ai-guide --heading Index") != std::string::npos);  // the index first, then sections
     CHECK(guide.find("\"heading\":\"Index\"") != std::string::npos);
     CHECK(guide.find("never the bare command") != std::string::npos);
-    CHECK(guide.find("docs list") != std::string::npos);  // other docs are found by their summary
+    CHECK(guide.find("docs list") != std::string::npos);        // other docs are found by their summary
     CHECK(guide.find("docs.components") != std::string::npos);  // one component at a time
     CHECK(guide.find("never the `components` page whole") != std::string::npos);
 }
@@ -150,7 +152,9 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     auto r = validate_project(tmp.sub("game"));
     REQUIRE_FALSE(r.ok);
     bool found = false;
-    for (auto& e : r.errors) found = found || (e.file == "ENGINE_FEEDBACK.json" && e.hint.find("factoria feedback init") != std::string::npos);
+    for (auto& e : r.errors)
+        found =
+            found || (e.file == "ENGINE_FEEDBACK.json" && e.hint.find("factoria feedback init") != std::string::npos);
     CHECK(found);
 
     // Bad input binding and missing asset
@@ -164,8 +168,10 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     auto r2 = validate_project(tmp.sub("game"));
     bool binding = false, asset = false;
     for (auto& e : r2.errors) {
-        binding = binding || (e.file == "factoria.json" && e.pointer.find("/input/actions/jump/0") == 0 && e.hint.find("Space") != std::string::npos);
-        asset = asset || (e.file == "scenes/main.scene.json" && e.message.find("assets/missing.png") != std::string::npos);
+        binding = binding || (e.file == "factoria.json" && e.pointer.find("/input/actions/jump/0") == 0 &&
+                              e.hint.find("Space") != std::string::npos);
+        asset =
+            asset || (e.file == "scenes/main.scene.json" && e.message.find("assets/missing.png") != std::string::npos);
     }
     CHECK(binding);
     CHECK(asset);
@@ -205,7 +211,8 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
     bool unknownComponent = false;
     for (auto& e : validate_project(tmp.sub("game")).errors)
-        unknownComponent = unknownComponent || (e.file == "scenes/main.scene.json" && e.message.find("Sprit") != std::string::npos);
+        unknownComponent =
+            unknownComponent || (e.file == "scenes/main.scene.json" && e.message.find("Sprit") != std::string::npos);
     CHECK(unknownComponent);
 
     // Script hook is invoked.
@@ -231,7 +238,8 @@ TEST_CASE("mcp config helpers") {
     CHECK(toml.find("tool_timeout_sec = 14400") != std::string::npos);
 
     testing::TempDir tmp;
-    testing::write_all(tmp.path / "config.toml", "model = \"x\"\n\n[mcp_servers.factoria]\ncommand = \"old\"\n\n[other]\na = 1\n");
+    testing::write_all(tmp.path / "config.toml",
+                       "model = \"x\"\n\n[mcp_servers.factoria]\ncommand = \"old\"\n\n[other]\na = 1\n");
     REQUIRE(write_codex_mcp_config(tmp.sub("config.toml"), o).ok());
     std::string out = testing::read_all(tmp.path / "config.toml");
     CHECK(out.find("command = \"old\"") == std::string::npos);

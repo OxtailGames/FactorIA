@@ -6,7 +6,8 @@
 
 namespace fa::render {
 
-void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend, const Rect& clip) {
+void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend,
+                          const Rect& clip) {
     cur_ = QuadItem{};
     cur_.layer = layer;
     cur_.secondary = secondary;
@@ -87,12 +88,15 @@ inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
 void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches) {
     // seq is unique within a list and a NaN secondary key counts as +infinity (order_float), so the order is total:
     // any correct sort gives this one.
-    rjobs::stable_sort("render.sort_quads", items, [](const QuadItem& a, const QuadItem& b) {
-        if (a.layer != b.layer) return a.layer < b.layer;
-        const float sa = rjobs::order_float(a.secondary), sb = rjobs::order_float(b.secondary);
-        if (sa != sb) return sa > sb;
-        return a.seq < b.seq;
-    }, kParallelSortItems, kSortGrain);
+    rjobs::stable_sort(
+        "render.sort_quads", items,
+        [](const QuadItem& a, const QuadItem& b) {
+            if (a.layer != b.layer) return a.layer < b.layer;
+            const float sa = rjobs::order_float(a.secondary), sb = rjobs::order_float(b.secondary);
+            if (sa != sb) return sa > sb;
+            return a.seq < b.seq;
+        },
+        kParallelSortItems, kSortGrain);
 
     std::size_t total = 0;
     for (const QuadItem& it : items) total += std::size_t(it.quadCount) * 4;
@@ -143,14 +147,16 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // Textures packed into one atlas share its GPU image, so their quads batch together.
         // Lit quads also need the same normal map, and (their uv transform depends on it) the same texture object.
-        if (!batches.empty() && batches.back().tex->gpu_view().id == it.tex->gpu_view().id && batches.back().smp == it.smp &&
-            batches.back().blend == it.blend && batches.back().clip == it.clip && batches.back().lit == it.lit &&
+        if (!batches.empty() && batches.back().tex->gpu_view().id == it.tex->gpu_view().id &&
+            batches.back().smp == it.smp && batches.back().blend == it.blend && batches.back().clip == it.clip &&
+            batches.back().lit == it.lit &&
             (!it.lit || (batches.back().tex == it.tex && batches.back().normal == it.normal)) &&
             batches.back().opaque == opaque && batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
         } else {
-            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque});
+            batches.push_back(
+                {firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque});
         }
     }
 }

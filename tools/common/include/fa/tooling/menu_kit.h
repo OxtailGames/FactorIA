@@ -17,7 +17,7 @@ namespace fa {
 struct MenuKitOptions {
     std::string projectDir;
     std::vector<std::string> parts;  // empty = every part
-    bool overwrite = false;          // replace a kit file the game has changed (string keys the game has are never replaced)
+    bool overwrite = false;  // replace a kit file the game has changed (string keys the game has are never replaced)
 };
 
 // {parts[], requiredBy{}, added[], unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}],

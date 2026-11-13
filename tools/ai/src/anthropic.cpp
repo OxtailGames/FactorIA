@@ -20,15 +20,17 @@ constexpr const char* kFallbackBeta = "server-side-fallback-2026-07-01";
 constexpr const char* kCompactionBeta = "compact-2026-01-12";
 // The summary request carries the tools too: without this the model sometimes calls one instead of summarizing.
 constexpr const char* kCompactionInstructions =
-    "Summarize the conversation so far inside <summary></summary> tags so the work can continue from the summary alone: "
+    "Summarize the conversation so far inside <summary></summary> tags so the work can continue from the summary "
+    "alone: "
     "the user's requests, decisions, files and entities changed, what was verified, and what is still to do. "
     "Answer with text only; do not call any tool.";
 constexpr int kDefaultMaxTokens = 16000;
 constexpr int kStreamMaxTokens = 64000;
 
 Json image_block(const ImageData& img) {
-    return Json::object({{"type", "image"},
-                         {"source", Json::object({{"type", "base64"}, {"media_type", img.mediaType}, {"data", img.base64}})}});
+    return Json::object(
+        {{"type", "image"},
+         {"source", Json::object({{"type", "base64"}, {"media_type", img.mediaType}, {"data", img.base64}})}});
 }
 
 Json message_to_json(const Message& m) {
@@ -102,10 +104,10 @@ Json build_request(const ChatRequest& req) {
         std::stable_sort(sorted.begin(), sorted.end(), [](auto* a, auto* b) { return a->name < b->name; });
         Json tools = Json::array();
         for (const auto* t : sorted) {
-            tools.push_back(Json::object({{"name", t->name},
-                                          {"description", t->description},
-                                          {"input_schema", t->inputSchema.is_object() ? t->inputSchema
-                                                                                      : Json::object({{"type", "object"}})}}));
+            tools.push_back(Json::object(
+                {{"name", t->name},
+                 {"description", t->description},
+                 {"input_schema", t->inputSchema.is_object() ? t->inputSchema : Json::object({{"type", "object"}})}}));
         }
         body["tools"] = std::move(tools);
     }
@@ -116,9 +118,10 @@ Json build_request(const ChatRequest& req) {
         // Server-side compaction: the response starts with a `compaction` block that replaces everything before it.
         // It is resent with the rest of the raw content, so nothing else is needed.
         // ponytail: the history before that block is still sent (the API ignores it); drop it if requests get too big.
-        Json edit = Json::object({{"type", "compact_20260112"},
-                                  {"trigger", Json::object({{"type", "input_tokens"}, {"value", req.maxContextTokens}})},
-                                  {"instructions", kCompactionInstructions}});
+        Json edit =
+            Json::object({{"type", "compact_20260112"},
+                          {"trigger", Json::object({{"type", "input_tokens"}, {"value", req.maxContextTokens}})},
+                          {"instructions", kCompactionInstructions}});
         body["context_management"] = Json::object({{"edits", Json::array({edit})}});
     }
     if (req.stream) body["stream"] = true;
@@ -186,12 +189,16 @@ Result<ChatResponse> parse_response(const Json& body) {
             c.id = str(b, "id");
             c.name = str(b, "name");
             if (const Json* in = child(b, "input")) {
-                if (in->is_object()) c.input = *in;
+                if (in->is_object())
+                    c.input = *in;
                 else if (in->is_string()) {
                     Json parsed = parse(in->get<std::string>());
-                    if (parsed.is_object()) c.input = parsed;
-                    else c.inputError = "tool input is not a JSON object";
-                } else c.inputError = "tool input is not a JSON object";
+                    if (parsed.is_object())
+                        c.input = parsed;
+                    else
+                        c.inputError = "tool input is not a JSON object";
+                } else
+                    c.inputError = "tool input is not a JSON object";
             }
             r.message.toolCalls.push_back(std::move(c));
         }
@@ -327,8 +334,10 @@ std::string fetch_ant_token() {
 
 Result<Auth> resolve_auth(const ProviderConfig& cfg, const ProviderRuntime& rt) {
     Auth auth;
-    if (auto key = resolve_api_key(cfg, rt.env); key.found()) auth.apiKey = key.key;
-    else if (cfg.useAntCli) auth.bearerToken = rt.antToken ? rt.antToken() : fetch_ant_token();
+    if (auto key = resolve_api_key(cfg, rt.env); key.found())
+        auth.apiKey = key.key;
+    else if (cfg.useAntCli)
+        auth.bearerToken = rt.antToken ? rt.antToken() : fetch_ant_token();
     if (auth.apiKey.empty() && auth.bearerToken.empty()) {
         return make_error(
             "No Anthropic credentials found",
@@ -361,10 +370,11 @@ public:
             hr.body = dump(build_request(req));
             hr.timeoutSeconds = cfg_.timeoutSeconds;
             StreamAssembler assembler(hooks);
-            if (req.stream) hr.onData = [&](std::string_view c) {
-                assembler.feed(c);
-                return !assembler.done();
-            };
+            if (req.stream)
+                hr.onData = [&](std::string_view c) {
+                    assembler.feed(c);
+                    return !assembler.done();
+                };
             HttpResponse resp = send_with_retry(rt_, hr, cfg_.maxRetries, cancel, hooks.onRetry);
             if (resp.cancelled) return make_error("cancelled");
             if (resp.status == 401 && usingToken && authAttempt == 0) {
@@ -378,19 +388,24 @@ public:
                 if (resp.status == 0 && req.stream && assembler.done()) {
                     // Aborted by us after message_stop: fine.
                 } else {
-                    return make_error(describe_http_error("Anthropic", resp),
-                                      resp.status == 401 && usingToken
-                                          ? "The `ant` token was rejected. Run `ant auth login` again, or set ANTHROPIC_API_KEY."
-                                          : http_error_hint("Anthropic", resp.status));
+                    return make_error(
+                        describe_http_error("Anthropic", resp),
+                        resp.status == 401 && usingToken
+                            ? "The `ant` token was rejected. Run `ant auth login` again, or set ANTHROPIC_API_KEY."
+                            : http_error_hint("Anthropic", resp.status));
                 }
             }
             if (req.stream) {
                 assembler.finish();
                 if (assembler.has_error()) {
                     return make_error("Anthropic stream error (" + assembler.error_type() + "): " + assembler.error(),
-                                      assembler.error_type() == "overloaded_error" ? "The API is overloaded; retry in a moment." : "");
+                                      assembler.error_type() == "overloaded_error"
+                                          ? "The API is overloaded; retry in a moment."
+                                          : "");
                 }
-                if (!assembler.started()) return make_error("Anthropic stream ended before message_start", dump(Json(resp.body.substr(0, 200))));
+                if (!assembler.started())
+                    return make_error("Anthropic stream ended before message_start",
+                                      dump(Json(resp.body.substr(0, 200))));
                 return parse_response(assembler.message());
             }
             Json body = parse(resp.body);

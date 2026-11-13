@@ -67,13 +67,16 @@ void check_sweep(const char* what, double lo, double hi, double maxUlps, F mine,
     for (int i = 0; i < 20000; ++i) {
         const double x = logScale ? rng.log_range(lo, hi) : rng.range(lo, hi);
         const double e = ulps(mine(x), ref(x));
-        if (e > worst) { worst = e; at = x; }
+        if (e > worst) {
+            worst = e;
+            at = x;
+        }
     }
     INFO(what << " [" << lo << ", " << hi << "] worst " << worst << " ulp at " << at);
     CHECK(worst <= maxUlps + kLibmSlack);
 }
 
-#define SWEEP(fn, lo, hi, maxUlps) \
+#define SWEEP(fn, lo, hi, maxUlps)                                                                                     \
     check_sweep(#fn, lo, hi, maxUlps, [](double x) { return fa::det::f64::fn(x); }, [](double x) { return std::fn(x); })
 
 bool same(double a, double b) { return bits_of(a) == bits_of(b) || (std::isnan(a) && std::isnan(b)); }
@@ -93,11 +96,19 @@ TEST_CASE("det math f64: accuracy against the C library over many inputs") {
     SWEEP(exp2, -1000, 1000, 2);
     SWEEP(expm1, -30, 30, 4);
     SWEEP(expm1, -1, 1, 4);
-    check_sweep("log", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log(x); }, [](double x) { return std::log(x); }, true);
+    check_sweep(
+        "log", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log(x); }, [](double x) { return std::log(x); },
+        true);
     SWEEP(log, 0.5, 2, 4);
-    check_sweep("log2", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log2(x); }, [](double x) { return std::log2(x); }, true);
-    check_sweep("log10", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log10(x); }, [](double x) { return std::log10(x); }, true);
-    check_sweep("log (subnormal)", 1e-320, 1e-308, 2, [](double x) { return fa::det::f64::log(x); }, [](double x) { return std::log(x); }, true);
+    check_sweep(
+        "log2", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log2(x); }, [](double x) { return std::log2(x); },
+        true);
+    check_sweep(
+        "log10", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::log10(x); },
+        [](double x) { return std::log10(x); }, true);
+    check_sweep(
+        "log (subnormal)", 1e-320, 1e-308, 2, [](double x) { return fa::det::f64::log(x); },
+        [](double x) { return std::log(x); }, true);
     SWEEP(log1p, -0.9, 3, 4);
     SWEEP(log1p, -1e-3, 1e-3, 8);
     SWEEP(atan, -100, 100, 8);
@@ -111,7 +122,9 @@ TEST_CASE("det math f64: accuracy against the C library over many inputs") {
     SWEEP(asinh, -100, 100, 6);
     SWEEP(acosh, 1, 100, 6);
     SWEEP(atanh, -0.999, 0.999, 6);
-    check_sweep("cbrt", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::cbrt(x); }, [](double x) { return std::cbrt(x); }, true);
+    check_sweep(
+        "cbrt", 1e-300, 1e300, 2, [](double x) { return fa::det::f64::cbrt(x); }, [](double x) { return std::cbrt(x); },
+        true);
     SWEEP(cbrt, -1000, 1000, 2);
 
     Lcg rng;
@@ -119,7 +132,8 @@ TEST_CASE("det math f64: accuracy against the C library over many inputs") {
     for (int i = 0; i < 20000; ++i) {
         const double x = rng.range(0.01, 100), y = rng.range(-5, 5);
         // |y ln x| is at most 23 here; the error of pow is about 1.5 * |y ln x| ulp.
-        worstPow = std::fmax(worstPow, ulps(fa::det::f64::pow(x, y), std::pow(x, y)) - 1.6 * std::fabs(y * std::log(x)));
+        worstPow =
+            std::fmax(worstPow, ulps(fa::det::f64::pow(x, y), std::pow(x, y)) - 1.6 * std::fabs(y * std::log(x)));
         const double a = rng.range(-100, 100), b = rng.range(-100, 100);
         worstAtan2 = std::fmax(worstAtan2, ulps(fa::det::f64::atan2(a, b), std::atan2(a, b)));
         worstHypot = std::fmax(worstHypot, ulps(fa::det::f64::hypot(a * 1e3, b * 1e3), std::hypot(a * 1e3, b * 1e3)));
@@ -159,12 +173,15 @@ TEST_CASE("det math f64: special values follow C99 / IEEE 754 (and the sign of z
         for (double y : specials) {
             INFO("pow(" << x << ", " << y << ")");
             const double p = dm::pow(x, y), q = std::pow(x, y);
-            if (std::isfinite(q) && q != 0.0) CHECK(ulps(p, q) <= 4 + kLibmSlack);  // 0.5^-0.5 and the like: not exact, but close
-            else CHECK(same(p, q));
+            if (std::isfinite(q) && q != 0.0)
+                CHECK(ulps(p, q) <= 4 + kLibmSlack);  // 0.5^-0.5 and the like: not exact, but close
+            else
+                CHECK(same(p, q));
             if (!std::isnan(q)) CHECK(std::signbit(p) == std::signbit(q));
             INFO("atan2(" << x << ", " << y << ")");
             const double a = dm::atan2(x, y), b = std::atan2(x, y);
-            if (std::isnan(b)) CHECK(std::isnan(a));
+            if (std::isnan(b))
+                CHECK(std::isnan(a));
             else {
                 CHECK(ulps(a, b) <= 2 + kLibmSlack);
                 CHECK(std::signbit(a) == std::signbit(b));
@@ -225,10 +242,15 @@ TEST_CASE("det math f64: results that must be exact") {
     CHECK(dm::pow(-10.0, 24.0) == 1e24);
     // The literals above are parsed by the compiler; these bit patterns are the correctly rounded doubles, written down, so a
     // compiler that parsed one differently could not make the table and the test agree on a wrong value.
-    struct Pow10Bits { int n; double lit; std::uint64_t bits; };
-    for (const Pow10Bits& c : {Pow10Bits{23, 1e23, 0x44B52D02C7E14AF6ull}, Pow10Bits{25, 1e25, 0x45208B2A2C280291ull},
-                               Pow10Bits{300, 1e300, 0x7E37E43C8800759Cull}, Pow10Bits{308, 1e308, 0x7FE1CCF385EBC8A0ull},
-                               Pow10Bits{-307, 1e-307, 0x0031FA182C40C60Dull}}) {
+    struct Pow10Bits {
+        int n;
+        double lit;
+        std::uint64_t bits;
+    };
+    for (const Pow10Bits& c :
+         {Pow10Bits{23, 1e23, 0x44B52D02C7E14AF6ull}, Pow10Bits{25, 1e25, 0x45208B2A2C280291ull},
+          Pow10Bits{300, 1e300, 0x7E37E43C8800759Cull}, Pow10Bits{308, 1e308, 0x7FE1CCF385EBC8A0ull},
+          Pow10Bits{-307, 1e-307, 0x0031FA182C40C60Dull}}) {
         INFO("10^" << c.n);
         CHECK(std::bit_cast<std::uint64_t>(c.lit) == c.bits);
         CHECK(std::bit_cast<std::uint64_t>(dm::pow(10.0, double(c.n))) == c.bits);
@@ -305,7 +327,11 @@ TEST_CASE("det math: the float versions are within 2 ulp of the float C library 
 // First measured on arm64 (Apple clang, -O0 and -O2 gave the same bits); CI compares x86-64 GCC, MSVC and clang.
 TEST_CASE("det math f64: exact bit patterns") {
     namespace dm = fa::det::f64;
-    struct Case { const char* what; double got; std::uint64_t bits; };
+    struct Case {
+        const char* what;
+        double got;
+        std::uint64_t bits;
+    };
     const Case cases[] = {
         {"sin(1)", dm::sin(1.0), 0x3feaed548f090ceeull},
         {"cos(1)", dm::cos(1.0), 0x3fe14a280fb5068cull},
@@ -352,7 +378,11 @@ TEST_CASE("det math f64: exact bit patterns") {
 }
 
 TEST_CASE("det math: exact bit patterns of the float versions") {
-    struct Case { const char* what; float got; std::uint32_t bits; };
+    struct Case {
+        const char* what;
+        float got;
+        std::uint32_t bits;
+    };
     const Case cases[] = {
         {"exp(1.5)", fa::det::exp(1.5f), 0x408f69ffu},
         {"exp(-0.25)", fa::det::exp(-0.25f), 0x3f475f7du},

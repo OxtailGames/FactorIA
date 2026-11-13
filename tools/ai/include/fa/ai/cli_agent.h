@@ -23,12 +23,12 @@ namespace fa::ai {
 std::string find_cli(const std::string& command, const EnvLookup& env = system_env());
 
 struct CliRunRequest {
-    std::string prompt;      // full prompt (task + rules), or just the task when resuming a session
-    std::string model;       // may be empty (CLI default)
-    std::string projectDir;  // working directory and MCP project
-    std::string sessionId;   // CLI session to continue ({session}); empty = start a new one
-    std::vector<ImageData> images;          // images attached to the prompt (sent inline when the CLI reads stream-json)
-    std::vector<std::string> imagePaths;    // the same images as absolute file paths (the text fallback names them)
+    std::string prompt;                   // full prompt (task + rules), or just the task when resuming a session
+    std::string model;                    // may be empty (CLI default)
+    std::string projectDir;               // working directory and MCP project
+    std::string sessionId;                // CLI session to continue ({session}); empty = start a new one
+    std::vector<ImageData> images;        // images attached to the prompt (sent inline when the CLI reads stream-json)
+    std::vector<std::string> imagePaths;  // the same images as absolute file paths (the text fallback names them)
     // An MCP endpoint already serving this project (the editor's, fa/mcp/http_server.h): the {mcp_config} file points
     // there, so the CLI's tool calls run on that process's world. Empty = the config starts `factoria mcp --project`.
     std::string mcpUrl;
@@ -75,13 +75,14 @@ struct CliRunRequest {
 struct CliRunResult {
     bool ok = false;
     std::string finalText;
-    Usage usage;             // tokens of THIS run
-    double costUsd = 0;      // when the CLI reports it. Claude Code reports the running total of a resumed session.
-    bool costIsEstimate = false;  // the CLI never reported a total (cancelled, crashed): costUsd is the engine's estimate
+    Usage usage;         // tokens of THIS run
+    double costUsd = 0;  // when the CLI reports it. Claude Code reports the running total of a resumed session.
+    bool costIsEstimate =
+        false;  // the CLI never reported a total (cancelled, crashed): costUsd is the engine's estimate
     int exitCode = 0;
     int turns = 0;
     std::string sessionId;
-    std::string error;       // set when !ok
+    std::string error;  // set when !ok
     std::string hint;
     bool cancelled = false;
 };
@@ -98,7 +99,8 @@ struct CliRunResult {
 // pass: what a placeholder put in (a prompt that contains "{model}") is never expanded again.
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand,
-                                         const std::string& settingsPath = {}, const std::vector<std::string>& pluginDirs = {});
+                                         const std::string& settingsPath = {},
+                                         const std::vector<std::string>& pluginDirs = {});
 
 // A prompt passed on the command line must not be read as an option ("-rf ..." or "--help"): for Claude Code and Codex,
 // whose CLIs end their options at "--", a template whose element "{prompt}" is a positional argument (the first element,
@@ -125,7 +127,8 @@ void apply_permission_mode(ProviderKind kind, bool builtInArgv, const std::strin
 // `webOnlyListed`) and the WebFetch rules of `webDomains` added to its `--allowedTools` list; Codex with its
 // built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.
 // Other CLIs are left alone.
-void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req,
+                             std::vector<std::string>& argv);
 
 // Adds the extensions of `req` to an expanded argv. Claude Code: `--plugin-dir <dir>` for every folder in `pluginDirs`,
 // `--settings <settingsPath>` when there is one, and `--setting-sources` with the sources that stay: `project,local` when
@@ -133,9 +136,9 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
 // value when both. A flag the
 // template already produced through {plugin_dirs} / {settings} (`templateHasPluginDirs` / `templateHasSettings`) or that is
 // already in the argv is not added twice. Other CLIs get nothing here: only their {plugin_dirs} / {settings} placeholders.
-void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings, const CliRunRequest& req,
-                          const std::vector<std::string>& pluginDirs, const std::string& settingsPath,
-                          std::vector<std::string>& argv);
+void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings,
+                          const CliRunRequest& req, const std::vector<std::string>& pluginDirs,
+                          const std::string& settingsPath, std::vector<std::string>& argv);
 
 // True when the template of this provider (its "argv", else the built-in one) has a {session} placeholder: the CLI can
 // continue an earlier session, so a follow-up message needs only the new task.
@@ -168,12 +171,14 @@ inline constexpr long long kMcpToolTimeoutMs = kClaudeCodeMcpToolTimeoutMs;  // 
 // `factoriaEnv` (cli_capability_env) goes into the "env" of the stdio `factoria` server: Claude Code starts an MCP server with a
 // short environment of its own, so the floor of the role has to be written where the server is started.
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {},
-                     const std::vector<ResolvedToolServer>& servers = {}, const std::map<std::string, std::string>& factoriaEnv = {});
+                     const std::vector<ResolvedToolServer>& servers = {},
+                     const std::map<std::string, std::string>& factoriaEnv = {});
 
 // The variables that hand a role's capabilities to the `factoria` a CLI agent starts: FACTORIA_CAPABILITIES (the set of the
 // request, narrowed by `calling`, the provider's own value and the process environment), FACTORIA_ROLE (when the request has
 // one) and FACTORIA_CALLER (the provider's own value, else the process's, else "agent").
-std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req, const std::map<std::string, std::string>& providerEnv,
+std::map<std::string, std::string> cli_capability_env(const CliRunRequest& req,
+                                                      const std::map<std::string, std::string>& providerEnv,
                                                       CapabilitySet calling);
 // Codex (default argv): `-c mcp_servers.factoria.env={...}` carrying the same variables to the `factoria mcp` it starts.
 std::vector<std::string> codex_factoria_env_args(const std::map<std::string, std::string>& factoriaEnv);
@@ -221,14 +226,19 @@ private:
     double costUsd_ = 0;
     bool costFinal_ = false;  // costUsd_ is the CLI's total
     Pricing pricing_;
-    struct MessageUsage { Usage usage; u64 cacheWrite1h = 0; double cost = 0; bool seen = false; };
+    struct MessageUsage {
+        Usage usage;
+        u64 cacheWrite1h = 0;
+        double cost = 0;
+        bool seen = false;
+    };
     std::map<std::string, MessageUsage> messages_;  // Claude: by message id (one assistant event per content block)
     int anonMessages_ = 0;
     bool count_message(const Json& msg);  // true when the totals changed
     int turns_ = 0;
     bool sawResult_ = false, resultIsError_ = false;
     std::map<std::string, std::string> toolNames_;  // tool_use id -> name
-    u64 contextTokens_ = 0, contextWindow_ = 0;  // after the last model call / the model's window (0 = unknown)
+    u64 contextTokens_ = 0, contextWindow_ = 0;     // after the last model call / the model's window (0 = unknown)
     void usage_event(std::vector<AgentEvent>& out, std::vector<LimitWindow> limits = {}) const;
 };
 

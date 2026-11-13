@@ -25,7 +25,8 @@ inline void put32(Bytes& b, std::size_t off, std::uint32_t x) {
     for (int i = 0; i < 4; ++i) b[off + i] = std::uint8_t((x >> (8 * i)) & 0xff);
 }
 inline std::uint32_t get32(const Bytes& b, std::size_t off) {
-    return std::uint32_t(b[off]) | (std::uint32_t(b[off + 1]) << 8) | (std::uint32_t(b[off + 2]) << 16) | (std::uint32_t(b[off + 3]) << 24);
+    return std::uint32_t(b[off]) | (std::uint32_t(b[off + 1]) << 8) | (std::uint32_t(b[off + 2]) << 16) |
+           (std::uint32_t(b[off + 3]) << 24);
 }
 
 // A solid-colour square image with a transparent top-left quarter, so the AND mask is not all zero.
@@ -49,10 +50,10 @@ struct Blob {
 
 struct PeFile {
     Bytes bytes;
-    std::size_t optOffset = 0;                       // the optional header
-    std::size_t textOffset = 0, textSize = 0;        // the .text raw data
-    std::vector<std::size_t> blobOffset;             // file offset of each blob, in the order given
-    std::size_t endOfSections = 0;                   // where an appended certificate table starts
+    std::size_t optOffset = 0;                 // the optional header
+    std::size_t textOffset = 0, textSize = 0;  // the .text raw data
+    std::vector<std::size_t> blobOffset;       // file offset of each blob, in the order given
+    std::size_t endOfSections = 0;             // where an appended certificate table starts
 };
 
 struct PeOptions {
@@ -63,7 +64,8 @@ struct PeOptions {
 };
 
 // The .rsrc section: root -> type -> name -> language -> data entry, then the data, 4-byte aligned.
-inline Bytes build_resource_section(const std::vector<Blob>& blobs, std::uint32_t rva, std::vector<std::size_t>& dataOffsets) {
+inline Bytes build_resource_section(const std::vector<Blob>& blobs, std::uint32_t rva,
+                                    std::vector<std::size_t>& dataOffsets) {
     std::map<std::uint32_t, std::vector<std::size_t>> byType;
     for (std::size_t i = 0; i < blobs.size(); ++i) byType[blobs[i].type].push_back(i);
     std::size_t cur = 16 + 8 * byType.size();
@@ -92,7 +94,8 @@ inline Bytes build_resource_section(const std::vector<Blob>& blobs, std::uint32_
         dir(typeDir[type], list.size());
         std::size_t t = typeDir[type] + 16;
         std::vector<std::size_t> sorted = list;
-        std::sort(sorted.begin(), sorted.end(), [&](std::size_t a, std::size_t b) { return blobs[a].id < blobs[b].id; });
+        std::sort(sorted.begin(), sorted.end(),
+                  [&](std::size_t a, std::size_t b) { return blobs[a].id < blobs[b].id; });
         for (std::size_t i : sorted) {
             put32(out, t, blobs[i].id);
             put32(out, t + 4, 0x80000000u | std::uint32_t(nameDir[i]));
@@ -128,14 +131,15 @@ inline PeFile build_pe(const std::vector<Blob>& blobs, PeOptions opt = {}) {
     put16(b, peOff + 20, std::uint32_t(optSize));
     put16(b, peOff + 22, 0x22);
     put16(b, optOff, opt.pe32plus ? 0x20b : 0x10b);
-    put32(b, optOff + 60, 0x200);                                                // SizeOfHeaders
-    put32(b, optOff + (opt.pe32plus ? 108 : 92), 16);                            // NumberOfRvaAndSizes
+    put32(b, optOff + 60, 0x200);                      // SizeOfHeaders
+    put32(b, optOff + (opt.pe32plus ? 108 : 92), 16);  // NumberOfRvaAndSizes
     const std::size_t dirs = optOff + (opt.pe32plus ? 112 : 96);
     if (opt.resources) {
         put32(b, dirs + 2 * 8, rsrcVa);
         put32(b, dirs + 2 * 8 + 4, std::uint32_t(rsrc.size()));
     }
-    auto section = [&](std::size_t i, const char* name, std::uint32_t va, std::size_t size, std::size_t raw, std::size_t rawSize) {
+    auto section = [&](std::size_t i, const char* name, std::uint32_t va, std::size_t size, std::size_t raw,
+                       std::size_t rawSize) {
         const std::size_t s = sectionTable + i * 40;
         std::memcpy(&b[s], name, std::strlen(name));
         put32(b, s + 8, std::uint32_t(size));
@@ -214,7 +218,8 @@ inline Bytes version_blob(const std::vector<std::pair<std::string, std::string>>
         return b;
     };
     std::vector<Bytes> table;
-    for (const auto& [key, value] : strings) table.push_back(block(key, 1, wide(value), std::uint32_t(value.size() + 1), {}));
+    for (const auto& [key, value] : strings)
+        table.push_back(block(key, 1, wide(value), std::uint32_t(value.size() + 1), {}));
     Bytes fixed(52, 0);
     put32(fixed, 0, 0xFEEF04BDu);
     put32(fixed, 4, 0x10000);
@@ -227,8 +232,12 @@ inline Bytes version_blob(const std::vector<std::pair<std::string, std::string>>
 // The version strings of factoria_player.rc: placeholders padded with spaces (room: 39 characters, 15 for versions).
 inline Bytes placeholder_version_blob() {
     const std::string name(39, ' '), version(15, ' ');
-    return version_blob({{"FileDescription", "FactorIA Player" + name.substr(15)}, {"ProductName", "FactorIA Player" + name.substr(15)},
-                         {"FileVersion", version}, {"ProductVersion", version}, {"InternalName", name}, {"OriginalFilename", name}});
+    return version_blob({{"FileDescription", "FactorIA Player" + name.substr(15)},
+                         {"ProductName", "FactorIA Player" + name.substr(15)},
+                         {"FileVersion", version},
+                         {"ProductVersion", version},
+                         {"InternalName", name},
+                         {"OriginalFilename", name}});
 }
 
 // The value of the version string `key` in `exe` ("" when the key is not there): the UTF-16 text after the key, aligned
@@ -246,9 +255,8 @@ inline std::string version_string(const Bytes& exe, const std::string& key) {
 }
 
 inline std::vector<Blob> placeholder_blobs(const Image& red) {
-    return {{3, 1, bmp(red, 16)},   {3, 2, bmp(red, 32)}, {3, 3, bmp(red, 48)}, {3, 4, png_blob()},
-            {14, 1, Bytes(34, 0x11)}, {16, 1, placeholder_version_blob()}};
+    return {{3, 1, bmp(red, 16)}, {3, 2, bmp(red, 32)},     {3, 3, bmp(red, 48)},
+            {3, 4, png_blob()},   {14, 1, Bytes(34, 0x11)}, {16, 1, placeholder_version_blob()}};
 }
-
 
 }  // namespace fa::testing::pe

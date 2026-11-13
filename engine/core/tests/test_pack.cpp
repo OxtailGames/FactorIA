@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -46,7 +47,8 @@ Result<void> write_sample_pack(const stdfs::path& out, std::string& binary) {
     PackWriter w;
     if (auto r = w.add_bytes("factoria.json", bytes_of("{\"name\":\"Pack\"}")); !r.ok()) return r;
     if (auto r = w.add_bytes("scenes/main.scene.json", bytes_of("{\"entities\":[]}")); !r.ok()) return r;
-    if (auto r = w.add_bytes("assets/hero.bin", std::vector<std::uint8_t>(binary.begin(), binary.end())); !r.ok()) return r;
+    if (auto r = w.add_bytes("assets/hero.bin", std::vector<std::uint8_t>(binary.begin(), binary.end())); !r.ok())
+        return r;
     if (auto r = w.add_bytes("assets/ui/empty.txt", {}); !r.ok()) return r;
     if (auto r = w.add_bytes("scripts/player.js", bytes_of("export default 1;")); !r.ok()) return r;
     if (auto r = w.write(out); !r.ok()) return r.error();

@@ -28,7 +28,8 @@ struct Project {
     Project() {
         dir = fs::make_temp_dir("fa_image_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<ImageModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<ImageModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
     }
     ~Project() {
         model.reset();
@@ -67,8 +68,12 @@ Rgba at(const Image& img, int x, int y) {
 
 // 32x32: a blue background, then (through the model) an empty pixels layer "pixels" that is selected.
 void make_pixels_doc(Project& p) {
-    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 32}, {"height", 32},
-                                       {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#0000ff"}})})}}));
+    p.ok("image.create",
+         Json::object(
+             {{"path", kDoc},
+              {"width", 32},
+              {"height", 32},
+              {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#0000ff"}})})}}));
     REQUIRE(p.model->open(kDoc));
     p.model->select_layer("0");
     REQUIRE(p.model->add_layer("pixels").ok);
@@ -108,7 +113,7 @@ TEST_CASE("opening a document lists its layers and draws it") {
     make_pixels_doc(p);
     const auto rows = p.model->layer_rows();
     REQUIRE(rows.size() == 2);
-    CHECK(rows[0].name == "pixels");   // top first
+    CHECK(rows[0].name == "pixels");  // top first
     CHECK(rows[1].name == "bg");
     const Image& pic = p.model->picture();
     CHECK(pic.width == 32);
@@ -127,14 +132,14 @@ TEST_CASE("a stroke shows while it is drawn and the command writes the same pixe
     p.model->stroke_to(20.5, 14.5);
     const Image live = p.model->picture();
     CHECK(at(live, 6, 5) == Rgba{255, 0, 0, 255});
-    CHECK(p.text(layerPng) == before);   // nothing on disk yet
+    CHECK(p.text(layerPng) == before);  // nothing on disk yet
     const ImageEditOutcome out = p.model->end_stroke();
     REQUIRE(out.ok);
     CHECK(out.step > 0);
     CHECK(p.text(layerPng) != before);
     const Image done = p.model->picture();
     REQUIRE(done.rgba.size() == live.rgba.size());
-    CHECK(done.rgba == live.rgba);   // preview == command
+    CHECK(done.rgba == live.rgba);  // preview == command
     // undo and redo
     REQUIRE(p.model->apply_step(out.step, false));
     CHECK(p.text(layerPng) == before);
@@ -151,12 +156,13 @@ TEST_CASE("the eraser, the fill and the picker") {
     CHECK(at(p.model->picture(), 10, 10) == Rgba{255, 0, 0, 255});
     REQUIRE(p.model->begin_stroke(true, red_brush(4), 10, 10));
     REQUIRE(p.model->end_stroke().ok);
-    CHECK(at(p.model->picture(), 10, 10) == Rgba{0, 0, 255, 255});   // the red is erased down to the background
+    CHECK(at(p.model->picture(), 10, 10) == Rgba{0, 0, 255, 255});  // the red is erased down to the background
     ImageBrushSettings green;
     green.color = Color{0, 1, 0, 1};
-    REQUIRE(p.model->fill_at(0, 0, green, 16).ok);   // the transparent area of the layer
+    REQUIRE(p.model->fill_at(0, 0, green, 16).ok);  // the transparent area of the layer
     CHECK(at(p.model->picture(), 0, 0) == Rgba{0, 255, 0, 255});
-    CHECK(at(p.model->picture(), 8, 6) == Rgba{255, 0, 0, 255});   // the ring of red around the hole is not the same colour
+    CHECK(at(p.model->picture(), 8, 6) ==
+          Rgba{255, 0, 0, 255});  // the ring of red around the hole is not the same colour
     const auto c = p.model->pick_color(8, 6);
     REQUIRE(c);
     CHECK(c->r == doctest::Approx(1.0));
@@ -168,7 +174,7 @@ TEST_CASE("selections: rectangle, add, invert, grow, wand, deselect; each one is
     auto r = p.model->select_rect(4, 4, 8, 8, SelectOp::Replace);
     REQUIRE(r.ok);
     CHECK(r.step > 0);
-    int x, y, w, h;
+    int x = 0, y = 0, w = 0, h = 0;
     REQUIRE(p.model->selection_bounds(x, y, w, h));
     CHECK(std::array<int, 4>{x, y, w, h} == std::array<int, 4>{4, 4, 8, 8});
     CHECK_FALSE(p.model->selection_edges().empty());
@@ -194,9 +200,9 @@ TEST_CASE("selections: rectangle, add, invert, grow, wand, deselect; each one is
     REQUIRE(last > 0);
     CHECK(p.model->selection().at(31, 31) == 0);
     REQUIRE(p.model->apply_step(last, false));
-    CHECK(p.model->selection().at(31, 31) == 255);   // the wand selection is back
+    CHECK(p.model->selection().at(31, 31) == 255);  // the wand selection is back
     CHECK(p.model->selection().at(2, 2) == 255);
-    CHECK_FALSE(p.model->select_rect(100, 100, 4, 4, SelectOp::Replace).ok);   // outside the picture
+    CHECK_FALSE(p.model->select_rect(100, 100, 4, 4, SelectOp::Replace).ok);  // outside the picture
 }
 
 TEST_CASE("move: the selected pixels, and the whole layer without a selection") {
@@ -212,7 +218,7 @@ TEST_CASE("move: the selected pixels, and the whole layer without a selection") 
     const Image live = p.model->picture();
     REQUIRE(p.model->end_move().ok);
     CHECK(p.model->picture().rgba == live.rgba);
-    CHECK(p.model->selection().at(15, 5) == 255);   // the selection moved with the pixels
+    CHECK(p.model->selection().at(15, 5) == 255);  // the selection moved with the pixels
     REQUIRE(p.model->deselect().ok);
     const int y0 = p.model->layer("1")->y;
     REQUIRE(p.model->begin_move());
@@ -237,7 +243,7 @@ TEST_CASE("transform: scale the selected pixels, preview equals the command, und
     REQUIRE(out.ok);
     CHECK(p.model->picture().rgba == live.rgba);
     CHECK(at(live, 10, 10) == Rgba{255, 0, 0, 255});
-    CHECK(at(live, 6, 10) == Rgba{255, 0, 0, 255});   // 4 px became 8: it reaches 2 px further out than before
+    CHECK(at(live, 6, 10) == Rgba{255, 0, 0, 255});  // 4 px became 8: it reaches 2 px further out than before
     REQUIRE(p.model->apply_step(out.step, false));
     CHECK(at(p.model->picture(), 6, 10) == Rgba{0, 0, 255, 255});
     // cancel leaves the layer alone
@@ -250,9 +256,12 @@ TEST_CASE("transform: scale the selected pixels, preview equals the command, und
 
 TEST_CASE("indexed layers are painted palette-exact") {
     Project p;
-    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 16}, {"height", 16},
-                                       {"palette", Json::array({"#000000", "#ff0000", "#00ff00"})},
-                                       {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}}));
+    p.ok("image.create",
+         Json::object({{"path", kDoc},
+                       {"width", 16},
+                       {"height", 16},
+                       {"palette", Json::array({"#000000", "#ff0000", "#00ff00"})},
+                       {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}}));
     REQUIRE(p.model->open(kDoc));
     p.model->select_layer("0");
     ImageBrushSettings b;
@@ -315,7 +324,7 @@ TEST_CASE("layers: add, rename, set, duplicate, move, remove; undo restores the 
     REQUIRE(dup.ok);
     REQUIRE(p.model->layer_rows().size() == 3);
     CHECK(p.model->layer("2")->name == "pixels copy");
-    CHECK(p.model->layer("2")->source != p.model->layer("1")->source);   // its own PNG
+    CHECK(p.model->layer("2")->source != p.model->layer("1")->source);  // its own PNG
     CHECK(p.model->selected_layer() == "2");
     // painting on the copy leaves the original alone
     REQUIRE(p.model->begin_stroke(false, red_brush(4), 20, 20));
@@ -324,7 +333,8 @@ TEST_CASE("layers: add, rename, set, duplicate, move, remove; undo restores the 
     const ImageLayer* orig = p.model->layer("1");
     const ImageLayer* copy = p.model->layer("2");
     const Image origPng = p.png(orig->source), copyPng = p.png(copy->source);
-    CHECK((20 - orig->x >= origPng.width || 20 - orig->y >= origPng.height || at(origPng, 20 - orig->x, 20 - orig->y).a == 0));
+    CHECK((20 - orig->x >= origPng.width || 20 - orig->y >= origPng.height ||
+           at(origPng, 20 - orig->x, 20 - orig->y).a == 0));
     REQUIRE(20 - copy->x < copyPng.width);
     CHECK(at(copyPng, 20 - copy->x, 20 - copy->y).a == 255);
     REQUIRE(p.model->rename_layer("2", "top").ok);
@@ -341,7 +351,7 @@ TEST_CASE("layers: add, rename, set, duplicate, move, remove; undo restores the 
     CHECK(p.model->layer_rows().size() == 2);
     REQUIRE(p.model->apply_step(removed.step, false));
     CHECK(p.model->layer_rows().size() == 3);
-    REQUIRE(p.model->apply_step(dup.step, false));   // undoing the duplicate removes the layer AND its PNG
+    REQUIRE(p.model->apply_step(dup.step, false));  // undoing the duplicate removes the layer AND its PNG
     // (the layer is back in the state after the duplicate's undo only when the later steps were undone first, which the editor's stack guarantees)
     CHECK(p.model->valid());
     // a group
@@ -370,7 +380,7 @@ TEST_CASE("adjustments: add, preview a drag without touching the disk, commit as
     REQUIRE(out.ok);
     CHECK(out.step > 0);
     CHECK(p.model->layer("1")->adjustments[1]["amount"] == -0.5);
-    CHECK(at(p.model->picture(), 10, 10) == shown);   // what the drag showed is what was kept
+    CHECK(at(p.model->picture(), 10, 10) == shown);  // what the drag showed is what was kept
     // an invalid value is not shown and not kept
     p.model->preview_operation("1", false, 1, Json::object({{"amount", "lots"}}));
     p.model->picture();
@@ -403,7 +413,9 @@ TEST_CASE("save bakes the PNG; an edit marks it stale; an edit made behind the m
     CHECK(baked.rgba == p.model->picture().rgba);
     CHECK_FALSE(p.model->poll_external());
     // someone else edits the document
-    p.ok("image.layer.set", Json::object({{"path", kDoc}, {"layer", "pixels"}, {"set", Json::object({{"visible", false}})}, {"bake", false}}));
+    p.ok("image.layer.set",
+         Json::object(
+             {{"path", kDoc}, {"layer", "pixels"}, {"set", Json::object({{"visible", false}})}, {"bake", false}}));
     CHECK(p.model->poll_external());
     CHECK_FALSE(p.model->layer("1")->visible);
     CHECK(at(p.model->picture(), 16, 16) == Rgba{0, 0, 255, 255});
@@ -459,22 +471,37 @@ TEST_CASE("an animated document paints into the current frame") {
 // (run `fa_test_editor -tc="*1024*"`), and checks that the live picture is the one the command writes (within one level).
 TEST_CASE("painting on a 1024x1024 document: the cost of a mouse move") {
     Project p;
-    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 1024}, {"height", 1024},
-                                       {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#336699"}}),
-                                                               Json::object({{"kind", "gradient"}, {"name", "sky"},
-                                                                             {"gradient", Json::object({{"type", "linear"}, {"angle", 90},
-                                                                                                        {"stops", Json::array({Json::object({{"at", 0}, {"color", "#000000"}}),
-                                                                                                                               Json::object({{"at", 1}, {"color", "#ffffff"}})})}})}})})}}));
+    p.ok("image.create",
+         Json::object(
+             {{"path", kDoc},
+              {"width", 1024},
+              {"height", 1024},
+              {"layers",
+               Json::array(
+                   {Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#336699"}}),
+                    Json::object(
+                        {{"kind", "gradient"},
+                         {"name", "sky"},
+                         {"gradient",
+                          Json::object(
+                              {{"type", "linear"},
+                               {"angle", 90},
+                               {"stops", Json::array({Json::object({{"at", 0}, {"color", "#000000"}}),
+                                                      Json::object({{"at", 1}, {"color", "#ffffff"}})})}})}})})}}));
     REQUIRE(p.model->open(kDoc));
     p.model->select_layer("1");
     REQUIRE(p.model->add_layer("pixels").ok);
     const std::string top = p.model->selected_layer();
-    p.ok("image.layer.add", Json::object({{"path", kDoc}, {"layer", Json::object({{"kind", "fill"}, {"name", "tint"}, {"color", "#ff000010"}})}}));
+    p.ok("image.layer.add",
+         Json::object(
+             {{"path", kDoc}, {"layer", Json::object({{"kind", "fill"}, {"name", "tint"}, {"color", "#ff000010"}})}}));
     REQUIRE(p.model->reload());
     p.model->select_layer(top);
     p.model->picture();
     using Clock = std::chrono::steady_clock;
-    const auto ms = [](Clock::time_point a) { return std::chrono::duration<double, std::milli>(Clock::now() - a).count(); };
+    const auto ms = [](Clock::time_point a) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - a).count();
+    };
     ImageBrushSettings b = red_brush(24);
     b.hardness = 0.5;
     const auto t0 = Clock::now();
@@ -508,17 +535,21 @@ TEST_CASE("painting on a 1024x1024 document: the cost of a mouse move") {
         }
     // While a gesture goes on the layers under the edited one are composited once and kept as an 8-bit picture, so the live picture
     // can differ from the finished one by one level of a channel where those layers are translucent (never more).
-    CHECK_MESSAGE(biggest <= 1, differing << " bytes differ, the first at pixel " << firstAt % 1024 << "," << firstAt / 1024
-                                          << ", by " << biggest << " at most");
-    MESSAGE("1024x1024, 4 layers: first frame " << first << " ms, a mouse move " << each << " ms on average (worst " << worst
-                                                << " ms), end of the stroke (image.paint + write) " << endMs << " ms");
+    CHECK_MESSAGE(biggest <= 1, differing << " bytes differ, the first at pixel " << firstAt % 1024 << ","
+                                          << firstAt / 1024 << ", by " << biggest << " at most");
+    MESSAGE("1024x1024, 4 layers: first frame " << first << " ms, a mouse move " << each << " ms on average (worst "
+                                                << worst << " ms), end of the stroke (image.paint + write) " << endMs
+                                                << " ms");
 }
 
 namespace {
 void make_indexed_doc(Project& p) {
-    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 8}, {"height", 8},
-                                       {"palette", Json::array({"#000000", "#ff0000", "#00ff00"})},
-                                       {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}}));
+    p.ok("image.create",
+         Json::object({{"path", kDoc},
+                       {"width", 8},
+                       {"height", 8},
+                       {"palette", Json::array({"#000000", "#ff0000", "#00ff00"})},
+                       {"layers", Json::array({Json::object({{"kind", "indexed"}, {"name", "sprite"}})})}}));
     REQUIRE(p.model->open(kDoc));
     p.model->select_layer("0");
 }
@@ -541,12 +572,12 @@ TEST_CASE("frames: add blank, duplicate, duration, move and remove; each one und
     CHECK(add.step > 0);
     CHECK(p.model->frame_count() == 2);
     CHECK(p.model->frame() == 1);
-    CHECK(at(p.model->picture(), 2, 2) == Rgba{0, 0, 0, 0});   // the new frame is empty
+    CHECK(at(p.model->picture(), 2, 2) == Rgba{0, 0, 0, 0});  // the new frame is empty
     dot(p, 2, 5.5, 5.5);
     const ImageEditOutcome dup = p.model->add_frame(true);
     REQUIRE(dup.ok);
     CHECK(p.model->frame_count() == 3);
-    CHECK(at(p.model->picture(), 5, 5) == Rgba{0, 255, 0, 255});   // a copy of frame 2
+    CHECK(at(p.model->picture(), 5, 5) == Rgba{0, 255, 0, 255});  // a copy of frame 2
     REQUIRE(p.model->set_frame_duration(2, 250).ok);
     CHECK(p.model->frame_duration(2) == 250);
     REQUIRE(p.model->move_frame(2, 0).ok);
@@ -555,7 +586,7 @@ TEST_CASE("frames: add blank, duplicate, duration, move and remove; each one und
     const ImageEditOutcome rm = p.model->remove_frame(0);
     REQUIRE(rm.ok);
     CHECK(p.model->frame_count() == 2);
-    REQUIRE(p.model->apply_step(rm.step, false));   // undo the removal
+    REQUIRE(p.model->apply_step(rm.step, false));  // undo the removal
     CHECK(p.model->frame_count() == 3);
 }
 
@@ -567,7 +598,7 @@ TEST_CASE("the onion skin settings reach the picture") {
     p.model->set_onion(false);
     CHECK(at(p.model->picture(), 2, 2).a == 0);
     p.model->set_onion(true);
-    CHECK(at(p.model->picture(), 2, 2).a > 0);   // the ghost of frame 1
+    CHECK(at(p.model->picture(), 2, 2).a > 0);  // the ghost of frame 1
     ImageModel::OnionSettings o = p.model->onion_settings();
     o.before = 0;
     p.model->set_onion_settings(o);
@@ -619,7 +650,8 @@ TEST_CASE("the terrain preview paints a map with the tileset's autotile tiles") 
     parts["edge"] = Json::object({{"color", "#5fa23a"}});
     parts["corner"] = Json::object({{"color", "#1e4a14"}});
     parts["innerCorner"] = Json::object({{"color", "#2a6a1c"}});
-    p.ok("image.tileset.build", Json::object({{"path", kDoc}, {"mode", "blob47"}, {"tileWidth", 8}, {"tileHeight", 8}, {"parts", parts}}));
+    p.ok("image.tileset.build",
+         Json::object({{"path", kDoc}, {"mode", "blob47"}, {"tileWidth", 8}, {"tileHeight", 8}, {"parts", parts}}));
     REQUIRE(p.model->open(kDoc));
     REQUIRE(p.model->tileset_layer() != nullptr);
     const Image img = p.model->terrain_preview({"###", "###", "###"});

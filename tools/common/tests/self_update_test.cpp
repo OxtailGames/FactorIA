@@ -19,7 +19,9 @@ namespace {
 // A fake program: junk, then the markers a real build carries. The marker texts are joined here so that this test program
 // does not carry a complete marker of its own.
 std::string fake_program(const std::string& version, const std::string& fingerprint, std::size_t pad = 64) {
-    std::string bytes = "\x7f" "ELF fake " + std::string(pad, '.');
+    std::string bytes = "\x7f"
+                        "ELF fake " +
+                        std::string(pad, '.');
     if (!fingerprint.empty()) bytes += std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";";
     if (!version.empty()) bytes += std::string("FA-ENGINE-") + "VERSION:" + version + ";";
     return bytes + " end";
@@ -169,7 +171,9 @@ TEST_CASE("mcp config: read_claude_code_mcp_state and ensure_claude_code_mcp_tim
 
     // An older file: the server without a timeout, and another server that stays as it is.
     const std::string path = dir.sub(".mcp.json");
-    write_bytes(path, R"({"mcpServers":{"other":{"command":"x"},"factoria":{"command":"factoria","args":["mcp","--project","."]}}})");
+    write_bytes(
+        path,
+        R"({"mcpServers":{"other":{"command":"x"},"factoria":{"command":"factoria","args":["mcp","--project","."]}}})");
     ClaudeCodeMcpState old = read_claude_code_mcp_state(dir.str());
     CHECK(old.exists);
     CHECK(old.hasServer);

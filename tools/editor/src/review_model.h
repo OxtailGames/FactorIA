@@ -19,7 +19,7 @@ namespace fa::editor {
 
 // One thumbnail of a sheet.
 struct ReviewItemView {
-    int n = 0;                       // the number printed on the sheet (1-based)
+    int n = 0;  // the number printed on the sheet (1-based)
     std::string type, label, source, info, thumb, error;
     bool ok = true, candidate = false;
     int x = 0, y = 0, w = 0, h = 0;  // its picture's rectangle in sheet.png pixels (item.picture, else item.cell)
@@ -28,16 +28,17 @@ struct ReviewItemView {
 // A sheet as the window shows it (review_sheet_view reads it from manifest.json).
 struct ReviewSheetView {
     std::string id, label, createdAt, dropDir;
-    std::string picture;             // sheet.png, project-relative (manifest picture.path; the sheet folder's sheet.png when missing)
+    std::string
+        picture;  // sheet.png, project-relative (manifest picture.path; the sheet folder's sheet.png when missing)
     int width = 0, height = 0, columns = 1, rows = 1;
     std::vector<ReviewItemView> items;
     Json meta = Json::object();
-    Json picked;                     // null, or the manifest's `picked` object
+    Json picked;  // null, or the manifest's `picked` object
     std::vector<std::string> warnings;
-    std::string kind;                // meta.kind ("assetCandidates", "levelSeeds", or "")
-    std::string slot;                // meta.slot of a sheet of asset candidates
+    std::string kind;  // meta.kind ("assetCandidates", "levelSeeds", or "")
+    std::string slot;  // meta.slot of a sheet of asset candidates
     bool is_picked() const { return picked.is_object(); }
-    int picked_n() const;            // 0 when not picked
+    int picked_n() const;                     // 0 when not picked
     const ReviewItemView* item(int n) const;  // nullptr when out of range
 };
 
@@ -47,9 +48,9 @@ ReviewSheetView review_sheet_view(const Json& manifest);
 // One row of the list on the left of the window (a review_list row).
 struct ReviewListRow {
     std::string id, label, createdAt, kind, pickedLabel;
-    std::string slot;                // meta.slot (a sheet of asset candidates)
+    std::string slot;  // meta.slot (a sheet of asset candidates)
     int count = 0;
-    int picked = 0;                  // the number picked, 0 = still waiting for an answer
+    int picked = 0;  // the number picked, 0 = still waiting for an answer
 };
 // review_list's value as rows: the sheets still waiting for an answer first, then the answered ones; newest first in each group.
 std::vector<ReviewListRow> review_rows(const Json& listValue);
@@ -93,9 +94,10 @@ int review_digit_selection(int digit, int count);
 float review_fit_scale(int w, int h, float availW, float availH, float maxScale = 2.0f);
 // The size a picture is uploaded at: the same, or shrunk (aspect kept, at least 1 px) so neither side is above maxSide.
 void review_upload_size(int w, int h, int maxSide, int& outW, int& outH);
-inline constexpr int kReviewSheetMaxSide = 4096;   // sheet.png (up to 8192 a side) is uploaded at most this big: 64 MB of texture
-inline constexpr int kReviewCompareMaxSide = 2048; // a picture of the Compare view
-inline constexpr int kReviewThumbMaxSide = 512;    // a thumbnail
+inline constexpr int kReviewSheetMaxSide =
+    4096;  // sheet.png (up to 8192 a side) is uploaded at most this big: 64 MB of texture
+inline constexpr int kReviewCompareMaxSide = 2048;  // a picture of the Compare view
+inline constexpr int kReviewThumbMaxSide = 512;     // a thumbnail
 // The width and height in the header of a PNG file (the first 24 bytes are enough), or nullopt when it is not a PNG.
 std::optional<std::pair<int, int>> review_png_size(const std::uint8_t* data, std::size_t size);
 
@@ -112,14 +114,14 @@ struct ReviewPickPlan {
     Json args = Json::object();
     std::vector<ReviewMoveLine> moves;
     std::string error;
-    bool canKeepFiles = true;        // the command takes `drop` (review.pick): "Keep the other files" is offered
+    bool canKeepFiles = true;  // the command takes `drop` (review.pick): "Keep the other files" is offered
 };
 ReviewPickPlan review_pick_plan(const ReviewSheetView& sheet, int n, bool drop, const std::string& note);
 
 // One past pick for the History tab (a picked sheet's manifest).
 struct ReviewDroppedLine {
     int n = 0;
-    std::string label, from, to, status;   // status: moved | expired | gone
+    std::string label, from, to, status;  // status: moved | expired | gone
 };
 struct ReviewHistoryRow {
     std::string id, label, at, who, note, pickedLabel, kind;

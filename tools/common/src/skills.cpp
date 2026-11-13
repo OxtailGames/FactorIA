@@ -16,10 +16,11 @@ namespace fsys = std::filesystem;
 namespace {
 
 // Keys the Agent Skills format and Claude Code know. Anything else is kept and ignored, unless it is a near miss of one of these.
-const char* const kKnownKeys[] = {"name",         "description",    "license",           "compatibility", "metadata",
-                                  "allowed-tools", "argument-hint",  "disable-model-invocation", "user-invocable",
-                                  "model",        "context",        "agent",             "hooks",         "when_to_use",
-                                  "version",      "effort",         "paths",             "shell"};
+const char* const kKnownKeys[] = {"name",           "description",   "license",       "compatibility",
+                                  "metadata",       "allowed-tools", "argument-hint", "disable-model-invocation",
+                                  "user-invocable", "model",         "context",       "agent",
+                                  "hooks",          "when_to_use",   "version",       "effort",
+                                  "paths",          "shell"};
 
 std::string trim_copy(std::string_view s) { return std::string(trim(s)); }
 
@@ -92,8 +93,10 @@ std::string block_text(const std::vector<std::string>& cont, bool folded) {
             continue;
         }
         const std::string text = l.substr(std::min(common, l.size()));
-        if (!out.empty()) out += folded ? (pendingBreak ? "\n" : " ") : "\n";
-        else if (pendingBreak) out += "\n";
+        if (!out.empty())
+            out += folded ? (pendingBreak ? "\n" : " ") : "\n";
+        else if (pendingBreak)
+            out += "\n";
         pendingBreak = false;
         out += text;
     }
@@ -125,20 +128,27 @@ std::string value_of(const RawKey& k) {
 }  // namespace
 
 std::string skill_name_problem(std::string_view name) {
-    if (name.empty()) return "the name is empty. Use 1 to 64 characters: lowercase letters, digits and hyphens, for example my-skill.";
+    if (name.empty())
+        return "the name is empty. Use 1 to 64 characters: lowercase letters, digits and hyphens, for example "
+               "my-skill.";
     if (name.size() > kMaxSkillName)
-        return "the name has " + std::to_string(name.size()) + " characters; the limit is " + std::to_string(kMaxSkillName) + ". Shorten it.";
+        return "the name has " + std::to_string(name.size()) + " characters; the limit is " +
+               std::to_string(kMaxSkillName) + ". Shorten it.";
     for (char c : name) {
         const unsigned char u = static_cast<unsigned char>(c);
-        if (std::isupper(u)) return "'" + std::string(name) + "' has an uppercase letter. Use lowercase only: '" + skill_name_from(name) + "'.";
+        if (std::isupper(u))
+            return "'" + std::string(name) + "' has an uppercase letter. Use lowercase only: '" +
+                   skill_name_from(name) + "'.";
         if (!(std::islower(u) || std::isdigit(u) || c == '-')) {
             const std::string fixed = skill_name_from(name);
-            return "'" + std::string(name) + "' has the character '" + std::string(1, c) + "'. Use lowercase letters, digits and hyphens" +
-                   (fixed.empty() ? "." : ": '" + fixed + "'.");
+            return "'" + std::string(name) + "' has the character '" + std::string(1, c) +
+                   "'. Use lowercase letters, digits and hyphens" + (fixed.empty() ? "." : ": '" + fixed + "'.");
         }
     }
-    if (name.front() == '-' || name.back() == '-') return "'" + std::string(name) + "' starts or ends with a hyphen. Remove it: '" + skill_name_from(name) + "'.";
-    if (name.find("--") != std::string_view::npos) return "'" + std::string(name) + "' has two hyphens in a row. Use one: '" + skill_name_from(name) + "'.";
+    if (name.front() == '-' || name.back() == '-')
+        return "'" + std::string(name) + "' starts or ends with a hyphen. Remove it: '" + skill_name_from(name) + "'.";
+    if (name.find("--") != std::string_view::npos)
+        return "'" + std::string(name) + "' has two hyphens in a row. Use one: '" + skill_name_from(name) + "'.";
     return {};
 }
 
@@ -168,9 +178,12 @@ Result<SkillFrontmatter> parse_skill_md(std::string_view textIn, std::string_vie
     auto fail = [&](int line, const std::string& message, const std::string& hint) {
         return Error{file + (line > 0 ? ":" + std::to_string(line) : std::string()) + ": " + message, hint};
     };
-    static const char* const kExample = "Start the file with:\n---\nname: my-skill\ndescription: What it does and when to use it.\n---\nThen the instructions.";
+    static const char* const kExample = "Start the file with:\n---\nname: my-skill\ndescription: What it does and when "
+                                        "to use it.\n---\nThen the instructions.";
     if (lines.empty() || !is_fence(lines[0])) {
-        return fail(1, "a SKILL.md starts with a --- line, then the frontmatter (name and description), then another ---", kExample);
+        return fail(1,
+                    "a SKILL.md starts with a --- line, then the frontmatter (name and description), then another ---",
+                    kExample);
     }
     std::size_t close = 0;
     for (std::size_t i = 1; i < lines.size(); ++i) {
@@ -179,21 +192,25 @@ Result<SkillFrontmatter> parse_skill_md(std::string_view textIn, std::string_vie
             break;
         }
     }
-    if (close == 0) return fail(1, "the frontmatter is not closed: no second --- line", "Add a --- line after the description.");
+    if (close == 0)
+        return fail(1, "the frontmatter is not closed: no second --- line", "Add a --- line after the description.");
 
     std::vector<RawKey> keys;
     for (std::size_t i = 1; i < close; ++i) {
         const std::string& l = lines[i];
         if (trim(l).empty() || trim(l)[0] == '#') continue;
         if (indented(l)) {
-            if (keys.empty()) return fail(static_cast<int>(i) + 1, "an indented line before any key", "Write `key: value` lines at the start of the line.");
+            if (keys.empty())
+                return fail(static_cast<int>(i) + 1, "an indented line before any key",
+                            "Write `key: value` lines at the start of the line.");
             keys.back().continuation.push_back(l);
             continue;
         }
         const std::size_t colon = l.find(':');
         if (colon == std::string::npos || colon == 0) {
             return fail(static_cast<int>(i) + 1, "'" + trim_copy(l) + "' is not `key: value`",
-                        "Frontmatter lines look like `name: my-skill`. A long text goes on indented lines after `description: >`.");
+                        "Frontmatter lines look like `name: my-skill`. A long text goes on indented lines after "
+                        "`description: >`.");
         }
         RawKey k;
         k.key = trim_copy(l.substr(0, colon));
@@ -230,21 +247,29 @@ Result<SkillFrontmatter> parse_skill_md(std::string_view textIn, std::string_vie
     };
     if (!hasName) {
         if (const RawKey* typo = misspelled("name"))
-            return fail(typo->line, "'" + typo->key + "' is not a frontmatter key", "Did you mean 'name'? The skill's name is `name: my-skill`.");
-        return fail(1, "the frontmatter has no `name`", "Add `name: my-skill` (lowercase letters, digits and hyphens; the same as the folder's name).");
+            return fail(typo->line, "'" + typo->key + "' is not a frontmatter key",
+                        "Did you mean 'name'? The skill's name is `name: my-skill`.");
+        return fail(1, "the frontmatter has no `name`",
+                    "Add `name: my-skill` (lowercase letters, digits and hyphens; the same as the folder's name).");
     }
     if (!hasDesc) {
         if (const RawKey* typo = misspelled("description"))
-            return fail(typo->line, "'" + typo->key + "' is not a frontmatter key", "Did you mean 'description'? It says what the skill does and when to use it.");
+            return fail(typo->line, "'" + typo->key + "' is not a frontmatter key",
+                        "Did you mean 'description'? It says what the skill does and when to use it.");
         return fail(1, "the frontmatter has no `description`",
-                    "Add `description: ...`: what the skill does and when an agent should use it. Agents choose skills by this line.");
+                    "Add `description: ...`: what the skill does and when an agent should use it. Agents choose skills "
+                    "by this line.");
     }
-    if (const std::string problem = skill_name_problem(out.name); !problem.empty()) return fail(nameLine, "`name`: " + problem, "");
+    if (const std::string problem = skill_name_problem(out.name); !problem.empty())
+        return fail(nameLine, "`name`: " + problem, "");
     out.description = trim_copy(out.description);
-    if (out.description.empty()) return fail(descLine, "`description` is empty", "Say what the skill does and when to use it: agents choose skills by this line.");
+    if (out.description.empty())
+        return fail(descLine, "`description` is empty",
+                    "Say what the skill does and when to use it: agents choose skills by this line.");
     if (out.description.size() > kMaxSkillDescription) {
-        return fail(descLine, "`description` has " + std::to_string(out.description.size()) + " characters; the limit is " +
-                                  std::to_string(kMaxSkillDescription),
+        return fail(descLine,
+                    "`description` has " + std::to_string(out.description.size()) + " characters; the limit is " +
+                        std::to_string(kMaxSkillDescription),
                     "Shorten it to what the skill is for and when to use it; the details belong in the body.");
     }
     std::string body;
@@ -280,7 +305,8 @@ std::vector<SkillProblem> check_skill_folder(const std::string& dir, std::string
     }
     auto text = tooling_detail::read_file(md);
     if (!text) {
-        out.push_back({folder + "/SKILL.md", 0, "cannot read " + folder + "/SKILL.md", "Check that the file is readable.", false});
+        out.push_back({folder + "/SKILL.md", 0, "cannot read " + folder + "/SKILL.md",
+                       "Check that the file is readable.", false});
         return out;
     }
     auto fm = parse_skill_md(*text, folder + "/SKILL.md");
@@ -294,7 +320,8 @@ std::vector<SkillProblem> check_skill_folder(const std::string& dir, std::string
     }
     const std::string folderName = fsys::path(dir).filename().string();
     if (fm->name != folderName) {
-        std::string hint = "Rename the folder to '" + fm->name + "', or set `name: " + folderName + "` in the frontmatter";
+        std::string hint =
+            "Rename the folder to '" + fm->name + "', or set `name: " + folderName + "` in the frontmatter";
         if (skill_name_problem(folderName).empty()) {
             if (fa::closest_match(fm->name, std::vector<std::string>{folderName}) == folderName)
                 hint = "Did you mean '" + folderName + "'? " + hint + ".";
@@ -303,7 +330,8 @@ std::vector<SkillProblem> check_skill_folder(const std::string& dir, std::string
         } else {
             hint = "Rename the folder to '" + fm->name + "' (a skill's folder and its `name` are the same).";
         }
-        out.push_back({folder + "/SKILL.md", 0, "`name: " + fm->name + "` does not match the folder name '" + folderName + "'", hint, false});
+        out.push_back({folder + "/SKILL.md", 0,
+                       "`name: " + fm->name + "` does not match the folder name '" + folderName + "'", hint, false});
     }
     if (trim(fm->body).empty()) {
         out.push_back({folder + "/SKILL.md", fm->bodyLine, "the skill has no instructions after the frontmatter",
@@ -322,10 +350,13 @@ std::vector<SkillProblem> check_skill_folder(const std::string& dir, std::string
 }
 
 std::string skill_template(std::string_view name, std::string_view description) {
-    std::string d = description.empty() ? "What this skill does and when an agent should use it (agents choose skills by this line)." : std::string(description);
+    std::string d = description.empty()
+                        ? "What this skill does and when an agent should use it (agents choose skills by this line)."
+                        : std::string(description);
     // A description YAML would read as something else (a "key: value", a comment, a list) is written in double quotes.
-    const bool plain = d.find(": ") == std::string::npos && d.find(" #") == std::string::npos && d.find_first_of("\"\n\r\t\\") == std::string::npos &&
-                       d.find_first_of("-?[]{}!&*|>'%@`#") != 0 && d.back() != ':';
+    const bool plain = d.find(": ") == std::string::npos && d.find(" #") == std::string::npos &&
+                       d.find_first_of("\"\n\r\t\\") == std::string::npos && d.find_first_of("-?[]{}!&*|>'%@`#") != 0 &&
+                       d.back() != ':';
     if (!plain) {
         std::string q = "\"";
         for (char c : d) {
@@ -335,9 +366,12 @@ std::string skill_template(std::string_view name, std::string_view description) 
         d = q + "\"";
     }
     return "---\nname: " + std::string(name) + "\ndescription: " + d + "\n---\n\n# " + std::string(name) +
-           "\n\nWrite here what the agent should do once it has chosen this skill: the steps, the commands to run, the traps.\n"
-           "Keep this file short; put long references in files beside it (for example `reference.md`) and name them here so the\n"
-           "agent reads them only when needed (`skills.read {\"name\": \"" + std::string(name) + "\", \"file\": \"reference.md\"}`).\n";
+           "\n\nWrite here what the agent should do once it has chosen this skill: the steps, the commands to run, the "
+           "traps.\n"
+           "Keep this file short; put long references in files beside it (for example `reference.md`) and name them "
+           "here so the\n"
+           "agent reads them only when needed (`skills.read {\"name\": \"" +
+           std::string(name) + "\", \"file\": \"reference.md\"}`).\n";
 }
 
 namespace {
@@ -369,7 +403,9 @@ std::vector<std::string> engine_skill_files(std::string_view name) {
 }
 
 std::optional<std::string> engine_skill_read(std::string_view name, std::string_view file) {
-    if (name.empty() || file.empty() || file.find("..") != std::string_view::npos || name.find('/') != std::string_view::npos) return std::nullopt;
+    if (name.empty() || file.empty() || file.find("..") != std::string_view::npos ||
+        name.find('/') != std::string_view::npos)
+        return std::nullopt;
     return bundled_read(kSkillsPrefix + std::string(name) + "/" + std::string(file));
 }
 

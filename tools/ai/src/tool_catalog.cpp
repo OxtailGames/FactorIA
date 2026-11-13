@@ -40,10 +40,11 @@ bool eligible(const CommandInfo& info, bool readOnly, CapabilitySet granted) {
 ToolDef describe_tool_def() {
     ToolDef d;
     d.name = kToolDescribe;
-    d.description =
-        "Get the full definition (description and input schema) of commands that are only listed in the system prompt's "
-        "catalog. Describe a command before you call it for the first time, several at once when you need more than one. "
-        "Names are the catalog's (assets.slice_sheet; assets_slice_sheet works too).";
+    d.description = "Get the full definition (description and input schema) of commands that are only listed in the "
+                    "system prompt's "
+                    "catalog. Describe a command before you call it for the first time, several at once when you need "
+                    "more than one. "
+                    "Names are the catalog's (assets.slice_sheet; assets_slice_sheet works too).";
     d.inputSchema = Json::parse(R"({"type":"object","properties":{"commands":{"type":"array","items":{"type":"string"},
         "minItems":1,"description":"Command names from the catalog."}},"required":["commands"],"additionalProperties":false})");
     return d;
@@ -52,9 +53,10 @@ ToolDef describe_tool_def() {
 ToolDef call_tool_def() {
     ToolDef d;
     d.name = kToolCall;
-    d.description =
-        "Run a command from the catalog. Same arguments and result as if it were a tool of its own; wrong arguments come "
-        "back with the command's input schema. Commands that are tools already are called directly, not through this one.";
+    d.description = "Run a command from the catalog. Same arguments and result as if it were a tool of its own; wrong "
+                    "arguments come "
+                    "back with the command's input schema. Commands that are tools already are called directly, not "
+                    "through this one.";
     d.inputSchema = Json::parse(R"({"type":"object","properties":{"command":{"type":"string","description":
         "Command name from the catalog, e.g. assets.slice_sheet."},"arguments":{"type":"object","description":
         "The command's arguments (see tool_describe). {} when it takes none."}},"required":["command"],"additionalProperties":false})");
@@ -66,10 +68,13 @@ std::string catalog_text(const std::vector<CatalogEntry>& entries, bool readOnly
     out += "The tools of this request are the ones you use most. FactorIA has " + std::to_string(entries.size()) +
            " more commands" + (readOnly ? " that you may use (they only look and play)" : "") +
            ", listed below as `command: what it does`. They are not tools of their own:\n"
-           "- `tool_describe` {\"commands\": [\"name\", ...]} returns the full definition (description and input schema) of "
-           "those commands. Describe a command before you call it for the first time; ask for every command you need in one "
+           "- `tool_describe` {\"commands\": [\"name\", ...]} returns the full definition (description and input "
+           "schema) of "
+           "those commands. Describe a command before you call it for the first time; ask for every command you need "
+           "in one "
            "call.\n"
-           "- `tool_call` {\"command\": \"name\", \"arguments\": {...}} runs one. It does what the command's own tool would "
+           "- `tool_call` {\"command\": \"name\", \"arguments\": {...}} runs one. It does what the command's own tool "
+           "would "
            "do, with the same result.\n"
            "Tools of this request are called directly. Look in the list before you say a capability does not exist.\n";
     std::string cat;
@@ -122,8 +127,8 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
         }
         return false;
     };
-    std::vector<ToolDef> full;     // offered in full when the catalog is used
-    std::vector<ToolDef> all;      // every command in full
+    std::vector<ToolDef> full;  // offered in full when the catalog is used
+    std::vector<ToolDef> all;   // every command in full
     std::vector<CatalogEntry> listed;
     u64 deferredBytes = 0;
     for (const CommandInfo* info : infos) {
@@ -166,13 +171,14 @@ ToolPlan plan_tools(const CommandRegistry& registry, const ToolPlanOptions& opti
         plan.tools = std::move(all);
     }
     if (options.withDelegate) plan.tools.push_back(delegate_tool_def());
-    std::stable_sort(plan.tools.begin(), plan.tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
+    std::stable_sort(plan.tools.begin(), plan.tools.end(),
+                     [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
     for (const ToolDef& t : plan.tools) plan.toolBytes += def_bytes(t);
     return plan;
 }
 
-const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly, std::string& why,
-                                   std::string& hint, CapabilitySet granted) {
+const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_view name, bool readOnly,
+                                   std::string& why, std::string& hint, CapabilitySet granted) {
     why.clear();
     hint.clear();
     const CommandInfo* found = nullptr;
@@ -197,8 +203,10 @@ const CommandInfo* resolve_command(const CommandRegistry& registry, std::string_
         return nullptr;
     }
     if (const CapabilitySet missing = found->capabilities.missing_from(granted); !missing.empty()) {
-        why = "Command '" + found->name + "' needs the capability " + missing.to_string() + ", which this role is not granted";
-        hint = "Ask the user to run `factoria call " + found->name + "` themselves, or do the work with the commands you have.";
+        why = "Command '" + found->name + "' needs the capability " + missing.to_string() +
+              ", which this role is not granted";
+        hint = "Ask the user to run `factoria call " + found->name +
+               "` themselves, or do the work with the commands you have.";
         return nullptr;
     }
     return found;

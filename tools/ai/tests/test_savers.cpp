@@ -51,9 +51,11 @@ struct SaverHarness {
         make.name = "proj.make";
         make.category = "proj";
         make.summary = "Makes a thing.";
-        make.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Must be ok."}}})");
+        make.inputSchema =
+            Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Must be ok."}}})");
         registry.add(make, [](const Json& a) -> Json {
-            if (a.value("name", std::string()) != "ok") throw CommandError("bad_name", "name must be 'ok'", "Pass name \"ok\".");
+            if (a.value("name", std::string()) != "ok")
+                throw CommandError("bad_name", "name must be 'ok'", "Pass name \"ok\".");
             return Json::object({{"made", true}});
         });
     }
@@ -105,7 +107,8 @@ std::vector<ToolCall> three_failures() {
 
 // --- loop guard ------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("loop guard: the third failure of one command with one code gives one redirect; a success starts the count again") {
+TEST_CASE(
+    "loop guard: the third failure of one command with one code gives one redirect; a success starts the count again") {
     LoopGuard g;
     CHECK_FALSE(g.record("scene.load", false, "not_found", "no scene", "Check the name").has_value());
     CHECK_FALSE(g.record("scene.load", false, "not_found", "no scene", "Check the name").has_value());
@@ -122,7 +125,8 @@ TEST_CASE("loop guard: the third failure of one command with one code gives one 
     g.record("scene.load", true, "", "", "");
     CHECK_FALSE(g.record("scene.load", false, "not_found", "", "").has_value());  // counting from zero
     CHECK_FALSE(g.record("scene.load", false, "not_found", "", "").has_value());
-    CHECK(g.record("scene.load", false, "not_found", "", "").has_value());  // a new run of three after a success is guarded again
+    CHECK(g.record("scene.load", false, "not_found", "", "")
+              .has_value());  // a new run of three after a success is guarded again
 }
 
 TEST_CASE("loop guard: three identical failures in a run -> one redirect on the third error and no model call for it") {
@@ -147,12 +151,14 @@ TEST_CASE("loop guard: three identical failures in a run -> one redirect on the 
     CHECK(r.usage.inputTokens == 200);  // two model calls, nothing for the redirect
 }
 
-TEST_CASE("loop guard: through tool_call the command behind the wrapper is counted; a fourth failure gets no second redirect") {
+TEST_CASE("loop guard: through tool_call the command behind the wrapper is counted; a fourth failure gets no second "
+          "redirect") {
     SaverHarness h;
     h.catalog = true;
     std::vector<ToolCall> calls;
     for (const char* id : {"a", "b", "c", "d"})
-        calls.push_back(call(id, "tool_call", Json::object({{"command", "project.validate"}, {"arguments", Json::object()}})));
+        calls.push_back(
+            call(id, "tool_call", Json::object({{"command", "project.validate"}, {"arguments", Json::object()}})));
     h.provider->script = {tool_response(calls), text_response("done")};
     REQUIRE(h.run().ok);
     const Message& results = h.provider->requests.at(1).messages.back();
@@ -172,7 +178,8 @@ TEST_CASE("loop guard: off in ai.json -> no redirect") {
 TEST_CASE("loop guard: the judge writes the redirect and its tokens are in the run's usage and cost") {
     SaverHarness h;
     h.cfg.savers.loopGuardJudge = "fast";
-    ChatResponse judge = text_response("Validation cannot pass until scenes/main.scene.json is fixed; open it and repair it instead of validating again.");
+    ChatResponse judge = text_response("Validation cannot pass until scenes/main.scene.json is fixed; open it and "
+                                       "repair it instead of validating again.");
     judge.usage.inputTokens = 50;
     judge.usage.outputTokens = 20;
     h.provider->script = {tool_response(three_failures()), judge, text_response("done")};
@@ -199,7 +206,8 @@ TEST_CASE("loop guard: the judge writes the redirect and its tokens are in the r
 TEST_CASE("loop guard: the judge counts against the run's limits") {
     SaverHarness h;
     h.cfg.savers.loopGuardJudge = "fast";
-    h.cfg.limits.maxTotalTokens = 250;  // the tool step (110) and its final answer (220) fit; with the judge (170 more) they do not
+    h.cfg.limits.maxTotalTokens =
+        250;  // the tool step (110) and its final answer (220) fit; with the judge (170 more) they do not
     ChatResponse judge = text_response("Try something else.");
     judge.usage.inputTokens = 150;
     judge.usage.outputTokens = 20;
@@ -227,7 +235,8 @@ TEST_CASE("loop guard: a judge on a CLI agent cannot answer here; the fixed redi
 // --- the switches ----------------------------------------------------------------------------------------------------------
 
 TEST_CASE("savers: ai.json section is validated, kept by save_savers and left out when it only holds defaults") {
-    auto cfg = parse_config(Json::parse(R"({"savers":{"loopGuard":false,"loopGuardJudge":"fast","projectFacts":false}})"));
+    auto cfg =
+        parse_config(Json::parse(R"({"savers":{"loopGuard":false,"loopGuardJudge":"fast","projectFacts":false}})"));
     REQUIRE(cfg);
     CHECK_FALSE(cfg->savers.loopGuard);
     CHECK(cfg->savers.loopGuardJudge == "fast");
@@ -256,7 +265,8 @@ TEST_CASE("savers: the retrospective switch and its thresholds are parsed, valid
     CHECK_FALSE(Savers{}.retrospective);  // off by default: it costs a model call nobody asked for
     CHECK(Savers{}.retrospectiveSteps == 150);
     CHECK(Savers{}.retrospectiveCostUsd == doctest::Approx(3.0));
-    auto cfg = parse_config(Json::parse(R"({"savers":{"retrospective":true,"retrospectiveSteps":40,"retrospectiveCostUsd":1.5}})"));
+    auto cfg = parse_config(
+        Json::parse(R"({"savers":{"retrospective":true,"retrospectiveSteps":40,"retrospectiveCostUsd":1.5}})"));
     REQUIRE(cfg);
     CHECK(cfg->savers.retrospective);
     CHECK(cfg->savers.retrospectiveSteps == 40);
@@ -283,9 +293,10 @@ namespace {
 SessionResult run_loading_gfx(SaverHarness& h) {
     h.catalog = true;
     h.next_provider();
-    h.provider->script = {tool_response({call("a", "tool_describe", Json::object({{"commands", Json::array({"gfx.one"})}}))}),
-                          tool_response({call("b", "tool_call", Json::object({{"command", "gfx.one"}, {"arguments", Json::object()}}))}),
-                          text_response("done")};
+    h.provider->script = {
+        tool_response({call("a", "tool_describe", Json::object({{"commands", Json::array({"gfx.one"})}}))}),
+        tool_response({call("b", "tool_call", Json::object({{"command", "gfx.one"}, {"arguments", Json::object()}}))}),
+        text_response("done")};
     return h.run();
 }
 bool offered(const SaverHarness& h, const std::string& tool) {
@@ -294,7 +305,8 @@ bool offered(const SaverHarness& h, const std::string& tool) {
 }
 }  // namespace
 
-TEST_CASE("learned groups: loads are counted per run, the group is proposed after three runs and nothing changes until accept") {
+TEST_CASE("learned groups: loads are counted per run, the group is proposed after three runs and nothing changes until "
+          "accept") {
     SaverHarness h;
     for (int i = 0; i < 2; ++i) REQUIRE(run_loading_gfx(h).ok);
     CHECK(group_proposals(h.cfg, h.registry, h.proj.str()).empty());
@@ -306,7 +318,8 @@ TEST_CASE("learned groups: loads are counted per run, the group is proposed afte
     CHECK(proposals[0].group == "gfx");
     CHECK(proposals[0].runs == 3);
     CHECK(proposals[0].commands == std::vector<std::string>{"gfx.one"});
-    CHECK(proposals[0].definitionBytes > 8000);  // two commands of ~4000 bytes: what loading the group would add to every step
+    CHECK(proposals[0].definitionBytes >
+          8000);  // two commands of ~4000 bytes: what loading the group would add to every step
 
     // proposed only: the next run still gets the catalog and nothing is denied
     REQUIRE(run_loading_gfx(h).ok);
@@ -329,10 +342,12 @@ TEST_CASE("learned groups: loads are counted per run, the group is proposed afte
     REQUIRE(h.run().ok);
     CHECK(offered(h, "gfx_one"));  // loaded up front from this run on
     CHECK(offered(h, "gfx_two"));  // the whole group
-    CHECK(h.cfg.roles["orchestrator"].toolGroups == std::nullopt);  // ai.json is not touched: the choice belongs to the project
+    CHECK(h.cfg.roles["orchestrator"].toolGroups ==
+          std::nullopt);  // ai.json is not touched: the choice belongs to the project
 }
 
-TEST_CASE("learned groups: decline keeps it from being proposed again; the switch off counts nothing; unknown names teach") {
+TEST_CASE(
+    "learned groups: decline keeps it from being proposed again; the switch off counts nothing; unknown names teach") {
     {
         SaverHarness h;
         for (int i = 0; i < 3; ++i) REQUIRE(run_loading_gfx(h).ok);
@@ -379,7 +394,8 @@ SessionResult run_failing_then_fixed(SaverHarness& h, bool fixed = true) {
 }
 }  // namespace
 
-TEST_CASE("project facts: a failure that a later call fixed, in three runs, is proposed; AGENTS.md is untouched until accept") {
+TEST_CASE("project facts: a failure that a later call fixed, in three runs, is proposed; AGENTS.md is untouched until "
+          "accept") {
     SaverHarness h;
     const std::string original = "# My game\n\nSome text.\n\n## Conventions\n\n- Use tabs.\n";
     std::ofstream(h.agents(), std::ios::binary) << original;
@@ -396,7 +412,7 @@ TEST_CASE("project facts: a failure that a later call fixed, in three runs, is p
     CHECK(has(facts[0].line, "proj.make"));
     CHECK(has(facts[0].line, "bad_name"));
     CHECK(has(facts[0].line, "{\"name\":\"ok\"}"));  // what worked
-    CHECK(has(facts[0].line, "Pass name"));         // the error's hint
+    CHECK(has(facts[0].line, "Pass name"));          // the error's hint
     CHECK(read_file(h.agents()) == original);        // nothing written before the user answers
 
     auto accepted = answer_fact(h.proj.str(), facts[0].id, SaverAnswer::Accept);
@@ -446,7 +462,8 @@ TEST_CASE("project facts: decline, a line the user edited, a second fact under t
 
 TEST_CASE("project facts: an AGENTS.md with Windows line ends keeps them after accept") {
     SaverHarness h;
-    std::ofstream(h.agents(), std::ios::binary) << "# G\r\n\r\n## Project facts\r\n\r\n- old\r\n\r\n## Other\r\n\r\ntext\r\n";
+    std::ofstream(h.agents(), std::ios::binary)
+        << "# G\r\n\r\n## Project facts\r\n\r\n- old\r\n\r\n## Other\r\n\r\ntext\r\n";
     for (int i = 0; i < 3; ++i) REQUIRE(run_failing_then_fixed(h).ok);
     REQUIRE(answer_fact(h.proj.str(), "proj.make:bad_name", SaverAnswer::Accept));
     const std::string text = read_file(h.agents());
@@ -478,10 +495,12 @@ TEST_CASE("ai.savers, ai.saver_group and ai.saver_fact: state, accept and declin
     CHECK(state.result["proposals"]["facts"][0]["id"] == "proj.make:bad_name");
     CHECK_FALSE(fsys::exists(h.proj.path / "AGENTS.md"));
 
-    auto bad = h.registry.call("ai.saver_group", Json::object({{"role", "orchestrator"}, {"group", "gfxx"}, {"answer", "accept"}}));
+    auto bad = h.registry.call("ai.saver_group",
+                               Json::object({{"role", "orchestrator"}, {"group", "gfxx"}, {"answer", "accept"}}));
     REQUIRE_FALSE(bad.ok);
     CHECK(has(bad.error["hint"].get<std::string>(), "gfx"));
-    auto group = h.registry.call("ai.saver_group", Json::object({{"role", "orchestrator"}, {"group", "gfx"}, {"answer", "accept"}}));
+    auto group = h.registry.call("ai.saver_group",
+                                 Json::object({{"role", "orchestrator"}, {"group", "gfx"}, {"answer", "accept"}}));
     REQUIRE(group.ok);
     CHECK(group.result["status"] == "accepted");
     auto fact = h.registry.call("ai.saver_fact", Json::object({{"id", "proj.make:bad_name"}, {"answer", "accept"}}));

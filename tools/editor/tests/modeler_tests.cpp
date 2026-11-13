@@ -25,7 +25,8 @@ struct ModelerProject {
     ModelerProject() {
         dir = fs::make_temp_dir("fa_modeler_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<ModelerModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<ModelerModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);
         model->set_debounce_ticks(0);
     }
@@ -104,7 +105,8 @@ TEST_CASE("the catalog gives every field of an operation with its range and defa
     CHECK(p.model->op_info("no_such_op") == nullptr);
     // The common fields every node has are offered too.
     bool position = false;
-    for (const Json& f : p.model->fields_of("cylinder")) position = position || f.value("key", std::string()) == "position";
+    for (const Json& f : p.model->fields_of("cylinder"))
+        position = position || f.value("key", std::string()) == "position";
     CHECK(position);
 }
 
@@ -169,7 +171,7 @@ TEST_CASE("a slider being dragged changes the mesh without writing the file, and
     p.model->set_live("/nodes/1/children/0", Json::object({{"height", 3.0}}));
     CHECK(p.model->has_live());
     CHECK((*p.model->shown_node("/nodes/1/children/0"))["height"] == 3.0);
-    CHECK((*p.model->node("/nodes/1/children/0"))["height"] == 1.0);   // the file's value
+    CHECK((*p.model->node("/nodes/1/children/0"))["height"] == 1.0);  // the file's value
     p.model->settle();
     CHECK(p.text() == original);
     CHECK(p.model->build_revision() != rev0);
@@ -207,7 +209,8 @@ TEST_CASE("adding, disabling, moving and removing nodes are undoable steps that 
     const std::string original = p.text();
     const std::size_t tris = p.model->build()->stats.triangles;
 
-    ModelerEditOutcome add = p.model->add_node("top", Json::parse(R"({"op":"torus","id":"ring","position":[0,0.5,0]})"));
+    ModelerEditOutcome add =
+        p.model->add_node("top", Json::parse(R"({"op":"torus","id":"ring","position":[0,0.5,0]})"));
     REQUIRE_MESSAGE(add.ok, add.error);
     CHECK(add.step > 0);
     CHECK(p.model->rows().size() == 5);
@@ -261,7 +264,11 @@ TEST_CASE("a change on disk behind the panel's back is read again") {
     ModelerProject p;
     p.open();
     CHECK(!p.model->poll_external());
-    p.ok("model.edit", Json::object({{"path", kModel}, {"op", "set"}, {"target", "post"}, {"values", Json::object({{"height", 4.0}})}, {"bake", false}}));
+    p.ok("model.edit", Json::object({{"path", kModel},
+                                     {"op", "set"},
+                                     {"target", "post"},
+                                     {"values", Json::object({{"height", 4.0}})},
+                                     {"bake", false}}));
     CHECK(p.model->poll_external());
     CHECK((*p.model->node("/nodes/1/children/0"))["height"] == 4.0);
     p.model->settle();
@@ -306,7 +313,8 @@ TEST_CASE("the document's own fields are edited like a node and are one undo ste
     ModelerProject p;
     p.open();
     const std::string original = p.text();
-    const ModelerEditOutcome out = p.model->set_document_field("materials", Json::parse(R"({"wood":{"color":[0.6,0.4,0.2,1]}})"));
+    const ModelerEditOutcome out =
+        p.model->set_document_field("materials", Json::parse(R"({"wood":{"color":[0.6,0.4,0.2,1]}})"));
     REQUIRE_MESSAGE(out.ok, out.error);
     CHECK(out.step > 0);
     CHECK(p.model->json().contains("materials"));

@@ -61,8 +61,9 @@ struct Project {
         std::string name;
         stdfs::path build;  // <plugin folder>/<platform> (plugin_build): what the export copies or links
     };
-    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the plugins whose build for this platform is missing
-    std::vector<Plugin> plugins;             // the native plugins of the platform being exported
+    std::vector<std::string>
+        pluginsLeftOut;           // allowMissingPlugins: the plugins whose build for this platform is missing
+    std::vector<Plugin> plugins;  // the native plugins of the platform being exported
     std::vector<stdfs::path> pluginFolders;  // every plugin's folder: the ones inside the project stay out of game/
     // Shipped path -> the file copy_game copies instead of <dir>/<path>: what the asset steps converted (export_assets.cpp).
     std::map<std::string, stdfs::path> staged;
@@ -112,9 +113,11 @@ Result<Image> load_platform_icon(const Project& p, const std::string& platform, 
 //              templates come from this binary (platforms/ is embedded like docs/ and templates/).
 //   source   : the engine is compiled from a source checkout, with that checkout's templates (engine developers).
 
-inline constexpr const char* kAndroidAbis[] = {"arm64-v8a", "x86_64"};  // what the release workflow builds (= abiFilters in the template)
+inline constexpr const char* kAndroidAbis[] = {
+    "arm64-v8a", "x86_64"};  // what the release workflow builds (= abiFilters in the template)
 inline constexpr const char* kIosSlices[] = {"iphoneos", "iphonesimulator"};
-inline constexpr const char* kIosMarkerLib = "libfactoria_player_main.a";  // the player's own archive, next to the engine ones
+inline constexpr const char* kIosMarkerLib =
+    "libfactoria_player_main.a";  // the player's own archive, next to the engine ones
 
 struct MobileSetup {
     bool prebuilt = false;
@@ -153,21 +156,23 @@ std::string sign_app_ad_hoc(const stdfs::path& app);
 // `icon` is the platform's icon (load_platform_icon), empty when none is set: the .icns of a macOS app, the icon of the
 // Windows exe, the PNG and .desktop file of a Linux build. With options.release the game goes into one pack
 // (game.pak, fa/core/pack.h) instead of the game/ folder; scripts become bytecode unless export.scriptBytecode is false.
-Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform, const stdfs::path& player,
-                            const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon,
-                            ExportReport& report);
+Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform,
+                            const stdfs::path& player, const stdfs::path& outRoot,
+                            const std::vector<std::string>& files, const Image& icon, ExportReport& report);
 
 // Packs `files` (project-relative; p.staged applies) into the pack `packFile`, scripts as bytecode unless
 // export.scriptBytecode is false (the release build of a desktop export, and every web export).
-Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report);
+Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
+                          ExportReport& report);
 
 // ---- web (export_web.cpp) ---------------------------------------------------------------------------
 
 // The web player: factoria_player.js and the factoria_player.wasm next to it (Emscripten output).
 struct WebPlayer {
     stdfs::path js, wasm;
-    std::string from;  // "explicit" (--player), "package" (web/ next to factoria), "installed" (factoria setup players) or
-                       // "build" (a web build of the engine source)
+    std::string
+        from;  // "explicit" (--player), "package" (web/ next to factoria), "installed" (factoria setup players) or
+               // "build" (a web build of the engine source)
 };
 
 // --player (a folder or factoria_player.js), else the web player whose build fingerprint is this factoria's among
@@ -182,8 +187,8 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
 // With options.singleFile it is ONE file instead, <outRoot>/<web_single_file_name(p)>, with the player's JavaScript, the wasm, the
 // favicon and the pack inlined as base64 (streamed to disk in chunks, so the memory it needs does not grow with the game); the size
 // is checked first (check_web_single_file), and nothing else but the pack, which is deleted again, is written.
-Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player, const stdfs::path& outRoot,
-                        const std::vector<std::string>& files, ExportReport& report);
+Result<void> export_web(const ExportOptions& options, const Project& p, const WebPlayer& player,
+                        const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report);
 
 // "<game-slug>.html": the file of a single-file web export.
 std::string web_single_file_name(const Project& p);
@@ -217,7 +222,8 @@ struct MsixPlan {
 
 // Checks the msix settings and names the file the package will be. Missing identity fields are warnings (the package gets a
 // placeholder identity that only installs on your own PC).
-Result<MsixPlan> plan_msix(const ExportOptions& o, const Project& p, const stdfs::path& outParent, std::vector<std::string>& warnings);
+Result<MsixPlan> plan_msix(const ExportOptions& o, const Project& p, const stdfs::path& outParent,
+                           std::vector<std::string>& warnings);
 
 // The AppxManifest.xml of the package (UTF-8, LF) for the game: identity, logos, the executable and the capabilities.
 // Placeholders are used where the settings have no identity; `placeholderIdentity` says so.
@@ -225,8 +231,8 @@ std::string msix_manifest(const Project& p, bool& placeholderIdentity);
 
 // After the export folder is complete (notices included): writes the package from the folder's files and the logos made from
 // `icon` (an empty Image: the placeholder icon). Sets report.format / report.artifact / the first next steps.
-Result<void> build_msix(const ExportOptions& o, const Project& p, const MsixPlan& plan, const stdfs::path& outRoot, const Image& icon,
-                        ExportReport& report);
+Result<void> build_msix(const ExportOptions& o, const Project& p, const MsixPlan& plan, const stdfs::path& outRoot,
+                        const Image& icon, ExportReport& report);
 
 // ---- linux AppImage (export_appimage.cpp) -----------------------------------------------------------
 
@@ -244,26 +250,27 @@ Result<AppImagePlan> plan_appimage(const ExportOptions& o, const Project& p, con
 // Writes the AppDir of an exported game: AppRun, <slug>.desktop (the export's, fixed for AppImage), the icon and usr/bin holding
 // the export folder `exportRoot` as it is. `artifactName` (the AppImage that is going to be written) and the export's own marker
 // files are left out. A missing icon is replaced by a plain one, with a warning.
-Result<void> write_appdir(const Project& p, const stdfs::path& exportRoot, const stdfs::path& appDir, const std::string& artifactName,
-                          std::vector<std::string>& warnings);
+Result<void> write_appdir(const Project& p, const stdfs::path& exportRoot, const stdfs::path& appDir,
+                          const std::string& artifactName, std::vector<std::string>& warnings);
 
 // After the export folder is complete (notices included): builds the AppDir beside it, runs appimagetool, removes the AppDir and
 // sets report.format / report.artifact / the first next steps.
-Result<void> build_appimage(const ExportOptions& o, const Project& p, const AppImagePlan& a, const stdfs::path& outRoot, ExportReport& report);
+Result<void> build_appimage(const ExportOptions& o, const Project& p, const AppImagePlan& a, const stdfs::path& outRoot,
+                            ExportReport& report);
 
 // ---- android (export_android.cpp) -------------------------------------------------------------------
 
 // Everything the Android export decides before it writes anything (so plan_export can report it and fail early).
 struct AndroidPlan {
-    std::string format;                  // "apk" | "aab" | "gradle"
+    std::string format;  // "apk" | "aab" | "gradle"
     bool release = false;
-    AndroidToolchain toolchain;          // JDK + SDK (found for every format: the SDK also goes to local.properties)
+    AndroidToolchain toolchain;  // JDK + SDK (found for every format: the SDK also goes to local.properties)
     // The CMake of a source-mode build: the SDK's pinned version when it is installed, else the newest CMake 3.24+ of the SDK,
     // else a CMake of this computer (cmakeDir -> cmake.dir in local.properties). cmakeVersion goes to factoria.cmakeVersion.
     std::string cmakeVersion;
-    std::string cmakeDir;                // "" = the one in the SDK
-    std::string cmakeNote;               // "the SDK has no CMake 3.31.6; ..." when it is not the pinned one
-    stdfs::path artifact;                // <outRoot>/<slug>[-debug].apk|aab; empty for "gradle"
+    std::string cmakeDir;   // "" = the one in the SDK
+    std::string cmakeNote;  // "the SDK has no CMake 3.31.6; ..." when it is not the pinned one
+    stdfs::path artifact;   // <outRoot>/<slug>[-debug].apk|aab; empty for "gradle"
     // Release signing (apk/aab only): the keystore of export.android.signing resolved against the project folder, its
     // alias, and the passwords (environment variables win over ~/.factoria/export.json). Empty keystore = signed with
     // the debug key (only when ExportOptions::allowDebugKey, with a warning).
@@ -282,8 +289,8 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
                                  std::vector<std::string>& warnings, bool decodeIcons);
 
 // Writes the Gradle project into outRoot (templates, icons, game, prebuilt players). Sets report.format.
-Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, ExportReport& report);
+Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a,
+                            const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report);
 
 // After FACTORIA_NOTICES.txt is in the project: runs Gradle unless the format is "gradle", copies the APK/AAB next to the
 // project and writes the next steps (before the ones already in the report). `keepOutput` is set when a failed export must
@@ -303,12 +310,12 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
 // assets/hero.png.ktx2: the engine loads such a twin in place of the original), add files or drop them.
 struct ExportAssets {
     Project& project;
-    const std::string& platform;       // linux | windows | macos | android | ios | web
-    std::vector<std::string>& files;   // shipped project-relative paths (sorted again after the steps)
-    stdfs::path cacheDir;              // <project>/.factoria/export-cache/<platform>: converted files, kept between exports
-    Json manifest;                     // the assets.json that ships: import settings, no provenance; steps may add to it
-    ExportReport& report;              // warnings
-    const SetupContext& setup;         // how sokol-shdc is found and started (convert_shaders)
+    const std::string& platform;      // linux | windows | macos | android | ios | web
+    std::vector<std::string>& files;  // shipped project-relative paths (sorted again after the steps)
+    stdfs::path cacheDir;       // <project>/.factoria/export-cache/<platform>: converted files, kept between exports
+    Json manifest;              // the assets.json that ships: import settings, no provenance; steps may add to it
+    ExportReport& report;       // warnings
+    const SetupContext& setup;  // how sokol-shdc is found and started (convert_shaders)
     bool mobile() const { return platform == "android" || platform == "ios"; }
     // Devices whose GPUs may sample only 2048 px on a side (GLES3 phones, and browsers, which run on them too): atlas pages stay
     // that small. The web otherwise ships PNGs like the desktop: WebGL2 guarantees no compressed texture format.
@@ -318,8 +325,8 @@ struct ExportAssets {
 };
 
 // Runs the asset steps on `files` (what collect_game_files found) and records the converted files in p.staged.
-Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report,
-                                 const SetupContext& setup);
+Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files,
+                                 ExportReport& report, const SetupContext& setup);
 
 // Custom materials (export_shaders.cpp): every shipped *.material.json gets <material>.json.<slang>.shader for each dialect
 // of the platform, and the snippets they name are not shipped. A material that does not compile fails the export.

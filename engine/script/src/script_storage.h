@@ -39,7 +39,7 @@ struct Job {
     std::string key;
     std::string valueText;  // the value as compact JSON, made on the main thread
     bool compress = false;
-    bool persist = false;   // false: nothing goes to disk (memory storage); the job only measures its size
+    bool persist = false;  // false: nothing goes to disk (memory storage); the job only measures its size
     std::filesystem::path file;
     // result
     bool ok = true;

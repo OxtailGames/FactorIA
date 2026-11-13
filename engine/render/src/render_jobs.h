@@ -71,9 +71,8 @@ void stable_sort(std::string_view name, std::vector<T>& v, Less less, std::size_
         return;
     }
     using Diff = typename std::vector<T>::difference_type;
-    run(name, s, [&](const jobs::Chunk& c) {
-        std::stable_sort(v.begin() + Diff(c.begin), v.begin() + Diff(c.end), less);
-    });
+    run(name, s,
+        [&](const jobs::Chunk& c) { std::stable_sort(v.begin() + Diff(c.begin), v.begin() + Diff(c.end), less); });
     std::vector<T> scratch(n);
     std::vector<T>* src = &v;
     std::vector<T>* dst = &scratch;

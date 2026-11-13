@@ -21,8 +21,9 @@ namespace fa::export_detail {
 struct ZipEntry {
     std::string name;
     std::uint32_t crc = 0, compressedSize = 0, size = 0, offset = 0;
-    std::uint16_t method = 0;     // 0 stored, 8 deflate
-    std::uint32_t headerSize = 0;  // the local file header: 30 + name (no extra field); the MSIX block map lists it as LfhSize
+    std::uint16_t method = 0;  // 0 stored, 8 deflate
+    std::uint32_t headerSize =
+        0;  // the local file header: 30 + name (no extra field); the MSIX block map lists it as LfhSize
 };
 
 enum class ZipStyle { plain, opc };

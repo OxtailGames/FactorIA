@@ -32,8 +32,9 @@ public:
     bool busy() const { return busy_.load(); }
     bool start(const ServeWebOptions& options);  // false while a job runs
     bool stop();                                 // false while a job runs
-    std::optional<Done> take_result();           // the finished job's result, once; nullopt while it runs or when none is waiting
-    void wait();                                 // blocks until the running job is done (project switch, quit)
+    std::optional<Done>
+    take_result();  // the finished job's result, once; nullopt while it runs or when none is waiting
+    void wait();    // blocks until the running job is done (project switch, quit)
 
 private:
     void run(bool wasStart, ServeWebOptions options);

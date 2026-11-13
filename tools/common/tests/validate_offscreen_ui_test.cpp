@@ -23,10 +23,11 @@ TEST_CASE("validate: a widget wholly outside the design size is a warning that s
         (*scene)["entities"].push_back(e);
     };
     // The design size is 1280 x 720 (the template's). Anchor [0.5, 1] puts the position on the bottom edge.
-    add("bar_ok", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 0]})");              // stands on the bottom edge
-    add("bar_hanging", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 1]})");         // hangs below the screen
-    add("half_in", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 0.5]})");           // half visible: fine
-    add("hidden", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 1]})", false);       // inactive: not asked about
+    add("bar_ok", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 0]})");       // stands on the bottom edge
+    add("bar_hanging", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 1]})");  // hangs below the screen
+    add("half_in", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 0.5]})");    // half visible: fine
+    add("hidden", R"({"size": [400, 100], "anchor": [0.5, 1], "pivot": [0.5, 1]})",
+        false);  // inactive: not asked about
     REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
 
     const ValidationReport r = validate_project(dir.string());

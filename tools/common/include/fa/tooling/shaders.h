@@ -31,8 +31,9 @@
 
 namespace fa {
 
-inline constexpr int kMaterialMaxParams = 16;    // each padded to a vec4 (256 bytes)
-inline constexpr int kMaterialMaxTextures = 4;   // fragment stage; the engine binds 6 of the 16 units GLES3 and WebGL2 guarantee
+inline constexpr int kMaterialMaxParams = 16;  // each padded to a vec4 (256 bytes)
+inline constexpr int kMaterialMaxTextures =
+    4;  // fragment stage; the engine binds 6 of the 16 units GLES3 and WebGL2 guarantee
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -43,11 +44,11 @@ inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
 
 struct MaterialParam {
     std::string name;
-    std::string type;    // "float" | "vec2" | "vec3" | "vec4" | "color"
-    Json defaultValue;   // a number, or an array of 2..4 numbers
+    std::string type;   // "float" | "vec2" | "vec3" | "vec4" | "color"
+    Json defaultValue;  // a number, or an array of 2..4 numbers
     std::optional<double> min, max;
     std::string doc;
-    bool implicit = false;  // added by the generator (alphaCutoff of a "clip" material), not written in the file
+    bool implicit = false;   // added by the generator (alphaCutoff of a "clip" material), not written in the file
     int components() const;  // 1, 2, 3 or 4
 };
 
@@ -59,13 +60,13 @@ struct MaterialTexture {
 };
 
 struct MaterialDef {
-    std::string path;    // project-relative path of the .material.json
+    std::string path;  // project-relative path of the .material.json
     std::string doc;
-    std::string shader;  // project-relative path of the snippet
+    std::string shader;                // project-relative path of the snippet
     std::string lighting = "pbr";      // "pbr" | "unlit"
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
-    std::vector<MaterialParam> params;      // alphabetical (the packing order of the uniform block); includes implicit ones
+    std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
 };
 
@@ -110,10 +111,11 @@ std::string host_shader_dialect(const SetupContext& context = {});
 // ---------------------------------------------------------------------------------------------------------------
 
 struct GeneratedShader {
-    std::string top;                   // the sokol-shdc input
-    std::vector<int> snippetLine;      // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
-    bool hasVertex = false;            // the snippet defines vertex()
-    bool hasSurface = false;           // the snippet defines surface()
+    std::string top;  // the sokol-shdc input
+    std::vector<int>
+        snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
+    bool hasVertex = false;             // the snippet defines vertex()
+    bool hasSurface = false;            // the snippet defines surface()
     std::vector<std::string> programs;  // "mesh", "mesh_skin" and, with vertex() or "clip", "shadow", "shadow_skin"
     std::vector<std::string> defines;   // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP
 };
@@ -142,24 +144,24 @@ struct ShaderIssue {
     int column = 0;       // 1-based
     std::string message;
     std::string hint;
-    std::string source;   // the offending line of the snippet, as written
+    std::string source;  // the offending line of the snippet, as written
     Json to_json() const;
     std::string to_string() const;  // "file:line:col: error: message", the line quoted, "hint: ..."
 };
 
 struct ShaderCompileOptions {
-    SetupContext setup;                  // env (SOKOL_SHDC), run (process runner), host...
-    std::vector<std::string> dialects;   // empty = every dialect
+    SetupContext setup;                 // env (SOKOL_SHDC), run (process runner), host...
+    std::vector<std::string> dialects;  // empty = every dialect
     bool useCache = true;
 };
 
 struct ShaderCompileResult {
     bool ok = false;
-    std::vector<std::string> dialects;          // the dialects asked for (all compiled when ok)
+    std::vector<std::string> dialects;  // the dialects asked for (all compiled when ok)
     std::vector<ShaderIssue> errors;
-    std::map<std::string, Json> twins;          // slang -> the factoria.shader/1 document (only when ok)
-    int cacheHits = 0;                          // dialects served from .factoria/shader-cache
-    MaterialDef material;                       // as parsed (valid when the material file was)
+    std::map<std::string, Json> twins;  // slang -> the factoria.shader/1 document (only when ok)
+    int cacheHits = 0;                  // dialects served from .factoria/shader-cache
+    MaterialDef material;               // as parsed (valid when the material file was)
     GeneratedShader generated;
 };
 
@@ -190,7 +192,8 @@ std::vector<ValidationIssue> shader_validation_issues(const ShaderCompileResult&
 void validate_materials(const std::string& projectDir, const SetupContext& context, ValidationReport& report);
 
 // "shader.compile" and "material.info" (category "shader"). `context` supplies the sokol-shdc lookup and the process runner.
-void register_shader_commands(CommandRegistry& registry, const std::string& projectDir, const SetupContext& context = {});
+void register_shader_commands(CommandRegistry& registry, const std::string& projectDir,
+                              const SetupContext& context = {});
 
 // The compiler the engine calls (EngineConfig::shaderCompiler) for the materials of `projectDir`: compiles the material for
 // one dialect (cached under .factoria/shader-cache) and returns its twin. A failed compile returns an Error whose message

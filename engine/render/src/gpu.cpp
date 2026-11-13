@@ -48,7 +48,8 @@ void set_instance_layout(sg_pipeline_desc& d, int firstAttr) {
 // Vertex buffer 2 of a skinned part: SkinVertex (joint indices as bytes, then four weights).
 void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.buffers[2].stride = sizeof(SkinVertex);
-    d.layout.attrs[jointsAttr].format = SG_VERTEXFORMAT_UBYTE4N;  // normalized: the shaders multiply by 255 (an integer attribute would not be a float)
+    d.layout.attrs[jointsAttr].format =
+        SG_VERTEXFORMAT_UBYTE4N;  // normalized: the shaders multiply by 255 (an integer attribute would not be a float)
     d.layout.attrs[jointsAttr].buffer_index = 2;
     d.layout.attrs[jointsAttr].offset = 0;
     d.layout.attrs[weightsAttr].format = SG_VERTEXFORMAT_FLOAT4;
@@ -72,9 +73,12 @@ bool Gpu::init(int sampleCount, std::string* error) {
         lightFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : eightOk ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE;
         if (const char* want = std::getenv("FA_LIGHT_FORMAT")) {
             const std::string w = want;
-            if (w == "rgba8") lightFormat_ = eightOk ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE;
-            else if (w == "none") lightFormat_ = SG_PIXELFORMAT_NONE;
-            else if (w == "rgba16f") lightFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : lightFormat_;
+            if (w == "rgba8")
+                lightFormat_ = eightOk ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE;
+            else if (w == "none")
+                lightFormat_ = SG_PIXELFORMAT_NONE;
+            else if (w == "rgba16f")
+                lightFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : lightFormat_;
         }
     }
 
@@ -98,10 +102,12 @@ bool Gpu::init(int sampleCount, std::string* error) {
     blitKeepShader_ = make_shader(blit_blit_keep_shader_desc(backend), "blit_blit_keep");
     meshSkinShader_ = make_shader(mesh_mesh_skin_shader_desc(backend), "mesh_mesh_skin");
     shadowSkinShader_ = make_shader(mesh_shadow_skin_shader_desc(backend), "mesh_shadow_skin");
-    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, blitKeepShader_, meshSkinShader_, shadowSkinShader_}) {
+    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_,
+                        blitKeepShader_, meshSkinShader_, shadowSkinShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
-                *error = "Failed to create a built-in shader for the " + std::string(backend == SG_BACKEND_GLCORE ? "OpenGL" : "current") +
+                *error = "Failed to create a built-in shader for the " +
+                         std::string(backend == SG_BACKEND_GLCORE ? "OpenGL" : "current") +
                          " backend (see the sokol log lines above). The GL driver may be older than 4.3: "
                          "with Mesa try LIBGL_ALWAYS_SOFTWARE=1.";
             }
@@ -109,20 +115,29 @@ bool Gpu::init(int sampleCount, std::string* error) {
         }
     }
 
-    samplers_[int(SamplerKind::Nearest)] = make_sampler(SG_FILTER_NEAREST, SG_FILTER_NEAREST, SG_WRAP_CLAMP_TO_EDGE, "nearest");
-    samplers_[int(SamplerKind::Linear)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_CLAMP_TO_EDGE, "linear");
-    samplers_[int(SamplerKind::LinearRepeat)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_REPEAT, "linear-repeat");
-    samplers_[int(SamplerKind::NearestRepeat)] = make_sampler(SG_FILTER_NEAREST, SG_FILTER_NEAREST, SG_WRAP_REPEAT, "nearest-repeat");
+    samplers_[int(SamplerKind::Nearest)] =
+        make_sampler(SG_FILTER_NEAREST, SG_FILTER_NEAREST, SG_WRAP_CLAMP_TO_EDGE, "nearest");
+    samplers_[int(SamplerKind::Linear)] =
+        make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_CLAMP_TO_EDGE, "linear");
+    samplers_[int(SamplerKind::LinearRepeat)] =
+        make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_REPEAT, "linear-repeat");
+    samplers_[int(SamplerKind::NearestRepeat)] =
+        make_sampler(SG_FILTER_NEAREST, SG_FILTER_NEAREST, SG_WRAP_REPEAT, "nearest-repeat");
     // Bilinear, clamped, no mipmaps and no anisotropy: post-processing fetches (explicit LOD 0).
-    samplers_[int(SamplerKind::LinearClamp)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_NEAREST, SG_WRAP_CLAMP_TO_EDGE, "linear-clamp");
+    samplers_[int(SamplerKind::LinearClamp)] =
+        make_sampler(SG_FILTER_LINEAR, SG_FILTER_NEAREST, SG_WRAP_CLAMP_TO_EDGE, "linear-clamp");
 
     // Static quad index buffer: (0,1,2, 0,2,3) per quad.
     std::vector<std::uint16_t> idx(std::size_t(kMaxQuadsPerDraw) * 6);
     for (int q = 0; q < kMaxQuadsPerDraw; ++q) {
         std::uint16_t b = std::uint16_t(q * 4);
         std::uint16_t* p = &idx[std::size_t(q) * 6];
-        p[0] = b; p[1] = std::uint16_t(b + 1); p[2] = std::uint16_t(b + 2);
-        p[3] = b; p[4] = std::uint16_t(b + 2); p[5] = std::uint16_t(b + 3);
+        p[0] = b;
+        p[1] = std::uint16_t(b + 1);
+        p[2] = std::uint16_t(b + 2);
+        p[3] = b;
+        p[4] = std::uint16_t(b + 2);
+        p[5] = std::uint16_t(b + 3);
     }
     sg_buffer_desc ib{};
     ib.usage.index_buffer = true;
@@ -147,10 +162,14 @@ void Gpu::shutdown() {
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
     transient_.clear();
     transientUsed_ = 0;
-    for (auto& s : samplers_) { sg_destroy_sampler(s); s = {}; }
+    for (auto& s : samplers_) {
+        sg_destroy_sampler(s);
+        s = {};
+    }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
-    for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_, &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
+    for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
+                         &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
         *s = {};
     }
@@ -205,8 +224,8 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
 }
 
 sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool plain, bool opaque) {
-    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) | (plain ? 0x10u : 0u) |
-                    (opaque ? 0x20u : 0u)};
+    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
+                    (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u)};
     sg_pipeline_desc d{};
     d.shader = plain ? quadPlainShader_ : quad_shader_;
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -247,7 +266,9 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
     d.sample_count = sampleCount_;
-    d.label = lines ? "quad-lines" : plain ? (depthTest ? "quad-3d-plain" : "quad-2d-plain") : (depthTest ? "quad-3d" : "quad-2d");
+    d.label = lines   ? "quad-lines"
+              : plain ? (depthTest ? "quad-3d-plain" : "quad-2d-plain")
+                      : (depthTest ? "quad-3d" : "quad-2d");
     return find_or_make(key, d);
 }
 
@@ -259,7 +280,8 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
-    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format =
+        SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -304,10 +326,10 @@ sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
     if (fullVertex) {  // offsets are the packed ones of MeshVertex: attributes of buffer 0 in location order
         const int first = skinned ? 7 : 5;
-        d.layout.attrs[first].format = SG_VERTEXFORMAT_FLOAT3;      // normal
-        d.layout.attrs[first + 1].format = SG_VERTEXFORMAT_FLOAT2;  // texcoord0
-        d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;  // tangent
-        d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N; // vertex color
+        d.layout.attrs[first].format = SG_VERTEXFORMAT_FLOAT3;       // normal
+        d.layout.attrs[first + 1].format = SG_VERTEXFORMAT_FLOAT2;   // texcoord0
+        d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;   // tangent
+        d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color
     }
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
@@ -354,9 +376,10 @@ bool Gpu::bloom_ready() {
             s = {};
         }
         bloomState_ = -1;
-        FA_ERROR("render", "Camera.bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
-                           "(see the sokol log lines above). The game renders without bloom. Hint: update the graphics driver "
-                           "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.bloom to false.");
+        FA_ERROR("render",
+                 "Camera.bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
+                 "(see the sokol log lines above). The game renders without bloom. Hint: update the graphics driver "
+                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.bloom to false.");
         return false;
     }
     bloomState_ = 1;
@@ -408,14 +431,16 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
 
 bool Gpu::colorfilter_ready() {
     if (colorfilterState_ != 0) return colorfilterState_ > 0;
-    colorfilter_shader_ = make_shader(colorfilter_colorfilter_shader_desc(sg_query_backend()), "colorfilter_colorfilter");
+    colorfilter_shader_ =
+        make_shader(colorfilter_colorfilter_shader_desc(sg_query_backend()), "colorfilter_colorfilter");
     if (sg_query_shader_state(colorfilter_shader_) != SG_RESOURCESTATE_VALID) {
         sg_destroy_shader(colorfilter_shader_);
         colorfilter_shader_ = {};
         colorfilterState_ = -1;
-        FA_ERROR("render", "Camera.colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
-                           "backend (see the sokol log lines above). The game renders without the filter. Hint: update the "
-                           "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.colorFilter to \"none\".");
+        FA_ERROR("render",
+                 "Camera.colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
+                 "backend (see the sokol log lines above). The game renders without the filter. Hint: update the "
+                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.colorFilter to \"none\".");
         return false;
     }
     colorfilterState_ = 1;
@@ -449,9 +474,11 @@ bool Gpu::light_ready() {
         sg_destroy_shader(light_shader_);
         light_shader_ = {};
         lightState_ = -1;
-        FA_ERROR("render", "The 2D light buffer is unavailable: its shader failed to compile for this graphics backend (see the "
-                           "sokol log lines above). Lit visuals are shaded per pixel by the first {} lights only. Hint: update "
-                           "the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).", kDirectLights2D);
+        FA_ERROR("render",
+                 "The 2D light buffer is unavailable: its shader failed to compile for this graphics backend (see the "
+                 "sokol log lines above). Lit visuals are shaded per pixel by the first {} lights only. Hint: update "
+                 "the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).",
+                 kDirectLights2D);
         return false;
     }
     lightState_ = 1;

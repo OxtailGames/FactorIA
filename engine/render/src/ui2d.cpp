@@ -46,9 +46,10 @@ struct Ctx {
     Rect clip;
     float fade = 1.0f;
     Color tint{1, 1, 1, 1};  // the Tint components of the widget and its ancestors (inherited_tint)
-    float capScale = 0.0f;  // the widget's maxTextScale (0 = none): line() draws its labels at most at this text scale
-    float k = 1.0f;         // the interface scale: UI units -> screen pixels
-    TextDirection dir = TextDirection::Auto;  // base direction of the labels: the language's for a widget with a localization key
+    float capScale = 0.0f;   // the widget's maxTextScale (0 = none): line() draws its labels at most at this text scale
+    float k = 1.0f;          // the interface scale: UI units -> screen pixels
+    TextDirection dir =
+        TextDirection::Auto;  // base direction of the labels: the language's for a widget with a localization key
     QuadList& list() const { return f.screen; }
     Mat4 to_screen() const { return Mat4::scale({k, k, 1.0f}); }
 };
@@ -65,7 +66,8 @@ std::uint32_t pack(Color c, const Ctx& ctx) {
 }
 
 // A screen rectangle (y down) with its uv rectangle; skipped when it has no area.
-void quad(const Ctx& c, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, std::uint32_t col) {
+void quad(const Ctx& c, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1,
+          std::uint32_t col) {
     if (x1 <= x0 || y1 <= y0) return;
     QuadEmitter{c.list(), c.to_screen(), true, col, kModeTextured, 0}.rect(x0, -y1, x1, -y0, u0, v0, u1, v1);
 }
@@ -97,7 +99,8 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     TextureAsset* tex = textured ? c.f.assets->texture(b.texture) : c.f.assets->white();
     float border[4] = {0, 0, 0, 0}, uvBorder[4] = {0, 0, 0, 0};  // left, top, right, bottom: on screen and in uv
     if (textured)
-        nine_slice_fit(b.slice, float(std::max(1, tex->width)), float(std::max(1, tex->height)), r.w, r.h, border, uvBorder);
+        nine_slice_fit(b.slice, float(std::max(1, tex->width)), float(std::max(1, tex->height)), r.w, r.h, border,
+                       uvBorder);
     const float xs[4] = {snap(c, r.x), snap(c, r.x + border[0]), snap(c, r.x + r.w - border[2]), snap(c, r.x + r.w)};
     const float ys[4] = {snap(c, r.y), snap(c, r.y + border[1]), snap(c, r.y + r.h - border[3]), snap(c, r.y + r.h)};
     const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
@@ -127,7 +130,8 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.align = align;
     t.direction = c.dir;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
-    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale), c.f.renderScale * c.k, true);
+    return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale),
+                             c.f.renderScale * c.k, true);
 }
 
 // The font size of the label of widget `e` in rectangle `r`: autoShrink decides it from the laid-out size (fit_text, the same
@@ -141,23 +145,23 @@ void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int 
     if (lay.quads.empty() && lay.icons.empty()) return;
     col = col * c.tint;
     col.a *= c.fade;
-    emit_text(c.list(), Mat4::translate({std::round(x * c.k), std::round(y * c.k), 0}) * c.to_screen(), true, lay, col, *c.f.fonts,
-              *c.f.assets, layer, 0, clip, -1, c.tint);
+    emit_text(c.list(), Mat4::translate({std::round(x * c.k), std::round(y * c.k), 0}) * c.to_screen(), true, lay, col,
+              *c.f.fonts, *c.f.assets, layer, 0, clip, -1, c.tint);
     c.f.stats->textGlyphs += int(lay.quads.size());
 }
 
 // A label (wrapped at `maxWidth` > 0, left aligned) vertically centred in `zoneY .. zoneY + zoneH`, its left edge at `x`.
 // `px` > 0 is the size autoShrink decided.
-void text_left(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px, Color col, int layer,
-               float x, float zoneY, float zoneH, const Rect& clip, TextStyle style = {}) {
+void text_left(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px,
+               Color col, int layer, float x, float zoneY, float zoneH, const Rect& clip, TextStyle style = {}) {
     if (s.empty()) return;
     const TextLayout lay = line(c, s, font, size, maxWidth, Align::Left, px, style);
     text(c, lay, x, zoneY + (zoneH - lay.size.y) * 0.5f, col, layer, clip);
 }
 
 // The same, its RIGHT edge at `x` (a mirrored widget's label).
-void text_right(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px, Color col, int layer,
-                float x, float zoneY, float zoneH, const Rect& clip, TextStyle style = {}) {
+void text_right(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth, float px,
+                Color col, int layer, float x, float zoneY, float zoneH, const Rect& clip, TextStyle style = {}) {
     if (s.empty()) return;
     const TextLayout lay = line(c, s, font, size, maxWidth, Align::Left, px, style);
     text(c, lay, x - lay.size.x, zoneY + (zoneH - lay.size.y) * 0.5f, col, layer, clip);
@@ -185,7 +189,8 @@ Color with_alpha(Color k, float a) { return {k.r, k.g, k.b, k.a * a}; }
 void disc(const Ctx& c, int layer, const Rect& r, Color col) {
     if (r.empty()) return;
     c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
-    QuadEmitter{c.list(), c.to_screen(), true, pack(col, c), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
+    QuadEmitter{c.list(), c.to_screen(), true, pack(col, c), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y,
+                                                                                  -1, -1, 1, 1);
     c.list().end_item();
 }
 
@@ -196,16 +201,20 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
     if (stick ? !stick->shown : !button->shown) return;
 
     const Color tint = button && button->pressed ? scaled(b.color, 0.6f, 0.0f) : b.color;
-    if (!b.texture.empty()) background(c, b, r, tint);
-    else disc(c, b.layer, r, tint);
+    if (!b.texture.empty())
+        background(c, b, r, tint);
+    else
+        disc(c, b.layer, r, tint);
     if (stick) {
         const float radius = std::min(r.w, r.h) * 0.5f, knob = radius * 0.45f;
         const Vec2 at = r.center() + Vec2{stick->value.x, -stick->value.y} * radius;
         disc(c, b.layer + 1, Rect::from_center(at, {knob * 2, knob * 2}), stick->knobColor);
     } else if (!button->text.empty()) {
-        const TextLayout lay = line(c, button->text, button->font, button->fontSize, 0.0f, Align::Left,
-                                    button->autoShrink ? label_px(c, world, e, r) : 0.0f, {button->markup, button->bold});
-        text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, button->textColor, b.layer + 1, c.clip);
+        const TextLayout lay =
+            line(c, button->text, button->font, button->fontSize, 0.0f, Align::Left,
+                 button->autoShrink ? label_px(c, world, e, r) : 0.0f, {button->markup, button->bold});
+        text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, button->textColor, b.layer + 1,
+             c.clip);
     }
 }
 
@@ -215,7 +224,8 @@ void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox&
 void draw_captions(const Ctx& c, const World& world, const Captions& cap, const UiBox& b, const Rect& r) {
     if (!cap.lines.is_array() || cap.lines.empty()) return;
     const bool rtl = world.rtl();
-    Align a = cap.align;  // start / end are the edges of the current language's direction; the font layer only knows left / right
+    Align a =
+        cap.align;  // start / end are the edges of the current language's direction; the font layer only knows left / right
     if (a == Align::Start || a == Align::End) a = (a == Align::Start) != rtl ? Align::Left : Align::Right;
     const float padL = cap.padding.x, padT = cap.padding.y, padR = cap.padding.z, padB = cap.padding.w;
     const float availW = std::max(1.0f, r.w - padL - padR);
@@ -251,10 +261,14 @@ void draw_captions(const Ctx& c, const World& world, const Captions& cap, const 
     float y = box.y + padT;
     for (const Entry& e : entries) {
         const float room = box.w - padL - padR;
-        const float ex = box.x + padL + (a == Align::Left ? 0.0f : a == Align::Right ? room - e.w : (room - e.w) * 0.5f);
+        const float ex = box.x + padL +
+                         (a == Align::Left    ? 0.0f
+                          : a == Align::Right ? room - e.w
+                                              : (room - e.w) * 0.5f);
         if (rtl) {
             text(c, e.body, ex, y, cap.textColor, b.layer + 1, c.clip);
-            if (!e.speaker.quads.empty()) text(c, e.speaker, ex + e.w - e.speaker.size.x, y, cap.speakerColor, b.layer + 1, c.clip);
+            if (!e.speaker.quads.empty())
+                text(c, e.speaker, ex + e.w - e.speaker.size.x, y, cap.speakerColor, b.layer + 1, c.clip);
         } else {
             if (!e.speaker.quads.empty()) text(c, e.speaker, ex, y, cap.speakerColor, b.layer + 1, c.clip);
             text(c, e.body, ex + e.speakerW, y, cap.textColor, b.layer + 1, c.clip);
@@ -353,7 +367,8 @@ void draw_chart(const Ctx& c, const World& world, const Chart& ch, const UiBox& 
                 const int slot = L.first + int(std::lround(m.get<double>()));
                 if (slot < 0 || slot >= L.slots) continue;
                 const float x = snap(c, L.x_of(slot) - (L.line ? 0.0f : L.slot_width() * 0.5f));
-                quad(c, x, L.plot.y, x + std::max(1.0f / c.k, 1.0f), L.plot.y + L.plot.h, 0, 0, 1, 1, pack(ch.markColor, c));
+                quad(c, x, L.plot.y, x + std::max(1.0f / c.k, 1.0f), L.plot.y + L.plot.h, 0, 0, 1, 1,
+                     pack(ch.markColor, c));
             }
         if (ch.showBaseline && ch.baseline >= L.lo && ch.baseline <= L.hi) {
             const float y = snap(c, L.y_of(ch.baseline));
@@ -366,12 +381,15 @@ void draw_chart(const Ctx& c, const World& world, const Chart& ch, const UiBox& 
             if (L.line) {
                 const float w = std::max(0.0f, ch.lineWidth);
                 for (std::size_t i = 0; i + 1 < v.size(); ++i)
-                    segment(c, {L.x_of(off + int(i)), L.y_of(v[i])}, {L.x_of(off + int(i) + 1), L.y_of(v[i + 1])}, w, col);
-                if (v.size() == 1) segment(c, {L.x_of(off) - w * 0.5f, L.y_of(v[0])}, {L.x_of(off) + w * 0.5f, L.y_of(v[0])}, w, col);
+                    segment(c, {L.x_of(off + int(i)), L.y_of(v[i])}, {L.x_of(off + int(i) + 1), L.y_of(v[i + 1])}, w,
+                            col);
+                if (v.size() == 1)
+                    segment(c, {L.x_of(off) - w * 0.5f, L.y_of(v[0])}, {L.x_of(off) + w * 0.5f, L.y_of(v[0])}, w, col);
             } else {
                 for (std::size_t i = 0; i < v.size(); ++i) {
                     const Rect bar = L.bar(s, off + int(i), v[i], ch.baseline);
-                    quad(c, snap(c, bar.x), snap(c, bar.y), snap(c, bar.x + bar.w), snap(c, bar.y + bar.h), 0, 0, 1, 1, col);
+                    quad(c, snap(c, bar.x), snap(c, bar.y), snap(c, bar.x + bar.w), snap(c, bar.y + bar.h), 0, 0, 1, 1,
+                         col);
                 }
             }
         }
@@ -402,13 +420,17 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     const UiControl* ctl = ui_control(world, e);
     if (ctl) {
         c.capScale = ctl->maxTextScale;
-        if (!ctl->key.empty() && world.language() != std::string()) c.dir = world.rtl() ? TextDirection::Rtl : TextDirection::Ltr;
+        if (!ctl->key.empty() && world.language() != std::string())
+            c.dir = world.rtl() ? TextDirection::Rtl : TextDirection::Ltr;
     }
     Color tint = b.color;
     if (ctl) {
-        if (!ctl->interactable) c.fade = 0.5f;
-        else if (ctl->pressed) tint = scaled(tint, 0.8f, 0.0f);
-        else if (ctl->hovered) tint = scaled(tint, 1.15f, 0.04f);
+        if (!ctl->interactable)
+            c.fade = 0.5f;
+        else if (ctl->pressed)
+            tint = scaled(tint, 0.8f, 0.0f);
+        else if (ctl->hovered)
+            tint = scaled(tint, 1.15f, 0.04f);
     }
     background(c, b, r, tint);
     const int layer = b.layer + 1;  // labels and marks; the focus ring is one more
@@ -432,47 +454,60 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         if (mirrored) box = ui_mirror_in(r, box);  // the box at the right of the label
         fill(c, layer, box, with_alpha(t.textColor, 0.25f), c.clip);
         outline(c, layer, box, 2, t.textColor);
-        if (t.value) fill(c, layer, Rect{box.x + 5, box.y + 5, std::max(0.0f, side - 10), std::max(0.0f, side - 10)}, t.accentColor, c.clip);
+        if (t.value)
+            fill(c, layer, Rect{box.x + 5, box.y + 5, std::max(0.0f, side - 10), std::max(0.0f, side - 10)},
+                 t.accentColor, c.clip);
         if (!mirrored)
-            text_left(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f, t.textColor, layer,
-                      box.x + side + 10, r.y, r.h, c.clip, {t.markup, t.bold});
+            text_left(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f,
+                      t.textColor, layer, box.x + side + 10, r.y, r.h, c.clip, {t.markup, t.bold});
         else
-            text_right(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f, t.textColor, layer,
-                       box.x - 10, r.y, r.h, c.clip, {t.markup, t.bold});
+            text_right(c, t.label, t.font, t.fontSize, t.maxWidth, t.autoShrink ? label_px(c, world, e, r) : 0.0f,
+                       t.textColor, layer, box.x - 10, r.y, r.h, c.clip, {t.markup, t.bold});
     } else if (kind == UiKind::Slider) {
         const Slider& s = *world.get<Slider>(e);
         const float innerLeft = r.x + 8, innerW = std::max(0.0f, r.w - 16);
         const auto [left, right] = ui_slider_track(s, r, mirrored);
         const float span = s.max - s.min, t = span > 0 ? std::clamp((s.value - s.min) / span, 0.0f, 1.0f) : 0.0f;
-        const float knobX = mirrored ? right - (right - left) * t : left + (right - left) * t, midY = ui_slider_mid_y(s, r);
+        const float knobX = mirrored ? right - (right - left) * t : left + (right - left) * t,
+                    midY = ui_slider_mid_y(s, r);
         const bool above = ui_slider_label_above(s);
         fill(c, layer, Rect{left, midY - 3, right - left, 6}, with_alpha(s.textColor, 0.25f), c.clip);
-        if (mirrored) fill(c, layer, Rect{knobX, midY - 3, right - knobX, 6}, s.accentColor, c.clip);  // grows from the right end
-        else fill(c, layer, Rect{left, midY - 3, knobX - left, 6}, s.accentColor, c.clip);
-        fill(c, layer, Rect{knobX - 5, midY - std::min(12.0f, (r.h - 8) * 0.5f), 10, std::min(24.0f, r.h - 8)}, s.accentColor, c.clip);
+        if (mirrored)
+            fill(c, layer, Rect{knobX, midY - 3, right - knobX, 6}, s.accentColor, c.clip);  // grows from the right end
+        else
+            fill(c, layer, Rect{left, midY - 3, knobX - left, 6}, s.accentColor, c.clip);
+        fill(c, layer, Rect{knobX - 5, midY - std::min(12.0f, (r.h - 8) * 0.5f), 10, std::min(24.0f, r.h - 8)},
+             s.accentColor, c.clip);
         const float labelPx = s.autoShrink ? label_px(c, world, e, r) : 0.0f;
         const float labelY = above ? r.y + 2 : r.y, labelH = above ? std::max(1.0f, r.h - kUiSliderRowHeight - 2) : r.h;
-        if (mirrored) text_right(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft + innerW, labelY, labelH,
-                                 c.clip, {s.markup, s.bold});
-        else text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, labelY, labelH, c.clip,
-                       {s.markup, s.bold});
+        if (mirrored)
+            text_right(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft + innerW,
+                       labelY, labelH, c.clip, {s.markup, s.bold});
+        else
+            text_left(c, s.label, s.font, s.fontSize, s.maxWidth, labelPx, s.textColor, layer, innerLeft, labelY,
+                      labelH, c.clip, {s.markup, s.bold});
         if (s.showValue) {
-            const TextLayout lay = line(c, ui_slider_value_text(s, s.value),s.font, s.fontSize);
+            const TextLayout lay = line(c, ui_slider_value_text(s, s.value), s.font, s.fontSize);
             const float zone = innerLeft + innerW * 0.85f;
             const float vx = zone + (innerLeft + innerW - zone - lay.size.x) * 0.5f;
-            text(c, lay, mirrored ? 2.0f * r.x + r.w - vx - lay.size.x : vx, midY - lay.size.y * 0.5f, s.textColor, layer, c.clip);
+            text(c, lay, mirrored ? 2.0f * r.x + r.w - vx - lay.size.x : vx, midY - lay.size.y * 0.5f, s.textColor,
+                 layer, c.clip);
         }
     } else if (kind == UiKind::TextField) {
         const TextField& tf = *world.get<TextField>(e);
         const Rect inner{r.x + 12, r.y, std::max(0.0f, r.w - 24), r.h};
-        const Rect clip = c.clip.empty() ? to_pixels(c, inner) : ui_intersect(to_pixels(c, inner), c.clip);  // the text never leaves the field
+        const Rect clip = c.clip.empty()
+                              ? to_pixels(c, inner)
+                              : ui_intersect(to_pixels(c, inner), c.clip);  // the text never leaves the field
         if (!clip.empty()) {
             const bool empty = tf.text.empty();
             const TextLayout lay = line(c, empty ? tf.placeholder : tf.text, tf.font, tf.fontSize);
-            const float width = empty ? 0.0f : lay.size.x, x = inner.x + std::min(0.0f, inner.w - width);  // long text shows its end
+            const float width = empty ? 0.0f : lay.size.x,
+                        x = inner.x + std::min(0.0f, inner.w - width);  // long text shows its end
             const float y = r.y + (r.h - lay.size.y) * 0.5f;
             text(c, lay, empty ? inner.x : x, y, with_alpha(tf.textColor, empty ? 0.5f : 1.0f), layer, clip);
-            if (tf.caret) fill(c, layer, Rect{x + width + 1, y + 2, 2, std::max(0.0f, lay.size.y - 4)}, tf.accentColor, clip);
+            if (tf.caret)
+                fill(c, layer, Rect{x + width + 1, y + 2, 2, std::max(0.0f, lay.size.y - 4)}, tf.accentColor, clip);
         }
     }
     if (ctl && ctl->focused && ctl->interactable) outline(c, b.layer + 2, r, 3, ctl->accentColor);
@@ -508,10 +543,11 @@ void draw_tooltip(Frame& f, const World& world) {
 
 void gather_ui(World& world, Frame& f) {
     bool any = false;
-    for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
-                              &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
-                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(), &World::type_of<Chart>(),
-                              &World::type_of<CameraView>()})
+    for (const TypeInfo* t :
+         {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
+          &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
+          &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(),
+          &World::type_of<Chart>(), &World::type_of<CameraView>()})
         any = any || !world.entities_with(t).empty();
     if (any)
         for (Entity root : world.roots()) visit(f, world, root);

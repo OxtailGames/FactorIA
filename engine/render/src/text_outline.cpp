@@ -8,8 +8,8 @@
 
 namespace fa {
 
-Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor, float letterSpacing,
-                                 float lineSpacing) {
+Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor,
+                                 float letterSpacing, float lineSpacing) {
     auto primary = render::load_font_face(font);
     if (!primary->ok) return make_error(primary->error, primary->hint);
     std::unique_ptr<render::FontFace> fallback;
@@ -51,7 +51,7 @@ Result<TextOutline> outline_text(std::string_view utf8, const std::string& font,
             if (g.gid == 0) continue;
             const float s = size / float(g.face->unitsPerEm);
             stbtt_vertex* verts = nullptr;
-            const int n = stbtt_GetGlyphShape(&g.face->info, int(g.gid), &verts);
+            const int n = stbtt_GetGlyphShape(&g.face->info, g.face->stb_glyph(g.gid), &verts);
             bool open = false;
             auto px = [&](int v) { return ox + float(v) * s; };
             auto py = [&](int v) { return oy - float(v) * s; };

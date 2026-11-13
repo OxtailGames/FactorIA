@@ -49,8 +49,9 @@ export default class Busy extends Behaviour {
   }
 }
 )");
-    h.file("scenes/main.scene.json",
-           watchdog_scene(Json::array({script_entity("stuck", "scripts/stuck.js"), script_entity("busy", "scripts/busy.js")})).dump());
+    h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("stuck", "scripts/stuck.js"),
+                                                                 script_entity("busy", "scripts/busy.js")}))
+                                         .dump());
     REQUIRE(h.start());
     h.scripts.set_callback_limit(0.2);
     h.load_scene_now("scenes/main.scene.json");
@@ -99,14 +100,16 @@ export default class Finder extends Behaviour {
 )");
     constexpr int kFinders = 12;
     Json entities = Json::array();
-    for (int i = 0; i < kFinders; ++i) entities.push_back(script_entity("finder" + std::to_string(i), "scripts/finder.js"));
+    for (int i = 0; i < kFinders; ++i)
+        entities.push_back(script_entity("finder" + std::to_string(i), "scripts/finder.js"));
     h.file("scenes/main.scene.json", watchdog_scene(entities).dump());
     REQUIRE(h.start());
     h.scripts.set_callback_limit(0.02);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(2);
     CHECK(count_errors(h.scripts, "took too long") == 1);  // one error per script file; every behaviour was stopped
-    auto alive = h.scripts.eval("started === 12 && keep.length === 12 && refs.every((r) => typeof r.deref() === 'object')");
+    auto alive =
+        h.scripts.eval("started === 12 && keep.length === 12 && refs.every((r) => typeof r.deref() === 'object')");
     REQUIRE(alive.ok());
     CHECK(alive->get<bool>());
 }
@@ -142,17 +145,18 @@ namespace {
 ScriptPlugin napping_plugin() {
     ScriptPlugin p;
     p.name = "nap";
-    p.functions.push_back({"ms", "Blocks the calling thread for the given milliseconds (a test of the watchdog).",
-                           [](const Json& args) {
-                               std::this_thread::sleep_for(std::chrono::milliseconds(args.at(0).get<int>()));
-                               return Json(nullptr);
-                           }});
+    p.functions.push_back(
+        {"ms", "Blocks the calling thread for the given milliseconds (a test of the watchdog).", [](const Json& args) {
+             std::this_thread::sleep_for(std::chrono::milliseconds(args.at(0).get<int>()));
+             return Json(nullptr);
+         }});
     return p;
 }
 
 void run_nap_case(TestHost& h, const std::string& body) {
     h.file("scripts/nap.js", "import { Behaviour, plugins } from \"factoria\";\nglobalThis.frames = 0;\n"
-                             "export default class Nap extends Behaviour {\n  onUpdate() {\n" + body + "\n  }\n}\n");
+                             "export default class Nap extends Behaviour {\n  onUpdate() {\n" +
+                                 body + "\n  }\n}\n");
     h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("nap", "scripts/nap.js")})).dump());
     h.scripts.set_plugins({napping_plugin()});
     REQUIRE(h.start());
@@ -258,7 +262,8 @@ export default class Spin extends Behaviour {
 )");
     constexpr int kSpinners = 105;  // more than the 100 the list keeps
     Json entities = Json::array();
-    for (int i = 0; i < kSpinners; ++i) entities.push_back(script_entity("spin" + std::to_string(i), "scripts/spin.js"));
+    for (int i = 0; i < kSpinners; ++i)
+        entities.push_back(script_entity("spin" + std::to_string(i), "scripts/spin.js"));
     h.file("scenes/main.scene.json", watchdog_scene(entities).dump());
     h.file("tests/spin.test.js", R"(
 import { test, expect, game } from "factoria:test";

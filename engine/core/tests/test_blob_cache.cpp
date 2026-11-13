@@ -37,8 +37,10 @@ void set_env(const char* name, const char* value) {
 #ifdef _WIN32
     _putenv_s(name, value ? value : "");  // an empty value removes the variable
 #else
-    if (value) ::setenv(name, value, 1);
-    else ::unsetenv(name);
+    if (value)
+        ::setenv(name, value, 1);
+    else
+        ::unsetenv(name);
 #endif
 }
 
@@ -170,7 +172,8 @@ TEST_CASE("BlobCache: damaged bytes are detected whatever part was hit") {
         CHECK(why.find("format version 99") != std::string::npos);
     }
     SUBCASE("a file cut short at any length is Damaged, never Hit") {
-        for (std::size_t keep : {std::size_t(0), std::size_t(3), std::size_t(11), std::size_t(20), good.size() - 300 - 1, good.size() - 150, good.size() - 1}) {
+        for (std::size_t keep : {std::size_t(0), std::size_t(3), std::size_t(11), std::size_t(20),
+                                 good.size() - 300 - 1, good.size() - 150, good.size() - 1}) {
             auto bad = good;
             bad.resize(keep);
             write_all(file, bad);
@@ -284,7 +287,8 @@ TEST_CASE("BlobCache: a load while a store replaces the file never sees a half f
             ++hits;
             CHECK((out == a || out == b));
         } else {
-            CHECK(status == BlobCache::Status::Miss);  // a reader the writer's rename blocked on Windows: absent, never damaged
+            CHECK(status ==
+                  BlobCache::Status::Miss);  // a reader the writer's rename blocked on Windows: absent, never damaged
         }
     }
     stop = true;
@@ -292,7 +296,8 @@ TEST_CASE("BlobCache: a load while a store replaces the file never sees a half f
     CHECK(hits > 0);
 }
 
-TEST_CASE("fs::cache_dir: FA_CACHE_DIR overrides the default, set_cache_dir wins over both, reset_cache_dir forgets it") {
+TEST_CASE(
+    "fs::cache_dir: FA_CACHE_DIR overrides the default, set_cache_dir wins over both, reset_cache_dir forgets it") {
     const stdfs::path before = fs::cache_dir();
     const char* oldEnv = std::getenv("FA_CACHE_DIR");
     const std::string saved = oldEnv ? oldEnv : "";
@@ -309,7 +314,8 @@ TEST_CASE("fs::cache_dir: FA_CACHE_DIR overrides the default, set_cache_dir wins
     fs::reset_cache_dir();  // back to the variable
     CHECK(fs::cache_dir() == fromEnv);
 
-    set_env("FA_CACHE_DIR", nullptr);  // no variable: the platform's per-user folder, which is neither the project nor the save folder
+    set_env("FA_CACHE_DIR",
+            nullptr);  // no variable: the platform's per-user folder, which is neither the project nor the save folder
     fs::reset_cache_dir();
     const stdfs::path dflt = fs::cache_dir();
     CHECK(dflt != fromEnv);

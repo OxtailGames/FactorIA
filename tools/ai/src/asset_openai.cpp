@@ -26,18 +26,19 @@ constexpr const char* kSpeechModel = "gpt-4o-mini-tts";
 constexpr const char* kSpeechVoice = "alloy";  // accepted by every speech model
 constexpr std::size_t kMaxSpeechChars = 4096;
 
-
 // multipart/form-data, built by hand: HttpRequest takes a raw body.
 class Multipart {
 public:
     explicit Multipart(std::string boundary) : boundary_(std::move(boundary)) {}
     void field(const std::string& name, const std::string& value) {
-        body_ += "--" + boundary_ + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n";
+        body_ +=
+            "--" + boundary_ + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n";
     }
     void file(const std::string& name, std::string filename, const std::string& mediaType, const std::string& bytes) {
-        for (char& c : filename) if (c == '"' || c == '\r' || c == '\n') c = '_';
-        body_ += "--" + boundary_ + "\r\nContent-Disposition: form-data; name=\"" + name + "\"; filename=\"" + filename +
-                 "\"\r\nContent-Type: " + mediaType + "\r\n\r\n" + bytes + "\r\n";
+        for (char& c : filename)
+            if (c == '"' || c == '\r' || c == '\n') c = '_';
+        body_ += "--" + boundary_ + "\r\nContent-Disposition: form-data; name=\"" + name + "\"; filename=\"" +
+                 filename + "\"\r\nContent-Type: " + mediaType + "\r\n\r\n" + bytes + "\r\n";
     }
     std::string finish() { return body_ + "--" + boundary_ + "--\r\n"; }
     const std::string& boundary() const { return boundary_; }
@@ -49,7 +50,9 @@ private:
 // OpenAI's edit mask is a PNG whose TRANSPARENT pixels are the ones to repaint; ours is grey with white = repaint.
 Result<std::string> openai_edit_mask(const std::string& grey) {
     auto img = decode_image(reinterpret_cast<const std::uint8_t*>(grey.data()), grey.size());
-    if (!img) return make_error("The inpaint mask is not a PNG: " + img.error().message, "It is a grey PNG the size of the picture.");
+    if (!img)
+        return make_error("The inpaint mask is not a PNG: " + img.error().message,
+                          "It is a grey PNG the size of the picture.");
     for (std::size_t i = 0; i < static_cast<std::size_t>(img->width) * img->height; ++i) {
         const std::uint8_t cover = img->rgba[i * 4];
         img->rgba[i * 4] = img->rgba[i * 4 + 1] = img->rgba[i * 4 + 2] = 0;
@@ -59,8 +62,8 @@ Result<std::string> openai_edit_mask(const std::string& grey) {
     return std::string(png.begin(), png.end());
 }
 
-Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel,
-                          const std::string& key) {
+Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                          const CancelFlag* cancel, const std::string& key) {
     const std::string model = req.model.empty() ? kImageModel : req.model;
     HttpRequest hr;
     hr.headers.emplace_back("Authorization", "Bearer " + key);
@@ -69,7 +72,11 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
     if (req.references.empty() && !inpaint) {
         hr.url = trim_slashes(cfg.baseUrl) + "/images/generations";
         hr.headers.emplace_back("Content-Type", "application/json");
-        Json body = Json::object({{"model", model}, {"prompt", req.prompt}, {"n", 1}, {"size", openai_image_size(req)}, {"output_format", "png"}});
+        Json body = Json::object({{"model", model},
+                                  {"prompt", req.prompt},
+                                  {"n", 1},
+                                  {"size", openai_image_size(req)},
+                                  {"output_format", "png"}});
         if (req.transparent) body["background"] = "transparent";
         if (!req.quality.empty()) body["quality"] = req.quality;
         hr.body = dump(body);
@@ -77,8 +84,9 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
         // Reference images go to the edits endpoint as image[] parts. It takes PNG, JPEG and WebP.
         for (const ReferenceImage& r : req.references) {
             if (r.mediaType != "image/png" && r.mediaType != "image/jpeg" && r.mediaType != "image/webp") {
-                return make_error("OpenAI takes reference images as PNG, JPEG or WebP, not '" + r.name + "' (" + r.mediaType + ")",
-                                  "Convert the reference to PNG, or remove it from the call and from style.references.");
+                return make_error(
+                    "OpenAI takes reference images as PNG, JPEG or WebP, not '" + r.name + "' (" + r.mediaType + ")",
+                    "Convert the reference to PNG, or remove it from the call and from style.references.");
             }
         }
         Multipart form("factoria-form-boundary-9d41c7e2");
@@ -106,8 +114,9 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
     const Json* data = child(reply, "data");
     const std::string b64 = data && data->is_array() && !data->empty() ? str((*data)[0], "b64_json") : std::string();
     if (b64.empty()) {
-        return make_error("OpenAI answered without image data: " + resp->body.substr(0, 200),
-                          "The reply must have data[0].b64_json (gpt-image-1 always answers that way). Check the model name.");
+        return make_error(
+            "OpenAI answered without image data: " + resp->body.substr(0, 200),
+            "The reply must have data[0].b64_json (gpt-image-1 always answers that way). Check the model name.");
     }
     const auto bytes = fa::base64_decode(b64);
     AssetResult out;
@@ -117,11 +126,11 @@ Result<AssetResult> image(const ProviderConfig& cfg, const AssetRequest& req, co
     return out;
 }
 
-Result<AssetResult> speech(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel,
-                           const std::string& key) {
+Result<AssetResult> speech(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                           const CancelFlag* cancel, const std::string& key) {
     if (req.prompt.size() > kMaxSpeechChars) {
-        return make_error("The text to speak has " + std::to_string(req.prompt.size()) + " characters; OpenAI speech takes at most " +
-                              std::to_string(kMaxSpeechChars),
+        return make_error("The text to speak has " + std::to_string(req.prompt.size()) +
+                              " characters; OpenAI speech takes at most " + std::to_string(kMaxSpeechChars),
                           "Split it into several lines of dialogue and generate each one.");
     }
     const std::string model = req.model.empty() ? kSpeechModel : req.model;
@@ -131,10 +140,8 @@ Result<AssetResult> speech(const ProviderConfig& cfg, const AssetRequest& req, c
     hr.headers.emplace_back("Authorization", "Bearer " + key);
     hr.headers.emplace_back("Content-Type", "application/json");
     for (const auto& kv : cfg.headers) hr.headers.push_back(kv);
-    hr.body = dump(Json::object({{"model", model},
-                                 {"input", req.prompt},
-                                 {"voice", voice},
-                                 {"response_format", "mp3"}}));
+    hr.body =
+        dump(Json::object({{"model", model}, {"input", req.prompt}, {"voice", voice}, {"response_format", "mp3"}}));
     auto resp = asset_request(cfg, std::move(hr), rt, cancel);
     if (!resp) return resp.error();
     AssetResult out;
@@ -146,7 +153,8 @@ Result<AssetResult> speech(const ProviderConfig& cfg, const AssetRequest& req, c
 
 }  // namespace
 
-Result<AssetResult> openai_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel) {
+Result<AssetResult> openai_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                 const CancelFlag* cancel) {
     auto key = asset_api_key(cfg, rt);
     if (!key) return key.error();
     return req.kind == MediaKind::Image ? image(cfg, req, rt, cancel, *key) : speech(cfg, req, rt, cancel, *key);

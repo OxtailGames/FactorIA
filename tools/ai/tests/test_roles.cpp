@@ -13,7 +13,9 @@ using namespace fa::ai::test;
 
 namespace {
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 // make_registry() plus a command that edits (readOnly=false) and the commands that play.
 CommandRegistry roles_registry() {
@@ -67,7 +69,8 @@ TEST_CASE("roles: an old ai.json with three Claude Code roles gives the new role
         "fast":{"provider":"claude-code","model":"haiku"}}})"),
                             "old");
     REQUIRE(cfg);
-    for (const char* r : {"artist", "audio", "artCritic", "reviewer"}) CHECK_MESSAGE(cfg->role(r).provider == "claude-code", r);
+    for (const char* r : {"artist", "audio", "artCritic", "reviewer"})
+        CHECK_MESSAGE(cfg->role(r).provider == "claude-code", r);
     CHECK(cfg->role("artist").model == "opus");
     CHECK(cfg->role("artCritic").model == "opus");
     CHECK(cfg->role("reviewer").model == "opus");
@@ -100,7 +103,8 @@ TEST_CASE("roles: the new roles follow the base role's provider, not an Anthropi
 }
 
 TEST_CASE("roles: the schema accepts the new roles and save_roles writes only the roles it is given") {
-    CHECK(validate_config_json(Json::parse(R"({"roles":{"artist":{"provider":"claude-code","model":"opus","effort":"high"},
+    CHECK(validate_config_json(
+              Json::parse(R"({"roles":{"artist":{"provider":"claude-code","model":"opus","effort":"high"},
         "audio":{"provider":"claude-code"},"artCritic":{"provider":"claude-code"},"reviewer":{"provider":"claude-code"}}})"))
               .empty());
     CHECK_FALSE(validate_config_json(Json::parse(R"({"roles":{"artst":{"provider":"claude-code"}}})")).empty());
@@ -211,8 +215,8 @@ TEST_CASE("read-only: Claude Code is told which tools to switch off") {
     CHECK(contains(cli_disallowed_tools(reg, kRoleWorker, false), "mcp__factoria__ai_run"));
     // A reviewer: nothing that edits.
     auto rev = cli_disallowed_tools(reg, kRoleReviewer, false);
-    for (const char* t : {"Edit", "Write", "NotebookEdit", "Bash", "mcp__factoria__scene_spawn", "mcp__factoria__fs_write",
-                          "mcp__factoria__assets_generate_image"})
+    for (const char* t : {"Edit", "Write", "NotebookEdit", "Bash", "mcp__factoria__scene_spawn",
+                          "mcp__factoria__fs_write", "mcp__factoria__assets_generate_image"})
         CHECK_MESSAGE(contains(rev, t), t);
     for (const char* t : {"mcp__factoria__game_step", "mcp__factoria__game_click", "mcp__factoria__scene_load",
                           "mcp__factoria__game_screenshot"})
@@ -236,7 +240,8 @@ TEST_CASE("review personas: five per role, the first is the all-rounder") {
 }
 
 TEST_CASE("review report: the last fenced json block is the score, the rest is the text") {
-    auto p = parse_review_report("Good game.\n\nDo this next:\n1. fix the jump\n\n```json\n{\"score\": 7.5, \"subScores\": {\"fun\": 8, \"ux\": 6}, "
+    auto p = parse_review_report("Good game.\n\nDo this next:\n1. fix the jump\n\n```json\n{\"score\": 7.5, "
+                                 "\"subScores\": {\"fun\": 8, \"ux\": 6}, "
                                  "\"summary\": \"Fun but rough.\"}\n```\n");
     CHECK(p.score == doctest::Approx(7.5));
     CHECK(p.summary == "Fun but rough.");
@@ -320,16 +325,19 @@ TEST_CASE("a review is handed to the orchestrator as a message, with the score a
     CHECK(review_as_message(g).find("game review") != std::string::npos);
 }
 
-TEST_CASE("system prompts: every role has its section; reviewers read REVIEW.md first and are told they are read-only") {
+TEST_CASE(
+    "system prompts: every role has its section; reviewers read REVIEW.md first and are told they are read-only") {
     TempDir dir;
     std::ofstream(dir.path / "factoria.json") << R"({"name":"g"})";
     std::ofstream(dir.path / "REVIEW.md") << "# How to play\nArrows move. Press F9 for the debug menu.\n";
-    auto prompt = [&](const char* role, bool delegate) { return build_system_prompt(PromptContext{dir.str(), role, delegate, ""}); };
+    auto prompt = [&](const char* role, bool delegate) {
+        return build_system_prompt(PromptContext{dir.str(), role, delegate, ""});
+    };
     const std::string orch = prompt("orchestrator", true);
     CHECK(orch.find("artist") != std::string::npos);
     CHECK(orch.find("audio") != std::string::npos);
-    CHECK(orch.find("REVIEW.md") != std::string::npos);  // it keeps the file up to date
-    CHECK(orch.find("Agent") != std::string::npos);      // it is told its own sub-agent tools are off
+    CHECK(orch.find("REVIEW.md") != std::string::npos);          // it keeps the file up to date
+    CHECK(orch.find("Agent") != std::string::npos);              // it is told its own sub-agent tools are off
     CHECK(orch.find("not yours to call") != std::string::npos);  // it is told the critics are the user's to start
     CHECK(prompt("worker", false).find("REVIEW.md") != std::string::npos);
     CHECK(prompt("artist", false).find("# Your role: artist") != std::string::npos);
@@ -420,7 +428,8 @@ TEST_CASE("roles off: display names, groups, enabled round trips through ai.json
     CHECK(role_group("reviewer") == 2);
     CHECK(role_group("nope") == -1);
 
-    auto cfg = parse_config(Json::parse(R"({"roles":{"artist":{"enabled":false},"reviewer":{"provider":"claude-code","enabled":false}}})"));
+    auto cfg = parse_config(
+        Json::parse(R"({"roles":{"artist":{"enabled":false},"reviewer":{"provider":"claude-code","enabled":false}}})"));
     REQUIRE(cfg);
     CHECK_FALSE(cfg->role_enabled("artist"));
     CHECK_FALSE(cfg->role_enabled("reviewer"));
@@ -503,7 +512,8 @@ TEST_CASE("roles off: the orchestrator's prompt lists only the roles that are on
     CHECK(alone.find("REVIEW.md") != std::string::npos);
 
     // the artist's own prompt still works (the guidance is shared)
-    CHECK(build_system_prompt(PromptContext{dir.str(), "artist", false, ""}).find("# Your role: artist") != std::string::npos);
+    CHECK(build_system_prompt(PromptContext{dir.str(), "artist", false, ""}).find("# Your role: artist") !=
+          std::string::npos);
 }
 
 TEST_CASE("roles off: agent_delegate refuses a role that is off, and with all four off there is no delegation tool") {
@@ -584,7 +594,8 @@ TEST_CASE("roles off: ai.run refuses a role that is off; a review whose role is 
     CHECK(provider->requests[0].system.find("READ-ONLY") != std::string::npos);
 }
 
-TEST_CASE("read-only: the game reviewer may run play.auto and its prompt makes it a support of playing by hand; the art critic's does not") {
+TEST_CASE("read-only: the game reviewer may run play.auto and its prompt makes it a support of playing by hand; the "
+          "art critic's does not") {
     CommandRegistry reg = roles_registry();
     // Allowed for the read-only roles (it writes only a session under .factoria/sessions/), for Claude Code too.
     CHECK(contains(tool_names(tools_from_registry(reg, false, true)), "play_auto"));

@@ -44,14 +44,16 @@ struct ValidationReport {
     std::vector<ValidationIssue> notes;
     int scenesChecked = 0;
     int scriptsChecked = 0;
-    int materialsChecked = 0;  // *.material.json files (custom materials; their snippets are compiled when sokol-shdc is found)
+    int materialsChecked =
+        0;  // *.material.json files (custom materials; their snippets are compiled when sokol-shdc is found)
     Json to_json() const;
     std::string to_text() const;  // multi-line, for the CLI
 };
 
 // Checks one script file (project-relative path) and returns syntax errors.
 // engine_validate_options (fa/tooling/tooling.h) builds this and the props check from an Engine.
-using ScriptCheckHook = std::function<std::vector<ValidationIssue>(const std::string& projectDir, const std::string& scriptPath)>;
+using ScriptCheckHook =
+    std::function<std::vector<ValidationIssue>(const std::string& projectDir, const std::string& scriptPath)>;
 
 // Checks `Script.props` of a scene/prefab entity against the behaviour module: returns one message per prop that does
 // not exist on the behaviour (empty = fine). Reported as warnings (ScriptSystem::check_props).
@@ -70,9 +72,10 @@ struct ValidateOptions {
     ScriptHooksCheckHook hooksCheck;  // empty: behaviour method names are not checked
     ScriptCheckHook scriptCheck;      // empty: scripts are counted, not compiled
     ScriptLoadCheckHook loadCheck;    // empty: a module whose top level throws is not found
-    Json scriptApi;                   // ScriptSystem::api_manifest(); null: imported names, members and component names are not checked
-    bool checkScenes = true;      // load scenes into a temporary World
-    SetupContext shaderContext;   // where sokol-shdc is looked for and how it is started, for the snippets of custom materials (tests change it)
+    Json scriptApi;  // ScriptSystem::api_manifest(); null: imported names, members and component names are not checked
+    bool checkScenes = true;  // load scenes into a temporary World
+    SetupContext
+        shaderContext;  // where sokol-shdc is looked for and how it is started, for the snippets of custom materials (tests change it)
 };
 
 ValidationReport validate_project(const std::string& projectDir, const ValidateOptions& options = {});

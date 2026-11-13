@@ -50,9 +50,9 @@ struct Loaded {
     std::vector<Command> commands;
     std::vector<ScriptPlugin::Function> functions;
     std::optional<PluginBackendSpec> backend;  // what add_backend registered (ABI version 2)
-    FaTextInputHandler textInput = nullptr;  // what add_text_input registered (ABI version 3)
+    FaTextInputHandler textInput = nullptr;    // what add_text_input registered (ABI version 3)
     void* textInputUser = nullptr;
-    int steamDeck = -1;  // what set_device_fact("steamDeck") said (ABI version 4); -1 nothing
+    int steamDeck = -1;         // what set_device_fact("steamDeck") said (ABI version 4); -1 nothing
     bool initializing = false;  // add_command / add_function / add_backend are accepted only inside the entry point
     FaPluginApi api{};
 };
@@ -79,13 +79,15 @@ std::map<std::string, FaPluginInitFn>& statics() {
 Loaded* of(const FaPluginApi* api) { return api ? static_cast<Loaded*>(api->host) : nullptr; }
 
 bool is_snake(const std::string& s) {
-    return !s.empty() && s[0] >= 'a' && s[0] <= 'z' &&
-           std::all_of(s.begin(), s.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+    return !s.empty() && s[0] >= 'a' && s[0] <= 'z' && std::all_of(s.begin(), s.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+    });
 }
 
 bool is_js_identifier(const std::string& s) {
     auto start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$'; };
-    return !s.empty() && start(s[0]) && std::all_of(s.begin(), s.end(), [&](char c) { return start(c) || (c >= '0' && c <= '9'); });
+    return !s.empty() && start(s[0]) &&
+           std::all_of(s.begin(), s.end(), [&](char c) { return start(c) || (c >= '0' && c <= '9'); });
 }
 
 Json invoke(FaHandler handler, void* user, const Json& args) {
@@ -106,13 +108,17 @@ int add_command(const FaPluginApi* api, const FaCommandDesc* d) {
     if (!p || !d) return 1;
     const std::string name = d->name ? d->name : "";
     const std::string prefix = p->name + ".";
-    if (!p->initializing) return refuse(*p, "add_command", "'" + name + "': register commands inside fa_plugin_init only");
+    if (!p->initializing)
+        return refuse(*p, "add_command", "'" + name + "': register commands inside fa_plugin_init only");
     if (name.rfind(prefix, 0) != 0 || !is_snake(name.substr(prefix.size())))
-        return refuse(*p, "add_command", "'" + name + "' is not a command name of this plugin: use \"" + prefix +
-                                             "<verb>\" in snake_case, e.g. \"" + prefix + "status\"");
+        return refuse(*p, "add_command",
+                      "'" + name + "' is not a command name of this plugin: use \"" + prefix +
+                          "<verb>\" in snake_case, e.g. \"" + prefix + "status\"");
     if (!d->summary || !*d->summary)
-        return refuse(*p, "add_command", "'" + name + "' has no summary: every command needs a doc string, one imperative line "
-                                             "(\"Unlock an achievement.\") that MCP clients and `factoria commands` show");
+        return refuse(*p, "add_command",
+                      "'" + name +
+                          "' has no summary: every command needs a doc string, one imperative line "
+                          "(\"Unlock an achievement.\") that MCP clients and `factoria commands` show");
     if (!d->handler) return refuse(*p, "add_command", "'" + name + "' has no handler");
     if (std::any_of(p->commands.begin(), p->commands.end(), [&](const Command& c) { return c.info.name == name; }))
         return refuse(*p, "add_command", "'" + name + "' is registered twice");
@@ -125,9 +131,10 @@ int add_command(const FaPluginApi* api, const FaCommandDesc* d) {
     if (d->input_schema && *d->input_schema) {
         auto schema = parse_json(d->input_schema, name + " input_schema");
         if (!schema.ok() || !schema->is_object())
-            return refuse(*p, "add_command", "the input_schema of '" + name + "' is not a JSON Schema object" +
-                                                 (schema.ok() ? std::string() : ": " + schema.error().message) +
-                                                 ". Example: {\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}");
+            return refuse(*p, "add_command",
+                          "the input_schema of '" + name + "' is not a JSON Schema object" +
+                              (schema.ok() ? std::string() : ": " + schema.error().message) +
+                              ". Example: {\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}");
         c.info.inputSchema = std::move(schema.value());
     }
     c.call = [handler = d->handler, user = d->user](const Json& args) { return invoke(handler, user, args); };
@@ -139,17 +146,24 @@ int add_function(const FaPluginApi* api, const FaFunctionDesc* d) {
     Loaded* p = of(api);
     if (!p || !d) return 1;
     const std::string name = d->name ? d->name : "";
-    if (!p->initializing) return refuse(*p, "add_function", "'" + name + "': register functions inside fa_plugin_init only");
+    if (!p->initializing)
+        return refuse(*p, "add_function", "'" + name + "': register functions inside fa_plugin_init only");
     if (!is_js_identifier(name))
-        return refuse(*p, "add_function", "'" + name + "' is not a JavaScript identifier (scripts call plugins." + p->name +
-                                              ".<name>(...)): use letters, digits, _ and $, e.g. \"unlockAchievement\"");
+        return refuse(*p, "add_function",
+                      "'" + name + "' is not a JavaScript identifier (scripts call plugins." + p->name +
+                          ".<name>(...)): use letters, digits, _ and $, e.g. \"unlockAchievement\"");
     if (!d->doc || !*d->doc)
-        return refuse(*p, "add_function", "'" + name + "' has no doc: say what it does, its arguments and its result; it goes "
-                                              "into types/factoria.d.ts, which is what AIs read");
+        return refuse(*p, "add_function",
+                      "'" + name +
+                          "' has no doc: say what it does, its arguments and its result; it goes "
+                          "into types/factoria.d.ts, which is what AIs read");
     if (!d->handler) return refuse(*p, "add_function", "'" + name + "' has no handler");
-    if (std::any_of(p->functions.begin(), p->functions.end(), [&](const ScriptPlugin::Function& f) { return f.name == name; }))
+    if (std::any_of(p->functions.begin(), p->functions.end(),
+                    [&](const ScriptPlugin::Function& f) { return f.name == name; }))
         return refuse(*p, "add_function", "'" + name + "' is registered twice");
-    p->functions.push_back({name, d->doc, [handler = d->handler, user = d->user](const Json& args) { return invoke(handler, user, args); }});
+    p->functions.push_back({name, d->doc, [handler = d->handler, user = d->user](const Json& args) {
+                                return invoke(handler, user, args);
+                            }});
     return 0;
 }
 
@@ -160,33 +174,44 @@ int add_backend(const FaPluginApi* api, const FaBackendDesc* d) {
     if (!p->initializing)
         return refuse(*p, "add_backend", "'" + name + "': register the backend inside fa_plugin_init only");
     if (p->backend)
-        return refuse(*p, "add_backend", "'" + name + "': this plugin already registered the backend '" + p->backend->name +
-                                             "'; a plugin has one backend (make another plugin for another store)");
+        return refuse(*p, "add_backend",
+                      "'" + name + "': this plugin already registered the backend '" + p->backend->name +
+                          "'; a plugin has one backend (make another plugin for another store)");
     if (!is_snake(name))
-        return refuse(*p, "add_backend", "'" + name + "' is not a backend name: use lower-case letters, digits and underscores, "
-                                             "e.g. \"steam\" (the \"ids\" of the catalog in factoria.json are keyed by it)");
+        return refuse(*p, "add_backend",
+                      "'" + name +
+                          "' is not a backend name: use lower-case letters, digits and underscores, "
+                          "e.g. \"steam\" (the \"ids\" of the catalog in factoria.json are keyed by it)");
     if (!d->request)
-        return refuse(*p, "add_backend", "'" + name + "' has no request handler: it receives every platform request "
-                                             "(\"achievements.unlock\", \"purchases.buy\", ...; docs/PLATFORM.md lists them)");
+        return refuse(*p, "add_backend",
+                      "'" + name +
+                          "' has no request handler: it receives every platform request "
+                          "(\"achievements.unlock\", \"purchases.buy\", ...; docs/PLATFORM.md lists them)");
     const std::string services = d->services ? d->services : "";
     const std::string example = "e.g. \"services\": \"[\\\"achievements\\\",\\\"stats\\\"]\" (all of them: " +
                                 join(platform_services_all(), ", ") + ")";
     if (services.empty())
-        return refuse(*p, "add_backend", "'" + name + "' has no services: pass a JSON array of the ones it offers, " + example);
+        return refuse(*p, "add_backend",
+                      "'" + name + "' has no services: pass a JSON array of the ones it offers, " + example);
     auto parsed = parse_json(services, name + " services");
     if (!parsed.ok() || !parsed->is_array())
-        return refuse(*p, "add_backend", "the services of '" + name + "' are not a JSON array of strings (" +
-                                             (parsed.ok() ? std::string("got ") + parsed->type_name() : parsed.error().message) + "), " + example);
+        return refuse(*p, "add_backend",
+                      "the services of '" + name + "' are not a JSON array of strings (" +
+                          (parsed.ok() ? std::string("got ") + parsed->type_name() : parsed.error().message) + "), " +
+                          example);
     std::vector<std::string> offered;
     for (const Json& item : parsed.value()) {
         const std::string service = item.is_string() ? item.get<std::string>() : "";
         const auto& all = platform_services_all();
         if (service == "http")
-            return refuse(*p, "add_backend", "'" + name + "' lists 'http', which a plugin cannot offer: the engine serves http.fetch itself "
-                                                 "with the system's HTTP client (docs/NETWORKING.md)");
+            return refuse(*p, "add_backend",
+                          "'" + name +
+                              "' lists 'http', which a plugin cannot offer: the engine serves http.fetch itself "
+                              "with the system's HTTP client (docs/NETWORKING.md)");
         if (std::find(all.begin(), all.end(), service) == all.end())
-            return refuse(*p, "add_backend", "'" + name + "' lists " + (item.is_string() ? "'" + service + "'" : item.dump()) +
-                                                 ", which is not a platform service. " + did_you_mean(service, all));
+            return refuse(*p, "add_backend",
+                          "'" + name + "' lists " + (item.is_string() ? "'" + service + "'" : item.dump()) +
+                              ", which is not a platform service. " + did_you_mean(service, all));
         if (std::find(offered.begin(), offered.end(), service) == offered.end()) offered.push_back(service);
     }
     if (offered.empty())
@@ -206,11 +231,14 @@ int add_backend(const FaPluginApi* api, const FaBackendDesc* d) {
 int add_text_input(const FaPluginApi* api, FaTextInputHandler handler, void* user) {
     Loaded* p = of(api);
     if (!p) return 1;
-    if (!p->initializing) return refuse(*p, "add_text_input", "register the text input handler inside fa_plugin_init only");
+    if (!p->initializing)
+        return refuse(*p, "add_text_input", "register the text input handler inside fa_plugin_init only");
     if (!handler)
-        return refuse(*p, "add_text_input", "no handler: it receives a FaTextInput each time a TextField takes or loses the focus "
-                                            "with a gamepad, and returns 1 when the platform shows its own keyboard");
-    if (p->textInput) return refuse(*p, "add_text_input", "this plugin already registered a text input handler (one per plugin)");
+        return refuse(*p, "add_text_input",
+                      "no handler: it receives a FaTextInput each time a TextField takes or loses the focus "
+                      "with a gamepad, and returns 1 when the platform shows its own keyboard");
+    if (p->textInput)
+        return refuse(*p, "add_text_input", "this plugin already registered a text input handler (one per plugin)");
     p->textInput = handler;
     p->textInputUser = user;
     return 0;
@@ -223,26 +251,35 @@ void set_device_fact(const FaPluginApi* api, const char* name, int value) {
         p->steamDeck = value != 0 ? 1 : 0;
         return;
     }
-    refuse(*p, "set_device_fact", std::string("unknown fact '") + (name ? name : "") + "'; the only one is \"steamDeck\"");
+    refuse(*p, "set_device_fact",
+           std::string("unknown fact '") + (name ? name : "") + "'; the only one is \"steamDeck\"");
 }
 
 int set_command_capabilities(const FaPluginApi* api, const char* command, const char* capabilities_json) {
     Loaded* p = of(api);
     if (!p) return 1;
     const std::string name = command ? command : "";
-    if (!p->initializing) return refuse(*p, "set_command_capabilities", "'" + name + "': declare capabilities inside fa_plugin_init only");
-    auto it = std::find_if(p->commands.begin(), p->commands.end(), [&](const Command& c) { return c.info.name == name; });
+    if (!p->initializing)
+        return refuse(*p, "set_command_capabilities",
+                      "'" + name + "': declare capabilities inside fa_plugin_init only");
+    auto it =
+        std::find_if(p->commands.begin(), p->commands.end(), [&](const Command& c) { return c.info.name == name; });
     if (it == p->commands.end()) {
         std::vector<std::string> added;
         for (const Command& c : p->commands) added.push_back(c.info.name);
-        return refuse(*p, "set_command_capabilities", "'" + name + "' is not a command of this plugin: call add_command first. " + did_you_mean(name, added));
+        return refuse(*p, "set_command_capabilities",
+                      "'" + name + "' is not a command of this plugin: call add_command first. " +
+                          did_you_mean(name, added));
     }
     auto json = parse_json(capabilities_json ? capabilities_json : "", name + " capabilities");
     if (!json.ok())
-        return refuse(*p, "set_command_capabilities", "the capabilities of '" + name + "' are not JSON: " + json.error().message +
-                                                          ". Example: [\"read\",\"network\"]");
+        return refuse(*p, "set_command_capabilities",
+                      "the capabilities of '" + name + "' are not JSON: " + json.error().message +
+                          ". Example: [\"read\",\"network\"]");
     auto set = CapabilitySet::parse_declaration(*json, "/capabilities");
-    if (!set.ok()) return refuse(*p, "set_command_capabilities", "'" + name + "': " + set.error().message + " " + set.error().hint);
+    if (!set.ok())
+        return refuse(*p, "set_command_capabilities",
+                      "'" + name + "': " + set.error().message + " " + set.error().hint);
     it->info.capabilities = *set;
     it->info.capabilitiesDeclared = true;
     it->info.readOnly = set->without(Capability::Read).empty();
@@ -262,7 +299,8 @@ void reply(FaCall* call, const char* json) {
     if (!parsed.ok()) {
         call->failed = true;
         call->error = "the plugin answered with text that is not JSON (" + parsed.error().message + ")";
-        call->hint = "reply() takes JSON text: a number \"3\", a string \"\\\"text\\\"\" (with its quotes), an object \"{...}\"";
+        call->hint =
+            "reply() takes JSON text: a number \"3\", a string \"\\\"text\\\"\" (with its quotes), an object \"{...}\"";
         return;
     }
     call->result = std::move(parsed.value());
@@ -278,13 +316,17 @@ void fail(FaCall* call, const char* message, const char* hint) {
 
 void plugin_log(const FaPluginApi* api, int level, const char* message) {
     const Loaded* p = of(api);
-    const LogLevel l = level <= 0 ? LogLevel::Debug : level == 1 ? LogLevel::Info : level == 2 ? LogLevel::Warn : LogLevel::Error;
+    const LogLevel l = level <= 0   ? LogLevel::Debug
+                       : level == 1 ? LogLevel::Info
+                       : level == 2 ? LogLevel::Warn
+                                    : LogLevel::Error;
     log(l, p ? p->name : std::string("plugin"), message ? message : "");
 }
 
 void* native_handle(const char* name) {
 #if defined(__ANDROID__)
-    if (name && std::string_view(name) == "android.activity") return const_cast<void*>(sapp_android_get_native_activity());
+    if (name && std::string_view(name) == "android.activity")
+        return const_cast<void*>(sapp_android_get_native_activity());
 #else
     (void)name;
 #endif
@@ -306,17 +348,20 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         init = reinterpret_cast<FaPluginInitFn>(reinterpret_cast<void*>(GetProcAddress(h, "fa_plugin_init")));
 #elif defined(__EMSCRIPTEN__)
         // A browser cannot load a native library at run time: there is no dlopen for a plugin's .so or .dll.
-        error = "cannot load " + p.library + ": native plugins do not run in a web export (WebAssembly cannot load native "
-                "libraries). Move the plugin's work to a script, or call a web API from a script; platform services use the "
+        error = "cannot load " + p.library +
+                ": native plugins do not run in a web export (WebAssembly cannot load native "
+                "libraries). Move the plugin's work to a script, or call a web API from a script; platform services "
+                "use the "
                 "fake backend or none on the web";
         return false;
 #else
         void* h = dlopen(p.library.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!h) {
             const char* why = dlerror();
-            error = "cannot load " + p.library + ": " + (why ? why : "unknown error") +
-                    ". It must be built for this OS and CPU, and the libraries it needs must be found (an rpath of $ORIGIN "
-                    "on Linux, @loader_path on macOS)";
+            error =
+                "cannot load " + p.library + ": " + (why ? why : "unknown error") +
+                ". It must be built for this OS and CPU, and the libraries it needs must be found (an rpath of $ORIGIN "
+                "on Linux, @loader_path on macOS)";
             return false;
         }
         init = reinterpret_cast<FaPluginInitFn>(dlsym(h, "fa_plugin_init"));
@@ -327,9 +372,24 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
             return true;
         }
     }
-    p.api = FaPluginApi{FA_PLUGIN_API_VERSION, p.name.c_str(), runtime_platform(), &p, add_command, add_function, reply, fail,
-                        plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit,
-                        add_text_input, submit_text, set_device_fact, set_command_capabilities};
+    p.api = FaPluginApi{FA_PLUGIN_API_VERSION,
+                        p.name.c_str(),
+                        runtime_platform(),
+                        &p,
+                        add_command,
+                        add_function,
+                        reply,
+                        fail,
+                        plugin_log,
+                        native_handle,
+                        add_backend,
+                        plugin_resolve,
+                        plugin_reject,
+                        plugin_emit,
+                        add_text_input,
+                        submit_text,
+                        set_device_fact,
+                        set_command_capabilities};
     p.initializing = true;
     const int rc = init(&p.api);
     p.initializing = false;
@@ -357,13 +417,15 @@ Result<std::string> plugin_folder(const std::string& projectDir, const PluginSet
         const std::size_t end = plugin.path.find('}', i + 2);
         if (end == std::string::npos)
             return make_error(where + ": '" + plugin.path + "' has a '${' without its '}'",
-                              "Write an environment variable as ${NAME}, e.g. \"${MY_SDK_PLUGINS}/" + plugin.name + "\".");
+                              "Write an environment variable as ${NAME}, e.g. \"${MY_SDK_PLUGINS}/" + plugin.name +
+                                  "\".");
         const std::string var = plugin.path.substr(i + 2, end - i - 2);
         const char* value = var.empty() ? nullptr : std::getenv(var.c_str());
         if (!value || !*value)
             return make_error(where + ": the environment variable " + var + " in '" + plugin.path + "' is not set",
-                              "Set " + var + " to the folder that holds the plugin before starting factoria (it keeps a private "
-                              "SDK outside the repository), or write the folder itself in \"path\".");
+                              "Set " + var +
+                                  " to the folder that holds the plugin before starting factoria (it keeps a private "
+                                  "SDK outside the repository), or write the folder itself in \"path\".");
         out += value;
         i = end + 1;
     }
@@ -380,22 +442,27 @@ std::string plugin_library(const std::string& name, const std::string& platform)
     return "android";
 }
 
-Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin, const std::string& platform) {
+Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin,
+                                 const std::string& platform) {
     auto folder = plugin_folder(projectDir, plugin);
     if (!folder.ok()) return folder.error();
     const stdfs::path dir = stdfs::path(folder.value()) / platform;
     const std::string where = std::string(kProjectFileName) + "#/plugins/" + plugin.name + ": ";
-    const std::string notFor = "or, when it is not made for " + platform + ", list the platforms it is made for in \"platforms\"";
+    const std::string notFor =
+        "or, when it is not made for " + platform + ", list the platforms it is made for in \"platforms\"";
     std::error_code ec;
     std::vector<std::string> missing;
     if (platform == "android") {
-        bool found = stdfs::is_regular_file(dir / "build.gradle", ec) || stdfs::is_regular_file(dir / "build.gradle.kts", ec);
+        bool found =
+            stdfs::is_regular_file(dir / "build.gradle", ec) || stdfs::is_regular_file(dir / "build.gradle.kts", ec);
         for (stdfs::directory_iterator it(dir, ec), end; !found && !ec && it != end; it.increment(ec))
             found = it->path().extension() == ".aar" || it->path().extension() == ".jar";
         if (!found)
-            return make_error(where + dir.generic_string() + " has no Android build: no build.gradle(.kts), .aar or .jar",
-                              "Put a Gradle library module there (the one `factoria call project.new_plugin` writes builds "
-                              "lib" + plugin.name + ".so into src/main/jniLibs/<abi>/), or the plugin's .aar files; " + notFor + ".");
+            return make_error(
+                where + dir.generic_string() + " has no Android build: no build.gradle(.kts), .aar or .jar",
+                "Put a Gradle library module there (the one `factoria call project.new_plugin` writes builds "
+                "lib" +
+                    plugin.name + ".so into src/main/jniLibs/<abi>/), or the plugin's .aar files; " + notFor + ".");
     } else if (platform == "ios") {
         for (const char* sdk : {"iphoneos", "iphonesimulator"})
             if (!stdfs::is_regular_file(dir / sdk / ("lib" + plugin.name + ".a"), ec))
@@ -404,22 +471,26 @@ Result<std::string> plugin_build(const std::string& projectDir, const PluginSett
         missing.push_back(plugin_library(plugin.name, platform));
     }
     if (!missing.empty()) {
-        return make_error(where + "the " + platform + " build is missing: " + join(missing, ", ") + " not found in " + folder.value(),
-                          "Build the plugin for " + platform + " into its folder (its CMakeLists.txt copies the build there, "
-                          "docs/EXTENDING.md \"Native plugins\"), " + notFor + ".");
+        return make_error(where + "the " + platform + " build is missing: " + join(missing, ", ") + " not found in " +
+                              folder.value(),
+                          "Build the plugin for " + platform +
+                              " into its folder (its CMakeLists.txt copies the build there, "
+                              "docs/EXTENDING.md \"Native plugins\"), " +
+                              notFor + ".");
     }
     return dir.generic_string();
 }
 
-PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir, const std::string& libraryDir,
-                              CommandRegistry& commands, ScriptSystem& scripts) {
+PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir,
+                              const std::string& libraryDir, CommandRegistry& commands, ScriptSystem& scripts) {
     PluginInstall result;
     std::vector<ScriptPlugin> forScripts;
     const std::string platform = runtime_platform();
     std::lock_guard<std::mutex> lock(g_mutex);
     for (const PluginSettings& ps : project.plugins) {
         const std::vector<std::string> platforms = project.plugin_platforms(ps);
-        if (std::find(platforms.begin(), platforms.end(), platform) == platforms.end()) continue;  // plugins.<name> undefined
+        if (std::find(platforms.begin(), platforms.end(), platform) == platforms.end())
+            continue;  // plugins.<name> undefined
 
         // Where its library is.
         std::string library, error;
@@ -430,17 +501,21 @@ PluginInstall install_plugins(const ProjectSettings& project, const std::string&
         } else if (platform == "android") {
             library = "lib" + ps.name + ".so";  // in the APK: the system linker finds it by name
         } else if (platform == "ios") {
-            error = "it is not linked into the app (an iOS plugin is a static library that `factoria export --platform ios` "
+            error = "it is not linked into the app (an iOS plugin is a static library that `factoria export --platform "
+                    "ios` "
                     "links into the Xcode project: export the game again)";
         } else {
             const std::string file = stdfs::path(plugin_library(ps.name, platform)).filename().string();
             std::error_code ec;
             if (libraryDir.empty()) {
                 auto dir = plugin_build(projectDir, ps, platform);
-                if (dir.ok()) library = dir.value() + "/" + file;
-                else error = dir.error().message + " " + dir.error().hint;
+                if (dir.ok())
+                    library = dir.value() + "/" + file;
+                else
+                    error = dir.error().message + " " + dir.error().hint;
             } else if (library = libraryDir + "/" + file; !stdfs::is_regular_file(library, ec)) {
-                error = library + " not found next to the game: export it again (`factoria export` copies the plugin's " +
+                error = library +
+                        " not found next to the game: export it again (`factoria export` copies the plugin's " +
                         platform + " build there)";
             }
         }
@@ -472,12 +547,13 @@ PluginInstall install_plugins(const ProjectSettings& project, const std::string&
         forScripts.push_back({ps.name, "", p->functions});
         if (p->backend) {
             PluginBackendSpec spec = *p->backend;
-            result.backends.push_back({ps.name, spec.name, spec.services, [spec] { return make_plugin_backend(spec); }});
+            result.backends.push_back(
+                {ps.name, spec.name, spec.services, [spec] { return make_plugin_backend(spec); }});
         }
         if (p->textInput) result.textInputs.push_back({ps.name, p->textInput, p->textInputUser});
         if (p->steamDeck >= 0) result.steamDeck = std::max(result.steamDeck, p->steamDeck);
-        FA_DEBUG("plugin", "{}: {} command(s), {} function(s){}{} from {}", ps.name, p->commands.size(), p->functions.size(),
-                 p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(),
+        FA_DEBUG("plugin", "{}: {} command(s), {} function(s){}{} from {}", ps.name, p->commands.size(),
+                 p->functions.size(), p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(),
                  p->textInput ? ", text input handler" : "", library);
     }
     scripts.set_plugins(std::move(forScripts));

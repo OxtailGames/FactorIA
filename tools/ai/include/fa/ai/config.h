@@ -21,7 +21,17 @@
 namespace fa::ai {
 
 // The last four only generate assets (images, sounds, 3D models; docs/AI_PROVIDERS.md, "Asset providers"): roles cannot use them.
-enum class ProviderKind { Anthropic, OpenAICompatible, ClaudeCode, Codex, GenericCli, ElevenLabs, Meshy, Fake, AssetCommand };
+enum class ProviderKind {
+    Anthropic,
+    OpenAICompatible,
+    ClaudeCode,
+    Codex,
+    GenericCli,
+    ElevenLabs,
+    Meshy,
+    Fake,
+    AssetCommand
+};
 const char* provider_kind_name(ProviderKind k);  // "anthropic", "openai-compatible", "claude-code", ...
 bool is_cli_kind(ProviderKind k);
 bool is_asset_only_kind(ProviderKind k);  // elevenlabs, meshy, fake, asset-command
@@ -49,28 +59,28 @@ struct AssetPricing {
     std::string checked;                      // the day the prices were looked up ("2026-11-06"); "" = by the user
     std::string source;                       // where they are published (a URL)
     std::string note;                         // how they were derived, what they do not cover
-    std::string model;                        // the image model the `image` figures were read for; "" = any. A call for another model is priced from
-                                              // the same table and the estimate says it is unverified
-    std::vector<std::string> unverified;      // kinds ("voice", "model3d") whose figure is the engine's own derivation, not read from the provider's page
-    bool empty() const {
-        return image.empty() && !voicePer1000Chars && !soundPerSecond && !musicPerSecond && !model3d;
-    }
+    std::string
+        model;  // the image model the `image` figures were read for; "" = any. A call for another model is priced from
+                // the same table and the estimate says it is unverified
+    std::vector<std::string>
+        unverified;  // kinds ("voice", "model3d") whose figure is the engine's own derivation, not read from the provider's page
+    bool empty() const { return image.empty() && !voicePer1000Chars && !soundPerSecond && !musicPerSecond && !model3d; }
 };
 
 struct ProviderConfig {
     std::string name;
     ProviderKind kind = ProviderKind::OpenAICompatible;
-    std::string preset;       // openai|openrouter|gemini|groq|deepseek|ollama|lmstudio or ""
+    std::string preset;  // openai|openrouter|gemini|groq|deepseek|ollama|lmstudio or ""
     std::string baseUrl;
-    std::string apiKeyEnv;    // explicit env var name
-    std::string apiKey;       // from the user config file only
+    std::string apiKeyEnv;  // explicit env var name
+    std::string apiKey;     // from the user config file only
     std::vector<std::pair<std::string, std::string>> headers;
     std::string defaultModel;
     bool useAntCli = true;
     bool sendReasoningEffort = false;
     // CLI agents
-    std::string command;                  // "claude", "codex" or user command
-    std::vector<std::string> argv;        // template; empty = built-in default for the kind
+    std::string command;            // "claude", "codex" or user command
+    std::vector<std::string> argv;  // template; empty = built-in default for the kind
     // claude-code and codex: how much the agent may do without asking ("permissionMode" of the provider in ai.json; one of
     // permission_modes(kind)). "" = the kind's default (default_permission_mode). Added to the argv by apply_permission_mode.
     std::string permissionMode;
@@ -85,9 +95,10 @@ struct ProviderConfig {
     // program needs only the provider. Not written back.
     std::vector<std::string> inheritEnvGlobal;
     std::string factoriaCommand = "factoria";
-    Pricing pricing;                      // known=false unless configured
-    AssetPricing assetPricing;            // asset providers: what one image, second, 1000 characters or model costs ("assetPricing")
-    std::string license;                  // asset providers: the license note recorded for what they generate ("" = a built-in note)
+    Pricing pricing;  // known=false unless configured
+    AssetPricing
+        assetPricing;     // asset providers: what one image, second, 1000 characters or model costs ("assetPricing")
+    std::string license;  // asset providers: the license note recorded for what they generate ("" = a built-in note)
     int maxRetries = 5;
     double timeoutSeconds = 600;
 };
@@ -107,14 +118,17 @@ struct AssetRoute {
 // Websites the AI should look at when it searches for assets (the "assetSources" section of ai.json; the editor's AI settings
 // window edits it). Empty lists mean "no preference": the AI searches the internet as it wishes.
 struct AssetSite {
-    std::string url;   // a web address or just a domain: "https://opengameart.org", "kenney.nl", "github.com/KhronosGroup"
+    std::string
+        url;  // a web address or just a domain: "https://opengameart.org", "kenney.nl", "github.com/KhronosGroup"
     std::string note;  // optional: what the site is good for, or its license ("CC0 packs")
 };
 enum class SiteCategory { Images, Models, Audio, Fonts, Other };
 inline constexpr SiteCategory kSiteCategories[] = {SiteCategory::Images, SiteCategory::Models, SiteCategory::Audio,
                                                    SiteCategory::Fonts, SiteCategory::Other};
-const char* site_category_key(SiteCategory c);    // "images", "models", "audio", "fonts", "other": the keys of "assetSources"
-const char* site_category_title(SiteCategory c);  // "Images and textures", "3D models", "Audio (sounds and music)", "Fonts", "Other"
+const char*
+site_category_key(SiteCategory c);  // "images", "models", "audio", "fonts", "other": the keys of "assetSources"
+const char* site_category_title(
+    SiteCategory c);  // "Images and textures", "3D models", "Audio (sounds and music)", "Fonts", "Other"
 
 struct AssetSources {
     std::vector<AssetSite> images, models, audio, fonts, other;
@@ -150,8 +164,8 @@ struct RoleConfig {
 
 struct Limits {
     int maxTurns = 40;
-    double maxCostUsd = 0;      // 0 = unlimited
-    u64 maxTotalTokens = 0;     // 0 = unlimited
+    double maxCostUsd = 0;   // 0 = unlimited
+    u64 maxTotalTokens = 0;  // 0 = unlimited
     // The editor warns "may be stuck" when a running agent (the orchestrator or a sub-agent) has produced no event for this
     // many seconds (it offers Stop and "Check activity"). 0 = never warn. Only the editor reads it.
     int stuckAfterSeconds = 180;
@@ -160,8 +174,10 @@ struct Limits {
     int maxConcurrentRuns = 3;
     // Most the asset providers may charge, estimated in US dollars (limits.maxAssetCostUsd). A paid call that would pass it is refused
     // before the provider is called. 0 = no limit.
-    double maxAssetCostPerRunUsd = 0;   // all the asset calls of one agent run (a chat's run; the whole process for the CLI and MCP)
-    double maxAssetCostPerDayUsd = 0;   // all the asset calls of this project today, in every process (a file in the user's folder)
+    double maxAssetCostPerRunUsd =
+        0;  // all the asset calls of one agent run (a chat's run; the whole process for the CLI and MCP)
+    double maxAssetCostPerDayUsd =
+        0;  // all the asset calls of this project today, in every process (a file in the user's folder)
     // A paid asset call whose estimate is above this waits for the user (limits.askAboveUsd). The fake provider and local programs
     // cost nothing and never ask.
     double askAboveUsd = 0.50;
@@ -195,15 +211,17 @@ struct Savers {
 inline constexpr const char* kRoleOrchestrator = "orchestrator";
 inline constexpr const char* kRoleWorker = "worker";
 inline constexpr const char* kRoleFast = "fast";
-inline constexpr const char* kRoleArtist = "artist";        // makes the game's art (images, textures, sprites, models, look)
-inline constexpr const char* kRoleAudio = "audio";          // makes the game's audio (sound effects, music, voice, mixing)
+inline constexpr const char* kRoleArtist = "artist";  // makes the game's art (images, textures, sprites, models, look)
+inline constexpr const char* kRoleAudio = "audio";    // makes the game's audio (sound effects, music, voice, mixing)
 inline constexpr const char* kRoleArtCritic = "artCritic";  // looks at the game and criticizes its art; read-only
-inline constexpr const char* kRoleReviewer = "reviewer";    // plays the game like a press reviewer and scores it; read-only
+inline constexpr const char* kRoleReviewer =
+    "reviewer";  // plays the game like a press reviewer and scores it; read-only
 
 // Every role, in the order UIs list them.
-inline constexpr const char* kAllRoles[] = {kRoleOrchestrator, kRoleWorker, kRoleFast,      kRoleArtist,
+inline constexpr const char* kAllRoles[] = {kRoleOrchestrator, kRoleWorker,    kRoleFast,    kRoleArtist,
                                             kRoleAudio,        kRoleArtCritic, kRoleReviewer};
-inline constexpr const char* kExtraRoles[] = {kRoleArtist, kRoleAudio, kRoleArtCritic, kRoleReviewer};  // not in old ai.json files
+inline constexpr const char* kExtraRoles[] = {kRoleArtist, kRoleAudio, kRoleArtCritic,
+                                              kRoleReviewer};  // not in old ai.json files
 bool is_known_role(std::string_view role);
 // artCritic and reviewer: they look and play and give an opinion, they never change the project (SessionOptions::role
 // enforces it: only read-only tools, no file edits).
@@ -233,7 +251,7 @@ const char* role_summary(std::string_view role);
 const char* role_display_name(std::string_view role);
 // The Roles window groups the roles: 0 = orchestrator, worker, fast; 1 = artist, audio; 2 = art critic, reviewer.
 inline constexpr int kRoleGroupCount = 3;
-int role_group(std::string_view role);  // -1 for an unknown role
+int role_group(std::string_view role);    // -1 for an unknown role
 const char* role_group_title(int group);  // "Orchestration and code", "Art and audio", "Critics and reviewers"
 // The teaching error for a role that is off (message: what is off and what happens instead; hint: where to turn it on).
 std::string role_off_message(std::string_view role);
@@ -246,22 +264,22 @@ using EnvLookup = std::function<std::string(const std::string& name)>;  // "" wh
 // follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's own fields. Only the USER file has
 // them: a game project can never add a server (it would run a program or send data to a host the user did not choose).
 struct ToolServer {
-    std::string name;                                          // [A-Za-z0-9_-], not "factoria": the key under "mcpServers"
-    std::string type;                                          // "http" (Streamable HTTP) or "stdio" (a local program)
-    std::string url;                                           // http
+    std::string name;  // [A-Za-z0-9_-], not "factoria": the key under "mcpServers"
+    std::string type;  // "http" (Streamable HTTP) or "stdio" (a local program)
+    std::string url;   // http
     std::vector<std::pair<std::string, std::string>> headers;  // http; values may use {key} and ${ENV}
     std::string command;                                       // stdio
     std::vector<std::string> args;                             // stdio; may use {key} and ${ENV}
     std::map<std::string, std::string> env;                    // stdio; values may use {key} and ${ENV}
     std::string apiKeyEnv;                                     // name of the env var that holds the key ({key})
     std::string apiKey;                                        // the key itself (user file only; an env var is better)
-    std::vector<std::string> inheritEnv;                       // stdio; variables of the editor's environment the program may see
-                                                               // besides the base list (names or "PREFIX*"); see ProviderConfig
-    std::vector<std::string> inheritEnvGlobal;                 // AiConfig::inheritEnv, copied by load_config; not written back
-    std::string note;                                          // goes to the AI's prompt: what the server is good for
-    std::vector<std::string> roles;                            // who may use it; empty = kDefaultToolServerRoles
+    std::vector<std::string> inheritEnv;        // stdio; variables of the editor's environment the program may see
+                                                // besides the base list (names or "PREFIX*"); see ProviderConfig
+    std::vector<std::string> inheritEnvGlobal;  // AiConfig::inheritEnv, copied by load_config; not written back
+    std::string note;                           // goes to the AI's prompt: what the server is good for
+    std::vector<std::string> roles;             // who may use it; empty = kDefaultToolServerRoles
     bool enabled = true;
-    double timeoutSeconds = 120;                               // one tools/call (generating an image takes a while)
+    double timeoutSeconds = 120;  // one tools/call (generating an image takes a while)
 
     bool is_stdio() const { return type == "stdio"; }
     // Whether `role` gets this server's tools: it is enabled and the role is in `roles` (in the defaults when `roles` is
@@ -271,7 +289,8 @@ struct ToolServer {
 inline constexpr const char* kToolServerFactoria = "factoria";  // reserved: the engine's own tool server
 inline constexpr std::size_t kMaxToolServerName = 40;
 // Who gets a server that lists no roles: the roles that build the game, not the ones that judge it.
-inline constexpr const char* kDefaultToolServerRoles[] = {kRoleOrchestrator, kRoleWorker, kRoleFast, kRoleArtist, kRoleAudio};
+inline constexpr const char* kDefaultToolServerRoles[] = {kRoleOrchestrator, kRoleWorker, kRoleFast, kRoleArtist,
+                                                          kRoleAudio};
 // "" when `name` is a usable server name, else what is wrong with it (empty, characters outside [A-Za-z0-9_-], "factoria",
 // longer than kMaxToolServerName characters).
 std::string tool_server_name_problem(std::string_view name);
@@ -286,7 +305,8 @@ struct ResolvedToolServer {
     std::string command;
     std::vector<std::string> args;
     std::map<std::string, std::string> env;
-    std::vector<std::string> inheritEnv;  // stdio: the server's own + the file's list + its apiKeyEnv: what its program may inherit
+    std::vector<std::string>
+        inheritEnv;  // stdio: the server's own + the file's list + its apiKeyEnv: what its program may inherit
     double timeoutSeconds = 120;
     std::string keySource;  // "env:SCENARIO_API_KEY", "config" or "" (the server does not use {key}, or has none)
     bool usesKey = false;   // some header/arg/env value contains {key}
@@ -326,14 +346,16 @@ struct AiConfig {
     // environment (signing passwords, other providers' keys).
     std::vector<std::string> inheritEnv;
     std::map<std::string, ProviderConfig> providers;
-    std::map<std::string, RoleConfig> roles;  // always has the seven roles after load
-    std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
-    AssetSources assetSources;                // the sites to look at for assets; empty unless the file sets "assetSources"
-    std::vector<ToolServer> toolServers;      // the external tool servers (MCP), in the file's order; empty unless the file sets "mcpServers"
-    ExtensionsConfig extensions;              // plugins, skills and hooks the CLI agents load; empty unless the file sets "extensions"
+    std::map<std::string, RoleConfig> roles;   // always has the seven roles after load
+    std::map<std::string, AssetRoute> assets;  // by media_kind_name; empty unless the file sets "assets"
+    AssetSources assetSources;  // the sites to look at for assets; empty unless the file sets "assetSources"
+    std::vector<ToolServer>
+        toolServers;  // the external tool servers (MCP), in the file's order; empty unless the file sets "mcpServers"
+    ExtensionsConfig
+        extensions;  // plugins, skills and hooks the CLI agents load; empty unless the file sets "extensions"
     Limits limits;
-    Savers savers;                            // the token savers of the built-in loop; all on (no judge) unless the file sets "savers"
-    std::string sourcePath;                   // "" when defaults only
+    Savers savers;           // the token savers of the built-in loop; all on (no judge) unless the file sets "savers"
+    std::string sourcePath;  // "" when defaults only
     std::vector<std::string> warnings;
 
     const ProviderConfig* provider(std::string_view name) const;
@@ -371,8 +393,8 @@ AiConfig default_config();
 // worker's with effort "medium". Anthropic and Claude Code take the effort from the role; other providers keep the base's.
 std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg);
 
-std::string_view config_schema_text();                           // schemas/ai-config.schema.json
-std::vector<SchemaError> validate_config_json(const Json& j);    // [] when valid
+std::string_view config_schema_text();                         // schemas/ai-config.schema.json
+std::vector<SchemaError> validate_config_json(const Json& j);  // [] when valid
 
 Result<AiConfig> parse_config(const Json& j, std::string_view sourceName = "<memory>");
 // Missing file => defaults (ok). Present but invalid => error with JSON pointers.
@@ -392,14 +414,14 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
 // What the editor's AI settings window changes in the file: the asset routes, the asset sites and a few fields of the providers
 // those routes use. A field left out (nullopt) stays as it is in the file.
 struct AssetProviderEdit {
-    std::optional<std::string> apiKey;                 // "" removes the key from the file; set: written (the file is made private)
-    std::optional<std::string> command;                // asset-command: the program
-    std::optional<std::vector<std::string>> argv;      // asset-command: its arguments ({prompt} {output}...)
-    std::string type;                                  // for a provider the file does not have yet ("asset-command")
+    std::optional<std::string> apiKey;   // "" removes the key from the file; set: written (the file is made private)
+    std::optional<std::string> command;  // asset-command: the program
+    std::optional<std::vector<std::string>> argv;  // asset-command: its arguments ({prompt} {output}...)
+    std::string type;                              // for a provider the file does not have yet ("asset-command")
 };
 struct AssetSettings {
-    std::map<std::string, AssetRoute> routes;          // the whole "assets" section: a kind that is not here is removed
-    AssetSources sources;                              // the whole "assetSources" section
+    std::map<std::string, AssetRoute> routes;  // the whole "assets" section: a kind that is not here is removed
+    AssetSources sources;                      // the whole "assetSources" section
     std::map<std::string, AssetProviderEdit> providers;
 };
 // Writes "assets" and "assetSources" (and the listed fields of providers) into the config file at `path` (created when missing)
@@ -428,9 +450,10 @@ std::vector<std::string> default_cli_argv(ProviderKind kind);
 // One value of a provider's "permissionMode": what the agent may do without asking the user (a background run cannot ask, so
 // what would need an answer is refused).
 struct PermissionMode {
-    const char* value;    // what ai.json holds, and the value of the CLI's own flag ("acceptEdits", "workspace-write")
-    const char* allows;   // one line: what the agent may do in this mode (shown in AI settings, ai.settings.get)
-    bool dangerous;       // lifts the guard rails (no sandbox / no permission checks): never a default, the editor asks first
+    const char* value;   // what ai.json holds, and the value of the CLI's own flag ("acceptEdits", "workspace-write")
+    const char* allows;  // one line: what the agent may do in this mode (shown in AI settings, ai.settings.get)
+    bool
+        dangerous;  // lifts the guard rails (no sandbox / no permission checks): never a default, the editor asks first
 };
 // The modes of a kind, safest first; empty for the kinds that have none (only claude-code and codex do).
 std::vector<PermissionMode> permission_modes(ProviderKind kind);

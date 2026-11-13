@@ -22,7 +22,8 @@ using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
 GetStateFn load_get_state() {
     for (const char* dll : {"xinput1_4.dll", "xinput9_1_0.dll"})
         if (HMODULE m = LoadLibraryA(dll))
-            if (auto fn = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState")))) return fn;
+            if (auto fn = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState"))))
+                return fn;
     return nullptr;
 }
 
@@ -46,7 +47,7 @@ void poll_gamepads(Input& in) {
             // says so. The slot IS the identity: a pad that is replugged gets its XInput user index back when it is free.
             GamepadInfo info;
             info.name = "Xbox controller (XInput)";
-            info.vendor = 0x045e;  // Microsoft: what XInput pads present as; the product is unknown
+            info.vendor = 0x045e;           // Microsoft: what XInput pads present as; the product is unknown
             info.type = GamepadType::Xbox;  // XInput only serves Xbox-style pads
             info.id = make_gamepad_id(info.vendor, 0, "XInput controller", "xinput" + std::to_string(i));
             in.set_gamepad_info(i, std::move(info));
@@ -55,15 +56,23 @@ void poll_gamepads(Input& in) {
         present[i] = ok;
         if (!ok) continue;
         const XINPUT_GAMEPAD& g = st.Gamepad;
-        const struct { WORD mask; GamepadButton button; } map[] = {
-            {XINPUT_GAMEPAD_A, GamepadButton::A}, {XINPUT_GAMEPAD_B, GamepadButton::B},
-            {XINPUT_GAMEPAD_X, GamepadButton::X}, {XINPUT_GAMEPAD_Y, GamepadButton::Y},
-            {XINPUT_GAMEPAD_START, GamepadButton::Start}, {XINPUT_GAMEPAD_BACK, GamepadButton::Back},
-            {XINPUT_GAMEPAD_DPAD_LEFT, GamepadButton::DpadLeft}, {XINPUT_GAMEPAD_DPAD_RIGHT, GamepadButton::DpadRight},
-            {XINPUT_GAMEPAD_DPAD_UP, GamepadButton::DpadUp}, {XINPUT_GAMEPAD_DPAD_DOWN, GamepadButton::DpadDown},
-            {XINPUT_GAMEPAD_LEFT_SHOULDER, GamepadButton::LeftShoulder},
-            {XINPUT_GAMEPAD_RIGHT_SHOULDER, GamepadButton::RightShoulder},
-            {XINPUT_GAMEPAD_LEFT_THUMB, GamepadButton::LeftThumb}, {XINPUT_GAMEPAD_RIGHT_THUMB, GamepadButton::RightThumb}};
+        const struct {
+            WORD mask;
+            GamepadButton button;
+        } map[] = {{XINPUT_GAMEPAD_A, GamepadButton::A},
+                   {XINPUT_GAMEPAD_B, GamepadButton::B},
+                   {XINPUT_GAMEPAD_X, GamepadButton::X},
+                   {XINPUT_GAMEPAD_Y, GamepadButton::Y},
+                   {XINPUT_GAMEPAD_START, GamepadButton::Start},
+                   {XINPUT_GAMEPAD_BACK, GamepadButton::Back},
+                   {XINPUT_GAMEPAD_DPAD_LEFT, GamepadButton::DpadLeft},
+                   {XINPUT_GAMEPAD_DPAD_RIGHT, GamepadButton::DpadRight},
+                   {XINPUT_GAMEPAD_DPAD_UP, GamepadButton::DpadUp},
+                   {XINPUT_GAMEPAD_DPAD_DOWN, GamepadButton::DpadDown},
+                   {XINPUT_GAMEPAD_LEFT_SHOULDER, GamepadButton::LeftShoulder},
+                   {XINPUT_GAMEPAD_RIGHT_SHOULDER, GamepadButton::RightShoulder},
+                   {XINPUT_GAMEPAD_LEFT_THUMB, GamepadButton::LeftThumb},
+                   {XINPUT_GAMEPAD_RIGHT_THUMB, GamepadButton::RightThumb}};
         for (const auto& m : map) in.on_gamepad_button(i, m.button, (g.wButtons & m.mask) != 0);
         in.on_gamepad_axis(i, GamepadAxis::LeftX, thumb(g.sThumbLX));
         in.on_gamepad_axis(i, GamepadAxis::LeftY, thumb(g.sThumbLY));  // XInput's +Y is up already

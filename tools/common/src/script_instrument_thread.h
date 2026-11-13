@@ -9,5 +9,4 @@ namespace fa {
 // Starts `entry(arg)` on a new detached thread whose stack is `stackBytes`. False if the thread could not be created.
 bool start_big_stack_thread(void (*entry)(void*), void* arg, std::size_t stackBytes);
 
-
 }  // namespace fa

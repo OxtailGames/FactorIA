@@ -42,16 +42,20 @@ struct Game {
         register_platform_setup_commands(reg, dir);
     }
     CommandResult add(const Json& args) { return reg.call("platform.add_backend", args); }
-    std::string message(const CommandResult& r) const { return r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
+    std::string message(const CommandResult& r) const {
+        return r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string());
+    }
 };
 
 // The SDK folder as Valve ships it (steamworks_sdk_*.zip unpacks to sdk/): only the files the setup reads.
 void make_sdk(const stdfs::path& root, const std::vector<std::string>& libraries) {
-    for (const std::string& lib : libraries) testing::write_all(root / "sdk/redistributable_bin" / lib, "library:" + lib);
+    for (const std::string& lib : libraries)
+        testing::write_all(root / "sdk/redistributable_bin" / lib, "library:" + lib);
     testing::write_all(root / "sdk/public/steam/steam_api.h", "// header");
 }
 
-const std::vector<std::string> kAllLibraries = {"win64/steam_api64.dll", "osx/libsteam_api.dylib", "linux64/libsteam_api.so"};
+const std::vector<std::string> kAllLibraries = {"win64/steam_api64.dll", "osx/libsteam_api.dylib",
+                                                "linux64/libsteam_api.so"};
 
 using testing::write_stored_zip;  // test_helpers.h
 
@@ -65,7 +69,8 @@ TEST_CASE("steam setup: the plugin is created, built, given Valve's libraries fr
     Game g;
     const stdfs::path root = g.tmp.path;
     std::vector<std::pair<std::string, std::string>> entries;
-    for (const std::string& lib : kAllLibraries) entries.emplace_back("sdk/redistributable_bin/" + lib, "library:" + lib);
+    for (const std::string& lib : kAllLibraries)
+        entries.emplace_back("sdk/redistributable_bin/" + lib, "library:" + lib);
     entries.emplace_back("sdk/public/steam/steam_api.h", "// header");
     write_stored_zip(root / "steamworks_sdk_162.zip", entries);
 
@@ -92,7 +97,9 @@ TEST_CASE("steam setup: the plugin is created, built, given Valve's libraries fr
 
     // Built for this computer, into the folder the engine looks in.
     const std::string host = runtime_platform();
-    const std::string pluginFile = host == "windows" ? "windows/steam.dll" : host == "macos" ? "macos/libsteam.dylib" : "linux/libsteam.so";
+    const std::string pluginFile = host == "windows" ? "windows/steam.dll"
+                                   : host == "macos" ? "macos/libsteam.dylib"
+                                                     : "linux/libsteam.so";
     CHECK_MESSAGE(stdfs::exists(folder / pluginFile), pluginFile);
 
     // Valve's libraries from the zip, for every platform, next to where the plugin goes.
@@ -187,8 +194,8 @@ TEST_CASE("steam setup: every missing piece is a teaching error, and nothing is 
     const std::string host = runtime_platform();
     std::vector<std::string> others;
     for (const std::string& lib : kAllLibraries) {
-        const bool isHost = (host == "windows" && lib.find("win64") == 0) || (host == "macos" && lib.find("osx") == 0) ||
-                            (host == "linux" && lib.find("linux64") == 0);
+        const bool isHost = (host == "windows" && lib.find("win64") == 0) ||
+                            (host == "macos" && lib.find("osx") == 0) || (host == "linux" && lib.find("linux64") == 0);
         if (!isHost) others.push_back(lib);
     }
     make_sdk(g.tmp.path / "partial", others);
@@ -228,7 +235,8 @@ TEST_CASE("steam setup: project.new_plugin with the steam template skips the tem
     std::vector<std::string> files;
     for (const Json& f : r.result["files"]) files.push_back(f.get<std::string>());
     auto listed = [&](const std::string& f) { return std::find(files.begin(), files.end(), f) != files.end(); };
-    for (const char* expected : {"CMakeLists.txt", "README.md", "src/plugin.cpp", "src/backend.cpp", "src/steam_loader.cpp", "include/fa_plugin.h"})
+    for (const char* expected : {"CMakeLists.txt", "README.md", "src/plugin.cpp", "src/backend.cpp",
+                                 "src/steam_loader.cpp", "include/fa_plugin.h"})
         CHECK_MESSAGE(listed(expected), expected);
     for (const std::string& f : files) CHECK_MESSAGE(f.rfind("tests/", 0) != 0, f);
     const stdfs::path folder = stdfs::path(dir) / "plugins/store";
@@ -258,7 +266,8 @@ TEST_CASE("steam setup: an export never ships steam_appid.txt") {
     REQUIRE(create_project(proj, "2d-platformer").ok());
     testing::write_all(stdfs::path(proj) / "steam_appid.txt", "480\n");
     testing::write_all(stdfs::path(proj) / "notes.txt", "kept");
-    testing::write_all(stdfs::path(proj) / "data/steam_appid.txt", "480\n");  // only the project's own file is the development one
+    testing::write_all(stdfs::path(proj) / "data/steam_appid.txt",
+                       "480\n");  // only the project's own file is the development one
     const std::string player = tmp.sub("fake_player/factoria_player");
     testing::write_all(player, "#!/bin/sh\nexit 0\n");
     ExportOptions o;

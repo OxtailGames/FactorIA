@@ -51,7 +51,8 @@ void Editor::ai_review_request(const std::string& kind, int count, const std::st
     ai_drain_events();
     if (ai_run_count() >= ai_max_runs()) {
         notify("The assistant is busy: " + std::to_string(ai_run_count()) +
-                   " chats are running, the most the editor runs at once. Wait for one to finish, or press Stop in its tab, then ask for the review.",
+                   " chats are running, the most the editor runs at once. Wait for one to finish, or press Stop in its "
+                   "tab, then ask for the review.",
                1);
         return;
     }
@@ -63,7 +64,8 @@ void Editor::ai_review_request(const std::string& kind, int count, const std::st
         cfg = aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
     }
     const ai::RoleConfig rc = cfg.effective_role(role);  // off: the Orchestrator's provider and model
-    AiChat& chat = chat_.add(static_cast<i64>(std::time(nullptr)));  // its own tab: the orchestrator's chat is not touched
+    AiChat& chat =
+        chat_.add(static_cast<i64>(std::time(nullptr)));  // its own tab: the orchestrator's chat is not touched
     chat.title = kind == "art" ? "Art critique" : "Game review";
     aiTabForce_ = 2;
     aiReview_ = AiReviewJob{};
@@ -102,8 +104,8 @@ void Editor::ai_review_next() {
     ChatItem user;
     user.kind = ChatItem::Kind::User;
     user.role = "review";  // marks the tab as a review's (ai_review_send does not post into it)
-    user.text = std::string(aiReview_.kind == "art" ? "Art critique" : "Game review") + " " + std::to_string(index + 1) + " of " +
-                std::to_string(aiReview_.count) + ": " + persona.name +
+    user.text = std::string(aiReview_.kind == "art" ? "Art critique" : "Game review") + " " +
+                std::to_string(index + 1) + " of " + std::to_string(aiReview_.count) + ": " + persona.name +
                 (aiReview_.focus.empty() ? std::string() : "\nFocus: " + aiReview_.focus);
     chat->items.push_back(std::move(user));
     aiReview_.itemStart = chat->items.size();
@@ -116,7 +118,9 @@ void Editor::ai_review_next() {
     run.role = aiReview_.role;
     run.extraSystem = ai::persona_prompt(persona, index, aiReview_.count);
     run.startedAt = static_cast<i64>(std::time(nullptr));
-    run.reset_live(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    run.reset_live(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count());
     aiReview_.stopped = false;
     aiTouch_.begin(chat->id);  // no checkpoint: a reviewer changes nothing, so there is nothing to revert
     aiRuns_.push_back(std::move(owned));
@@ -141,10 +145,12 @@ void Editor::ai_review_tick() {
         if (it.kind == ChatItem::Kind::Assistant) finalText = it.text;
     }
     const bool stopped = aiReview_.stopped;
-    chat->conversation = {};  // the next message in this tab is a normal one, not a continuation of a reviewer's session
+    chat->conversation =
+        {};  // the next message in this tab is a normal one, not a continuation of a reviewer's session
     if (stopped || failed || finalText.empty()) {
-        const std::string why = stopped ? "The review was stopped." : failed ? "The reviewer failed: see its chat for the reason."
-                                                                           : "The reviewer ended without a report.";
+        const std::string why = stopped  ? "The review was stopped."
+                                : failed ? "The reviewer failed: see its chat for the reason."
+                                         : "The reviewer ended without a report.";
         ChatItem note;
         note.kind = ChatItem::Kind::Info;
         note.text = why + (aiReview_.next + 1 < aiReview_.count ? " The remaining reviewers were not started." : "");
@@ -196,7 +202,8 @@ void Editor::ai_review_tick() {
 
 void Editor::draw_ai_review_row(bool gameRuns) {
     const bool busy = ai_run_count() >= ai_max_runs() || aiReview_.active;
-    bool artOff = false, gameOff = false;  // the critic / reviewer role is turned off: the review runs on the Orchestrator's model
+    bool artOff = false,
+         gameOff = false;  // the critic / reviewer role is turned off: the review runs on the Orchestrator's model
     if (!ai_with_project_config([&](const ai::AiConfig& cfg) {
             artOff = !cfg.role_enabled(ai::kRoleArtCritic);
             gameOff = !cfg.role_enabled(ai::kRoleReviewer);
@@ -215,9 +222,10 @@ void Editor::draw_ai_review_row(bool gameRuns) {
         ImGui::OpenPopup(kConfirm);
     }
     at_track("ai:review:art", !(busy || gameRuns));
-    ImGui::SetItemTooltip("Read-only art critics look at the game (screenshots of every scene) and score its art from 0 to 10.\n"
-                          "They cannot change anything. It asks before it starts, and costs tokens.%s",
-                          artOff ? "\nThe Art critic role is off: it runs on the Orchestrator's provider and model." : "");
+    ImGui::SetItemTooltip(
+        "Read-only art critics look at the game (screenshots of every scene) and score its art from 0 to 10.\n"
+        "They cannot change anything. It asks before it starts, and costs tokens.%s",
+        artOff ? "\nThe Art critic role is off: it runs on the Orchestrator's provider and model." : "");
     ImGui::SameLine();
     if (ImGui::Button("Game review")) {
         aiReviewAsk_ = "game";
@@ -226,7 +234,8 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     at_track("ai:review:game", !(busy || gameRuns));
     ImGui::SetItemTooltip("Read-only reviewers play the game and score it from 0 to 10, with the problems they found.\n"
                           "They cannot change anything. It asks before it starts, and costs tokens.%s",
-                          gameOff ? "\nThe Reviewer role is off: it runs on the Orchestrator's provider and model." : "");
+                          gameOff ? "\nThe Reviewer role is off: it runs on the Orchestrator's provider and model."
+                                  : "");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Reviews...")) {
@@ -237,20 +246,24 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     ImGui::SetItemTooltip("The saved reviews with their scores. Reviews read REVIEW.md in the project first.");
     if (aiReview_.active) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s %d of %d...", aiReview_.kind == "art" ? "art critique" : "game review",
+        ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s %d of %d...",
+                           aiReview_.kind == "art" ? "art critique" : "game review",
                            std::min(aiReview_.next + 1, aiReview_.count), aiReview_.count);
     }
     // How many reviewers and what to look at, on the same line when it fits. The focus box takes the rest of the width.
     const ImGuiStyle& style = ImGui::GetStyle();
     ImGui::SameLine(0, style.ItemSpacing.x * 3);
-    if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Reviewers:").x + 80 + 140 + style.ItemSpacing.x * 2) ImGui::NewLine();
+    if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Reviewers:").x + 80 + 140 + style.ItemSpacing.x * 2)
+        ImGui::NewLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Reviewers:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(80);
-    if (ImGui::InputInt("##reviewcount", &aiReviewCount_, 1, 1)) aiReviewCount_ = std::clamp(aiReviewCount_, 1, ai::kMaxReviewers);
-    ImGui::SetItemTooltip("How many reviewers (1 to %d). Each has a different point of view; they run one after another.",
-                          ai::kMaxReviewers);
+    if (ImGui::InputInt("##reviewcount", &aiReviewCount_, 1, 1))
+        aiReviewCount_ = std::clamp(aiReviewCount_, 1, ai::kMaxReviewers);
+    ImGui::SetItemTooltip(
+        "How many reviewers (1 to %d). Each has a different point of view; they run one after another.",
+        ai::kMaxReviewers);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##reviewfocus", "focus (optional): what to look at", &aiReviewFocus_);
@@ -266,15 +279,19 @@ void Editor::draw_ai_review_row(bool gameRuns) {
             rc = (aiConfig_.providers.empty() ? ai::default_config() : aiConfig_).effective_role(role);
         }
         const int n = std::clamp(aiReviewCount_, 1, ai::kMaxReviewers);
-        ImGui::Text("%s: %d reviewer%s, one after another.", art ? "Art critique" : "Game review", n, n == 1 ? "" : "s");
-        ImGui::TextDisabled("%s%s: %s%s", ai::role_display_name(role), rc.enabled ? "" : " (off, using the Orchestrator's model)",
-                            rc.provider.c_str(), rc.model.empty() ? "" : (" / " + rc.model).c_str());
+        ImGui::Text("%s: %d reviewer%s, one after another.", art ? "Art critique" : "Game review", n,
+                    n == 1 ? "" : "s");
+        ImGui::TextDisabled("%s%s: %s%s", ai::role_display_name(role),
+                            rc.enabled ? "" : " (off, using the Orchestrator's model)", rc.provider.c_str(),
+                            rc.model.empty() ? "" : (" / " + rc.model).c_str());
         ImGui::Text("Focus: %s", aiReviewFocus_.empty() ? "the whole game" : aiReviewFocus_.c_str());
         ImGui::Spacing();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32);
-        ImGui::TextWrapped("%s", art ? "Read-only critics take screenshots of every scene and score the art from 0 to 10."
-                                     : "Read-only reviewers play the game and score it from 0 to 10, with the problems they found.");
-        ImGui::TextWrapped("They cannot change anything, but each reviewer is a run of its own and costs tokens (or plan quota).");
+        ImGui::TextWrapped(
+            "%s", art ? "Read-only critics take screenshots of every scene and score the art from 0 to 10."
+                      : "Read-only reviewers play the game and score it from 0 to 10, with the problems they found.");
+        ImGui::TextWrapped(
+            "They cannot change anything, but each reviewer is a run of its own and costs tokens (or plan quota).");
         ImGui::PopTextWrapPos();
         ImGui::Spacing();
         if (ImGui::Button("Start")) {
@@ -327,8 +344,9 @@ void Editor::draw_ai_reviews_window() {
         return;
     }
     if (aiReviewList_.empty()) {
-        ImGui::TextWrapped("No reviews yet. Press Art critique or Game review in the AI Assistant: read-only agents look at and play "
-                           "the game and give an opinion with a score from 0 to 10. Every review is saved in .factoria/ai/reviews/.");
+        ImGui::TextWrapped(
+            "No reviews yet. Press Art critique or Game review in the AI Assistant: read-only agents look at and play "
+            "the game and give an opinion with a score from 0 to 10. Every review is saved in .factoria/ai/reviews/.");
         ImGui::End();
         return;
     }
@@ -349,7 +367,8 @@ void Editor::draw_ai_reviews_window() {
         for (const ai::Review& r : aiReviewList_) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            if (ImGui::Selectable((r.time + "##" + r.id).c_str(), r.id == selected->id, ImGuiSelectableFlags_SpanAllColumns))
+            if (ImGui::Selectable((r.time + "##" + r.id).c_str(), r.id == selected->id,
+                                  ImGuiSelectableFlags_SpanAllColumns))
                 aiReviewSelected_ = r.id;
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(kind_label(r.role));
@@ -370,7 +389,8 @@ void Editor::draw_ai_reviews_window() {
     ImGui::TextDisabled("%s, %s%s%s", r.persona.c_str(), r.time.c_str(), r.model.empty() ? "" : ", ", r.model.c_str());
     if (!r.subScores.empty()) {
         std::string subs;
-        for (const auto& [name, value] : r.subScores) subs += (subs.empty() ? "" : "   ") + name + " " + score_text(value);
+        for (const auto& [name, value] : r.subScores)
+            subs += (subs.empty() ? "" : "   ") + name + " " + score_text(value);
         ImGui::TextDisabled("%s", subs.c_str());
     }
     const float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
@@ -387,8 +407,9 @@ void Editor::draw_ai_reviews_window() {
     }
     at_track("ai:review:send", !(busy || gameRuns));
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Posts this report as your message to the orchestrator (the active chat, or a new one) so it can\n"
-                          "decide what to fix and delegate it. Nothing is sent unless you press this.");
+    ImGui::SetItemTooltip(
+        "Posts this report as your message to the orchestrator (the active chat, or a new one) so it can\n"
+        "decide what to fix and delegate it. Nothing is sent unless you press this.");
     ImGui::SameLine();
     if (ImGui::Button("Copy")) ImGui::SetClipboardText(r.text.c_str());
     ImGui::SameLine();

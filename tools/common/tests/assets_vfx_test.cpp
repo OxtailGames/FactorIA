@@ -30,7 +30,8 @@ TEST_CASE("vfx.create: writes a starter effect that loads, and refuses to overwr
     CHECK(read_all(p.file("assets/vfx/hit.vfx.json")) == before);
     CommandResult wrong = p.call("vfx.create", {{"path", "assets/vfx/hit.json"}});
     CHECK_FALSE(wrong.ok);
-    CHECK(p.ok("vfx.create", {{"path", "assets/vfx/hit.vfx.json"}, {"overwrite", true}})["effect"] == "assets/vfx/hit.vfx.json");
+    CHECK(p.ok("vfx.create", {{"path", "assets/vfx/hit.vfx.json"}, {"overwrite", true}})["effect"] ==
+          "assets/vfx/hit.vfx.json");
 }
 
 TEST_CASE("vfx.edit: set, add, move and remove change the file, and a change that breaks the effect writes nothing") {
@@ -39,10 +40,13 @@ TEST_CASE("vfx.edit: set, add, move and remove change the file, and a change tha
     const std::string rel = "assets/fx/a.vfx.json";
 
     SUBCASE("set a field, add a part, move it, remove it") {
-        const Json s = p.ok("vfx.edit", {{"path", rel}, {"op", "set"}, {"pointer", "/parts/0/emitter/burst"}, {"value", 33}});
+        const Json s =
+            p.ok("vfx.edit", {{"path", rel}, {"op", "set"}, {"pointer", "/parts/0/emitter/burst"}, {"value", 33}});
         CHECK(s["parts"] == 1);
         CHECK(read_json_file(p, rel)["parts"][0]["emitter"]["burst"] == 33);
-        p.ok("vfx.edit", {{"path", rel}, {"op", "add"}, {"pointer", "/parts"},
+        p.ok("vfx.edit", {{"path", rel},
+                          {"op", "add"},
+                          {"pointer", "/parts"},
                           {"value", {{"type", "light"}, {"name", "flash"}, {"at", 0.1}}}});
         CHECK(read_json_file(p, rel)["parts"].size() == 2);
         CHECK(read_json_file(p, rel)["parts"][1]["name"] == "flash");
@@ -53,11 +57,14 @@ TEST_CASE("vfx.edit: set, add, move and remove change the file, and a change tha
     }
     SUBCASE("an edit that makes the effect invalid is refused with the errors and the file is untouched") {
         const std::string before = read_all(p.file(rel));
-        CommandResult r = p.call("vfx.edit", {{"path", rel}, {"op", "set"}, {"pointer", "/parts/0/at"}, {"value", "soon"}});
+        CommandResult r =
+            p.call("vfx.edit", {{"path", rel}, {"op", "set"}, {"pointer", "/parts/0/at"}, {"value", "soon"}});
         CHECK_FALSE(r.ok);
         CHECK(r.error.dump().find("/parts/0/at") != std::string::npos);
         CHECK(read_all(p.file(rel)) == before);
-        r = p.call("vfx.edit", {{"path", rel}, {"op", "add"}, {"pointer", "/parts"},
+        r = p.call("vfx.edit", {{"path", rel},
+                                {"op", "add"},
+                                {"pointer", "/parts"},
                                 {"value", {{"type", "command"}, {"command", "fs.delete"}, {"args", Json::object()}}}});
         CHECK_FALSE(r.ok);
         CHECK(read_all(p.file(rel)) == before);

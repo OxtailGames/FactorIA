@@ -48,7 +48,8 @@ bool load_for_bake(const std::string& projectDir, const std::string& rel, AudioD
     if (normalized(doc.source.path) == status.output) {
         status.state = AudioBakeState::Broken;
         status.reason = rel + ": the baked sound would overwrite its own source '" + doc.source.path + "'";
-        status.hint = "Set \"output\": {\"path\": \"assets/audio/<name>_clean." + doc.output.format + "\"} (or move the original to assets/raw/) so the source stays untouched.";
+        status.hint = "Set \"output\": {\"path\": \"assets/audio/<name>_clean." + doc.output.format +
+                      "\"} (or move the original to assets/raw/) so the source stays untouched.";
         status.output.clear();
         return false;
     }
@@ -90,7 +91,8 @@ AudioBakeStatus audio_bake_status(const std::string& projectDir, const std::stri
         return status;
     }
     const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, status.output));
-    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand || recipe["args"].value("path", std::string()) != rel) {
+    if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand ||
+        recipe["args"].value("path", std::string()) != rel) {
         status.state = AudioBakeState::Unrecorded;
         status.reason = "'" + status.output + "' exists, but assets.json does not say it was baked from '" + rel + "'.";
         return status;
@@ -98,7 +100,8 @@ AudioBakeStatus audio_bake_status(const std::string& projectDir, const std::stri
     const assets_detail::RecipeCheck check = assets_detail::check_recipe(projectDir, recipe);
     if (!check.changed.empty() || !check.missing.empty()) {
         status.state = AudioBakeState::Stale;
-        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ") : "no longer readable: " + join(check.missing, ", ");
+        status.reason = !check.changed.empty() ? "changed since the bake: " + join(check.changed, ", ")
+                                               : "no longer readable: " + join(check.missing, ", ");
         return status;
     }
     status.state = AudioBakeState::Fresh;
@@ -106,10 +109,12 @@ AudioBakeStatus audio_bake_status(const std::string& projectDir, const std::stri
     return status;
 }
 
-Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const std::string& relIn, const AudioBakeOptions& options) {
+Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const std::string& relIn,
+                                            const AudioBakeOptions& options) {
     const std::string rel = normalized(relIn);
     if (!ends_with(rel, kAudioDocSuffix))
-        return make_error("'" + rel + "' is not an audio document (its name must end in " + kAudioDocSuffix + ").", "Name it like \"assets/audio/door.audio.json\".");
+        return make_error("'" + rel + "' is not an audio document (its name must end in " + kAudioDocSuffix + ").",
+                          "Name it like \"assets/audio/door.audio.json\".");
     AudioDoc doc;
     AudioBakeStatus status;
     if (!load_for_bake(projectDir, rel, doc, status)) return make_error(status.reason, status.hint);
@@ -118,7 +123,8 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
     result.output = status.output;
     if (options.onlyIfNeeded && audio_bake_status(projectDir, rel).state == AudioBakeState::Fresh) return result;
     if (!starts_with(result.output, "assets/"))
-        return make_error(rel + ": the sound would be written to '" + result.output + "', outside assets/.", "Put it under assets/, e.g. \"output\": {\"path\": \"assets/audio/door.wav\"}.");
+        return make_error(rel + ": the sound would be written to '" + result.output + "', outside assets/.",
+                          "Put it under assets/, e.g. \"output\": {\"path\": \"assets/audio/door.wav\"}.");
 
     // The document names where the sound goes: inside the project (also for a caller that may write anywhere), never in a tools' folder.
     auto outPath = assets_detail::project_write_path(projectDir, result.output);
@@ -128,7 +134,9 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
         if (stdfs::exists(*outPath, ec)) {
             const Json recipe = assets_detail::recipe_of(manifest_entry(projectDir, result.output));
             if (recipe.is_null() || recipe.value("command", std::string()) != kBakeCommand)
-                return make_error("'" + result.output + "' already exists and was not baked by an audio document.", "Pass overwrite: true to replace it, or set another \"output\": {\"path\"} in the document.");
+                return make_error(
+                    "'" + result.output + "' already exists and was not baked by an audio document.",
+                    "Pass overwrite: true to replace it, or set another \"output\": {\"path\"} in the document.");
         }
     }
 
@@ -136,7 +144,9 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
     auto clip = render_audio_doc(doc, rel);
     if (!clip.ok()) return make_error(clip.error().message, clip.error().hint);
     auto bytes = audio_encode(*clip, doc.output);
-    if (!bytes.ok()) return make_error(rel + ": cannot encode '" + result.output + "': " + bytes.error().message, bytes.error().hint);
+    if (!bytes.ok())
+        return make_error(rel + ": cannot encode '" + result.output + "': " + bytes.error().message,
+                          bytes.error().hint);
     result.sha256 = sha256_hex(bytes->data(), bytes->size());
     result.bytes = bytes->size();
 
@@ -156,7 +166,8 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
         const Json prov = entry.is_object() ? entry.value("provenance", Json()) : Json();
         if (!prov.is_object()) continue;
         ai = ai || prov.value("ai", false);
-        if (prov.contains("license") && prov["license"].is_string()) licenses.insert(prov["license"].get<std::string>());
+        if (prov.contains("license") && prov["license"].is_string())
+            licenses.insert(prov["license"].get<std::string>());
         if (prov.contains("author") && prov["author"].is_string()) authors.insert(prov["author"].get<std::string>());
     }
 
@@ -166,17 +177,26 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
         const Json previousProv = previous.is_object() ? previous.value("provenance", Json()) : Json();
         std::string err;
         bool same = false;
-        if (auto old = tooling_detail::read_file(*outPath)) same = *old == std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size());
-        if (!same && !tooling_detail::write_file(*outPath, std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &err))
+        if (auto old = tooling_detail::read_file(*outPath))
+            same = *old == std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        if (!same && !tooling_detail::write_file(
+                         *outPath, std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), &err))
             return make_error("Cannot write '" + result.output + "': " + err, "Check that the folder is writable.");
         result.written = true;
 
-        const bool madeHere = previousProv.is_object() && previousProv.value("provider", std::string()) == "factoria audio.bake";
-        std::string license = licenses.empty() ? "CC0-1.0" : join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
-        if (madeHere && previousProv.contains("license") && previousProv["license"].is_string()) license = previousProv["license"].get<std::string>();
-        std::string author = authors.empty() ? "factoria" : join(std::vector<std::string>(authors.begin(), authors.end()), "; ");
-        if (madeHere && previousProv.contains("author") && previousProv["author"].is_string()) author = previousProv["author"].get<std::string>();
-        const std::string notes = std::format("Rendered from the audio document '{}' ({} step{}), {:.2f} s, {:.1f} LUFS.", rel, doc.steps.size(), doc.steps.size() == 1 ? "" : "s", clip->seconds(), clip->lufs);
+        const bool madeHere =
+            previousProv.is_object() && previousProv.value("provider", std::string()) == "factoria audio.bake";
+        std::string license =
+            licenses.empty() ? "CC0-1.0" : join(std::vector<std::string>(licenses.begin(), licenses.end()), "; ");
+        if (madeHere && previousProv.contains("license") && previousProv["license"].is_string())
+            license = previousProv["license"].get<std::string>();
+        std::string author =
+            authors.empty() ? "factoria" : join(std::vector<std::string>(authors.begin(), authors.end()), "; ");
+        if (madeHere && previousProv.contains("author") && previousProv["author"].is_string())
+            author = previousProv["author"].get<std::string>();
+        const std::string notes =
+            std::format("Rendered from the audio document '{}' ({} step{}), {:.2f} s, {:.1f} LUFS.", rel,
+                        doc.steps.size(), doc.steps.size() == 1 ? "" : "s", clip->seconds(), clip->lufs);
         Json prov = Json::object({{"origin", ai ? "generated" : "original"},
                                   {"ai", ai},
                                   {"kind", "sound"},
@@ -204,7 +224,9 @@ Result<AudioBakeResult> bake_audio_document(const std::string& projectDir, const
                 if (e["import"].empty()) e.erase("import");
             }
         });
-        if (!updated.ok()) return make_error("The sound was written, but assets.json was not updated: " + updated.error().message, updated.error().hint);
+        if (!updated.ok())
+            return make_error("The sound was written, but assets.json was not updated: " + updated.error().message,
+                              updated.error().hint);
     } catch (const CommandError& e) {
         return make_error(e.what(), e.hint);
     }
@@ -216,12 +238,14 @@ std::vector<std::string> list_audio_documents(const std::string& projectDir) {
     std::vector<std::string> out;
     const stdfs::path root(projectDir);
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root, stdfs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         const std::string rel = it->path().lexically_relative(root).generic_string();
         std::error_code e2;
         if (it->is_directory(e2)) {
-            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build") it.disable_recursion_pending();
+            if ((!name.empty() && name[0] == '.') || name == "node_modules" || rel == "build")
+                it.disable_recursion_pending();
             continue;
         }
         if (ends_with(name, kAudioDocSuffix)) out.push_back(rel);

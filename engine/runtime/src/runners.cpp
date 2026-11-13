@@ -34,7 +34,7 @@ struct WindowedState {
     int framesRun = 0;       // frames run so far, for EngineConfig::maxFrames
     int replayFrame = 0;     // windowed frames run so far, the frame number of EngineConfig::inputReplayPath
     std::map<int, Json> replay;
-    int replayLast = -1;     // the last frame the replay has an entry for
+    int replayLast = -1;         // the last frame the replay has an entry for
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
     // The player's date when it came from the wall clock (no --date): read again when the app comes back, see refresh_clock_date.
     std::optional<CalendarDate> clockDate;
@@ -44,7 +44,8 @@ struct WindowedState {
     bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
     // The first window frames (fa/runtime/startup_sequence.h): a clear frame first, the game's files after it. Built in d.init.
     std::unique_ptr<StartupSequence> sequence;
-    bool contextOpened = false;  // d.init opened the graphics context (Renderer::open_context): d.cleanup closes it if still open
+    bool contextOpened =
+        false;  // d.init opened the graphics context (Renderer::open_context): d.cleanup closes it if still open
     bool firstGameFrame = true;
     bool startupLogged = false;
 };
@@ -65,7 +66,9 @@ void refresh_clock_date(WindowedState& st) {
     if (!st.clockDate) return;
     const CalendarDate today = local_calendar_date();
     st.clockRead = std::chrono::steady_clock::now();
-    if (today.iso_datetime() == st.clockDate->iso_datetime() && today.utcOffsetMinutes == st.clockDate->utcOffsetMinutes) return;
+    if (today.iso_datetime() == st.clockDate->iso_datetime() &&
+        today.utcOffsetMinutes == st.clockDate->utcOffsetMinutes)
+        return;
     st.clockDate = today;
     st.engine.scripts().set_clock_date(today);  // game.today() follows; "dayChanged" when the local day changed
 }
@@ -82,7 +85,8 @@ void apply_safe_insets(WindowedState& st) {
     if (!px.zero() && fbW > 0 && fbH > 0) {
         const ScaleMode mode = st.engine.project().scaleMode;
         const Vec2 topLeft = r->framebuffer_to_design({px.left, px.top}, fbW, fbH, mode);
-        const Vec2 bottomRight = r->framebuffer_to_design({float(fbW) - px.right, float(fbH) - px.bottom}, fbW, fbH, mode);
+        const Vec2 bottomRight =
+            r->framebuffer_to_design({float(fbW) - px.right, float(fbH) - px.bottom}, fbW, fbH, mode);
         const float tw = float(r->target_width()), th = float(r->target_height());
         out.left = std::clamp(topLeft.x, 0.0f, tw);
         out.top = std::clamp(topLeft.y, 0.0f, th);
@@ -100,8 +104,10 @@ void apply_expand(Engine& engine, int fbW, int fbH) {
     int dh = engine.config().height > 0 ? engine.config().height : engine.project().height;
     double wa = double(fbW) / fbH, da = double(dw) / dh;
     int tw = dw, th = dh;
-    if (wa > da) tw = int(std::lround(dh * wa));
-    else th = int(std::lround(dw / wa));
+    if (wa > da)
+        tw = int(std::lround(dh * wa));
+    else
+        th = int(std::lround(dw / wa));
     if (tw != r->target_width() || th != r->target_height()) r->set_target_size(tw, th);
 }
 
@@ -117,16 +123,18 @@ std::vector<AppIconImage> load_window_icon(const std::string& projectDir, const 
         return out;
     }
     // A mounted game pack holds the icon too (project-relative); otherwise it is a file of the project folder.
-    auto bytes = fs::read_bytes(projectDir.empty() || fs::pack_mounted() ? relative.value() : fs::join(projectDir, relative.value()));
+    auto bytes = fs::read_bytes(projectDir.empty() || fs::pack_mounted() ? relative.value()
+                                                                         : fs::join(projectDir, relative.value()));
     if (!bytes.ok()) {
-        FA_WARN("engine", "window icon: cannot read '{}': {} (the window keeps the default icon; fix `icon` in factoria.json)", rel,
-                bytes.error().message);
+        FA_WARN("engine",
+                "window icon: cannot read '{}': {} (the window keeps the default icon; fix `icon` in factoria.json)",
+                rel, bytes.error().message);
         return out;
     }
     auto decoded = decode_image(bytes->data(), bytes->size());
     if (!decoded.ok()) {
-        FA_WARN("engine", "window icon: cannot decode '{}': {} (use a PNG or JPG; the window keeps the default icon)", rel,
-                decoded.error().message);
+        FA_WARN("engine", "window icon: cannot decode '{}': {} (use a PNG or JPG; the window keeps the default icon)",
+                rel, decoded.error().message);
         return out;
     }
     const int side = std::max(decoded->width, decoded->height);
@@ -154,11 +162,13 @@ bool start_game(WindowedState& st) {
     apply_expand(st.engine, app_framebuffer_width(), app_framebuffer_height());
     if (!st.cfg.inputReplayPath.empty()) {
         auto r = load_json_file(st.cfg.inputReplayPath);
-        const Json* frames = r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
+        const Json* frames =
+            r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
         if (!r.ok()) {
             FA_ERROR("player", "Cannot read the input replay: {}", r.error().to_string());
         } else if (!frames || !frames->is_object()) {
-            FA_ERROR("player", "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
+            FA_ERROR("player",
+                     "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
                      st.cfg.inputReplayPath);
         } else {
             for (auto it = frames->begin(); it != frames->end(); ++it) {
@@ -178,7 +188,8 @@ bool start_game(WindowedState& st) {
     st.engine.set_design_to_window([s = &st](Vec2 p) {
         Renderer* r = s->engine.renderer();
         if (!r) return p;
-        return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(), s->engine.project().scaleMode);
+        return r->design_to_framebuffer(p, app_framebuffer_width(), app_framebuffer_height(),
+                                        s->engine.project().scaleMode);
     });
     // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
     if (app_is_mobile()) st.engine.input().set_last_device(InputDevice::Touch);
@@ -198,8 +209,10 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     }
     {
         auto p = load_project(dir);
-        if (p.ok()) st->project = p.value();
-        else FA_ERROR("engine", "{}", p.error().to_string());  // init reports it again and quits
+        if (p.ok())
+            st->project = p.value();
+        else
+            FA_ERROR("engine", "{}", p.error().to_string());  // init reports it again and quits
     }
 
     AppDesc d;
@@ -213,7 +226,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.to_design_coords = [st](Vec2 p) {
         Renderer* r = st->engine.renderer();
         if (!r) return p;
-        return r->framebuffer_to_design(p, app_framebuffer_width(), app_framebuffer_height(), st->engine.project().scaleMode);
+        return r->framebuffer_to_design(p, app_framebuffer_width(), app_framebuffer_height(),
+                                        st->engine.project().scaleMode);
     };
     d.init = [st] {
         // The window and its graphics context exist now. Opening the context is all this callback does with the GPU; reading
@@ -251,8 +265,10 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             dt = std::min(dt, 1.0 / 60.0);
         }
         // The clock is read again about once a minute (outside the simulation, like the first read) so game.today() moves on.
-        if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60)) refresh_clock_date(*st);
-        if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
+        if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60))
+            refresh_clock_date(*st);
+        if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get())
+            window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
         if (!st->replay.empty()) {
             // While the replay has frames, those without "loadUnits" take the fixed share of background loads, not what is
@@ -263,14 +279,17 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 st->engine.apply_input_entry(it->second, problems, st->replayFrame);
                 for (const std::string& p : problems) FA_WARN("player", "{}", p);
             }
-            if (st->replayFrame == st->replayLast + 1) FA_INFO("player", "replay done after {} frames", st->replayFrame);
+            if (st->replayFrame == st->replayLast + 1)
+                FA_INFO("player", "replay done after {} frames", st->replayFrame);
         }
         ++st->replayFrame;
         st->engine.frame(dt);
         if (!st->startupLogged) {  // one line per run: what the first frames cost (docs/PERFORMANCE.md, "Startup")
             st->startupLogged = true;
             const Json t = st->engine.startup_report();
-            FA_INFO("player", "startup: first frame presented at {} ms, game ready at {} ms (reading the game {} ms, GPU warm-up {} ms; since process start)",
+            FA_INFO("player",
+                    "startup: first frame presented at {} ms, game ready at {} ms (reading the game {} ms, GPU warm-up "
+                    "{} ms; since process start)",
                     t["firstPresentMs"].dump(), t["firstGameFrameMs"].dump(), t["initMs"].dump(), t["warmupMs"].dump());
         }
         apply_input_requests(*st);
@@ -309,7 +328,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Blur);  // game.on("blur")
                 break;
             case AppEvent::Type::FocusGained:
-                st->mouseLocked = false;  // the window system unlocked the mouse with the focus: lock it again if requested
+                st->mouseLocked =
+                    false;  // the window system unlocked the mouse with the focus: lock it again if requested
                 refresh_system_accessibility();  // the player may have changed a system setting meanwhile (game.accessibility)
                 refresh_clock_date(*st);
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Focus);
@@ -317,7 +337,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             case AppEvent::Type::Suspended:
                 FA_INFO("player", "suspended");
                 st->engine.input().release_all();  // no key stays held while the app is away
-                st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Suspend);  // game.on("suspend"), pauseOnSuspend
+                st->engine.scripts().app_event(
+                    ScriptSystem::AppLifecycle::Suspend);  // game.on("suspend"), pauseOnSuspend
                 break;
             case AppEvent::Type::Resumed:
                 FA_INFO("player", "resumed");
@@ -366,31 +387,41 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "actions", "back", "clipboard", "http",
-                                                       "loadUnits"};
+        static const std::vector<std::string> known = {"press",   "release", "keys",      "mouse", "gamepad",  "touch",
+                                                       "actions", "back",    "clipboard", "http",  "loadUnits"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, actions, mouse, gamepad, touch, back, clipboard, http and loadUnits.");
+                     " A frame entry takes press, release, keys, actions, mouse, gamepad, touch, back, clipboard, http "
+                     "and loadUnits.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
-        if (!entry[key].is_array()) { note(std::string("'") + key + "' must be an array of names"); continue; }
+        if (!entry[key].is_array()) {
+            note(std::string("'") + key + "' must be an array of names");
+            continue;
+        }
         for (const Json& n : entry[key]) {
-            if (!n.is_string()) { note("input names must be strings"); continue; }
+            if (!n.is_string()) {
+                note("input names must be strings");
+                continue;
+            }
             if (!I.inject_named(n.get<std::string>(), std::string(key) == "press", &err)) note(err);
         }
     }
     if (entry.contains("clipboard")) {
         // What the player had copied: clipboard.read() and a TextField's Ctrl+V give it from this frame on.
-        if (entry["clipboard"].is_string()) I.clipboard.set(entry["clipboard"].get<std::string>());
-        else note("'clipboard' must be a string, the text on the clipboard");
+        if (entry["clipboard"].is_string())
+            I.clipboard.set(entry["clipboard"].get<std::string>());
+        else
+            note("'clipboard' must be a string, the text on the clipboard");
     }
     if (entry.contains("http")) {
         // The answers to the http.fetch calls the game makes from this frame on (first in, first out): what the server said when the
         // session was recorded. Each is what game.platform.respond("http.fetch", ...) takes.
         if (!entry["http"].is_array()) {
-            note("'http' must be an array of answers like [{\"result\": {\"status\": 200, \"headers\": {}, \"text\": \"{}\"}}]");
+            note("'http' must be an array of answers like [{\"result\": {\"status\": 200, \"headers\": {}, \"text\": "
+                 "\"{}\"}}]");
         } else if (FakeBackend* fake = I.platform.fake()) {
             for (const Json& answer : entry["http"]) {
                 auto r = fake->respond("http.fetch", answer, 1);
@@ -407,7 +438,8 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
         if (!u.is_number_integer()) {
             note("'loadUnits' must be a whole number of background-load units like 3, got " + describe_json_value(u));
         } else {
-            const std::int64_t n = std::clamp<std::int64_t>(u.get<std::int64_t>(), 0, BackgroundLoader::kMaxReplayUnits);
+            const std::int64_t n =
+                std::clamp<std::int64_t>(u.get<std::int64_t>(), 0, BackgroundLoader::kMaxReplayUnits);
             if (n != u.get<std::int64_t>())
                 note("'loadUnits' " + u.dump() + " is out of range: it was clamped to " + std::to_string(n) + " (0.." +
                      std::to_string(BackgroundLoader::kMaxReplayUnits) + ")");
@@ -420,9 +452,13 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             note("'actions' must be an object like {\"move_left\": true}");
         } else {
             for (auto it = entry["actions"].begin(); it != entry["actions"].end(); ++it) {
-                if (!it->is_boolean()) { note("action '" + it.key() + "' must be true or false"); continue; }
+                if (!it->is_boolean()) {
+                    note("action '" + it.key() + "' must be true or false");
+                    continue;
+                }
                 if (!I.input.has_action(it.key())) {
-                    note("unknown action '" + it.key() + "' (ignored). " + did_you_mean(it.key(), I.input.action_names()));
+                    note("unknown action '" + it.key() + "' (ignored). " +
+                         did_you_mean(it.key(), I.input.action_names()));
                     continue;
                 }
                 I.input.set_action_override(it.key(), it->get<bool>());
@@ -430,11 +466,13 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
         }
     }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
-    if (entry.contains("mouse") && !entry["mouse"].is_object()) note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");
+    if (entry.contains("mouse") && !entry["mouse"].is_object())
+        note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");
     if (entry.contains("keys") && entry["keys"].is_object())
         for (auto it = entry["keys"].begin(); it != entry["keys"].end(); ++it) {
             Key k = key_from_name(it.key());
-            if (k == Key::Unknown) k = modifier_key(modifier_from_name(it.key()));  // "Ctrl", "Shift", "Alt", "Super": the left key
+            if (k == Key::Unknown)
+                k = modifier_key(modifier_from_name(it.key()));  // "Ctrl", "Shift", "Alt", "Super": the left key
             if (k == Key::Unknown) {
                 std::vector<std::string> names;
                 for (int i = 1; i < int(Key::Count); ++i) names.emplace_back(key_name(Key(i)));
@@ -451,8 +489,10 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
                 note("unknown mouse field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), mouseKnown));
         if (m.contains("position")) {
             Vec2 p;
-            if (json_to(m["position"], p, &err)) I.input.on_mouse_move(p);
-            else note("mouse.position: " + err);
+            if (json_to(m["position"], p, &err))
+                I.input.on_mouse_move(p);
+            else
+                note("mouse.position: " + err);
         }
         const std::pair<const char*, MouseButton> buttons[] = {
             {"left", MouseButton::Left}, {"right", MouseButton::Right}, {"middle", MouseButton::Middle}};
@@ -517,8 +557,13 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         if (config.date.empty()) {
             if (const Json& dj = r.value().value("date", Json()); !dj.is_null()) {
                 std::string text = dj.is_string() ? dj.get<std::string>() : std::string();
-                if (const Json& tj = r.value().value("time", Json()); !tj.is_null() && tj.is_string()) text += "T" + tj.get<std::string>();
-                auto parsed = dj.is_string() ? parse_calendar_date(text, "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\", \"time\": \"23:59:00\"."});
+                if (const Json& tj = r.value().value("time", Json()); !tj.is_null() && tj.is_string())
+                    text += "T" + tj.get<std::string>();
+                auto parsed =
+                    dj.is_string()
+                        ? parse_calendar_date(text, "date")
+                        : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"",
+                                                     "Example: \"date\": \"2026-10-23\", \"time\": \"23:59:00\"."});
                 if (!parsed.ok()) {
                     report["error"] = "Input replay " + options.inputReplayPath + ": " + parsed.error().to_string();
                     return finish(2);
@@ -537,12 +582,15 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         // Optional "timing": [[dt, fixedSteps], ...] per frame (the editor records it): replayed frames run exactly the
         // dt and fixed steps of the recorded ones, so onUpdate(dt) and input edges match a slow or fast windowed run.
         if (const Json& t = r.value().value("timing", Json()); !t.is_null()) {
-            if (!t.is_array()) replayProblems.push_back("replay: timing must be an array of [dt, fixedSteps] (one per frame)");
+            if (!t.is_array())
+                replayProblems.push_back("replay: timing must be an array of [dt, fixedSteps] (one per frame)");
             for (std::size_t i = 0; t.is_array() && i < t.size(); ++i) {
                 const Json& e = t[i];
-                if (!(e.is_array() && e.size() == 2 && e[0].is_number() && e[1].is_number_integer() && e[1].get<int>() >= 0)) {
-                    replayProblems.push_back("replay: timing[" + std::to_string(i) + "] must be [dt, fixedSteps] like [0.0167, 1], got " +
-                                             describe_json_value(e) + "; the rest of the run steps one fixed step per frame");
+                if (!(e.is_array() && e.size() == 2 && e[0].is_number() && e[1].is_number_integer() &&
+                      e[1].get<int>() >= 0)) {
+                    replayProblems.push_back(
+                        "replay: timing[" + std::to_string(i) + "] must be [dt, fixedSteps] like [0.0167, 1], got " +
+                        describe_json_value(e) + "; the rest of the run steps one fixed step per frame");
                     break;
                 }
                 timing.emplace_back(std::clamp(e[0].get<double>(), 0.0, kMaxFrameDt), e[1].get<int>());
@@ -557,7 +605,8 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         return finish(2);
     }
     Engine::Impl& I = engine.runtime_impl();
-    const LoadTrace::ReadingFor reading(engine.load_trace_owner());  // what the run reads is the game's (fa/core/load_trace.h)
+    const LoadTrace::ReadingFor reading(
+        engine.load_trace_owner());  // what the run reads is the game's (fa/core/load_trace.h)
 
     // Video: validated before the run, so a wrong request does not cost a whole replay.
     const bool wantVideo = !options.videoOutPath.empty();
@@ -571,22 +620,26 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     };
     if (wantVideo) {
         if (videoExt != ".avi" && videoExt != ".mp4") {
-            report["error"] = "--record-video writes .avi or .mp4 files, but '" + options.videoOutPath + "' ends in '" + videoExt +
-                              "'. Use a name like out/trailer.avi (no extra tools needed) or out/trailer.mp4 (needs ffmpeg).";
+            report["error"] =
+                "--record-video writes .avi or .mp4 files, but '" + options.videoOutPath + "' ends in '" + videoExt +
+                "'. Use a name like out/trailer.avi (no extra tools needed) or out/trailer.mp4 (needs ffmpeg).";
             return finish(2);
         }
         if (videoExt == ".mp4" && options.ffmpegPath.empty()) {
-            report["error"] = "Recording an .mp4 needs ffmpeg, and it was not found (looked at: the FACTORIA_FFMPEG environment "
-                              "variable, \"publish\": {\"ffmpeg\": \"<path>\"} in ~/.factoria/export.json, PATH, and the copy `factoria setup "
-                              "ffmpeg` installs). Run `factoria setup ffmpeg`, or install ffmpeg "
-                              "(https://ffmpeg.org/download.html; Windows: winget install ffmpeg, macOS: brew install ffmpeg, Linux: "
-                              "apt install ffmpeg) or record an .avi, which needs nothing, and convert it later with: ffmpeg -i "
-                              "trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4";
+            report["error"] =
+                "Recording an .mp4 needs ffmpeg, and it was not found (looked at: the FACTORIA_FFMPEG environment "
+                "variable, \"publish\": {\"ffmpeg\": \"<path>\"} in ~/.factoria/export.json, PATH, and the copy "
+                "`factoria setup "
+                "ffmpeg` installs). Run `factoria setup ffmpeg`, or install ffmpeg "
+                "(https://ffmpeg.org/download.html; Windows: winget install ffmpeg, macOS: brew install ffmpeg, Linux: "
+                "apt install ffmpeg) or record an .avi, which needs nothing, and convert it later with: ffmpeg -i "
+                "trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4";
             return finish(2);
         }
         if (!I.renderer) {
-            report["error"] = "--record-video needs a GPU renderer, and this run has none (graphics=false or no GPU found). Headless "
-                              "EGL works with Mesa (llvmpipe).";
+            report["error"] =
+                "--record-video needs a GPU renderer, and this run has none (graphics=false or no GPU found). Headless "
+                "EGL works with Mesa (llvmpipe).";
             return finish(2);
         }
         std::string serr;
@@ -662,10 +715,12 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                 video_fail("frame " + std::to_string(f) + ": " + verr);
             } else {
                 if (avi.frame_count() == 0)
-                    if (auto b = avi.begin(aviPath, frameImg.width, frameImg.height, 1.0 / engine.fixed_dt()); !b.ok()) video_fail(b.error().to_string());
+                    if (auto b = avi.begin(aviPath, frameImg.width, frameImg.height, 1.0 / engine.fixed_dt()); !b.ok())
+                        video_fail(b.error().to_string());
                 if (!videoFailed)
                     if (auto a = avi.add_frame(encode_jpeg(frameImg, 85)); !a.ok())
-                        video_fail(a.error().to_string() + " The video stops here (" + std::to_string(avi.frame_count()) + " frames); the run goes on.");
+                        video_fail(a.error().to_string() + " The video stops here (" +
+                                   std::to_string(avi.frame_count()) + " frames); the run goes on.");
                 if (!videoFailed && options.videoProgress) options.videoProgress(avi.frame_count(), options.frames);
             }
         }
@@ -702,10 +757,13 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             std::vector<int> order(cpuMs.size());
             for (std::size_t i = 0; i < order.size(); ++i) order[i] = int(i);
             const std::size_t keep = std::min<std::size_t>(5, order.size());
-            std::partial_sort(order.begin(), order.begin() + std::ptrdiff_t(keep), order.end(),
-                              [&](int x, int y) { return cpuMs[std::size_t(x)] != cpuMs[std::size_t(y)] ? cpuMs[std::size_t(x)] > cpuMs[std::size_t(y)] : x < y; });
+            std::partial_sort(order.begin(), order.begin() + std::ptrdiff_t(keep), order.end(), [&](int x, int y) {
+                return cpuMs[std::size_t(x)] != cpuMs[std::size_t(y)] ? cpuMs[std::size_t(x)] > cpuMs[std::size_t(y)]
+                                                                      : x < y;
+            });
             Json slowest = Json::array();
-            for (std::size_t i = 0; i < keep; ++i) slowest.push_back(Json::object({{"frame", order[i]}, {"ms", r3(cpuMs[std::size_t(order[i])])}}));
+            for (std::size_t i = 0; i < keep; ++i)
+                slowest.push_back(Json::object({{"frame", order[i]}, {"ms", r3(cpuMs[std::size_t(order[i])])}}));
             perf["slowestFrames"] = slowest;
         }
         perf["cpuMsP95"] = r3(cpu.p95Ms);
@@ -725,7 +783,8 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         }
         perf["graphics"] = I.renderer ? Json(I.gpu ? I.gpu->description() : "window") : Json("none");
         // CPU ms from the start of Engine::init to the end of the first frame (what perf.measure / the startup budget read).
-        if (const double startupMs = engine.startup_timeline().startup_cpu_ms(); startupMs >= 0) perf["startupMs"] = std::round(startupMs * 10.0) / 10.0;
+        if (const double startupMs = engine.startup_timeline().startup_cpu_ms(); startupMs >= 0)
+            perf["startupMs"] = std::round(startupMs * 10.0) / 10.0;
         report["perf"] = perf;
         report["startup"] = engine.startup_report();
     }
@@ -735,23 +794,47 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         std::string aerr;
         if (I.audio.stop_recording(options.audioOutPath, &aerr, wantVideo ? &pcm : nullptr, &pcmRate)) {
             if (!options.audioOutPath.empty())
-                report["audioPath"] = fs::is_absolute(options.audioOutPath) ? options.audioOutPath : fs::resolve(options.audioOutPath).generic_string();
+                report["audioPath"] = fs::is_absolute(options.audioOutPath)
+                                          ? options.audioOutPath
+                                          : fs::resolve(options.audioOutPath).generic_string();
         } else {
             replayProblems.push_back("audio recording: " + aerr);
         }
     }
     if (wantVideo && !videoFailed) {
-        const bool audible = std::any_of(pcm.begin(), pcm.end(), [](std::int16_t v) { return v != 0; });  // a silent run has no track
+        const bool audible =
+            std::any_of(pcm.begin(), pcm.end(), [](std::int16_t v) { return v != 0; });  // a silent run has no track
         const int videoFrames = avi.frame_count();
-        auto w = videoFrames == 0 ? Result<void>(make_error("the run drew no frame (--frames 0?)", "Run at least one frame."))
-                                  : avi.finish(audible ? pcm.data() : nullptr, audible ? pcm.size() / 2 : 0, pcmRate);
+        auto w = videoFrames == 0
+                     ? Result<void>(make_error("the run drew no frame (--frames 0?)", "Run at least one frame."))
+                     : avi.finish(audible ? pcm.data() : nullptr, audible ? pcm.size() / 2 : 0, pcmRate);
         if (!w.ok()) {
             video_fail(w.error().to_string());
         } else if (videoExt == ".mp4") {
             ProcessOptions po;
-            po.argv = {options.ffmpegPath, "-y", "-loglevel", "error", "-i", aviPath, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                       "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-                       "-movflags", "+faststart", options.videoOutPath};
+            po.argv = {options.ffmpegPath,
+                       "-y",
+                       "-loglevel",
+                       "error",
+                       "-i",
+                       aviPath,
+                       "-vf",
+                       "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                       "-c:v",
+                       "libx264",
+                       "-preset",
+                       "slow",
+                       "-crf",
+                       "18",
+                       "-pix_fmt",
+                       "yuv420p",
+                       "-c:a",
+                       "aac",
+                       "-b:a",
+                       "192k",
+                       "-movflags",
+                       "+faststart",
+                       options.videoOutPath};
             po.captureStdout = false;
             po.timeoutSeconds = 1800;
             auto pr = run_process(po);
@@ -760,19 +843,25 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             if (!pr.ok())
                 video_fail("cannot start ffmpeg (" + options.ffmpegPath + "): " + pr.error().to_string());
             else if (pr->exitCode != 0)
-                video_fail("ffmpeg failed (exit " + std::to_string(pr->exitCode) + "): " + pr->stderrText.substr(0, 600) +
-                           " Record an .avi instead if this keeps failing.");
+                video_fail("ffmpeg failed (exit " + std::to_string(pr->exitCode) +
+                           "): " + pr->stderrText.substr(0, 600) + " Record an .avi instead if this keeps failing.");
         }
         if (!videoFailed) {
-            report["videoPath"] = fs::is_absolute(options.videoOutPath) ? options.videoOutPath : fs::resolve(options.videoOutPath).generic_string();
+            report["videoPath"] = fs::is_absolute(options.videoOutPath)
+                                      ? options.videoOutPath
+                                      : fs::resolve(options.videoOutPath).generic_string();
             report["videoFrames"] = videoFrames;
             report["videoAudio"] = audible;
         }
     }
     if (!options.stateOutPath.empty()) {
         auto w = fs::write_text(options.stateOutPath, dump_json(engine.state()));
-        if (w.ok()) report["statePath"] = fs::is_absolute(options.stateOutPath) ? options.stateOutPath : fs::resolve(options.stateOutPath).generic_string();
-        else replayProblems.push_back("state dump: " + w.error().to_string());
+        if (w.ok())
+            report["statePath"] = fs::is_absolute(options.stateOutPath)
+                                      ? options.stateOutPath
+                                      : fs::resolve(options.stateOutPath).generic_string();
+        else
+            replayProblems.push_back("state dump: " + w.error().to_string());
     }
 
     Json scriptErrs = Json::array();
@@ -786,11 +875,12 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         Json cutList = Json::array();
         for (const ScriptWatchdogCut& c : engine.scripts().watchdog_cuts()) cutList.push_back(c.to_string());
         report["watchdogCuts"] = cutList;
-        replayProblems.push_back(std::format("the script watchdog stopped {} callback(s), so this run is NOT valid and cannot be replayed "
-                                             "to the same result ({}{}; watchdogCuts lists the latest cuts)",
-                                             engine.scripts().watchdog_cut_count(),
-                                             engine.scripts().watchdog_cut_count() > cutList.size() ? "the oldest one listed: " : "",
-                                             cutList.empty() ? std::string() : cutList[0].get<std::string>()));
+        replayProblems.push_back(
+            std::format("the script watchdog stopped {} callback(s), so this run is NOT valid and cannot be replayed "
+                        "to the same result ({}{}; watchdogCuts lists the latest cuts)",
+                        engine.scripts().watchdog_cut_count(),
+                        engine.scripts().watchdog_cut_count() > cutList.size() ? "the oldest one listed: " : "",
+                        cutList.empty() ? std::string() : cutList[0].get<std::string>()));
     }
     Json sceneErrs = Json::array();
     if (I.sceneErrorCount > 0)

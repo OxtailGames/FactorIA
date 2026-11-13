@@ -22,7 +22,9 @@ CornerKey key_of(std::uint32_t weld, std::uint32_t tag) { return {weld, tag}; }
 
 int axis_index(char axis) { return axis == 'x' ? 0 : axis == 'z' ? 2 : 1; }
 float component(Vec3 v, int axis) { return axis == 0 ? v.x : axis == 1 ? v.y : v.z; }
-Vec3 unit_axis(int axis, float sign = 1) { return axis == 0 ? Vec3{sign, 0, 0} : axis == 1 ? Vec3{0, sign, 0} : Vec3{0, 0, sign}; }
+Vec3 unit_axis(int axis, float sign = 1) {
+    return axis == 0 ? Vec3{sign, 0, 0} : axis == 1 ? Vec3{0, sign, 0} : Vec3{0, 0, sign};
+}
 
 // Looking at a face that points along `d` (a unit axis vector, either sign): u runs to the right and v DOWN the picture, +Y being up, except
 // for faces that look up or down, where -Z is up. This is the frame in which a texture is seen upright and unmirrored.

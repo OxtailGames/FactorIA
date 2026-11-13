@@ -16,25 +16,25 @@ namespace fa {
 
 struct ModelViewItem {
     const MeshData* mesh = nullptr;
-    Vec3 offset{};                  // added to every position
-    bool flat = false;              // ignore the materials and colors: one colour, shaded
+    Vec3 offset{};      // added to every position
+    bool flat = false;  // ignore the materials and colors: one colour, shaded
     Color flatColor{0.6f, 0.65f, 0.75f, 1};
-    bool wire = true;               // take part in the wireframe overlay (the reference figure does not)
-    std::string highlightPart;      // submeshes of this part are drawn in the accent colour ("" = none)
+    bool wire = true;           // take part in the wireframe overlay (the reference figure does not)
+    std::string highlightPart;  // submeshes of this part are drawn in the accent colour ("" = none)
 };
 
 struct ModelViewOptions {
     int width = 384, height = 384;
-    double yawDeg = 30;             // 0 looks at the front (+Z side) of the model, 90 from its +X side
-    double pitchDeg = 20;           // above the horizon
+    double yawDeg = 30;    // 0 looks at the front (+Z side) of the model, 90 from its +X side
+    double pitchDeg = 20;  // above the horizon
     bool orthographic = false;
     bool shaded = true;
-    bool wireframe = false;         // edges over the shading (or alone, with `shaded` false: hidden edges stay hidden)
-    bool ground = true;             // a grid on y = 0
-    int supersample = 2;            // 1 to 3: samples per pixel side
-    Vec3 center{};                  // what the camera looks at and frames; radius <= 0 = frame the items
+    bool wireframe = false;  // edges over the shading (or alone, with `shaded` false: hidden edges stay hidden)
+    bool ground = true;      // a grid on y = 0
+    int supersample = 2;     // 1 to 3: samples per pixel side
+    Vec3 center{};           // what the camera looks at and frames; radius <= 0 = frame the items
     double radius = 0;
-    double zoom = 1;                // > 1 closer
+    double zoom = 1;  // > 1 closer
     Color background{0.13f, 0.14f, 0.17f, 1};
 };
 

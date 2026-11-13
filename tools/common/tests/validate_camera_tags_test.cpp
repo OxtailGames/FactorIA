@@ -26,7 +26,9 @@ TEST_CASE("validate: Camera showTags/hideTags warn for a tag nobody carries, and
     auto scene = load_json_file((dir / "scenes/main.scene.json").string());
     REQUIRE(scene.ok());
     auto add = [&](const char* id, const char* tags, const char* component, const char* fields) {
-        Json e = Json::object({{"id", id}, {"tags", Json::parse(tags)}, {"components", Json::object({{component, Json::parse(fields)}})}});
+        Json e = Json::object({{"id", id},
+                               {"tags", Json::parse(tags)},
+                               {"components", Json::object({{component, Json::parse(fields)}})}});
         (*scene)["entities"].push_back(e);
     };
     add("page", R"(["page"])", "Sprite", R"({})");
@@ -39,7 +41,7 @@ TEST_CASE("validate: Camera showTags/hideTags warn for a tag nobody carries, and
     const ValidationReport r = validate_project(dir.string());
     CHECK(mentions(r.warnings, "No entity in any scene or prefab has the tag 'pagee'"));
     CHECK(mentions(r.warnings, "Did you mean 'page'"));
-    CHECK(mentions(r.warnings, "tag 'ui'"));        // hideTags of a tag nobody carries
+    CHECK(mentions(r.warnings, "tag 'ui'"));          // hideTags of a tag nobody carries
     CHECK_FALSE(mentions(r.warnings, "tag 'page'"));  // 'page' is carried by an entity
     CHECK(mentions(r.errors, "both showTags and hideTags"));
     CHECK(mentions(r.errors, "showTags"));  // the non-array value

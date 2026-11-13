@@ -49,7 +49,9 @@ struct Session {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
-    CommandResult call(const std::string& cmd, const char* args) { return engine.commands().call(cmd, Json::parse(args)); }
+    CommandResult call(const std::string& cmd, const char* args) {
+        return engine.commands().call(cmd, Json::parse(args));
+    }
 };
 
 }  // namespace
@@ -61,7 +63,8 @@ TEST_CASE("scene.set_parent: keeps the world position by default, or the local T
     CHECK(r.result["parent"] == "box");
     r = s.call("scene.get_entity", R"({"id":"kid"})");
     CHECK(r.result["parent"] == "box");
-    CHECK(r.result["components"]["Transform"]["position"][0].get<double>() == doctest::Approx(30));  // world x stays 130
+    CHECK(r.result["components"]["Transform"]["position"][0].get<double>() ==
+          doctest::Approx(30));  // world x stays 130
 
     REQUIRE(s.call("scene.set_parent", R"({"id":"kid","parent":""})").ok);  // "" = top level
     r = s.call("scene.get_entity", R"({"id":"kid"})");

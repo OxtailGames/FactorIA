@@ -8,10 +8,14 @@
 namespace fa {
 
 std::vector<Entity> rendering_cameras(World& w, std::size_t* total) {
-    struct Found { Entity e; int depth; };
+    struct Found {
+        Entity e;
+        int depth;
+    };
     std::vector<Found> found;
     w.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && c.renderTarget.empty() && w.active_in_hierarchy(e) && !w.pending_destroy(e)) found.push_back({e, c.depth});
+        if (c.primary && c.renderTarget.empty() && w.active_in_hierarchy(e) && !w.pending_destroy(e))
+            found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
     if (total) *total = found.size();
@@ -23,7 +27,9 @@ std::vector<Entity> rendering_cameras(World& w, std::size_t* total) {
 
 Rect clamped_camera_viewport(const Camera& c) {
     Rect v = c.viewport;
-    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f) return Rect{0, 0, 1, 1};
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f ||
+        v.h <= 0.0f)
+        return Rect{0, 0, 1, 1};
     v.x = std::clamp(v.x, 0.0f, 0.999f);
     v.y = std::clamp(v.y, 0.0f, 0.999f);
     v.w = std::min(v.w, 1.0f - v.x);
@@ -44,8 +50,10 @@ Entity camera_containing(World& w, Vec2 design, Vec2 point) {
 OrthoView ortho_view(World& w, Vec2 design, Entity named, const Vec2* point) {
     const std::vector<Entity> cams = rendering_cameras(w);
     Entity cam = cams.empty() ? kNullEntity : cams.front();
-    if (!named.is_null() && std::find(cams.begin(), cams.end(), named) != cams.end()) cam = named;
-    else if (point && cams.size() > 1) cam = camera_containing(w, design, *point);
+    if (!named.is_null() && std::find(cams.begin(), cams.end(), named) != cams.end())
+        cam = named;
+    else if (point && cams.size() > 1)
+        cam = camera_containing(w, design, *point);
     OrthoView v;
     v.camera = cam;
     const Camera* c = cam.is_null() ? nullptr : w.get<Camera>(cam);

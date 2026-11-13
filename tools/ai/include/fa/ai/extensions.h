@@ -24,12 +24,13 @@ inline constexpr const char* kProjectExtensionsFile = ".factoria/extensions.json
 
 struct Extension {
     ExtensionKind kind = ExtensionKind::Plugin;
-    std::string name;      // [A-Za-z0-9_-], up to kMaxExtensionName; unique among the entries of its kind
+    std::string name;             // [A-Za-z0-9_-], up to kMaxExtensionName; unique among the entries of its kind
     std::string source = "user";  // "user" (ai.json) or "project" (.factoria/extensions.json); never written to a file
-    std::string path;      // plugin (a directory or a .zip) and skill (a folder): as written, "~" and relative not yet resolved
-    std::string plugin;    // plugin: "name@marketplace" of a Claude Code plugin the user installed (instead of path)
-    Json hooks;            // hooks: Claude Code's hooks object (event -> [{matcher, hooks: [{type, command}]}])
-    std::string note;      // what it is for
+    std::string
+        path;  // plugin (a directory or a .zip) and skill (a folder): as written, "~" and relative not yet resolved
+    std::string plugin;  // plugin: "name@marketplace" of a Claude Code plugin the user installed (instead of path)
+    Json hooks;          // hooks: Claude Code's hooks object (event -> [{matcher, hooks: [{type, command}]}])
+    std::string note;    // what it is for
     std::vector<std::string> roles;  // who loads it; empty = kDefaultExtensionRoles
     bool enabled = true;
 
@@ -83,10 +84,10 @@ Result<void> save_extensions(const ExtensionsConfig& cfg, std::string_view path)
 
 // The project's .factoria/extensions.json, read.
 struct ProjectExtensions {
-    std::string path;   // absolute path of the file (even when it does not exist)
+    std::string path;  // absolute path of the file (even when it does not exist)
     bool exists = false;
-    std::string hash;   // sha256 of the bytes ("" when there is no file)
-    std::string error;  // why the file could not be used ("" when fine); `entries` is empty then
+    std::string hash;                // sha256 of the bytes ("" when there is no file)
+    std::string error;               // why the file could not be used ("" when fine); `entries` is empty then
     std::vector<Extension> entries;  // source "project"
 };
 ProjectExtensions load_project_extensions(std::string_view projectDir);
@@ -101,14 +102,14 @@ Result<void> save_project_extensions(const std::vector<Extension>& entries, std:
 // loads them for the user, and keeps Claude Code from loading them (--setting-sources without project and local) until the
 // project is trusted.
 struct ClaudeSettingsFile {
-    std::string path;                  // absolute path (even when the file does not exist)
+    std::string path;  // absolute path (even when the file does not exist)
     bool exists = false;
-    std::string hash;                  // sha256 of the bytes ("" when there is no file)
+    std::string hash;  // sha256 of the bytes ("" when there is no file)
     // what in it needs the user's trust: it runs a program ("hooks (PreToolUse, Stop)", "statusLine") or widens what the AI may
     // do without a dialog ("env (ANTHROPIC_BASE_URL)", "permissions.allow (Bash)", "permissions.defaultMode (bypassPermissions)"),
     // or is a setting this version does not know ("unknown setting KEY", the name only): only keys known to be harmless are free
     std::vector<std::string> grants;
-    std::string error;                 // the file is not valid JSON: Claude Code ignores it too, so it grants nothing
+    std::string error;  // the file is not valid JSON: Claude Code ignores it too, so it grants nothing
 };
 struct ClaudeProjectSettings {
     std::vector<ClaudeSettingsFile> files;  // settings.json, then settings.local.json

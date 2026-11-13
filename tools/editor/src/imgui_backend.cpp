@@ -227,7 +227,8 @@ bool read_backbuffer(int w, int h, std::uint8_t* out) {
     if (pixStore) pixStore(0x0D05 /*GL_PACK_ALIGNMENT*/, 1);
     std::vector<std::uint8_t> tmp(size_t(w) * size_t(h) * 4);
     readPix(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, tmp.data());
-    for (int y = 0; y < h; ++y) std::memcpy(out + size_t(y) * w * 4, tmp.data() + size_t(h - 1 - y) * w * 4, size_t(w) * 4);
+    for (int y = 0; y < h; ++y)
+        std::memcpy(out + size_t(y) * w * 4, tmp.data() + size_t(h - 1 - y) * w * 4, size_t(w) * 4);
     return true;
 #elif defined(_WIN32)
     // D3D11: sokol_gfx has already resolved the MSAA render target into the swap chain's buffer 0 at the end of the
@@ -277,7 +278,9 @@ bool read_backbuffer(int w, int h, std::uint8_t* out) {
     staging->Release();
     return true;
 #else
-    (void)w; (void)h; (void)out;
+    (void)w;
+    (void)h;
+    (void)out;
     return false;
 #endif
 }

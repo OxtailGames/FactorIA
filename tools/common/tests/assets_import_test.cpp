@@ -9,7 +9,8 @@
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/validate.h"
 
-extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len, int* out_len, int quality);  // stb_image_write
+extern "C" unsigned char* stbi_zlib_compress(unsigned char* data, int data_len, int* out_len,
+                                             int quality);  // stb_image_write
 
 using namespace fa;
 using namespace fa::testing;
@@ -21,32 +22,56 @@ namespace {
 
 struct Bytes {
     std::vector<std::uint8_t> v;
-    Bytes& u8(unsigned x) { v.push_back(std::uint8_t(x)); return *this; }
+    Bytes& u8(unsigned x) {
+        v.push_back(std::uint8_t(x));
+        return *this;
+    }
     Bytes& u16(unsigned x) { return u8(x & 255).u8(x >> 8); }
     Bytes& u32(unsigned x) { return u16(x & 0xffff).u16(x >> 16); }
-    Bytes& zeros(int n) { v.insert(v.end(), std::size_t(n), 0); return *this; }
-    Bytes& str(const std::string& s) { u16(unsigned(s.size())); v.insert(v.end(), s.begin(), s.end()); return *this; }
-    Bytes& add(const Bytes& b) { v.insert(v.end(), b.v.begin(), b.v.end()); return *this; }
+    Bytes& zeros(int n) {
+        v.insert(v.end(), std::size_t(n), 0);
+        return *this;
+    }
+    Bytes& str(const std::string& s) {
+        u16(unsigned(s.size()));
+        v.insert(v.end(), s.begin(), s.end());
+        return *this;
+    }
+    Bytes& add(const Bytes& b) {
+        v.insert(v.end(), b.v.begin(), b.v.end());
+        return *this;
+    }
 };
 
 Bytes chunk(unsigned type, const Bytes& data) { return Bytes().u32(unsigned(data.v.size()) + 6).u16(type).add(data); }
 
-Bytes layer(const std::string& name, unsigned flags = 1, unsigned blend = 0, unsigned opacity = 255, unsigned type = 0, unsigned level = 0) {
-    return chunk(0x2004, Bytes().u16(flags).u16(type).u16(level).u16(0).u16(0).u16(blend).u8(opacity).zeros(3).str(name));
+Bytes layer(const std::string& name, unsigned flags = 1, unsigned blend = 0, unsigned opacity = 255, unsigned type = 0,
+            unsigned level = 0) {
+    return chunk(0x2004,
+                 Bytes().u16(flags).u16(type).u16(level).u16(0).u16(0).u16(blend).u8(opacity).zeros(3).str(name));
 }
 
 Bytes cel_header(unsigned layerIndex, int x, int y, unsigned opacity, unsigned type, int z = 0) {
-    return Bytes().u16(layerIndex).u16(unsigned(x) & 0xffff).u16(unsigned(y) & 0xffff).u8(opacity).u16(type).u16(unsigned(z) & 0xffff).zeros(5);
+    return Bytes()
+        .u16(layerIndex)
+        .u16(unsigned(x) & 0xffff)
+        .u16(unsigned(y) & 0xffff)
+        .u8(opacity)
+        .u16(type)
+        .u16(unsigned(z) & 0xffff)
+        .zeros(5);
 }
 
-Bytes cel_raw(unsigned layerIndex, int x, int y, int w, int h, const std::vector<std::uint8_t>& pixels, unsigned opacity = 255) {
+Bytes cel_raw(unsigned layerIndex, int x, int y, int w, int h, const std::vector<std::uint8_t>& pixels,
+              unsigned opacity = 255) {
     Bytes b = cel_header(layerIndex, x, y, opacity, 0);
     b.u16(unsigned(w)).u16(unsigned(h));
     b.v.insert(b.v.end(), pixels.begin(), pixels.end());
     return chunk(0x2005, b);
 }
 
-Bytes cel_zlib(unsigned layerIndex, int x, int y, int w, int h, const std::vector<std::uint8_t>& pixels, unsigned opacity = 255) {
+Bytes cel_zlib(unsigned layerIndex, int x, int y, int w, int h, const std::vector<std::uint8_t>& pixels,
+               unsigned opacity = 255) {
     int length = 0;
     std::vector<std::uint8_t> copy = pixels;
     unsigned char* z = stbi_zlib_compress(copy.data(), int(copy.size()), &length, 8);
@@ -58,13 +83,16 @@ Bytes cel_zlib(unsigned layerIndex, int x, int y, int w, int h, const std::vecto
     return chunk(0x2005, b);
 }
 
-Bytes cel_linked(unsigned layerIndex, unsigned frame) { return chunk(0x2005, cel_header(layerIndex, 0, 0, 255, 1).u16(frame)); }
+Bytes cel_linked(unsigned layerIndex, unsigned frame) {
+    return chunk(0x2005, cel_header(layerIndex, 0, 0, 255, 1).u16(frame));
+}
 
 // from, to, direction, name
 Bytes tags(const std::vector<std::tuple<int, int, int, std::string>>& list) {
     Bytes b;
     b.u16(unsigned(list.size())).zeros(8);
-    for (const auto& [from, to, dir, name] : list) b.u16(unsigned(from)).u16(unsigned(to)).u8(unsigned(dir)).u16(0).zeros(6).zeros(3).u8(0).str(name);
+    for (const auto& [from, to, dir, name] : list)
+        b.u16(unsigned(from)).u16(unsigned(to)).u8(unsigned(dir)).u16(0).zeros(6).zeros(3).u8(0).str(name);
     return chunk(0x2018, b);
 }
 
@@ -72,7 +100,15 @@ Bytes tags(const std::vector<std::tuple<int, int, int, std::string>>& list) {
 Bytes tags_repeat(const std::vector<std::tuple<int, int, int, int, std::string>>& list) {
     Bytes b;
     b.u16(unsigned(list.size())).zeros(8);
-    for (const auto& [from, to, dir, repeat, name] : list) b.u16(unsigned(from)).u16(unsigned(to)).u8(unsigned(dir)).u16(unsigned(repeat)).zeros(6).zeros(3).u8(0).str(name);
+    for (const auto& [from, to, dir, repeat, name] : list)
+        b.u16(unsigned(from))
+            .u16(unsigned(to))
+            .u8(unsigned(dir))
+            .u16(unsigned(repeat))
+            .zeros(6)
+            .zeros(3)
+            .u8(0)
+            .str(name);
     return chunk(0x2018, b);
 }
 
@@ -95,7 +131,12 @@ std::string aseprite(int w, int h, int depth, const std::vector<Bytes>& frames, 
     Bytes body;
     for (const Bytes& f : frames) body.add(f);
     Bytes b;
-    b.u32(unsigned(body.v.size()) + 128).u16(0xA5E0).u16(unsigned(frames.size())).u16(unsigned(w)).u16(unsigned(h)).u16(unsigned(depth));
+    b.u32(unsigned(body.v.size()) + 128)
+        .u16(0xA5E0)
+        .u16(unsigned(frames.size()))
+        .u16(unsigned(w))
+        .u16(unsigned(h))
+        .u16(unsigned(depth));
     b.u32(1).u16(100).u32(0).u32(0).u8(transparentIndex).zeros(3).u16(0).u8(1).u8(1).zeros(8).zeros(84);
     REQUIRE(b.v.size() == 128);
     b.add(body);
@@ -130,12 +171,13 @@ TEST_CASE("assets.import: Aseprite flat: true makes one sheet and its clips, no 
     std::vector<Bytes> first = {layer("body"), layer("hidden", 0), layer("half", 1, 0, 128), layer("glow", 1, 16)};
     first.push_back(cel_zlib(0, 0, 0, 4, 2, rgba_block(8, red)));   // a compressed cel: the whole frame red
     first.push_back(cel_zlib(1, 0, 0, 4, 2, rgba_block(8, blue)));  // on a hidden layer: must not show
-    first.push_back(tags({{0, 1, 0, "idle"}, {2, 3, 2, "run"}}));    // "run" is ping-pong
+    first.push_back(tags({{0, 1, 0, "idle"}, {2, 3, 2, "run"}}));   // "run" is ping-pong
     std::vector<Bytes> frames;
     frames.push_back(frame(100, first));
-    frames.push_back(frame(100, {cel_linked(0, 0)}));                                              // a linked cel: red again
-    frames.push_back(frame(50, {cel_raw(0, 1, 1, 2, 1, rgba_block(2, {0, 255, 0, 255}), 128)}));  // raw, partial, cel opacity 128
-    frames.push_back(frame(50, {cel_raw(2, 0, 0, 1, 1, rgba_block(1, red))}));                    // on the layer with opacity 128
+    frames.push_back(frame(100, {cel_linked(0, 0)}));  // a linked cel: red again
+    frames.push_back(
+        frame(50, {cel_raw(0, 1, 1, 2, 1, rgba_block(2, {0, 255, 0, 255}), 128)}));  // raw, partial, cel opacity 128
+    frames.push_back(frame(50, {cel_raw(2, 0, 0, 1, 1, rgba_block(1, red))}));       // on the layer with opacity 128
     const std::string source = art(p, "hero.aseprite", aseprite(4, 2, 32, frames));
 
     const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}, {"flat", true}});
@@ -186,7 +228,8 @@ TEST_CASE("assets.import: Aseprite flat: true makes one sheet and its clips, no 
     CHECK_FALSE(entry["provenance"].contains("ai"));
 
     // `columns` lays the frames out in one row.
-    const Json row = p.ok("assets.import", {{"source", source}, {"path", "assets/row.png"}, {"columns", 4}, {"flat", true}});
+    const Json row =
+        p.ok("assets.import", {{"source", source}, {"path", "assets/row.png"}, {"columns", 4}, {"flat", true}});
     CHECK(row["sheet"]["columns"] == 4);
     CHECK(row["sheet"]["rows"] == 1);
     CHECK(read_png(p.file("assets/row.png")).width == 16);
@@ -196,18 +239,21 @@ TEST_CASE("assets.import: an Aseprite file becomes an image document with layers
     AssetsProject p;
     const Rgba red{255, 0, 0, 255}, blue{0, 0, 255, 255};
     // Layers: 0 "body", 1 "hidden" (not visible), 2 "glow" (multiply blend, opacity 128), 3 "odd" (divide: no equivalent), 4 an empty one.
-    std::vector<Bytes> first = {layer("body"), layer("hidden", 0), layer("glow", 1, 1, 128), layer("odd", 1, 18), layer("nothing")};
+    std::vector<Bytes> first = {layer("body"), layer("hidden", 0), layer("glow", 1, 1, 128), layer("odd", 1, 18),
+                                layer("nothing")};
     first.push_back(cel_zlib(0, 0, 0, 2, 2, rgba_block(4, red)));
     first.push_back(cel_zlib(1, 0, 0, 2, 2, rgba_block(4, blue)));
     first.push_back(cel_raw(2, 1, 0, 1, 1, rgba_block(1, blue)));
     first.push_back(cel_raw(3, 0, 1, 1, 1, rgba_block(1, blue)));
-    first.push_back(tags_repeat({{0, 1, 0, 0, "idle"}, {2, 3, 2, 2, "run"}, {3, 3, 3, 0, "idle"}, {1, 9, 0, 0, "gone"}}));
+    first.push_back(
+        tags_repeat({{0, 1, 0, 0, "idle"}, {2, 3, 2, 2, "run"}, {3, 3, 3, 0, "idle"}, {1, 9, 0, 0, "gone"}}));
     std::vector<Bytes> frames;
     frames.push_back(frame(100, first));
-    frames.push_back(frame(100, {cel_linked(0, 0), cel_linked(2, 0)}));                                   // body and glow link frame 0
-    frames.push_back(frame(250, {cel_raw(0, 1, 0, 1, 2, rgba_block(2, {0, 255, 0, 255}), 128), cel_linked(2, 0)}));   // a new body cel, cel opacity 128
-    frames.push_back(frame(50, {cel_linked(0, 0), cel_linked(2, 0)}));                                     // the body is frame 0's again
-    frames.push_back(frame(30, {cel_linked(2, 0)}));                                                       // no body cel: nothing
+    frames.push_back(frame(100, {cel_linked(0, 0), cel_linked(2, 0)}));  // body and glow link frame 0
+    frames.push_back(frame(250, {cel_raw(0, 1, 0, 1, 2, rgba_block(2, {0, 255, 0, 255}), 128),
+                                 cel_linked(2, 0)}));                   // a new body cel, cel opacity 128
+    frames.push_back(frame(50, {cel_linked(0, 0), cel_linked(2, 0)}));  // the body is frame 0's again
+    frames.push_back(frame(30, {cel_linked(2, 0)}));                    // no body cel: nothing
     const std::string source = art(p, "hero.aseprite", aseprite(2, 2, 32, frames));
 
     const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}});
@@ -220,32 +266,32 @@ TEST_CASE("assets.import: an Aseprite file becomes an image document with layers
     REQUIRE(doc["frames"].size() == 5);
     CHECK(doc["frames"][2]["duration"] == 250);
     CHECK(doc["frames"][3]["duration"] == 50);
-    REQUIRE(doc["tags"].size() == 3);   // "gone" is out of range and skipped; the second "idle" is renamed
+    REQUIRE(doc["tags"].size() == 3);  // "gone" is out of range and skipped; the second "idle" is renamed
     CHECK(doc["tags"][2]["name"] == "idle 2");
     CHECK(doc["tags"][0]["name"] == "idle");
     CHECK_FALSE(doc["tags"][0].contains("direction"));
     CHECK(doc["tags"][1]["name"] == "run");
     CHECK(doc["tags"][1]["direction"] == "pingpong");
     CHECK(doc["tags"][1]["repeat"] == 2);
-    REQUIRE(doc["layers"].size() == 4);   // the empty layer is left out; the hidden one stays, hidden
+    REQUIRE(doc["layers"].size() == 4);  // the empty layer is left out; the hidden one stays, hidden
     CHECK(doc["layers"][1]["name"] == "hidden");
     CHECK(doc["layers"][1]["visible"] == false);
     const Json& body = doc["layers"][0];
     CHECK(body["name"] == "body");
     CHECK(body["kind"] == "pixels");
     CHECK(body["source"].get<std::string>().find("assets/hero.layers/") == 0);
-    REQUIRE(body["cels"].size() == 3);   // frame 1 shows frame 0's cel again: it holds, and needs no cel
+    REQUIRE(body["cels"].size() == 3);  // frame 1 shows frame 0's cel again: it holds, and needs no cel
     CHECK(body["cels"][0]["frame"] == 2);
     CHECK(body["cels"][0]["source"].get<std::string>() != body["source"].get<std::string>());
     CHECK(body["cels"][0]["x"] == 1);
     CHECK(body["cels"][1]["frame"] == 3);
-    CHECK(body["cels"][1]["link"] == 0);   // frame 0's cel again, after another one: a link, not a copy
+    CHECK(body["cels"][1]["link"] == 0);  // frame 0's cel again, after another one: a link, not a copy
     CHECK(body["cels"][2]["frame"] == 4);
     CHECK(body["cels"][2]["empty"] == true);
     CHECK(doc["layers"][2]["name"] == "glow");
     CHECK(doc["layers"][2]["blend"] == "multiply");
     CHECK(doc["layers"][2]["opacity"] == doctest::Approx(128.0 / 255.0).epsilon(0.001));
-    CHECK_FALSE(doc["layers"][2].contains("cels"));   // linked in every frame: one picture
+    CHECK_FALSE(doc["layers"][2].contains("cels"));  // linked in every frame: one picture
     CHECK(doc["layers"][3]["name"] == "odd");
     CHECK_FALSE(doc["layers"][3].contains("blend"));
 
@@ -266,17 +312,17 @@ TEST_CASE("assets.import: an Aseprite file becomes an image document with layers
     CHECK((*idle)["firstFrame"] == 0);
     CHECK((*idle)["lastFrame"] == 1);
     CHECK((*idle)["fps"] == 10);
-    CHECK((*run)["loop"] == false);   // repeat 2
-    CHECK((*run)["firstFrame"].get<int>() >= 4);   // ping-pong twice and a duration of 250/50 need extra cells
+    CHECK((*run)["loop"] == false);               // repeat 2
+    CHECK((*run)["firstFrame"].get<int>() >= 4);  // ping-pong twice and a duration of 250/50 need extra cells
     CHECK(has_text(r["nextSteps"], "SpriteAnimator"));
     CHECK(p.manifest()["assets"]["assets/hero.png"]["sheet"] == sheet);
 
     const Image img = read_png(p.file("assets/hero.png"));
     const int cols = sheet["columns"].get<int>();
     REQUIRE(img.width == cols * 2);
-    CHECK(get(img, 0, 0) == red);   // frame 0: the red body; the hidden blue layer is not drawn
+    CHECK(get(img, 0, 0) == red);  // frame 0: the red body; the hidden blue layer is not drawn
     CHECK(get(img, 0, 1).a == 255);
-    CHECK(get(img, 2 % (cols * 2), 0).a == 255);   // cell 1 is frame 1: the linked body
+    CHECK(get(img, 2 % (cols * 2), 0).a == 255);  // cell 1 is frame 1: the linked body
 
     // Provenance: every file the import wrote says where it came from; the document is the source of the sheet.
     const Json entry = p.manifest()["assets"]["assets/hero.png"];
@@ -300,17 +346,20 @@ TEST_CASE("assets.import: an indexed Aseprite file stays an indexed document wit
     AssetsProject p;
     // Index 0 is the transparent one; 1 red, 2 green, 3 a duplicate of red, 4 half transparent (never used here).
     const Bytes pal = palette({{0, 0, 0, 0}, {255, 0, 0, 255}, {0, 255, 0, 255}, {255, 0, 0, 255}, {9, 9, 9, 100}});
-    const std::string indexed = art(p, "dot.aseprite", aseprite(2, 2, 8, {frame(80, {pal, layer("dot"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 3})}),
-                                                                           frame(120, {cel_raw(0, 0, 0, 2, 2, {1, 0, 0, 2})})}, 0));
+    const std::string indexed = art(p, "dot.aseprite",
+                                    aseprite(2, 2, 8,
+                                             {frame(80, {pal, layer("dot"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 3})}),
+                                              frame(120, {cel_raw(0, 0, 0, 2, 2, {1, 0, 0, 2})})},
+                                             0));
     const Json r = p.ok("assets.import", {{"source", indexed}});
     CHECK(r["details"]["indexedDocument"] == true);
     const Json doc = parse_json(read_all(p.file("assets/dot.image.json")), "dot.image.json").value();
-    REQUIRE(doc["palette"].size() == 2);   // the colours the pictures use, each once: the duplicate red is index 0 again
+    REQUIRE(doc["palette"].size() == 2);  // the colours the pictures use, each once: the duplicate red is index 0 again
     CHECK(doc["palette"][0] == "#ff0000");
     CHECK(doc["palette"][1] == "#00ff00");
     const Json& layer0 = doc["layers"][0];
     CHECK(layer0["kind"] == "indexed");
-    CHECK(layer0["rows"] == Json::array({".0", "10"}));   // the transparent index is '.'
+    CHECK(layer0["rows"] == Json::array({".0", "10"}));  // the transparent index is '.'
     REQUIRE(layer0["cels"].size() == 1);
     CHECK(layer0["cels"][0]["rows"] == Json::array({"0.", ".1"}));
     CHECK(doc["frames"][0]["duration"] == 80);
@@ -325,22 +374,26 @@ TEST_CASE("assets.import: an indexed Aseprite file stays an indexed document wit
 
     // A palette colour with its own alpha cannot be a document palette colour: the layers are pixels layers.
     const Bytes alphaPal = palette({{0, 0, 0, 0}, {255, 0, 0, 255}, {0, 255, 0, 128}});
-    const std::string soft = art(p, "soft.aseprite", aseprite(2, 2, 8, {frame(100, {alphaPal, layer("l"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 1})})}));
+    const std::string soft =
+        art(p, "soft.aseprite",
+            aseprite(2, 2, 8, {frame(100, {alphaPal, layer("l"), cel_raw(0, 0, 0, 2, 2, {0, 1, 2, 1})})}));
     const Json s = p.ok("assets.import", {{"source", soft}});
     CHECK(s["details"]["indexedDocument"] == false);
     CHECK(has_text(s["warnings"], "alpha"));
     const Json softDoc = parse_json(read_all(p.file("assets/soft.image.json")), "soft.image.json").value();
     CHECK(softDoc["layers"][0]["kind"] == "pixels");
-    CHECK_FALSE(softDoc.contains("frames"));   // one frame, no tags: a plain PNG
+    CHECK_FALSE(softDoc.contains("frames"));  // one frame, no tags: a plain PNG
     CHECK_FALSE(s.contains("sheet"));
     CHECK(read_png(p.file("assets/soft.png")).width == 2);
 }
 
-TEST_CASE("assets.import: Aseprite indexed color uses the palette and the transparent index; grayscale uses its alpha") {
+TEST_CASE(
+    "assets.import: Aseprite indexed color uses the palette and the transparent index; grayscale uses its alpha") {
     AssetsProject p;
     const Bytes pal = palette({{0, 0, 0, 255}, {255, 0, 0, 255}, {0, 255, 0, 128}});
     const std::vector<std::uint8_t> indices = {0, 1, 2, 1};
-    const std::string indexed = art(p, "indexed.aseprite", aseprite(2, 2, 8, {frame(100, {pal, layer("l"), cel_raw(0, 0, 0, 2, 2, indices)})}));
+    const std::string indexed =
+        art(p, "indexed.aseprite", aseprite(2, 2, 8, {frame(100, {pal, layer("l"), cel_raw(0, 0, 0, 2, 2, indices)})}));
     p.ok("assets.import", {{"source", indexed}});
     const Image a = read_png(p.file("assets/indexed.png"));
     CHECK(get(a, 0, 0).a == 0);  // the transparent index
@@ -349,19 +402,25 @@ TEST_CASE("assets.import: Aseprite indexed color uses the palette and the transp
     CHECK(get(a, 1, 1) == Rgba{255, 0, 0, 255});
 
     // On a Background layer the transparent index is an ordinary color.
-    const std::string background = art(p, "bg.aseprite", aseprite(2, 2, 8, {frame(100, {pal, layer("Background", 1 | 8), cel_raw(0, 0, 0, 2, 2, indices)})}));
+    const std::string background =
+        art(p, "bg.aseprite",
+            aseprite(2, 2, 8, {frame(100, {pal, layer("Background", 1 | 8), cel_raw(0, 0, 0, 2, 2, indices)})}));
     p.ok("assets.import", {{"source", background}});
     CHECK(get(read_png(p.file("assets/bg.png")), 0, 0) == Rgba{0, 0, 0, 255});
 
     // The old palette chunk (0x0004).
     const Bytes oldPalette = chunk(0x0004, Bytes().u16(1).u8(0).u8(2).u8(255).u8(0).u8(0).u8(0).u8(255).u8(0));
-    const std::string old = art(p, "old.aseprite", aseprite(2, 1, 8, {frame(100, {oldPalette, layer("l"), cel_raw(0, 0, 0, 2, 1, {0, 1})})}, 5));
+    const std::string old =
+        art(p, "old.aseprite",
+            aseprite(2, 1, 8, {frame(100, {oldPalette, layer("l"), cel_raw(0, 0, 0, 2, 1, {0, 1})})}, 5));
     p.ok("assets.import", {{"source", old}});
     const Image o = read_png(p.file("assets/old.png"));
     CHECK(get(o, 0, 0) == Rgba{255, 0, 0, 255});
     CHECK(get(o, 1, 0) == Rgba{0, 255, 0, 255});
 
-    const std::string gray = art(p, "gray.aseprite", aseprite(2, 1, 16, {frame(100, {layer("l"), cel_raw(0, 0, 0, 2, 1, {100, 255, 200, 128})})}));
+    const std::string gray =
+        art(p, "gray.aseprite",
+            aseprite(2, 1, 16, {frame(100, {layer("l"), cel_raw(0, 0, 0, 2, 1, {100, 255, 200, 128})})}));
     p.ok("assets.import", {{"source", gray}});
     const Image g = read_png(p.file("assets/gray.png"));
     CHECK(get(g, 0, 0) == Rgba{100, 100, 100, 255});
@@ -370,7 +429,8 @@ TEST_CASE("assets.import: Aseprite indexed color uses the palette and the transp
 
 TEST_CASE("assets.import: a damaged Aseprite file is an error that says what is wrong") {
     AssetsProject p;
-    const std::string good = aseprite(2, 1, 32, {frame(100, {layer("l"), cel_zlib(0, 0, 0, 2, 1, rgba_block(2, {1, 2, 3, 255}))})});
+    const std::string good =
+        aseprite(2, 1, 32, {frame(100, {layer("l"), cel_zlib(0, 0, 0, 2, 1, rgba_block(2, {1, 2, 3, 255}))})});
     CommandResult cut = p.call("assets.import", {{"source", art(p, "cut.aseprite", good.substr(0, good.size() - 6))}});
     REQUIRE_FALSE(cut.ok);
     CHECK(cut.error["message"].get<std::string>().find("cut.aseprite") != std::string::npos);
@@ -387,7 +447,9 @@ TEST_CASE("assets.import: destination rules and the errors that teach") {
     AssetsProject p;
     const std::string png = art(p, "hero.png", png_string(make_image(4, 4, {9, 9, 9, 255})));
 
-    const Json r = p.ok("assets.import", {{"source", png}, {"path", "assets/chars/"}, {"sourceUrl", "https://example.com/hero"}, {"ai", true}});
+    const Json r =
+        p.ok("assets.import",
+             {{"source", png}, {"path", "assets/chars/"}, {"sourceUrl", "https://example.com/hero"}, {"ai", true}});
     CHECK(r["path"] == "assets/chars/hero.png");
     CHECK(r["details"]["width"] == 4);
     CHECK(p.manifest()["assets"]["assets/chars/hero.png"]["provenance"]["source"] == "https://example.com/hero");
@@ -444,7 +506,8 @@ TEST_CASE("assets.import: a .gltf brings its buffer and images along") {
     AssetsProject p;
     write_all(p.tmp.path / "art/model.bin", "abcd");
     write_png(p.tmp.path / "art/tex/wood floor.png", make_image(2, 2, {1, 2, 3, 255}));
-    const std::string gltf = R"({"asset":{"version":"2.0"},"buffers":[{"uri":"model.bin","byteLength":4},{"uri":"data:application/octet-stream;base64,AAAA","byteLength":3}],
+    const std::string gltf =
+        R"({"asset":{"version":"2.0"},"buffers":[{"uri":"model.bin","byteLength":4},{"uri":"data:application/octet-stream;base64,AAAA","byteLength":3}],
         "images":[{"uri":"tex/wood%20floor.png"},{"uri":"missing.png"}]})";
     const Json r = p.ok("assets.import", {{"source", art(p, "model.gltf", gltf)}});
     CHECK(r["path"] == "assets/models/model.gltf");
@@ -455,17 +518,26 @@ TEST_CASE("assets.import: a .gltf brings its buffer and images along") {
     CHECK(has_text(r["warnings"], "missing.png"));
     CHECK(p.manifest()["assets"].contains("assets/models/model.bin"));
 
-    CommandResult noBuffer = p.call("assets.import", {{"source", art(p, "broken.gltf", R"({"asset":{"version":"2.0"},"buffers":[{"uri":"gone.bin","byteLength":4}]})")}});
+    CommandResult noBuffer =
+        p.call("assets.import",
+               {{"source", art(p, "broken.gltf",
+                               R"({"asset":{"version":"2.0"},"buffers":[{"uri":"gone.bin","byteLength":4}]})")}});
     REQUIRE_FALSE(noBuffer.ok);
     CHECK(noBuffer.error["message"].get<std::string>().find("gone.bin") != std::string::npos);
-    CommandResult remote = p.call("assets.import", {{"source", art(p, "remote.gltf", R"({"asset":{"version":"2.0"},"images":[{"uri":"https://x.test/a.png"}]})")}});
+    CommandResult remote =
+        p.call("assets.import",
+               {{"source",
+                 art(p, "remote.gltf", R"({"asset":{"version":"2.0"},"images":[{"uri":"https://x.test/a.png"}]})")}});
     CHECK_FALSE(remote.ok);
 }
 
 TEST_CASE("assets.import: a PSD without layers becomes a PNG of its merged image") {
     AssetsProject p;
     auto be16 = [](Bytes& b, unsigned v) { b.u8(v >> 8).u8(v & 255); };
-    auto be32 = [&](Bytes& b, unsigned v) { be16(b, v >> 16); be16(b, v & 0xffff); };
+    auto be32 = [&](Bytes& b, unsigned v) {
+        be16(b, v >> 16);
+        be16(b, v & 0xffff);
+    };
     Bytes psd;
     psd.v.insert(psd.v.end(), {'8', 'B', 'P', 'S'});
     be16(psd, 1);
@@ -501,8 +573,15 @@ namespace {
 std::string glb_with(std::string json) {
     while (json.size() % 4) json += ' ';
     std::string b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char(v >> (8 * i))); };
-    b += "glTF"; u32(2); u32(std::uint32_t(20 + json.size())); u32(std::uint32_t(json.size())); b += "JSON"; b += json;
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(char(v >> (8 * i)));
+    };
+    b += "glTF";
+    u32(2);
+    u32(std::uint32_t(20 + json.size()));
+    u32(std::uint32_t(json.size()));
+    b += "JSON";
+    b += json;
     return b;
 }
 
@@ -527,14 +606,17 @@ TEST_CASE("assets.import: a .glb brings its external texture, validate passes, a
     }
 
     // the same texture again is shared silently; a different one is kept and warned about
-    const Json same = p.ok("assets.import", {{"source", (p.tmp.path / "kitA/tree.glb").string()}, {"path", "assets/models/tree2.glb"}});
+    const Json same = p.ok("assets.import",
+                           {{"source", (p.tmp.path / "kitA/tree.glb").string()}, {"path", "assets/models/tree2.glb"}});
     CHECK_FALSE(same.contains("warnings"));
     const Json clash = p.ok("assets.import", {{"source", (p.tmp.path / "kitB/rock.glb").string()}});
     CHECK(has_warning(clash, "Textures/colormap.png"));
     CHECK(has_warning(clash, "DIFFERENT"));
-    CHECK(read_png(p.file("assets/models/Textures/colormap.png")).rgba[0] == 1);  // the first kit's texture is still there
+    CHECK(read_png(p.file("assets/models/Textures/colormap.png")).rgba[0] ==
+          1);  // the first kit's texture is still there
     // its own folder avoids it
-    const Json own = p.ok("assets.import", {{"source", (p.tmp.path / "kitB/rock.glb").string()}, {"path", "assets/models/kitB/"}});
+    const Json own =
+        p.ok("assets.import", {{"source", (p.tmp.path / "kitB/rock.glb").string()}, {"path", "assets/models/kitB/"}});
     CHECK_FALSE(own.contains("warnings"));
     CHECK(read_png(p.file("assets/models/kitB/Textures/colormap.png")).rgba[0] == 200);
 
@@ -543,7 +625,8 @@ TEST_CASE("assets.import: a .glb brings its external texture, validate passes, a
     ValidationReport r = validate_project(p.dir);
     bool found = false;
     for (const ValidationIssue& e : r.errors)
-        if (e.file == "assets/models/kitB/rock.glb" && e.message.find("colormap.png") != std::string::npos) found = true;
+        if (e.file == "assets/models/kitB/rock.glb" && e.message.find("colormap.png") != std::string::npos)
+            found = true;
     CHECK(found);
 }
 
@@ -555,7 +638,8 @@ TEST_CASE("assets.import: a different buffer with the same name is a clash, an i
     write_all(p.tmp.path / "b/boat.gltf", gltf);
     write_all(p.tmp.path / "b/scene.bin", "BBBB");
     p.ok("assets.import", {{"source", (p.tmp.path / "a/car.gltf").string()}});
-    const Json same = p.ok("assets.import", {{"source", (p.tmp.path / "a/car.gltf").string()}, {"path", "assets/models/car2.gltf"}});
+    const Json same =
+        p.ok("assets.import", {{"source", (p.tmp.path / "a/car.gltf").string()}, {"path", "assets/models/car2.gltf"}});
     CHECK_FALSE(same.contains("warnings"));
     CommandResult clash = p.call("assets.import", {{"source", (p.tmp.path / "b/boat.gltf").string()}});
     REQUIRE_FALSE(clash.ok);
@@ -583,7 +667,8 @@ TEST_CASE("assets.synth_sound: the same seed gives the same bytes, another seed 
     CHECK(prov["seed"] == 3);
 
     // every preset makes a sound that is not silent
-    for (const char* preset : {"growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup", "jump", "powerup", "laser", "blip", "click", "error", "splash", "footstep"}) {
+    for (const char* preset : {"growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup", "jump",
+                               "powerup", "laser", "blip", "click", "error", "splash", "footstep"}) {
         p.ok("assets.synth_sound", {{"path", std::string("assets/audio/p_") + preset + ".wav"}, {"preset", preset}});
         const std::string wav = read_all(p.file(std::string("assets/audio/p_") + preset + ".wav"));
         bool loud = false;
@@ -601,15 +686,16 @@ TEST_CASE("assets.synth_sound: the same seed gives the same bytes, another seed 
 
 TEST_CASE("assets.synth_sound: every preset lands near -18 LUFS and passes validate's loudness check") {
     AssetsProject p;
-    for (const char* preset : {"bark", "growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup", "jump", "powerup",
-                               "laser", "blip", "click", "error", "splash", "footstep"}) {
+    for (const char* preset : {"bark", "growl", "meow", "screech", "whoosh", "explosion", "hit", "coin", "pickup",
+                               "jump", "powerup", "laser", "blip", "click", "error", "splash", "footstep"}) {
         for (int seed : {1, 7}) {
             const std::string path = std::string("assets/audio/l_") + preset + std::to_string(seed) + ".wav";
             p.ok("assets.synth_sound", {{"path", path}, {"preset", preset}, {"seed", seed}});
             const std::string wav = read_all(p.file(path));
             auto loudness = measure_loudness({reinterpret_cast<const std::uint8_t*>(wav.data()), wav.size()}, ".wav");
             REQUIRE_MESSAGE(loudness.ok(), preset);
-            INFO(std::string(preset) << " seed " << seed << ": " << loudness->integratedLufs << " LUFS, peak " << loudness->peakDb << " dBFS");
+            INFO(std::string(preset) << " seed " << seed << ": " << loudness->integratedLufs << " LUFS, peak "
+                                     << loudness->peakDb << " dBFS");
             CHECK(loudness->integratedLufs == doctest::Approx(-18.0).epsilon(0.1));  // within about 1.8 LU
             CHECK(loudness->peakDb <= -0.99);  // the gain stops at the -1 dBFS peak (16-bit rounding)
         }

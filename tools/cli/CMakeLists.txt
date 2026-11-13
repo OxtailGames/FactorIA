@@ -66,6 +66,7 @@ if(FA_BUILD_TESTS)
         add_library(fa_test_plugin_example SHARED ${FA_ROOT}/platforms/plugin/src/plugin.c)
         target_include_directories(fa_test_plugin_example PRIVATE ${FA_ROOT}/engine/runtime/include/fa/runtime)
         target_compile_definitions(fa_test_plugin_example PRIVATE FA_PLUGIN_NAME=example)
+        target_link_libraries(fa_test_plugin_example PRIVATE fa_warnings)
         set_target_properties(fa_test_plugin_example PROPERTIES OUTPUT_NAME example C_VISIBILITY_PRESET hidden)
         add_test(NAME cli_plugin
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>
@@ -148,6 +149,13 @@ if(FA_BUILD_TESTS)
         message(STATUS "Example game tests are DISABLED in this build (FA_EXAMPLE_TESTS=${FA_EXAMPLE_TESTS}, build type "
             "'${CMAKE_BUILD_TYPE}'): run them with scripts/test-all.sh, or configure an optimized build and run `ctest -L example`")
     endif()
+    # The perf budgets compare time and memory with a baseline of an optimized build on a runner kind (docs/PERFORMANCE.md): the code
+    # of a sanitizer build is several times slower and bigger, and no runner id has a baseline for it. The sanitizer jobs leave the
+    # `_perf` tests out (perf_regression_detected below only needs the budget check to fail, which it does in any build).
+    set(fa_perf_disabled ${fa_examples_disabled})
+    if(FA_SANITIZE)
+        set(fa_perf_disabled true)
+    endif()
     # GitHub's Linux runners take 100-170 s for the longest example; the emulated x86-64 of scripts/ci-docker.sh on a Mac
     # takes over twice that, so it raises the limit.
     set(FA_EXAMPLE_TEST_TIMEOUT 300 CACHE STRING "Seconds an example game's test may run before ctest stops it")
@@ -187,7 +195,7 @@ if(FA_BUILD_TESTS)
                     WORKING_DIRECTORY ${FA_ROOT})
                 # RUN_SERIAL: under `ctest -j` the other tests would load the CPU and GPU and skew the measured times.
                 set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf;example" TIMEOUT 600 RUN_SERIAL TRUE
-                    DISABLED ${fa_examples_disabled})
+                    DISABLED ${fa_perf_disabled})
             endforeach()
         endif()
     endforeach()
@@ -231,7 +239,8 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_skinned_sprites_perf
         COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
         WORKING_DIRECTORY ${FA_ROOT})
-    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600 RUN_SERIAL TRUE)
+    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600 RUN_SERIAL TRUE
+        DISABLED ${fa_perf_disabled})
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     # The budget check must fail on a game heavier than its baseline: tests/perf/regression.perf.json holds an impossibly
     # small baseline for the runner id "regression-test" (FACTORIA_PERF_RUNNER), so memory and draw calls are over it.

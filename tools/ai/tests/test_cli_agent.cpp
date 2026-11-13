@@ -31,7 +31,7 @@ TEST_CASE("find_cli: PATH first, then the installers' folders under HOME (a GUI 
     CHECK(find_cli(name, env).empty());  // not executable
     std::filesystem::permissions(bin / name, std::filesystem::perms::owner_all);
     CHECK(find_cli(name, env) == (bin / name).string());
-    CHECK(find_cli("sh", env) == which("sh"));  // PATH wins
+    CHECK(find_cli("sh", env) == which("sh"));         // PATH wins
     CHECK(find_cli("/no/such/" + name, env).empty());  // a path is only checked as given
 }
 
@@ -52,7 +52,8 @@ static ProviderConfig claude_cfg() {
     return c;
 }
 
-TEST_CASE("cli agents are started with FACTORIA_CALLER=agent (a factoria they run is an AI's call), unless one is already set") {
+TEST_CASE("cli agents are started with FACTORIA_CALLER=agent (a factoria they run is an AI's call), unless one is "
+          "already set") {
     ProviderConfig cfg = claude_cfg();
     auto po = cli_process_options(cfg);
     REQUIRE(po);
@@ -79,8 +80,10 @@ struct ScopedEnv {
         ::setenv(name.c_str(), value, 1);
     }
     ~ScopedEnv() {
-        if (had) ::setenv(name.c_str(), old.c_str(), 1);
-        else ::unsetenv(name.c_str());
+        if (had)
+            ::setenv(name.c_str(), old.c_str(), 1);
+        else
+            ::unsetenv(name.c_str());
     }
 };
 
@@ -93,7 +96,8 @@ bool env_names(const std::string& text, const std::string& name) {
 }
 }  // namespace
 
-TEST_CASE("cli agents do not inherit the editor's environment: the provider's key and its inheritEnv names reach them, signing passwords and other providers' keys do not") {
+TEST_CASE("cli agents do not inherit the editor's environment: the provider's key and its inheritEnv names reach them, "
+          "signing passwords and other providers' keys do not") {
     ScopedEnv secret("FACTORIA_TEST_SECRET", "hunter2");
     ScopedEnv pfx("FACTORIA_WINDOWS_PFX_PASSWORD", "pfx-pass");
     ScopedEnv openai("OPENAI_API_KEY", "sk-other-provider");
@@ -171,7 +175,8 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     cfg.env["FAKE_ARGV_FILE"] = argvFile;
     std::vector<AgentEvent> events;
     CliAgent agent(cfg);
-    auto r = agent.run({"Make a game", "sonnet", dir.str()}, [&](const AgentEvent& e) { events.push_back(e); }, nullptr);
+    auto r =
+        agent.run({"Make a game", "sonnet", dir.str()}, [&](const AgentEvent& e) { events.push_back(e); }, nullptr);
     REQUIRE(r);
     CHECK(r->ok);
     CHECK(r->finalText == "Done: project is valid.");
@@ -186,7 +191,8 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     for (auto& e : events) {
         if (e.type == AgentEvent::Type::TextDelta) text += e.text + "|";
         if (e.type == AgentEvent::Type::ToolStart) tools += e.toolName + ";";
-        if (e.type == AgentEvent::Type::ToolEnd) toolEnds += e.toolName + (e.isError ? "!" : "") + ":" + e.toolResult.get<std::string>() + ";";
+        if (e.type == AgentEvent::Type::ToolEnd)
+            toolEnds += e.toolName + (e.isError ? "!" : "") + ":" + e.toolResult.get<std::string>() + ";";
         if (e.type == AgentEvent::Type::Info) infos += e.text;
     }
     CHECK(text.find("Looking at the project.|") != std::string::npos);
@@ -195,7 +201,8 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK(tools == "mcp__factoria__project_validate;");
     CHECK(toolEnds == "mcp__factoria__project_validate:{\"ok\":true};");
     CHECK(infos.find("MCP server 'other' is failed") != std::string::npos);
-    CHECK(infos.find("'other' is failed (is `factoria` on PATH?)") == std::string::npos);  // the hint is for FactorIA's server
+    CHECK(infos.find("'other' is failed (is `factoria` on PATH?)") ==
+          std::string::npos);  // the hint is for FactorIA's server
 
     std::string argv = read_file(argvFile);
     CHECK(argv.find("-p\n--output-format\n") == 0);
@@ -221,11 +228,13 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK_FALSE(std::filesystem::exists(mcpPath));
     Json mcp = Json::parse(read_file(argvFile + ".mcpconfig"));
     CHECK(mcp["mcpServers"]["factoria"]["command"] == "factoria");
-    CHECK(mcp["mcpServers"]["factoria"]["timeout"] == kMcpToolTimeoutMs);  // Claude Code's per-call ceiling: ai_run runs long
+    CHECK(mcp["mcpServers"]["factoria"]["timeout"] ==
+          kMcpToolTimeoutMs);  // Claude Code's per-call ceiling: ai_run runs long
     CHECK(mcp["mcpServers"]["factoria"]["args"] == Json::parse(R"(["mcp","--project",")" + dir.str() + R"("])"));
 }
 
-TEST_CASE("claude-code agent: when the owner-only write in the project fails, the MCP config goes to the user's temporary folder") {
+TEST_CASE("claude-code agent: when the owner-only write in the project fails, the MCP config goes to the user's "
+          "temporary folder") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     ProviderConfig cfg = claude_cfg();
@@ -247,12 +256,14 @@ TEST_CASE("claude-code agent: when the owner-only write in the project fails, th
     // (the temporary folder may be spelled with or without a trailing separator)
     CHECK(std::filesystem::equivalent(mcpPath.parent_path().parent_path(), std::filesystem::temp_directory_path()));
     CHECK(mcpPath.parent_path().filename().string().rfind("factoria-run", 0) == 0);
-    CHECK(Json::parse(read_file(argvFile + ".mcpconfig"))["mcpServers"]["factoria"]["command"] == "factoria");  // the CLI read it
-    CHECK_FALSE(std::filesystem::exists(mcpPath));                    // removed with the run,
-    CHECK_FALSE(std::filesystem::exists(mcpPath.parent_path()));      // and its folder with it
+    CHECK(Json::parse(read_file(argvFile + ".mcpconfig"))["mcpServers"]["factoria"]["command"] ==
+          "factoria");                                            // the CLI read it
+    CHECK_FALSE(std::filesystem::exists(mcpPath));                // removed with the run,
+    CHECK_FALSE(std::filesystem::exists(mcpPath.parent_path()));  // and its folder with it
 }
 
-TEST_CASE("sweep_stale_temp_run_dirs: takes a crashed run's folder, spares a run in progress (own folder, not the real /tmp)") {
+TEST_CASE("sweep_stale_temp_run_dirs: takes a crashed run's folder, spares a run in progress (own folder, not the real "
+          "/tmp)") {
     TempDir base;
     namespace fsys = std::filesystem;
     const auto longAgo = fsys::file_time_type::clock::now() - std::chrono::hours(48);
@@ -294,7 +305,8 @@ TEST_CASE("claude-code agent: argv template is overridable from the config") {
     CHECK(read_file(argvFile) == "--print\n--output-format\nstream-json\n--\nhi\n");
 }
 
-TEST_CASE("claude-code agent: a prompt that looks like an option reaches the CLI as the prompt, and added flags go before \"--\"") {
+TEST_CASE("claude-code agent: a prompt that looks like an option reaches the CLI as the prompt, and added flags go "
+          "before \"--\"") {
     TempDir dir, scratch;
     std::string argvFile = (scratch.path / "argv.txt").string();
     ProviderConfig cfg = claude_cfg();
@@ -305,8 +317,8 @@ TEST_CASE("claude-code agent: a prompt that looks like an option reaches the CLI
     auto r = CliAgent(cfg).run(req, nullptr, nullptr);
     REQUIRE(r);
     CHECK(r->ok);
-    CHECK(read_file(argvFile) ==
-          "-p\n--output-format\nstream-json\n--disallowedTools\nTask\n--\n--help me with {model}\n");  // one pass: {model} stays
+    CHECK(read_file(argvFile) == "-p\n--output-format\nstream-json\n--disallowedTools\nTask\n--\n--help me with "
+                                 "{model}\n");  // one pass: {model} stays
 }
 
 TEST_CASE("CliAgent: a prompt that is \"--\" is not taken for the template's end of options") {
@@ -319,10 +331,12 @@ TEST_CASE("CliAgent: a prompt that is \"--\" is not taken for the template's end
     req.disallowedTools = {"Task"};
     auto r = CliAgent(cfg).run(req, nullptr, nullptr);
     REQUIRE(r);
-    CHECK(read_file(argvFile) == "--print\n--append-system-prompt\n--\n--disallowedTools\nTask\n");  // flags after the value
+    CHECK(read_file(argvFile) ==
+          "--print\n--append-system-prompt\n--\n--disallowedTools\nTask\n");  // flags after the value
 }
 
-TEST_CASE("CliAgent: a flag whose value is \"--\" keeps it; the added flags go before the \"--\" that ends the options") {
+TEST_CASE(
+    "CliAgent: a flag whose value is \"--\" keeps it; the added flags go before the \"--\" that ends the options") {
     TempDir dir, scratch;
     std::string argvFile = (scratch.path / "argv.txt").string();
     ProviderConfig cfg = claude_cfg();
@@ -340,12 +354,14 @@ TEST_CASE("CliAgent: a flag whose value is \"--\" keeps it; the added flags go b
     CHECK(read_file(argvFile) == "--sep\n--\n-p\n--disallowedTools\nTask\n--\n--\n");
 }
 
-TEST_CASE("with_end_of_options: Claude Code and Codex get \"--\" before a positional {prompt}; other templates stay as written") {
+TEST_CASE("with_end_of_options: Claude Code and Codex get \"--\" before a positional {prompt}; other templates stay as "
+          "written") {
     using V = std::vector<std::string>;
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"-p", "{prompt}", "--model", "{model}"}) ==
           V{"-p", "--model", "{model}", "--", "{prompt}"});
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"{prompt}"}) == V{"--", "{prompt}"});
-    CHECK(with_end_of_options(ProviderKind::Codex, {"exec", "{prompt}", "--json"}) == V{"exec", "--json", "--", "{prompt}"});
+    CHECK(with_end_of_options(ProviderKind::Codex, {"exec", "{prompt}", "--json"}) ==
+          V{"exec", "--json", "--", "{prompt}"});
     // the value of a flag, a template that already ends its options, a prompt inside an element, stdin, a generic CLI
     CHECK(with_end_of_options(ProviderKind::Codex, {"exec", "--ask", "{prompt}"}) == V{"exec", "--ask", "{prompt}"});
     CHECK(with_end_of_options(ProviderKind::ClaudeCode, {"-p", "--", "{prompt}"}) == V{"-p", "--", "{prompt}"});
@@ -365,9 +381,10 @@ TEST_CASE("with_end_of_options: Claude Code and Codex get \"--\" before a positi
 
 TEST_CASE("expand_cli_argv: placeholders are expanded in one pass; empty optional ones drop their flag") {
     CliRunRequest req{"use {model} in {project} with {session}", "", "/proj/{prompt}"};
-    const auto out = expand_cli_argv({"--ask", "{prompt}", "--model", "{model}", "--dir", "{project}", "x{session}y"}, req,
-                                     "/cfg/{model}.json", "factoria");
-    CHECK(out == std::vector<std::string>{"--ask", "use {model} in {project} with {session}", "--dir", "/proj/{prompt}"});
+    const auto out = expand_cli_argv({"--ask", "{prompt}", "--model", "{model}", "--dir", "{project}", "x{session}y"},
+                                     req, "/cfg/{model}.json", "factoria");
+    CHECK(out ==
+          std::vector<std::string>{"--ask", "use {model} in {project} with {session}", "--dir", "/proj/{prompt}"});
     const auto mcp = expand_cli_argv({"--mcp", "{mcp_config}", "{factoria}"}, req, "/cfg/{model}.json", "fa {prompt}");
     CHECK(mcp == std::vector<std::string>{"--mcp", "/cfg/{model}.json", "fa {prompt}"});
     // a plugin folder whose name holds a placeholder is passed as it is, once per folder after its flag
@@ -385,7 +402,8 @@ std::vector<std::filesystem::path> run_files(const std::filesystem::path& projec
 }
 }  // namespace
 
-TEST_CASE("claude-code agent: the MCP config is a private file of each run, deleted when the run ends, also when it fails") {
+TEST_CASE(
+    "claude-code agent: the MCP config is a private file of each run, deleted when the run ends, also when it fails") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     ProviderConfig cfg = claude_cfg();
@@ -396,8 +414,10 @@ TEST_CASE("claude-code agent: the MCP config is a private file of each run, dele
     req.onStart = [&](long long) {
         for (const auto& p : run_files(dir.path, "fa-run-mcp-claude-code-")) {
             seen.push_back(p.filename().string());
-            CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::group_all) == std::filesystem::perms::none);
-            CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::others_all) == std::filesystem::perms::none);
+            CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::group_all) ==
+                  std::filesystem::perms::none);
+            CHECK((std::filesystem::status(p).permissions() & std::filesystem::perms::others_all) ==
+                  std::filesystem::perms::none);
         }
     };
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
@@ -418,7 +438,8 @@ TEST_CASE("claude-code agent: the MCP config is a private file of each run, dele
     CHECK(run_files(dir.path, "fa-run-mcp-").empty());
 }
 
-TEST_CASE("claude-code agent: an MCP config another program holds open at the end is reported, kept, and swept a day later") {
+TEST_CASE(
+    "claude-code agent: an MCP config another program holds open at the end is reported, kept, and swept a day later") {
     TempDir dir, scratch;
     ProviderConfig cfg = claude_cfg();
     cfg.env["FAKE_ARGV_FILE"] = (scratch.path / "argv.txt").string();
@@ -458,8 +479,8 @@ TEST_CASE("claude-code agent: an MCP config another program holds open at the en
     std::filesystem::create_directories(oldSkills / "skills");
     std::ofstream(oldSkills / "skills" / "SKILL.md") << "x";
     for (const auto& p : {oldMcp, oldSettings, youngLegacy, lookalike, userSettings}) std::ofstream(p) << "{}";
-    for (const auto& p : {oldMcp, oldSettings, oldSkills / "skills" / "SKILL.md", oldSkills / "skills", oldSkills, lookalike,
-                          userSettings})
+    for (const auto& p : {oldMcp, oldSettings, oldSkills / "skills" / "SKILL.md", oldSkills / "skills", oldSkills,
+                          lookalike, userSettings})
         std::filesystem::last_write_time(p, std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
     req.onStart = nullptr;
     REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
@@ -490,7 +511,8 @@ TEST_CASE("claude-code agent: --disallowedTools carries the tools a role must no
     CHECK(argv.find("--allowedTools\nmcp__factoria\n") != std::string::npos);  // the deny list wins over the allow list
 }
 
-TEST_CASE("apply_role_restrictions: Claude Code and Codex are restricted, other CLIs and unrestricted runs are left alone") {
+TEST_CASE(
+    "apply_role_restrictions: Claude Code and Codex are restricted, other CLIs and unrestricted runs are left alone") {
     CliRunRequest req{"x", "m", "/p"};
     std::vector<std::string> plain = {"-p", "--model", "m"};
     auto untouched = plain;
@@ -507,7 +529,8 @@ TEST_CASE("apply_role_restrictions: Claude Code and Codex are restricted, other 
 
     // Codex, read-only role, built-in argv: its sandbox and a read-only FactorIA MCP server
     req.readOnly = true;
-    std::vector<std::string> codex = {"exec", "--json", "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/p\"]", "-"};
+    std::vector<std::string> codex = {"exec", "--json", "-c",
+                                      "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/p\"]", "-"};
     apply_role_restrictions(ProviderKind::Codex, true, req, codex);
     CHECK(codex == std::vector<std::string>{"exec", "--json", "-c",
                                             "mcp_servers.factoria.args=[\"mcp\",\"--read-only\",\"--project\",\"/p\"]",
@@ -667,7 +690,8 @@ TEST_CASE("codex agent: JSON events and codex argv") {
     cfg.command = script("fake_codex.sh");
     cfg.env["FAKE_ARGV_FILE"] = argvFile;
     std::vector<AgentEvent> events;
-    auto r = CliAgent(cfg).run({"Fix bug", "gpt-x", dir.str()}, [&](const AgentEvent& e) { events.push_back(e); }, nullptr);
+    auto r =
+        CliAgent(cfg).run({"Fix bug", "gpt-x", dir.str()}, [&](const AgentEvent& e) { events.push_back(e); }, nullptr);
     REQUIRE(r);
     CHECK(r->ok);
     CHECK(r->finalText == "Validated the project.");
@@ -675,7 +699,8 @@ TEST_CASE("codex agent: JSON events and codex argv") {
     CHECK(r->usage.cacheReadTokens == 100);
     CHECK(r->usage.inputTokens == 200);
     std::string tools;
-    for (auto& e : events) if (e.type == AgentEvent::Type::ToolStart) tools += e.toolName;
+    for (auto& e : events)
+        if (e.type == AgentEvent::Type::ToolStart) tools += e.toolName;
     CHECK(tools == "project_validate");
     std::string argv = read_file(argvFile);
     CHECK(argv.find("exec\n--json\n-m\ngpt-x\n-c\nmcp_servers.factoria.command=\"factoria\"\n-c\n") == 0);
@@ -791,7 +816,8 @@ constexpr const char* kTinyPng =
 
 std::string write_tiny_png(const std::filesystem::path& file) {
     auto bytes = fa::base64_decode(kTinyPng);
-    std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    std::ofstream(file, std::ios::binary)
+        .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     return file.string();
 }
 
@@ -887,7 +913,8 @@ TEST_CASE("claude-code CLI: stdin is stream-json with the images; a follow-up re
     CHECK(Json::parse(recs[0].stdinText)["message"]["content"].size() == 1);
 }
 
-TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the task; each message reports its own cost") {
+TEST_CASE(
+    "AgentSession with the Claude CLI: follow-ups resume and send only the task; each message reports its own cost") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
     CommandRegistry registry = make_registry();
@@ -956,7 +983,8 @@ TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the
     recs = parse_recorded(argvFile);
     REQUIRE(recs.size() == 1);
     CHECK_FALSE(recs[0].has("--resume"));
-    CHECK(Json::parse(recs[0].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nHello") != std::string::npos);
+    CHECK(Json::parse(recs[0].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nHello") !=
+          std::string::npos);
     CHECK(r4.conversation.key == "claude-code");
 
     // the CLI forgot the session: carry on in a new one and say so
@@ -970,9 +998,11 @@ TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the
     REQUIRE(recs.size() == 2);
     CHECK(recs[0].has("--resume"));
     CHECK_FALSE(recs[1].has("--resume"));
-    CHECK(Json::parse(recs[1].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nAgain") != std::string::npos);
+    CHECK(Json::parse(recs[1].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nAgain") !=
+          std::string::npos);
     bool told = false;
-    for (const auto& e : events) told = told || (e.type == AgentEvent::Type::Info && e.text.find("could not be resumed") != std::string::npos);
+    for (const auto& e : events)
+        told = told || (e.type == AgentEvent::Type::Info && e.text.find("could not be resumed") != std::string::npos);
     CHECK(told);
     CHECK(r5.costUsd == doctest::Approx(0.02));  // the fresh session's own total
 }
@@ -1016,11 +1046,12 @@ TEST_CASE("images reach a CLI without stream-json input as file paths in the pro
     auto r = s.run("Fix what the picture shows", {pic});
     REQUIRE(r.ok);
     std::string raw;
-    for (char c : read_file(argvFile)) if (c != '\r') raw += c;
+    for (char c : read_file(argvFile))
+        if (c != '\r') raw += c;
     CHECK(raw.find("-p\n--output-format\nstream-json\n--verbose\n") == 0);  // no --input-format, no --resume
     CHECK(raw.find("Fix what the picture shows\n\nAttached images (read them): " + pic) != std::string::npos);
     CHECK(raw.find("\"type\":\"user\"") == std::string::npos);  // plain text, not a JSON message
-    CHECK(r.conversation.cliSessionId.empty());  // this template cannot resume
+    CHECK(r.conversation.cliSessionId.empty());                 // this template cannot resume
 }
 
 TEST_CASE("list_models: Claude Code answers the initialize request; the hook line before it is skipped") {
@@ -1045,7 +1076,8 @@ TEST_CASE("list_models: Claude Code answers the initialize request; the hook lin
     CHECK((*models)[2].id == "claude-haiku-4-5-20251001");
     CHECK((*models)[2].resolved.empty());
     std::string raw;
-    for (char c : read_file(argvFile)) if (c != '\r') raw += c;
+    for (char c : read_file(argvFile))
+        if (c != '\r') raw += c;
     CHECK(raw.find("-p\n--input-format\nstream-json\n--output-format\nstream-json\n--verbose\n") == 0);
     CHECK(raw.find("--model") == std::string::npos);  // no model call: only the initialize request
 

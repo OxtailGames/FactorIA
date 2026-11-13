@@ -25,7 +25,8 @@ static const char* java_add(JNIEnv* env, jobject activity, const char* class_nam
     jmethodID add_method;
 
     if (!loader) return "get the activity's class loader";
-    load_class = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, loader), "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    load_class = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, loader), "loadClass",
+                                     "(Ljava/lang/String;)Ljava/lang/Class;");
     if (load_class) name = (*env)->NewStringUTF(env, class_name);
     if (!name) return "ask the class loader for the class";
     cls = (jclass)(*env)->CallObjectMethod(env, loader, load_class, name);
@@ -47,7 +48,8 @@ static int add_in_java(FaCall* call, double a, double b, double* sum) {
     char class_name[160], message[400];
 
     snprintf(class_name, sizeof class_name, "factoria.plugin.%s.Plugin", g_api->plugin);
-    if (vm && (*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) == JNI_EDETACHED) /* the game's thread is not a Java thread */
+    if (vm &&
+        (*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) == JNI_EDETACHED) /* the game's thread is not a Java thread */
         attached = (*vm)->AttachCurrentThread(vm, &env, NULL) == JNI_OK;
     if (env && (*env)->PushLocalFrame(env, 16) == 0) {
         problem = java_add(env, activity->clazz, class_name, a, b, sum);
@@ -59,8 +61,10 @@ static int add_in_java(FaCall* call, double a, double b, double* sum) {
     if (!problem) return 1;
     snprintf(message, sizeof message, "the Java class %s could not be called: failed to %s", class_name, problem);
     g_api->fail(call, message,
-                "android/ must be the plugin's Gradle module (build.gradle, src/main/java/factoria/plugin/<name>/Plugin.java with "
-                "public static double add(double, double)); export the game again so that the app contains it (docs/MOBILE.md)");
+                "android/ must be the plugin's Gradle module (build.gradle, "
+                "src/main/java/factoria/plugin/<name>/Plugin.java with "
+                "public static double add(double, double)); export the game again so that the app contains it "
+                "(docs/MOBILE.md)");
     return 0;
 }
 #endif
@@ -89,16 +93,17 @@ static void info(FaCall* call, const char* args_json, void* user) {
     char out[256];
     (void)args_json;
     (void)user;
-    snprintf(out, sizeof out, "{\"plugin\":\"%s\",\"platform\":\"%s\",\"apiVersion\":%u}", g_api->plugin, g_api->platform,
-             (unsigned)g_api->version);
+    snprintf(out, sizeof out, "{\"plugin\":\"%s\",\"platform\":\"%s\",\"apiVersion\":%u}", g_api->plugin,
+             g_api->platform, (unsigned)g_api->version);
     g_api->reply(call, out);
 }
 
 FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     char name[96];
     FaFunctionDesc fn = {"add", "add(a, b): the sum of two numbers, computed by the native plugin.", add, NULL};
-    FaCommandDesc cmd = {name, "Describe this native plugin.", "Returns {plugin, platform, apiVersion}. Example: {}.", NULL, 1, info,
-                         NULL};
+    FaCommandDesc cmd = {
+        name, "Describe this native plugin.", "Returns {plugin, platform, apiVersion}. Example: {}.", NULL, 1, info,
+        NULL};
     g_api = api;
     snprintf(name, sizeof name, "%s.info", api->plugin); /* a plugin's commands are named <plugin>.<verb> */
     if (api->add_function(api, &fn) != 0 || api->add_command(api, &cmd) != 0) return 1;

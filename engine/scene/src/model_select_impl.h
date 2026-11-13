@@ -53,7 +53,8 @@ private:
 };
 
 // What a face mask / edge mask matched, as a report (without the node's pointer and op).
-ModelSelectionReport make_report(const Selector& selector, const std::vector<char>& mask, ModelSelectKind kind, const std::string& selectionDescription);
+ModelSelectionReport make_report(const Selector& selector, const std::vector<char>& mask, ModelSelectKind kind,
+                                 const std::string& selectionDescription);
 // "faces" -> "no faces matched: ..." with the notes, for an empty selection.
 std::string empty_warning(const std::string& what, const std::vector<std::string>& notes);
 

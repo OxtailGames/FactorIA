@@ -41,10 +41,10 @@ std::vector<std::string> tileset_required_parts(const std::string& mode, bool sq
 
 struct TilesetLayout {
     int tileWidth = 0, tileHeight = 0;
-    int columns = 0, rows = 0;          // tiles per row, rows of the sheet
-    int slots = 0;                      // 16 or 47
+    int columns = 0, rows = 0;  // tiles per row, rows of the sheet
+    int slots = 0;              // 16 or 47
     int variations = 1;
-    int tiles = 0;                      // slots * variations
+    int tiles = 0;  // slots * variations
     int width() const { return columns * tileWidth; }
     int height() const { return rows * tileHeight; }
     int tile_index(int slot, int variation) const { return slot * variations + variation; }
@@ -58,10 +58,11 @@ std::vector<int> tileset_tile_masks(const TilesetSpec& spec);
 using TilesetLoader = std::function<const Image&(const std::string& pointer, const std::string& rel)>;
 
 struct TilesetBuild {
-    Image sheet;                        // layout.width() x layout.height(), straight-alpha RGBA8
+    Image sheet;  // layout.width() x layout.height(), straight-alpha RGBA8
     TilesetLayout layout;
     std::vector<std::string> warnings;  // variations that came out identical, ...
-    std::vector<TileJoinSources> joins; // per tile (sheet order): what each quadrant is cut from, for the interior joins check_tile_set compares
+    std::vector<TileJoinSources>
+        joins;  // per tile (sheet order): what each quadrant is cut from, for the interior joins check_tile_set compares
 };
 // Draws the sheet. Fails (message starts with the JSON pointer of the part) when a part is missing or is not tileWidth x tileHeight.
 Result<TilesetBuild> build_tileset(const TilesetSpec& spec, const PixelPalette& palette, const TilesetLoader& load);

@@ -38,7 +38,8 @@ const std::vector<std::pair<std::string, Vec3>>& model_named_directions();
 
 // Checks a query written in a document: every problem is appended to `issues` with the JSON pointer of the field, what is wrong and the fix
 // ("did you mean" for names). `pointer` is where the query is (e.g. "/nodes/0/faces").
-void check_model_selection(const Json& query, ModelSelectKind kind, const std::string& pointer, std::vector<ModelIssue>& issues);
+void check_model_selection(const Json& query, ModelSelectKind kind, const std::string& pointer,
+                           std::vector<ModelIssue>& issues);
 // The JSON schema of a query (a `$defs` entry): an object with `by` and the union of the fields, documented.
 Json model_selection_schema(ModelSelectKind kind);
 
@@ -47,7 +48,8 @@ Json model_selection_schema(ModelSelectKind kind);
 // Evaluates `query` on `mesh` (the mesh as it is at some point of the tree) and says what it matched, with a teaching warning for an empty
 // result (what each part of the query matched, the parts that exist, how close the nearest face was). The query has been checked; an
 // unknown part name is not an error, it is a warning that matches nothing.
-ModelSelectionReport model_select_report(const ModelMesh& mesh, const Json& query, ModelSelectKind kind, const ModelEditContext& context);
+ModelSelectionReport model_select_report(const ModelMesh& mesh, const Json& query, ModelSelectKind kind,
+                                         const ModelEditContext& context);
 
 // One flag per triangle of `mesh` (1: the face query chose it), for the code that works on a finished mesh (decals). Triangles the weld of
 // the selector drops because they have no area are 0.
@@ -67,6 +69,7 @@ struct ModelEditResult {
 // the new faces of an extrusion or an inset take `newPart` / `newMaterial` when given, else the part of the face they grew from. An empty
 // selection is not an error: the mesh comes back unchanged and the warning says what to change. Fails when the edit cannot be built (an
 // inset wider than the faces, a result with too many triangles), with the node's pointer-free message and the fix.
-Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh& input, const ModelEditContext& context);
+Result<ModelEditResult> model_apply_edit(const ModelNode& node, const ModelMesh& input,
+                                         const ModelEditContext& context);
 
 }  // namespace fa

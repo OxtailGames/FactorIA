@@ -42,9 +42,18 @@ public:
     JsVal(JSContext* ctx, JSValue v) : ctx_(ctx), v_(v) {}
     JsVal(const JsVal&) = delete;
     JsVal& operator=(const JsVal&) = delete;
-    JsVal(JsVal&& o) noexcept : ctx_(o.ctx_), v_(o.v_) { o.ctx_ = nullptr; o.v_ = JS_UNDEFINED; }
+    JsVal(JsVal&& o) noexcept : ctx_(o.ctx_), v_(o.v_) {
+        o.ctx_ = nullptr;
+        o.v_ = JS_UNDEFINED;
+    }
     JsVal& operator=(JsVal&& o) noexcept {
-        if (this != &o) { reset(); ctx_ = o.ctx_; v_ = o.v_; o.ctx_ = nullptr; o.v_ = JS_UNDEFINED; }
+        if (this != &o) {
+            reset();
+            ctx_ = o.ctx_;
+            v_ = o.v_;
+            o.ctx_ = nullptr;
+            o.v_ = JS_UNDEFINED;
+        }
         return *this;
     }
     ~JsVal() { reset(); }
@@ -54,7 +63,12 @@ public:
         v_ = JS_UNDEFINED;
     }
     JSValue get() const { return v_; }
-    JSValue release() { JSValue v = v_; v_ = JS_UNDEFINED; ctx_ = nullptr; return v; }
+    JSValue release() {
+        JSValue v = v_;
+        v_ = JS_UNDEFINED;
+        ctx_ = nullptr;
+        return v;
+    }
     bool valid() const { return ctx_ != nullptr; }
 
 private:
@@ -62,7 +76,8 @@ private:
     JSValue v_ = JS_UNDEFINED;
 };
 
-inline const std::string kProfOtherName{kProfOtherClass}, kProfNoPath;  // profiler bucket for script time of no behaviour
+inline const std::string kProfOtherName{kProfOtherClass},
+    kProfNoPath;  // profiler bucket for script time of no behaviour
 
 struct Behaviour {
     Entity entity;
@@ -88,9 +103,11 @@ struct ScriptSystem::Impl {
     ScriptHost* host = nullptr;
     ScriptSystem* owner = nullptr;
     std::shared_ptr<ScriptDebugger> debugger;  // debug mode (set_debugger); null for a normal run
-    bool exportedPlayer = false;               // set_exported_player: no read checks on the API objects; errors may blame an old player
-    std::set<std::string> caseWarned;          // component names already warned about for a wrong case (find_type)
-    std::map<std::string, const TypeInfo*> caseFixed;  // the same names -> the component they mean, so a repeat skips the search
+    bool exportedPlayer =
+        false;  // set_exported_player: no read checks on the API objects; errors may blame an old player
+    std::set<std::string> caseWarned;  // component names already warned about for a wrong case (find_type)
+    std::map<std::string, const TypeInfo*>
+        caseFixed;  // the same names -> the component they mean, so a repeat skips the search
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     int observerId = -1;
@@ -101,17 +118,21 @@ struct ScriptSystem::Impl {
     JsVal testApi;   // namespace object of module "factoria:test"
     JsVal hooks;     // H: hooks the prelude gives to C++
 
-    int generateJobs = 0;  // tilemap.generate generations the script side still advances (tilemap API in factoria.js); dispatch_platform calls its generateTick while it is above 0
-    std::vector<int> wfcJobIds;  // the jobs tilemap.generate_start answered to calls of the script (ScriptHost::drop_script_jobs)
+    int generateJobs =
+        0;  // tilemap.generate generations the script side still advances (tilemap API in factoria.js); dispatch_platform calls its generateTick while it is above 0
+    std::vector<int>
+        wfcJobIds;  // the jobs tilemap.generate_start answered to calls of the script (ScriptHost::drop_script_jobs)
     std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
     Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
 
     // ---- errors
     std::vector<ScriptError> errors;
-    std::uint64_t errorEvents = 0;  // every record_error call, before the duplicates are dropped (ScriptSystem::error_events)
+    std::uint64_t errorEvents =
+        0;  // every record_error call, before the duplicates are dropped (ScriptSystem::error_events)
     // ---- the bot (script_autoplay.cpp): game.phase marks are kept only while a play.auto run is on
     bool autoplayOn = false;
-    bool autoplayHook = false;  // scripts/autoplay.js (or another module) registered a function and the run asked for it
+    bool autoplayHook =
+        false;  // scripts/autoplay.js (or another module) registered a function and the run asked for it
     std::vector<ScriptSystem::AutoplayPhase> autoplayPhases;
     static constexpr std::size_t kMaxAutoplayPhases = 200;  // marks kept between two calls of autoplay_take_phases
     std::set<std::string> loggedKeys;
@@ -121,11 +142,14 @@ struct ScriptSystem::Impl {
         std::mutex mu;
         std::vector<LogEntry> list;  // oldest first, capped at kMaxTestErrors
         std::size_t dropped = 0;
-        std::uint64_t lastDroppedSeq = 0;  // seq of the latest record dropped: logErrors reports the drop only to the test that saw it
+        std::uint64_t lastDroppedSeq =
+            0;  // seq of the latest record dropped: logErrors reports the drop only to the test that saw it
     };
     static constexpr std::size_t kMaxTestErrors = 20000;
     std::shared_ptr<TestErrors> testErrors;
-    struct Rejection { JSValue promise, reason; };  // rejected with no handler yet (owned); reported when the job queue drains
+    struct Rejection {
+        JSValue promise, reason;
+    };  // rejected with no handler yet (owned); reported when the job queue drains
     std::vector<Rejection> pendingRejections;
     void flush_rejections();
 
@@ -165,7 +189,7 @@ struct ScriptSystem::Impl {
     static double thread_cpu_seconds();
 
     // ---- modules
-    std::map<std::string, int> versions;  // project path -> reload counter (0 = pristine)
+    std::map<std::string, int> versions;                     // project path -> reload counter (0 = pristine)
     std::map<std::string, std::set<std::string>> importers;  // path -> modules that import it
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
     // Static imports of every project module that was compiled, in source order: module name (with ?v=) -> names it imports.
@@ -173,7 +197,7 @@ struct ScriptSystem::Impl {
     // loaded, so it also holds the modules a check_syntax or a failed load left compiled and not evaluated, and the imports of
     // a dynamic import() that ran (it resolves its specifier the same way). bump_module_versions erases the entries it retires.
     std::map<std::string, std::vector<std::string>> moduleImports;
-    std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
+    std::map<std::string, JsVal> namespaces;  // normalized name -> module namespace
     std::set<std::string> everLoaded;
     std::map<std::string, std::int64_t> moduleMtime;  // file mtime when each module was last read
     // The last data module (.json) load_module could not parse: check_syntax reports THAT file (with line and column)
@@ -190,7 +214,10 @@ struct ScriptSystem::Impl {
     bool inSync = false;
     // Entity references that world.spawn could not resolve yet (a slider's knob spawned after the slider): retried after
     // every spawn and every sync, dropped with a warning after kDeferredRefTicks syncs.
-    struct WaitingRef { DeferredRef ref; int ticks = 0; };
+    struct WaitingRef {
+        DeferredRef ref;
+        int ticks = 0;
+    };
     std::vector<WaitingRef> waitingRefs;
     void resolve_waiting_refs(bool tick);
 
@@ -236,11 +263,11 @@ struct ScriptSystem::Impl {
     std::map<std::string, StorageMeta> storageMeta;
     storage_files::Writer storageWriter;  // storage.setAsync
     int nextStorageJob = 1;
-    void storage_write(const std::string& key, bool compress);      // writes one key's file now
+    void storage_write(const std::string& key, bool compress);  // writes one key's file now
     void storage_remove_file(const std::string& key);
-    Json storage_report();                                           // storage.list: the keys in memory and on disk
-    Json storage_clear_keys(const std::string& key, bool all);       // storage.clear
-    void storage_drain();                                            // waits for the setAsync writes still running
+    Json storage_report();                                      // storage.list: the keys in memory and on disk
+    Json storage_clear_keys(const std::string& key, bool all);  // storage.clear
+    void storage_drain();                                       // waits for the setAsync writes still running
 
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;
@@ -254,10 +281,11 @@ struct ScriptSystem::Impl {
     // flushes the analytics queue and waits, at most kQuitFlushSeconds of engine time, for the request that carries it.
     bool quitDeferred = false;
     double quitWaited = 0.0;
-    int service_call(const char* method, std::initializer_list<JSValue> args);  // the prelude's number answer, 0 on failure
-    bool begin_quit_flush();   // flushes; true when a request is still in flight (the quit waits)
+    int service_call(const char* method,
+                     std::initializer_list<JSValue> args);  // the prelude's number answer, 0 on failure
+    bool begin_quit_flush();           // flushes; true when a request is still in flight (the quit waits)
     void update_quit_wait(double dt);  // each frame while quitDeferred
-    void do_request_quit();    // the host's quit itself, without the flush
+    void do_request_quit();            // the host's quit itself, without the flush
 
     // ---- game.device: game.setDevice() in tests overrides some of the host's values
     Json testDevice = Json::object();
@@ -313,7 +341,8 @@ struct ScriptSystem::Impl {
                  std::initializer_list<JSValue> args, bool* failed = nullptr, double limitSeconds = -1,
                  bool quiet = false, CapMode mode = CapMode::Game);
     JSValue call_method(const std::string& label, const std::string& entityId, JSValueConst obj, const char* method,
-                        std::initializer_list<JSValue> args, bool* failed = nullptr, const Behaviour* profile = nullptr);
+                        std::initializer_list<JSValue> args, bool* failed = nullptr,
+                        const Behaviour* profile = nullptr);
     // push_guard returns the depth of the guard stack before the push; pop_guard(depth) drops every frame above it. A
     // script the watchdog stops skips the N.guardEnd() of each JS guard it was inside (the interrupt cannot be caught),
     // so every C++ entry into JS pops back to its own depth: popping one frame would leave the caller's expired frame on
@@ -336,7 +365,8 @@ struct ScriptSystem::Impl {
     void explain_missing_api(ScriptError& e);  // adds which module/export or method the player lacks
     // Returned value is DUPLICATED, caller frees. The top level of the module runs with `topLevel`'s set: Game for every module (a
     // module first imported while a test or a tool runs is still game code), Test only for the test file run_tests imports.
-    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr, CapMode topLevel = CapMode::Game);
+    Result<JSValue> import_module(const std::string& path, ScriptError* detail = nullptr,
+                                  CapMode topLevel = CapMode::Game);
     std::vector<std::string> bump_module_versions(const std::string& path);  // returns affected paths
 
     // ================= conversion

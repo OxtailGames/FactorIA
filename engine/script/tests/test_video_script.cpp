@@ -78,7 +78,8 @@ TEST_CASE("entity.video: loop wraps without an ended event") {
     TestHost h("video_loop");
     install_fixture(h);
     REQUIRE(h.start());
-    ev(h, R"(globalThis.e = world.spawn({ id: 'bg', components: { Video: { path: 'assets/video/colors.mpg', loop: true } } });
+    ev(h,
+       R"(globalThis.e = world.spawn({ id: 'bg', components: { Video: { path: 'assets/video/colors.mpg', loop: true } } });
         globalThis.ended = 0; world.on('video.ended', () => ended++); globalThis.maxT = 0;)");
     for (int i = 0; i < 6; ++i) {  // 6 s = five times the length
         h.step_frames(60);
@@ -94,7 +95,8 @@ TEST_CASE("entity.video: seek, pause, stop and a time written before the file wa
     TestHost h("video_seek");
     install_fixture(h);
     REQUIRE(h.start());
-    ev(h, R"(globalThis.e = world.spawn({ id: 'v', components: { Video: { path: 'assets/video/colors.mpg', autoplay: false } } });
+    ev(h,
+       R"(globalThis.e = world.spawn({ id: 'v', components: { Video: { path: 'assets/video/colors.mpg', autoplay: false } } });
         e.video.seek(0.9);)");  // before the first step opened the file
     h.step_frames(1);
     CHECK(num(h, "e.video.time") == doctest::Approx(0.9).epsilon(0.001));

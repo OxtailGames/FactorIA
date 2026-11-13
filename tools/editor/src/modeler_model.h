@@ -35,28 +35,28 @@ using ModelerBuildPtr = std::shared_ptr<const ModelBuild>;
 
 struct ModelerStep {
     int id = 0;
-    std::string rel;     // the document the panel had open
+    std::string rel;  // the document the panel had open
     std::string label;
     ModelerBlob before, after;
 };
 
 struct ModelerEditOutcome {
     bool ok = true;
-    std::string error;   // what went wrong, with the command's hint
-    int step = 0;        // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;         // the command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the command's result
 };
 
 // One line of the operation tree.
 struct ModelerRow {
-    std::string pointer;   // "/nodes/0/children/1"
-    std::string id;        // "" when the node has none
+    std::string pointer;  // "/nodes/0/children/1"
+    std::string id;       // "" when the node has none
     std::string op;
-    std::string part;      // the part named ON this node ("" = none; the nodes below a group inherit it)
-    std::string kind;      // "primitive", "modifier", "group", "sdf"... as the catalog says
+    std::string part;  // the part named ON this node ("" = none; the nodes below a group inherit it)
+    std::string kind;  // "primitive", "modifier", "group", "sdf"... as the catalog says
     int depth = 0;
     bool enabled = true;
-    bool container = false;   // takes children (a group, a modifier, an sdf)
+    bool container = false;  // takes children (a group, a modifier, an sdf)
     std::size_t childCount = 0;
 };
 
@@ -68,10 +68,12 @@ public:
     ModelerModel& operator=(const ModelerModel&) = delete;
 
     // ---- the document ---------------------------------------------------------------------------------------------
-    bool open(const std::string& rel);   // *.model.json; false: error() says why
+    bool open(const std::string& rel);  // *.model.json; false: error() says why
     void close();
     bool is_open() const { return open_; }
-    bool valid() const { return valid_; }            // the file is a valid model document (it may be open and broken: error() has the reason)
+    bool valid() const {
+        return valid_;
+    }  // the file is a valid model document (it may be open and broken: error() has the reason)
     const std::string& path() const { return rel_; }
     std::string title() const;
     const std::string& error() const { return error_; }
@@ -105,7 +107,8 @@ public:
     // A model.edit set of the node: `values` is {field: value}; a null value removes the field (back to its default).
     ModelerEditOutcome set_values(const std::string& pointer, const Json& values, const std::string& label = "");
     // A model.edit add of `node` ({"op":"box"...}) into the group or modifier `parent` (an id or a pointer; "" = the top level) at `index` (-1 = the end).
-    ModelerEditOutcome add_node(const std::string& parent, const Json& node, int index = -1, const std::string& label = "");
+    ModelerEditOutcome add_node(const std::string& parent, const Json& node, int index = -1,
+                                const std::string& label = "");
     ModelerEditOutcome remove_node(const std::string& pointer);
     ModelerEditOutcome set_enabled(const std::string& pointer, bool enabled);
     // A model.edit move of the node into `parent` ("" = the top level) at `index`.
@@ -139,10 +142,10 @@ public:
     void set_debounce_ticks(int n) { debounce_ = n; }
     // Evaluates what is wanted, blocking, until nothing is pending (tests, and the autotest's "wait for the mesh").
     void settle();
-    bool busy() const;                          // an evaluation is running or about to start
+    bool busy() const;  // an evaluation is running or about to start
     void request_eval();
-    ModelerBuildPtr build() const { return build_; }          // the last finished evaluation (null before the first)
-    std::uint64_t build_revision() const { return buildRev_; }   // changes whenever build() does
+    ModelerBuildPtr build() const { return build_; }            // the last finished evaluation (null before the first)
+    std::uint64_t build_revision() const { return buildRev_; }  // changes whenever build() does
     bool build_is_fresh() const { return build_ && builtFor_ == rev_; }
     const std::string& eval_error() const { return evalError_; }
     int eval_count() const { return evals_; }
@@ -164,7 +167,7 @@ private:
     // Runs a command as ONE undo step over the document file.
     ModelerEditOutcome run(const std::string& label, const std::function<CommandResult()>& body);
     Json edit_args(const std::string& op) const;
-    Json eval_source() const;   // the JSON the viewport evaluates: the file's, or the live overlay
+    Json eval_source() const;  // the JSON the viewport evaluates: the file's, or the live overlay
     void start_job();
     void collect();
 
@@ -189,7 +192,7 @@ private:
     // evaluation
     bool async_ = true;
     int debounce_ = 2, wait_ = 0;
-    std::uint64_t rev_ = 1;                       // what the viewport wants: changes with the file and with the live overlay
+    std::uint64_t rev_ = 1;  // what the viewport wants: changes with the file and with the live overlay
     std::uint64_t builtFor_ = 0, failedFor_ = 0;
     std::uint64_t buildRev_ = 0;
     ModelerBuildPtr build_;

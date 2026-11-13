@@ -68,7 +68,8 @@ void draw_qr(const QrCode& qr, float maxPx) {
             }
             int end = x;
             while (end < qr.size && qr.dark(end, y)) ++end;
-            const float x0 = origin.x + px * static_cast<float>(x + kQuiet), y0 = origin.y + px * static_cast<float>(y + kQuiet);
+            const float x0 = origin.x + px * static_cast<float>(x + kQuiet),
+                        y0 = origin.y + px * static_cast<float>(y + kQuiet);
             dl->AddRectFilled(ImVec2(x0, y0), ImVec2(origin.x + px * static_cast<float>(end + kQuiet), y0 + px), ink);
             x = end;
         }
@@ -81,8 +82,8 @@ void Editor::draw_phone_window() {
     if (!showPhone_ || !engine_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(fit_work_area(ImVec2(620, 640)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
-                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (phoneFocus_) {
         ImGui::SetNextWindowFocus();
         phoneFocus_ = false;
@@ -91,11 +92,14 @@ void Editor::draw_phone_window() {
         ImGui::End();
         return;
     }
-    const ServeWebStatus st = web_server().status();  // a few string copies under a mutex that no export or send ever holds
+    const ServeWebStatus st =
+        web_server().status();  // a few string copies under a mutex that no export or send ever holds
     const bool busy = phone_.busy();
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Plays \"%s\" in the browser of a phone on the same Wi-Fi: the web build of the project, served by this computer. "
-                        "When a script or asset changes it is rebuilt and the phone's page reloads.", projectName_.c_str());
+    ImGui::TextDisabled("Plays \"%s\" in the browser of a phone on the same Wi-Fi: the web build of the project, "
+                        "served by this computer. "
+                        "When a script or asset changes it is rebuilt and the phone's page reloads.",
+                        projectName_.c_str());
     ImGui::Spacing();
 
     if (dirty_) {
@@ -120,7 +124,8 @@ void Editor::draw_phone_window() {
         }
         at_track("phone:start", !busy);
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("Start a web server on this computer that devices on your Wi-Fi can reach. It stops with the editor or with Stop.");
+        ImGui::SetItemTooltip("Start a web server on this computer that devices on your Wi-Fi can reach. It stops with "
+                              "the editor or with Stop.");
         if (busy) {
             ImGui::SameLine();
             ImGui::TextDisabled("Starting...");
@@ -139,16 +144,20 @@ void Editor::draw_phone_window() {
     if (!phoneError_.empty()) {
         ImGui::TextColored(kStatusFailed, "%s", phoneError_.c_str());
         if (!phoneHint_.empty()) ImGui::TextUnformatted(phoneHint_.c_str());
-        if (phoneHint_.find("setup players") != std::string::npos) {  // the web player is not installed: the Set Up window installs it
+        if (phoneHint_.find("setup players") !=
+            std::string::npos) {  // the web player is not installed: the Set Up window installs it
             if (ImGui::Button("Open Set Up This Computer...")) open_setup_window();
             at_track("phone:setup");
-            ImGui::SetItemTooltip("Install the web player (and the other players) with one click, then press Start again.");
+            ImGui::SetItemTooltip(
+                "Install the web player (and the other players) with one click, then press Start again.");
         }
     }
     ImGui::Spacing();
 
     if (st.running) {
-        const ImVec4& color = st.state == "failed" ? kStatusFailed : st.state == "exporting" ? kStatusWarn : kStatusReady;
+        const ImVec4& color = st.state == "failed"      ? kStatusFailed
+                              : st.state == "exporting" ? kStatusWarn
+                                                        : kStatusReady;
         ImGui::TextColored(color, "%s", phone_state_line(st).c_str());
         at_track("phone:state");
         if (st.state == "failed" && !st.hint.empty()) ImGui::TextUnformatted(st.hint.c_str());
@@ -160,11 +169,13 @@ void Editor::draw_phone_window() {
             ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x, 420.0f));
             if (ImGui::BeginCombo("##phoneaddr", st.lanUrls[static_cast<size_t>(phoneUrlIndex_)].c_str())) {
                 for (int i = 0; i < static_cast<int>(st.lanUrls.size()); ++i)
-                    if (ImGui::Selectable(st.lanUrls[static_cast<size_t>(i)].c_str(), i == phoneUrlIndex_)) phoneUrlIndex_ = i;
+                    if (ImGui::Selectable(st.lanUrls[static_cast<size_t>(i)].c_str(), i == phoneUrlIndex_))
+                        phoneUrlIndex_ = i;
                 ImGui::EndCombo();
             }
             at_track("phone:address");
-            ImGui::SetItemTooltip("This computer has several network addresses: pick the one of the Wi-Fi the phone is on.");
+            ImGui::SetItemTooltip(
+                "This computer has several network addresses: pick the one of the Wi-Fi the phone is on.");
         }
         const std::string url = phone_qr_url(st, static_cast<size_t>(phoneUrlIndex_));
         if (url != phoneQrUrl_) {  // encoded once per address
@@ -193,10 +204,12 @@ void Editor::draw_phone_window() {
             if (std::string why = open_url(st.localUrl); !why.empty()) notify(why, 1);
         }
         at_track("phone:open");
-        ImGui::SetItemTooltip("Open the same page in this computer's browser: if it works here but not on the phone, the network or the firewall blocks the phone.");
+        ImGui::SetItemTooltip("Open the same page in this computer's browser: if it works here but not on the phone, "
+                              "the network or the firewall blocks the phone.");
         ImGui::Spacing();
-        ImGui::TextDisabled("Pages have asked for %llu files and sent %llu log lines (they appear in the Console, category \"phone\").",
-                            static_cast<unsigned long long>(st.requests), static_cast<unsigned long long>(st.phoneLogLines));
+        ImGui::TextDisabled(
+            "Pages have asked for %llu files and sent %llu log lines (they appear in the Console, category \"phone\").",
+            static_cast<unsigned long long>(st.requests), static_cast<unsigned long long>(st.phoneLogLines));
         at_track("phone:stats");
     }
 

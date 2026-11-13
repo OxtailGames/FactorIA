@@ -32,10 +32,12 @@ const char* kScene = R"({
   ]
 })";
 
-const char* kOther = R"({"format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ]})";
+const char* kOther =
+    R"({"format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ]})";
 
 // 16 x 16 sample with a few walls and one coin ('o'), as ASCII rows.
-const char* kRows = R"(["................","..####..........","..#..#....##....","..#..#....##....","..####..........","................","......#.........",
+const char* kRows =
+    R"(["................","..####..........","..#..#....##....","..#..#....##....","..####..........","................","......#.........",
   "......#....###..","...........#.#..","...........###..","..##............","..##......#.....","................","....#.....o.#...",
   "................","................"])";
 
@@ -49,7 +51,8 @@ struct Session {
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
         write("scenes/other.scene.json", kOther);
-        write("prefabs/coin.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"coin","components":{"Transform":{"position":[0,0]}}}})");
+        write("prefabs/coin.prefab.json",
+              R"({"format":"factoria.prefab/1","entity":{"id":"coin","components":{"Transform":{"position":[0,0]}}}})");
         EngineConfig c;
         c.projectDir = dir.generic_string();
         c.headless = true;
@@ -68,7 +71,9 @@ struct Session {
         std::ofstream(dir / rel, std::ios::binary) << text;
     }
     // Runs script code; returns the whole script.eval answer (ok/error), without failing the test.
-    CommandResult run(const std::string& code) { return engine.commands().call("script.eval", Json::object({{"code", code}})); }
+    CommandResult run(const std::string& code) {
+        return engine.commands().call("script.eval", Json::object({{"code", code}}));
+    }
     Json eval(const std::string& code) {
         CommandResult r = run(code);
         INFO(code << " -> " << r.error.dump());
@@ -86,11 +91,17 @@ struct Session {
     CommandResult call(const std::string& cmd, const Json& args) { return engine.commands().call(cmd, args); }
 };
 
-std::string args_js(const std::string& extra) { return std::string("{ sample: ") + kRows + ", legend: " + kLegend + ", " + extra + " }"; }
-Json args_json(const std::string& extra) { return Json::parse(std::string(R"({"sample":)") + kRows + R"(,"legend":)" + kLegend + "," + extra + "}"); }
+std::string args_js(const std::string& extra) {
+    return std::string("{ sample: ") + kRows + ", legend: " + kLegend + ", " + extra + " }";
+}
+Json args_json(const std::string& extra) {
+    return Json::parse(std::string(R"({"sample":)") + kRows + R"(,"legend":)" + kLegend + "," + extra + "}");
+}
 std::string error_text(const CommandResult& r) {
     if (r.ok) return std::string();  // doctest -s builds the message on success too
-    return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " + r.error.value("hint", std::string()); }
+    return r.error.value("code", std::string()) + ": " + r.error.value("message", std::string()) + " | " +
+           r.error.value("hint", std::string());
+}
 bool contains(const std::string& s, const std::string& n) { return s.find(n) != std::string::npos; }
 
 }  // namespace
@@ -101,7 +112,8 @@ TEST_CASE("tilemap.generate (script): the level and the work are those of the co
     auto ref = s.call("tilemap.generate", args_json(extra));
     REQUIRE_MESSAGE(ref.ok, error_text(ref));
     const long long refWork = ref.result["stats"]["work"].get<long long>();
-    REQUIRE(refWork > 600000);  // more than one frame's share (500000 units without a window), or the test proves nothing
+    REQUIRE(refWork >
+            600000);  // more than one frame's share (500000 units without a window), or the test proves nothing
 
     s.eval("globalThis.job = tilemap.generate(" + args_js("size: [56, 40], seed: 9, n: 3") + ")");
     CHECK(s.eval("globalThis.job.done") == false);
@@ -143,12 +155,13 @@ TEST_CASE("tilemap.generate (script): the per-frame budget is shared by the runn
     CHECK(alone <= 520000);
     s.eval("globalThis.job.cancel()");
     // ...four together get a quarter each, so a frame never does more than the same 500000 in all
-    s.eval("globalThis.jobs = [1, 2, 3, 4].map((i) => tilemap.generate(" + args_js("size: [56, 40], seed: 9 + i, n: 3") + "))");
+    s.eval("globalThis.jobs = [1, 2, 3, 4].map((i) => tilemap.generate(" +
+           args_js("size: [56, 40], seed: 9 + i, n: 3") + "))");
     s.engine.step(1);
     long long together = 0;
     for (int i = 0; i < 4; ++i) {
         const long long w = s.eval("globalThis.jobs[" + std::to_string(i) + "].work").get<long long>();
-        CHECK(w <= 150000);   // a quarter of the frame plus one chunk (16384) of overshoot
+        CHECK(w <= 150000);  // a quarter of the frame plus one chunk (16384) of overshoot
         CHECK(w > 0);
         together += w;
     }
@@ -156,12 +169,16 @@ TEST_CASE("tilemap.generate (script): the per-frame budget is shared by the runn
     s.eval("globalThis.jobs.forEach((j) => j.cancel())");
 }
 
-TEST_CASE("tilemap.generate (script): place builds the Tilemap and one entity per marker, the way scene.import_ascii does") {
+TEST_CASE(
+    "tilemap.generate (script): place builds the Tilemap and one entity per marker, the way scene.import_ascii does") {
     Session s;
     s.eval("globalThis.job = tilemap.generate(" +
-           args_js("size: [24, 16], seed: 3, constraints: { counts: [{ tile: 'o', min: 3, max: 3 }] }, place: { entity: 'level', tilemap: { tileSize: [16, 16] }, position: [0, 0] }") + ")");
+           args_js("size: [24, 16], seed: 3, constraints: { counts: [{ tile: 'o', min: 3, max: 3 }] }, place: { "
+                   "entity: 'level', tilemap: { tileSize: [16, 16] }, position: [0, 0] }") +
+           ")");
     REQUIRE(s.frames_until_done() >= 0);
-    const Json jobError = s.eval("globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
+    const Json jobError = s.eval(
+        "globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
     REQUIRE_MESSAGE(jobError == "", jobError.dump());
     const Json rows = Json::parse(s.eval("JSON.stringify(globalThis.job.result.rows)").get<std::string>());
     int coins = 0;
@@ -186,16 +203,19 @@ TEST_CASE("tilemap.generate (script): place builds the Tilemap and one entity pe
 
 TEST_CASE("tilemap.generate (script): into writes the tiles of an entity that exists, from an entity sample") {
     Session s;
-    s.eval("globalThis.job = tilemap.generate({ sample: world.find('example'), size: [20, 12], seed: 5, n: 2, rows: true, into: world.find('target') })");
+    s.eval("globalThis.job = tilemap.generate({ sample: world.find('example'), size: [20, 12], seed: 5, n: 2, rows: "
+           "true, into: world.find('target') })");
     REQUIRE(s.frames_until_done() >= 0);
-    const Json jobError = s.eval("globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
+    const Json jobError = s.eval(
+        "globalThis.job.error");  // not inside the message: eval asserts, and doctest -s would deadlock on the nested assertion
     REQUIRE_MESSAGE(jobError == "", jobError.dump());
     const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find("target"));
     REQUIRE(tm != nullptr);
     CHECK(tm->width == 20);
     CHECK(tm->height == 12);
     // The same level as the command writes
-    auto ref = s.call("tilemap.generate", Json::object({{"sample", "example"}, {"size", Json::array({20, 12})}, {"seed", 5}, {"n", 2}}));
+    auto ref = s.call("tilemap.generate",
+                      Json::object({{"sample", "example"}, {"size", Json::array({20, 12})}, {"seed", 5}, {"n", 2}}));
     REQUIRE_MESSAGE(ref.ok, error_text(ref));
     CHECK(s.eval("JSON.stringify(globalThis.job.result.rows)").get<std::string>() == ref.result["rows"].dump());
 }
@@ -203,7 +223,8 @@ TEST_CASE("tilemap.generate (script): into writes the tiles of an entity that ex
 TEST_CASE("tilemap.generate (script): a scene load ends the generation and nothing is placed") {
     Session s;
     s.eval("globalThis.rejected = ''; globalThis.job = tilemap.generate(" +
-           args_js("size: [56, 40], seed: 9, place: { entity: 'late' }") + "); globalThis.job.promise.catch((e) => { globalThis.rejected = e.message; });");
+           args_js("size: [56, 40], seed: 9, place: { entity: 'late' }") +
+           "); globalThis.job.promise.catch((e) => { globalThis.rejected = e.message; });");
     s.engine.step(1);
     REQUIRE(s.eval("globalThis.job.done") == false);
     std::string err;
@@ -225,7 +246,8 @@ TEST_CASE("tilemap.generate (script): a scene load ends the generation and nothi
 TEST_CASE("tilemap.generate (script): cancel, caps and mistakes teach") {
     Session s;
     // cancel stops the work and rejects the promise
-    s.eval("globalThis.rejected = ''; globalThis.job = tilemap.generate(" + args_js("size: [56, 40], seed: 9") + "); globalThis.job.promise.catch((e) => { globalThis.rejected = e.message; });");
+    s.eval("globalThis.rejected = ''; globalThis.job = tilemap.generate(" + args_js("size: [56, 40], seed: 9") +
+           "); globalThis.job.promise.catch((e) => { globalThis.rejected = e.message; });");
     s.engine.step(1);
     s.eval("globalThis.job.cancel()");
     s.engine.step(1);
@@ -303,13 +325,16 @@ export default class Gen extends Behaviour {
 )JS";
     script.replace(script.find("@ROWS@"), 6, kRows);
     s.write("scripts/gen.js", script);
-    s.write("scenes/gen.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+    s.write("scenes/gen.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
         {"id":"gen","components":{"Transform":{},"Script":{"path":"scripts/gen.js"}}}]})");
     std::string err;
     REQUIRE_MESSAGE(s.engine.load_scene("scenes/gen.scene.json", &err), err);
-    for (int f = 0; f < 100 && s.eval("typeof globalThis.genDone").get<std::string>() == "undefined"; ++f) s.engine.step(1);
+    for (int f = 0; f < 100 && s.eval("typeof globalThis.genDone").get<std::string>() == "undefined"; ++f)
+        s.engine.step(1);
     CHECK(s.eval("typeof globalThis.genDone").get<std::string>() == "number");
-    CHECK(s.eval("globalThis.genSeed === rng.create(2024).int(0, 2147483647)") == true);  // the seed of the run comes from rng.create
+    CHECK(s.eval("globalThis.genSeed === rng.create(2024).int(0, 2147483647)") ==
+          true);  // the seed of the run comes from rng.create
     const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find("run"));
     REQUIRE(tm != nullptr);
     CHECK(tm->width == 16);
@@ -330,8 +355,10 @@ TEST_CASE("tilemap.generate_start / generate_step: any way of cutting the work g
     for (; calls < 100000; ++calls) {
         // alternate a tiny work budget and a time budget: neither may change the level
         Json stepArgs = Json::object({{"job", job}});
-        if (calls % 2 == 0) stepArgs["work"] = 20000;
-        else stepArgs["budgetMs"] = 0.5;
+        if (calls % 2 == 0)
+            stepArgs["work"] = 20000;
+        else
+            stepArgs["budgetMs"] = 0.5;
         auto r = s.call("tilemap.generate_step", stepArgs);
         REQUIRE_MESSAGE(r.ok, error_text(r));
         last = r.result;
@@ -368,7 +395,8 @@ TEST_CASE("tilemap.generate_start / generate_step: any way of cutting the work g
 
 TEST_CASE("tilemap.generate_step: the Tilemap of `into` is gone when the level is ready") {
     Session s;
-    auto start = s.call("tilemap.generate_start", Json::parse(R"({"sample":"example","size":[12,8],"seed":5,"n":2,"into":"target"})"));
+    auto start = s.call("tilemap.generate_start",
+                        Json::parse(R"({"sample":"example","size":[12,8],"seed":5,"n":2,"into":"target"})"));
     REQUIRE_MESSAGE(start.ok, error_text(start));
     REQUIRE(s.call("scene.destroy", Json::object({{"id", "target"}})).ok);
     auto r = s.call("tilemap.generate_step", Json::object({{"job", start.result["job"]}, {"work", 100000000}}));

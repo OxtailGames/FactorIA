@@ -14,31 +14,39 @@ namespace stdfs = std::filesystem;
 Result<Image> review_read_picture(const stdfs::path& file, int maxSide) {
     std::error_code ec;
     const std::uintmax_t bytes = stdfs::file_size(fs::os_path(file), ec);
-    if (ec) return Error{"Cannot read " + fs::path_to_utf8(file) + ": " + ec.message(), "The file was moved or deleted; press Refresh."};
+    if (ec)
+        return Error{"Cannot read " + fs::path_to_utf8(file) + ": " + ec.message(),
+                     "The file was moved or deleted; press Refresh."};
     if (bytes == 0) return Error{fs::path_to_utf8(file) + " is empty.", "Make the sheet again."};
     std::vector<std::uint8_t> data;
     {
         // ReadStream: under the Windows file rules a pick that tries to move this file while it is open fails like on Windows.
         fs::ReadStream in(fs::os_path(file), std::ios::binary);
-        if (!in) return Error{"Cannot open " + fs::path_to_utf8(file) + ".", "The file was moved or deleted; press Refresh."};
+        if (!in)
+            return Error{"Cannot open " + fs::path_to_utf8(file) + ".",
+                         "The file was moved or deleted; press Refresh."};
         std::uint8_t head[24] = {};
         in.read(reinterpret_cast<char*>(head), sizeof(head));
         const std::size_t got = std::size_t(in.gcount());
         const auto png = review_png_size(head, got);
         if (png) {
-            if (std::int64_t(png->first) * std::int64_t(png->second) > kReviewDecodeMaxPixels || bytes > kReviewMaxPngBytes)
-                return Error{fs::path_to_utf8(file) + " is " + std::to_string(png->first) + " x " + std::to_string(png->second) +
-                                 " pixels, more than the Review window shows.",
-                             "A review sheet is at most 8192 pixels a side; open a picture this big in the Image panel instead."};
+            if (std::int64_t(png->first) * std::int64_t(png->second) > kReviewDecodeMaxPixels ||
+                bytes > kReviewMaxPngBytes)
+                return Error{fs::path_to_utf8(file) + " is " + std::to_string(png->first) + " x " +
+                                 std::to_string(png->second) + " pixels, more than the Review window shows.",
+                             "A review sheet is at most 8192 pixels a side; open a picture this big in the Image panel "
+                             "instead."};
         } else if (bytes > kReviewMaxOtherBytes) {
-            return Error{fs::path_to_utf8(file) + " is " + std::to_string(bytes / (1024 * 1024)) + " MB, more than the Review window reads.",
+            return Error{fs::path_to_utf8(file) + " is " + std::to_string(bytes / (1024 * 1024)) +
+                             " MB, more than the Review window reads.",
                          "The Compare view shows the thumbnail instead."};
         }
         data.resize(std::size_t(bytes));
         std::copy(head, head + got, data.begin());
         if (bytes > got) {
             in.read(reinterpret_cast<char*>(data.data() + got), std::streamsize(bytes - got));
-            data.resize(got + std::size_t(in.gcount()));  // the file got shorter while it was read: decode what is there
+            data.resize(got +
+                        std::size_t(in.gcount()));  // the file got shorter while it was read: decode what is there
         }
     }
     // A JPG, BMP or TGA: its header says its size too, checked before decode_image allocates width * height * 4 bytes (a 32 MB JPG can
@@ -46,14 +54,15 @@ Result<Image> review_read_picture(const stdfs::path& file, int maxSide) {
     if (!review_png_size(data.data(), data.size())) {
         if (const auto size = image_size(data.data(), data.size());
             size.ok() && std::int64_t(size->width) * std::int64_t(size->height) > kReviewDecodeMaxPixels)
-            return Error{fs::path_to_utf8(file) + " is " + std::to_string(size->width) + " x " + std::to_string(size->height) +
-                             " pixels, more than the Review window shows.",
+            return Error{fs::path_to_utf8(file) + " is " + std::to_string(size->width) + " x " +
+                             std::to_string(size->height) + " pixels, more than the Review window shows.",
                          "The Compare view shows the thumbnail instead; open a picture this big in the Image panel."};
     }
     Result<Image> img = decode_image(data.data(), data.size());
     data.clear();
     data.shrink_to_fit();
-    if (!img.ok()) return Error{"Cannot decode " + fs::path_to_utf8(file) + ": " + img.error().message, img.error().hint};
+    if (!img.ok())
+        return Error{"Cannot decode " + fs::path_to_utf8(file) + ": " + img.error().message, img.error().hint};
     int w = 0, h = 0;
     review_upload_size(img->width, img->height, maxSide, w, h);
     if (w != img->width || h != img->height) return resize_image(*img, w, h);
@@ -68,11 +77,13 @@ void ReviewLoader::push(Job job) {
     }
     // The newest request of a kind replaces an older one still waiting (a listing asked twice is read once).
     if (job.kind != ReviewLoaded::Kind::Picture)
-        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& j) { return j.kind == job.kind; }), jobs_.end());
-    else
-        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(),
-                                   [&](const Job& j) { return j.kind == ReviewLoaded::Kind::Picture && j.key == job.key; }),
+        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& j) { return j.kind == job.kind; }),
                     jobs_.end());
+    else
+        jobs_.erase(
+            std::remove_if(jobs_.begin(), jobs_.end(),
+                           [&](const Job& j) { return j.kind == ReviewLoaded::Kind::Picture && j.key == job.key; }),
+            jobs_.end());
     jobs_.push_back(std::move(job));
     cv_.notify_one();
 }
@@ -94,7 +105,8 @@ void ReviewLoader::request_sheet(const std::string& projectDir, const std::strin
     push(std::move(j));
 }
 
-void ReviewLoader::request_picture(const std::string& key, const stdfs::path& file, int maxSide, bool projectFile, std::uint64_t gen) {
+void ReviewLoader::request_picture(const std::string& key, const stdfs::path& file, int maxSide, bool projectFile,
+                                   std::uint64_t gen) {
     Job j;
     j.kind = ReviewLoaded::Kind::Picture;
     j.gen = gen;
@@ -107,7 +119,9 @@ void ReviewLoader::request_picture(const std::string& key, const stdfs::path& fi
 
 void ReviewLoader::drop_pictures() {
     std::lock_guard<std::mutex> lock(mu_);
-    jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return j.kind == ReviewLoaded::Kind::Picture; }), jobs_.end());
+    jobs_.erase(
+        std::remove_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return j.kind == ReviewLoaded::Kind::Picture; }),
+        jobs_.end());
 }
 
 std::vector<std::string> ReviewLoader::drop_project_files() {
@@ -193,7 +207,8 @@ ReviewLoaded ReviewLoader::work(const Job& job) {
                 for (ReviewDroppedLine& d : h->dropped) {
                     if (d.status != "moved" || d.to.empty()) continue;
                     std::error_code ec;
-                    if (!stdfs::exists(fs::os_path(stdfs::path(job.projectDir) / fs::path_from_utf8(d.to)), ec) && !ec) d.status = "gone";
+                    if (!stdfs::exists(fs::os_path(stdfs::path(job.projectDir) / fs::path_from_utf8(d.to)), ec) && !ec)
+                        d.status = "gone";
                 }
                 out.history.push_back(std::move(*h));
             }
@@ -203,16 +218,20 @@ ReviewLoaded ReviewLoader::work(const Job& job) {
         case ReviewLoaded::Kind::Sheet: {
             out.sheet = job.sheet;
             const ReviewOutcome m = review_load(job.projectDir, job.sheet);
-            if (!m.ok) out.error = m.message + (m.hint.empty() ? std::string() : " " + m.hint);
-            else out.manifest = m.value;
+            if (!m.ok)
+                out.error = m.message + (m.hint.empty() ? std::string() : " " + m.hint);
+            else
+                out.manifest = m.value;
             break;
         }
         case ReviewLoaded::Kind::Picture: {
             out.key = job.key;
             Result<Image> img = review_read_picture(job.file, job.maxSide);
             readingProjectFile_.store(false);
-            if (!img.ok()) out.error = img.error().message;
-            else out.picture = std::move(*img);
+            if (!img.ok())
+                out.error = img.error().message;
+            else
+                out.picture = std::move(*img);
             break;
         }
     }

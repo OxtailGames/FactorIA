@@ -73,7 +73,8 @@ std::unique_ptr<cli::Session> open_game(const char* tag, stdfs::path& oldRoot) {
     opt.writeTypings = false;
     const std::string dir = (root / "game").string();
     auto made = create_project(dir, "2d-empty", opt);
-    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));  // doctest -s builds the message on success too
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string()
+                                          : made.error().to_string()));  // doctest -s builds the message on success too
     cli::SessionOptions so;
     so.gfx = cli::Gfx::None;
     auto session = cli::Session::open(dir, so);
@@ -98,7 +99,8 @@ TEST_CASE("tool catalog: every core command exists in the real registry, none is
     fs::set_project_root(oldRoot);
 }
 
-TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction of the context, with a fixed tool list") {
+TEST_CASE(
+    "tool catalog: a scripted task on the real registry sends a fraction of the context, with a fixed tool list") {
     stdfs::path oldRoot;
     auto session = open_game("task", oldRoot);
     CommandRegistry& reg = session->registry();
@@ -153,7 +155,8 @@ TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction o
     REQUIRE(withCatalog.splits.size() == 6);
     REQUIRE(full.splits.size() == 5);
 
-    std::printf("tool catalog, scripted task on the real registry (estimated bytes per step: system / tools / conversation)\n");
+    std::printf(
+        "tool catalog, scripted task on the real registry (estimated bytes per step: system / tools / conversation)\n");
     for (std::size_t i = 0; i < withCatalog.splits.size(); ++i) {
         const ContextSplit& c = withCatalog.splits[i];
         std::printf("  with catalog  step %zu: %6llu / %6llu / %6llu  (%d tools, %d catalog lines)\n", i + 1,
@@ -162,11 +165,13 @@ TEST_CASE("tool catalog: a scripted task on the real registry sends a fraction o
     }
     for (std::size_t i = 0; i < full.splits.size(); ++i) {
         const ContextSplit& c = full.splits[i];
-        std::printf("  every tool    step %zu: %6llu / %6llu / %6llu  (%d tools)\n", i + 1, static_cast<unsigned long long>(c.systemBytes),
-                    static_cast<unsigned long long>(c.toolBytes), static_cast<unsigned long long>(c.conversationBytes), c.toolCount);
+        std::printf("  every tool    step %zu: %6llu / %6llu / %6llu  (%d tools)\n", i + 1,
+                    static_cast<unsigned long long>(c.systemBytes), static_cast<unsigned long long>(c.toolBytes),
+                    static_cast<unsigned long long>(c.conversationBytes), c.toolCount);
     }
     std::printf("  step 1: %llu bytes with the catalog, %llu with every tool\n",
-                static_cast<unsigned long long>(withCatalog.splits[0].totalBytes()), static_cast<unsigned long long>(full.splits[0].totalBytes()));
+                static_cast<unsigned long long>(withCatalog.splits[0].totalBytes()),
+                static_cast<unsigned long long>(full.splits[0].totalBytes()));
 
     // The saving: a step sends under a third of what it did, and a step of the catalog run stays under 340 bytes per
     // command the agent can reach (the registry's tool count; about 275 today). The cap is per command, so new
@@ -202,8 +207,10 @@ TEST_CASE("tool catalog: on the real registry a read-only role reaches exactly t
         const bool allowed = !is_agent_tool_excluded(info->name) && is_read_only_tool(*info);
         CHECK((found != nullptr) == allowed);
         const bool offered = [&] {
-            for (const ToolDef& t : plan.tools) if (t.name == tool_name_for_command(info->name)) return true;
-            for (const CatalogEntry& e : plan.catalog) if (e.command == info->name) return true;
+            for (const ToolDef& t : plan.tools)
+                if (t.name == tool_name_for_command(info->name)) return true;
+            for (const CatalogEntry& e : plan.catalog)
+                if (e.command == info->name) return true;
             return false;
         }();
         CHECK(offered == allowed);

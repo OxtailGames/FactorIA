@@ -11,7 +11,8 @@
 namespace fa {
 
 const std::vector<std::string>& publish_stores() {
-    static const std::vector<std::string> stores = {"steam", "itch", "epic", "gog", "appstore", "googleplay", "microsoft"};
+    static const std::vector<std::string> stores = {"steam",    "itch",       "epic",     "gog",
+                                                    "appstore", "googleplay", "microsoft"};
     return stores;
 }
 
@@ -49,8 +50,10 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
     bool id(const Json& value, const std::string& pointer, std::string& out, const std::string& what) {
         long long n = 0;
         const std::string text = value.is_string() ? value.get<std::string>() : std::string();
-        if (value.is_number_integer()) n = value.get<long long>();
-        else if (!text.empty() && text.size() <= 10 && std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; }))
+        if (value.is_number_integer())
+            n = value.get<long long>();
+        else if (!text.empty() && text.size() <= 10 &&
+                 std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; }))
             n = std::stoll(text);
         if (n < 1 || n > 4294967295LL) {
             error(pointer, "expected " + what + " (a whole number from 1), got " + describe_json_value(value),
@@ -79,16 +82,23 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
     }
 
     void steam(const Json& o, const std::string& base, SteamPublishSettings& s) {
-        text(o, base, "account", s.account, "Use the name of the Steam account that uploads builds (a build account with the \"Edit App Metadata\" permission), e.g. \"mystudio_build\". Its password is never stored here: steamcmd keeps the login.");
-        if (const Json* depots = object_member(o, base, "depots", "{\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}"))
-            per_platform(*depots, base + "/depots", [&](const std::string& platform, const Json& v, const std::string& pointer) {
-                std::string id;
-                if (this->id(v, pointer, id, "a Steam depot id")) s.depots[platform] = std::stoll(id);
-            });
-        if (text(o, base, "branch", s.branch, "Use the name of a beta branch of your app, e.g. \"beta\" (Steamworks: App Admin > SteamPipe > Builds).") &&
+        text(o, base, "account", s.account,
+             "Use the name of the Steam account that uploads builds (a build account with the \"Edit App Metadata\" "
+             "permission), e.g. \"mystudio_build\". Its password is never stored here: steamcmd keeps the login.");
+        if (const Json* depots =
+                object_member(o, base, "depots", "{\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}"))
+            per_platform(*depots, base + "/depots",
+                         [&](const std::string& platform, const Json& v, const std::string& pointer) {
+                             std::string id;
+                             if (this->id(v, pointer, id, "a Steam depot id")) s.depots[platform] = std::stoll(id);
+                         });
+        if (text(o, base, "branch", s.branch,
+                 "Use the name of a beta branch of your app, e.g. \"beta\" (Steamworks: App Admin > SteamPipe > "
+                 "Builds).") &&
             to_lower(s.branch) == "default") {
             error(base + "/branch", "Steam never sets a build live on the 'default' branch from an upload",
-                  "Use a beta branch such as \"beta\" and make the build default yourself in the Steamworks partner site (App Admin > SteamPipe > Builds).");
+                  "Use a beta branch such as \"beta\" and make the build default yourself in the Steamworks partner "
+                  "site (App Admin > SteamPipe > Builds).");
             s.branch.clear();
         }
         unknown_keys(o, base, {"account", "depots", "branch"});
@@ -99,56 +109,72 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
         if (text(o, base, "game", game, "Use \"user/game\" as in the page's address, e.g. \"mystudio/space-dodge\".")) {
             static const std::regex re("^[a-z0-9_-]+/[a-z0-9_-]+$");
             if (!std::regex_match(game, re))
-                error(base + "/game", "'" + game + "' is not a user/game name",
-                      "butler wants two lower-case parts joined by a slash, as in the address of your itch.io page: \"" + to_lower(game) +
-                          "\" if that is it.");
+                error(
+                    base + "/game", "'" + game + "' is not a user/game name",
+                    "butler wants two lower-case parts joined by a slash, as in the address of your itch.io page: \"" +
+                        to_lower(game) + "\" if that is it.");
             else
                 s.game = game;
         }
-        if (const Json* channels = object_member(o, base, "channels", "{\"windows\": \"windows\", \"macos\": \"mac\", \"linux\": \"linux\"}"))
-            per_platform(*channels, base + "/channels", [&](const std::string& platform, const Json& v, const std::string& pointer) {
-                static const std::regex re("^[a-z0-9]+(-[a-z0-9]+)*$");
-                if (!v.is_string() || !std::regex_match(v.get<std::string>(), re))
-                    error(pointer, "expected a channel name, got " + describe_json_value(v),
-                          "Use lower-case words separated by dashes; itch.io tags the download by the words: \"windows\", \"mac\" or \"osx\", \"linux\" (e.g. \"windows-beta\").");
-                else
-                    s.channels[platform] = v.get<std::string>();
-            });
+        if (const Json* channels = object_member(
+                o, base, "channels", "{\"windows\": \"windows\", \"macos\": \"mac\", \"linux\": \"linux\"}"))
+            per_platform(*channels, base + "/channels",
+                         [&](const std::string& platform, const Json& v, const std::string& pointer) {
+                             static const std::regex re("^[a-z0-9]+(-[a-z0-9]+)*$");
+                             if (!v.is_string() || !std::regex_match(v.get<std::string>(), re))
+                                 error(pointer, "expected a channel name, got " + describe_json_value(v),
+                                       "Use lower-case words separated by dashes; itch.io tags the download by the "
+                                       "words: \"windows\", \"mac\" or \"osx\", \"linux\" (e.g. \"windows-beta\").");
+                             else
+                                 s.channels[platform] = v.get<std::string>();
+                         });
         unknown_keys(o, base, {"game", "channels"});
     }
 
     void epic(const Json& o, const std::string& base, EpicPublishSettings& s) {
         const std::string hint = "Copy it from the Epic Games Dev Portal.";
-        text(o, base, "organizationId", s.organizationId, hint + " The Organization ID is in the Organization settings.");
+        text(o, base, "organizationId", s.organizationId,
+             hint + " The Organization ID is in the Organization settings.");
         text(o, base, "productId", s.productId, hint + " The Product ID is in the product's settings.");
         text(o, base, "clientId", s.clientId,
-             hint + " Use the client under Product Settings > General > Build Patch Tool Credentials (not an SDK client). The matching secret goes in FACTORIA_EPIC_CLIENT_SECRET, never here.");
-        if (const Json* artifacts = object_member(o, base, "artifacts", "{\"windows\": \"<artifact id>\", \"macos\": \"<artifact id>\"}"))
-            per_platform(*artifacts, base + "/artifacts", [&](const std::string& platform, const Json& v, const std::string& pointer) {
-                if (!v.is_string() || trim(v.get<std::string>()).empty())
-                    error(pointer, "expected an artifact id, got " + describe_json_value(v), "Each platform has its own artifact: copy the Artifact ID from the Dev Portal (Artifacts and Binaries).");
-                else
-                    s.artifacts[platform] = v.get<std::string>();
-            });
+             hint + " Use the client under Product Settings > General > Build Patch Tool Credentials (not an SDK "
+                    "client). The matching secret goes in FACTORIA_EPIC_CLIENT_SECRET, never here.");
+        if (const Json* artifacts =
+                object_member(o, base, "artifacts", "{\"windows\": \"<artifact id>\", \"macos\": \"<artifact id>\"}"))
+            per_platform(*artifacts, base + "/artifacts",
+                         [&](const std::string& platform, const Json& v, const std::string& pointer) {
+                             if (!v.is_string() || trim(v.get<std::string>()).empty())
+                                 error(pointer, "expected an artifact id, got " + describe_json_value(v),
+                                       "Each platform has its own artifact: copy the Artifact ID from the Dev Portal "
+                                       "(Artifacts and Binaries).");
+                             else
+                                 s.artifacts[platform] = v.get<std::string>();
+                         });
         unknown_keys(o, base, {"organizationId", "productId", "clientId", "artifacts"});
     }
 
     void gog(const Json& o, const std::string& base, GogPublishSettings& s) {
-        if (auto it = o.find("productId"); it != o.end() && !it->is_null()) id(*it, base + "/productId", s.productId, "a GOG product id");
+        if (auto it = o.find("productId"); it != o.end() && !it->is_null())
+            id(*it, base + "/productId", s.productId, "a GOG product id");
         if (auto it = o.find("clientId"); it != o.end() && !it->is_null()) {
-            if (it->is_string() && !it->get<std::string>().empty()) s.clientId = it->get<std::string>();
-            else id(*it, base + "/clientId", s.clientId, "a GALAXY client id");
+            if (it->is_string() && !it->get<std::string>().empty())
+                s.clientId = it->get<std::string>();
+            else
+                id(*it, base + "/clientId", s.clientId, "a GALAXY client id");
         }
         if (auto it = o.find("languages"); it != o.end() && !it->is_null()) {
             const std::string hint = "Write the locale codes of the game's languages, e.g. [\"en-US\", \"fr-FR\"].";
             std::vector<std::string> languages;
             bool ok = it->is_array() && !it->empty();
-            if (!ok) error(base + "/languages", "expected a non-empty array of locale codes, got " + describe_json_value(*it), hint);
+            if (!ok)
+                error(base + "/languages",
+                      "expected a non-empty array of locale codes, got " + describe_json_value(*it), hint);
             else
                 for (std::size_t i = 0; i < it->size(); ++i) {
                     const Json& e = (*it)[i];
                     if (!e.is_string() || e.get<std::string>().empty()) {
-                        error(base + "/languages/" + std::to_string(i), "expected a locale code, got " + describe_json_value(e), hint);
+                        error(base + "/languages/" + std::to_string(i),
+                              "expected a locale code, got " + describe_json_value(e), hint);
                         ok = false;
                     } else {
                         languages.push_back(e.get<std::string>());
@@ -162,10 +188,15 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
     void appstore(const Json& o, const std::string& base, AppStorePublishSettings& s) {
         if (auto it = o.find("appleId"); it != o.end() && !it->is_null()) {
             // The Apple ID of an app is a number of about ten digits (more than 32 bits), often copied as text.
-            const std::string v = it->is_string() ? it->get<std::string>() : it->is_number_integer() ? std::to_string(it->get<long long>()) : std::string();
-            if (v.size() < 6 || v.size() > 15 || !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; }))
-                error(base + "/appleId", "expected the app's Apple ID (a whole number), got " + describe_json_value(*it),
-                      "It is the number under App Store Connect > your app > App Information > General Information > Apple ID, e.g. 6448277777 (not your Apple account's e-mail and not the bundle id).");
+            const std::string v = it->is_string()           ? it->get<std::string>()
+                                  : it->is_number_integer() ? std::to_string(it->get<long long>())
+                                                            : std::string();
+            if (v.size() < 6 || v.size() > 15 ||
+                !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; }))
+                error(base + "/appleId",
+                      "expected the app's Apple ID (a whole number), got " + describe_json_value(*it),
+                      "It is the number under App Store Connect > your app > App Information > General Information > "
+                      "Apple ID, e.g. 6448277777 (not your Apple account's e-mail and not the bundle id).");
             else
                 s.appleId = v;
         }
@@ -174,17 +205,24 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
 
     void googleplay(const Json& o, const std::string& base, GooglePlayPublishSettings& s) {
         std::string track;
-        if (text(o, base, "track", track, "Use internal, alpha, beta or production (or the name of a closed testing track you created in the Play Console), e.g. \"internal\".")) {
+        if (text(o, base, "track", track,
+                 "Use internal, alpha, beta or production (or the name of a closed testing track you created in the "
+                 "Play Console), e.g. \"internal\".")) {
             static const std::regex re("^[A-Za-z0-9_.-]{1,64}$");
             if (!std::regex_match(track, re))
-                error(base + "/track", "'" + track + "' is not a track name", "Use internal, alpha, beta or production, or the name of a closed testing track (letters, digits and . _ - only).");
+                error(base + "/track", "'" + track + "' is not a track name",
+                      "Use internal, alpha, beta or production, or the name of a closed testing track (letters, digits "
+                      "and . _ - only).");
             else
                 s.track = track;
         }
         std::string status;
-        if (text(o, base, "releaseStatus", status, "Use \"draft\" (the release waits in the Play Console until you roll it out) or \"completed\" (it rolls out right away).")) {
+        if (text(o, base, "releaseStatus", status,
+                 "Use \"draft\" (the release waits in the Play Console until you roll it out) or \"completed\" (it "
+                 "rolls out right away).")) {
             if (status != "draft" && status != "completed")
-                error(base + "/releaseStatus", "'" + status + "' is not a release status", did_you_mean(status, std::vector<std::string>{"draft", "completed"}));
+                error(base + "/releaseStatus", "'" + status + "' is not a release status",
+                      did_you_mean(status, std::vector<std::string>{"draft", "completed"}));
             else
                 s.releaseStatus = status;
         }
@@ -193,10 +231,12 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
                 const std::string pointer = base + "/changelogs/" + tooling_detail::escape_token(it.key());
                 static const std::regex re("^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$");
                 if (!std::regex_match(it.key(), re))
-                    error(pointer, "'" + it.key() + "' is not a Google Play language code", "Use the codes of the Play Console, e.g. \"en-US\", \"es-419\", \"fr-FR\".");
+                    error(pointer, "'" + it.key() + "' is not a Google Play language code",
+                          "Use the codes of the Play Console, e.g. \"en-US\", \"es-419\", \"fr-FR\".");
                 else if (!it.value().is_string() || trim(it.value().get<std::string>()).empty())
                     error(pointer, "expected the path of a text file, got " + describe_json_value(it.value()),
-                          "Write the \"What's new\" text (up to 500 characters) in a file of the project and give its path relative to factoria.json, e.g. \"store/whats-new-en.txt\".");
+                          "Write the \"What's new\" text (up to 500 characters) in a file of the project and give its "
+                          "path relative to factoria.json, e.g. \"store/whats-new-en.txt\".");
                 else
                     s.changelogs[it.key()] = it.value().get<std::string>();
             }
@@ -205,11 +245,14 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
 
     void microsoft(const Json& o, const std::string& base, MicrosoftPublishSettings& s) {
         std::string id;
-        if (text(o, base, "productId", id, "Copy the Store ID from Partner Center (your app > Product identity), 12 letters and digits, e.g. \"9NBLGGH4NNS1\".")) {
+        if (text(o, base, "productId", id,
+                 "Copy the Store ID from Partner Center (your app > Product identity), 12 letters and digits, e.g. "
+                 "\"9NBLGGH4NNS1\".")) {
             static const std::regex re("^[A-Za-z0-9]{12}$");
             if (!std::regex_match(id, re))
                 error(base + "/productId", "'" + id + "' is not a Microsoft Store ID",
-                      "It has 12 letters and digits, e.g. \"9NBLGGH4NNS1\" (Partner Center > your app > Product identity > Store ID; not the package name and not your seller id).");
+                      "It has 12 letters and digits, e.g. \"9NBLGGH4NNS1\" (Partner Center > your app > Product "
+                      "identity > Store ID; not the package name and not your seller id).");
             else
                 s.productId = id;
         }
@@ -232,13 +275,23 @@ PublishSettingsParse parse_publish_settings(const Json& pj) {
     }
     const Json& pub = *it;
     r.unknown_keys(pub, "/publish", publish_stores());
-    if (const Json* o = r.object_member(pub, "/publish", "steam", "{\"account\": \"mystudio_build\", \"depots\": {\"windows\": 1234561}}")) r.steam(*o, "/publish/steam", s.steam);
-    if (const Json* o = r.object_member(pub, "/publish", "itch", "{\"game\": \"user/game\"}")) r.itch(*o, "/publish/itch", s.itch);
-    if (const Json* o = r.object_member(pub, "/publish", "epic", "{\"organizationId\": \"...\", \"productId\": \"...\"}")) r.epic(*o, "/publish/epic", s.epic);
-    if (const Json* o = r.object_member(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}")) r.gog(*o, "/publish/gog", s.gog);
-    if (const Json* o = r.object_member(pub, "/publish", "appstore", "{\"appleId\": \"6448277777\"}")) r.appstore(*o, "/publish/appstore", s.appstore);
-    if (const Json* o = r.object_member(pub, "/publish", "googleplay", "{\"track\": \"internal\", \"releaseStatus\": \"draft\"}")) r.googleplay(*o, "/publish/googleplay", s.googleplay);
-    if (const Json* o = r.object_member(pub, "/publish", "microsoft", "{\"productId\": \"9NBLGGH4NNS1\"}")) r.microsoft(*o, "/publish/microsoft", s.microsoft);
+    if (const Json* o = r.object_member(pub, "/publish", "steam",
+                                        "{\"account\": \"mystudio_build\", \"depots\": {\"windows\": 1234561}}"))
+        r.steam(*o, "/publish/steam", s.steam);
+    if (const Json* o = r.object_member(pub, "/publish", "itch", "{\"game\": \"user/game\"}"))
+        r.itch(*o, "/publish/itch", s.itch);
+    if (const Json* o =
+            r.object_member(pub, "/publish", "epic", "{\"organizationId\": \"...\", \"productId\": \"...\"}"))
+        r.epic(*o, "/publish/epic", s.epic);
+    if (const Json* o = r.object_member(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}"))
+        r.gog(*o, "/publish/gog", s.gog);
+    if (const Json* o = r.object_member(pub, "/publish", "appstore", "{\"appleId\": \"6448277777\"}"))
+        r.appstore(*o, "/publish/appstore", s.appstore);
+    if (const Json* o =
+            r.object_member(pub, "/publish", "googleplay", "{\"track\": \"internal\", \"releaseStatus\": \"draft\"}"))
+        r.googleplay(*o, "/publish/googleplay", s.googleplay);
+    if (const Json* o = r.object_member(pub, "/publish", "microsoft", "{\"productId\": \"9NBLGGH4NNS1\"}"))
+        r.microsoft(*o, "/publish/microsoft", s.microsoft);
     return r.result;
 }
 

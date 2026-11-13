@@ -51,7 +51,8 @@ Json remote_play_session(u32 id) {
     out.set("deviceName", device ? device : "");
     out.set("formFactor", form_factor_name(s.SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor(s.remotePlay, id)));
     int width = 0, height = 0;
-    if (s.SteamAPI_ISteamRemotePlay_BGetSessionClientResolution(s.remotePlay, id, &width, &height) && width > 0 && height > 0)
+    if (s.SteamAPI_ISteamRemotePlay_BGetSessionClientResolution(s.remotePlay, id, &width, &height) && width > 0 &&
+        height > 0)
         out.set("resolution", Json::object().set("width", width).set("height", height));
     else
         out.set("resolution", Json());

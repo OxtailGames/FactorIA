@@ -25,7 +25,9 @@ struct Hasher {
         for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 1099511628211ull;
     }
     template <class T>
-    void add(T v) { bytes(&v, sizeof v); }
+    void add(T v) {
+        bytes(&v, sizeof v);
+    }
 };
 
 // A rectangle of tile cells, both corners included.
@@ -38,11 +40,11 @@ struct CellRect {
 struct Occluder {
     const Tilemap* tm = nullptr;
     TilemapSize size;
-    Mat4 inv;                // world -> the tilemap's local space (Parallax included: it is drawn there)
-    Vec3 axisX, axisY;       // the world axes in local space: inv applied to (1,0,0) and (0,1,0)
+    Mat4 inv;                    // world -> the tilemap's local space (Parallax included: it is drawn there)
+    Vec3 axisX, axisY;           // the world axes in local space: inv applied to (1,0,0) and (0,1,0)
     float m[4] = {1, 0, 0, -1};  // local -> cell space (tilemap_local_to_cell): the same walk for squares and diamonds
-    std::vector<int> solid;  // tile indices that block light, sorted
-    CellRect area;           // the cells `flags` covers
+    std::vector<int> solid;      // tile indices that block light, sorted
+    CellRect area;               // the cells `flags` covers
     std::vector<std::uint8_t> flags;
 
     bool solid_at(int c, int r) const {
@@ -55,13 +57,19 @@ struct Occluder {
         // touch the square are those of its bounding box in cell space.
         float fc0 = kInf, fc1 = -kInf, fr0 = kInf, fr1 = -kInf;
         for (int k = 0; k < 4; ++k) {
-            const Vec3 q = inv.transform_point({px + ((k & 1) ? radius : -radius), py + ((k & 2) ? radius : -radius), 0.0f});
+            const Vec3 q =
+                inv.transform_point({px + ((k & 1) ? radius : -radius), py + ((k & 2) ? radius : -radius), 0.0f});
             const float a = m[0] * q.x + m[1] * q.y, b = m[2] * q.x + m[3] * q.y;
-            fc0 = std::min(fc0, a); fc1 = std::max(fc1, a);
-            fr0 = std::min(fr0, b); fr1 = std::max(fr1, b);
+            fc0 = std::min(fc0, a);
+            fc1 = std::max(fc1, a);
+            fr0 = std::min(fr0, b);
+            fr1 = std::max(fr1, b);
         }
         if (!(fc0 <= fc1) || !(fr0 <= fr1)) return {};
-        fc0 = std::floor(fc0); fc1 = std::floor(fc1); fr0 = std::floor(fr0); fr1 = std::floor(fr1);
+        fc0 = std::floor(fc0);
+        fc1 = std::floor(fc1);
+        fr0 = std::floor(fr0);
+        fr1 = std::floor(fr1);
         CellRect w;
         w.c0 = int(std::clamp(fc0, 0.0f, float(size.width)));
         w.c1 = int(std::clamp(fc1, -1.0f, float(size.width - 1)));
@@ -72,14 +80,18 @@ struct Occluder {
     bool any_solid(const CellRect& w) const {
         const int width = area.c1 - area.c0 + 1;
         for (int r = w.r0; r <= w.r1; ++r) {
-            const std::uint8_t* row = &flags[std::size_t(r - area.r0) * std::size_t(width) + std::size_t(w.c0 - area.c0)];
+            const std::uint8_t* row =
+                &flags[std::size_t(r - area.r0) * std::size_t(width) + std::size_t(w.c0 - area.c0)];
             if (std::memchr(row, 1, std::size_t(w.c1 - w.c0 + 1))) return true;
         }
         return false;
     }
     void hash_window(Hasher& h, const CellRect& w) const {
         const int width = area.c1 - area.c0 + 1;
-        h.add(w.c0); h.add(w.r0); h.add(w.c1); h.add(w.r1);
+        h.add(w.c0);
+        h.add(w.r0);
+        h.add(w.c1);
+        h.add(w.r1);
         for (int r = w.r0; r <= w.r1; ++r)
             h.bytes(&flags[std::size_t(r - area.r0) * std::size_t(width) + std::size_t(w.c0 - area.c0)],
                     std::size_t(w.c1 - w.c0 + 1));
@@ -111,7 +123,9 @@ float cast_ray(const Occluder& o, float cx, float cy, float dcx, float dcy, floa
     }
 }
 
-struct Dir { float c, s; };
+struct Dir {
+    float c, s;
+};
 const std::vector<Dir>& directions() {
     static const std::vector<Dir> d = [] {
         std::vector<Dir> v;
@@ -129,7 +143,8 @@ const std::vector<Dir>& directions() {
 struct LightWork {
     std::size_t light = 0;  // index in Frame::lights2d
     float px = 0, py = 0, radius = 0;
-    std::vector<std::pair<std::size_t, CellRect>> windows;  // occluder, cells (never empty, with a solid tile in at least one)
+    std::vector<std::pair<std::size_t, CellRect>>
+        windows;  // occluder, cells (never empty, with a solid tile in at least one)
 };
 
 }  // namespace
@@ -173,8 +188,10 @@ void assign_shadow_rows(World& world, Frame& f) {
             const Light2DData& l = f.lights2d[i];
             const CellRect w = o.window(l.pos[0], l.pos[1], l.pos[3]);
             if (w.empty()) continue;
-            if (u.empty()) u = w;
-            else u = {std::min(u.c0, w.c0), std::min(u.r0, w.r0), std::max(u.c1, w.c1), std::max(u.r1, w.r1)};
+            if (u.empty())
+                u = w;
+            else
+                u = {std::min(u.c0, w.c0), std::min(u.r0, w.r0), std::max(u.c1, w.c1), std::max(u.r1, w.r1)};
         }
         o.area = u;
         if (u.empty()) continue;
@@ -194,7 +211,9 @@ void assign_shadow_rows(World& world, Frame& f) {
         const Light2DData& l = f.lights2d[i];
         LightWork w;
         w.light = i;
-        w.px = l.pos[0]; w.py = l.pos[1]; w.radius = l.pos[3];
+        w.px = l.pos[0];
+        w.py = l.pos[1];
+        w.radius = l.pos[3];
         bool solid = false;
         for (std::size_t k = 0; k < occluders.size(); ++k) {
             const Occluder& o = occluders[k];
@@ -205,14 +224,18 @@ void assign_shadow_rows(World& world, Frame& f) {
             solid = solid || o.any_solid(win);
         }
         if (!solid) continue;
-        if (int(work.size()) < kMaxShadowLights2D) work.push_back(std::move(w));
-        else ++over;
+        if (int(work.size()) < kMaxShadowLights2D)
+            work.push_back(std::move(w));
+        else
+            ++over;
     }
     if (over > 0 && f.warnedShadows2d && !*f.warnedShadows2d) {
         *f.warnedShadows2d = true;
         FA_WARN("render",
-                "{} Light2D with castShadows reach a solid tile of a Tilemap with occludesLight, but a frame gives shadows to at "
-                "most {} lights: the {} ranked last shine through walls. Hint: set castShadows on fewer lights (the ones that "
+                "{} Light2D with castShadows reach a solid tile of a Tilemap with occludesLight, but a frame gives "
+                "shadows to at "
+                "most {} lights: the {} ranked last shine through walls. Hint: set castShadows on fewer lights (the "
+                "ones that "
                 "light the most of the view come first), or give the others a smaller radius",
                 int(work.size()) + over, kMaxShadowLights2D, over);
     }
@@ -224,7 +247,9 @@ void assign_shadow_rows(World& world, Frame& f) {
     const std::vector<Dir>& dirs = directions();
     for (LightWork& w : work) {
         Hasher h;
-        h.add(w.px); h.add(w.py); h.add(w.radius);
+        h.add(w.px);
+        h.add(w.py);
+        h.add(w.radius);
         for (const auto& [k, win] : w.windows) {
             const Occluder& o = occluders[k];
             h.bytes(o.inv.m, sizeof(float) * 16);
@@ -236,7 +261,9 @@ void assign_shadow_rows(World& world, Frame& f) {
         if (it == cache.rows.end()) {
             ShadowCache::Entry e;
             e.row.resize(std::size_t(kShadowAngles) * 4);
-            struct Origin { float cx, cy; };
+            struct Origin {
+                float cx, cy;
+            };
             std::vector<Origin> origin;
             for (const auto& [k, win] : w.windows) {
                 const Occluder& o = occluders[k];
@@ -249,7 +276,8 @@ void assign_shadow_rows(World& world, Frame& f) {
                     const Occluder& o = occluders[w.windows[n].first];
                     const float lx = dirs[std::size_t(i)].c * o.axisX.x + dirs[std::size_t(i)].s * o.axisY.x;
                     const float ly = dirs[std::size_t(i)].c * o.axisX.y + dirs[std::size_t(i)].s * o.axisY.y;
-                    best = std::min(best, cast_ray(o, origin[n].cx, origin[n].cy, o.m[0] * lx + o.m[1] * ly, o.m[2] * lx + o.m[3] * ly, best));
+                    best = std::min(best, cast_ray(o, origin[n].cx, origin[n].cy, o.m[0] * lx + o.m[1] * ly,
+                                                   o.m[2] * lx + o.m[3] * ly, best));
                 }
                 const std::uint32_t v = std::uint32_t(std::lround(std::clamp(best / w.radius, 0.0f, 1.0f) * 65535.0f));
                 std::uint8_t* t = &e.row[std::size_t(i) * 4];
@@ -272,8 +300,10 @@ void assign_shadow_rows(World& world, Frame& f) {
     // Rows nobody asked for this frame (a light that moved) are kept a while, then dropped.
     if (cache.rows.size() > 4 * std::size_t(kMaxShadowLights2D)) {
         for (auto it = cache.rows.begin(); it != cache.rows.end();) {
-            if (it->second.used != cache.tick) it = cache.rows.erase(it);
-            else ++it;
+            if (it->second.used != cache.tick)
+                it = cache.rows.erase(it);
+            else
+                ++it;
         }
     }
 }

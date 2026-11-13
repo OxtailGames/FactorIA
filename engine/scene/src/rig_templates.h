@@ -26,18 +26,22 @@ struct Hint {
     char mode = 'Y';
     float head = kNone, tail = kNone;
     Vec3 aHead{}, aTail{};
-    std::string ref;  // 'L': the bone whose default head tells which end of the part is nearer to the body ("" = the bone itself)
+    std::string
+        ref;  // 'L': the bone whose default head tells which end of the part is nearer to the body ("" = the bone itself)
 };
 
 struct TBone {
     std::string name, role, side, parent;
     int index = 0;
-    Vec3 prop{};  // default head as proportions of the model's bounds: x = signed fraction of the width from the symmetry plane (+ = character-left),
-                  // y = fraction of the height, z = fraction of the depth from the back (0) to the front (1)
+    Vec3
+        prop{};  // default head as proportions of the model's bounds: x = signed fraction of the width from the symmetry plane (+ = character-left),
+                 // y = fraction of the height, z = fraction of the depth from the back (0) to the front (1)
     bool hasTailProp = false;
     Vec3 tailProp{};  // default tail of a leaf bone, same proportions
-    Vec3 tailExt{};   // per axis -1 / 0 / +1: the tail takes that coordinate from the model's minimum / maximum (geometry)
-    bool under = false;  // head.y = height of the underside of the model at the symmetry plane (the crotch) + underOffset * height
+    Vec3
+        tailExt{};  // per axis -1 / 0 / +1: the tail takes that coordinate from the model's minimum / maximum (geometry)
+    bool under =
+        false;  // head.y = height of the underside of the model at the symmetry plane (the crotch) + underOffset * height
     float underOffset = 0;
     std::string lerpA, lerpB;  // head = lerp of two landmarks ("bone" or "bone.tail"); empty = not a lerp bone
     float lerpT = 0;

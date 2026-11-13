@@ -73,9 +73,11 @@ std::vector<Vec2> place(UiLayout layout, const std::vector<Child>& ch, const Rec
             cellH = std::max(cellH, c.r.h);
         }
         const int cols = std::min(std::max(columns, 1), int(ch.size()));
-        const float x0 = inner.x + align_offset(justify, inner.w, content.x), y0 = inner.y + align_offset(justify, inner.h, content.y);
+        const float x0 = inner.x + align_offset(justify, inner.w, content.x),
+                    y0 = inner.y + align_offset(justify, inner.h, content.y);
         for (std::size_t i = 0; i < ch.size(); ++i) {
-            const float cx = x0 + float(int(i) % cols) * (cellW + spacing), cy = y0 + float(int(i) / cols) * (cellH + spacing);
+            const float cx = x0 + float(int(i) % cols) * (cellW + spacing),
+                        cy = y0 + float(int(i) / cols) * (cellH + spacing);
             out.push_back({cx + align_offset(align, cellW, ch[i].r.w), cy + align_offset(align, cellH, ch[i].r.h)});
         }
     } else if (layout == UiLayout::Column) {
@@ -161,7 +163,8 @@ Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::strin
 // The margins match what fa_render draws (ui2d.cpp): a toggle's box and a slider's label / track / value zones.
 Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
     Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f, b.maxTextScale, {b.markup, b.bold});
-    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale, {b.markup, b.bold});
+    if (b.maxWidth > 0 && label.x > b.maxWidth)
+        label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth, b.maxTextScale, {b.markup, b.bold});
     if (!b.icon.empty()) {  // the icon and the label are one group (ui_button_content)
         const Vec2 is{std::max(0.0f, b.iconSize.x), std::max(0.0f, b.iconSize.y)};
         if (b.iconPosition == ButtonIconPosition::Alone || label.x <= 0)
@@ -178,7 +181,8 @@ Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
 
 Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
     Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f, t.maxTextScale, {t.markup, t.bold});
-    if (t.maxWidth > 0 && label.x > t.maxWidth) label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale, {t.markup, t.bold});
+    if (t.maxWidth > 0 && label.x > t.maxWidth)
+        label = label_extent(m, t.label, t.font, t.fontSize, t.maxWidth, t.maxTextScale, {t.markup, t.bold});
     if (label.x <= 0) return design;
     const float h = std::max(design.y, std::ceil(label.y + 16.0f));
     const float side = ui_toggle_box_side(t, h, m.textScale);
@@ -187,7 +191,8 @@ Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
 
 Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {
     Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f, s.maxTextScale, {s.markup, s.bold});
-    if (s.maxWidth > 0 && label.x > s.maxWidth) label = label_extent(m, s.label, s.font, s.fontSize, s.maxWidth, s.maxTextScale, {s.markup, s.bold});
+    if (s.maxWidth > 0 && label.x > s.maxWidth)
+        label = label_extent(m, s.label, s.font, s.fontSize, s.maxWidth, s.maxTextScale, {s.markup, s.bold});
     const bool above = ui_slider_label_above(s);
     // Beside the track the label gets 35% of the width inside the 8 px margins; above it, the whole width.
     float inner = label.x > 0 ? (above ? label.x : (label.x + 12.0f) / 0.35f) : 0.0f;
@@ -266,13 +271,17 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
     if (!(s->fill || s->shrink) || !p || used_layout(*p) != UiLayout::Column) return;
     float others = 0;
     int kids = 0;
-    std::vector<std::pair<float, Entity>> lists;  // the lists that share the room: their need (infinite for fill), and who
+    std::vector<std::pair<float, Entity>>
+        lists;  // the lists that share the room: their need (infinite for fill), and who
     for (const Child& c : children_of(w, parent, design, m)) {
         ++kids;
         ScrollList* l = w.get<ScrollList>(c.e);
-        if (l && l->fill) lists.push_back({std::numeric_limits<float>::infinity(), c.e});
-        else if (l && l->shrink) lists.push_back({list_content_height(w, c.e, *l, design, m), c.e});
-        else others += c.r.h;
+        if (l && l->fill)
+            lists.push_back({std::numeric_limits<float>::infinity(), c.e});
+        else if (l && l->shrink)
+            lists.push_back({list_content_height(w, c.e, *l, design, m), c.e});
+        else
+            others += c.r.h;
     }
     float room = p->size.y;
     if (p->fit) {
@@ -308,8 +317,10 @@ void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design,
             bool holds = false;
             for (Entity a = focus; a; a = w.parent(a)) holds = holds || a == c.e;
             if (holds) {
-                if (top < s.scroll || c.r.h > inner.h) s.scroll = top;
-                else if (top + c.r.h > s.scroll + inner.h) s.scroll = top + c.r.h - inner.h;
+                if (top < s.scroll || c.r.h > inner.h)
+                    s.scroll = top;
+                else if (top + c.r.h > s.scroll + inner.h)
+                    s.scroll = top + c.r.h - inner.h;
                 break;
             }
             top += c.r.h + s.spacing;
@@ -351,8 +362,10 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
     for (const VisualFootprint& f : visual_footprints(w, e, measure, true)) {
         if (f.space != RenderSpace::Screen) continue;
         Mat4 fm = m;
-        if (f.mirrored) fm.at(3, 0) = -fm.at(3, 0);  // a mirrored visual: its box and anchor are already flipped (bounds.h)
-        for (const Vec2& p : f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + the anchor point
+        if (f.mirrored)
+            fm.at(3, 0) = -fm.at(3, 0);  // a mirrored visual: its box and anchor are already flipped (bounds.h)
+        for (const Vec2& p :
+             f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + the anchor point
             const Vec3 q = fm.transform_point({p.x, -p.y, 0.0f});
             const Vec2 a = anchor_point(f.anchor, f.safeArea, uiScreen, uiInsets);
             const float sx = q.x + a.x, sy = q.y + a.y;
@@ -412,7 +425,8 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
                 layout_panel(w, e, *p, design, m);
             }
         }
-        std::vector<Entity> candidates;  // the deepest panels that leave the screen (containers are sorted deepest first)
+        std::vector<Entity>
+            candidates;  // the deepest panels that leave the screen (containers are sorted deepest first)
         for (const auto& [depth, e] : containers) {
             if (!candidates.empty() && depth < depth_of(w, candidates.front())) break;
             const Panel* p = w.get<Panel>(e);
@@ -437,11 +451,13 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
         if (p->size.x > screen.x + 0.5f || p->size.y > screen.y + 0.5f) {
             if (warnedFit_.insert(e.bits()).second)
                 FA_WARN("ui",
-                        "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off screen. Shorten its "
-                        "texts, make a ScrollList in it `fill` the free height, set a `fallbackLayout`, lower the font sizes or "
+                        "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off "
+                        "screen. Shorten its "
+                        "texts, make a ScrollList in it `fill` the free height, set a `fallbackLayout`, lower the font "
+                        "sizes or "
                         "the interface scale (ui.scale; the sizes are in UI units, the screen is {} x {} of them).",
-                        w.info(e).id, int(std::ceil(p->size.x)), int(std::ceil(p->size.y)), int(screen.x), int(screen.y),
-                        int(screen.x), int(screen.y));
+                        w.info(e).id, int(std::ceil(p->size.x)), int(std::ceil(p->size.y)), int(screen.x),
+                        int(screen.y), int(screen.x), int(screen.y));
         } else {
             warnedFit_.erase(e.bits());
         }

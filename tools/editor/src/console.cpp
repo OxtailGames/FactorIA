@@ -20,7 +20,10 @@ void Editor::run_console_line(const std::string& raw) {
         FA_WARN("console", "no project open");
         return;
     }
-    if (line == "clear") { clear_recent_logs(); return; }
+    if (line == "clear") {
+        clear_recent_logs();
+        return;
+    }
     if (line == "help" || line == "?") {
         std::string names;
         for (const CommandInfo* c : engine_->commands().list()) names += c->name + "  ";
@@ -36,7 +39,10 @@ void Editor::run_console_line(const std::string& raw) {
         if (const CommandInfo* ci = engine_->commands().info("script.eval")) {
             if (ci->inputSchema.contains("properties") && ci->inputSchema["properties"].is_object()) {
                 for (auto it = ci->inputSchema["properties"].begin(); it != ci->inputSchema["properties"].end(); ++it)
-                    if (it.value().value("type", "") == "string") { argName = it.key(); break; }
+                    if (it.value().value("type", "") == "string") {
+                        argName = it.key();
+                        break;
+                    }
             }
         }
         if (play_ == PlayState::Edit) begin_edit("console:" + std::to_string(uiFrame_));
@@ -51,12 +57,15 @@ void Editor::run_console_line(const std::string& raw) {
             return;
         }
         const CommandInfo* ci = engine_->commands().info(name);
-        if (ci && !ci->readOnly && command_edits_scene(name, *args) && play_ == PlayState::Edit) begin_edit("console:" + std::to_string(uiFrame_));
+        if (ci && !ci->readOnly && command_edits_scene(name, *args) && play_ == PlayState::Edit)
+            begin_edit("console:" + std::to_string(uiFrame_));
         r = engine_->commands().call(name, *args);
         after_command(name, *args, r);
     }
-    if (r.ok) FA_INFO("console", "{}", r.result.dump(2));
-    else FA_ERROR("console", "{}", r.error.dump(2));
+    if (r.ok)
+        FA_INFO("console", "{}", r.result.dump(2));
+    else
+        FA_ERROR("console", "{}", r.error.dump(2));
 }
 
 namespace {
@@ -65,8 +74,11 @@ int history_cb(ImGuiInputTextCallbackData* d) {
     if (d->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
         const int n = int(ed->consoleHistory_.size());
         if (n == 0) return 0;
-        if (d->EventKey == ImGuiKey_UpArrow) ed->consoleHistoryPos_ = ed->consoleHistoryPos_ < 0 ? n - 1 : std::max(0, ed->consoleHistoryPos_ - 1);
-        else if (d->EventKey == ImGuiKey_DownArrow) ed->consoleHistoryPos_ = ed->consoleHistoryPos_ < 0 ? -1 : (ed->consoleHistoryPos_ + 1 >= n ? -1 : ed->consoleHistoryPos_ + 1);
+        if (d->EventKey == ImGuiKey_UpArrow)
+            ed->consoleHistoryPos_ = ed->consoleHistoryPos_ < 0 ? n - 1 : std::max(0, ed->consoleHistoryPos_ - 1);
+        else if (d->EventKey == ImGuiKey_DownArrow)
+            ed->consoleHistoryPos_ =
+                ed->consoleHistoryPos_ < 0 ? -1 : (ed->consoleHistoryPos_ + 1 >= n ? -1 : ed->consoleHistoryPos_ + 1);
         const char* s = ed->consoleHistoryPos_ >= 0 ? ed->consoleHistory_[size_t(ed->consoleHistoryPos_)].c_str() : "";
         d->DeleteChars(0, d->BufTextLen);
         d->InsertChars(0, s);
@@ -76,7 +88,10 @@ int history_cb(ImGuiInputTextCallbackData* d) {
 }  // namespace
 
 void Editor::draw_console() {
-    if (!ImGui::Begin("Console")) { ImGui::End(); return; }
+    if (!ImGui::Begin("Console")) {
+        ImGui::End();
+        return;
+    }
     static const char* levels[] = {"trace", "debug", "info", "warn", "error"};
     ImGui::SetNextItemWidth(90);
     ImGui::Combo("##lvl", &consoleLevel_, levels, 5);
@@ -96,7 +111,9 @@ void Editor::draw_console() {
     auto logs = recent_logs(1000, LogLevel(consoleLevel_));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1));
     for (const LogEntry& l : logs) {
-        if (!consoleFilter_.empty() && !contains_ci(l.message, consoleFilter_) && !contains_ci(l.category, consoleFilter_)) continue;
+        if (!consoleFilter_.empty() && !contains_ci(l.message, consoleFilter_) &&
+            !contains_ci(l.category, consoleFilter_))
+            continue;
         ImGui::PushStyleColor(ImGuiCol_Text, level_color(l.level));
         ImGui::TextDisabled("%s", log_wall_time(l.wallMs).c_str());
         if (ImGui::IsItemHovered())
@@ -118,9 +135,13 @@ void Editor::draw_console() {
     ImGui::EndChild();
 
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (consoleFocusInput_) { ImGui::SetKeyboardFocusHere(); consoleFocusInput_ = false; }
+    if (consoleFocusInput_) {
+        ImGui::SetKeyboardFocusHere();
+        consoleFocusInput_ = false;
+    }
     if (ImGui::InputTextWithHint("##cmd", "command {json}   |   > javascript   |   help", &consoleInput_,
-                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory, history_cb, this)) {
+                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory, history_cb,
+                                 this)) {
         std::string line = consoleInput_;
         consoleInput_.clear();
         if (!line.empty()) {

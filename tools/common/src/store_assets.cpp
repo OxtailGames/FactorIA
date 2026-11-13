@@ -57,8 +57,7 @@ const std::map<std::string, std::vector<StoreAsset>>& table() {
           {"iPhone 6.5\" screenshot", 2778, 1284, L::None, 0, 0, true, true},
           {"iPhone 6.3\" screenshot", 2622, 1206, L::None, 0, 0, true, true},
           {"iPad 13\" screenshot", 2752, 2064, L::None, 0, 0, true, true}}},
-        {"itch",
-         {{"cover image", 630, 500, L::Center, 0.80, 0.40, false, false}}},
+        {"itch", {{"cover image", 630, 500, L::Center, 0.80, 0.40, false, false}}},
     };
     return t;
 }

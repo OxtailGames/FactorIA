@@ -62,7 +62,8 @@ message. Plan, build, verify (project_validate, screenshots) and report as the R
 
 %REVIEWABLE%)";
 
-constexpr const char* kOrchestratorDelegation = R"(Delegate ONLY through %TOOL%. Your own built-in sub-agent tools (Agent, Task) are switched off on purpose: work done by
+constexpr const char* kOrchestratorDelegation =
+    R"(Delegate ONLY through %TOOL%. Your own built-in sub-agent tools (Agent, Task) are switched off on purpose: work done by
 them is invisible to the user (no progress, no usage, no role) and is lost when your turn ends. The art critics
 ("artCritic") and the game reviewers ("reviewer") are not yours to call: the user starts them with the review buttons,
 and when they want you to act on a review they send it to you as a message.
@@ -79,7 +80,8 @@ processes).
 // The prompt carries one line per skill the role is offered; a context that did not look for skills (`skillsKnown` false) gets the
 // text of the review-ready, make-art and make-audio skills inline, as before skills existed.
 
-constexpr const char* kReadOnlyRules = R"(You are READ-ONLY: you never edit files, scenes or settings, never save, never generate assets, and never delegate. You
+constexpr const char* kReadOnlyRules =
+    R"(You are READ-ONLY: you never edit files, scenes or settings, never save, never generate assets, and never delegate. You
 have only the tools that observe and play (screenshots, running scenes, stepping and input, state, logs, reading files and
 docs). If something is missing or broken, say so in your report: someone else fixes it. Of the Rules above, only 3 (run and
 look) applies to you: do not write tests, validate-and-fix or record feedback.
@@ -95,11 +97,16 @@ How to work:
 
 // The artist and the audio role: what they make in a few lines; the craft is the skill make-art / make-audio. Their own prompts add
 // what they do not do and that they cannot delegate; an orchestrator whose artist or audio role is off gets the same guidance.
-constexpr const char* kArtistIntro = "You make all of the game's art: images, textures, sprites, tilesets, UI skins, 3D models, materials and the look. "
-                                     "Use the asset tools, LOOK at what you made (assets_contact_sheet, assets_preview_in_scene, screenshots of the running game), "
-                                     "measure it (assets_check_art), fix it until no rule fails, optionally ask assets_review for a last look, and keep one art direction.";
-constexpr const char* kAudioIntro = "You make all of the game's audio: sound effects, music, ambience, voice, buses and mixing. Use the asset and audio "
-                                    "tools; you cannot hear, so check every clip with the analysis tools and audio_log.";
+constexpr const char* kArtistIntro =
+    "You make all of the game's art: images, textures, sprites, tilesets, UI skins, 3D models, materials and the look. "
+    "Use the asset tools, LOOK at what you made (assets_contact_sheet, assets_preview_in_scene, screenshots of the "
+    "running game), "
+    "measure it (assets_check_art), fix it until no rule fails, optionally ask assets_review for a last look, and keep "
+    "one art direction.";
+constexpr const char* kAudioIntro =
+    "You make all of the game's audio: sound effects, music, ambience, voice, buses and mixing. Use the asset and "
+    "audio "
+    "tools; you cannot hear, so check every clip with the analysis tools and audio_log.";
 constexpr const char* kArtist = R"(# Your role: artist
 %GUIDE%
 You do not write gameplay code (that is the worker) or audio (that is the audio role); hook the art into scenes and
@@ -178,7 +185,8 @@ bool has_skill(const PromptContext& ctx, std::string_view name) {
 std::string craft_guide(const PromptContext& ctx, const char* skill, const char* intro) {
     std::string tool = ctx.skillTool.empty() ? "skills_read" : ctx.skillTool;
     if (has_skill(ctx, skill))
-        return std::string(intro) + "\nYour craft guide is the skill `" + skill + "`: read it before you start (" + tool + " {\"name\": \"" + skill + "\"}).";
+        return std::string(intro) + "\nYour craft guide is the skill `" + skill + "`: read it before you start (" +
+               tool + " {\"name\": \"" + skill + "\"}).";
     if (ctx.skillsKnown) return intro;
     return engine_body(skill);
 }
@@ -206,7 +214,8 @@ std::string file_listing(const fsys::path& root, std::size_t maxEntries) {
         if (ec) break;
         std::string name = it->path().filename().string();
         if (it->is_directory(ec)) {
-            if (name.empty() || name[0] == '.' || name == "build" || name == "node_modules") it.disable_recursion_pending();
+            if (name.empty() || name[0] == '.' || name == "build" || name == "node_modules")
+                it.disable_recursion_pending();
             continue;
         }
         if (!name.empty() && name[0] == '.') continue;
@@ -238,7 +247,8 @@ std::string feedback_summary(const fsys::path& root) {
             if (++open <= 10) titles += "- " + str(e, "id") + " [" + str(e, "severity") + "] " + str(e, "title") + "\n";
         }
     }
-    std::string out = "ENGINE_FEEDBACK.json: " + std::to_string(entries->size()) + " entries, " + std::to_string(open) + " open.\n";
+    std::string out =
+        "ENGINE_FEEDBACK.json: " + std::to_string(entries->size()) + " entries, " + std::to_string(open) + " open.\n";
     if (const std::string arch = read_head(root / "ENGINE_FEEDBACK.archive.json", 1u << 20); !arch.empty()) {
         Json a = parse(arch);
         const Json* ae = a.is_discarded() ? nullptr : child(a, "entries");
@@ -254,53 +264,69 @@ std::string feedback_summary(const fsys::path& root) {
 
 std::string asset_sources_prompt(const AssetSources& sources) {
     if (sources.empty()) return {};
-    std::string out = "# Asset sources\n"
-                      "The user listed the websites where assets for this game should come from: images and textures, 3D models, "
-                      "audio, fonts and the rest. They are the user's choice of safe, license-clear places, so ";
-    out += sources.onlyListed ? "use them instead of searching the internet at large." : "look there before anywhere else.";
+    std::string out =
+        "# Asset sources\n"
+        "The user listed the websites where assets for this game should come from: images and textures, 3D models, "
+        "audio, fonts and the rest. They are the user's choice of safe, license-clear places, so ";
+    out += sources.onlyListed ? "use them instead of searching the internet at large."
+                              : "look there before anywhere else.";
     out += "\n";
     for (SiteCategory c : kSiteCategories) {
         if (sources.list(c).empty()) continue;
         out += std::string("\n") + site_category_title(c) + ":\n";
-        for (const AssetSite& site : sources.list(c)) out += "- " + site.url + (site.note.empty() ? "" : " (" + site.note + ")") + "\n";
+        for (const AssetSite& site : sources.list(c))
+            out += "- " + site.url + (site.note.empty() ? "" : " (" + site.note + ")") + "\n";
     }
     out += "\n";
     if (sources.onlyListed) {
-        out += "RULE: look for and fetch assets ONLY on these sites. Do not run a general web search and do not fetch from any other "
-               "site, even when a link or a search result points there. If these sites do not have what the game needs, say so in "
-               "your report (or make the asset with the generate and procedural asset tools) instead of looking elsewhere.\n";
+        out += "RULE: look for and fetch assets ONLY on these sites. Do not run a general web search and do not fetch "
+               "from any other "
+               "site, even when a link or a search result points there. If these sites do not have what the game "
+               "needs, say so in "
+               "your report (or make the asset with the generate and procedural asset tools) instead of looking "
+               "elsewhere.\n";
     } else {
-        out += "RULE: prefer these sites. Look there first for each kind of asset; only when none of them has what the game needs, "
+        out += "RULE: prefer these sites. Look there first for each kind of asset; only when none of them has what the "
+               "game needs, "
                "search the rest of the internet.\n";
     }
-    out += "If you have no way to browse the web, tell the user which of these sites to download from; never invent a URL.\n"
-           "Whatever you take from a site: check its license allows use in a game that is sold (CC0 or CC-BY are safe; if the license "
-           "is unclear, do not use it), download the file, bring it in with assets_import and pass sourceUrl (the page it came from), "
+    out += "If you have no way to browse the web, tell the user which of these sites to download from; never invent a "
+           "URL.\n"
+           "Whatever you take from a site: check its license allows use in a game that is sold (CC0 or CC-BY are safe; "
+           "if the license "
+           "is unclear, do not use it), download the file, bring it in with assets_import and pass sourceUrl (the page "
+           "it came from), "
            "license and author, so assets.json keeps its source and license for the credits.";
     return out;
 }
 
 std::string external_tools_prompt(const std::vector<ToolServerBrief>& servers, bool readOnly) {
     if (servers.empty()) return {};
-    std::string out = "# External tools\n"
-                      "The user connected these external tool servers. Their tools are listed next to your other tools; use them "
-                      "when they help the game (for example to make something the engine's own tools cannot), not for what you "
-                      "can do without them.\n\n";
+    std::string out =
+        "# External tools\n"
+        "The user connected these external tool servers. Their tools are listed next to your other tools; use them "
+        "when they help the game (for example to make something the engine's own tools cannot), not for what you "
+        "can do without them.\n\n";
     for (const ToolServerBrief& s : servers) {
         out += "- " + s.name;
         if (!s.toolPrefix.empty()) out += " (its tools are named `" + s.toolPrefix + "<tool>`)";
         out += s.note.empty() ? "\n" : ": " + s.note + "\n";
     }
     out += "\nRules:\n"
-           "- A call may cost the user credits or money. Try one small call first and look at the result before you start a batch; "
+           "- A call may cost the user credits or money. Try one small call first and look at the result before you "
+           "start a batch; "
            "do not repeat a call whose result you already have.\n"
-           "- If a call fails (a key, credits, the network), tell the user what failed and why instead of retrying in a loop.\n";
+           "- If a call fails (a key, credits, the network), tell the user what failed and why instead of retrying in "
+           "a loop.\n";
     if (readOnly) {
         out += "- You only look and judge: do not use a tool that generates or changes anything for the project.";
     } else {
-        out += "- What a tool makes is not in the project yet. Download the file, bring it in with assets_import and pass sourceUrl "
-               "(where it came from), license (what the service grants for the user's plan, or \"unknown\" when you cannot tell) "
-               "and author, so assets.json keeps its source and license for the credits. Never use a file whose license you "
+        out += "- What a tool makes is not in the project yet. Download the file, bring it in with assets_import and "
+               "pass sourceUrl "
+               "(where it came from), license (what the service grants for the user's plan, or \"unknown\" when you "
+               "cannot tell) "
+               "and author, so assets.json keeps its source and license for the credits. Never use a file whose "
+               "license you "
                "cannot state.";
     }
     return out;
@@ -317,23 +343,28 @@ std::string build_system_prompt(const PromptContext& ctx) {
     };
     std::vector<std::string> off;  // the delegable roles that are off, in the order the orchestrator lists them
     for (const char* r : {kRoleWorker, kRoleFast, kRoleArtist, kRoleAudio}) {
-        if (std::find(ctx.disabledRoles.begin(), ctx.disabledRoles.end(), r) != ctx.disabledRoles.end()) off.push_back(r);
+        if (std::find(ctx.disabledRoles.begin(), ctx.disabledRoles.end(), r) != ctx.disabledRoles.end())
+            off.push_back(r);
     }
     auto is_off = [&](const char* r) { return std::find(off.begin(), off.end(), r) != off.end(); };
     if (ctx.role == kRoleOrchestrator && (ctx.canDelegate || off.size() == 4)) {
         // What the orchestrator does itself because the user turned a role off.
         std::string self;
         if (!off.empty()) {
-            self = "\nThese roles are OFF (the user turned them off): do their work yourself, never try to hand it over.\n";
+            self = "\nThese roles are OFF (the user turned them off): do their work yourself, never try to hand it "
+                   "over.\n";
             if (is_off(kRoleWorker)) self += "- worker is off: implement features and fixes yourself.\n";
             if (is_off(kRoleFast)) self += "- fast is off: make the small mechanical edits yourself.\n";
-            if (is_off(kRoleArtist)) self += "- artist is off: make the art yourself with the asset tools (guidance below).\n";
-            if (is_off(kRoleAudio)) self += "- audio is off: make the audio yourself with the asset and audio tools (guidance below).\n";
+            if (is_off(kRoleArtist))
+                self += "- artist is off: make the art yourself with the asset tools (guidance below).\n";
+            if (is_off(kRoleAudio))
+                self += "- audio is off: make the audio yourself with the asset and audio tools (guidance below).\n";
             if (is_off(kRoleArtist)) {
                 self += "\n## The art, which you make yourself\n" + craft_guide(ctx, "make-art", kArtistIntro) + "\n";
             }
             if (is_off(kRoleAudio)) {
-                self += "\n## The audio, which you make yourself\n" + craft_guide(ctx, "make-audio", kAudioIntro) + "\n";
+                self +=
+                    "\n## The audio, which you make yourself\n" + craft_guide(ctx, "make-audio", kAudioIntro) + "\n";
             }
         }
         if (ctx.canDelegate) {
@@ -342,12 +373,14 @@ std::string build_system_prompt(const PromptContext& ctx) {
             if (!is_off(kRoleWorker)) lines += "\"worker\" implements features and fixes (the default for coding).\n";
             if (!is_off(kRoleFast)) lines += "\"fast\" does tiny mechanical edits.\n";
             if (!is_off(kRoleArtist))
-                lines += "\"artist\" makes ALL the game's art (images, textures, sprites, tilesets, UI skins, 3D models, materials, the look).\n";
+                lines += "\"artist\" makes ALL the game's art (images, textures, sprites, tilesets, UI skins, 3D "
+                         "models, materials, the look).\n";
             if (!is_off(kRoleAudio))
                 lines += "\"audio\" makes ALL its sound (sound effects, music, ambience, voice, buses and mixing).\n";
             std::string handoff;
             if (!is_off(kRoleArtist)) handoff += "Hand art to the artist";
-            if (!is_off(kRoleAudio)) handoff += std::string(handoff.empty() ? "Hand sound" : " and sound") + " to the audio role";
+            if (!is_off(kRoleAudio))
+                handoff += std::string(handoff.empty() ? "Hand sound" : " and sound") + " to the audio role";
             if (!handoff.empty()) handoff += " instead of asking a worker to generate assets. ";
             std::string role = fill(fill(fill(kOrchestrator, "%ROLES%", lines), "%HANDOFF%", handoff), "%SELF%", self);
             role += "\n";
@@ -359,26 +392,35 @@ std::string build_system_prompt(const PromptContext& ctx) {
         }
         out += "\n\n";
     } else if (ctx.role == kRoleWorker) {
-        out += "# Your role: worker\nYou implement the task you were given completely and report concisely. You cannot delegate.\n\n";
+        out += "# Your role: worker\nYou implement the task you were given completely and report concisely. You cannot "
+               "delegate.\n\n";
         if (const std::string r = reviewable(ctx); !r.empty()) out += r + "\n\n";
     } else if (ctx.role == kRoleFast) {
-        out += "# Your role: fast\nYou do small mechanical tasks quickly and report in a few lines. You cannot delegate.\n\n";
+        out += "# Your role: fast\nYou do small mechanical tasks quickly and report in a few lines. You cannot "
+               "delegate.\n\n";
     } else if (ctx.role == kRoleArtist) {
-        out += fill(fill(kArtist, "%GUIDE%", craft_guide(ctx, "make-art", kArtistIntro)), "%REVIEWABLE%", reviewable(ctx)) + "\n\n";
+        out += fill(fill(kArtist, "%GUIDE%", craft_guide(ctx, "make-art", kArtistIntro)), "%REVIEWABLE%",
+                    reviewable(ctx)) +
+               "\n\n";
     } else if (ctx.role == kRoleAudio) {
-        out += fill(fill(kAudio, "%GUIDE%", craft_guide(ctx, "make-audio", kAudioIntro)), "%REVIEWABLE%", reviewable(ctx)) + "\n\n";
+        out += fill(fill(kAudio, "%GUIDE%", craft_guide(ctx, "make-audio", kAudioIntro)), "%REVIEWABLE%",
+                    reviewable(ctx)) +
+               "\n\n";
     } else if (ctx.role == kRoleArtCritic) {
         out += fill(kArtCritic, "%READONLY%", kReadOnlyRules) + "\n\n";
     } else if (ctx.role == kRoleReviewer) {
         out += fill(kReviewer, "%READONLY%", kReadOnlyRules) + "\n\n";
     }
     if (!is_review_role(ctx.role)) {  // the critics and the reviewers look and play, they do not bring assets in
-        if (const std::string section = asset_sources_prompt(ctx.assetSources); !section.empty()) out += section + "\n\n";
+        if (const std::string section = asset_sources_prompt(ctx.assetSources); !section.empty())
+            out += section + "\n\n";
     }
     if (const std::string section = external_tools_prompt(ctx.toolServers, is_review_role(ctx.role)); !section.empty())
         out += section + "\n\n";
     if (!ctx.skillsNative) {
-        if (const std::string section = skills_prompt(ctx.skills, ctx.skillTool.empty() ? "skills_read" : ctx.skillTool); !section.empty())
+        if (const std::string section =
+                skills_prompt(ctx.skills, ctx.skillTool.empty() ? "skills_read" : ctx.skillTool);
+            !section.empty())
             out += section + "\n";
     }
     if (!ctx.toolCatalog.empty()) out += ctx.toolCatalog + "\n";

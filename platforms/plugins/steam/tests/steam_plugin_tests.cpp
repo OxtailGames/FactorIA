@@ -118,9 +118,11 @@ public:
     explicit Mock(const stdfs::path& file) {
 #if defined(_WIN32)
         HMODULE h = LoadLibraryExW(file.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-        control_ = h ? reinterpret_cast<Control>(reinterpret_cast<void*>(GetProcAddress(h, "MockSteam_Control"))) : nullptr;
+        control_ =
+            h ? reinterpret_cast<Control>(reinterpret_cast<void*>(GetProcAddress(h, "MockSteam_Control"))) : nullptr;
 #else
-        void* h = dlopen(file.c_str(), RTLD_NOW | RTLD_LOCAL);  // never closed: the plugin keeps using it until the process ends
+        void* h = dlopen(file.c_str(),
+                         RTLD_NOW | RTLD_LOCAL);  // never closed: the plugin keeps using it until the process ends
         control_ = h ? reinterpret_cast<Control>(dlsym(h, "MockSteam_Control")) : nullptr;
 #endif
         REQUIRE_MESSAGE(control_ != nullptr, "cannot load the mock Steamworks library " << file.generic_string());
@@ -205,12 +207,14 @@ struct SteamGame {
     std::unique_ptr<Mock> mock;
 
     SteamGame(Library library, const std::string& appId) {
-        dir = stdfs::canonical(fs::make_temp_dir("fa_steam_plugin_test").value());  // canonical: the plugin and this program must name one file
+        dir = stdfs::canonical(fs::make_temp_dir("fa_steam_plugin_test")
+                                   .value());  // canonical: the plugin and this program must name one file
         const stdfs::path native = dir / "native" / "steam" / kPlatformDir;
         stdfs::create_directories(native);
         stdfs::create_directories(dir / "scenes");
-        std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"SteamTest","plugins":{"steam":{"path":"native/steam"}},"platform":)"
-                                             << kCatalog << "}";
+        std::ofstream(dir / "factoria.json")
+            << R"({"format":"factoria.project/1","name":"SteamTest","plugins":{"steam":{"path":"native/steam"}},"platform":)"
+            << kCatalog << "}";
         std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[
             {"id":"name_field","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":8}}}]})";
         if (!appId.empty()) std::ofstream(dir / "steam_appid.txt") << appId << "\n";
@@ -262,8 +266,10 @@ Json settle(Engine& engine, const std::string& expression, int frames = 10) {
     static int counter = 0;
     const std::string slot = "s" + std::to_string(++counter);
     run(engine, "globalThis.__settled = globalThis.__settled || {}; __settled." + slot + " = null; (" + expression +
-                    ").then((v) => { __settled." + slot + " = { ok: true, value: v === undefined ? null : v }; }, "
-                    "(e) => { __settled." + slot + " = { ok: false, code: e.code, message: String(e.message), hint: e.hint || '' }; }); 0");
+                    ").then((v) => { __settled." + slot +
+                    " = { ok: true, value: v === undefined ? null : v }; }, "
+                    "(e) => { __settled." +
+                    slot + " = { ok: false, code: e.code, message: String(e.message), hint: e.hint || '' }; }); 0");
     for (int i = 0; i <= frames; ++i) {
         Json done = run(engine, "__settled." + slot);
         if (!done.is_null()) return done;
@@ -295,7 +301,8 @@ void expect_clean(Session& s, Mock& mock) {
     CHECK_MESSAGE(state["violations"].empty(), state["violations"].dump());
     CHECK(s.engine.platform_services()->pending() == 0);
     const std::string logs = s.logs();
-    CHECK_FALSE(has(logs, "not waiting for an answer"));  // the engine's warning for an answer to a request that is not waiting
+    CHECK_FALSE(
+        has(logs, "not waiting for an answer"));  // the engine's warning for an answer to a request that is not waiting
 }
 
 // Whether this process runs the services on the "next" library (the ctest entry steam_plugin_next sets the variable).
@@ -318,7 +325,8 @@ SteamGame& services_game() {
 // and says once that it is running on interface versions it was not checked against. (Run with the services, in
 // steam_plugin_next, whose library is this one: the plugin loads once per process, so all its logs are in logs_since(0).)
 TEST_CASE("steam next: interfaces newer than the checked SDKs are used, with one warning") {
-    if (!next_variant()) return;  // `steam_plugin_services` has the current library; this test belongs to steam_plugin_next
+    if (!next_variant())
+        return;  // `steam_plugin_services` has the current library; this test belongs to steam_plugin_next
     SteamGame& game = services_game();
     Mock& mock = *game.mock;
     mock.reset();
@@ -326,7 +334,8 @@ TEST_CASE("steam next: interfaces newer than the checked SDKs are used, with one
     CHECK(run(s.engine, "platform.backend") == "steam");
 
     const std::string logs = logs_since(0);
-    CHECK(has(logs, "are newer than the SDKs this plugin was checked against (1.58 to 1.64); they are used, since every function the "
+    CHECK(has(logs, "are newer than the SDKs this plugin was checked against (1.58 to 1.64); they are used, since "
+                    "every function the "
                     "plugin calls is present"));
     CHECK(has(logs, "ISteamUtils v011"));
     CHECK(has(logs, "ISteamUser v024"));
@@ -344,8 +353,8 @@ TEST_CASE("steam next: interfaces newer than the checked SDKs are used, with one
     std::vector<std::string> newer;
     for (const Json& n : status.result["newerInterfaces"]) newer.push_back(n.get<std::string>());
     std::sort(newer.begin(), newer.end());
-    CHECK(newer == std::vector<std::string>{"ISteamApps v010", "ISteamFriends v019", "ISteamRemoteStorage v017", "ISteamUser v024",
-                                            "ISteamUserStats v014", "ISteamUtils v011"});
+    CHECK(newer == std::vector<std::string>{"ISteamApps v010", "ISteamFriends v019", "ISteamRemoteStorage v017",
+                                            "ISteamUser v024", "ISteamUserStats v014", "ISteamUtils v011"});
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamUtils v011"));
     CHECK(status.result["statsLoaded"] == true);
 
@@ -363,7 +372,8 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     mock.reset();
     Session s(game);
     CHECK(run(s.engine, "platform.backend") == "steam");
-    for (const char* service : {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "remotePlay"})
+    for (const char* service :
+         {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "remotePlay"})
         CHECK_MESSAGE(run(s.engine, std::string("platform.has('") + service + "')") == true, service);
 
     Json who = settle(s.engine, "platform.signIn()");
@@ -378,7 +388,8 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     Json state = mock.state();
     CHECK(state["appIdEnv"] == "480");
     CHECK(state["gameIdEnv"] == "480");
-    CHECK(state["manual"] == true);  // the plugin switched Steam to manual dispatch: it never calls SteamAPI_RunCallbacks
+    CHECK(state["manual"] ==
+          true);  // the plugin switched Steam to manual dispatch: it never calls SteamAPI_RunCallbacks
 
     CommandResult status = s.engine.commands().call("steam.status");
     REQUIRE(status.ok);
@@ -386,7 +397,8 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     CHECK(status.result["appId"] == 480);
     CHECK(has(status.result["appIdFrom"].get<std::string>(), "steam_appid.txt in "));
     CHECK(has(status.result["library"].get<std::string>(), kLibraryFile));
-    CHECK(has(status.result["interfaces"].get<std::string>(), next_variant() ? "ISteamUserStats v014" : "ISteamUserStats v013"));
+    CHECK(has(status.result["interfaces"].get<std::string>(),
+              next_variant() ? "ISteamUserStats v014" : "ISteamUserStats v013"));
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay v002"));
     CHECK(status.result["newerInterfaces"].size() == (next_variant() ? 6u : 0u));
     CHECK(status.result["player"]["name"] == "Tester");
@@ -405,7 +417,9 @@ void focus_with_pad(Session& s) {
     REQUIRE(s.engine.ui()->set_focus(s.engine.world(), field));
     s.engine.step(2);
 }
-std::string field_text(Session& s) { return s.engine.world().get<TextField>(s.engine.world().find("name_field"))->text; }
+std::string field_text(Session& s) {
+    return s.engine.world().get<TextField>(s.engine.world().find("name_field"))->text;
+}
 
 TEST_CASE("steam services: nothing opens Steam's keyboard on a desktop Steam") {
     SteamGame& game = services_game();
@@ -452,7 +466,8 @@ TEST_CASE("steam services: the floating keyboard opens over the field on a Steam
     mock.set(Json{{"onDeck", false}});
 }
 
-TEST_CASE("steam services: Big Picture uses the modal keyboard when the floating one is not offered, and its text fills the field") {
+TEST_CASE("steam services: Big Picture uses the modal keyboard when the floating one is not offered, and its text "
+          "fills the field") {
     SteamGame& game = services_game();
     Mock& mock = *game.mock;
     mock.reset();
@@ -462,7 +477,8 @@ TEST_CASE("steam services: Big Picture uses the modal keyboard when the floating
     focus_with_pad(s);
     CHECK(mock.count_calls("ShowFloatingGamepadTextInput") == 1);  // tried first
     REQUIRE(mock.count_calls("ShowGamepadTextInput") == 1);
-    CHECK(mock.called("ShowGamepadTextInput 0 0 Enter text 8 [Ann]"));  // normal, single line, the field's maxLength, its text
+    CHECK(mock.called(
+        "ShowGamepadTextInput 0 0 Enter text 8 [Ann]"));  // normal, single line, the field's maxLength, its text
     CHECK(s.engine.input().platform_keyboard());
 
     mock.fire("gamepadText", Json{{"submitted", true}, {"text", "Bartholomew"}});
@@ -519,9 +535,10 @@ TEST_CASE("steam services: achievements unlock, report progress, list and reset"
     // The list covers the whole catalog; an achievement Steam does not have shows locked, with a warning that teaches.
     Json list = settle(s.engine, "platform.achievements.list()");
     REQUIRE(list["ok"] == true);
-    CHECK(canon(list["value"]) == canon(Json::parse(R"([{"id":"first_win","name":"First win","description":"","unlocked":true,"progress":1},)"
-                                                    R"({"id":"hundred_wins","name":"100 wins","description":"","unlocked":true,"progress":1},)"
-                                                    R"({"id":"ghost","name":"Ghost","description":"","unlocked":false,"progress":0}])")));
+    CHECK(canon(list["value"]) ==
+          canon(Json::parse(R"([{"id":"first_win","name":"First win","description":"","unlocked":true,"progress":1},)"
+                            R"({"id":"hundred_wins","name":"100 wins","description":"","unlocked":true,"progress":1},)"
+                            R"({"id":"ghost","name":"Ghost","description":"","unlocked":false,"progress":0}])")));
     const std::string logs = s.logs();
     CHECK(has(logs, "Steam has no achievement \"ACH_NOT_THERE\" for app 480"));
     CHECK(has(logs, "Set ids.steam of \"ghost\""));
@@ -530,7 +547,8 @@ TEST_CASE("steam services: achievements unlock, report progress, list and reset"
     Json ghost = settle(s.engine, "platform.achievements.unlock('ghost')");
     CHECK(ghost["ok"] == false);
     CHECK(ghost["code"] == "unknownId");
-    CHECK(has(text(ghost, "message"), "Steam has no achievement \"ACH_NOT_THERE\" for app 480 (the catalog id is \"ghost\")"));
+    CHECK(has(text(ghost, "message"),
+              "Steam has no achievement \"ACH_NOT_THERE\" for app 480 (the catalog id is \"ghost\")"));
     CHECK(has(text(ghost, "hint"), "Stats & Achievements"));
     CHECK(has(text(ghost, "hint"), "ACH_WIN_ONE_GAME"));
 
@@ -586,7 +604,8 @@ TEST_CASE("steam services: stats read, write and add, stored once per frame") {
     // A stat the game's Steam app does not have, and a value an int stat cannot hold.
     Json unknown = settle(s.engine, "platform.stats.get('nope')");
     CHECK(unknown["code"] == "unknownId");
-    CHECK(has(text(unknown, "message"), "Steam has no int stat \"NoSuchStat\" for app 480 (the catalog id is \"nope\")"));
+    CHECK(
+        has(text(unknown, "message"), "Steam has no int stat \"NoSuchStat\" for app 480 (the catalog id is \"nope\")"));
     CHECK(has(text(unknown, "hint"), "NumWins"));
     Json big = settle(s.engine, "platform.stats.set('wins', 3000000000)");
     CHECK(big["code"] == "failed");
@@ -654,7 +673,9 @@ TEST_CASE("steam services: leaderboards submit, list and create") {
     Json top = settle(s.engine, "platform.leaderboards.entries('feet_board', { range: 'top', count: 2 })");
     REQUIRE(top["ok"] == true);
     REQUIRE(top["value"].size() == 2);
-    CHECK(canon(top["value"][0]) == canon(Json::parse(R"({"rank":1,"name":"Alice","score":5000,"playerId":"76561198000000002","isPlayer":false})")));
+    CHECK(canon(top["value"][0]) ==
+          canon(Json::parse(
+              R"({"rank":1,"name":"Alice","score":5000,"playerId":"76561198000000002","isPlayer":false})")));
     CHECK(top["value"][1]["name"] == "Bob");
 
     // A score between Alice and Bob: the player is second, and best is the score.
@@ -665,7 +686,9 @@ TEST_CASE("steam services: leaderboards submit, list and create") {
     Json around = settle(s.engine, "platform.leaderboards.entries('feet_board', { range: 'around', count: 3 })");
     REQUIRE(around["value"].size() == 3);
     CHECK(around["value"][0]["name"] == "Alice");
-    CHECK(canon(around["value"][1]) == canon(Json::parse(R"({"rank":2,"name":"Tester","score":4000,"playerId":"76561198000000001","isPlayer":true})")));
+    CHECK(canon(around["value"][1]) ==
+          canon(Json::parse(
+              R"({"rank":2,"name":"Tester","score":4000,"playerId":"76561198000000001","isPlayer":true})")));
     CHECK(around["value"][2]["name"] == "Bob");
 
     // A worse score changes nothing and best says what Steam kept.
@@ -715,12 +738,15 @@ TEST_CASE("steam services: cloud saves are <key>.json files") {
     CHECK(saved["value"]["bytes"] == static_cast<int>(std::string(R"({"level":3,"name":"Ana"})").size()));
     Json files = mock.state()["files"];
     REQUIRE(files.contains("slot1.json"));
-    CHECK(canon(Json::parse(files["slot1.json"].get<std::string>())) == canon(Json::parse(R"({"level":3,"name":"Ana"})")));
-    CHECK(canon(settle(s.engine, "platform.cloud.load('slot1')")["value"]) == canon(Json::parse(R"({"level":3,"name":"Ana"})")));
+    CHECK(canon(Json::parse(files["slot1.json"].get<std::string>())) ==
+          canon(Json::parse(R"({"level":3,"name":"Ana"})")));
+    CHECK(canon(settle(s.engine, "platform.cloud.load('slot1')")["value"]) ==
+          canon(Json::parse(R"({"level":3,"name":"Ana"})")));
     CHECK(settle(s.engine, "platform.cloud.load('nothing')")["value"].is_null());  // no such key: undefined
 
     mock.set(Json{{"files", Json{{"slot2.json", "{}"}, {"notes.txt", "not ours"}}}});
-    CHECK(canon(settle(s.engine, "platform.cloud.list()")["value"]) == canon(Json::parse(R"(["slot1","slot2"])")));  // only <key>.json files
+    CHECK(canon(settle(s.engine, "platform.cloud.list()")["value"]) ==
+          canon(Json::parse(R"(["slot1","slot2"])")));  // only <key>.json files
     CHECK(settle(s.engine, "platform.cloud.remove('slot1')")["ok"] == true);
     CHECK(settle(s.engine, "platform.cloud.remove('slot1')")["ok"] == true);  // removing what is not there is fine
     CHECK(canon(settle(s.engine, "platform.cloud.list()")["value"]) == canon(Json::parse(R"(["slot2"])")));
@@ -776,7 +802,8 @@ TEST_CASE("steam services: cloud.stat reports the size and the time Steam gives 
     CHECK(settle(s.engine, "platform.cloud.stat('remote')")["value"]["modified"] == 1800000000);
 
     CHECK(settle(s.engine, "platform.cloud.remove('slot1')")["ok"] == true);
-    CHECK(canon(settle(s.engine, "platform.cloud.stat('slot1')")["value"]) == canon(Json::parse(R"({"exists":false})")));
+    CHECK(canon(settle(s.engine, "platform.cloud.stat('slot1')")["value"]) ==
+          canon(Json::parse(R"({"exists":false})")));
 
     mock.set(Json{{"cloudApp", false}});
     Json noApp = settle(s.engine, "platform.cloud.stat('slot2')");
@@ -804,7 +831,8 @@ TEST_CASE("steam services: purchases are DLC") {
 
     // Already owned: purchased at once. Not owned: the overlay opens Steam's cart and the answer is "pending".
     Json owned = settle(s.engine, "platform.purchases.buy('skins')");
-    CHECK(canon(owned["value"]) == canon(Json::parse(R"({"status":"purchased","productId":"skins","transactionId":"dlc-480002"})")));
+    CHECK(canon(owned["value"]) ==
+          canon(Json::parse(R"({"status":"purchased","productId":"skins","transactionId":"dlc-480002"})")));
     Json pending = settle(s.engine, "platform.purchases.buy('soundtrack')");
     CHECK(canon(pending["value"]) == canon(Json::parse(R"({"status":"pending","productId":"soundtrack"})")));
     CHECK(mock.called("ActivateGameOverlayToStore 480001 2"));  // add to cart and show
@@ -814,7 +842,9 @@ TEST_CASE("steam services: purchases are DLC") {
     pump(s.engine);
     Json events = run(s.engine, "events");
     REQUIRE(events.size() == 1);
-    CHECK(canon(events[0]) == canon(Json::parse(R"({"status":"purchased","productId":"soundtrack","transactionId":"dlc-480001","receipt":""})")));
+    CHECK(canon(events[0]) ==
+          canon(Json::parse(
+              R"({"status":"purchased","productId":"soundtrack","transactionId":"dlc-480001","receipt":""})")));
     CHECK(settle(s.engine, "platform.purchases.finish('dlc-480001')")["ok"] == true);  // nothing to finish on Steam
 
     Json restored = settle(s.engine, "platform.purchases.restore()");
@@ -865,8 +895,10 @@ TEST_CASE("steam services: overlay, presence and the events Steam sends") {
     mock.set(Json{{"overlayEnabled", true}});
 
     // Presence: set() replaces what friends see, "" clears it.
-    CHECK(settle(s.engine, "platform.presence.set('In a match', { score: '5', connect: '+connect 1.2.3.4' })")["ok"] == true);
-    CHECK(canon(mock.state()["presence"]) == canon(Json::parse(R"({"status":"In a match","score":"5","connect":"+connect 1.2.3.4"})")));
+    CHECK(settle(s.engine, "platform.presence.set('In a match', { score: '5', connect: '+connect 1.2.3.4' })")["ok"] ==
+          true);
+    CHECK(canon(mock.state()["presence"]) ==
+          canon(Json::parse(R"({"status":"In a match","score":"5","connect":"+connect 1.2.3.4"})")));
     CHECK(settle(s.engine, "platform.presence.set('In the menu')")["ok"] == true);
     CHECK(canon(mock.state()["presence"]) == canon(Json::parse(R"({"status":"In the menu"})")));
     Json tooLong = settle(s.engine, "platform.presence.set('x', { note: '" + std::string(300, 'a') + "' })");
@@ -883,7 +915,8 @@ TEST_CASE("steam services: overlay, presence and the events Steam sends") {
     mock.fire("overlay", Json{{"active", false}});
     mock.fire("disconnected");
     pump(s.engine);
-    CHECK(canon(run(s.engine, "events")) == canon(Json::parse(R"([["overlay",true],["overlay",false],["player",false,"Tester"]])")));
+    CHECK(canon(run(s.engine, "events")) ==
+          canon(Json::parse(R"([["overlay",true],["overlay",false],["player",false,"Tester"]])")));
     CHECK(run(s.engine, "platform.player.signedIn") == false);
     mock.fire("connected");
     pump(s.engine);
@@ -905,19 +938,28 @@ TEST_CASE("steam services: Remote Play guests are listed, and their coming and g
     REQUIRE(nobody["ok"] == true);
     CHECK(nobody["value"] == Json::array());
 
-    run(s.engine, "globalThis.guests = []; platform.on('remotePlay', (e) => guests.push([e.status, e.session.id, e.session.guestName ?? null, "
+    run(s.engine, "globalThis.guests = []; platform.on('remotePlay', (e) => guests.push([e.status, e.session.id, "
+                  "e.session.guestName ?? null, "
                   "e.session.formFactor ?? null])); 0");
-    mock.fire("remotePlayConnect", Json{{"id", 7}, {"steamId", "76561198000000002"}, {"device", "Pixel 9"}, {"formFactor", 1},
-                                         {"width", 2400}, {"height", 1080}});
-    mock.fire("remotePlayConnect", Json{{"id", 8}, {"steamId", "76561198000000003"}, {"device", "Living room"}, {"formFactor", 4},
-                                         {"width", 0}, {"height", 0}});
+    mock.fire("remotePlayConnect", Json{{"id", 7},
+                                        {"steamId", "76561198000000002"},
+                                        {"device", "Pixel 9"},
+                                        {"formFactor", 1},
+                                        {"width", 2400},
+                                        {"height", 1080}});
+    mock.fire("remotePlayConnect", Json{{"id", 8},
+                                        {"steamId", "76561198000000003"},
+                                        {"device", "Living room"},
+                                        {"formFactor", 4},
+                                        {"width", 0},
+                                        {"height", 0}});
     pump(s.engine);
-    CHECK(canon(run(s.engine, "guests")) == canon(Json::parse(R"([["connected",7,"Alice","phone"],["connected",8,"Bob","tv"]])")));
+    CHECK(canon(run(s.engine, "guests")) ==
+          canon(Json::parse(R"([["connected",7,"Alice","phone"],["connected",8,"Bob","tv"]])")));
 
     Json listed = settle(s.engine, "platform.remotePlay.sessions()");
     REQUIRE(listed["ok"] == true);
-    CHECK(canon(listed["value"]) ==
-          canon(Json::parse(R"([
+    CHECK(canon(listed["value"]) == canon(Json::parse(R"([
               {"id":7,"guestName":"Alice","guestId":"76561198000000002","deviceName":"Pixel 9","formFactor":"phone",
                "resolution":{"width":2400,"height":1080}},
               {"id":8,"guestName":"Bob","guestId":"76561198000000003","deviceName":"Living room","formFactor":"tv",
@@ -944,7 +986,8 @@ TEST_CASE("steam services: Remote Play guests are listed, and their coming and g
     for (int form : {0, 1, 2, 3, 4, 5, 9}) mock.fire("remotePlayConnect", Json{{"id", next++}, {"formFactor", form}});
     pump(s.engine);
     Json forms = settle(s.engine, "platform.remotePlay.sessions().then((list) => list.map((g) => g.formFactor))");
-    CHECK(canon(forms["value"]) == canon(Json::parse(R"(["unknown","phone","tablet","computer","tv","vr","unknown"])")));
+    CHECK(canon(forms["value"]) ==
+          canon(Json::parse(R"(["unknown","phone","tablet","computer","tv","vr","unknown"])")));
     CHECK(run(s.engine, "scene.current") == scene);
     expect_clean(s, mock);
 }
@@ -969,7 +1012,8 @@ TEST_CASE("steam services: failures on the way are answered once, and strays are
 
     // The result takes a while: the promise waits, then the next frames deliver it.
     mock.set(Json{{"hold", true}});
-    run(s.engine, "globalThis.late = []; platform.leaderboards.entries('feet_board', { count: 1 }).then((r) => late.push(r.length)); 0");
+    run(s.engine, "globalThis.late = []; platform.leaderboards.entries('feet_board', { count: 1 }).then((r) => "
+                  "late.push(r.length)); 0");
     pump(s.engine, 3);
     CHECK(run(s.engine, "late.length") == 0);
     CHECK(s.engine.platform_services()->pending() == 1);
@@ -995,7 +1039,8 @@ TEST_CASE("steam services: an answer that arrives after the engine is gone does 
     }  // the engine ends with the request unanswered
     mock.call(Json{{"op", "release"}});
     Session s(game);
-    pump(s.engine, 4);  // the next engine's frames pump the old call's result: the plugin answers a request nobody waits for
+    pump(s.engine,
+         4);  // the next engine's frames pump the old call's result: the plugin answers a request nobody waits for
     CHECK(settle(s.engine, "platform.stats.get('wins')")["ok"] == true);
     expect_clean(s, mock);
 }
@@ -1009,8 +1054,12 @@ TEST_CASE("steam legacy: an older library works, and requests wait for the stats
     Mock& mock = *game.mock;
     mock.set(Json{{"failStats", true}});  // the first load of the stats fails
     // A guest was connected before the game started: no callback announces it, but the sessions list it.
-    mock.set(Json{{"guests", Json::array({Json{{"id", 3}, {"steamId", "76561198000000003"}, {"device", "Steam Deck"}, {"formFactor", 3},
-                                                {"width", 1280}, {"height", 800}}})}});
+    mock.set(Json{{"guests", Json::array({Json{{"id", 3},
+                                               {"steamId", "76561198000000003"},
+                                               {"device", "Steam Deck"},
+                                               {"formFactor", 3},
+                                               {"width", 1280},
+                                               {"height", 800}}})}});
     Session s(game);
     CHECK(run(s.engine, "platform.backend") == "steam");
     CommandResult status = s.engine.commands().call("steam.status");
@@ -1018,7 +1067,8 @@ TEST_CASE("steam legacy: an older library works, and requests wait for the stats
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamUserStats v012"));
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamFriends v017"));
     CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamApps v008"));
-    CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay v001"));  // the older SDK's only version
+    CHECK(
+        has(status.result["interfaces"].get<std::string>(), "ISteamRemotePlay v001"));  // the older SDK's only version
     CHECK(status.result["statsLoaded"] == false);  // asked for at start, not here yet
     CHECK(mock.count_calls("RequestCurrentStats") == 1);
 
@@ -1058,8 +1108,9 @@ TEST_CASE("steam future: a library of a newer SDK is refused with the supported 
     const std::string logs = s.logs();
     CHECK(has(logs, "has none of the interface accessors this plugin can use"));
     // It says which versions were tried: the ones it was checked against, then the window above them.
-    CHECK(has(logs, "SteamAPI_SteamUserStats_v013, SteamAPI_SteamUserStats_v012; newer: SteamAPI_SteamUserStats_v014 to "
-                    "SteamAPI_SteamUserStats_v018"));
+    CHECK(has(logs,
+              "SteamAPI_SteamUserStats_v013, SteamAPI_SteamUserStats_v012; newer: SteamAPI_SteamUserStats_v014 to "
+              "SteamAPI_SteamUserStats_v018"));
     CHECK(has(logs, "SteamAPI_SteamUtils_v010; newer: SteamAPI_SteamUtils_v011 to SteamAPI_SteamUtils_v015"));
     CHECK(has(logs, "Steamworks SDK 1.58 to 1.64"));
     CHECK(has(logs, "plugin 'steam' is not loaded"));
@@ -1070,7 +1121,8 @@ TEST_CASE("steam future: a library of a newer SDK is refused with the supported 
     CommandResult info = s.engine.commands().call("engine.info");
     REQUIRE(info.ok);
     bool listed = false;
-    for (const Json& p : info.result["startupProblems"]) listed = listed || has(p.get<std::string>(), "plugin 'steam' is not loaded");
+    for (const Json& p : info.result["startupProblems"])
+        listed = listed || has(p.get<std::string>(), "plugin 'steam' is not loaded");
     CHECK(listed);
 }
 
@@ -1155,7 +1207,9 @@ TEST_CASE("steam without app id: Steam refuses to start, and the message names s
     game.mock->set(Json{{"initMode", "noappid"}});
     Session s(game, "");
     const std::string logs = s.logs();
-    CHECK(has(logs, "Neither SteamAppId nor SteamGameId environment variable nor steam_appid.txt was found"));  // Steam's own words
+    CHECK(has(
+        logs,
+        "Neither SteamAppId nor SteamGameId environment variable nor steam_appid.txt was found"));  // Steam's own words
     CHECK(has(logs, "No app id was found: there is no SteamAppId variable and no steam_appid.txt"));
     CHECK(has(logs, "must not ship a steam_appid.txt"));
     CHECK(run(s.engine, "platform.backend") == "fake");
@@ -1175,11 +1229,13 @@ TEST_CASE("steam child: start Steam, set a stat, end the process") {
 
 TEST_CASE("steam exit: the plugin stores pending stats and shuts Steam down when the process ends") {
 #if defined(_WIN32)
-    MESSAGE("Windows runs a DLL's exit handlers after Steam's own DLL is gone, so the plugin does not call Steam there");
+    MESSAGE(
+        "Windows runs a DLL's exit handlers after Steam's own DLL is gone, so the plugin does not call Steam there");
 #else
     const stdfs::path log = stdfs::canonical(fs::make_temp_dir("fa_steam_exit").value()) / "exit.log";
     set_environment("FA_STEAM_EXIT_LOG", log.generic_string());
-    const std::string command = std::string("\"") + FA_STEAM_TEST_EXE + "\" \"--test-case=steam child*\" > /dev/null 2>&1";
+    const std::string command =
+        std::string("\"") + FA_STEAM_TEST_EXE + "\" \"--test-case=steam child*\" > /dev/null 2>&1";
     const int rc = std::system(command.c_str());
     clear_environment("FA_STEAM_EXIT_LOG");
     CHECK(rc == 0);

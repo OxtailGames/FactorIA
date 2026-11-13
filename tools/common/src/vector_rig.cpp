@@ -44,7 +44,8 @@ std::string lower_id(const std::string& s) { return to_lower(s); }
 bool ends_with_any(const std::string& id, std::string& base) {
     const std::string l = lower_id(id);
     for (const char* suffix : {"-pivot", "_pivot"})
-        if (l.size() > std::strlen(suffix) && l.compare(l.size() - std::strlen(suffix), std::string::npos, suffix) == 0) {
+        if (l.size() > std::strlen(suffix) &&
+            l.compare(l.size() - std::strlen(suffix), std::string::npos, suffix) == 0) {
             base = id.substr(0, id.size() - std::strlen(suffix));
             return true;
         }
@@ -53,7 +54,9 @@ bool ends_with_any(const std::string& id, std::string& base) {
 
 // Ids an editor makes up (g1234, path-12, layer1): not names a person gave, so they do not make a part by themselves.
 bool auto_id(const std::string& id) {
-    static const std::regex re("^(g|path|rect|circle|ellipse|layer|svg|use|polygon|line|polyline|text|image|defs|group)[-_]?[0-9]+$", std::regex::icase);
+    static const std::regex re(
+        "^(g|path|rect|circle|ellipse|layer|svg|use|polygon|line|polyline|text|image|defs|group)[-_]?[0-9]+$",
+        std::regex::icase);
     return std::regex_match(id, re);
 }
 
@@ -69,35 +72,35 @@ struct IRect {
 struct Part {
     XNode* node = nullptr;
     std::string id, name;
-    int docIndex = 0;                // position of the group in the document, for the order
-    std::vector<XNode*> own;         // the shapes drawn by this part itself (not by a child part)
-    int firstShape = 1 << 30;        // index (among the drawable shapes of the document) of its first own shape
-    int parent = -1;                 // index in the parts
-    std::string parentFrom;          // "nesting", "data-parent", "parents", "name"
+    int docIndex = 0;          // position of the group in the document, for the order
+    std::vector<XNode*> own;   // the shapes drawn by this part itself (not by a child part)
+    int firstShape = 1 << 30;  // index (among the drawable shapes of the document) of its first own shape
+    int parent = -1;           // index in the parts
+    std::string parentFrom;    // "nesting", "data-parent", "parents", "name"
     std::vector<int> kids;
     // the art
     bool hasArt = false;
-    Image art;                       // the padded region, straight alpha
-    IRect box;                       // the padded region in canvas pixels (may reach past the canvas)
-    IRect ink;                       // the tight box of the visible pixels
-    Image mask;                      // the whole canvas' alpha of the part, only kept while pivots are found (cropped to `ink`)
-    IRect extent;                    // ink, or for a group with no art of its own the union of its children's
+    Image art;     // the padded region, straight alpha
+    IRect box;     // the padded region in canvas pixels (may reach past the canvas)
+    IRect ink;     // the tight box of the visible pixels
+    Image mask;    // the whole canvas' alpha of the part, only kept while pivots are found (cropped to `ink`)
+    IRect extent;  // ink, or for a group with no art of its own the union of its children's
     // joint
     Pt pivotPx, pivotSvg;
     std::string pivotFrom;
-    Pt world;                        // pivot in world units from the rig's origin
+    Pt world;  // pivot in world units from the rig's origin
     double boneLength = 0;
     int layer = 0;
-    IRect atlasRect;                 // where the region sits in the atlas
+    IRect atlasRect;  // where the region sits in the atlas
     std::optional<double> minAngle, maxAngle;
-    std::string file;                // the part's own picture (layout "files")
+    std::string file;  // the part's own picture (layout "files")
 };
 
 struct Geometry {
-    vec::Rect canvas;           // viewBox
-    double scale = 1;      // pixels per drawing unit as asked
-    double k = 1;          // pixels per drawing unit as drawn
-    double tx = 0, ty = 0; // pixel offset of the viewBox corner
+    vec::Rect canvas;       // viewBox
+    double scale = 1;       // pixels per drawing unit as asked
+    double k = 1;           // pixels per drawing unit as drawn
+    double tx = 0, ty = 0;  // pixel offset of the viewBox corner
     int w = 0, h = 0;
     Pt to_px(Pt s) const { return {tx + (s.x - canvas.x0) * k, ty + (s.y - canvas.y0) * k}; }
     Pt to_svg(Pt p) const { return {canvas.x0 + (p.x - tx) / k, canvas.y0 + (p.y - ty) / k}; }
@@ -128,7 +131,8 @@ Image crop_padded(const Image& src, const IRect& r) {
         for (int x = 0; x < r.w; ++x) {
             const int sx = r.x + x;
             if (sx < 0 || sx >= src.width) continue;
-            std::copy_n(&src.rgba[(std::size_t(sy) * src.width + sx) * 4], 4, &out.rgba[(std::size_t(y) * r.w + x) * 4]);
+            std::copy_n(&src.rgba[(std::size_t(sy) * src.width + sx) * 4], 4,
+                        &out.rgba[(std::size_t(y) * r.w + x) * 4]);
         }
     }
     return out;
@@ -165,13 +169,18 @@ Image draw_svg(const std::string& text, const Geometry& g, std::vector<std::stri
     return std::move(r.image);
 }
 
-std::string checked_rel(const char* key, const std::string& value, const std::string& ext, bool underAssets, const std::string& example) {
+std::string checked_rel(const char* key, const std::string& value, const std::string& ext, bool underAssets,
+                        const std::string& example) {
     auto norm = fs::normalize_checked(value);
-    if (!norm.ok() || norm->empty()) arg_error(kCommand, std::string("/") + key, std::format("'{}' is not a project path.", value), "Use a project-relative path such as \"" + example + "\".");
+    if (!norm.ok() || norm->empty())
+        arg_error(kCommand, std::string("/") + key, std::format("'{}' is not a project path.", value),
+                  "Use a project-relative path such as \"" + example + "\".");
     if (underAssets && !starts_with(*norm, "assets/"))
-        arg_error(kCommand, std::string("/") + key, std::format("'{}' is not under assets/.", *norm), "Pictures go under assets/, e.g. \"" + example + "\".");
+        arg_error(kCommand, std::string("/") + key, std::format("'{}' is not under assets/.", *norm),
+                  "Pictures go under assets/, e.g. \"" + example + "\".");
     if (!ends_with(to_lower(*norm), ext))
-        arg_error(kCommand, std::string("/") + key, std::format("'{}' does not end in {}.", *norm, ext), "Use a path such as \"" + example + "\".");
+        arg_error(kCommand, std::string("/") + key, std::format("'{}' does not end in {}.", *norm, ext),
+                  "Use a path such as \"" + example + "\".");
     return *norm;
 }
 
@@ -230,7 +239,8 @@ bool draws_rig_texture(const Json& node, const std::string& texturePrefix) {
 // Takes the entities that are parts of the new rig out of `node`'s subtree (they are placed by the new hierarchy), keeping what
 // else the user hung there. A removed part (it draws this rig's texture and is not in the SVG any more) goes with `prune`; its own
 // children stay, one level up.
-void strip_moved(Json& node, const std::set<std::string>& newParts, const std::string& texturePrefix, bool prune, std::vector<std::string>& pruned) {
+void strip_moved(Json& node, const std::set<std::string>& newParts, const std::string& texturePrefix, bool prune,
+                 std::vector<std::string>& pruned) {
     if (!node.contains("children") || !node["children"].is_array()) return;
     Json kept = Json::array();
     for (Json& c : node["children"]) {
@@ -252,7 +262,8 @@ void strip_moved(Json& node, const std::set<std::string>& newParts, const std::s
 }
 
 // The extra children (not parts) of the old entity `name`, ready to hang from the new one.
-Json extras_of(const Json& oldNode, const std::set<std::string>& newParts, const std::string& texturePrefix, bool prune, std::vector<std::string>& pruned) {
+Json extras_of(const Json& oldNode, const std::set<std::string>& newParts, const std::string& texturePrefix, bool prune,
+               std::vector<std::string>& pruned) {
     Json copy = oldNode;
     strip_moved(copy, newParts, texturePrefix, prune, pruned);
     if (copy.contains("children") && copy["children"].is_array()) return copy["children"];
@@ -266,7 +277,8 @@ struct Placed {
     double x, y;  // world position
 };
 
-void collect_sprites(const Json& node, double px, double py, const std::string& texturePrefix, std::vector<Placed>& out, std::vector<std::string>& notes) {
+void collect_sprites(const Json& node, double px, double py, const std::string& texturePrefix, std::vector<Placed>& out,
+                     std::vector<std::string>& notes) {
     if (!node.is_object()) return;
     double x = px, y = py;
     if (node.contains("components") && node["components"].is_object() && node["components"].contains("Transform")) {
@@ -275,11 +287,14 @@ void collect_sprites(const Json& node, double px, double py, const std::string& 
             x += t["position"][0].get<double>();
             y += t["position"][1].get<double>();
         }
-        if (t.contains("rotation") && t["rotation"].is_array() && t["rotation"].size() >= 3 && std::abs(t["rotation"][2].get<double>()) > 1e-6)
-            notes.push_back(std::format("'{}' has a rotation in the prefab; the rest-pose check ignores it.", node.value("name", std::string())));
+        if (t.contains("rotation") && t["rotation"].is_array() && t["rotation"].size() >= 3 &&
+            std::abs(t["rotation"][2].get<double>()) > 1e-6)
+            notes.push_back(std::format("'{}' has a rotation in the prefab; the rest-pose check ignores it.",
+                                        node.value("name", std::string())));
         if (t.contains("scale") && t["scale"].is_array() && t["scale"].size() >= 2 &&
             (std::abs(t["scale"][0].get<double>() - 1) > 1e-6 || std::abs(t["scale"][1].get<double>() - 1) > 1e-6))
-            notes.push_back(std::format("'{}' has a scale in the prefab; the rest-pose check ignores it.", node.value("name", std::string())));
+            notes.push_back(std::format("'{}' has a scale in the prefab; the rest-pose check ignores it.",
+                                        node.value("name", std::string())));
     }
     if (draws_rig_texture(node, texturePrefix)) out.push_back({&node, x, y});
     if (node.contains("children") && node["children"].is_array())
@@ -300,7 +315,8 @@ Diff compare_premultiplied(const Image& a, const Image& b) {
             const std::uint8_t* p = &a.rgba[(std::size_t(y) * a.width + x) * 4];
             const std::uint8_t* q = &b.rgba[(std::size_t(y) * b.width + x) * 4];
             int worst = std::abs(int(p[3]) - int(q[3]));
-            for (int c = 0; c < 3; ++c) worst = std::max(worst, std::abs(int(p[c]) * p[3] / 255 - int(q[c]) * q[3] / 255));
+            for (int c = 0; c < 3; ++c)
+                worst = std::max(worst, std::abs(int(p[c]) * p[3] / 255 - int(q[c]) * q[3] / 255));
             d.maxDiff = std::max(d.maxDiff, worst);
             if (worst > kTolerance) ++d.differing;
             ++d.total;
@@ -320,7 +336,8 @@ void over(Image& dst, const Image& src, int x0, int y0) {
             std::uint8_t* d = &dst.rgba[(std::size_t(dy) * dst.width + dx) * 4];
             const double sa = s[3] / 255.0, da = d[3] / 255.0, oa = sa + da * (1 - sa);
             if (oa <= 0) continue;
-            for (int c = 0; c < 3; ++c) d[c] = std::uint8_t(std::clamp(std::lround((s[c] * sa + d[c] * da * (1 - sa)) / oa), 0L, 255L));
+            for (int c = 0; c < 3; ++c)
+                d[c] = std::uint8_t(std::clamp(std::lround((s[c] * sa + d[c] * da * (1 - sa)) / oa), 0L, 255L));
             d[3] = std::uint8_t(std::clamp(std::lround(oa * 255.0), 0L, 255L));
         }
     }
@@ -342,27 +359,41 @@ void cross(Image& img, int cx, int cy, int r, Rgb8 c) {
 // ---- the command --------------------------------------------------------------------------------------------------------
 
 Json to_rig(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "vector.to_rig expects an object.", "Example: {\"source\": \"assets/art/hero.svg\"}.");
-    check_arg_keys(kCommand, a, "", {"source", "out", "atlas", "layout", "scale", "pixelsPerUnit", "parts", "pivots", "parents", "naming", "padding", "origin",
-                                      "layer", "name", "prune", "pixelArt", "overwrite", "dryRun", "previewSize", "ai", "author", "license"});
+    if (!a.is_object())
+        fail("invalid_argument", "vector.to_rig expects an object.", "Example: {\"source\": \"assets/art/hero.svg\"}.");
+    check_arg_keys(kCommand, a, "",
+                   {"source",    "out",    "atlas",       "layout", "scale",  "pixelsPerUnit", "parts", "pivots",
+                    "parents",   "naming", "padding",     "origin", "layer",  "name",          "prune", "pixelArt",
+                    "overwrite", "dryRun", "previewSize", "ai",     "author", "license"});
     if (!a.contains("source") || !a["source"].is_string())
-        arg_error(kCommand, "/source", "`source` is required: the project .svg whose groups are the parts.", "Example: {\"source\": \"assets/art/hero.svg\"}.");
-    const std::string sourceRel = checked_rel("source", a["source"].get<std::string>(), ".svg", false, "assets/art/hero.svg");
+        arg_error(kCommand, "/source", "`source` is required: the project .svg whose groups are the parts.",
+                  "Example: {\"source\": \"assets/art/hero.svg\"}.");
+    const std::string sourceRel =
+        checked_rel("source", a["source"].get<std::string>(), ".svg", false, "assets/art/hero.svg");
     const std::string stem = safe_file_name(fs::stem(sourceRel), "rig");
     const std::string layout = [&] {
         const std::string v = a.value("layout", std::string("atlas"));
-        if (v != "atlas" && v != "files") arg_error(kCommand, "/layout", std::format("`layout` must be \"atlas\" or \"files\", got \"{}\".", v), "atlas: one picture with a region per part (default). files: one picture per part.");
+        if (v != "atlas" && v != "files")
+            arg_error(kCommand, "/layout", std::format("`layout` must be \"atlas\" or \"files\", got \"{}\".", v),
+                      "atlas: one picture with a region per part (default). files: one picture per part.");
         return v;
     }();
     const bool atlasMode = layout == "atlas";
-    const std::string prefabRel = checked_rel("out", a.value("out", "prefabs/" + stem + ".prefab.json"), ".prefab.json", false, "prefabs/hero.prefab.json");
-    const std::string atlasRel = atlasMode ? checked_rel("atlas", a.value("atlas", "assets/art/" + stem + "_parts.png"), ".png", true, "assets/art/hero_parts.png") : std::string();
+    const std::string prefabRel = checked_rel("out", a.value("out", "prefabs/" + stem + ".prefab.json"), ".prefab.json",
+                                              false, "prefabs/hero.prefab.json");
+    const std::string atlasRel = atlasMode ? checked_rel("atlas", a.value("atlas", "assets/art/" + stem + "_parts.png"),
+                                                         ".png", true, "assets/art/hero_parts.png")
+                                           : std::string();
     const std::string filesDir = atlasMode ? std::string() : [&] {
         std::string d = a.contains("atlas") ? a["atlas"].get<std::string>() : "assets/art/" + stem + "_parts";
         while (!d.empty() && (d.back() == '/' || d.back() == '\\')) d.pop_back();
         auto norm = fs::normalize_checked(d);
         if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
-            arg_error(kCommand, "/atlas", std::format("with layout \"files\" `atlas` is the folder of the part pictures, under assets/; '{}' is not.", d), "Example: \"assets/art/hero_parts\".");
+            arg_error(
+                kCommand, "/atlas",
+                std::format(
+                    "with layout \"files\" `atlas` is the folder of the part pictures, under assets/; '{}' is not.", d),
+                "Example: \"assets/art/hero_parts\".");
         return *norm;
     }();
     // every file this command writes is checked now, before the SVG is read: the prefab and the atlas (or the part pictures)
@@ -376,22 +407,28 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     const bool naming = tooling_detail::arg_bool(a, "naming", true);
     int previewSize = 512;
     if (a.contains("previewSize")) {
-        if (!a["previewSize"].is_number_integer() || a["previewSize"].get<long long>() < 32 || a["previewSize"].get<long long>() > 2048)
-            arg_error(kCommand, "/previewSize", "expected a whole number from 32 to 2048.", "The longer side of each half of the side-by-side picture.");
+        if (!a["previewSize"].is_number_integer() || a["previewSize"].get<long long>() < 32 ||
+            a["previewSize"].get<long long>() > 2048)
+            arg_error(kCommand, "/previewSize", "expected a whole number from 32 to 2048.",
+                      "The longer side of each half of the side-by-side picture.");
         previewSize = int(a["previewSize"].get<long long>());
     }
     auto number = [&](const char* key, double lo, double hi, double def) {
         auto it = a.find(key);
         if (it == a.end() || it->is_null()) return def;
         if (!it->is_number() || !(it->get<double>() >= lo) || !(it->get<double>() <= hi))
-            arg_error(kCommand, std::string("/") + key, std::format("`{}` must be a number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)), "");
+            arg_error(
+                kCommand, std::string("/") + key,
+                std::format("`{}` must be a number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)), "");
         return it->get<double>();
     };
 
     require_usable_manifest(projectDir);
     const stdfs::path srcAbs = project_file(projectDir, sourceRel);
     auto srcText = tooling_detail::read_file(srcAbs);
-    if (!srcText) fail("not_found", std::format("{} /source: '{}' does not exist or cannot be read.", kCommand, sourceRel), "Check the path (project-relative).");
+    if (!srcText)
+        fail("not_found", std::format("{} /source: '{}' does not exist or cannot be read.", kCommand, sourceRel),
+             "Check the path (project-relative).");
 
     std::vector<std::string> warnings;
     SvgDoc doc = SvgDoc::parse(*srcText, sourceRel);
@@ -410,17 +447,22 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     Geometry g;
     g.canvas = doc.canvas();
     if (g.canvas.empty() || g.canvas.width() <= 0 || g.canvas.height() <= 0)
-        fail("invalid_svg", std::format("{} /source: '{}' has no drawing size.", kCommand, sourceRel), "Give the <svg> a viewBox (viewBox=\"0 0 200 300\") or width and height.");
+        fail("invalid_svg", std::format("{} /source: '{}' has no drawing size.", kCommand, sourceRel),
+             "Give the <svg> a viewBox (viewBox=\"0 0 200 300\") or width and height.");
     const P declared = doc.declared_size();
     g.scale = number("scale", 0.01, 64, declared.x > 0 ? declared.x / g.canvas.width() : 1.0);
-    const bool pixelArt = a.contains("pixelArt") ? tooling_detail::arg_bool(a, "pixelArt", false) : style.pixelArt.value_or(false);
+    const bool pixelArt =
+        a.contains("pixelArt") ? tooling_detail::arg_bool(a, "pixelArt", false) : style.pixelArt.value_or(false);
     const double ppu = number("pixelsPerUnit", 0.01, 4096, style.texelsPerUnit.value_or(g.scale));
     const int padding = int(number("padding", 0, 16, pixelArt ? 1 : 2));
     const int layerBase = int(number("layer", -10000, 10000, 0));
     const double wpx = g.canvas.width() * g.scale, hpx = g.canvas.height() * g.scale;
     if (wpx > kMaxSide || hpx > kMaxSide)
-        arg_error(kCommand, "/scale", std::format("at scale {} the drawing is {}x{} pixels, over the {} px limit.", g.scale, int(std::ceil(wpx)), int(std::ceil(hpx)), kMaxSide),
-                  std::format("Lower `scale` to at most {:.3f}.", kMaxSide / std::max(g.canvas.width(), g.canvas.height())));
+        arg_error(
+            kCommand, "/scale",
+            std::format("at scale {} the drawing is {}x{} pixels, over the {} px limit.", g.scale, int(std::ceil(wpx)),
+                        int(std::ceil(hpx)), kMaxSide),
+            std::format("Lower `scale` to at most {:.3f}.", kMaxSide / std::max(g.canvas.width(), g.canvas.height())));
     g.w = std::max(1, int(std::lround(wpx)));
     g.h = std::max(1, int(std::lround(hpx)));
     {
@@ -436,12 +478,19 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         const Json& o = a["origin"];
         if (o.is_string()) {
             const std::string v = o.get<std::string>();
-            if (v == "bottom-center") {}
-            else if (v == "center") originSvg = {g.canvas.x0 + g.canvas.width() / 2, g.canvas.y0 + g.canvas.height() / 2};
-            else if (v == "top-left") originSvg = {g.canvas.x0, g.canvas.y0};
-            else arg_error(kCommand, "/origin", std::format("'{}' is not an origin.", v), did_you_mean(v, std::vector<std::string>{"bottom-center", "center", "top-left"}) + " Or a point [x, y] in the drawing.");
+            if (v == "bottom-center") {
+            } else if (v == "center")
+                originSvg = {g.canvas.x0 + g.canvas.width() / 2, g.canvas.y0 + g.canvas.height() / 2};
+            else if (v == "top-left")
+                originSvg = {g.canvas.x0, g.canvas.y0};
+            else
+                arg_error(kCommand, "/origin", std::format("'{}' is not an origin.", v),
+                          did_you_mean(v, std::vector<std::string>{"bottom-center", "center", "top-left"}) +
+                              " Or a point [x, y] in the drawing.");
         } else if (!point_arg(o, originSvg)) {
-            arg_error(kCommand, "/origin", "expected \"bottom-center\", \"center\", \"top-left\" or a point [x, y] in the drawing.", "Example: [100, 280] for the soles of the feet.");
+            arg_error(kCommand, "/origin",
+                      "expected \"bottom-center\", \"center\", \"top-left\" or a point [x, y] in the drawing.",
+                      "Example: [100, 280] for the soles of the feet.");
         }
     }
     const Pt originPx = g.to_px(originSvg);
@@ -449,7 +498,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     // The SVG as it is drawn: an explicit viewBox and the size of the picture, nothing else changed.
     {
         std::ostringstream vb;
-        vb << format_number(g.canvas.x0, 6) << " " << format_number(g.canvas.y0, 6) << " " << format_number(g.canvas.width(), 6) << " " << format_number(g.canvas.height(), 6);
+        vb << format_number(g.canvas.x0, 6) << " " << format_number(g.canvas.y0, 6) << " "
+           << format_number(g.canvas.width(), 6) << " " << format_number(g.canvas.height(), 6);
         doc.root()->set_attr("viewBox", vb.str());
         doc.root()->set_attr("width", format_number(wpx, 6));
         doc.root()->set_attr("height", format_number(hpx, 6));
@@ -467,16 +517,25 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     if (explicitParts) {
         const Json& pj = a["parts"];
         std::vector<std::string> refs;
-        if (pj.is_string()) refs.push_back(pj.get<std::string>());
+        if (pj.is_string())
+            refs.push_back(pj.get<std::string>());
         else if (pj.is_array()) {
             for (const Json& e : pj) {
-                if (!e.is_string()) arg_error(kCommand, "/parts", "every entry must be a string (an SVG id or a selector), got " + describe_json_value(e) + ".", "Example: [\"torso\", \"arm_upper_l\"].");
+                if (!e.is_string())
+                    arg_error(kCommand, "/parts",
+                              "every entry must be a string (an SVG id or a selector), got " + describe_json_value(e) +
+                                  ".",
+                              "Example: [\"torso\", \"arm_upper_l\"].");
                 refs.push_back(e.get<std::string>());
             }
         } else {
-            arg_error(kCommand, "/parts", "expected an SVG id, a selector, or a list of them, got " + describe_json_value(pj) + ".", "Example: [\"torso\", \"arm_upper_l\"].");
+            arg_error(kCommand, "/parts",
+                      "expected an SVG id, a selector, or a list of them, got " + describe_json_value(pj) + ".",
+                      "Example: [\"torso\", \"arm_upper_l\"].");
         }
-        if (refs.empty()) arg_error(kCommand, "/parts", "the list is empty.", "Name the groups that are parts, or leave `parts` out to use every group with an id.");
+        if (refs.empty())
+            arg_error(kCommand, "/parts", "the list is empty.",
+                      "Name the groups that are parts, or leave `parts` out to use every group with an id.");
         for (std::size_t i = 0; i < refs.size(); ++i)
             for (XNode* n : select_elements(norm, refs[i], kCommand, std::format("/parts/{}", i)))
                 if (n != norm.root() && partSet.insert(n).second) partNodes.push_back(n);
@@ -510,8 +569,11 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     }
     if (partNodes.empty())
         fail("not_found",
-             explicitParts ? std::format("{} /parts: nothing matched.", kCommand) : std::format("{} /source: '{}' has no group with an id to make a part of.", kCommand, sourceRel),
-             "Wrap each part of the character in a group with a name, <g id=\"arm_upper_l\">...</g> (ids an editor makes up, such as g123, do not count), or list the ids in `parts`. vector.info lists the ids.");
+             explicitParts
+                 ? std::format("{} /parts: nothing matched.", kCommand)
+                 : std::format("{} /source: '{}' has no group with an id to make a part of.", kCommand, sourceRel),
+             "Wrap each part of the character in a group with a name, <g id=\"arm_upper_l\">...</g> (ids an editor "
+             "makes up, such as g123, do not count), or list the ids in `parts`. vector.info lists the ids.");
     std::sort(partNodes.begin(), partNodes.end(), [&](XNode* p, XNode* q) { return docIndex[p] < docIndex[q]; });
 
     std::vector<Part> parts(partNodes.size());
@@ -523,7 +585,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         p.docIndex = docIndex[p.node];
         const std::string* id = p.node->attr("id");
         if (!id || id->empty())
-            arg_error(kCommand, "/parts", std::format("{} has no id, and a part is named by its id.", describe_element(*p.node)), "Give the element an id in the SVG.");
+            arg_error(kCommand, "/parts",
+                      std::format("{} has no id, and a part is named by its id.", describe_element(*p.node)),
+                      "Give the element an id in the SVG.");
         p.id = *id;
         p.name = clean_name(*id);
         byId[p.id] = int(i);
@@ -532,7 +596,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     {
         std::set<std::string> seen;
         for (Part& p : parts)
-            if (!seen.insert(p.name).second) fail("invalid_argument", std::format("{} /parts: two parts would be called '{}'.", kCommand, p.name), "Give the groups different ids.");
+            if (!seen.insert(p.name).second)
+                fail("invalid_argument", std::format("{} /parts: two parts would be called '{}'.", kCommand, p.name),
+                     "Give the groups different ids.");
     }
 
     // The pivot markers: an element called <part>-pivot or <part>_pivot; it is not art.
@@ -546,7 +612,15 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         if (it == byId.end()) continue;
         if (n == parts[std::size_t(it->second)].node) continue;
         if (!marker.count(it->second)) marker[it->second] = n;
-        for (XNode* s : [&] { std::vector<XNode*> v; if (is_shape_element(*n)) v.push_back(n); else shapes_under(*n, v); return v; }()) markerIndex.insert(docIndex[s]);
+        for (XNode* s : [&] {
+                 std::vector<XNode*> v;
+                 if (is_shape_element(*n))
+                     v.push_back(n);
+                 else
+                     shapes_under(*n, v);
+                 return v;
+             }())
+            markerIndex.insert(docIndex[s]);
     }
 
     // Who draws what.
@@ -574,8 +648,10 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         }
     }
     if (!unowned.empty())
-        warnings.push_back(std::format("{} shape(s) belong to no part and are not in the rig: {}. Put them in a part's group, or add the group to `parts`.", unowned.size(), names_list(unowned)));
-    {   // a part drawn on both sides of a child part cannot be one sprite
+        warnings.push_back(std::format("{} shape(s) belong to no part and are not in the rig: {}. Put them in a part's "
+                                       "group, or add the group to `parts`.",
+                                       unowned.size(), names_list(unowned)));
+    {  // a part drawn on both sides of a child part cannot be one sprite
         for (std::size_t pi = 0; pi < parts.size(); ++pi) {
             int first = -1, last = -1;
             for (std::size_t i = 0; i < shapes.size(); ++i)
@@ -586,8 +662,12 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             for (int i = first; i >= 0 && i <= last; ++i)
                 if (ownerOfShape[std::size_t(i)] != int(pi) && !markerIndex.count(docIndex[shapes[std::size_t(i)]])) {
                     const int other = ownerOfShape[std::size_t(i)];
-                    warnings.push_back(std::format("'{}' is drawn on both sides of {} in the SVG, but it is one sprite: it was drawn at the place of its first shape. Put the shapes on top in a group of their own.",
-                                                   parts[pi].id, other >= 0 ? "'" + parts[std::size_t(other)].id + "'" : std::string("a shape outside every part")));
+                    warnings.push_back(
+                        std::format("'{}' is drawn on both sides of {} in the SVG, but it is one sprite: it was drawn "
+                                    "at the place of its first shape. Put the shapes on top in a group of their own.",
+                                    parts[pi].id,
+                                    other >= 0 ? "'" + parts[std::size_t(other)].id + "'"
+                                               : std::string("a shape outside every part")));
                     break;
                 }
         }
@@ -611,14 +691,17 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         try {
             full = draw_svg(text, g, w);
         } catch (const CommandError&) {
-            warnings.push_back(std::format("'{}' draws nothing the rasterizer can show (shapes with no fill and no stroke?), so it is a joint without a picture.", p.id));
+            warnings.push_back(std::format("'{}' draws nothing the rasterizer can show (shapes with no fill and no "
+                                           "stroke?), so it is a joint without a picture.",
+                                           p.id));
             continue;
         }
         for (const std::string& x : w)
             if (std::find(drawWarnings.begin(), drawWarnings.end(), x) == drawWarnings.end()) drawWarnings.push_back(x);
         const IRect ink = ink_box(full);
         if (ink.empty()) {
-            warnings.push_back(std::format("'{}' draws nothing inside the drawing, so it is a joint without a picture.", p.id));
+            warnings.push_back(
+                std::format("'{}' draws nothing inside the drawing, so it is a joint without a picture.", p.id));
             continue;
         }
         p.hasArt = true;
@@ -644,9 +727,12 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         for (std::size_t i = 0; i < parts.size(); ++i)
             if (!alive[i]) dropped.push_back(parts[i].id);
         if (!dropped.empty() && dropped.size() < parts.size() + 1)
-            warnings.push_back(std::format("{} part(s) have no picture and no child with one, and were left out: {}.", dropped.size(), names_list(dropped)));
+            warnings.push_back(std::format("{} part(s) have no picture and no child with one, and were left out: {}.",
+                                           dropped.size(), names_list(dropped)));
         if (dropped.size() == parts.size())
-            fail("empty_result", std::format("{}: no part draws anything.", kCommand), "The groups must contain shapes with a fill or a stroke inside the viewBox. vector.info lists them; assets.rasterize_svg shows the whole drawing.");
+            fail("empty_result", std::format("{}: no part draws anything.", kCommand),
+                 "The groups must contain shapes with a fill or a stroke inside the viewBox. vector.info lists them; "
+                 "assets.rasterize_svg shows the whole drawing.");
     }
     // Compact the list of parts.
     {
@@ -676,7 +762,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         if (it == byId.end()) {
             std::vector<std::string> ids;
             for (const Part& p : parts) ids.push_back(p.id);
-            arg_error(kCommand, pointer, std::format("'{}' is not a part ({}).", id, what), did_you_mean(id, ids) + " Parts: " + names_list(ids) + ".");
+            arg_error(kCommand, pointer, std::format("'{}' is not a part ({}).", id, what),
+                      did_you_mean(id, ids) + " Parts: " + names_list(ids) + ".");
         }
         return it->second;
     };
@@ -690,7 +777,7 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             }
         }
     }
-    for (std::size_t i = 0; i < parts.size(); ++i) {   // data-parent
+    for (std::size_t i = 0; i < parts.size(); ++i) {  // data-parent
         const std::string dp = parts[i].node->attr_or("data-parent");
         if (dp.empty()) continue;
         const int pi = part_named(dp, "/source", ("`data-parent` of '" + parts[i].id + "'").c_str());
@@ -698,12 +785,18 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         parts[i].parentFrom = "data-parent";
     }
     if (a.contains("parents") && !a["parents"].is_null()) {
-        if (!a["parents"].is_object()) arg_error(kCommand, "/parents", "expected an object {part: parent}.", "Example: {\"hand_l\": \"arm_lower_l\", \"shadow\": \"\"} (an empty parent is the root of the rig).");
+        if (!a["parents"].is_object())
+            arg_error(
+                kCommand, "/parents", "expected an object {part: parent}.",
+                "Example: {\"hand_l\": \"arm_lower_l\", \"shadow\": \"\"} (an empty parent is the root of the rig).");
         for (auto it = a["parents"].begin(); it != a["parents"].end(); ++it) {
             const int ci = part_named(it.key(), ("/parents/" + it.key()).c_str(), "a key of `parents`");
-            if (!it.value().is_string()) arg_error(kCommand, "/parents/" + it.key(), "expected the id of the parent part, or \"\" for the root.", "");
+            if (!it.value().is_string())
+                arg_error(kCommand, "/parents/" + it.key(), "expected the id of the parent part, or \"\" for the root.",
+                          "");
             const std::string pv = it.value().get<std::string>();
-            parts[std::size_t(ci)].parent = pv.empty() ? -1 : part_named(pv, ("/parents/" + it.key()).c_str(), "the value in `parents`");
+            parts[std::size_t(ci)].parent =
+                pv.empty() ? -1 : part_named(pv, ("/parents/" + it.key()).c_str(), "the value in `parents`");
             parts[std::size_t(ci)].parentFrom = pv.empty() ? "parents (root)" : "parents";
         }
     }
@@ -739,11 +832,14 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                     parts[std::size_t(r)].parentFrom = "name";
                 }
     }
-    for (std::size_t i = 0; i < parts.size(); ++i) {   // cycles
+    for (std::size_t i = 0; i < parts.size(); ++i) {  // cycles
         int hops = 0;
         for (int p = parts[i].parent; p >= 0; p = parts[std::size_t(p)].parent)
             if (++hops > int(parts.size()))
-                fail("invalid_argument", std::format("{} /parents: '{}' ends up its own ancestor.", kCommand, parts[i].id), "Check `parents` and the `data-parent` attributes: a part cannot hang from one of its own children.");
+                fail("invalid_argument",
+                     std::format("{} /parents: '{}' ends up its own ancestor.", kCommand, parts[i].id),
+                     "Check `parents` and the `data-parent` attributes: a part cannot hang from one of its own "
+                     "children.");
     }
     for (std::size_t i = 0; i < parts.size(); ++i)
         if (parts[i].parent >= 0) parts[std::size_t(parts[i].parent)].kids.push_back(int(i));
@@ -753,8 +849,10 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         std::vector<int> order(parts.size());
         for (std::size_t i = 0; i < order.size(); ++i) order[i] = int(i);
         std::stable_sort(order.begin(), order.end(), [&](int p, int q) {
-            const int fp = parts[std::size_t(p)].hasArt ? parts[std::size_t(p)].firstShape : parts[std::size_t(p)].docIndex;
-            const int fq = parts[std::size_t(q)].hasArt ? parts[std::size_t(q)].firstShape : parts[std::size_t(q)].docIndex;
+            const int fp =
+                parts[std::size_t(p)].hasArt ? parts[std::size_t(p)].firstShape : parts[std::size_t(p)].docIndex;
+            const int fq =
+                parts[std::size_t(q)].hasArt ? parts[std::size_t(q)].firstShape : parts[std::size_t(q)].docIndex;
             return fp < fq;
         });
         for (std::size_t r = 0; r < order.size(); ++r) parts[std::size_t(order[r])].layer = layerBase + int(r);
@@ -781,11 +879,15 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     // ---- pivots ----
     std::map<std::string, Pt> overrides;
     if (a.contains("pivots") && !a["pivots"].is_null()) {
-        if (!a["pivots"].is_object()) arg_error(kCommand, "/pivots", "expected an object {part: [x, y]} in the drawing's coordinates.", "Example: {\"arm_upper_l\": [120, 80]}.");
+        if (!a["pivots"].is_object())
+            arg_error(kCommand, "/pivots", "expected an object {part: [x, y]} in the drawing's coordinates.",
+                      "Example: {\"arm_upper_l\": [120, 80]}.");
         for (auto it = a["pivots"].begin(); it != a["pivots"].end(); ++it) {
             part_named(it.key(), ("/pivots/" + it.key()).c_str(), "a key of `pivots`");
             Pt pt;
-            if (!point_arg(it.value(), pt)) arg_error(kCommand, "/pivots/" + it.key(), "expected a point [x, y] in the drawing (viewBox units).", "Example: [120, 80].");
+            if (!point_arg(it.value(), pt))
+                arg_error(kCommand, "/pivots/" + it.key(), "expected a point [x, y] in the drawing (viewBox units).",
+                          "Example: [120, 80].");
             overrides[it.key()] = pt;
         }
     }
@@ -797,7 +899,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             char* end = nullptr;
             const double d = std::strtod(v.c_str(), &end);
             if (end == v.c_str() || !std::isfinite(d)) {
-                warnings.push_back(std::format("'{}' has {}=\"{}\", which is not a number of degrees; it was ignored.", p.id, name, v));
+                warnings.push_back(std::format("'{}' has {}=\"{}\", which is not a number of degrees; it was ignored.",
+                                               p.id, name, v));
                 return;
             }
             out = d;
@@ -805,7 +908,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         angle_attr("data-min-angle", p.minAngle);
         angle_attr("data-max-angle", p.maxAngle);
         if (p.minAngle && p.maxAngle && *p.minAngle > *p.maxAngle) {
-            warnings.push_back(std::format("'{}': data-min-angle {} is above data-max-angle {}; the limits were ignored.", p.id, *p.minAngle, *p.maxAngle));
+            warnings.push_back(
+                std::format("'{}': data-min-angle {} is above data-max-angle {}; the limits were ignored.", p.id,
+                            *p.minAngle, *p.maxAngle));
             p.minAngle.reset();
             p.maxAngle.reset();
         }
@@ -819,7 +924,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                 p.pivotSvg = {r.center().x, r.center().y};
                 p.pivotFrom = "marker";
             } else {
-                warnings.push_back(std::format("The pivot marker of '{}' ({}) cannot be measured ({}); a default pivot was used.", p.id, describe_element(*mk->second), why));
+                warnings.push_back(
+                    std::format("The pivot marker of '{}' ({}) cannot be measured ({}); a default pivot was used.",
+                                p.id, describe_element(*mk->second), why));
             }
         }
         if (p.pivotFrom.empty()) {
@@ -834,7 +941,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                     p.pivotSvg = {x, y};
                     p.pivotFrom = "data-pivot";
                 } else {
-                    warnings.push_back(std::format("'{}' has data-pivot=\"{}\", which is not \"x y\" in the drawing; a default pivot was used.", p.id, dp));
+                    warnings.push_back(std::format(
+                        "'{}' has data-pivot=\"{}\", which is not \"x y\" in the drawing; a default pivot was used.",
+                        p.id, dp));
                 }
             }
         }
@@ -849,7 +958,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         if (anc >= 0 && p.hasArt) {
             const Part& q = parts[std::size_t(anc)];
             const int x0 = std::max(p.ink.x, q.ink.x), y0 = std::max(p.ink.y, q.ink.y);
-            const int x1 = std::min(p.ink.x + p.ink.w, q.ink.x + q.ink.w), y1 = std::min(p.ink.y + p.ink.h, q.ink.y + q.ink.h);
+            const int x1 = std::min(p.ink.x + p.ink.w, q.ink.x + q.ink.w),
+                      y1 = std::min(p.ink.y + p.ink.h, q.ink.y + q.ink.h);
             double sx = 0, sy = 0, n = 0;
             for (int y = y0; y < y1; ++y)
                 for (int x = x0; x < x1; ++x) {
@@ -867,10 +977,12 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                 const double w = p.ink.w, h = p.ink.h;
                 if (h >= 1.3 * w) {
                     const double top = p.ink.y, bottom = p.ink.y + p.ink.h;
-                    p.pivotPx = {p.ink.x + w / 2, std::abs(p.pivotPx.y - top) <= std::abs(bottom - p.pivotPx.y) ? top : bottom};
+                    p.pivotPx = {p.ink.x + w / 2,
+                                 std::abs(p.pivotPx.y - top) <= std::abs(bottom - p.pivotPx.y) ? top : bottom};
                 } else if (w >= 1.3 * h) {
                     const double left = p.ink.x, right = p.ink.x + p.ink.w;
-                    p.pivotPx = {std::abs(p.pivotPx.x - left) <= std::abs(right - p.pivotPx.x) ? left : right, p.ink.y + h / 2};
+                    p.pivotPx = {std::abs(p.pivotPx.x - left) <= std::abs(right - p.pivotPx.x) ? left : right,
+                                 p.ink.y + h / 2};
                 }
                 p.pivotFrom = "overlap";
                 found = true;
@@ -891,9 +1003,13 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     {
         std::vector<std::string> guessed;
         for (const Part& p : parts)
-            if (p.pivotFrom == "default" || p.pivotFrom == "overlap") guessed.push_back(p.id + " (" + p.pivotFrom + ")");
+            if (p.pivotFrom == "default" || p.pivotFrom == "overlap")
+                guessed.push_back(p.id + " (" + p.pivotFrom + ")");
         if (!guessed.empty())
-            warnings.push_back(std::format("The joints of {} were guessed. Look at the crosses in the picture; put a small shape with the id <part>-pivot in the part's place in the SVG, or pass `pivots`, where one is off.", names_list(guessed)));
+            warnings.push_back(
+                std::format("The joints of {} were guessed. Look at the crosses in the picture; put a small shape with "
+                            "the id <part>-pivot in the part's place in the SVG, or pass `pivots`, where one is off.",
+                            names_list(guessed)));
     }
 
     // ---- bones ----
@@ -907,7 +1023,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         if (p.kids.empty() || best <= 0) {
             const IRect e = p.extent;
             const double cx = e.x + e.w / 2.0, cy = e.y + e.h / 2.0;
-            const double dist = std::sqrt((cx - p.pivotPx.x) * (cx - p.pivotPx.x) + (cy - p.pivotPx.y) * (cy - p.pivotPx.y));
+            const double dist =
+                std::sqrt((cx - p.pivotPx.x) * (cx - p.pivotPx.x) + (cy - p.pivotPx.y) * (cy - p.pivotPx.y));
             best = std::max(2 * dist, 0.5 * std::max(e.w, e.h)) / ppu;
         }
         p.boneLength = std::max(0.01, round4(best));
@@ -919,7 +1036,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         std::vector<int> order;
         for (std::size_t i = 0; i < parts.size(); ++i)
             if (parts[i].hasArt) order.push_back(int(i));
-        std::stable_sort(order.begin(), order.end(), [&](int p, int q) { return parts[std::size_t(p)].box.h > parts[std::size_t(q)].box.h; });
+        std::stable_sort(order.begin(), order.end(),
+                         [&](int p, int q) { return parts[std::size_t(p)].box.h > parts[std::size_t(q)].box.h; });
         long area = 0;
         int widest = 0;
         for (int i : order) {
@@ -944,7 +1062,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         }
         const int height = y + rowH;
         if (usedW > kMaxSide || height > kMaxSide || usedW < 1)
-            fail("invalid_argument", std::format("{} : the parts do not fit one {}-pixel atlas ({}x{} needed).", kCommand, kMaxSide, usedW, height),
+            fail("invalid_argument",
+                 std::format("{} : the parts do not fit one {}-pixel atlas ({}x{} needed).", kCommand, kMaxSide, usedW,
+                             height),
                  "Lower `scale`, or use layout \"files\" for a picture per part.");
         atlas.width = usedW;
         atlas.height = height;
@@ -974,7 +1094,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         prefabExisted = true;
         auto parsed = parse_json(*t, prefabRel);
         if (!parsed.ok() || !parsed->is_object() || !parsed->contains("entity") || !(*parsed)["entity"].is_object())
-            fail("invalid_argument", std::format("{} /out: '{}' exists and is not a prefab ({}).", kCommand, prefabRel, parsed.ok() ? "no `entity` object" : parsed.error().message),
+            fail("invalid_argument",
+                 std::format("{} /out: '{}' exists and is not a prefab ({}).", kCommand, prefabRel,
+                             parsed.ok() ? "no `entity` object" : parsed.error().message),
                  "Choose another `out`, or fix the file (docs.read ARCHITECTURE).");
         oldDoc = std::move(*parsed);
     }
@@ -991,7 +1113,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             if (!newNames.count(name)) removedParts.push_back(name);
         }
         if (!managed && !overwrite)
-            fail("exists", std::format("'{}' already exists and none of its entities draws {}.", prefabRel, atlasMode ? "'" + atlasRel + "'" : "a picture of '" + filesDir + "/'"),
+            fail("exists",
+                 std::format("'{}' already exists and none of its entities draws {}.", prefabRel,
+                             atlasMode ? "'" + atlasRel + "'" : "a picture of '" + filesDir + "/'"),
                  "Pass overwrite: true to merge the rig into it, or choose another `out`.");
     }
     std::vector<std::string> pruned;
@@ -1012,10 +1136,13 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             Json& s = comps["Sprite"];
             if (!s.is_object()) s = Json::object();
             s["texture"] = atlasMode ? atlasRel : p.file;
-            if (atlasMode) s["region"] = Json::array({p.atlasRect.x, p.atlasRect.y, p.atlasRect.w, p.atlasRect.h});
-            else s.erase("region");
+            if (atlasMode)
+                s["region"] = Json::array({p.atlasRect.x, p.atlasRect.y, p.atlasRect.w, p.atlasRect.h});
+            else
+                s.erase("region");
             s["size"] = Json::array({round4(p.box.w / ppu), round4(p.box.h / ppu)});
-            s["pivot"] = Json::array({round4((p.pivotPx.x - p.box.x) / p.box.w), round4(1.0 - (p.pivotPx.y - p.box.y) / p.box.h)});
+            s["pivot"] = Json::array(
+                {round4((p.pivotPx.x - p.box.x) / p.box.w), round4(1.0 - (p.pivotPx.y - p.box.y) / p.box.h)});
             s["layer"] = p.layer;
             s["pixelArt"] = pixelArt;
         } else if (comps.contains("Sprite") && draws_rig_texture(node, texturePrefix)) {
@@ -1039,8 +1166,10 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             Json extras = extras_of(*old->second.node, newNames, texturePrefix, prune, pruned);
             for (Json& e : extras) kids.push_back(std::move(e));
         }
-        if (kids.empty()) node.erase("children");
-        else node["children"] = std::move(kids);
+        if (kids.empty())
+            node.erase("children");
+        else
+            node["children"] = std::move(kids);
         // name first, as in every prefab
         Json out = Json::object();
         out["name"] = node["name"];
@@ -1055,9 +1184,11 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         root = oldDoc["entity"];
         rootName = root.value("name", rootName);
     }
-    if (a.contains("name") && a["name"].is_string() && !a["name"].get<std::string>().empty()) rootName = a["name"].get<std::string>();
+    if (a.contains("name") && a["name"].is_string() && !a["name"].get<std::string>().empty())
+        rootName = a["name"].get<std::string>();
     root["name"] = rootName;
-    if (!root.contains("components") || !root["components"].is_object()) root["components"] = Json::object({{"Transform", Json::object({{"position", Json::array({0, 0, 0})}})}});
+    if (!root.contains("components") || !root["components"].is_object())
+        root["components"] = Json::object({{"Transform", Json::object({{"position", Json::array({0, 0, 0})}})}});
     Json rootKids = Json::array();
     for (std::size_t i = 0; i < parts.size(); ++i)
         if (parts[i].parent < 0) rootKids.push_back(build(int(i)));
@@ -1086,17 +1217,23 @@ Json to_rig(const std::string& projectDir, const Json& a) {
             std::string hint = did_you_mean(r, newList);
             notes.push_back(r + (hint.empty() ? "" : " (" + hint + ")"));
         }
-        warnings.push_back(std::format("{} part(s) of the previous rig are not in the SVG any more: {}. {}", removedParts.size(), join(notes, ", "),
-                                       prune ? "They were removed from the prefab." : "They are still in the prefab, drawing a stale region; pass prune: true to remove them, or rename the group back if it was renamed."));
+        warnings.push_back(std::format("{} part(s) of the previous rig are not in the SVG any more: {}. {}",
+                                       removedParts.size(), join(notes, ", "),
+                                       prune ? "They were removed from the prefab."
+                                             : "They are still in the prefab, drawing a stale region; pass prune: true "
+                                               "to remove them, or rename the group back if it was renamed."));
         // clips that name them
         std::vector<std::string> clips;
         ProjectRootGuard clipRoot(projectDir);
         for (const std::string& f : fs::list(".", true, ".json")) {
-            if (!ends_with(f, ".anim.json") || starts_with(f, ".") || starts_with(f, "build/") || f.find("node_modules/") != std::string::npos) continue;
+            if (!ends_with(f, ".anim.json") || starts_with(f, ".") || starts_with(f, "build/") ||
+                f.find("node_modules/") != std::string::npos)
+                continue;
             auto text = tooling_detail::read_file(stdfs::path(projectDir) / f);
             if (!text) continue;
             auto clip = parse_json(*text, f);
-            if (!clip.ok() || !clip->is_object() || !clip->contains("tracks") || !(*clip)["tracks"].is_array()) continue;
+            if (!clip.ok() || !clip->is_object() || !clip->contains("tracks") || !(*clip)["tracks"].is_array())
+                continue;
             for (const Json& t : (*clip)["tracks"]) {
                 const std::string path = t.is_object() ? t.value("path", std::string()) : std::string();
                 std::set<std::string> segs;
@@ -1114,7 +1251,10 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                     }
             }
         }
-        if (!clips.empty()) warnings.push_back(std::format("Clips with tracks on a part that is gone, which will stop finding it: {}. Rename the track paths (anim.list shows them) or the group in the SVG.", names_list(clips)));
+        if (!clips.empty())
+            warnings.push_back(std::format("Clips with tracks on a part that is gone, which will stop finding it: {}. "
+                                           "Rename the track paths (anim.list shows them) or the group in the SVG.",
+                                           names_list(clips)));
     }
 
     // ---- the rest pose against the SVG ----
@@ -1124,7 +1264,8 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     for (const std::string& n : notes)
         if (std::find(warnings.begin(), warnings.end(), n) == warnings.end()) warnings.push_back(n);
     std::stable_sort(placed.begin(), placed.end(), [](const Placed& p, const Placed& q) {
-        return (*p.node)["components"]["Sprite"].value("layer", 0) < (*q.node)["components"]["Sprite"].value("layer", 0);
+        return (*p.node)["components"]["Sprite"].value("layer", 0) <
+               (*q.node)["components"]["Sprite"].value("layer", 0);
     });
     Image rebuilt;
     rebuilt.width = g.w;
@@ -1146,17 +1287,23 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     const Diff diff = compare_premultiplied(whole, rebuilt);
     const bool matches = diff.maxDiff <= kTolerance;
     if (!matches)
-        warnings.push_back(std::format("The rig at rest differs from the SVG: up to {} of 255 at {} pixel(s). Look at the picture: shapes outside every part, a part drawn on both sides of another, or an effect (a mask or clip shared across parts) the parts cannot carry.", diff.maxDiff, diff.differing));
+        warnings.push_back(std::format("The rig at rest differs from the SVG: up to {} of 255 at {} pixel(s). Look at "
+                                       "the picture: shapes outside every part, a part drawn on both sides of another, "
+                                       "or an effect (a mask or clip shared across parts) the parts cannot carry.",
+                                       diff.maxDiff, diff.differing));
 
     // The picture: the SVG, then the rig, with the joints marked.
     const auto fit = [&](const Image& im) {
         const int longer = std::max(im.width, im.height);
         if (longer <= previewSize) return im;
         const double k = double(previewSize) / longer;
-        return resize_area(im, std::max(1, int(std::lround(im.width * k))), std::max(1, int(std::lround(im.height * k))));
+        return resize_area(im, std::max(1, int(std::lround(im.width * k))),
+                           std::max(1, int(std::lround(im.height * k))));
     };
     Image left = whole, right = rebuilt;
-    for (const Part& p : parts) cross(right, int(std::lround(p.pivotPx.x)), int(std::lround(p.pivotPx.y)), std::max(2, std::min(g.w, g.h) / 80), {230, 40, 40});
+    for (const Part& p : parts)
+        cross(right, int(std::lround(p.pivotPx.x)), int(std::lround(p.pivotPx.y)), std::max(2, std::min(g.w, g.h) / 80),
+              {230, 40, 40});
     Image lf = fit(left), rf = fit(right);
     const int gap = 8;
     Image side;
@@ -1175,16 +1322,23 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     const std::string license = tooling_detail::arg_string(a, "license", false, "CC0-1.0");
     Json recipeSet = Json::object();
     {
-        Json args = recipe_args(a, {{"source", sourceRel}, {"out", prefabRel}, {"atlas", atlasMode ? Json(atlasRel) : Json(filesDir)}, {"layout", layout},
-                                    {"dryRun", Json()}, {"previewSize", Json()}});
-        provenance = Json::object({{"origin", ai ? "generated" : "original"},
-                                   {"ai", ai},
-                                   {"kind", "image"},
-                                   {"provider", "factoria vector.to_rig"},
-                                   {"license", license},
-                                   {"notes", std::format("A part of the rig '{}' ({} parts), drawn from the SVG '{}' at {} px per drawing unit.", prefabRel, parts.size(), sourceRel, g.k)},
-                                   {"date", assets::today()},
-                                   {"source", sourceRel}});
+        Json args = recipe_args(a, {{"source", sourceRel},
+                                    {"out", prefabRel},
+                                    {"atlas", atlasMode ? Json(atlasRel) : Json(filesDir)},
+                                    {"layout", layout},
+                                    {"dryRun", Json()},
+                                    {"previewSize", Json()}});
+        provenance = Json::object(
+            {{"origin", ai ? "generated" : "original"},
+             {"ai", ai},
+             {"kind", "image"},
+             {"provider", "factoria vector.to_rig"},
+             {"license", license},
+             {"notes",
+              std::format("A part of the rig '{}' ({} parts), drawn from the SVG '{}' at {} px per drawing unit.",
+                          prefabRel, parts.size(), sourceRel, g.k)},
+             {"date", assets::today()},
+             {"source", sourceRel}});
         if (!author.empty()) provenance["author"] = author;
         recipeSet = args;
     }
@@ -1192,26 +1346,36 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     if (!dryRun) {
         // never replace a picture a person made
         std::vector<std::string> pictures;
-        if (atlasMode) pictures.push_back(atlasRel);
+        if (atlasMode)
+            pictures.push_back(atlasRel);
         else
             for (const Part& p : parts)
                 if (p.hasArt) pictures.push_back(p.file);
         auto manifestText = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
-        Json manifest = manifestText ? parse_json(*manifestText, assets::kManifestFile).value_or(Json::object()) : Json::object();
+        Json manifest =
+            manifestText ? parse_json(*manifestText, assets::kManifestFile).value_or(Json::object()) : Json::object();
         for (const std::string& pic : pictures) {
             if (!stdfs::exists(project_file(projectDir, pic))) continue;
-            const Json entry = manifest.contains("assets") && manifest["assets"].is_object() && manifest["assets"].contains(pic) ? manifest["assets"][pic] : Json();
+            const Json entry =
+                manifest.contains("assets") && manifest["assets"].is_object() && manifest["assets"].contains(pic)
+                    ? manifest["assets"][pic]
+                    : Json();
             const Json recipe = recipe_of(entry);
             if (!overwrite && (recipe.is_null() || recipe.value("command", std::string()) != kCommand))
-                fail("exists", std::format("'{}' already exists and was not made by {}.", pic, kCommand), "Pass overwrite: true to replace it, or choose another `atlas`.");
+                fail("exists", std::format("'{}' already exists and was not made by {}.", pic, kCommand),
+                     "Pass overwrite: true to replace it, or choose another `atlas`.");
         }
         auto put_png = [&](const std::string& rel, const Image& img) {
             const std::vector<std::uint8_t> png = encode_png(img);
             std::string err;
-            if (!tooling_detail::write_file(project_write_file(projectDir, rel), std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+            if (!tooling_detail::write_file(project_write_file(projectDir, rel),
+                                            std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                            &err))
+                fail("failed", err);
             written.push_back(rel);
         };
-        if (atlasMode) put_png(atlasRel, atlas);
+        if (atlasMode)
+            put_png(atlasRel, atlas);
         else
             for (const Part& p : parts)
                 if (p.hasArt) put_png(p.file, p.art);
@@ -1228,7 +1392,9 @@ Json to_rig(const std::string& projectDir, const Json& a) {
                 e.erase("sheet");
                 e["provenance"] = prov;
             });
-            if (!r.ok()) fail("failed", "The rig was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+            if (!r.ok())
+                fail("failed", "The rig was written, but assets.json was not updated: " + r.error().message,
+                     r.error().hint);
         }
     }
 
@@ -1245,21 +1411,28 @@ Json to_rig(const std::string& projectDir, const Json& a) {
         e["position"] = Json::array({p.world.x, p.world.y});
         e["boneLength"] = p.boneLength;
         if (p.hasArt) {
-            const Pt a0 = g.to_svg({double(p.ink.x), double(p.ink.y)}), a1 = g.to_svg({double(p.ink.x + p.ink.w), double(p.ink.y + p.ink.h)});
+            const Pt a0 = g.to_svg({double(p.ink.x), double(p.ink.y)}),
+                     a1 = g.to_svg({double(p.ink.x + p.ink.w), double(p.ink.y + p.ink.h)});
             e["bounds"] = Json::array({round3(a0.x), round3(a0.y), round3(a1.x - a0.x), round3(a1.y - a0.y)});
-            if (atlasMode) e["region"] = Json::array({p.atlasRect.x, p.atlasRect.y, p.atlasRect.w, p.atlasRect.h});
-            else e["file"] = p.file;
+            if (atlasMode)
+                e["region"] = Json::array({p.atlasRect.x, p.atlasRect.y, p.atlasRect.w, p.atlasRect.h});
+            else
+                e["file"] = p.file;
             e["size"] = Json::array({round4(p.box.w / ppu), round4(p.box.h / ppu)});
         }
         list.push_back(std::move(e));
     }
     Json result = Json::object({{"prefab", prefabRel}, {"root", rootName}, {"parts", list}, {"layout", layout}});
-    if (atlasMode) result["atlas"] = Json::object({{"path", atlasRel}, {"width", atlas.width}, {"height", atlas.height}});
+    if (atlasMode)
+        result["atlas"] = Json::object({{"path", atlasRel}, {"width", atlas.width}, {"height", atlas.height}});
     result["pixelsPerUnit"] = ppu;
     result["scale"] = round4(g.k);
     result["origin"] = num_array(originSvg.x, originSvg.y);
     result["pixelArt"] = pixelArt;
-    result["restPose"] = Json::object({{"matches", matches}, {"maxDifference", diff.maxDiff}, {"differingPixels", diff.differing}, {"tolerance", kTolerance}});
+    result["restPose"] = Json::object({{"matches", matches},
+                                       {"maxDifference", diff.maxDiff},
+                                       {"differingPixels", diff.differing},
+                                       {"tolerance", kTolerance}});
     result["status"] = !prefabExisted ? "created" : "updated";
     if (prefabExisted) {
         result["added"] = added;
@@ -1271,8 +1444,11 @@ Json to_rig(const std::string& projectDir, const Json& a) {
     result["$image"] = image_member(write_temporary_picture(projectDir, side, "rig"), true);
     if (!warnings.empty()) result["warnings"] = warnings;
     result["nextSteps"] = Json::array(
-        {"The picture shows the SVG on the left and the rig at rest on the right, a red cross at each joint. Move a joint with a `<part>-pivot` shape in the SVG or `pivots`, then run this again: it updates the prefab in place.",
-         "Rotate a part with Transform.rotation.z (a clip: anim.create_clip, then the Animator on the prefab's root entity); its children turn with it about the joint. anim.pose and anim.filmstrip show the poses."});
+        {"The picture shows the SVG on the left and the rig at rest on the right, a red cross at each joint. Move a "
+         "joint with a `<part>-pivot` shape in the SVG or `pivots`, then run this again: it updates the prefab in "
+         "place.",
+         "Rotate a part with Transform.rotation.z (a clip: anim.create_clip, then the Animator on the prefab's root "
+         "entity); its children turn with it about the joint. anim.pose and anim.filmstrip show the poses."});
     return result;
 }
 
@@ -1283,7 +1459,8 @@ void register_vector_rig_command(CommandRegistry& registry, const std::string& p
     info.name = kCommand;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Turn an SVG whose named groups are the parts of a character into part pictures, joints and a Bone2D prefab that animates in parts.";
+    info.summary = "Turn an SVG whose named groups are the parts of a character into part pictures, joints and a "
+                   "Bone2D prefab that animates in parts.";
     info.description =
         "Reads a project SVG and makes a character that animates in parts, with no other step. Every group "
         "with an id is a PART (a group nested in a group is a child part; ids an editor makes up, like g123, "
@@ -1295,8 +1472,7 @@ void register_vector_rig_command(CommandRegistry& registry, const std::string& p
         "Transform at the joint and a Bone2D (length to the farthest child joint). Rotating a part "
         "(Transform.rotation.z, in a clip) turns it, and its children, about its joint. Example: "
         "{\"source\": \"assets/art/hero.svg\", \"pixelsPerUnit\": 4}. Docs: docs.read VECTOR (Characters in "
-        "parts)."
-        FA_COMMAND_DETAILS
+        "parts)." FA_COMMAND_DETAILS
         "JOINTS: a shape with the id <part>-pivot (or <part>_pivot) anywhere in the SVG marks the joint by "
         "its centre (it is not drawn); else `pivots` {part: [x, y]} in the drawing; else the `data-pivot=\"x "
         "y\"` attribute of the group; else the overlap with the nearest ancestor part that has a picture "
@@ -1316,38 +1492,99 @@ void register_vector_rig_command(CommandRegistry& registry, const std::string& p
         "validate` find the rig stale when the SVG changes. SVG y points down, the engine's up: the prefab's "
         "y is flipped, and the rig's origin is the bottom centre of the drawing (`origin`).";
     const auto str = [](const char* d) { return Json::object({{"type", "string"}, {"description", d}}); };
-    const auto num = [](const char* d, double lo, double hi) { return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"description", d}}); };
-    const auto boolean = [](const char* d, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", d}}); };
-    const Json point = Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 2}, {"maxItems", 2}});
+    const auto num = [](const char* d, double lo, double hi) {
+        return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"description", d}});
+    };
+    const auto boolean = [](const char* d, bool def) {
+        return Json::object({{"type", "boolean"}, {"default", def}, {"description", d}});
+    };
+    const Json point = Json::object(
+        {{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 2}, {"maxItems", 2}});
     Json props = Json::object(
         {{"source", str("The project-relative .svg whose groups are the parts, e.g. \"assets/art/hero.svg\".")},
-         {"out", str("The prefab to write or update, project-relative, ending in .prefab.json. Default prefabs/<name of the svg>.prefab.json. An existing prefab is updated in place (it needs overwrite: true only when none of its entities draws this rig's pictures).")},
-         {"atlas", str("layout \"atlas\": the atlas picture, under assets/, ending in .png (default assets/art/<name>_parts.png). layout \"files\": the folder of the part pictures (default assets/art/<name>_parts).")},
-         {"layout", Json::object({{"type", "string"}, {"enum", Json::array({"atlas", "files"})}, {"default", "atlas"}, {"description", "atlas: one picture and a Sprite.region per part (one texture, fewer draw calls). files: one picture per part."}})},
-         {"scale", num("Pixels per drawing unit (viewBox unit) the parts are drawn at. Default: the size the SVG declares over its viewBox (usually 1). More pixels = sharper parts.", 0.01, 64)},
-         {"pixelsPerUnit", num("Texture pixels per world unit: the sprite and bone sizes are pixels / pixelsPerUnit. Default: the style's texelsPerUnit (assets.json), else `scale`, so one drawing unit is one world unit.", 0.01, 4096)},
-         {"parts", Json::object({{"description", "The groups (or shapes) that are parts: an SVG id, a selector or a list of them. Default: every group with an id (and every shape with an id that is outside all of them). A part nested in another is its child."},
-                                 {"oneOf", Json::array({Json::object({{"type", "string"}}), Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}})})}})},
-         {"pivots", Json::object({{"type", "object"}, {"additionalProperties", point}, {"description", "Joints by part id, [x, y] in the drawing (viewBox units): {\"arm_upper_l\": [120, 80]}. They win over markers and guesses."}})},
-         {"parents", Json::object({{"type", "object"}, {"additionalProperties", Json::object({{"type", "string"}})}, {"description", "Parent by part id, overriding the nesting and the names: {\"hand_l\": \"arm_lower_l\"}. \"\" makes the part a child of the rig's root."}})},
-         {"naming", boolean("Use the names to complete the hierarchy: X_lower_Y under X_upper_Y, and a lone root/body/torso/trunk/hips/pelvis/chest as the parent of the other parts that have none.", true)},
-         {"padding", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 16}, {"description", "Transparent pixels around each part so filtering does not bleed into the neighbour. Default 2 (1 for pixel art)."}})},
-         {"origin", Json::object({{"description", "Where the rig's root sits in the drawing: \"bottom-center\" (default, the feet), \"center\", \"top-left\" or a point [x, y] in the drawing."},
-                                  {"oneOf", Json::array({Json::object({{"type", "string"}}), point})}})},
-         {"layer", Json::object({{"type", "integer"}, {"default", 0}, {"description", "Sprite.layer of the back-most part; the others follow the order of the SVG (+1 each)."}})},
-         {"name", str("The name of the prefab's root entity (a prefab that exists keeps its own). Default: the name of the svg.")},
-         {"prune", boolean("Remove the entities of parts that are not in the SVG any more (they draw this rig's pictures). Default false: they stay and a warning lists them.", false)},
-         {"pixelArt", boolean("Sprite.pixelArt of the parts (nearest-neighbour filtering). Default: the style's pixelArt, else false.", false)},
-         {"overwrite", boolean("Replace pictures not made by this command, and merge into a prefab that does not use this rig's pictures.", false)},
+         {"out", str("The prefab to write or update, project-relative, ending in .prefab.json. Default prefabs/<name "
+                     "of the svg>.prefab.json. An existing prefab is updated in place (it needs overwrite: true only "
+                     "when none of its entities draws this rig's pictures).")},
+         {"atlas", str("layout \"atlas\": the atlas picture, under assets/, ending in .png (default "
+                       "assets/art/<name>_parts.png). layout \"files\": the folder of the part pictures (default "
+                       "assets/art/<name>_parts).")},
+         {"layout", Json::object({{"type", "string"},
+                                  {"enum", Json::array({"atlas", "files"})},
+                                  {"default", "atlas"},
+                                  {"description", "atlas: one picture and a Sprite.region per part (one texture, fewer "
+                                                  "draw calls). files: one picture per part."}})},
+         {"scale", num("Pixels per drawing unit (viewBox unit) the parts are drawn at. Default: the size the SVG "
+                       "declares over its viewBox (usually 1). More pixels = sharper parts.",
+                       0.01, 64)},
+         {"pixelsPerUnit",
+          num("Texture pixels per world unit: the sprite and bone sizes are pixels / pixelsPerUnit. Default: the "
+              "style's texelsPerUnit (assets.json), else `scale`, so one drawing unit is one world unit.",
+              0.01, 4096)},
+         {"parts",
+          Json::object({{"description", "The groups (or shapes) that are parts: an SVG id, a selector or a list of "
+                                        "them. Default: every group with an id (and every shape with an id that is "
+                                        "outside all of them). A part nested in another is its child."},
+                        {"oneOf", Json::array({Json::object({{"type", "string"}}),
+                                               Json::object({{"type", "array"},
+                                                             {"items", Json::object({{"type", "string"}})}})})}})},
+         {"pivots",
+          Json::object({{"type", "object"},
+                        {"additionalProperties", point},
+                        {"description", "Joints by part id, [x, y] in the drawing (viewBox units): {\"arm_upper_l\": "
+                                        "[120, 80]}. They win over markers and guesses."}})},
+         {"parents",
+          Json::object({{"type", "object"},
+                        {"additionalProperties", Json::object({{"type", "string"}})},
+                        {"description", "Parent by part id, overriding the nesting and the names: {\"hand_l\": "
+                                        "\"arm_lower_l\"}. \"\" makes the part a child of the rig's root."}})},
+         {"naming", boolean("Use the names to complete the hierarchy: X_lower_Y under X_upper_Y, and a lone "
+                            "root/body/torso/trunk/hips/pelvis/chest as the parent of the other parts that have none.",
+                            true)},
+         {"padding", Json::object({{"type", "integer"},
+                                   {"minimum", 0},
+                                   {"maximum", 16},
+                                   {"description", "Transparent pixels around each part so filtering does not bleed "
+                                                   "into the neighbour. Default 2 (1 for pixel art)."}})},
+         {"origin",
+          Json::object({{"description", "Where the rig's root sits in the drawing: \"bottom-center\" (default, the "
+                                        "feet), \"center\", \"top-left\" or a point [x, y] in the drawing."},
+                        {"oneOf", Json::array({Json::object({{"type", "string"}}), point})}})},
+         {"layer",
+          Json::object({{"type", "integer"},
+                        {"default", 0},
+                        {"description",
+                         "Sprite.layer of the back-most part; the others follow the order of the SVG (+1 each)."}})},
+         {"name", str("The name of the prefab's root entity (a prefab that exists keeps its own). Default: the name of "
+                      "the svg.")},
+         {"prune", boolean("Remove the entities of parts that are not in the SVG any more (they draw this rig's "
+                           "pictures). Default false: they stay and a warning lists them.",
+                           false)},
+         {"pixelArt",
+          boolean(
+              "Sprite.pixelArt of the parts (nearest-neighbour filtering). Default: the style's pixelArt, else false.",
+              false)},
+         {"overwrite", boolean("Replace pictures not made by this command, and merge into a prefab that does not use "
+                               "this rig's pictures.",
+                               false)},
          {"dryRun", boolean("Compute everything and return the picture and the report; write nothing.", false)},
-         {"previewSize", Json::object({{"type", "integer"}, {"minimum", 32}, {"maximum", 2048}, {"default", 512}, {"description", "The longer side of each half of the side-by-side picture."}})},
-         {"ai", boolean("Whether the SVG was written by an AI (the default); false for one a person drew, for the provenance.", true)},
+         {"previewSize", Json::object({{"type", "integer"},
+                                       {"minimum", 32},
+                                       {"maximum", 2048},
+                                       {"default", 512},
+                                       {"description", "The longer side of each half of the side-by-side picture."}})},
+         {"ai",
+          boolean(
+              "Whether the SVG was written by an AI (the default); false for one a person drew, for the provenance.",
+              true)},
          {"author", str("Who gets the credit in the provenance record.")},
          {"license", str("License of the pictures for the provenance record. Default CC0-1.0.")}});
     props["source"]["x-fa-path"] = "read";
     props["out"]["x-fa-path"] = "write";
     props["atlas"]["x-fa-path"] = "write";
-    info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"source"})}, {"additionalProperties", false}, {"properties", props}});
+    info.inputSchema = Json::object({{"type", "object"},
+                                     {"required", Json::array({"source"})},
+                                     {"additionalProperties", false},
+                                     {"properties", props}});
     registry.add(info, [projectDir](const Json& args) { return to_rig(projectDir, args); });
     registry.declare_capabilities(kCommand, capability_sets::writes_project());
 }

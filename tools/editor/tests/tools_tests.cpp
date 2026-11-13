@@ -79,16 +79,32 @@ struct Session {
     void wav(const std::string& rel) const {  // 0.1 s of silence, 16-bit mono PCM
         const std::uint32_t n = 4410;
         std::string b;
-        auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-        auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-        b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-        b += "data"; u32(n * 2);
+        auto u32 = [&](std::uint32_t v) {
+            for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+        };
+        auto u16 = [&](std::uint16_t v) {
+            b.push_back(char(v & 0xff));
+            b.push_back(char(v >> 8));
+        };
+        b += "RIFF";
+        u32(36 + n * 2);
+        b += "WAVEfmt ";
+        u32(16);
+        u16(1);
+        u16(1);
+        u32(44100);
+        u32(88200);
+        u16(2);
+        u16(16);
+        b += "data";
+        u32(n * 2);
         b.append(std::size_t(n) * 2, '\0');
         write(rel, b);
     }
 };
 
-const char* kCoinPrefab = R"({"format":"factoria.prefab/1","entity":{"name":"Coin","components":{"Shape2D":{"shape":"circle","size":[12,12]}}}})";
+const char* kCoinPrefab =
+    R"({"format":"factoria.prefab/1","entity":{"name":"Coin","components":{"Shape2D":{"shape":"circle","size":[12,12]}}}})";
 
 }  // namespace
 
@@ -100,10 +116,12 @@ TEST_CASE("scenes saved by the editor are already in the canonical layout") {
     // The hand-written fixtures are not canonical; what the editor writes below is.
     REQUIRE(s.commands().call("scene.format", Json::object({{"all", true}})).ok);
     // Build a scene with the things whose layout used to differ by hand: short arrays, colours, a Tilemap's rows.
-    REQUIRE(s.engine.commands().call("scene.import_ascii", Json::parse(R"({
+    REQUIRE(s.engine.commands()
+                .call("scene.import_ascii", Json::parse(R"({
       "rows": ["..o..o..", ".o......", "########"],
       "legend": {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}},
-      "tilemap": {"tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0]}, "entity": "map"})")).ok);
+      "tilemap": {"tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0]}, "entity": "map"})"))
+                .ok);
     // The editor saves with save_scene_file (Editor::save_scene_now and its scene.save override).
     REQUIRE(save_scene_file(s.engine.world(), "scenes/main.scene.json").ok());
     REQUIRE(save_scene_file(s.engine.world(), "scenes/copy.scene.json").ok());
@@ -115,7 +133,8 @@ TEST_CASE("scenes saved by the editor are already in the canonical layout") {
     // The text itself: Tilemap rows on separate lines, short arrays on one line.
     const std::string text = s.read("scenes/main.scene.json");
     CHECK(text.find("\"tileSize\": [32.0, 32.0]") != std::string::npos);
-    CHECK(text.find("0,  0,  0,  0,  0,  0,  0,  0\n") != std::string::npos);  // the last map row on one line, columns aligned
+    CHECK(text.find("0,  0,  0,  0,  0,  0,  0,  0\n") !=
+          std::string::npos);  // the last map row on one line, columns aligned
 }
 
 // ------------------------------------------------------------------------------------------------- Audio panel
@@ -128,7 +147,13 @@ TEST_CASE("audio feed: polls only newer plays, keeps failed loads visible, filte
     CHECK(a.error.empty());
     CHECK(a.plays.empty());
 
-    REQUIRE(s.commands().call("script.eval", Json::parse(R"({"code":"audio.play('assets/blip.wav', {bus: 'ui', volume: 0.5}); audio.play('assets/missing.wav');"})")).ok);
+    REQUIRE(
+        s.commands()
+            .call(
+                "script.eval",
+                Json::parse(
+                    R"({"code":"audio.play('assets/blip.wav', {bus: 'ui', volume: 0.5}); audio.play('assets/missing.wav');"})"))
+            .ok);
     CHECK(poll_audio_log(s.commands(), a) == 2);
     REQUIRE(a.plays.size() == 2);
     CHECK(a.plays[0].path == "assets/blip.wav");
@@ -219,8 +244,7 @@ TEST_CASE("profiler view: one row per thread, in the frame's order, with each th
     ProfFrame f;
     f.totalMs = 10;
     f.lanes = {lane("main", {{"physics.islands", 0.5, 1}}),
-               lane("worker 1", {{"particles", 1.0, 2}, {"physics.islands", 2.0, 3}}),
-               lane("worker 2", {}),
+               lane("worker 1", {{"particles", 1.0, 2}, {"physics.islands", 2.0, 3}}), lane("worker 2", {}),
                lane("other", {{"loader", 0.25, 1}})};
     for (int i = 0; i < 60; ++i) v.add_frame(f);
     REQUIRE(v.lanes.size() == 4);

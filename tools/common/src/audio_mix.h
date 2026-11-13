@@ -28,8 +28,8 @@ struct Metrics {
     double seconds = 0.0;
     int rate = 0, channels = 0;
     double samplePeakDb = -200.0, truePeakDb = -200.0;  // dBFS / dBTP (4x oversampled), -200 for silence
-    std::size_t fullScaleSamples = 0;  // samples at full scale, any channel
-    std::size_t clippedSamples = 0;    // those inside runs of 2 or more in a row on the same side (a flattened wave)
+    std::size_t fullScaleSamples = 0;                   // samples at full scale, any channel
+    std::size_t clippedSamples = 0;  // those inside runs of 2 or more in a row on the same side (a flattened wave)
     double firstSample = 0.0, lastSample = 0.0;  // largest |sample| of any channel at the very start / end (0..1)
     double firstStep = 0.0, lastStep = 0.0;      // |x[1]-x[0]| and |x[n-1]-x[n-2]| of the channel that has the largest
     double typicalStep = 0.0;                    // RMS of the sample-to-sample differences (largest over the channels)
@@ -76,7 +76,7 @@ struct SheetRow {
 };
 // A picture with one row per sound, all on the same time and level scale so they compare at a glance: a waveform strip over a
 // spectrogram, the name and numbers on the left. Returns {"$image", "picture"}; `outRel` (a .png path) keeps the file. Throws CommandError.
-Json spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int width,
-                       const std::string& outRel, const char* command);
+Json spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows,
+                       int width, const std::string& outRel, const char* command);
 
 }  // namespace fa::audio_mix

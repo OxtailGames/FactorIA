@@ -49,18 +49,21 @@ std::string asset_type_of(std::string_view path);
 
 // One native plugin of "plugins" (fa/runtime/plugins.h, docs/EXTENDING.md "Native plugins").
 struct PluginSettings {
-    std::string name;                    // the key: [a-z][a-z0-9_]*, the plugins.<name> of scripts and the prefix of its commands
-    std::string path;                    // its folder as written: project-relative or absolute, ${VAR} = an environment variable
-    std::vector<std::string> platforms;  // the platforms it is built for; empty = the project's `platforms` (all five without)
-    bool optional = false;               // the game runs without it: a missing build for this computer is a validate warning, not an error
+    std::string name;  // the key: [a-z][a-z0-9_]*, the plugins.<name> of scripts and the prefix of its commands
+    std::string path;  // its folder as written: project-relative or absolute, ${VAR} = an environment variable
+    std::vector<std::string>
+        platforms;  // the platforms it is built for; empty = the project's `platforms` (all five without)
+    bool optional =
+        false;  // the game runs without it: a missing build for this computer is a validate warning, not an error
 };
 
 // The "localization" section (docs/LOCALIZATION.md). No section = `languages` is empty = localization is off and the game behaves as
 // before.
 struct LocalizationSettings {
-    std::string defaultLanguage;                           // one of `languages`; the language of headless runs and the last fallback
-    std::vector<std::string> languages;                    // BCP 47 tags in the order language menus list them; each has locales/<tag>.json
-    std::vector<std::string> fallbackFonts;                // project-relative .ttf/.otf for every language, after the main font
+    std::string defaultLanguage;  // one of `languages`; the language of headless runs and the last fallback
+    std::vector<std::string>
+        languages;  // BCP 47 tags in the order language menus list them; each has locales/<tag>.json
+    std::vector<std::string> fallbackFonts;  // project-relative .ttf/.otf for every language, after the main font
     std::map<std::string, std::vector<std::string>> languageFonts;  // per language: tried before fallbackFonts
 
     bool enabled() const { return !languages.empty(); }
@@ -96,15 +99,20 @@ struct ProjectSettings {
     bool vsync = true;
     std::string orientation = "landscape";  // "landscape" | "portrait" | "any" (mobile)
     bool pixelArt = false;
-    bool pauseOnSuspend = true;  // "pauseOnSuspend": freeze the game and the music while the app is in the background (docs/MOBILE.md, "Lifecycle")
+    bool pauseOnSuspend =
+        true;  // "pauseOnSuspend": freeze the game and the music while the app is in the background (docs/MOBILE.md, "Lifecycle")
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
-    Json inputSchemes = Json::object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
-    bool uiMirrorRtl = true;  // "ui": {"mirrorRtl"}: mirror the screen-space UI in a right-to-left language (ui.mirrorRtl)
+    Json inputSchemes = Json::
+        object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
+    bool uiMirrorRtl =
+        true;              // "ui": {"mirrorRtl"}: mirror the screen-space UI in a right-to-left language (ui.mirrorRtl)
     float uiScale = 1.0f;  // "ui": {"scale"}: the interface scale a run starts with (ui.scale, 0.5 .. 3; ui_rect.h)
-    UiTooltipSettings uiTooltip;  // "ui": {"tooltipDelay", "tooltipOnTouch", "tooltip"}: when a tooltip shows and how it looks (ui_tooltip.h)
-    double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
+    UiTooltipSettings
+        uiTooltip;  // "ui": {"tooltipDelay", "tooltipOnTouch", "tooltip"}: when a tooltip shows and how it looks (ui_tooltip.h)
+    double inputDeadzone =
+        0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;
     std::string icon;  // "icon": project-relative path of the game icon (a square PNG/JPG); "" = none

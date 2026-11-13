@@ -33,15 +33,15 @@ class ScriptSystem;
 
 // What the `launch` request asked for, validated (docs/DEBUGGING.md, "Launch attributes").
 struct DapLaunchArgs {
-    std::string mode = "play";    // "play", "headless" or "test"
-    std::string projectDir;       // absolute, the folder with factoria.json
-    std::string scene;            // play, headless: project-relative scene ("" = the project's main scene)
-    int frames = 600;             // headless
-    std::string inputPath;        // headless: absolute path of the input replay ("" = none)
+    std::string mode = "play";       // "play", "headless" or "test"
+    std::string projectDir;          // absolute, the folder with factoria.json
+    std::string scene;               // play, headless: project-relative scene ("" = the project's main scene)
+    int frames = 600;                // headless
+    std::string inputPath;           // headless: absolute path of the input replay ("" = none)
     std::vector<std::string> tests;  // test: project-relative files, folders or globs ("" entries removed; empty = all)
-    std::string filter;           // test
+    std::string filter;              // test
     bool stopOnEntry = false;
-    bool noDebug = false;         // "Run Without Debugging": no ScriptDebugger is attached
+    bool noDebug = false;  // "Run Without Debugging": no ScriptDebugger is attached
 };
 
 // Validates the `arguments` of a launch request. Unknown keys and bad values give an Error that names the key and

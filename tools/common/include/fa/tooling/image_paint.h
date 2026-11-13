@@ -19,14 +19,15 @@
 
 namespace fa {
 
-struct TileGrid;   // fa/tooling/image_tile.h
+struct TileGrid;  // fa/tooling/image_tile.h
 
 // A selection: coverage 0..255 for each pixel of the canvas (255 = fully selected). Outside the canvas nothing is selected.
 struct ImageSelection {
     int w = 0, h = 0;
     std::vector<std::uint8_t> v;
     ImageSelection() = default;
-    ImageSelection(int width, int height, std::uint8_t fill = 0) : w(width), h(height), v(std::size_t(width) * height, fill) {}
+    ImageSelection(int width, int height, std::uint8_t fill = 0)
+        : w(width), h(height), v(std::size_t(width) * height, fill) {}
     std::uint8_t at(int x, int y) const { return x < 0 || y < 0 || x >= w || y >= h ? 0 : v[std::size_t(y) * w + x]; }
     std::uint8_t& ref(int x, int y) { return v[std::size_t(y) * w + x]; }
     bool empty() const { return v.empty(); }
@@ -34,8 +35,8 @@ struct ImageSelection {
 
 // The stored selection `name` of the document `rel` (image.select keeps it in .factoria/selections/), or None when there is none by
 // that name or it was made for another canvas size. "all" is the whole canvas.
-std::optional<ImageSelection> read_image_selection(const std::string& projectDir, const std::string& rel, const std::string& name, int canvasW,
-                                                   int canvasH);
+std::optional<ImageSelection> read_image_selection(const std::string& projectDir, const std::string& rel,
+                                                   const std::string& name, int canvasW, int canvasH);
 
 // The straight-alpha colour (r, g, b in 0..255, alpha a in 0..1) over one RGBA8 pixel `p`, by the W3C formula.
 void image_over_pixel(std::uint8_t* p, double r, double g, double b, double a);
@@ -48,25 +49,26 @@ Result<void> write_image_selection(const std::string& projectDir, const std::str
 // ---- strokes --------------------------------------------------------------------------------------------------------
 
 struct ImageBrush {
-    double size = 4;                // diameter in pixels (0.5 to 512)
-    double hardness = 1;            // 1 = hard edge (half a pixel anti-aliased); lower fades from hardness * radius to the edge
-    double opacity = 1;             // strength of the whole stroke
+    double size = 4;      // diameter in pixels (0.5 to 512)
+    double hardness = 1;  // 1 = hard edge (half a pixel anti-aliased); lower fades from hardness * radius to the edge
+    double opacity = 1;   // strength of the whole stroke
     Color color{0, 0, 0, 1};
-    bool erase = false;             // lower the alpha instead of painting
-    double spacing = 0;             // arc length between stamps; 0 = a fifth of the size, at least 1
+    bool erase = false;  // lower the alpha instead of painting
+    double spacing = 0;  // arc length between stamps; 0 = a fifth of the size, at least 1
 };
 // Paints one stroke along the polyline `points` (canvas pixels; one point is a dab): a stamp at the first point, one every `spacing`
 // of arc length, one at the last point. A pixel keeps the largest coverage any stamp gave it. `selection` (when given) limits where it
 // paints. Returns how many stamps were made. This is image.paint's algorithm. With `tiles` (a tile grid that is on) the stroke wraps
 // around the edges of the tile that holds its first point.
-std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::vector<std::pair<double, double>>& points,
-                               const ImageBrush& brush, const ImageSelection* selection, const TileGrid* tiles = nullptr);
+std::size_t paint_image_stroke(Image& img, int originX, int originY,
+                               const std::vector<std::pair<double, double>>& points, const ImageBrush& brush,
+                               const ImageSelection* selection, const TileGrid* tiles = nullptr);
 
 // ---- patches: the selected pixels of a layer, to move, transform or copy ------------------------------------------------
 
 struct ImagePatch {
-    Image img;                      // straight alpha; the alpha already includes the selection's coverage
-    int x = 0, y = 0;               // canvas position of its top-left pixel
+    Image img;         // straight alpha; the alpha already includes the selection's coverage
+    int x = 0, y = 0;  // canvas position of its top-left pixel
 };
 ImagePatch image_patch_extract(const Image& img, int originX, int originY, const ImageSelection& selection);
 // Lowers the alpha of the selected pixels by the selection's coverage.
@@ -75,11 +77,12 @@ void image_patch_erase(Image& img, int originX, int originY, const ImageSelectio
 std::size_t image_patch_draw(Image& img, int originX, int originY, const ImagePatch& patch);
 // Tile mode: the patch that was cut at (fromX, fromY) and now sits at patch.x / patch.y, each pixel wrapping around the edges of the
 // tile it came from; returns how many visible pixels fell outside the buffer.
-std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& patch, int fromX, int fromY, const TileGrid& tiles);
+std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& patch, int fromX,
+                                     int fromY, const TileGrid& tiles);
 
 struct ImageTransform {
     double scaleX = 1, scaleY = 1;
-    double rotate = 0;              // degrees, clockwise
+    double rotate = 0;  // degrees, clockwise
     bool flipH = false, flipV = false;
     double pivotX = 0, pivotY = 0;  // canvas pixels
     bool nearest = false;           // hard pixels (pixel art) instead of bilinear
@@ -90,15 +93,15 @@ Result<ImagePatch> image_patch_transform(const ImagePatch& patch, const ImageTra
 // ---- the pixels of one layer, as the commands edit them ----------------------------------------------------------------
 
 struct ImageEditBuffer {
-    Image img;                      // the layer's own pixels (a layer smaller than the canvas is grown to cover it)
-    int ox = 0, oy = 0;             // canvas position of img's top-left pixel
-    bool fixedRect = false;         // a layer with masks keeps its box: edits outside it are dropped
-    std::string kind;               // "pixels"
+    Image img;               // the layer's own pixels (a layer smaller than the canvas is grown to cover it)
+    int ox = 0, oy = 0;      // canvas position of img's top-left pixel
+    bool fixedRect = false;  // a layer with masks keeps its box: edits outside it are dropped
+    std::string kind;        // "pixels"
 };
 // The pixels image.paint and image.edit would edit in the layer `layerPath` (a name or an index path like "1/0") of `document` (the
 // JSON of the document `rel`), in `frame` of an animated document. Only a pixels layer has them: another kind is an error that says
 // what to do.
-Result<ImageEditBuffer> open_image_edit_buffer(const std::string& projectDir, const std::string& rel, const Json& document,
-                                               const std::string& layerPath, int frame);
+Result<ImageEditBuffer> open_image_edit_buffer(const std::string& projectDir, const std::string& rel,
+                                               const Json& document, const std::string& layerPath, int frame);
 
 }  // namespace fa

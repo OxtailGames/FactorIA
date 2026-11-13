@@ -1,0 +1,39 @@
+# UndefinedBehaviorSanitizer ignorelist (FA_SANITIZE=address;undefined, Clang's -fsanitize-ignorelist; cmake/FactoriaSanitize.cmake).
+# Code matching an entry is compiled WITHOUT that check. It is not a runtime suppression file on purpose: the build uses
+# -fno-sanitize-recover=undefined (a finding must fail the test), and the UBSan runtime ignores its suppressions file for the
+# checks of such a build. GCC has no ignorelist: a GCC build reports these findings.
+#
+# Policy: one entry per finding, with the reason above it. Third-party code under external/ (never edited) may be listed by source
+# file; code of ours is never listed: fix it. Format: a [check] section, then src:<glob> lines.
+
+# Dear ImGui (external/imgui): ImGui::EndTable() computes ColumnsAutoFitWidth for a table whose stretch columns cannot be resized
+# as column_width / (StretchWeight / ColumnsStretchSumWeights); on a table's first frames the weights are not known yet, the
+# result is NaN, and CalcWindowContentSizes() casts it to a 64-bit integer (ImTrunc64, imgui_internal.h). The editor's feedback
+# table does it (tools/editor/src/feedback_panel.cpp). Found by the macOS ASan+UBSan run. The value only feeds the content size
+# of the host window, which that window does not use (NoScrollbar, no auto-resize), so no platform lays anything out differently.
+[float-cast-overflow]
+src:*external/imgui/*
+
+# -fsanitize=function (Clang, C and C++): a call through a function pointer whose type differs from the function's own type is
+# undefined behaviour, and the check aborts it. Both vendored libraries below cast a function to the pointer type their interface
+# declares, on purpose. The check is compiled into the function that makes the call, and the list matches the file that declares that function.
+#
+# tinysoundfont (external/tinysoundfont/tsf.h, compiled into engine/audio/src/audio_tsf.c): tsf_load_memory() stores
+# tsf_stream_memory_read(struct tsf_stream_memory*, void*, unsigned) in tsf_stream::read, whose type takes (void*, void*, unsigned),
+# and tsf_riffchunk_read() calls it through that pointer (the same for tsf_stream_memory_skip). Found by the Linux ASan run. Both
+# types have the same size and calling convention on every platform we build for, so the call works.
+#
+# xatlas (external/xatlas/xatlas.cpp): its OpenNL part stores nlSparseMatrixDestroy(NLSparseMatrix*) and the other destructors in
+# NLMatrixStruct::destroy_func (NLDestroyMatrixFunc, taking an NLMatrix = NLMatrixStruct*) and nlDeleteMatrix() calls it through
+# that pointer; every matrix type begins with the NLMatrixStruct fields, so the pointer conversion is the C-style "base class" idiom.
+# Found by the Linux ASan run (the model UV unwrap in the scene tests).
+[function]
+src:*external/tinysoundfont/*
+src:*external/xatlas/*
+
+# tinysoundfont (external/tinysoundfont/tsf.h, tsf_note_on): `regionEnd = region + f->presets[preset_index].regionNum` with a
+# preset that has no regions (regions is NULL, regionNum 0). NULL + 0 is undefined in C (fine in C++), and -fsanitize=pointer-overflow
+# reports it. The loop then runs zero times, so nothing is read through the pointer. Found by the Linux ASan run (the song mixer
+# test, which renders a soundfont with an empty preset, and fuzz_soundfont).
+[pointer-overflow]
+src:*external/tinysoundfont/*

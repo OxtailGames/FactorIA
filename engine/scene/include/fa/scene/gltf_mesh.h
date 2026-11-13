@@ -26,15 +26,20 @@ struct GltfEmbeddedImage {
 };
 
 struct GltfMesh {
-    MeshData data;                          // one submesh per (material, part), in order of first use
-    std::vector<MeshMaterial> materials;    // the distinct materials in the order of `data.submeshes`' first use; names are unique ("material_1" when the file names none)
-    std::vector<std::size_t> submeshMaterial;  // for each of data.submeshes: its index into `materials`, or SIZE_MAX for the default (no material)
+    MeshData data;  // one submesh per (material, part), in order of first use
+    std::vector<MeshMaterial>
+        materials;  // the distinct materials in the order of `data.submeshes`' first use; names are unique ("material_1" when the file names none)
+    std::vector<std::size_t>
+        submeshMaterial;  // for each of data.submeshes: its index into `materials`, or SIZE_MAX for the default (no material)
     std::vector<GltfEmbeddedImage> embedded;
     std::vector<std::string> warnings;
-    std::size_t meshNodes = 0;              // nodes that carried a mesh
+    std::size_t meshNodes = 0;  // nodes that carried a mesh
 };
 
 // `path` is project-relative (or absolute) and ends in .glb or .gltf. Errors name the file and say what is wrong.
 Result<GltfMesh> read_gltf_mesh(const std::string& path);
+// The same on a file already in memory (a .glb, or a .gltf whose buffers are embedded; an external .bin is looked up through fa::fs
+// next to `path`, which names the file in the errors and is not read). The fuzz target `gltf` and tests call it.
+Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, const std::string& path);
 
 }  // namespace fa

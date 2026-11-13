@@ -52,7 +52,8 @@ struct FixedHint final : CapabilityHintProvider {
 };
 }  // namespace
 
-TEST_CASE("MainThreadQueue: a queued command keeps the caller, the capability set and the hint words of the thread that asked") {
+TEST_CASE("MainThreadQueue: a queued command keeps the caller, the capability set and the hint words of the thread "
+          "that asked") {
     MainThreadQueue q;
     const CapabilitySet roleSet{Capability::Read, Capability::State};
     std::atomic<bool> done{false};
@@ -155,8 +156,10 @@ TEST_CASE("commands that only write files do not count as scene edits") {
     CHECK_FALSE(ed.command_edits_scene("prefab.save", Json::object()));
     CHECK_FALSE(ed.command_edits_scene("scene.format", Json::object()));
     CHECK_FALSE(ed.command_edits_scene("scene.ascii_edit", Json::parse(R"({"file":"levels/1.json","ops":[]})")));
-    CHECK_FALSE(ed.command_edits_scene("scene.import_ascii", Json::parse(R"({"path":"scenes/x.scene.json","rows":["#"],"legend":{"#":0}})")));
-    CHECK(ed.command_edits_scene("scene.import_ascii", Json::parse(R"({"rows":["#"],"legend":{"#":0}})")));  // the running world
+    CHECK_FALSE(ed.command_edits_scene("scene.import_ascii",
+                                       Json::parse(R"({"path":"scenes/x.scene.json","rows":["#"],"legend":{"#":0}})")));
+    CHECK(ed.command_edits_scene("scene.import_ascii",
+                                 Json::parse(R"({"rows":["#"],"legend":{"#":0}})")));  // the running world
     CHECK(ed.command_edits_scene("scene.spawn", Json::object()));
     CHECK(ed.command_edits_scene("scene.set_component", Json::object()));
 }

@@ -36,9 +36,17 @@ std::wstring quote_arg(const std::wstring& a) {
     std::wstring out = L"\"";
     std::size_t backslashes = 0;
     for (wchar_t c : a) {
-        if (c == L'\\') { ++backslashes; continue; }
-        if (c == L'"') { out.append(backslashes * 2 + 1, L'\\'); out.push_back(L'"'); }
-        else { out.append(backslashes, L'\\'); out.push_back(c); }
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (c == L'"') {
+            out.append(backslashes * 2 + 1, L'\\');
+            out.push_back(L'"');
+        } else {
+            out.append(backslashes, L'\\');
+            out.push_back(c);
+        }
         backslashes = 0;
     }
     out.append(backslashes * 2, L'\\');
@@ -76,7 +84,10 @@ struct ChildProcess::Impl {
         if (errTail.size() > kStderrTail) errTail.erase(0, errTail.size() - kStderrTail);
     }
     void close_handle(HANDLE& h) {
-        if (h) { CloseHandle(h); h = nullptr; }
+        if (h) {
+            CloseHandle(h);
+            h = nullptr;
+        }
     }
     // Bytes waiting in a pipe: >0 data, 0 nothing yet, -1 the pipe ended.
     static long avail(HANDLE h) {
@@ -93,8 +104,10 @@ ChildProcess::~ChildProcess() {
     impl_->close_handle(impl_->inW);  // a well-behaved server exits on end of input
     if (impl_->process) {
         if (WaitForSingleObject(impl_->process, 500) != WAIT_OBJECT_0) {
-            if (impl_->job) TerminateJobObject(impl_->job, 1);
-            else TerminateProcess(impl_->process, 1);
+            if (impl_->job)
+                TerminateJobObject(impl_->job, 1);
+            else
+                TerminateProcess(impl_->process, 1);
             WaitForSingleObject(impl_->process, 2000);
         }
     }
@@ -114,10 +127,11 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
     std::wstring cmdline = quote_arg(widen(exe));
     for (std::size_t i = 1; i < opt.argv.size(); ++i) {
         if (batch && opt.argv[i].find_first_of("\r\n%&|<>^") != std::string::npos)
-            return make_error("Cannot pass argument " + std::to_string(i) + " to '" + exe +
-                                  "': it is a .cmd/.bat file, and cmd.exe would change or run the line breaks or "
-                                  "% & | < > ^ characters in it",
-                              "Use a server program that is not a .cmd shim, or keep these characters out of the arguments.");
+            return make_error(
+                "Cannot pass argument " + std::to_string(i) + " to '" + exe +
+                    "': it is a .cmd/.bat file, and cmd.exe would change or run the line breaks or "
+                    "% & | < > ^ characters in it",
+                "Use a server program that is not a .cmd shim, or keep these characters out of the arguments.");
         cmdline += L' ';
         cmdline += quote_arg(widen(opt.argv[i]));
     }
@@ -183,7 +197,8 @@ bool ChildProcess::write(std::string_view data) {
     std::size_t off = 0;
     while (off < data.size()) {
         DWORD w = 0;
-        if (!WriteFile(d.inW, data.data() + off, static_cast<DWORD>(data.size() - off), &w, nullptr) || w == 0) return false;
+        if (!WriteFile(d.inW, data.data() + off, static_cast<DWORD>(data.size() - off), &w, nullptr) || w == 0)
+            return false;
         off += w;
     }
     return true;
@@ -203,7 +218,11 @@ ChildProcess::Read ChildProcess::read_line(std::string& line, double timeoutSeco
             return Read::Line;
         }
         if (!d.outR) {
-            if (!d.outBuf.empty()) { line = std::move(d.outBuf); d.outBuf.clear(); return Read::Line; }
+            if (!d.outBuf.empty()) {
+                line = std::move(d.outBuf);
+                d.outBuf.clear();
+                return Read::Line;
+            }
             // The output ended: the program is exiting. Give it a moment so running() agrees with Closed.
             if (d.process) WaitForSingleObject(d.process, 500);
             return Read::Closed;
@@ -213,23 +232,29 @@ ChildProcess::Read ChildProcess::read_line(std::string& line, double timeoutSeco
         bool any = false;
         if (d.errR) {
             long a = Impl::avail(d.errR);
-            if (a < 0) d.close_handle(d.errR);
+            if (a < 0)
+                d.close_handle(d.errR);
             else if (a > 0) {
                 DWORD got = 0;
                 if (ReadFile(d.errR, buf, static_cast<DWORD>(sizeof buf), &got, nullptr) && got > 0) {
                     d.add_stderr(buf, got);
                     any = true;
-                } else d.close_handle(d.errR);
+                } else
+                    d.close_handle(d.errR);
             }
         }
         long a = Impl::avail(d.outR);
-        if (a < 0) { d.close_handle(d.outR); continue; }
+        if (a < 0) {
+            d.close_handle(d.outR);
+            continue;
+        }
         if (a > 0) {
             DWORD got = 0;
             if (ReadFile(d.outR, buf, static_cast<DWORD>(sizeof buf), &got, nullptr) && got > 0) {
                 d.outBuf.append(buf, got);
                 any = true;
-            } else d.close_handle(d.outR);
+            } else
+                d.close_handle(d.outR);
         }
         if (!any) Sleep(5);
     }
@@ -243,8 +268,10 @@ bool ChildProcess::running() {
 void ChildProcess::terminate() {
     auto& d = *impl_;
     if (!d.process) return;
-    if (d.job) TerminateJobObject(d.job, 1);
-    else TerminateProcess(d.process, 1);
+    if (d.job)
+        TerminateJobObject(d.job, 1);
+    else
+        TerminateProcess(d.process, 1);
     WaitForSingleObject(d.process, 2000);
 }
 

@@ -41,7 +41,8 @@ bool has(const std::vector<AudioIssue>& list, const std::string& pointer, const 
 TEST_CASE("buses: a project bus scales the voices on it and its parent scales it") {
     Fixture fx;
     fx.audio.set_buses({{"ambience", "sfx"}, {"birds", "ambience"}, {"voiceover", "master"}});
-    CHECK(fx.audio.bus_names() == std::vector<std::string>{"sfx", "music", "ui", "master", "ambience", "birds", "voiceover"});
+    CHECK(fx.audio.bus_names() ==
+          std::vector<std::string>{"sfx", "music", "ui", "master", "ambience", "birds", "voiceover"});
     CHECK(level(fx, "ambience") == doctest::Approx(0.5f).epsilon(0.03));
     fx.audio.set_bus_volume("ambience", 0.5f);
     CHECK(fx.audio.bus_volume("ambience") == 0.5f);
@@ -49,7 +50,7 @@ TEST_CASE("buses: a project bus scales the voices on it and its parent scales it
     CHECK(level(fx, "sfx") == doctest::Approx(0.5f).epsilon(0.03));  // the child does not scale its parent
     fx.audio.set_bus_volume("sfx", 0.5f);                            // the parent scales the child
     CHECK(level(fx, "ambience") == doctest::Approx(0.125f).epsilon(0.05));
-    fx.audio.set_bus_volume("birds", 0.5f);                          // a grandchild: birds x ambience x sfx
+    fx.audio.set_bus_volume("birds", 0.5f);  // a grandchild: birds x ambience x sfx
     CHECK(level(fx, "birds") == doctest::Approx(0.0625f).epsilon(0.08));
     CHECK(level(fx, "voiceover") == doctest::Approx(0.5f).epsilon(0.03));  // under the master, not under sfx
     fx.audio.set_bus_volume("master", 0.5f);
@@ -158,7 +159,12 @@ TEST_CASE("voices: activeVoices lists what plays, and a voice's end is reported 
     CHECK_FALSE(fx.audio.is_playing(shot));
 
     // stop() ends a voice too; a voice played without notifyEnd is never listed; stop_all and a scene load drop the list.
-    const VoiceId a = fx.audio.play("sounds/sine.wav", [] { PlayParams p; p.loop = true; p.notifyEnd = true; return p; }());
+    const VoiceId a = fx.audio.play("sounds/sine.wav", [] {
+        PlayParams p;
+        p.loop = true;
+        p.notifyEnd = true;
+        return p;
+    }());
     fx.audio.stop(a);
     CHECK(fx.audio.take_ended_voices() == std::vector<VoiceId>{a});
     fx.audio.stop(bed);
@@ -211,18 +217,21 @@ TEST_CASE("listener zoom: a zoom of 2 doubles the distance a positional sound is
     const auto measure = [&](float x) {
         world.get<Transform>(s)->position = {x, 0, 0};
         fx.audio.start_recording();
-        for (int i = 0; i < 12; ++i) { fx.audio.update(world, 1.0f / 60.0f); fx.audio.advance_null_device(1.0 / 60.0); }
+        for (int i = 0; i < 12; ++i) {
+            fx.audio.update(world, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         return fx.finish("out/zoom.wav");
     };
-    CHECK(measure(400).peak_r() == doctest::Approx(0.25f).epsilon(0.1));       // zoom 1: half the range, half the volume
-    CHECK(measure(900).peak() < 0.001f);                                       // beyond the range
+    CHECK(measure(400).peak_r() == doctest::Approx(0.25f).epsilon(0.1));  // zoom 1: half the range, half the volume
+    CHECK(measure(900).peak() < 0.001f);                                  // beyond the range
     listener.zoom = 2.0f;
-    CHECK(measure(400).peak_r() == doctest::Approx(0.375f).epsilon(0.1));      // 1 - 400 / 1600
-    CHECK(measure(800).peak_r() == doctest::Approx(0.25f).epsilon(0.1));       // the old range now reaches half way
-    CHECK(measure(1500).peak() > 0.02f);                                       // heard past the old range
-    CHECK(measure(1700).peak() < 0.001f);                                      // silent at 2 x range
-    listener.zoom = 0.5f;                                                      // zoomed in: half the reach
-    CHECK(measure(300).peak_r() == doctest::Approx(0.125f).epsilon(0.15));     // 1 - 300 / 400
+    CHECK(measure(400).peak_r() == doctest::Approx(0.375f).epsilon(0.1));   // 1 - 400 / 1600
+    CHECK(measure(800).peak_r() == doctest::Approx(0.25f).epsilon(0.1));    // the old range now reaches half way
+    CHECK(measure(1500).peak() > 0.02f);                                    // heard past the old range
+    CHECK(measure(1700).peak() < 0.001f);                                   // silent at 2 x range
+    listener.zoom = 0.5f;                                                   // zoomed in: half the reach
+    CHECK(measure(300).peak_r() == doctest::Approx(0.125f).epsilon(0.15));  // 1 - 300 / 400
     CHECK(measure(500).peak() < 0.001f);
 }
 

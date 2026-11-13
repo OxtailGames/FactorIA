@@ -10,8 +10,8 @@ namespace stdfs = std::filesystem;
 
 const std::vector<ExportTarget>& export_targets() {
     static const std::vector<ExportTarget> targets = {
-        {"windows", "Windows", false}, {"macos", "macOS", false},  {"linux", "Linux", false},
-        {"android", "Android", true},  {"ios", "iOS", true},     {"web", "Web", false},
+        {"windows", "Windows", false}, {"macos", "macOS", false}, {"linux", "Linux", false},
+        {"android", "Android", true},  {"ios", "iOS", true},      {"web", "Web", false},
     };
     return targets;
 }
@@ -34,17 +34,24 @@ std::string export_format_label(const std::string& format) {
 std::string export_target_note(const ExportTarget& target, const std::string& format) {
     const std::string p = target.platform;
     if (p == "android") {
-        if (format == "aab") return "Builds a Google Play bundle (.aab) with Gradle, next to the Gradle project it writes.";
-        if (format == "gradle") return "A Gradle project only: nothing is built (open it in Android Studio, or the next steps say how).";
-        return "Builds the APK with Gradle (the first build downloads Gradle and the Android plugin), next to the Gradle project it writes.";
+        if (format == "aab")
+            return "Builds a Google Play bundle (.aab) with Gradle, next to the Gradle project it writes.";
+        if (format == "gradle")
+            return "A Gradle project only: nothing is built (open it in Android Studio, or the next steps say how).";
+        return "Builds the APK with Gradle (the first build downloads Gradle and the Android plugin), next to the "
+               "Gradle project it writes.";
     }
-    if (p == "ios") return "An Xcode project and build_ios.sh: build it on a Mac with Xcode afterwards (the next steps say how).";
+    if (p == "ios")
+        return "An Xcode project and build_ios.sh: build it on a Mac with Xcode afterwards (the next steps say how).";
     if (p == "web")
-        return "A folder with index.html, the web player and game.pak, and a .zip of it to upload to itch.io as an HTML5 game. "
-               "Serve the folder over http to try it (the next steps say how), or tick One HTML file for one page that opens from a double click.";
+        return "A folder with index.html, the web player and game.pak, and a .zip of it to upload to itch.io as an "
+               "HTML5 game. "
+               "Serve the folder over http to try it (the next steps say how), or tick One HTML file for one page that "
+               "opens from a double click.";
     if (p == "macos") return "An .app with the game and its player, ready to run and share.";
     if (p == "windows" && format == "msix")
-        return "A folder with the game and its player, and an .msix next to it: the package of the Microsoft Store (unsigned: the Store signs it).";
+        return "A folder with the game and its player, and an .msix next to it: the package of the Microsoft Store "
+               "(unsigned: the Store signs it).";
     return "A folder with the game and its player, ready to run and share.";
 }
 
@@ -54,7 +61,8 @@ std::string export_parent_dir(const std::string& projectDir, const ExportSetting
     return out.lexically_normal().generic_string();
 }
 
-ExportOptions export_options(const std::string& projectDir, const std::string& platform, const ExportSettings& settings) {
+ExportOptions export_options(const std::string& projectDir, const std::string& platform,
+                             const ExportSettings& settings) {
     ExportOptions o;
     o.projectDir = projectDir;
     o.platform = platform;
@@ -69,7 +77,8 @@ ExportOptions export_options(const std::string& projectDir, const std::string& p
 bool export_needs_player(const std::string& platform) {
     const ExportTarget* t = find_export_target(platform);
     // The web player is a folder of two files, not "another OS's factoria_player": its row offers the download instead.
-    return t && !t->mobile && std::string(t->platform) != "web" && normalize_export_platform(platform) != normalize_export_platform("");
+    return t && !t->mobile && std::string(t->platform) != "web" &&
+           normalize_export_platform(platform) != normalize_export_platform("");
 }
 
 ExportStatus check_export(const ExportOptions& options) {
@@ -119,8 +128,10 @@ std::string export_summary(const ExportOutcome& outcome) {
     if (outcome.cancelled) return "Export for " + label_of(outcome.platform) + " cancelled";
     if (!outcome.ok) return "Export for " + label_of(outcome.platform) + " failed: " + export_error_text(outcome.error);
     const std::string format = export_format_label(outcome.report.format);
-    std::string s = "Exported " + label_of(outcome.platform) + (format.empty() ? "" : " " + format) + " to " + outcome.report.outputDir;
-    if (const size_t n = outcome.report.warnings.size()) s += " (" + std::to_string(n) + " warning" + (n == 1 ? ")" : "s)");
+    std::string s = "Exported " + label_of(outcome.platform) + (format.empty() ? "" : " " + format) + " to " +
+                    outcome.report.outputDir;
+    if (const size_t n = outcome.report.warnings.size())
+        s += " (" + std::to_string(n) + " warning" + (n == 1 ? ")" : "s)");
     return s;
 }
 

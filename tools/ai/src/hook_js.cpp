@@ -102,13 +102,16 @@ struct Runtime {
         } else if (!spec.empty() && spec[0] == '/') {
             joined = spec.substr(1);
         } else {
-            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: a hook module has no packages and no engine modules; import project files with a relative path such as './helpers.js'",
+            JS_ThrowReferenceError(ctx,
+                                   "cannot import '%s' from %s: a hook module has no packages and no engine modules; "
+                                   "import project files with a relative path such as './helpers.js'",
                                    name, base && *base ? base : self->moduleRel.c_str());
             return nullptr;
         }
         auto norm = fs::normalize_checked(joined);
         if (!norm.ok() || norm->empty()) {
-            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: the path leaves the project folder", name, base ? base : "");
+            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: the path leaves the project folder", name,
+                                   base ? base : "");
             return nullptr;
         }
         char* out = static_cast<char*>(js_malloc(ctx, norm->size() + 1));
@@ -122,12 +125,14 @@ struct Runtime {
         const std::string rel = name;
         std::ifstream in(fsys::path(self->projectDir) / rel, std::ios::binary);
         if (!in) {
-            JS_ThrowReferenceError(ctx, "cannot load module '%s': the file does not exist or cannot be read", rel.c_str());
+            JS_ThrowReferenceError(ctx, "cannot load module '%s': the file does not exist or cannot be read",
+                                   rel.c_str());
             return nullptr;
         }
         std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         self->files.insert(rel);
-        JSValue func = JS_Eval(ctx, text.c_str(), text.size(), rel.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        JSValue func =
+            JS_Eval(ctx, text.c_str(), text.size(), rel.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
         if (JS_IsException(func)) return nullptr;
         auto* def = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(func));
         JS_FreeValue(ctx, func);
@@ -174,7 +179,9 @@ struct Runtime {
                 if (at == std::string::npos) continue;
                 std::string rest = ln.substr(at + 3);
                 const std::size_t lp = rest.rfind('(');
-                if (lp != std::string::npos) rest = rest.substr(lp + 1, rest.rfind(')') == std::string::npos ? std::string::npos : rest.rfind(')') - lp - 1);
+                if (lp != std::string::npos)
+                    rest = rest.substr(lp + 1, rest.rfind(')') == std::string::npos ? std::string::npos
+                                                                                    : rest.rfind(')') - lp - 1);
                 const std::size_t c2 = rest.rfind(':');
                 if (c2 == std::string::npos || c2 == 0) continue;
                 const std::size_t c1 = rest.rfind(':', c2 - 1);
@@ -218,9 +225,11 @@ struct Runtime {
             what = "ran out of memory (the limit is " + std::to_string(kMemoryLimit / (1024 * 1024)) + " MB)";
             hint = "Do not build huge arrays or strings.";
         } else if (e.name == "ReferenceError" && e.message.find("is not defined") != std::string::npos) {
-            hint = "A hook module sees only the language itself (Math, JSON, Array...) and console: no engine bindings, files, network or timers. Take everything from the `input` argument.";
+            hint = "A hook module sees only the language itself (Math, JSON, Array...) and console: no engine "
+                   "bindings, files, network or timers. Take everything from the `input` argument.";
         } else {
-            hint = "Fix the line named; the module sees only the language and console, and gets the event's JSON as its argument.";
+            hint = "Fix the line named; the module sees only the language and console, and gets the event's JSON as "
+                   "its argument.";
         }
         msg += ": " + what + " (" + doing + "). " + hint;
         return msg;
@@ -244,8 +253,8 @@ std::string names_of(JSContext* ctx, JSValueConst obj) {
 
 }  // namespace
 
-JsHookResult run_js_hook(const std::string& projectDir, const std::string& moduleRel, HookEvent event, const Json& input,
-                         double timeoutSeconds) {
+JsHookResult run_js_hook(const std::string& projectDir, const std::string& moduleRel, HookEvent event,
+                         const Json& input, double timeoutSeconds) {
     JsHookResult res;
     auto fail = [&](std::string message) {
         res.ok = false;
@@ -256,7 +265,8 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
     {
         std::error_code ec;
         if (!fsys::is_regular_file(fsys::path(projectDir) / moduleRel, ec)) {
-            return fail(moduleRel + " does not exist in the project. Create it, or fix \"module\" in the hook; the module is a file in the hooks/ folder, for example hooks/guard.js.");
+            return fail(moduleRel + " does not exist in the project. Create it, or fix \"module\" in the hook; the "
+                                    "module is a file in the hooks/ folder, for example hooks/guard.js.");
         }
     }
     Runtime R;
@@ -275,7 +285,8 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
     R.arm();
 
     JSValue prelude = JS_Eval(R.ctx, kPrelude, std::strlen(kPrelude), "<hook prelude>", JS_EVAL_TYPE_GLOBAL);
-    if (JS_IsException(prelude)) return fail("The sandbox of JavaScript hooks could not start: " + R.take_exception().message);
+    if (JS_IsException(prelude))
+        return fail("The sandbox of JavaScript hooks could not start: " + R.take_exception().message);
     JSValue native = JS_NewObject(R.ctx);
     JS_SetPropertyStr(R.ctx, native, "log", JS_NewCFunction(R.ctx, Runtime::native_log, "log", 2));
     R.helper = JS_Call(R.ctx, prelude, JS_UNDEFINED, 1, &native);
@@ -287,7 +298,8 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
     }
 
     const std::string doingLoad = "while loading the module";
-    const std::string importer = "import * as m from " + Json("/" + moduleRel).dump() + "; globalThis.__hookModule = m;";
+    const std::string importer =
+        "import * as m from " + Json("/" + moduleRel).dump() + "; globalThis.__hookModule = m;";
     JSValue evaluated = JS_Eval(R.ctx, importer.c_str(), importer.size(), "<hook>", JS_EVAL_TYPE_MODULE);
     if (JS_IsException(evaluated)) {
         std::string msg = R.describe(R.take_exception(), doingLoad);
@@ -311,7 +323,9 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
         }
         if (state == JS_PROMISE_PENDING) {
             JS_FreeValue(R.ctx, evaluated);
-            return fail(moduleRel + ": the module uses top-level await on something that never settles. A hook answers synchronously.");
+            return fail(
+                moduleRel +
+                ": the module uses top-level await on something that never settles. A hook answers synchronously.");
         }
     }
     JS_FreeValue(R.ctx, evaluated);
@@ -352,9 +366,10 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
         JS_FreeValue(R.ctx, ns);
         res.handled = false;
         res.logs = R.logs;
-        return fail(moduleRel + " has no function for " + eventName + " (it exports: " + (exported.empty() ? "nothing" : exported) +
-                    "). Export `default function (input) {...}` for every event it is given, or `export default { " + eventName +
-                    "(input) {...} }`.");
+        return fail(moduleRel + " has no function for " + eventName +
+                    " (it exports: " + (exported.empty() ? "nothing" : exported) +
+                    "). Export `default function (input) {...}` for every event it is given, or `export default { " +
+                    eventName + "(input) {...} }`.");
     }
     JS_FreeValue(R.ctx, defaultExport);
     JS_FreeValue(R.ctx, ns);
@@ -381,7 +396,9 @@ JsHookResult run_js_hook(const std::string& projectDir, const std::string& modul
         const auto state = JS_PromiseState(R.ctx, result);
         if (state == JS_PROMISE_PENDING) {
             JS_FreeValue(R.ctx, result);
-            return fail(moduleRel + ": the " + eventName + " function awaits something that never settles. A hook has no timers and no network: answer synchronously.");
+            return fail(moduleRel + ": the " + eventName +
+                        " function awaits something that never settles. A hook has no timers and no network: answer "
+                        "synchronously.");
         }
         JSValue inner = JS_PromiseResult(R.ctx, result);
         const bool rejected = state == JS_PROMISE_REJECTED;

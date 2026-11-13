@@ -19,7 +19,9 @@ using namespace fa::ai::test;
 
 namespace {
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::vector<std::string> tool_names(const std::vector<ToolDef>& tools) {
     std::vector<std::string> out;
@@ -38,7 +40,8 @@ CommandRegistry capability_registry(std::map<std::string, int>& ran) {
         c.summary = name;
         c.readOnly = readOnly;
         c.capabilities = caps;
-        if (std::string(name).find("filmstrip") != std::string::npos) c.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string"}}})");
+        if (std::string(name).find("filmstrip") != std::string::npos)
+            c.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string"}}})");
         const std::string n = name;
         r.add(c, [&ran, n](const Json& args) {
             if (n.find("filmstrip") != std::string::npos && args.contains("path"))
@@ -70,7 +73,8 @@ TEST_CASE("role capabilities: builders get the agent set, the critics only look 
         const CapabilitySet set = role_capabilities(role);
         CHECK(set == CapabilitySet({Capability::Read, Capability::State}));
         CHECK(set == capability_sets::mcp_read_only());
-        for (Capability c : {Capability::WriteProject, Capability::WriteAnywhere, Capability::Network, Capability::Process, Capability::Spend, Capability::Publish})
+        for (Capability c : {Capability::WriteProject, Capability::WriteAnywhere, Capability::Network,
+                             Capability::Process, Capability::Spend, Capability::Publish})
             CHECK_FALSE(set.has(c));
     }
     CHECK(role_capabilities("nobody") == role_capabilities(kRoleReviewer));  // what cannot be read is not widened
@@ -82,10 +86,12 @@ TEST_CASE("role capabilities: builders get the agent set, the critics only look 
     CHECK(role_denial_hint("nobody") == nullptr);
 }
 
-TEST_CASE("role capabilities: the filmstrips are play tools, scene.save is not, and a play tool must fit the critics' set") {
+TEST_CASE(
+    "role capabilities: the filmstrips are play tools, scene.save is not, and a play tool must fit the critics' set") {
     std::map<std::string, int> ran;
     CommandRegistry reg = capability_registry(ran);
-    for (const char* name : {"anim.filmstrip", "vfx.filmstrip"}) CHECK_MESSAGE(is_read_only_tool(*info_of(reg, name)), name);
+    for (const char* name : {"anim.filmstrip", "vfx.filmstrip"})
+        CHECK_MESSAGE(is_read_only_tool(*info_of(reg, name)), name);
     CHECK_FALSE(is_read_only_tool(*info_of(reg, "scene.save")));
     CHECK_FALSE(is_read_only_tool(*info_of(reg, "scene.export_anywhere")));
     const auto ro = tool_names(tools_from_registry(reg, false, true));
@@ -116,7 +122,8 @@ TEST_CASE("role capabilities: a CLI role is told to switch off what its set does
     CHECK_FALSE(contains(worker, "Edit"));
 }
 
-TEST_CASE("role capabilities: a reviewer run cannot call scene.save, a worker run can but not a writeAnywhere command") {
+TEST_CASE(
+    "role capabilities: a reviewer run cannot call scene.save, a worker run can but not a writeAnywhere command") {
     std::map<std::string, int> ran;
     CommandRegistry reg = capability_registry(ran);
 
@@ -169,7 +176,8 @@ TEST_CASE("role capabilities: a reviewer run cannot call scene.save, a worker ru
     }
 }
 
-TEST_CASE("role capabilities: the scope a tool call runs in refuses with the role's name, even for a command offered by mistake") {
+TEST_CASE("role capabilities: the scope a tool call runs in refuses with the role's name, even for a command offered "
+          "by mistake") {
     std::map<std::string, int> ran;
     CommandRegistry reg = capability_registry(ran);
     for (const char* role : {kRoleReviewer, kRoleWorker}) {
@@ -214,7 +222,8 @@ TEST_CASE("role capabilities: the scope a tool call runs in refuses with the rol
     CHECK(ran["scene.save"] == 1);
 }
 
-TEST_CASE("role capabilities: cli_capability_env narrows by the calling thread, the provider's own value and the process, never widens") {
+TEST_CASE("role capabilities: cli_capability_env narrows by the calling thread, the provider's own value and the "
+          "process, never widens") {
     CliRunRequest req;
     req.role = kRoleReviewer;
     req.capabilities = role_capabilities(kRoleReviewer);
@@ -227,7 +236,8 @@ TEST_CASE("role capabilities: cli_capability_env narrows by the calling thread, 
     CHECK(*command_capabilities_from_env_value(env[kCapabilitiesEnvVar].c_str()) == CapabilitySet{Capability::Read});
     // a provider "env" that already limits it is kept
     env = cli_capability_env(req, {{kCapabilitiesEnvVar, "read,state"}}, CapabilitySet::all());
-    CHECK(*command_capabilities_from_env_value(env[kCapabilitiesEnvVar].c_str()) == CapabilitySet({Capability::Read, Capability::State}));
+    CHECK(*command_capabilities_from_env_value(env[kCapabilitiesEnvVar].c_str()) ==
+          CapabilitySet({Capability::Read, Capability::State}));
     // ... and one that cannot be read closes it
     env = cli_capability_env(req, {{kCapabilitiesEnvVar, "wirteProject"}}, CapabilitySet::all());
     CHECK(env[kCapabilitiesEnvVar] == "none");
@@ -244,7 +254,8 @@ TEST_CASE("role capabilities: the factoria server of the MCP config and Codex's 
     const Json stdio = make_mcp_config("/proj", "factoria", {}, {}, env);
     CHECK(stdio["mcpServers"]["factoria"]["env"][kCapabilitiesEnvVar] == "read,state");
     CHECK(stdio["mcpServers"]["factoria"]["env"][kRoleEnvVar] == "reviewer");
-    const Json http = make_mcp_config("/proj", "factoria", "http://127.0.0.1:1/mcp/token", {}, env);  // the editor's endpoint enforces it itself
+    const Json http = make_mcp_config("/proj", "factoria", "http://127.0.0.1:1/mcp/token", {},
+                                      env);  // the editor's endpoint enforces it itself
     CHECK_FALSE(http["mcpServers"]["factoria"].contains("env"));
     const Json none = make_mcp_config("/proj", "factoria");
     CHECK_FALSE(none["mcpServers"]["factoria"].contains("env"));
@@ -266,7 +277,8 @@ std::string env_value(const std::string& envDump, const std::string& name) {
 }  // namespace
 
 #ifndef _WIN32  // fake_claude.sh records its environment (FAKE_ENV_FILE is POSIX only)
-TEST_CASE("role capabilities: the CLI agent of a reviewer starts with the reviewer's floor, a worker's with the agent set") {
+TEST_CASE(
+    "role capabilities: the CLI agent of a reviewer starts with the reviewer's floor, a worker's with the agent set") {
     ProviderConfig cfg = default_config().providers["claude-code"];
     cfg.command = std::string(FA_AI_FIXTURES) + "/fake_claude.sh";
     TempDir scratch;
@@ -288,7 +300,8 @@ TEST_CASE("role capabilities: the CLI agent of a reviewer starts with the review
         CHECK(env_value(seen, kRoleEnvVar) == role);
         // Claude Code starts the MCP server with a short environment: the floor is also in the server's own "env"
         const Json mcp = Json::parse(read_file(argvFile + ".mcpconfig"));
-        CHECK(mcp["mcpServers"]["factoria"]["env"][kCapabilitiesEnvVar] == capabilities_env_value(role_capabilities(role)));
+        CHECK(mcp["mcpServers"]["factoria"]["env"][kCapabilitiesEnvVar] ==
+              capabilities_env_value(role_capabilities(role)));
         CHECK(mcp["mcpServers"]["factoria"]["env"][kRoleEnvVar] == role);
     }
     CHECK(capabilities_env_value(role_capabilities(kRoleReviewer)).find("publish") == std::string::npos);
@@ -296,14 +309,25 @@ TEST_CASE("role capabilities: the CLI agent of a reviewer starts with the review
 }
 #endif
 
-TEST_CASE("role capabilities: the commands that look at an asset are read-only tools for the critics, and a path of their own is refused") {
+TEST_CASE("role capabilities: the commands that look at an asset are read-only tools for the critics, and a path of "
+          "their own is refused") {
     TempDir dir;
     CommandRegistry reg;
     register_asset_commands(reg, dir.str());
     register_audio_commands(reg, dir.str());
-    const char* const kLooking[] = {"model.preview", "assets.contact_sheet", "assets.preview_sheet", "assets.preview_in_scene", "assets.check_art",
-                                    "audio.render",  "assets.spectrogram",   "assets.check_mix",     "music.info",             "music.check",
-                                    "music.mix",     "anim3d.preview",       "skin3d.preview"};
+    const char* const kLooking[] = {"model.preview",
+                                    "assets.contact_sheet",
+                                    "assets.preview_sheet",
+                                    "assets.preview_in_scene",
+                                    "assets.check_art",
+                                    "audio.render",
+                                    "assets.spectrogram",
+                                    "assets.check_mix",
+                                    "music.info",
+                                    "music.check",
+                                    "music.mix",
+                                    "anim3d.preview",
+                                    "skin3d.preview"};
     for (const char* name : kLooking) {
         const CommandInfo* info = info_of(reg, name);
         REQUIRE_MESSAGE(info != nullptr, name);
@@ -317,7 +341,8 @@ TEST_CASE("role capabilities: the commands that look at an asset are read-only t
         CHECK_FALSE_MESSAGE(is_read_only_tool(*info), name);
     }
     const auto ro = tool_names(tools_from_registry(reg, false, true));
-    for (const char* name : {"model_preview", "assets_contact_sheet", "audio_render", "assets_spectrogram"}) CHECK_MESSAGE(contains(ro, name), name);
+    for (const char* name : {"model_preview", "assets_contact_sheet", "audio_render", "assets_spectrogram"})
+        CHECK_MESSAGE(contains(ro, name), name);
     CHECK_FALSE(contains(ro, "model_bake"));
     const auto rev = cli_disallowed_tools(reg, kRoleReviewer, false);
     CHECK_FALSE(contains(rev, "mcp__factoria__model_preview"));
@@ -327,20 +352,23 @@ TEST_CASE("role capabilities: the commands that look at an asset are read-only t
     std::filesystem::create_directories(dir.path / "assets" / "models");
     {
         std::ofstream crate(dir.path / "assets" / "models" / "crate.model.json");
-        crate << R"({"format":"factoria.model/1","nodes":[{"op":"rounded_box","size":[1,1,1],"radius":0.05,"position":[0,0.5,0],"part":"body"}]})";
+        crate
+            << R"({"format":"factoria.model/1","nodes":[{"op":"rounded_box","size":[1,1,1],"radius":0.05,"position":[0,0.5,0],"part":"body"}]})";
     }
     for (const char* role : {kRoleReviewer, kRoleArtCritic}) {
         CAPTURE(role);
         CommandCallerScope caller(CommandCaller::Agent);
         CommandCapabilityScope caps(role_capabilities(role), role_denial_hint(role));
-        const CommandResult r = reg.call("model.preview", Json::object({{"path", "assets/models/crate.model.json"}, {"out", "assets/own.png"}}));
+        const CommandResult r = reg.call(
+            "model.preview", Json::object({{"path", "assets/models/crate.model.json"}, {"out", "assets/own.png"}}));
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "capability_denied");
         CHECK_FALSE(std::filesystem::exists(dir.path / "assets" / "own.png"));
     }
 }
 
-TEST_CASE("role capabilities: checkpoint.read `out` and feedback.check `reject` write files, so a critic or reviewer is refused them") {
+TEST_CASE("role capabilities: checkpoint.read `out` and feedback.check `reject` write files, so a critic or reviewer "
+          "is refused them") {
     TempDir dir;
     CommandRegistry reg;
     register_tooling_commands(reg, dir.str());
@@ -365,7 +393,9 @@ TEST_CASE("role capabilities: checkpoint.read `out` and feedback.check `reject` 
         CAPTURE(role);
         CommandCallerScope caller(CommandCaller::Agent);
         CommandCapabilityScope caps(role_capabilities(role), role_denial_hint(role));
-        const CommandResult out = reg.call("checkpoint.read", Json::object({{"id", "20260101-000000-1"}, {"path", "scripts/a.js"}, {"out", "assets/keep.txt"}}));
+        const CommandResult out =
+            reg.call("checkpoint.read",
+                     Json::object({{"id", "20260101-000000-1"}, {"path", "scripts/a.js"}, {"out", "assets/keep.txt"}}));
         REQUIRE_FALSE(out.ok);
         CHECK(out.error["code"] == "capability_denied");
         const CommandResult reject = reg.call("feedback.check", Json::object({{"entries", true}, {"reject", true}}));

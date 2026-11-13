@@ -70,7 +70,8 @@ void flatten_quad(Vec2 p0, Vec2 p1, Vec2 p2, std::vector<Vec2>& out) {
 }
 
 // SVG implementation notes F.6: the endpoint parameterization of an arc to its centre one, then points along it.
-void flatten_arc(Vec2 from, float rx, float ry, float rotation, bool large, bool sweep, Vec2 to, std::vector<Vec2>& out) {
+void flatten_arc(Vec2 from, float rx, float ry, float rotation, bool large, bool sweep, Vec2 to,
+                 std::vector<Vec2>& out) {
     if (from.x == to.x && from.y == to.y) return;
     rx = std::fabs(rx);
     ry = std::fabs(ry);
@@ -130,7 +131,8 @@ bool parse_svg_path(const std::string& d, std::vector<Polyline>& out, std::strin
         const char c = d[sc.i];
         const bool isLetter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
         if (isLetter) {
-            if (std::string("MmLlHhVvCcSsQqTtAaZz").find(c) == std::string::npos) return bad(std::format("unknown path command '{}'", c));
+            if (std::string("MmLlHhVvCcSsQqTtAaZz").find(c) == std::string::npos)
+                return bad(std::format("unknown path command '{}'", c));
             cmd = c;
             ++sc.i;
         } else if (cmd == 0) {
@@ -177,7 +179,8 @@ bool parse_svg_path(const std::string& d, std::vector<Polyline>& out, std::strin
                 break;
             case 'C': {
                 if (!read(6)) return bad("expected six numbers after C");
-                const Vec2 p1{base.x + v[0], base.y + v[1]}, p2{base.x + v[2], base.y + v[3]}, p3{base.x + v[4], base.y + v[5]};
+                const Vec2 p1{base.x + v[0], base.y + v[1]}, p2{base.x + v[2], base.y + v[3]},
+                    p3{base.x + v[4], base.y + v[5]};
                 flatten_cubic(cur, p1, p2, p3, pts);
                 lastCtrl = p2;
                 cur = p3;
@@ -210,7 +213,8 @@ bool parse_svg_path(const std::string& d, std::vector<Polyline>& out, std::strin
                 break;
             }
             case 'A': {
-                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !read(2)) return bad("expected rx ry rotation large-arc sweep x y after A");
+                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !read(2))
+                    return bad("expected rx ry rotation large-arc sweep x y after A");
                 const Vec2 to{base.x + v[5], base.y + v[6]};
                 flatten_arc(cur, v[0], v[1], v[2], v[3] != 0.0f, v[4] != 0.0f, to, pts);
                 cur = to;
@@ -274,7 +278,8 @@ Plane fill_shapes(const std::vector<Polyline>& shapes, int w, int h, int ox, int
             for (std::size_t k = 0; k + 1 < cross.size(); ++k) {
                 winding += cross[k].dir;
                 if (winding == 0) continue;
-                const float xa = std::max(cross[k].x - float(ox), 0.0f), xb = std::min(cross[k + 1].x - float(ox), float(w));
+                const float xa = std::max(cross[k].x - float(ox), 0.0f),
+                            xb = std::min(cross[k + 1].x - float(ox), float(w));
                 if (xb <= xa) continue;
                 const int ia = int(std::floor(xa)), ib = std::min(int(std::floor(xb)), w - 1);
                 const float weight = 1.0f / float(kSub);
@@ -317,7 +322,8 @@ void blur_plane(Plane& plane, float sigma) {
             float acc = 0;
             for (int k = -radius; k <= radius; ++k) {
                 const int sy = y + k;
-                if (sy >= 0 && sy < plane.h) acc += tmp[std::size_t(sy) * plane.w + x] * kernel[std::size_t(k + radius)];
+                if (sy >= 0 && sy < plane.h)
+                    acc += tmp[std::size_t(sy) * plane.w + x] * kernel[std::size_t(k + radius)];
             }
             plane.at(x, y) = acc;
         }

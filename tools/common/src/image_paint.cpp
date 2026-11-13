@@ -19,8 +19,8 @@ std::uint8_t to_byte(double v) { return std::uint8_t(std::lround(std::clamp(v, 0
 
 }  // namespace
 
-std::optional<ImageSelection> read_image_selection(const std::string& projectDir, const std::string& rel, const std::string& name, int canvasW,
-                                                   int canvasH) {
+std::optional<ImageSelection> read_image_selection(const std::string& projectDir, const std::string& rel,
+                                                   const std::string& name, int canvasW, int canvasH) {
     if (name == "all") return ImageSelection(canvasW, canvasH, 255);
     if (!imgedit::valid_selection_name(name) || !imgedit::selection_exists(projectDir, rel, name)) return std::nullopt;
     try {
@@ -56,8 +56,8 @@ void image_over_pixel(std::uint8_t* p, double r, double g, double b, double a) {
     if (p[3] == 0) p[0] = p[1] = p[2] = 0;
 }
 
-std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::vector<std::pair<double, double>>& pts, const ImageBrush& brush,
-                               const ImageSelection* selection, const TileGrid* tiles) {
+std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::vector<std::pair<double, double>>& pts,
+                               const ImageBrush& brush, const ImageSelection* selection, const TileGrid* tiles) {
     if (pts.empty() || img.width <= 0 || img.height <= 0) return 0;
     const double size = brush.size, hardness = brush.hardness, opacity = brush.opacity;
     const double spacing = std::max(0.25, brush.spacing > 0 ? brush.spacing : std::max(1.0, size * 0.2));
@@ -68,10 +68,14 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
     int minX = img.width, minY = img.height, maxX = -1, maxY = -1;  // the box the stamps touched: only it is blended
     const bool wrap = tiles && tiles->on;
     // tile mode: the stroke wraps inside the tile that holds its first point, so a stamp is drawn once per copy of the tile that reaches it
-    const int cellX = wrap ? tiles->cell_x(int(std::floor(pts[0].first))) : 0, cellY = wrap ? tiles->cell_y(int(std::floor(pts[0].second))) : 0;
-    auto stamp_one = [&](double cx, double cy, int clipX0, int clipY0, int clipX1, int clipY1) {   // clip: buffer pixels [x0, x1] x [y0, y1]
-        const int x0 = std::max(clipX0, int(std::floor(cx - r - 1 - originX))), x1 = std::min(clipX1, int(std::ceil(cx + r + 1 - originX)));
-        const int y0 = std::max(clipY0, int(std::floor(cy - r - 1 - originY))), y1 = std::min(clipY1, int(std::ceil(cy + r + 1 - originY)));
+    const int cellX = wrap ? tiles->cell_x(int(std::floor(pts[0].first))) : 0,
+              cellY = wrap ? tiles->cell_y(int(std::floor(pts[0].second))) : 0;
+    auto stamp_one = [&](double cx, double cy, int clipX0, int clipY0, int clipX1,
+                         int clipY1) {  // clip: buffer pixels [x0, x1] x [y0, y1]
+        const int x0 = std::max(clipX0, int(std::floor(cx - r - 1 - originX))),
+                  x1 = std::min(clipX1, int(std::ceil(cx + r + 1 - originX)));
+        const int y0 = std::max(clipY0, int(std::floor(cy - r - 1 - originY))),
+                  y1 = std::min(clipY1, int(std::ceil(cy + r + 1 - originY)));
         if (x0 <= x1 && y0 <= y1) {
             minX = std::min(minX, x0);
             maxX = std::max(maxX, x1);
@@ -82,9 +86,12 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
             for (int x = x0; x <= x1; ++x) {
                 const double dist = std::hypot(originX + x + 0.5 - cx, originY + y + 0.5 - cy);
                 double c;
-                if (dist <= inner) c = 1;
-                else if (r + 0.5 - inner <= 1e-9) c = 0;
-                else c = std::clamp((r + 0.5 - dist) / (r + 0.5 - inner), 0.0, 1.0);
+                if (dist <= inner)
+                    c = 1;
+                else if (r + 0.5 - inner <= 1e-9)
+                    c = 0;
+                else
+                    c = std::clamp((r + 0.5 - dist) / (r + 0.5 - inner), 0.0, 1.0);
                 if (hardness >= 1 && dist > r + 0.5) c = 0;
                 float& slot = cov[std::size_t(y) * img.width + x];
                 if (c > slot) slot = float(c);
@@ -98,10 +105,12 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
         cx = cellX + (fx < 0 ? fx + tiles->tw : fx);
         cy = cellY + (fy < 0 ? fy + tiles->th : fy);
         const int clipX0 = std::max(0, cellX - originX), clipY0 = std::max(0, cellY - originY);
-        const int clipX1 = std::min(img.width - 1, cellX + tiles->tw - 1 - originX), clipY1 = std::min(img.height - 1, cellY + tiles->th - 1 - originY);
+        const int clipX1 = std::min(img.width - 1, cellX + tiles->tw - 1 - originX),
+                  clipY1 = std::min(img.height - 1, cellY + tiles->th - 1 - originY);
         const int nx = int(std::ceil((r + 1) / tiles->tw)), ny = int(std::ceil((r + 1) / tiles->th));
         for (int j = -ny; j <= ny; ++j)
-            for (int i = -nx; i <= nx; ++i) stamp_one(cx + i * tiles->tw, cy + j * tiles->th, clipX0, clipY0, clipX1, clipY1);
+            for (int i = -nx; i <= nx; ++i)
+                stamp_one(cx + i * tiles->tw, cy + j * tiles->th, clipX0, clipY0, clipX1, clipY1);
     };
     stamp(pts[0].first, pts[0].second);
     double carry = 0;
@@ -124,13 +133,15 @@ std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::
                 p[3] = to_byte(p[3] * (1 - c * opacity));
                 if (!p[3]) p[0] = p[1] = p[2] = 0;
             } else {
-                image_over_pixel(p, brush.color.r * 255.0, brush.color.g * 255.0, brush.color.b * 255.0, c * opacity * brush.color.a);
+                image_over_pixel(p, brush.color.r * 255.0, brush.color.g * 255.0, brush.color.b * 255.0,
+                                 c * opacity * brush.color.a);
             }
         }
     return stamped;
 }
 
-std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& p, int fromX, int fromY, const TileGrid& tiles) {
+std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& p, int fromX, int fromY,
+                                     const TileGrid& tiles) {
     std::size_t dropped = 0;
     for (int y = 0; y < p.img.height; ++y)
         for (int x = 0; x < p.img.width; ++x) {
@@ -230,13 +241,17 @@ Result<ImagePatch> image_patch_transform(const ImagePatch& p, const ImageTransfo
     out.y = int(std::floor(miny + 1e-9));
     const int w = int(std::ceil(maxx - 1e-9)) - out.x, h = int(std::ceil(maxy - 1e-9)) - out.y;
     if (w <= 0 || h <= 0 || std::int64_t(w) * h > 64'000'000)
-        return make_error(std::format("the transformed selection would be {}x{} pixels.", w, h), "Use a smaller scale (the limit is 64 million pixels).");
+        return make_error(std::format("the transformed selection would be {}x{} pixels.", w, h),
+                          "Use a smaller scale (the limit is 64 million pixels).");
     out.img.width = w;
     out.img.height = h;
     out.img.rgba.assign(std::size_t(w) * h * 4, 0);
     const auto& src = p.img;
     auto fetch = [&](int ix, int iy, double& r, double& g, double& b, double& a) {
-        if (ix < 0 || iy < 0 || ix >= src.width || iy >= src.height) { r = g = b = a = 0; return; }
+        if (ix < 0 || iy < 0 || ix >= src.width || iy >= src.height) {
+            r = g = b = a = 0;
+            return;
+        }
         const std::uint8_t* q = &src.rgba[(std::size_t(iy) * src.width + ix) * 4];
         a = q[3] / 255.0;
         r = q[0] * a;
@@ -281,8 +296,8 @@ Result<ImagePatch> image_patch_transform(const ImagePatch& p, const ImageTransfo
     return out;
 }
 
-Result<ImageEditBuffer> open_image_edit_buffer(const std::string& projectDir, const std::string& rel, const Json& document,
-                                               const std::string& layerPath, int frame) {
+Result<ImageEditBuffer> open_image_edit_buffer(const std::string& projectDir, const std::string& rel,
+                                               const Json& document, const std::string& layerPath, int frame) {
     try {
         Json doc = document;
         Json args = Json::object();

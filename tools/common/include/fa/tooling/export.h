@@ -70,104 +70,120 @@ struct SetupContext;  // fa/tooling/setup.h
 inline constexpr const char* kExportMarkerFile = ".factoria-export";
 
 struct ExportOptions {
-    std::string projectDir;     // folder containing factoria.json
-    std::string platform;       // linux | windows | macos | android | ios | web ("" = the platform running factoria)
-    std::string outDir;         // parent folder of the export ("" = <projectDir>/build/export)
-    bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing; without a
-                                // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
-                                // ONE archive, game.pak, with the scripts as bytecode (export.scriptBytecode). ios: only
-                                // changes the build commands of the script
-    bool allowDebugKey = false; // android release without a keystore: sign with the debug key (fine to try on a device,
-                                // Google Play rejects it) instead of failing
-    bool singleFile = false;    // web: ONE html file, <out>/<slug>-web/<slug>.html, with the player's JavaScript, the wasm, the favicon and game.pak
-                                // inlined (base64), that runs from a double click (file://). No zip. Refused over singleFileMaxBytes and
-                                // when the player needs a server (threads: shared memory, which needs cross-origin isolation headers)
-    std::uint64_t singleFileMaxBytes = 64ull * 1024 * 1024;  // singleFile: the biggest page written, checked before it is built
-    std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
-                                // desktop: path of factoria_player for the target platform
-                                // ("" = next to the running factoria binary, or the build tree layout)
-    bool allowPlayerMismatch = false;  // bundle a player (desktop, web, prebuilt Android/iOS) built from another commit than this factoria (its
-                                // build fingerprint differs, or it has none) with a warning instead of stopping; the
-                                // game may not run on that player
-    bool allowMissingPlugins = false;  // a native plugin whose build for the target platform is missing (optional or not) is left
-                                // out of the export, with a warning and an entry in ExportReport::pluginsLeftOut, instead
-                                // of stopping it
-    std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
-    std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
-                                // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.
-                                // With neither: $FACTORIA_ENGINE_DIR set = source; else <factoria dir>/mobile when it
-                                // holds the players = prebuilt; else the build-time source root = source (docs/EXPORTING.md)
+    std::string projectDir;  // folder containing factoria.json
+    std::string platform;    // linux | windows | macos | android | ios | web ("" = the platform running factoria)
+    std::string outDir;      // parent folder of the export ("" = <projectDir>/build/export)
+    bool release = false;    // android: builds the release APK/AAB (signed with export.android.signing; without a
+                             // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
+                             // ONE archive, game.pak, with the scripts as bytecode (export.scriptBytecode). ios: only
+                             // changes the build commands of the script
+    bool allowDebugKey =
+        false;  // android release without a keystore: sign with the debug key (fine to try on a device,
+                // Google Play rejects it) instead of failing
+    bool singleFile =
+        false;  // web: ONE html file, <out>/<slug>-web/<slug>.html, with the player's JavaScript, the wasm, the favicon and game.pak
+    // inlined (base64), that runs from a double click (file://). No zip. Refused over singleFileMaxBytes and
+    // when the player needs a server (threads: shared memory, which needs cross-origin isolation headers)
+    std::uint64_t singleFileMaxBytes =
+        64ull * 1024 * 1024;  // singleFile: the biggest page written, checked before it is built
+    std::string
+        playerBinary;  // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
+                       // desktop: path of factoria_player for the target platform
+                       // ("" = next to the running factoria binary, or the build tree layout)
+    bool allowPlayerMismatch =
+        false;  // bundle a player (desktop, web, prebuilt Android/iOS) built from another commit than this factoria (its
+                // build fingerprint differs, or it has none) with a warning instead of stopping; the
+                // game may not run on that player
+    bool allowMissingPlugins =
+        false;               // a native plugin whose build for the target platform is missing (optional or not) is left
+                             // out of the export, with a warning and an entry in ExportReport::pluginsLeftOut, instead
+                             // of stopping it
+    std::string engineRoot;  // android/ios: engine checkout; giving it selects "source" mode
+    std::string mobileDir;  // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
+                            // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.
+                            // With neither: $FACTORIA_ENGINE_DIR set = source; else <factoria dir>/mobile when it
+    // holds the players = prebuilt; else the build-time source root = source (docs/EXPORTING.md)
     std::string buildSourceRoot;  // the checkout factoria was built from ("" = FA_SOURCE_ROOT); only tests change it
-    std::string format;         // the kind of file a platform exports ("" = export.android.format of factoria.json, else the
-                                // platform's default). android: "apk" (default: built with Gradle), "aab" (the Google
-                                // Play bundle, built with Gradle) or "gradle" (only the Gradle project; nothing is built
-                                // and no JDK or SDK is needed). linux: "appimage" also writes the game as one AppImage file
-                                // (needs Linux x86_64 and `factoria setup appimage`); without it the folder is all there is.
-                                // windows: "msix" also writes <out>/<slug>-windows.msix, the Microsoft Store package, next to
-                                // the folder (any host; export.windows.format in factoria.json); "folder" is the default.
-                                // The other platforms have one format and ignore it
+    std::string format;  // the kind of file a platform exports ("" = export.android.format of factoria.json, else the
+                         // platform's default). android: "apk" (default: built with Gradle), "aab" (the Google
+                         // Play bundle, built with Gradle) or "gradle" (only the Gradle project; nothing is built
+                         // and no JDK or SDK is needed). linux: "appimage" also writes the game as one AppImage file
+                         // (needs Linux x86_64 and `factoria setup appimage`); without it the folder is all there is.
+                         // windows: "msix" also writes <out>/<slug>-windows.msix, the Microsoft Store package, next to
+                         // the folder (any host; export.windows.format in factoria.json); "folder" is the default.
+                         // The other platforms have one format and ignore it
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
-                                // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
-                                // may be empty
+    // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
+    // may be empty
     const CancelFlag* cancel = nullptr;  // optional: set to true to stop the Gradle build (its process tree is killed);
-                                // the export then fails with "cancelled" and the Gradle project stays on disk
-    const AndroidToolchainSearch* androidSearch = nullptr;  // where to look for the JDK and SDK, the environment variables
-                                // and ~/.factoria/export.json (nullptr = this machine); only tests change it
-    const SetupContext* setup = nullptr;  // linux appimage: which computer this is, where the AppImage tools are installed and how
-                                // programs are run (nullptr = this machine); only tests change it
+                                         // the export then fails with "cancelled" and the Gradle project stays on disk
+    const AndroidToolchainSearch* androidSearch =
+        nullptr;  // where to look for the JDK and SDK, the environment variables
+                  // and ~/.factoria/export.json (nullptr = this machine); only tests change it
+    const SetupContext* setup =
+        nullptr;  // linux appimage: which computer this is, where the AppImage tools are installed and how
+                  // programs are run (nullptr = this machine); only tests change it
 };
 
 // One row of the size report of an export (ExportReport::largestFolders, ExportReport::webFiles).
 struct ExportSize {
-    std::string name;                // a project folder ("assets/audio", "(top level)") or a file of the web export
-    std::uint64_t files = 0;         // folders: how many files; web files: 1
-    std::uint64_t bytes = 0;         // as shipped (after the asset steps)
-    std::uint64_t gzipBytes = 0;     // web files: about what a host that gzips sends; folders: 0
+    std::string name;             // a project folder ("assets/audio", "(top level)") or a file of the web export
+    std::uint64_t files = 0;      // folders: how many files; web files: 1
+    std::uint64_t bytes = 0;      // as shipped (after the asset steps)
+    std::uint64_t gzipBytes = 0;  // web files: about what a host that gzips sends; folders: 0
 };
 
 // One codec of a game pack: how many files it holds and their size before and after (a file whose compressed blocks saved
 // too little is stored as it is, and counts under "store").
 struct ExportPackCodec {
-    std::string codec;               // "store" | "lz4" | "zstd"
+    std::string codec;  // "store" | "lz4" | "zstd"
     std::uint64_t files = 0;
-    std::uint64_t bytes = 0;         // the files' size
-    std::uint64_t storedBytes = 0;   // what they take in the pack
+    std::uint64_t bytes = 0;        // the files' size
+    std::uint64_t storedBytes = 0;  // what they take in the pack
 };
 
 struct ExportReport {
-    std::string outputDir;                 // absolute folder that was written
-    std::string mode;                      // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
-                                           // empty for desktop exports
-    std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
-    std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
-                                           // .aab of an Android export (release builds have no "-debug"), or the
-                                           // <outputDir>/<slug>-x86_64.AppImage of a linux one, or the <out>/<slug>-windows.msix
-                                           // of a windows one (next to outputDir); empty otherwise
-    std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
-    std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted): what is on disk, so a release
-                                           // export of a desktop game lists game.pak, not the files in it
-    std::string pack;                      // release desktop export: the game's pack, as a path relative to the folder it is in
-                                           // (game.pak: next to the executable, in Contents/Resources of a macOS app); else empty
-    std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
-    std::vector<ExportPackCodec> packCodecs;  // a pack was written (desktop --release, web): each codec that holds files
-    std::uint64_t packBytes = 0;           // the pack's size on disk (index included); 0 = no pack
-    std::uint64_t packFileBytes = 0;       // the size of the files in it, before compression
+    std::string outputDir;  // absolute folder that was written
+    std::string mode;       // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
+                            // empty for desktop exports
+    std::string format;     // the format that was exported (see ExportOptions::format); empty when none
+    std::string artifact;   // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
+                            // .aab of an Android export (release builds have no "-debug"), or the
+                            // <outputDir>/<slug>-x86_64.AppImage of a linux one, or the <out>/<slug>-windows.msix
+                            // of a windows one (next to outputDir); empty otherwise
+    std::string notices;    // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
+    std::vector<std::string>
+        files;         // paths relative to outputDir (forward slashes, sorted): what is on disk, so a release
+                       // export of a desktop game lists game.pak, not the files in it
+    std::string pack;  // release desktop export: the game's pack, as a path relative to the folder it is in
+                       // (game.pak: next to the executable, in Contents/Resources of a macOS app); else empty
+    std::vector<std::string> packed;  // release desktop export: the project-relative paths in the pack, sorted
+    std::vector<ExportPackCodec>
+        packCodecs;                   // a pack was written (desktop --release, web): each codec that holds files
+    std::uint64_t packBytes = 0;      // the pack's size on disk (index included); 0 = no pack
+    std::uint64_t packFileBytes = 0;  // the size of the files in it, before compression
     // The pack's file order: "firstUse" (the order play sessions first read the files in, .factoria/cache/load-order.json;
     // the rest by path) or "path" (nothing recorded, or export.pack.useLoadOrder false). Empty = no pack.
     std::string packOrder;
-    std::uint64_t packOrderedFiles = 0;    // "firstUse": how many of the pack's files the recorded order placed
-    std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
-                                           // shaders <material>.json.<slang>.shader for the platform's dialects
-    std::vector<std::string> builtinFonts;  // the built-in fonts that are files, not inside the player ("builtin:serif"), that the project
-                                           // names: shipped as builtin-fonts/<file>, with their licenses in FACTORIA_NOTICES.txt
-    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
-                                           // export does not hold them (a warning names each); empty otherwise
-    std::vector<ExportSize> largestFolders;  // the folders (at most two levels deep) that weigh most in what ships, biggest first (at most 5)
-    std::vector<ExportSize> webFiles;      // web export: every file of the zip with its raw and about-gzip size, biggest first; else empty
-    std::uint64_t webBytes = 0;            // web export: their total, raw
-    std::uint64_t webGzipBytes = 0;        // web export: their total, about gzip (the deflate size of the zip plus the 18 bytes of a gzip frame)
-    std::vector<std::string> nextSteps;    // what the user does next, in order
-    std::vector<std::string> warnings;     // non-fatal problems
+    std::uint64_t packOrderedFiles = 0;  // "firstUse": how many of the pack's files the recorded order placed
+    std::vector<std::string>
+        materials;  // the *.material.json that ship (project-relative, sorted), each with its compiled
+                    // shaders <material>.json.<slang>.shader for the platform's dialects
+    std::vector<std::string>
+        builtinFonts;  // the built-in fonts that are files, not inside the player ("builtin:serif"), that the project
+                       // names: shipped as builtin-fonts/<file>, with their licenses in FACTORIA_NOTICES.txt
+    std::vector<std::string>
+        pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
+                         // export does not hold them (a warning names each); empty otherwise
+    std::vector<ExportSize>
+        largestFolders;  // the folders (at most two levels deep) that weigh most in what ships, biggest first (at most 5)
+    std::vector<ExportSize>
+        webFiles;  // web export: every file of the zip with its raw and about-gzip size, biggest first; else empty
+    std::uint64_t webBytes = 0;  // web export: their total, raw
+    std::uint64_t webGzipBytes =
+        0;  // web export: their total, about gzip (the deflate size of the zip plus the 18 bytes of a gzip frame)
+    std::vector<std::string> nextSteps;  // what the user does next, in order
+    std::vector<std::string> warnings;   // non-fatal problems
     // The size report as text lines (what `factoria export` prints): the largest folders and, for the web, the files and the download
     // time of the gzip total at 1, 5, 20 and 100 Mbit/s. Empty when there is nothing to say.
     std::vector<std::string> size_lines() const;
@@ -181,15 +197,16 @@ Result<ExportReport> export_project(const ExportOptions& options);
 // either absent, empty or written by an earlier export). An error is the one
 // export_project would return. The editor's Export window shows it for each platform before an export.
 struct ExportPlan {
-    std::string platform;               // normalized: linux | windows | macos | android | ios | web
-    std::string outputDir;              // absolute folder the export replaces: <out>/<game-slug>-<platform>
-    std::string mode;                   // android/ios: "prebuilt" or "source"; web: where the player comes from ("explicit",
-                                        // "package", "installed" or "build"); empty for desktop exports
-    std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
-    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage / .msix / the web export's .zip); else empty
-    AndroidToolchain toolchain;         // android apk/aab: the JDK and SDK the build would use, and where each was found
-                                        // (problems stays empty: a missing one is the plan's error); else empty
-    std::string player;                 // desktop: the factoria_player that is copied into the export; web: its factoria_player.js
+    std::string platform;   // normalized: linux | windows | macos | android | ios | web
+    std::string outputDir;  // absolute folder the export replaces: <out>/<game-slug>-<platform>
+    std::string mode;       // android/ios: "prebuilt" or "source"; web: where the player comes from ("explicit",
+                            // "package", "installed" or "build"); empty for desktop exports
+    std::string format;     // the format the export would produce (see ExportOptions::format); empty when none
+    std::string
+        artifact;  // absolute path of the file the export would build (.apk / .aab / .AppImage / .msix / the web export's .zip); else empty
+    AndroidToolchain toolchain;  // android apk/aab: the JDK and SDK the build would use, and where each was found
+                                 // (problems stays empty: a missing one is the plan's error); else empty
+    std::string player;  // desktop: the factoria_player that is copied into the export; web: its factoria_player.js
     std::vector<std::string> warnings;  // non-fatal problems found so far (the export's report repeats them)
     Json to_json() const;
 };

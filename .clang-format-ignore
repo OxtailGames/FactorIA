@@ -1,0 +1,9 @@
+# Files clang-format never touches (read by clang-format 18+ and by scripts/format.sh).
+# Third party code.
+external/
+# Headers written by tools/shaders/compile_shaders.sh (sokol-shdc).
+engine/render/src/shaders/*.glsl.h
+# Test data and golden files are compared byte for byte.
+**/tests/data/
+**/tests/golden/
+**/tests/fixtures/

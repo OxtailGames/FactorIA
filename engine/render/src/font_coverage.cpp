@@ -17,7 +17,8 @@ Result<FontCoverage> FontCoverage::load(const std::vector<std::string>& fontChai
     keys.push_back("builtin");
     for (std::size_t i = 0; i < keys.size(); ++i) {
         // the same file twice (e.g. a Text font that is also a fallback) is read once
-        if (std::any_of(impl->fonts.begin(), impl->fonts.end(), [&](const auto& f) { return f->key == (keys[i].empty() ? "builtin" : keys[i]); }))
+        if (std::any_of(impl->fonts.begin(), impl->fonts.end(),
+                        [&](const auto& f) { return f->key == (keys[i].empty() ? "builtin" : keys[i]); }))
             continue;
         auto face = render::load_font_face(keys[i]);
         if (!face->ok) return make_error(face->error, face->hint);
@@ -34,12 +35,15 @@ std::vector<std::uint32_t> FontCoverage::missing(std::string_view utf8) const {
     std::u32string cps;  // the composed vowels become the parts the shaper draws them with
     for (char32_t cp : render::decode_text(utf8)) {
         const auto parts = render::composed_parts(cp);
-        if (parts.empty()) cps.push_back(cp);
-        else cps.append(parts);
+        if (parts.empty())
+            cps.push_back(cp);
+        else
+            cps.append(parts);
     }
     for (char32_t cp : cps) {
         if (!render::is_visible(cp) || std::find(out.begin(), out.end(), std::uint32_t(cp)) != out.end()) continue;
-        const bool covered = std::any_of(impl_->fonts.begin(), impl_->fonts.end(), [&](const auto& f) { return f->has_glyph(cp); });
+        const bool covered =
+            std::any_of(impl_->fonts.begin(), impl_->fonts.end(), [&](const auto& f) { return f->has_glyph(cp); });
         if (!covered) out.push_back(std::uint32_t(cp));
     }
     return out;

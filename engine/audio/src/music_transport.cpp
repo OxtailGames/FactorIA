@@ -10,7 +10,7 @@ namespace fa {
 
 namespace {
 constexpr double kEps = 1e-6;
-constexpr int kMaxChunk = 512;   // frames the gain envelope is computed for at a time
+constexpr int kMaxChunk = 512;  // frames the gain envelope is computed for at a time
 }  // namespace
 
 MusicTransport::MusicTransport() = default;
@@ -27,7 +27,9 @@ std::uint64_t output_frame_at(std::uint64_t mixed, double ratio, double songPos,
 }
 }  // namespace
 
-std::uint64_t MusicTransport::frame_at(double songPos, double fromPos) const { return output_frame_at(mixed_, ratio_, songPos, fromPos); }
+std::uint64_t MusicTransport::frame_at(double songPos, double fromPos) const {
+    return output_frame_at(mixed_, ratio_, songPos, fromPos);
+}
 
 std::optional<std::uint64_t> MusicTransport::schedule_of(const MusicTransportState& t, MusicQuantize q) {
     if (!t.playing || !t.src) return std::nullopt;
@@ -74,7 +76,9 @@ double MusicTransport::limit_of(const Head& h) const { return h.armed ? h.wrapEn
 
 void MusicTransport::seek_cursor(Head& h, double from) const {
     const auto& marks = h.src->map.marks;
-    h.cursor = std::size_t(std::lower_bound(marks.begin(), marks.end(), from - kEps, [](const MusicMark& mk, double f) { return mk.frame < f; }) - marks.begin());
+    h.cursor = std::size_t(std::lower_bound(marks.begin(), marks.end(), from - kEps,
+                                            [](const MusicMark& mk, double f) { return mk.frame < f; }) -
+                           marks.begin());
 }
 
 void MusicTransport::hold(const std::shared_ptr<const MusicSource>& src) {
@@ -92,7 +96,9 @@ bool MusicTransport::references(const MusicSource* src) const {
 }
 
 void MusicTransport::prune_sources() {
-    held_.erase(std::remove_if(held_.begin(), held_.end(), [&](const std::shared_ptr<const MusicSource>& s) { return !references(s.get()); }), held_.end());
+    held_.erase(std::remove_if(held_.begin(), held_.end(),
+                               [&](const std::shared_ptr<const MusicSource>& s) { return !references(s.get()); }),
+                held_.end());
 }
 
 void MusicTransport::cancel_pending() {
@@ -107,7 +113,10 @@ void MusicTransport::drop_pending_changes() {
 MusicTransport::Pending* MusicTransport::add_pending(Kind kind, std::uint64_t at) {
     Pending* slot = nullptr;
     for (Pending& p : pending_)
-        if (!p.used) { slot = &p; break; }
+        if (!p.used) {
+            slot = &p;
+            break;
+        }
     if (!slot) {  // full: the oldest request is dropped
         slot = &pending_[0];
         for (Pending& p : pending_)
@@ -312,7 +321,8 @@ bool MusicTransport::go_to_section(int section, MusicQuantize q, float fade, std
     return true;
 }
 
-bool MusicTransport::play_section_stinger(int section, MusicQuantize q, float volume, float tailSeconds, std::string* error) {
+bool MusicTransport::play_section_stinger(int section, MusicQuantize q, float volume, float tailSeconds,
+                                          std::string* error) {
     if (main_ < 0) {
         if (error) *error = "the music is not playing, so there is nothing to play the stinger over";
         return false;
@@ -326,7 +336,8 @@ bool MusicTransport::play_section_stinger(int section, MusicQuantize q, float vo
     const MusicSection& sec = m.sections[std::size_t(section)];
     // The section's first pass, to the end of its last consecutive pass.
     double end = m.spans[std::size_t(sec.firstSpan)].end;
-    for (std::size_t i = std::size_t(sec.firstSpan) + 1; i < m.spans.size() && m.spans[i].section == section; ++i) end = m.spans[i].end;
+    for (std::size_t i = std::size_t(sec.firstSpan) + 1; i < m.spans.size() && m.spans[i].section == section; ++i)
+        end = m.spans[i].end;
     const double start = m.spans[std::size_t(sec.firstSpan)].start;
     Pending p;
     p.kind = Kind::Overlay;
@@ -372,13 +383,15 @@ void MusicTransport::duck(MusicQuantize q, float amount, float attack, float hol
     slot->i1 = int(std::min<long>(frames_of(release), 1L << 30));
 }
 
-bool MusicTransport::crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q, float fadeSeconds, std::string* error) {
+bool MusicTransport::crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q,
+                                  float fadeSeconds, std::string* error) {
     const bool ok = crossfade_to(src.get(), section, q, fadeSeconds, error);
     if (ok) hold(src);
     return ok;
 }
 
-bool MusicTransport::crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds, std::string* error) {
+bool MusicTransport::crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds,
+                                  std::string* error) {
     if (!src || src->stems.empty() || src->stems.size() > kMusicMaxStems) {
         if (error) *error = "the song has no audio to play";
         return false;
@@ -484,7 +497,8 @@ void MusicTransport::fire(const Pending& p) {
             h->endPos = p.end + double(p.fadeFrames) * ratio_;
             h->tailFade = double(p.fadeFrames) * ratio_;
             h->level = p.f0;
-            for (std::size_t s = 0; s < std::min(p.src->stems.size(), kMusicMaxStems); ++s) h->gain[s] = h->target[s] = 1.0f;
+            for (std::size_t s = 0; s < std::min(p.src->stems.size(), kMusicMaxStems); ++s)
+                h->gain[s] = h->target[s] = 1.0f;
             emit(MusicEventKind::Stinger, p.i0, p.i1, 0, 0, p.src);
             break;
         }
@@ -547,7 +561,8 @@ void MusicTransport::settle() {
     for (int guard = 0; guard < 64; ++guard) {
         Pending* best = nullptr;
         for (Pending& p : pending_)
-            if (p.used && p.at <= mixed_ && (!best || p.at < best->at || (p.at == best->at && p.seq < best->seq))) best = &p;
+            if (p.used && p.at <= mixed_ && (!best || p.at < best->at || (p.at == best->at && p.seq < best->seq)))
+                best = &p;
         if (best) {
             const Pending p = *best;
             best->used = false;
@@ -603,13 +618,13 @@ using audio_detail::MusicStemStream;
 struct StemWindow {
     struct Entry {
         std::int64_t chunk = -1;
-        int slot = -1;                    // pinned slot, -1 when `data` is null (the chunk was not decoded)
+        int slot = -1;  // pinned slot, -1 when `data` is null (the chunk was not decoded)
         const float* data = nullptr;
     };
     MusicStemStream* stream = nullptr;
     std::array<Entry, 2> entry{};
     unsigned next = 0;
-    std::uint64_t missed = 0;             // frames of the block that played as silence
+    std::uint64_t missed = 0;  // frames of the block that played as silence
     bool sync = true;
 
     const float* chunk(std::int64_t c) {
@@ -699,7 +714,9 @@ void MusicTransport::mix_head(Head& h, float* out, const float* env, int n) {
                 a = c0[2 * o];
                 b = c0[2 * o + 1];
                 if (frac > 1e-6f && i0 + 1 < frames) {
-                    const float* c1 = o + 1 < audio_detail::kMusicChunkFrames ? c0 : win.chunk((i0 + 1) >> audio_detail::kMusicChunkShift);
+                    const float* c1 = o + 1 < audio_detail::kMusicChunkFrames
+                                          ? c0
+                                          : win.chunk((i0 + 1) >> audio_detail::kMusicChunkShift);
                     if (c1) {
                         const std::int64_t o1 = (o + 1) & (audio_detail::kMusicChunkFrames - 1);
                         a += (c1[2 * o1] - a) * frac;
@@ -807,7 +824,8 @@ void MusicTransport::capture(MusicTransportState& out) const {
         const Pending* inten = nullptr;
         for (const Pending& p : pending_) {
             if (!p.used) continue;
-            if (p.kind == Kind::Jump && p.src && (!jump || p.at < jump->at || (p.at == jump->at && p.seq < jump->seq))) jump = &p;
+            if (p.kind == Kind::Jump && p.src && (!jump || p.at < jump->at || (p.at == jump->at && p.seq < jump->seq)))
+                jump = &p;
             if (p.kind == Kind::Intensity && (!inten || p.seq > inten->seq)) inten = &p;
         }
         if (jump) {

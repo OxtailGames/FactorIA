@@ -53,9 +53,9 @@ FileStamp file_stamp(const std::filesystem::path& file);
 std::int64_t file_mtime_ms(const std::filesystem::path& file);
 
 enum class UpdateCheck {
-    Unchanged,     // the file is as it was when last looked at
-    Settling,      // the file changed (or is missing) but was not seen twice alike yet: it may still be being written
-    Same,          // it changed but holds the build that runs (a rebuild of the same commit, a touch)
+    Unchanged,  // the file is as it was when last looked at
+    Settling,   // the file changed (or is missing) but was not seen twice alike yet: it may still be being written
+    Same,       // it changed but holds the build that runs (a rebuild of the same commit, a touch)
     Unidentified,  // it changed and has no comparable identity (no marker, or built outside git): never counted as an update
     Updated,       // it holds another build than the running one
 };
@@ -70,9 +70,9 @@ public:
 
     UpdateCheck check(bool settled = false);
     // Looks again without a stat: the state of the last check().
-    bool updated() const;                 // the file holds another build than the running one
+    bool updated() const;  // the file holds another build than the running one
     BuildId running() const;
-    BuildId on_disk() const;              // the running build until an update is seen
+    BuildId on_disk() const;  // the running build until an update is seen
     const std::filesystem::path& executable() const { return executable_; }
     // The file's stamp as last examined; two updates in a row differ in it, which is how "quiet until the file changes
     // again" is told from "still the same update".

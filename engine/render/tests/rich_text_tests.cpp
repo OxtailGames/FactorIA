@@ -45,7 +45,9 @@ RichTextStyle test_style() {
 // Installs the style for one test and puts the renderer back to the defaults when it ends.
 struct RichStyleGuard {
     Renderer& r;
-    explicit RichStyleGuard(Renderer& renderer, RichTextStyle s = test_style()) : r(renderer) { r.set_rich_text_style(std::move(s)); }
+    explicit RichStyleGuard(Renderer& renderer, RichTextStyle s = test_style()) : r(renderer) {
+        r.set_rich_text_style(std::move(s));
+    }
     ~RichStyleGuard() {
         r.set_rich_text_style({});
         r.set_fallback_fonts({});
@@ -82,8 +84,10 @@ Box box_of(const Image& img, Pick pick) {
     for (int y = 0; y < img.height; ++y)
         for (int x = 0; x < img.width; ++x)
             if (pick(img.pixel(x, y))) {
-                b.x0 = std::min(b.x0, x); b.y0 = std::min(b.y0, y);
-                b.x1 = std::max(b.x1, x); b.y1 = std::max(b.y1, y);
+                b.x0 = std::min(b.x0, x);
+                b.y0 = std::min(b.y0, y);
+                b.x1 = std::max(b.x1, x);
+                b.y1 = std::max(b.y1, y);
                 ++b.count;
             }
     return b;
@@ -99,14 +103,16 @@ TEST_CASE("rich text: tags are not characters, and a colour or [b] change nothin
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer);
     const Vec2 plain = g.renderer.measure_text("aaa bbb ccc", 20);
-    const Vec2 coloured = g.renderer.measure_text("[c:good]aaa[/c] [c:bad]bbb[/c] ccc", 20, "", 0, RenderSpace::World, kMarkup);
+    const Vec2 coloured =
+        g.renderer.measure_text("[c:good]aaa[/c] [c:bad]bbb[/c] ccc", 20, "", 0, RenderSpace::World, kMarkup);
     CHECK(coloured.x == doctest::Approx(plain.x).epsilon(kLineEps));
     CHECK(coloured.y == doctest::Approx(plain.y).epsilon(kLineEps));
     // wrapped: the same breaks as the plain text
     for (float maxW : {60.0f, 80.0f, 100.0f, 400.0f}) {
         INFO("maxWidth " << maxW);
         const Vec2 a = g.renderer.measure_text("aaa bbb ccc", 20, "", maxW);
-        const Vec2 b = g.renderer.measure_text("[c:good]aaa[/c] [c:bad]bbb[/c] ccc", 20, "", maxW, RenderSpace::World, kMarkup);
+        const Vec2 b =
+            g.renderer.measure_text("[c:good]aaa[/c] [c:bad]bbb[/c] ccc", 20, "", maxW, RenderSpace::World, kMarkup);
         CHECK(b.x == doctest::Approx(a.x).epsilon(kLineEps));
         CHECK(b.y == doctest::Approx(a.y).epsilon(kLineEps));
     }
@@ -175,17 +181,20 @@ TEST_CASE("rich text: [b] and Text.bold embolden the regular glyphs when the pro
     CHECK(bold > regular);
     CHECK(bold < regular * 1.2f);
     // [b]..[/b] around the whole text is the bold flag
-    CHECK(g.renderer.measure_text("[b]Hello[/b]", 24, "", 0, RenderSpace::World, kMarkup).x == doctest::Approx(bold).epsilon(kLineEps));
+    CHECK(g.renderer.measure_text("[b]Hello[/b]", 24, "", 0, RenderSpace::World, kMarkup).x ==
+          doctest::Approx(bold).epsilon(kLineEps));
     // only the bold word is wider
     const float mixed = g.renderer.measure_text("Hello [b]Hello[/b]", 24, "", 0, RenderSpace::World, kMarkup).x;
     const float twoRegular = g.renderer.measure_text("Hello Hello", 24).x;
     CHECK(mixed > twoRegular);
     CHECK(mixed == doctest::Approx(twoRegular + (bold - regular)).epsilon(kLineEps));
     // the line height does not change
-    CHECK(g.renderer.measure_text("Hello", 24, "", 0, RenderSpace::World, kBold).y == doctest::Approx(g.renderer.measure_text("Hello", 24).y));
+    CHECK(g.renderer.measure_text("Hello", 24, "", 0, RenderSpace::World, kBold).y ==
+          doctest::Approx(g.renderer.measure_text("Hello", 24).y));
     // drawn: bold ink is a little wider and has more lit pixels than the regular
     const auto lit = [&](bool boldText) {
-        World w; add_camera(w);
+        World w;
+        add_camera(w);
         Entity e = make(w, "t", {-120, 70, 0});
         Text& t = w.add<Text>(e);
         t.text = "Hill";
@@ -201,7 +210,8 @@ TEST_CASE("rich text: [b] and Text.bold embolden the regular glyphs when the pro
     CHECK(lit(true) > lit(false) * 1.08f);
 }
 
-TEST_CASE("rich text: the project's bold face draws [b] and Text.bold, a glyph it lacks falls back to the regular face") {
+TEST_CASE(
+    "rich text: the project's bold face draws [b] and Text.bold, a glyph it lacks falls back to the regular face") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichTextStyle s = test_style();
@@ -210,10 +220,14 @@ TEST_CASE("rich text: the project's bold face draws [b] and Text.bold, a glyph i
     const float pixelAb = g.renderer.measure_text("ab", 20, "builtin:pixel").x;
     const float regularAb = g.renderer.measure_text("ab", 20).x;
     REQUIRE(std::fabs(pixelAb - regularAb) > 2.0f);
-    CHECK(g.renderer.measure_text("[b]ab[/b]", 20, "", 0, RenderSpace::World, kMarkup).x == doctest::Approx(pixelAb).epsilon(kLineEps));
-    CHECK(g.renderer.measure_text("ab", 20, "", 0, RenderSpace::World, kBold).x == doctest::Approx(pixelAb).epsilon(kLineEps));
+    CHECK(g.renderer.measure_text("[b]ab[/b]", 20, "", 0, RenderSpace::World, kMarkup).x ==
+          doctest::Approx(pixelAb).epsilon(kLineEps));
+    CHECK(g.renderer.measure_text("ab", 20, "", 0, RenderSpace::World, kBold).x ==
+          doctest::Approx(pixelAb).epsilon(kLineEps));
     CHECK(g.renderer.measure_text("ab [b]ab[/b]", 20, "", 0, RenderSpace::World, kMarkup).x ==
-          doctest::Approx(regularAb + g.renderer.measure_text("a b", 20).x - g.renderer.measure_text("ab", 20).x + pixelAb).epsilon(kLineEps));
+          doctest::Approx(regularAb + g.renderer.measure_text("a b", 20).x - g.renderer.measure_text("ab", 20).x +
+                          pixelAb)
+              .epsilon(kLineEps));
     // a font the section does not name keeps the engine's emboldening
     const float other = g.renderer.measure_text("ab", 20, "builtin:pixel").x;
     CHECK(g.renderer.measure_text("ab", 20, "builtin:pixel", 0, RenderSpace::World, kBold).x > other);
@@ -223,25 +237,33 @@ TEST_CASE("rich text: unknown tags, a lone '[' and '[[' show as written and neve
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer);
-    const auto markup = [&](const std::string& s) { return g.renderer.measure_text(s, 20, "", 0, RenderSpace::World, kMarkup).x; };
+    const auto markup = [&](const std::string& s) {
+        return g.renderer.measure_text(s, 20, "", 0, RenderSpace::World, kMarkup).x;
+    };
     const auto plain = [&](const std::string& s) { return g.renderer.measure_text(s, 20).x; };
     CHECK(markup("a [x] b") == doctest::Approx(plain("a [x] b")).epsilon(kLineEps));
     CHECK(markup("a [ b") == doctest::Approx(plain("a [ b")).epsilon(kLineEps));
     CHECK(markup("a [[ b") == doctest::Approx(plain("a [ b")).epsilon(kLineEps));
     CHECK(markup("a [/b] b") == doctest::Approx(plain("a  b")).epsilon(kLineEps));  // a stray closing tag is dropped
-    CHECK(markup("a [c:nope]b[/c]") == doctest::Approx(plain("a b")).epsilon(kLineEps));  // an unknown colour keeps the text's own
+    CHECK(markup("a [c:nope]b[/c]") ==
+          doctest::Approx(plain("a b")).epsilon(kLineEps));  // an unknown colour keeps the text's own
     // a literal U+FFFC in the source is not mistaken for an icon
-    CHECK(markup("a\xEF\xBF\xBC" "b") == doctest::Approx(plain("a\xEF\xBF\xBD" "b")).epsilon(kLineEps));
+    CHECK(markup("a\xEF\xBF\xBC"
+                 "b") == doctest::Approx(plain("a\xEF\xBF\xBD"
+                                               "b"))
+                             .epsilon(kLineEps));
     // Text.markup off: the tags are text
     CHECK(plain("[b]x[/b]") > plain("x") * 3);
 }
 
-TEST_CASE("rich text: two colours, a bold word and an icon draw their colours, and the glyphs of a line are one batch") {
+TEST_CASE(
+    "rich text: two colours, a bold word and an icon draw their colours, and the glyphs of a line are one batch") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer);
     const auto draw = [&](const std::string& text, bool markup, Image* out = nullptr) {
-        World w; add_camera(w);
+        World w;
+        add_camera(w);
         if (markup) {
             put_markup(w, text, {-150, 70, 0}, 28);
         } else {
@@ -270,7 +292,8 @@ TEST_CASE("rich text: two colours, a bold word and an icon draw their colours, a
     CHECK(draw("[icon:fish][icon:fish] [icon:wide] a [icon:fish]", true) == plainCalls + 1);
     // the icon is the red square of the texture, as tall as the line
     const float lineH = line_height(g.renderer, 28);
-    World w; add_camera(w);
+    World w;
+    add_camera(w);
     put_markup(w, "[icon:fish]", {-150, 70, 0}, 28);
     const Image iconImg = g.render(w);
     const Box red = box_of(iconImg, is_red);
@@ -279,7 +302,8 @@ TEST_CASE("rich text: two colours, a bold word and an icon draw their colours, a
     CHECK(std::fabs(float(red.w()) - lineH) <= 1.5f);
     CHECK(red.y0 == doctest::Approx(20).epsilon(0.1));  // the top of the line
     // the wide icon keeps its 2:1 proportions
-    World w2; add_camera(w2);
+    World w2;
+    add_camera(w2);
     put_markup(w2, "[icon:wide]", {-150, 70, 0}, 28);
     const Box blue = box_of(g.render(w2), is_blue);
     REQUIRE(blue.any());
@@ -291,7 +315,8 @@ TEST_CASE("rich text: the alpha of the Text fades runs and icons, and a run colo
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer);
-    World w; add_camera(w);
+    World w;
+    add_camera(w);
     Entity e = put_markup(w, "[icon:fish]", {-150, 70, 0}, 28);
     w.get<Text>(e)->color.a = 0.5f;
     const Image img = g.render(w);
@@ -305,7 +330,8 @@ TEST_CASE("rich text: a Button label takes markup and the button measures what i
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer);
-    World w; add_camera(w);
+    World w;
+    add_camera(w);
     Entity e = make(w, "play", {20, 20, 0});
     Button& b = w.add<Button>(e);
     b.size = {200, 50};
@@ -331,7 +357,8 @@ TEST_CASE("rich text: set_rich_text_style changes the next layout of a Text alre
     Gfx& g = gfx();
     REQUIRE(g.ok);
     RichStyleGuard style(g.renderer, RichTextStyle{});
-    World w; add_camera(w);
+    World w;
+    add_camera(w);
     put_markup(w, "[c:good]Hi[/c]", {-150, 70, 0}, 28);
     // "good" is not declared: the colour tag still names no built-in colour, so the text keeps its own white
     Image before = g.render(w);

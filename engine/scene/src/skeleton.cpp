@@ -86,7 +86,7 @@ Json extras_json(const cgltf_data* data, const cgltf_extras& extras) {
     if (cgltf_copy_extras_json(data, &extras, nullptr, &size) != cgltf_result_success || size == 0) return Json();
     std::string text(size, '\0');
     if (cgltf_copy_extras_json(data, &extras, text.data(), &size) != cgltf_result_success) return Json();
-    Json out = Json::parse(text.c_str(), nullptr, false);
+    Json out = parse_json_lenient(text.c_str());
     return out.is_discarded() ? Json() : out;
 }
 
@@ -117,6 +117,25 @@ std::string skin_rig_template(const cgltf_data* data, const cgltf_skin& sk) {
 void gltf_use_fs(cgltf_options& opts) {
     opts.file.read = &file_read;
     opts.file.release = &file_release;
+}
+
+Result<void> gltf_check(cgltf_data* data, std::string_view path) {
+    const cgltf_result r = cgltf_validate(data);
+    if (r == cgltf_result_success) return {};
+    const char* what = "a value is out of range";
+    switch (r) {
+        case cgltf_result_data_too_short:
+            what = "an accessor, buffer view or image reaches past the end of its buffer";
+            break;
+        case cgltf_result_invalid_json: what = "the JSON does not follow the glTF 2.0 rules"; break;
+        case cgltf_result_invalid_gltf: what = "an index, count or reference does not follow the glTF 2.0 rules"; break;
+        default: break;
+    }
+    return make_error(
+        std::format("'{}' is not a consistent glTF file: {} (cgltf_validate error {})", path, what, int(r)),
+        "Export the model again from the tool that made it, or open and re-save it in a glTF viewer that validates "
+        "files "
+        "(e.g. the Khronos glTF Validator).");
 }
 
 int SkeletonAsset::find_clip(std::string_view name) const {
@@ -154,6 +173,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
                           "External .bin files must sit next to the .gltf and be inside the project.");
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
 
     SkeletonAsset out;
     out.path = path;
@@ -180,7 +200,8 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
             }
         }
         if (out.order.size() == before)
-            return make_error(std::format("'{}': the node hierarchy has a cycle", path), "glTF nodes must form a forest.");
+            return make_error(std::format("'{}': the node hierarchy has a cycle", path),
+                              "glTF nodes must form a forest.");
     }
 
     for (cgltf_size si = 0; si < data->skins_count; ++si) {
@@ -223,8 +244,8 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
             const cgltf_size comps = c.path == AnimPath::Rotation ? 4 : 3;
             const cgltf_size perKey = c.interp == AnimInterp::CubicSpline ? 3 : 1;
             if (sm.input->count == 0 || sm.output->count != sm.input->count * perKey)
-                return make_error(std::format("'{}': animation '{}' channel {} has {} keys but {} values", path, clip.name,
-                                              ci, sm.input->count, sm.output->count),
+                return make_error(std::format("'{}': animation '{}' channel {} has {} keys but {} values", path,
+                                              clip.name, ci, sm.input->count, sm.output->count),
                                   c.interp == AnimInterp::CubicSpline
                                       ? "CUBICSPLINE needs three values per key (in tangent, value, out tangent)."
                                       : "A sampler needs one output value per input time.");
@@ -250,7 +271,9 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
             if (animated[std::size_t(n)]) return n;
         return -1;
     };
-    struct RigidRef { int skin, joint; };
+    struct RigidRef {
+        int skin, joint;
+    };
     std::map<int, RigidRef> rigidJoint;  // driver node -> where it sits in the rigid skins
     const int firstRigidSkin = int(out.skins.size());
     auto rigid_ref = [&](int driver) {
@@ -282,9 +305,12 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
             for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
                 const cgltf_attribute& at = prim.attributes[a];
                 if (at.index != 0) continue;
-                if (at.type == cgltf_attribute_type_position) pos = at.data;
-                else if (at.type == cgltf_attribute_type_joints) jnt = at.data;
-                else if (at.type == cgltf_attribute_type_weights) wgt = at.data;
+                if (at.type == cgltf_attribute_type_position)
+                    pos = at.data;
+                else if (at.type == cgltf_attribute_type_joints)
+                    jnt = at.data;
+                else if (at.type == cgltf_attribute_type_weights)
+                    wgt = at.data;
             }
             if (!pos) continue;
             SkinVertices sv;
@@ -312,7 +338,10 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
                 if (v < jnt->count) cgltf_accessor_read_uint(jnt, v, j, 4);
                 if (v < wgt->count) cgltf_accessor_read_float(wgt, v, w, 4);
                 for (int k = 0; k < 4; ++k) {
-                    if (j[k] >= jointCount) { j[k] = 0; w[k] = 0; }  // a bad index must not read outside the palette
+                    if (j[k] >= jointCount) {
+                        j[k] = 0;
+                        w[k] = 0;
+                    }  // a bad index must not read outside the palette
                     sv.joints[v][k] = std::uint16_t(j[k]);
                 }
                 const float sum = w[0] + w[1] + w[2] + w[3];
@@ -366,7 +395,8 @@ Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path
     if (!bytes) return bytes.error();
     const bool racy = within_racy_window(mtime);
     std::string hash = cachedRacy || racy ? sha256_hex(bytes->data(), bytes->size()) : std::string();
-    if (cachedRacy && hash == racyHash) {  // the same bytes: share the parsed asset; trusted by time once the file is old enough
+    if (cachedRacy &&
+        hash == racyHash) {  // the same bytes: share the parsed asset; trusted by time once the file is old enough
         if (!racy) {
             std::lock_guard lock(g_cacheMutex);
             if (auto it = cache().find(path); it != cache().end() && it->second.asset == cachedRacy) {
@@ -381,8 +411,10 @@ Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path
     if (!parsed->clips.empty() && parsed->skinVertices.empty()) {
         std::string names;
         for (const AnimClip& c : parsed->clips) names += (names.empty() ? "" : ", ") + c.name;
-        FA_WARN("animation", "{}: has animation clips ({}) but no mesh on an animated node or skin, so nothing can play them; "
-                             "the model stays in its bind pose.", path, names);
+        FA_WARN("animation",
+                "{}: has animation clips ({}) but no mesh on an animated node or skin, so nothing can play them; "
+                "the model stays in its bind pose.",
+                path, names);
     }
     auto asset = std::make_shared<const SkeletonAsset>(std::move(*parsed));
     std::lock_guard lock(g_cacheMutex);

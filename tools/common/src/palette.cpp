@@ -12,13 +12,16 @@ namespace fa {
 
 namespace {
 
-std::uint32_t pack(std::uint8_t r, std::uint8_t g, std::uint8_t b) { return (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b; }
+std::uint32_t pack(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    return (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b;
+}
 
 Result<std::array<std::uint8_t, 3>> parse_colour(const std::string& text, std::size_t index) {
     Color c;
     if (!parse_color(text, c)) {
-        return make_error(std::format("palette colour {} is '{}', not a colour like \"#1a1c2c\"", index, text),
-                          "Write each colour as \"#rrggbb\" or a colour name, or give the path of an image that holds the colours.");
+        return make_error(
+            std::format("palette colour {} is '{}', not a colour like \"#1a1c2c\"", index, text),
+            "Write each colour as \"#rrggbb\" or a colour name, or give the path of an image that holds the colours.");
     }
     const auto byte = [](float v) { return std::uint8_t(std::lround(v * 255)); };
     return std::array<std::uint8_t, 3>{byte(c.r), byte(c.g), byte(c.b)};
@@ -30,7 +33,8 @@ Result<Palette> load_palette(const Json& spec) {
     Palette palette;
     if (spec.is_array()) {
         for (std::size_t i = 0; i < spec.size(); ++i) {
-            if (!spec[i].is_string()) return make_error(std::format("palette colour {} is not a string", i), "Use \"#rrggbb\" strings.");
+            if (!spec[i].is_string())
+                return make_error(std::format("palette colour {} is not a string", i), "Use \"#rrggbb\" strings.");
             auto c = parse_colour(spec[i].get<std::string>(), i);
             if (!c) return c.error();
             palette.push_back(*c);
@@ -38,7 +42,9 @@ Result<Palette> load_palette(const Json& spec) {
     } else if (spec.is_string()) {
         const std::string path = spec.get<std::string>();
         auto img = load_image(path);
-        if (!img) return make_error("The palette image '" + path + "' cannot be read: " + img.error().message, img.error().hint);
+        if (!img)
+            return make_error("The palette image '" + path + "' cannot be read: " + img.error().message,
+                              img.error().hint);
         std::set<std::uint32_t> seen;
         for (std::size_t i = 0; i < img->rgba.size(); i += 4) {
             if (img->rgba[i + 3] < 128) continue;  // transparent pixels are not colours of the palette
@@ -47,13 +53,18 @@ Result<Palette> load_palette(const Json& spec) {
             if (seen.size() > kMaxPaletteColours) break;
         }
         if (palette.size() > kMaxPaletteColours) {
-            return make_error(std::format("The palette image '{}' has more than {} colours, so it is not a palette", path, kMaxPaletteColours),
-                              "Point style.palette at an image with at most 256 distinct colours, or list the colours as \"#rrggbb\" strings.");
+            return make_error(std::format("The palette image '{}' has more than {} colours, so it is not a palette",
+                                          path, kMaxPaletteColours),
+                              "Point style.palette at an image with at most 256 distinct colours, or list the colours "
+                              "as \"#rrggbb\" strings.");
         }
     } else {
-        return make_error("style.palette must be a list of \"#rrggbb\" colours or the path of an image", "See schemas/assets.schema.json.");
+        return make_error("style.palette must be a list of \"#rrggbb\" colours or the path of an image",
+                          "See schemas/assets.schema.json.");
     }
-    if (palette.size() < 2) return make_error("A palette needs at least 2 colours", "List more colours, or use an image with more distinct colours.");
+    if (palette.size() < 2)
+        return make_error("A palette needs at least 2 colours",
+                          "List more colours, or use an image with more distinct colours.");
     return palette;
 }
 

@@ -60,16 +60,15 @@ namespace fa {
 
 namespace {
 
+using audio_detail::BusBuiltin;
 using audio_detail::BusMusic;
+using audio_detail::BusRuntime;
 using audio_detail::BusSfx;
 using audio_detail::BusUi;
-using audio_detail::BusBuiltin;
-using audio_detail::BusRuntime;
 using audio_detail::Clip;
 using audio_detail::Cmd;
 using audio_detail::CmdKind;
 using audio_detail::kFirstProjectBus;
-using audio_detail::kSyncAllBuses;
 using audio_detail::kMasterBus;
 using audio_detail::kMaxPlayers;
 using audio_detail::kMaxVoices;
@@ -79,8 +78,9 @@ using audio_detail::kRate;
 using audio_detail::kStreamFrames;
 using audio_detail::kStreamPrefill;
 using audio_detail::kStreamRefill;
-using audio_detail::MixTable;
+using audio_detail::kSyncAllBuses;
 using audio_detail::Mixer;
+using audio_detail::MixTable;
 using audio_detail::MixVoice;
 using audio_detail::MusicChannel;
 using audio_detail::MusicSnap;
@@ -93,7 +93,7 @@ using audio_detail::SyncTarget;
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
 constexpr std::size_t kMaxPlayLog = 4096;
 const char* const kBusNames[BusBuiltin] = {"sfx", "music", "ui"};
-constexpr std::size_t kMaxEnded = 1024;   // endings waiting for take_ended_voices()
+constexpr std::size_t kMaxEnded = 1024;  // endings waiting for take_ended_voices()
 constexpr float kMaxBusVolume = 4.0f;
 // Commands staged for a device that has not taken them yet (its callback stalls, or the game sends faster than it mixes).
 // Past this many the oldest play or voice setting is dropped, then the oldest bus or music setting; stops and other Keep
@@ -108,16 +108,17 @@ constexpr std::size_t kCoalesceFrom = 1024;
 constexpr std::size_t kKeepWarnAt = kMaxStaged * 4;
 // A dropped setting is sent again once the queue is down to this many commands.
 constexpr std::size_t kResyncBelow = kMaxStaged / 2;
-constexpr int kMusicPriority = 256;   // play_music and its layers: above every priority a game can give (0..255)
-constexpr int kVideoPriority = 192;   // a Video's sound
-constexpr int kStingerPriority = 192; // a MusicPlayer's clip stinger: above the effects, so a full mixer does not drop it
+constexpr int kMusicPriority = 256;  // play_music and its layers: above every priority a game can give (0..255)
+constexpr int kVideoPriority = 192;  // a Video's sound
+constexpr int kStingerPriority =
+    192;  // a MusicPlayer's clip stinger: above the effects, so a full mixer does not drop it
 constexpr std::size_t kRecordRingFloats = std::size_t(1) << 20;  // about 12 s of 44.1 kHz stereo between two drains
 
 // A voice as the game side knows it: what it asked for. The mixer has its own copy (MixVoice) and says when it ended.
 struct GameVoice {
-    std::shared_ptr<const Clip> clip;   // kept alive here while the mixer may read it
-    std::shared_ptr<StreamRing> stream; // a streamed clip's ring (a decode job may hold it too)
-    std::shared_ptr<PcmRing> pcm;       // a voice the game feeds
+    std::shared_ptr<const Clip> clip;    // kept alive here while the mixer may read it
+    std::shared_ptr<StreamRing> stream;  // a streamed clip's ring (a decode job may hold it too)
+    std::shared_ptr<PcmRing> pcm;        // a voice the game feeds
     std::string path, source;
     int bus = BusSfx;
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;  // as last set (the target of a ramp)
@@ -157,8 +158,8 @@ struct EntityAudio {
     VoiceId voice = 0;
     bool started = false;
     std::uint64_t seen = 0;
-    int lastVariant = 0;       // AudioSource.variants: the variant played last (1-based), never picked twice in a row
-    std::uint32_t plays = 0;   // how many plays picked a variant: part of the pick's seed
+    int lastVariant = 0;      // AudioSource.variants: the variant played last (1-based), never picked twice in a row
+    std::uint32_t plays = 0;  // how many plays picked a variant: part of the pick's seed
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -190,7 +191,8 @@ void write_le32(std::vector<std::uint8_t>& b, std::uint32_t v) {
 }
 
 // ---- adaptive music (MusicPlayer components): the game's side of one player -------------------------------------------------------
-constexpr std::size_t kMusicCacheBytes = std::size_t(128) << 20;  // sources nobody plays are dropped above this, least recently used first
+constexpr std::size_t kMusicCacheBytes =
+    std::size_t(128) << 20;  // sources nobody plays are dropped above this, least recently used first
 
 // A song being rendered or read. With a device it runs as a job (fa::jobs); the null device (tests, headless) and the web run it
 // right in the call, so a headless run is deterministic and has the music from the frame it asked.
@@ -206,8 +208,10 @@ struct MusicLoad {
     void run() {
         LoadTrace::ReadingFor reading(owner);  // on the job's thread too (fa/core/load_trace.h)
         auto r = music_load_source(path, mode, plan, &note);
-        if (r) source = std::move(*r);
-        else error = r.error().to_string();
+        if (r)
+            source = std::move(*r);
+        else
+            error = r.error().to_string();
         // Release: `source`, `error` and `note` are written before the game thread sees done (acquire in music_poll).
         done.store(true, std::memory_order_release);
     }
@@ -224,7 +228,7 @@ struct MusicRt {
     Entity e;
     std::string id;
     const World* world = nullptr;
-    std::unique_ptr<MusicChannel> ch;         // the transport in the mixer (null when every channel is taken)
+    std::unique_ptr<MusicChannel> ch;  // the transport in the mixer (null when every channel is taken)
     std::vector<HeldSource> held;
     std::uint64_t lastSeq = 0;                // the last command sent to the channel
     std::string song;                         // the song asked for (normalized path; "" = none)
@@ -237,20 +241,20 @@ struct MusicRt {
     float volume = -1.0f, intensity = -1.0f;
     bool loop = true, playing = false, stopIssued = false, first = true;
     float layerFade = -1.0f, layerRange = -1.0f;
-    bool resendLoop = false;                  // a dropped set_loop: send it again whatever the component says
-    struct Entry {                            // how the source that arrives enters the transport
+    bool resendLoop = false;  // a dropped set_loop: send it again whatever the component says
+    struct Entry {            // how the source that arrives enters the transport
         bool set = false, hard = false;
-        bool begin = false;                   // crossfadeTo: the other song starts at its beginning, not at the component's startSection
+        bool begin = false;  // crossfadeTo: the other song starts at its beginning, not at the component's startSection
         std::string section;
         std::optional<MusicQuantize> quantize;
         float bars = -1.0f;
-        bool lenient = false;                 // a reload or a device change: a section the new source lacks starts it at the beginning
+        bool lenient = false;  // a reload or a device change: a section the new source lacks starts it at the beginning
     } entry;
     std::uint64_t seen = 0;
     bool announcedReady = false;
-    bool reload = false;                      // its song changed on disk: fetch it again and crossfade to it
-    std::uint64_t epoch = 0;                  // the Impl::musicEpoch its mode was resolved at
-    MusicMode resolved = MusicMode::Live;     // the mode of the source it asked for
+    bool reload = false;                   // its song changed on disk: fetch it again and crossfade to it
+    std::uint64_t epoch = 0;               // the Impl::musicEpoch its mode was resolved at
+    MusicMode resolved = MusicMode::Live;  // the mode of the source it asked for
 };
 
 // What the game reads of a player's transport: the mixer's latest copy once it has applied the last command sent to it
@@ -274,14 +278,15 @@ struct Audio::Impl {
     // ---- the game side (every field below): touched only under apiMu, by the game thread or whoever calls the API
     // Recursive: a public call may call another one (update() calls stop(), play_music() ...). The callback never takes it.
     std::recursive_mutex apiMu;
-    int depth = 0;                    // nesting of public calls: the outermost one commits what they sent (flush())
+    int depth = 0;  // nesting of public calls: the outermost one commits what they sent (flush())
     std::uint64_t batchSeq = 0, curBatch = 0, cmdSeq = 0;
-    std::deque<Cmd*> staged;          // sent with a device and not in the mixer's ring yet (kMaxStaged); see stage_*()
+    std::deque<Cmd*> staged;  // sent with a device and not in the mixer's ring yet (kMaxStaged); see stage_*()
     // What waits in `staged`, kept by stage_push/stage_pop/stage_erase so a full queue of Keep commands (a long stall) is
     // never walked to find out that it holds nothing to drop, coalesce or take back.
     std::size_t stagedDroppable = 0, stagedLossy = 0, stagedPlays = 0;
     std::map<std::uint64_t, std::size_t> stagedKeys;  // coalesceKey -> how many wait
-    std::vector<VoiceId> pendingEnds; // voices the mixer ended (or plays that never reached it): process_ends() forgets them
+    std::vector<VoiceId>
+        pendingEnds;  // voices the mixer ended (or plays that never reached it): process_ends() forgets them
     std::uint64_t commandsDropped = 0, settingsDropped = 0, voicesStolen = 0, voicesRejected = 0;
     std::uint64_t commandsCoalesced = 0;
     bool dropWarned = false, keepWarned = false;
@@ -289,26 +294,28 @@ struct Audio::Impl {
     std::set<VoiceId> resyncVoices;
     std::set<std::string> resyncBuses;  // by name: a bus table swap while the queue is stalled moves the indexes
     bool resyncMusic = false;
-    std::set<std::string> rejectWarned; // clips whose play a full mixer refused (warned once each; at most 256 names)
+    std::set<std::string> rejectWarned;  // clips whose play a full mixer refused (warned once each; at most 256 names)
 
     bool inited = false;
-    bool device = false;       // a device's callback mixes (on another thread, or on the web's main thread between frames)
+    bool device = false;  // a device's callback mixes (on another thread, or on the web's main thread between frames)
     bool autoAdvance = false;  // device requested but unavailable -> run as null device driven by update()
     bool manual = false;       // a test drives the mixer as a device (AudioTestAccess::use_manual_device)
     bool web = false;
     bool streamLogged = false;
-    std::atomic<bool> streamService{true};  // the clip decode jobs and the music service refill the streams (tests switch it off)
+    std::atomic<bool> streamService{
+        true};  // the clip decode jobs and the music service refill the streams (tests switch it off)
     int deviceRate = kRate;
     int deviceChannels = 2;
 
     std::map<std::string, std::shared_ptr<const Clip>> clips;
-    std::map<std::string, std::vector<std::string>> untraced;  // adopt_clip: the files of a clip not used yet (load trace)
+    std::map<std::string, std::vector<std::string>>
+        untraced;  // adopt_clip: the files of a clip not used yet (load trace)
     std::set<std::string> failedLogged;
 
     std::map<VoiceId, GameVoice> voices;  // by id: ids only grow, so this is also the order they started in
     VoiceId nextVoice = 1;
-    std::vector<GameBus> bus;             // the bus table (see kMasterBus), as the mixer's MixTable has it
-    std::vector<VoiceId> ended;           // voices with notify that ended (take_ended_voices)
+    std::vector<GameBus> bus;    // the bus table (see kMasterBus), as the mixer's MixTable has it
+    std::vector<VoiceId> ended;  // voices with notify that ended (take_ended_voices)
     AudioSnapshots snapshots;
     std::string snapshotName;
     VoiceId musicVoice = 0;
@@ -345,18 +352,19 @@ struct Audio::Impl {
 
     // adaptive music (MusicPlayer components)
     std::map<std::uint64_t, std::unique_ptr<MusicRt>> musicEnts;
-    std::vector<std::unique_ptr<MusicRt>> musicOrphans;   // players whose entity is gone: they fade out (or a new player adopts them)
-    std::map<std::string, CachedSong> musicCache;         // by "song|mode"
-    std::uint64_t musicUse = 0;                           // the clock of the cache's least-recently-used order
+    std::vector<std::unique_ptr<MusicRt>>
+        musicOrphans;  // players whose entity is gone: they fade out (or a new player adopts them)
+    std::map<std::string, CachedSong> musicCache;  // by "song|mode"
+    std::uint64_t musicUse = 0;                    // the clock of the cache's least-recently-used order
     std::size_t musicCacheBudget = kMusicCacheBytes;
     // Every underrun of every streamed stem the cache ever took, also of a source that left the cache (invalidated, evicted) and still plays.
     std::shared_ptr<audio_detail::MusicTally> musicTally = std::make_shared<audio_detail::MusicTally>();
     // Sources music_invalidate took out of the cache while a player or the mixer still held them: their memory stays until they let go.
     std::vector<std::weak_ptr<const MusicSource>> musicDeparted;
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
-    std::map<std::string, std::string> musicErrors;       // why a load failed, by key
+    std::map<std::string, std::string> musicErrors;  // why a load failed, by key
     MusicDeviceProfile musicDevice;
-    std::uint64_t musicEpoch = 1;                         // raised when the device profile changes (players re-resolve `auto`)
+    std::uint64_t musicEpoch = 1;  // raised when the device profile changes (players re-resolve `auto`)
     bool channelWarned = false;
 
     MusicRt* music_find(const World& world, Entity e);
@@ -433,15 +441,19 @@ struct Audio::Impl {
     // The staging queue and its counters (every change to `staged` goes through these).
     void stage_push(Cmd* c) {
         staged.push_back(c);
-        if (c->kind == CmdKind::Droppable) ++stagedDroppable;
-        else if (c->kind == CmdKind::Lossy) ++stagedLossy;
+        if (c->kind == CmdKind::Droppable)
+            ++stagedDroppable;
+        else if (c->kind == CmdKind::Lossy)
+            ++stagedLossy;
         if (c->play != 0) ++stagedPlays;
         if (c->coalesceKey != 0) ++stagedKeys[c->coalesceKey];
     }
     // `c` leaves the queue (not deleted): counted out.
     void stage_uncount(const Cmd* c) {
-        if (c->kind == CmdKind::Droppable) --stagedDroppable;
-        else if (c->kind == CmdKind::Lossy) --stagedLossy;
+        if (c->kind == CmdKind::Droppable)
+            --stagedDroppable;
+        else if (c->kind == CmdKind::Lossy)
+            --stagedLossy;
         if (c->play != 0) --stagedPlays;
         if (c->coalesceKey != 0) {
             const auto k = stagedKeys.find(c->coalesceKey);
@@ -504,9 +516,11 @@ struct Audio::Impl {
         if (lossy && stagedLossy == 0) {
             if (staged.size() > kKeepWarnAt && !keepWarned) {
                 keepWarned = true;
-                FA_WARN("audio", "the audio device takes no commands (its callback stalls): {} stops, removals and other "
-                                 "commands that must reach it are waiting, and they are all kept (more memory until the "
-                                 "device resumes)", staged.size());
+                FA_WARN("audio",
+                        "the audio device takes no commands (its callback stalls): {} stops, removals and other "
+                        "commands that must reach it are waiting, and they are all kept (more memory until the "
+                        "device resumes)",
+                        staged.size());
             }
             return;
         }
@@ -528,12 +542,16 @@ struct Audio::Impl {
             case SyncTarget::None: break;
         }
         delete c;
-        if (lossy) ++settingsDropped;
-        else ++commandsDropped;
+        if (lossy)
+            ++settingsDropped;
+        else
+            ++commandsDropped;
         if (!dropWarned) {
             dropWarned = true;
-            FA_WARN("audio", "the audio device takes no commands (its callback stalls): more than {} wait, so the oldest plays "
-                             "and settings are dropped (stats(): commandsDropped, settingsDropped)", kMaxStaged);
+            FA_WARN("audio",
+                    "the audio device takes no commands (its callback stalls): more than {} wait, so the oldest plays "
+                    "and settings are dropped (stats(): commandsDropped, settingsDropped)",
+                    kMaxStaged);
         }
     }
 
@@ -801,7 +819,8 @@ struct Audio::Impl {
     VoiceId new_voice(GameVoice gv, const PlayParams& p, MixVoice& mv, bool* rejected) {
         int b = bus_index(p.bus);
         if (b < 0) {
-            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus, did_you_mean(p.bus, bus_names_locked(false)));
+            FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", p.bus,
+                     did_you_mean(p.bus, bus_names_locked(false)));
             b = BusSfx;
         }
         gv.bus = b;
@@ -814,9 +833,11 @@ struct Audio::Impl {
             if (rejected) *rejected = true;
             const std::string& key = gv.path;
             if (rejectWarned.size() < 256 && rejectWarned.insert(key).second)
-                FA_WARN("audio", "'{}' did not play: all {} voices play sounds of a higher priority, or as high and louder "
-                                 "(hint: PlayOptions.priority / AudioSource.priority 0..255, default 128; stats().voicesRejected)",
-                        key, kMaxVoices);
+                FA_WARN(
+                    "audio",
+                    "'{}' did not play: all {} voices play sounds of a higher priority, or as high and louder "
+                    "(hint: PlayOptions.priority / AudioSource.priority 0..255, default 128; stats().voicesRejected)",
+                    key, kMaxVoices);
             return 0;
         }
         const VoiceId id = next_id();
@@ -922,8 +943,8 @@ struct Audio::Impl {
     // The same for a bus: its volume, snapshot scale, low-pass, reverb and ducking as the mirror has them.
     void send_bus_state(int b) {
         const GameBus& g = bus[std::size_t(b)];
-        const float vol = g.vol, snap = g.snap, lp = g.lpHz, rv = g.reverb, amount = g.duck.amount, attack = g.duck.attack,
-                    release = g.duck.release;
+        const float vol = g.vol, snap = g.snap, lp = g.lpHz, rv = g.reverb, amount = g.duck.amount,
+                    attack = g.duck.attack, release = g.duck.release;
         const int by = g.duckBy;
         bus_cmd(b, CmdKind::Lossy, [vol, snap, lp, rv, by, amount, attack, release](Mixer& m, BusRuntime& rt, Cmd&) {
             rt.vol.set(vol, m.ramp_frames(0.0f, true));
@@ -953,7 +974,8 @@ struct Audio::Impl {
                                                  std::string* err) {
         auto decoder = audio_detail::open_decoder(clip.encoded->data(), clip.encoded->size(), clip.ext, err);
         if (!decoder) return nullptr;
-        auto ring = std::make_shared<StreamRing>(audio_detail::Resampler(clip.encoded, std::move(decoder), loop), frames);
+        auto ring =
+            std::make_shared<StreamRing>(audio_detail::Resampler(clip.encoded, std::move(decoder), loop), frames);
         if (ring->claim()) {  // nobody else has it yet
             ring->fill(kStreamPrefill);
             *bytes = ring->resident_bytes();
@@ -985,12 +1007,13 @@ struct Audio::Impl {
     // of the game's state, so it needs neither the API lock nor a call from the game. It runs only with a device thread: on the null device
     // and the web the mixer decodes what it needs itself.
     struct MusicService {
-        std::mutex mu;                                                      // guards the four below
+        std::mutex mu;  // guards the four below
         std::condition_variable cv;
-        std::vector<std::weak_ptr<audio_detail::MusicStemStream>> streams;  // every streamed stem of every song the cache took
+        std::vector<std::weak_ptr<audio_detail::MusicStemStream>>
+            streams;  // every streamed stem of every song the cache took
         bool stop = false;
         std::thread thread;
-        std::mutex passMu;                                                  // one pass at a time (the thread, or a test's hook)
+        std::mutex passMu;  // one pass at a time (the thread, or a test's hook)
         std::vector<std::shared_ptr<audio_detail::MusicStemStream>> scratch;
     } svc;
 
@@ -1040,12 +1063,16 @@ struct Audio::Impl {
     // The mode `asked` comes to for `song` with its stem plan. "auto" with stems that were rendered from another version of the song plays
     // it live, and says so once (until the stems are current again): a song edit is heard in a running game, as a live song's is.
     std::set<std::string> staleLogged;
-    MusicMode music_mode_of(MusicMode asked, const std::string& song, const MusicStemPlan& plan, std::string* why = nullptr) {
+    MusicMode music_mode_of(MusicMode asked, const std::string& song, const MusicStemPlan& plan,
+                            std::string* why = nullptr) {
         const bool stale = asked == MusicMode::Auto && plan.stale && !plan.files.empty();
-        if (!stale) staleLogged.erase(song);
+        if (!stale)
+            staleLogged.erase(song);
         else if (staleLogged.insert(song).second)
-            FA_WARN("audio", "the stems of '{}' were rendered from an older version of the song; it plays live instead "
-                             "(hint: run music.render on it to use the stems again)", song);
+            FA_WARN("audio",
+                    "the stems of '{}' were rendered from an older version of the song; it plays live instead "
+                    "(hint: run music.render on it to use the stems again)",
+                    song);
         return music_resolve_mode(asked, musicDevice, !plan.files.empty(), why, plan.stale);
     }
 
@@ -1086,8 +1113,9 @@ struct Audio::Impl {
     }
 
     void prune_jobs() {
-        jobsInFlight.erase(std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
-                           jobsInFlight.end());
+        jobsInFlight.erase(
+            std::remove_if(jobsInFlight.begin(), jobsInFlight.end(), [](const jobs::Handle& h) { return h.done(); }),
+            jobsInFlight.end());
     }
 
     // ---------------------------------------------------------------------------------------------------- recorder
@@ -1104,7 +1132,8 @@ struct Audio::Impl {
         }
         if (!recLostWarned && recRing->lost() > 0) {
             recLostWarned = true;
-            FA_WARN("audio", "audio recording lost {} samples: the game did not take the recorded audio for several seconds",
+            FA_WARN("audio",
+                    "audio recording lost {} samples: the game did not take the recorded audio for several seconds",
                     recRing->lost());
         }
     }
@@ -1146,7 +1175,8 @@ struct Audio::Impl {
 
     // play() with the AudioSource entity id that requested it ("" for scripts). `*rejected`: the pool refused it (the clip
     // itself is fine).
-    VoiceId start(std::string_view clipPath, const PlayParams& params, std::string_view source, bool* rejected = nullptr) {
+    VoiceId start(std::string_view clipPath, const PlayParams& params, std::string_view source,
+                  bool* rejected = nullptr) {
         if (!inited) {
             FA_ERROR("audio", "Audio::play('{}') called before Audio::init()", clipPath);
             return 0;
@@ -1180,7 +1210,8 @@ struct Audio::Impl {
     // ------------------------------------------------------------ decode
     // Uses no state of the mixer: background loading runs it on a job (Audio::decode_clip).
     static std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
-        AssetLoadScope trace("sound", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
+        AssetLoadScope trace("sound",
+                             path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
         auto file = read_audio_file(path);
         if (!file) {
             std::vector<std::string> cands;
@@ -1188,8 +1219,9 @@ struct Audio::Impl {
                 if (audio_detail::is_audio_extension(fs::extension(f))) cands.push_back(f);
             }
             std::string msg = "Audio clip '" + path + "' could not be loaded: " + file.error().message;
-            std::string hint = cands.empty() ? "put .wav/.ogg/.mp3/.qoa files under the project (e.g. assets/sounds/) and use a project-relative path"
-                                              : did_you_mean(path, cands);
+            std::string hint = cands.empty() ? "put .wav/.ogg/.mp3/.qoa files under the project (e.g. assets/sounds/) "
+                                               "and use a project-relative path"
+                                             : did_you_mean(path, cands);
             *err = msg + " (hint: " + hint + ")";
             return nullptr;
         }
@@ -1208,10 +1240,13 @@ struct Audio::Impl {
         clip->srcChannels = decoder->channels();
         clip->srcRate = decoder->rate();
         const double toMixRate = double(kRate) / double(decoder->rate());
-        const double loopStartSeconds = setting_number(settings, "loopStart", 0.0), loopEndSeconds = setting_number(settings, "loopEnd", 0.0);
+        const double loopStartSeconds = setting_number(settings, "loopStart", 0.0),
+                     loopEndSeconds = setting_number(settings, "loopEnd", 0.0);
         const bool loopPoints = loopEndSeconds > loopStartSeconds && loopStartSeconds >= 0.0;
         // Loop points need the whole clip in memory (a streamed clip rewinds to its start): they win over `stream`.
-        const bool streams = !loopPoints && clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
+        const bool streams =
+            !loopPoints &&
+            clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
         if (streams && decoder->frames() > 0) {
             clip->encoded = bytes;
             clip->ext = ext;
@@ -1235,13 +1270,16 @@ struct Audio::Impl {
             return nullptr;
         }
         if (loopPoints) {
-            const std::size_t ls = std::size_t(std::llround(loopStartSeconds * double(kRate))), le = std::min(clip->frames, std::size_t(std::llround(loopEndSeconds * double(kRate))));
+            const std::size_t ls = std::size_t(std::llround(loopStartSeconds * double(kRate))),
+                              le = std::min(clip->frames, std::size_t(std::llround(loopEndSeconds * double(kRate))));
             if (le > ls + 1) {
                 clip->loopStart = ls;
                 clip->loopEnd = le;
             } else {
-                FA_WARN("audio", "'{}': loopStart {} and loopEnd {} leave nothing to loop inside the {:.3f} s clip, so the whole clip loops", clip->path, loopStartSeconds, loopEndSeconds,
-                        double(clip->frames) / double(kRate));
+                FA_WARN("audio",
+                        "'{}': loopStart {} and loopEnd {} leave nothing to loop inside the {:.3f} s clip, so the "
+                        "whole clip loops",
+                        clip->path, loopStartSeconds, loopEndSeconds, double(clip->frames) / double(kRate));
             }
         }
         normalize(*clip, settings, *bytes, ext);
@@ -1257,9 +1295,12 @@ struct Audio::Impl {
         std::optional<Loudness> loudness = cached_loudness(analysis != entry.end() ? *analysis : Json(), bytes);
         const double target = setting_number(settings, "targetLufs", -16.0);
         if (!loudness) {
-            if (!kMeasuresAtLoad) {
-                FA_WARN("audio", "'{}' has normalize on but no loudness measured for this file in assets.json, so it plays unchanged "
-                                 "(hint: `factoria export` measures it; on desktop run assets.analyze_audio)", clip.path);
+            if constexpr (!kMeasuresAtLoad) {
+                FA_WARN("audio",
+                        "'{}' has normalize on but no loudness measured for this file in assets.json, so it plays "
+                        "unchanged "
+                        "(hint: `factoria export` measures it; on desktop run assets.analyze_audio)",
+                        clip.path);
                 return;
             }
             auto measured = measure_loudness(bytes, ext);
@@ -1268,13 +1309,14 @@ struct Audio::Impl {
                 return;
             }
             loudness = *measured;
-            FA_INFO("audio", "measured '{}': {:.1f} LUFS, peak {:.1f} dBFS; playing it {:+.1f} dB to reach {:.0f} LUFS "
-                             "(hint: assets.analyze_audio keeps the measurement in assets.json)", clip.path, loudness->integratedLufs,
-                    loudness->peakDb, normalization_gain_db(*loudness, target), target);
+            FA_INFO("audio",
+                    "measured '{}': {:.1f} LUFS, peak {:.1f} dBFS; playing it {:+.1f} dB to reach {:.0f} LUFS "
+                    "(hint: assets.analyze_audio keeps the measurement in assets.json)",
+                    clip.path, loudness->integratedLufs, loudness->peakDb, normalization_gain_db(*loudness, target),
+                    target);
         }
         clip.gain = float(std::pow(10.0, normalization_gain_db(*loudness, target) / 20.0));
     }
-
 
     std::shared_ptr<const Clip> get_clip(std::string_view pathIn) {
         std::string path = fs::normalize(pathIn);
@@ -1407,7 +1449,8 @@ bool Audio::init(bool device, std::string* error) {
     im.inited = true;
     // Release: the rate and the fill mode above are written before the callback that sees `armed` reads them.
     im.mixer.armed.store(true, std::memory_order_release);
-    if (im.device && !im.web) im.start_music_service();  // streamed music is kept decoded without the game (Impl::MusicService)
+    if (im.device && !im.web)
+        im.start_music_service();  // streamed music is kept decoded without the game (Impl::MusicService)
     return true;
 }
 
@@ -1437,7 +1480,8 @@ void Audio::shutdown() {
         im.recRing.reset();
     }
     im.settle();
-    for (const jobs::Handle& h : im.jobsInFlight) (void)jobs::wait(h);  // a job still holds what it reads: only tidiness
+    for (const jobs::Handle& h : im.jobsInFlight)
+        (void)jobs::wait(h);  // a job still holds what it reads: only tidiness
     im.jobsInFlight.clear();
     im.process_ends();
     im.voices.clear();
@@ -1496,7 +1540,8 @@ VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) {
     return impl_->start(clipPath, params, "");
 }
 
-VoiceId Audio::open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source) {
+VoiceId Audio::open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path,
+                              std::string_view source) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     if (!im.inited) {
@@ -1548,7 +1593,8 @@ void Audio::set_voice_bus(VoiceId voice, std::string_view bus) {
     if (!v) return;
     int b = im.bus_index(bus);
     if (b < 0) {
-        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus, did_you_mean(bus, im.bus_names_locked(false)));
+        FA_ERROR("audio", "Unknown audio bus '{}'. {} (using 'sfx')", bus,
+                 did_you_mean(bus, im.bus_names_locked(false)));
         b = BusSfx;
     }
     v->bus = b;
@@ -1573,7 +1619,8 @@ void Audio::stop_all() {
     for (auto& [id, v] : im.voices) v.stopped = true;
     // A play still staged reaches the mixer before this and is ended by it.
     Cmd* c = Impl::make(CmdKind::Keep, [](Mixer& m, Cmd&) { m.end_all_voices(); });
-    c->coalesceKey = audio_detail::coalesce_key(audio_detail::CoalesceKind::StopAll);  // a later one ends what this one would
+    c->coalesceKey =
+        audio_detail::coalesce_key(audio_detail::CoalesceKind::StopAll);  // a later one ends what this one would
     im.send(c);
     im.musicVoice = 0;
     im.musicPath.clear();
@@ -1653,9 +1700,15 @@ Json Audio::active_voices() const {
     Json list = Json::array();
     for (const auto& [id, v] : im.voices) {
         if (v.stopped) continue;
-        list.push_back(Json::object({{"id", id}, {"path", v.path}, {"bus", im.bus[std::size_t(v.bus)].name},
-                                     {"volume", v.volume}, {"pitch", v.pitch}, {"pan", v.pan},
-                                     {"loop", v.loop}, {"music", v.music}, {"source", v.source}}));
+        list.push_back(Json::object({{"id", id},
+                                     {"path", v.path},
+                                     {"bus", im.bus[std::size_t(v.bus)].name},
+                                     {"volume", v.volume},
+                                     {"pitch", v.pitch},
+                                     {"pan", v.pan},
+                                     {"loop", v.loop},
+                                     {"music", v.music},
+                                     {"source", v.source}}));
     }
     return list;
 }
@@ -1739,7 +1792,8 @@ Result<void> Audio::set_bus_duck(std::string_view bus, const DuckSettings& duck)
     if (b < 0 || b == kMasterBus) return unknown_bus_error(bus, im.bus_names_locked(true), false);
     int by = -1;
     if (!std::isfinite(duck.amount) || duck.amount < 0.0f || duck.amount > 1.0f)
-        return make_error("A duck amount is the fraction of the volume removed, 0..1, got " + std::to_string(duck.amount),
+        return make_error("A duck amount is the fraction of the volume removed, 0..1, got " +
+                              std::to_string(duck.amount),
                           "0.5 halves the bus while the other one plays, 1 silences it, 0 turns ducking off.");
     if (!duck.by.empty() && duck.amount > 0.0f) {
         by = im.fx_index(duck.by);
@@ -1760,7 +1814,8 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
     Impl& im = *impl_;
     std::vector<GameBus> old = std::move(im.bus);
     std::vector<std::string> oldDuckBy;  // by name: the indexes change with the table
-    for (const GameBus& fx : old) oldDuckBy.push_back(fx.duckBy >= 0 ? old[std::size_t(fx.duckBy)].name : std::string());
+    for (const GameBus& fx : old)
+        oldDuckBy.push_back(fx.duckBy >= 0 ? old[std::size_t(fx.duckBy)].name : std::string());
     std::vector<std::string> oldNames;
     for (const GameBus& fx : old) oldNames.push_back(fx.name);
     im.reset_bus_table();
@@ -1794,8 +1849,10 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
     }
     for (std::size_t d = 0; d < defs.size(); ++d)
         if (!placed[d])
-            FA_ERROR("audio", "audio bus '{}' is skipped: its parent '{}' is not a bus, it loops, or the name is taken "
-                              "(`factoria validate` checks \"audio\".\"buses\")", defs[d].name, defs[d].parent);
+            FA_ERROR("audio",
+                     "audio bus '{}' is skipped: its parent '{}' is not a bus, it loops, or the name is taken "
+                     "(`factoria validate` checks \"audio\".\"buses\")",
+                     defs[d].name, defs[d].parent);
     for (std::size_t i = 0; i < im.bus.size(); ++i) {
         GameBus& fx = im.bus[i];
         fx.duckBy = -1;
@@ -1805,8 +1862,10 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
             continue;
         }
         const int by = im.bus_index(oldDuckBy[std::size_t(was - oldNames.begin())]);
-        if (by >= 0 && by != int(i)) fx.duckBy = by;
-        else fx.duck = DuckSettings{};
+        if (by >= 0 && by != int(i))
+            fx.duckBy = by;
+        else
+            fx.duck = DuckSettings{};
     }
     // The mixer's table, built whole here: the runtimes (gains, filters, reverbs) move over by name, the voices of a bus
     // that is gone go to sfx.
@@ -1820,14 +1879,17 @@ void Audio::set_buses(const std::vector<AudioBusDef>& defs) {
     }
     t->voiceRemap.assign(old.size(), int(BusSfx));
     for (std::size_t o = 0; o < old.size(); ++o) {
-        if (int(o) < BusBuiltin) t->voiceRemap[o] = int(o);
+        if (int(o) < BusBuiltin)
+            t->voiceRemap[o] = int(o);
         else if (int(o) >= kFirstProjectBus) {
             const int now = im.bus_index(oldNames[o]);
             t->voiceRemap[o] = now < 0 ? int(BusSfx) : now;
         }
     }
     t->build();
-    for (auto& [id, v] : im.voices) v.bus = v.bus >= 0 && std::size_t(v.bus) < t->voiceRemap.size() ? t->voiceRemap[std::size_t(v.bus)] : int(BusSfx);
+    for (auto& [id, v] : im.voices)
+        v.bus =
+            v.bus >= 0 && std::size_t(v.bus) < t->voiceRemap.size() ? t->voiceRemap[std::size_t(v.bus)] : int(BusSfx);
     // Music players follow their bus by name; one whose bus is gone plays on "music".
     std::vector<std::pair<MusicChannel*, int>> players;
     auto follow = [&](MusicRt& rt) {
@@ -1864,7 +1926,9 @@ Json Audio::Impl::bus_state_json(const GameBus& fx) const {
     j["lowpass"] = fx.lpHz;
     j["reverb"] = fx.reverb;
     if (fx.duckBy >= 0) {
-        j["duck"] = Json::object({{"by", bus[std::size_t(fx.duckBy)].name}, {"amount", fx.duck.amount}, {"attack", fx.duck.attack},
+        j["duck"] = Json::object({{"by", bus[std::size_t(fx.duckBy)].name},
+                                  {"amount", fx.duck.amount},
+                                  {"attack", fx.duck.attack},
                                   {"release", fx.duck.release}});
     } else {
         j["duck"] = nullptr;
@@ -1899,7 +1963,8 @@ Result<void> Audio::apply_snapshot(std::string_view name, float fadeSeconds) {
         if (names.empty())
             return make_error("There is no audio snapshot '" + std::string(name) + "': the game declares none",
                               "Add \"audio\": {\"snapshots\": {\"" + std::string(name) +
-                                  "\": {\"buses\": {\"music\": {\"lowpass\": 800}}}}} to factoria.json (docs/SCRIPTING.md, \"Audio buses\").");
+                                  "\": {\"buses\": {\"music\": {\"lowpass\": 800}}}}} to factoria.json "
+                                  "(docs/SCRIPTING.md, \"Audio buses\").");
         return make_error("Unknown audio snapshot '" + std::string(name) + "'. " + did_you_mean(name, names),
                           "The snapshots of factoria.json \"audio.snapshots\" are: " + join(names, ", ") + ".");
     }
@@ -2149,8 +2214,10 @@ bool Audio::paused() const {
 
 void Audio::advance_null_device(double seconds) {
     Impl::Call call(*impl_);
-    if (impl_->device) impl_->pump();
-    else impl_->advance(seconds);
+    if (impl_->device)
+        impl_->pump();
+    else
+        impl_->advance(seconds);
 }
 
 void Audio::service() {
@@ -2183,9 +2250,22 @@ std::uint64_t Audio::play_log_dropped() const {
 }
 
 Json AudioEvent::to_json() const {
-    return Json::object({{"kind", kind}, {"voice", voice}, {"fade", fade}, {"seq", seq}, {"frame", frame}, {"time", time}, {"path", path}, {"volume", volume},
-                         {"pitch", pitch}, {"pan", pan}, {"bus", bus}, {"loop", loop}, {"music", music},
-                         {"source", source}, {"ok", ok}, {"layer", layer}});
+    return Json::object({{"kind", kind},
+                         {"voice", voice},
+                         {"fade", fade},
+                         {"seq", seq},
+                         {"frame", frame},
+                         {"time", time},
+                         {"path", path},
+                         {"volume", volume},
+                         {"pitch", pitch},
+                         {"pan", pan},
+                         {"bus", bus},
+                         {"loop", loop},
+                         {"music", music},
+                         {"source", source},
+                         {"ok", ok},
+                         {"layer", layer}});
 }
 
 void Audio::start_recording() {
@@ -2201,7 +2281,8 @@ void Audio::start_recording() {
     im.recRing = std::move(ring);
 }
 
-bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut, int* rateOut) {
+bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut,
+                           int* rateOut) {
     std::vector<float> rec;
     int rate;
     {
@@ -2231,11 +2312,22 @@ bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::ve
     const std::uint32_t dataBytes = std::uint32_t(rec.size() * 2);
     std::vector<std::uint8_t> out;
     out.reserve(44 + dataBytes);
-    auto tag = [&](const char* s) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(s[i])); };
-    tag("RIFF"); write_le32(out, 36 + dataBytes); tag("WAVE");
-    tag("fmt "); write_le32(out, 16); write_le16(out, 1); write_le16(out, 2);
-    write_le32(out, std::uint32_t(rate)); write_le32(out, std::uint32_t(rate) * 4); write_le16(out, 4); write_le16(out, 16);
-    tag("data"); write_le32(out, dataBytes);
+    auto tag = [&](const char* s) {
+        for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(s[i]));
+    };
+    tag("RIFF");
+    write_le32(out, 36 + dataBytes);
+    tag("WAVE");
+    tag("fmt ");
+    write_le32(out, 16);
+    write_le16(out, 1);
+    write_le16(out, 2);
+    write_le32(out, std::uint32_t(rate));
+    write_le32(out, std::uint32_t(rate) * 4);
+    write_le16(out, 4);
+    write_le16(out, 16);
+    tag("data");
+    write_le32(out, dataBytes);
     for (float s : rec) {
         s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
         write_le16(out, std::uint16_t(std::int16_t(std::lround(s * 32767.0f))));
@@ -2360,8 +2452,10 @@ void Audio::reload_clip(std::string_view pathIn) {
                     const double end = to->loopEnd > 0 ? std::min(double(to->loopEnd), frames) : frames;
                     const double start = std::min(double(to->loopStart), end);
                     if (v.pos >= end) {
-                        if (v.loop && end - start >= 1.0) v.pos = start + std::fmod(v.pos - start, end - start);
-                        else if (v.pos >= frames) v.pos = frames;
+                        if (v.loop && end - start >= 1.0)
+                            v.pos = start + std::fmod(v.pos - start, end - start);
+                        else if (v.pos >= frames)
+                            v.pos = frames;
                     }
                 }
             });
@@ -2372,7 +2466,8 @@ void Audio::reload_clip(std::string_view pathIn) {
     // A song played from its rendered stems has them cached: a stem file that changed is a song that changed.
     std::vector<std::string> songs;
     for (const auto& [key, song] : im.musicCache)
-        if (key.size() > 6 && key.compare(key.size() - 6, 6, "|stems") == 0) songs.push_back(key.substr(0, key.size() - 6));
+        if (key.size() > 6 && key.compare(key.size() - 6, 6, "|stems") == 0)
+            songs.push_back(key.substr(0, key.size() - 6));
     for (const std::string& song : songs) {
         const MusicStemPlan plan = music_stem_plan_of(song);
         bool uses = plan.mixPath == path;
@@ -2392,7 +2487,9 @@ void Audio::reload_song(std::string_view songPath) {
 
 namespace {
 
-std::string music_cache_key(const std::string& song, MusicMode mode) { return song + (mode == MusicMode::Stems ? "|stems" : "|live"); }
+std::string music_cache_key(const std::string& song, MusicMode mode) {
+    return song + (mode == MusicMode::Stems ? "|stems" : "|live");
+}
 
 float music_unit(float v) { return std::isfinite(v) ? clamp(v, 0.0f, 1.0f) : 0.0f; }
 
@@ -2409,7 +2506,8 @@ MusicRt* Audio::Impl::music_find(const World& world, Entity e) {
 MusicRt& Audio::Impl::music_get(World& world, Entity e) {
     if (MusicRt* rt = music_find(world, e)) return *rt;
     auto old = musicEnts.find(e.bits());
-    if (old != musicEnts.end()) music_orphan(old->second.get());  // a slot reused after World::clear(), or another world
+    if (old != musicEnts.end())
+        music_orphan(old->second.get());  // a slot reused after World::clear(), or another world
     auto rt = std::make_unique<MusicRt>();
     rt->e = e;
     rt->id = world.id_of(e);
@@ -2454,7 +2552,8 @@ void Audio::Impl::make_channel(MusicRt& rt) {
         if (victim == musicOrphans.end()) {
             if (!channelWarned) {
                 channelWarned = true;
-                FA_WARN("audio", "more than {} MusicPlayers play at once: '{}' waits for one of them to stop", kMaxPlayers, rt.id);
+                FA_WARN("audio", "more than {} MusicPlayers play at once: '{}' waits for one of them to stop",
+                        kMaxPlayers, rt.id);
             }
             return;
         }
@@ -2492,8 +2591,10 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
     std::string why;
     const MusicMode mode = music_mode_of(mp.mode, rt.song, plan, &why);
     if (mp.mode == MusicMode::Stems && plan.files.empty())
-        FA_WARN("audio", "MusicPlayer on '{}': mode is \"stems\" but '{}' has no stem files in assets.json; playing it live "
-                         "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")", rt.id, rt.song);
+        FA_WARN("audio",
+                "MusicPlayer on '{}': mode is \"stems\" but '{}' has no stem files in assets.json; playing it live "
+                "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")",
+                rt.id, rt.song);
     const std::string key = music_cache_key(rt.song, mode);
     rt.waitKey = key;
     rt.resolved = mode;
@@ -2609,8 +2710,13 @@ void Audio::Impl::music_events(World* world, MusicRt& rt) {
     while (ch.events.pop(ev)) {
         if (!world) continue;
         const MusicMap* map = ev.src ? &ev.src->map : nullptr;
-        auto section = [&](int i) { return map && i >= 0 && std::size_t(i) < map->sections.size() ? map->sections[std::size_t(i)].name : std::string(); };
-        Json d = Json::object({{"id", rt.id}, {"song", ev.src ? ev.src->path : rt.song}, {"frame", ev.frame},
+        auto section = [&](int i) {
+            return map && i >= 0 && std::size_t(i) < map->sections.size() ? map->sections[std::size_t(i)].name
+                                                                          : std::string();
+        };
+        Json d = Json::object({{"id", rt.id},
+                               {"song", ev.src ? ev.src->path : rt.song},
+                               {"frame", ev.frame},
                                {"time", double(ev.frame) / double(std::max(deviceRate, 1))}});
         const char* name = "music.beat";
         switch (ev.kind) {
@@ -2646,9 +2752,7 @@ void Audio::Impl::music_events(World* world, MusicRt& rt) {
                 d["kind"] = ev.a == 0 ? "clip" : "section";
                 d["section"] = ev.a == 0 ? Json(nullptr) : Json(section(ev.b));
                 break;
-            case MusicEventKind::Crossfade:
-                name = "music.crossfade";
-                break;
+            case MusicEventKind::Crossfade: name = "music.crossfade"; break;
         }
         world->events().game.push_back(GameEvent{name, std::move(d), rt.e});
     }
@@ -2670,7 +2774,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     if (!rt.ch) make_channel(rt);
     const std::string want = mp.song.empty() ? std::string() : fs::normalize(mp.song);
     bool adopted = false;
-    std::shared_ptr<const MusicSource> adoptedSrc;   // what the transport of an orphan this player took over is playing
+    std::shared_ptr<const MusicSource> adoptedSrc;  // what the transport of an orphan this player took over is playing
     MusicMode adoptedMode = MusicMode::Live;
     if (rt.first) {
         rt.first = false;
@@ -2786,7 +2890,8 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
     }
     if (rt.src && !rt.announcedReady) {
         rt.announcedReady = true;
-        world.events().game.push_back(GameEvent{"music.ready", Json::object({{"id", rt.id}, {"song", rt.song}, {"mode", rt.src->mode}}), rt.e});
+        world.events().game.push_back(
+            GameEvent{"music.ready", Json::object({{"id", rt.id}, {"song", rt.song}, {"mode", rt.src->mode}}), rt.e});
     }
 
     // playing -> not playing
@@ -2850,13 +2955,15 @@ bool Audio::Impl::music_hand_over(MusicRt& rt, MusicPlayer& mp, std::string* ref
     if (!(mp.playing && rt.src && rt.sent != rt.src && rt.ch)) return false;
     const MusicMap& map = rt.src->map;
     // A crossfade to another song starts it at its beginning (`begin`): the component's startSection names a section of the first song.
-    const std::string wanted = !rt.entry.section.empty() ? rt.entry.section : rt.entry.begin ? std::string() : mp.startSection;
+    const std::string wanted = !rt.entry.section.empty() ? rt.entry.section
+                               : rt.entry.begin          ? std::string()
+                                                         : mp.startSection;
     int section = -1;
     if (!wanted.empty()) {
         section = map.section_index(wanted);
         if (section < 0 && !rt.entry.lenient)
-            FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)", rt.id, rt.song, wanted,
-                     did_you_mean(wanted, map.section_names()));
+            FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)",
+                     rt.id, rt.song, wanted, did_you_mean(wanted, map.section_names()));
     }
     const MusicQuantize q = rt.entry.quantize.value_or(mp.quantize);
     const float bars = rt.entry.bars >= 0.0f ? rt.entry.bars : mp.crossfadeBars;
@@ -2910,12 +3017,15 @@ void Audio::Impl::music_resync() {
     for (auto& rt : musicOrphans) {
         if (!rt->ch) continue;
         MusicRt& o = *rt;
-        if (o.volume >= 0.0f) chan_cmd(o, CmdKind::Lossy, [v = o.volume](MusicTransport& tr) { tr.set_volume(v, 0.0f); });
+        if (o.volume >= 0.0f)
+            chan_cmd(o, CmdKind::Lossy, [v = o.volume](MusicTransport& tr) { tr.set_volume(v, 0.0f); });
         chan_cmd(o, CmdKind::Lossy, [loop = o.loop](MusicTransport& tr) { tr.set_loop(loop); });
         if (o.layerFade >= 0.0f && o.layerRange >= 0.0f)
-            chan_cmd(o, CmdKind::Lossy, [f = o.layerFade, r = o.layerRange](MusicTransport& tr) { tr.set_layer_fade(f, r); });
+            chan_cmd(o, CmdKind::Lossy,
+                     [f = o.layerFade, r = o.layerRange](MusicTransport& tr) { tr.set_layer_fade(f, r); });
         if (o.sent && o.intensity >= 0.0f)
-            chan_cmd(o, CmdKind::Lossy, [i = o.intensity](MusicTransport& tr) { tr.set_intensity(i, MusicQuantize::None); });
+            chan_cmd(o, CmdKind::Lossy,
+                     [i = o.intensity](MusicTransport& tr) { tr.set_intensity(i, MusicQuantize::None); });
         send_channel_bus(o.ch.get(), o.bus);
     }
 }
@@ -2927,7 +3037,9 @@ void Audio::Impl::music_update(World& world) {
     {
         std::vector<MusicRt*> gone;
         for (auto& [bits, rt] : musicEnts)
-            if (rt->world != &world || !world.alive(rt->e) || world.id_of(rt->e) != rt->id || !world.get<MusicPlayer>(rt->e)) gone.push_back(rt.get());
+            if (rt->world != &world || !world.alive(rt->e) || world.id_of(rt->e) != rt->id ||
+                !world.get<MusicPlayer>(rt->e))
+                gone.push_back(rt.get());
         for (MusicRt* rt : gone) music_orphan(rt);
     }
     for (Entity e : world.entities_with(&World::type_of<MusicPlayer>())) {
@@ -3003,7 +3115,8 @@ void Audio::Impl::music_invalidate(const std::string& song) {
         auto cached = musicCache.find(key);
         if (cached != musicCache.end()) {
             std::erase_if(musicDeparted, [](const auto& w) { return w.expired(); });
-            if (cached->second.src.use_count() > 1) musicDeparted.push_back(cached->second.src);  // a player still plays it
+            if (cached->second.src.use_count() > 1)
+                musicDeparted.push_back(cached->second.src);  // a player still plays it
             musicCache.erase(cached);
         }
         musicErrors.erase(key);
@@ -3039,28 +3152,34 @@ std::uint64_t Audio::mixed_frames() const {
 
 namespace {
 Error no_player_error(const char* call) {
-    return Error{std::string(call) + ": " + kNoPlayer, "Add a MusicPlayer component to the entity (factoria add-component, or the scene JSON \"MusicPlayer\": {\"song\": \"music/theme.song.json\"})."};
+    return Error{std::string(call) + ": " + kNoPlayer,
+                 "Add a MusicPlayer component to the entity (factoria add-component, or the scene JSON "
+                 "\"MusicPlayer\": {\"song\": \"music/theme.song.json\"})."};
 }
 // A song path that names no file fails now, in the call, instead of later in the load.
 Result<void> need_song_file(const char* call, std::string_view song) {
     if (song.empty() || fs::exists(song)) return {};
-    return make_error(std::string(call) + ": the song '" + std::string(song) + "' does not exist",
-                      "Use the path of a *.song.json in the project, relative to its root, e.g. 'music/theme.song.json'.");
+    return make_error(
+        std::string(call) + ": the song '" + std::string(song) + "' does not exist",
+        "Use the path of a *.song.json in the project, relative to its root, e.g. 'music/theme.song.json'.");
 }
 }  // namespace
 
-Result<void> Audio::music_play(World& world, Entity e, std::string_view song, std::string_view section, float intensity) {
+Result<void> Audio::music_play(World& world, Entity e, std::string_view song, std::string_view section,
+                               float intensity) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.play");
     if (song.empty() && mp->song.empty())
-        return make_error("music.play: there is no song to play", "Pass one, music.play('music/theme.song.json'), or set MusicPlayer.song.");
+        return make_error("music.play: there is no song to play",
+                          "Pass one, music.play('music/theme.song.json'), or set MusicPlayer.song.");
     if (auto ok = need_song_file("music.play", song); !ok) return ok;
     MusicRt& rt = im.music_get(world, e);
     const bool same = song.empty() || fs::normalize(song) == fs::normalize(mp->song);
     if (same && !section.empty() && rt.src && rt.src->map.section_index(section) < 0)
-        return make_error("music.play: song '" + rt.song + "' has no section '" + std::string(section) + "'. " + did_you_mean(section, rt.src->map.section_names()),
+        return make_error("music.play: song '" + rt.song + "' has no section '" + std::string(section) + "'. " +
+                              did_you_mean(section, rt.src->map.section_names()),
                           "Pick one of the song's sections.");
     const bool already = mp->playing && same && section.empty() && rt.sent && rt.sent == rt.src;
     if (!song.empty()) mp->song = std::string(song);
@@ -3108,7 +3227,8 @@ MusicChange Audio::music_set_intensity(World& world, Entity e, float intensity, 
     return change;
 }
 
-Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::string_view section, std::optional<MusicQuantize> quantize, float fadeSeconds) {
+Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::string_view section,
+                                               std::optional<MusicQuantize> quantize, float fadeSeconds) {
     Impl::Call call(*impl_);
     Impl& im = *impl_;
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
@@ -3118,8 +3238,8 @@ Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::stri
     const MusicSource* known = playing ? playing : rt.src.get();
     if (known) {
         if (known->map.section_index(section) < 0)
-            return make_error("music.goToSection: song '" + known->path + "' has no section '" + std::string(section) + "'. " +
-                                  did_you_mean(section, known->map.section_names()),
+            return make_error("music.goToSection: song '" + known->path + "' has no section '" + std::string(section) +
+                                  "'. " + did_you_mean(section, known->map.section_names()),
                               "Pick one of the song's sections (MusicAPI.sections lists them).");
     }
     if (!playing || !rt.sent) {  // not started: only where it will start
@@ -3133,9 +3253,11 @@ Result<MusicChange> Audio::music_go_to_section(World& world, Entity e, std::stri
     const MusicQuantize q = quantize.value_or(mp->quantize);
     const float fade = fadeSeconds < 0.0f ? mp->transitionFade : fadeSeconds;
     const MusicChange change = im.music_predict(rt, q);
-    music_prime(*playing, playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)].start);  // streamed: the target is decoded
+    music_prime(*playing, playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)]
+                              .start);  // streamed: the target is decoded
     // The transport checks again when the command runs (it may have stopped meanwhile): then the jump is not made.
-    im.chan_cmd(rt, CmdKind::Droppable, [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
+    im.chan_cmd(rt, CmdKind::Droppable,
+                [index, q, fade](MusicTransport& tr) { tr.go_to_section(index, q, fade, nullptr); });
     return change;
 }
 
@@ -3145,13 +3267,15 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.playStinger");
     if (spec.clip.empty() == spec.section.empty())
-        return make_error("music.playStinger: give exactly one of \"clip\" (an audio file) and \"section\" (a section of the song)",
-                          "For example playStinger({clip: 'sfx/hit.wav', quantize: 'beat'}) or playStinger({section: 'victory'}).");
+        return make_error(
+            "music.playStinger: give exactly one of \"clip\" (an audio file) and \"section\" (a section of the song)",
+            "For example playStinger({clip: 'sfx/hit.wav', quantize: 'beat'}) or playStinger({section: 'victory'}).");
     MusicRt& rt = im.music_get(world, e);
     const MusicSource* playing = im.view(rt).src;
     if (!playing || !rt.sent || !rt.ch)
-        return make_error("music.playStinger: nothing is playing, a stinger plays over the music",
-                          "Start the music first (music.play), and wait for the 'music.ready' event when the song loads.");
+        return make_error(
+            "music.playStinger: nothing is playing, a stinger plays over the music",
+            "Start the music first (music.play), and wait for the 'music.ready' event when the song loads.");
     const MusicQuantize q = spec.quantize.value_or(mp->quantize);
     const float volume = std::isfinite(spec.volume) ? clamp(spec.volume, 0.0f, 4.0f) : 1.0f;
     const float duck = spec.duck > 0.0f ? clamp(spec.duck, 0.0f, 1.0f) : 0.0f;
@@ -3159,8 +3283,8 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
     if (!spec.section.empty()) {
         const int index = playing->map.section_index(spec.section);
         if (index < 0)
-            return make_error("music.playStinger: song '" + playing->path + "' has no section '" + spec.section + "'. " +
-                                  did_you_mean(spec.section, playing->map.section_names()),
+            return make_error("music.playStinger: song '" + playing->path + "' has no section '" + spec.section +
+                                  "'. " + did_you_mean(spec.section, playing->map.section_names()),
                               "Pick one of the song's sections.");
         const MusicSpan& span = playing->map.spans[std::size_t(playing->map.sections[std::size_t(index)].firstSpan)];
         const float tail = std::max(spec.tail, 0.0f);
@@ -3168,13 +3292,16 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         const float hold = spec.duckHold < 0.0f ? length : spec.duckHold;
         music_prime(*playing, span.start);  // streamed: the stinger's first chunks are decoded
         im.chan_cmd(rt, CmdKind::Droppable, [index, q, volume, tail, duck, attack, hold, release](MusicTransport& tr) {
-            if (tr.play_section_stinger(index, q, volume, tail, nullptr) && duck > 0.0f) tr.duck(q, duck, attack, hold, release);
+            if (tr.play_section_stinger(index, q, volume, tail, nullptr) && duck > 0.0f)
+                tr.duck(q, duck, attack, hold, release);
         });
         return {};
     }
     // A clip: its voice starts on the boundary's frame, which the mixer knows when the command runs.
     auto clip = im.get_clip(spec.clip);
-    if (!clip) return make_error("music.playStinger: the clip '" + spec.clip + "' could not be loaded", "The error above says why; check the path (assets.list).");
+    if (!clip)
+        return make_error("music.playStinger: the clip '" + spec.clip + "' could not be loaded",
+                          "The error above says why; check the path (assets.list).");
     GameVoice gv;
     gv.path = clip->path;
     gv.source = rt.id;
@@ -3197,7 +3324,8 @@ Result<void> Audio::music_play_stinger(World& world, Entity e, const MusicStinge
         MusicChannel* ch = rt.ch.get();
         Cmd* c = Impl::make(CmdKind::Droppable, [mv, ch, q, duck, attack, hold, release](Mixer& m, Cmd&) {
             MixVoice v = mv;
-            v.delay = long(std::clamp<std::int64_t>(ch->tr.schedule_clip_stinger(q), 0, std::numeric_limits<std::int32_t>::max()));
+            v.delay = long(
+                std::clamp<std::int64_t>(ch->tr.schedule_clip_stinger(q), 0, std::numeric_limits<std::int32_t>::max()));
             if (duck > 0.0f) ch->tr.duck(q, duck, attack, hold, release);
             if (!m.add_voice(v)) {  // see send_play
                 m.returns.push(Ret{Ret::Ended, nullptr, v.id});
@@ -3218,7 +3346,8 @@ Result<MusicChange> Audio::music_crossfade_to(World& world, Entity e, std::strin
     MusicPlayer* mp = world.alive(e) ? world.get<MusicPlayer>(e) : nullptr;
     if (!mp) return no_player_error("music.crossfadeTo");
     if (song.empty())
-        return make_error("music.crossfadeTo: no song given", "Pass the asset path of a *.song.json, music.crossfadeTo('music/battle.song.json').");
+        return make_error("music.crossfadeTo: no song given",
+                          "Pass the asset path of a *.song.json, music.crossfadeTo('music/battle.song.json').");
     if (auto ok = need_song_file("music.crossfadeTo", song); !ok) return ok.error();
     MusicRt& rt = im.music_get(world, e);
     const MusicQuantize q = quantize.value_or(mp->quantize);
@@ -3246,9 +3375,10 @@ Result<MusicChange> Audio::music_crossfade_to(World& world, Entity e, std::strin
         std::string refusal;
         if (!im.music_hand_over(rt, *mp, &refusal)) {
             if (!refusal.empty())
-                return make_error("music.crossfadeTo: cannot play '" + target + "': " + refusal,
-                                  "The player has stopped (audio.music_state shows the same text in `error`). Fix the song "
-                                  "(music.check lists its problems) or name a section it has, and play it again.");
+                return make_error(
+                    "music.crossfadeTo: cannot play '" + target + "': " + refusal,
+                    "The player has stopped (audio.music_state shows the same text in `error`). Fix the song "
+                    "(music.check lists its problems) or name a section it has, and play it again.");
             change = MusicChange{.quantize = q};
         }
     } else {
@@ -3280,8 +3410,10 @@ MusicStatus status_with(const MusicTransportState* state, const MusicRt& rt, con
         }
     }
     if (st.song.empty()) st.song = rt.song;
-    if (mp) st.requestedIntensity = music_unit(mp->intensity);
-    else if (rt.intensity >= 0.0f) st.requestedIntensity = rt.intensity;
+    if (mp)
+        st.requestedIntensity = music_unit(mp->intensity);
+    else if (rt.intensity >= 0.0f)
+        st.requestedIntensity = rt.intensity;
     return st;
 }
 }  // namespace
@@ -3308,8 +3440,12 @@ Json Audio::music_cache_json() const {
         Json stems = Json::array();
         for (const MusicStem& s : src.stems)
             stems.push_back(Json::object({{"name", s.name}, {"bytes", s.bytes()}, {"streamed", s.stream != nullptr}}));
-        out.push_back(Json::object({{"song", src.path}, {"mode", src.mode}, {"bytes", src.bytes()}, {"streamed", src.streamed()},
-                                    {"underruns", src.underrun_events()}, {"stems", stems}}));
+        out.push_back(Json::object({{"song", src.path},
+                                    {"mode", src.mode},
+                                    {"bytes", src.bytes()},
+                                    {"streamed", src.streamed()},
+                                    {"underruns", src.underrun_events()},
+                                    {"stems", stems}}));
     }
     return out;
 }
@@ -3376,15 +3512,21 @@ static ListenerPose find_listener(World& world) {
         Entity first = kNullEntity, primary = kNullEntity;
         int primaryDepth = 0;
         world.each<Camera>([&](Entity e, Camera& c) {
-            if (!world.active_in_hierarchy(e) || !c.renderTarget.empty()) return;  // a render-target camera is no listener
+            if (!world.active_in_hierarchy(e) || !c.renderTarget.empty())
+                return;  // a render-target camera is no listener
             if (c.primary) {
-                if (primary.is_null() || c.depth < primaryDepth) { primary = e; primaryDepth = c.depth; }
+                if (primary.is_null() || c.depth < primaryDepth) {
+                    primary = e;
+                    primaryDepth = c.depth;
+                }
             } else if (first.is_null()) {
                 first = e;
             }
         });
-        if (!primary.is_null()) take(primary, 1.0f, 1.0f);
-        else if (!first.is_null()) take(first, 1.0f, 1.0f);
+        if (!primary.is_null())
+            take(primary, 1.0f, 1.0f);
+        else if (!first.is_null())
+            take(first, 1.0f, 1.0f);
     }
     return l;
 }
@@ -3402,7 +3544,8 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
             if (outOfRange) *outOfRange = true;
             return 0;
         }  // out of range: no voice taken (a quiet sound in range still gets an id)
-        p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) * l.volume;
+        p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) *
+                   l.volume;
         p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
     }
     return play(clipPath, p);
@@ -3416,9 +3559,11 @@ void Audio::update(World& world, float dt) {
     im.pump();
 
     if (im.lastWorld != &world) {
-        for (auto& [k, ea] : im.ents) if (ea.voice) stop(ea.voice);
+        for (auto& [k, ea] : im.ents)
+            if (ea.voice) stop(ea.voice);
         im.ents.clear();
-        for (auto& [k, ev] : im.videos) if (ev.voice) stop(ev.voice);
+        for (auto& [k, ev] : im.videos)
+            if (ev.voice) stop(ev.voice);
         im.videos.clear();
         im.lastWorld = &world;
     }
@@ -3427,7 +3572,8 @@ void Audio::update(World& world, float dt) {
     // ---- sounds that game feel actions (clip events, feel.do) queued since the last frame: one-shots on their bus
     for (const FeelSound& fs : feel_take_sounds(world)) {
         FeelState& feel = world.feel();
-        if (feel.failedSounds.count(fs.options.path)) continue;  // it failed before in this scene (said once): not decoded and searched for again
+        if (feel.failedSounds.count(fs.options.path))
+            continue;  // it failed before in this scene (said once): not decoded and searched for again
         PlayParams pp;
         pp.volume = fs.options.volume;
         pp.pitch = fs.options.pitch;
@@ -3464,7 +3610,11 @@ void Audio::update(World& world, float dt) {
         ea.seen = im.stamp;
 
         if (!world.active_in_hierarchy(e)) {
-            if (ea.voice) { stop(ea.voice); ea.voice = 0; src->playing = false; }
+            if (ea.voice) {
+                stop(ea.voice);
+                ea.voice = 0;
+                src->playing = false;
+            }
             continue;
         }
         if (!ea.started) {
@@ -3512,7 +3662,8 @@ void Audio::update(World& world, float dt) {
                     for (char c : ea.id) h = (h ^ std::uint8_t(c)) * 1099511628211ull;
                     Rng pick(world.rng().state() ^ h ^ (std::uint64_t(++ea.plays) * 0x9E3779B97F4A7C15ull));
                     const int count = std::min<int>(src->variants, 64);
-                    int variant = ea.lastVariant >= 1 && ea.lastVariant <= count ? pick.range_int(1, count - 1) : pick.range_int(1, count);
+                    int variant = ea.lastVariant >= 1 && ea.lastVariant <= count ? pick.range_int(1, count - 1)
+                                                                                 : pick.range_int(1, count);
                     if (ea.lastVariant >= 1 && ea.lastVariant <= count && variant >= ea.lastVariant) ++variant;
                     ea.lastVariant = variant;
                     clip = sfx_variant_path(src->clip, variant, count);
@@ -3679,7 +3830,9 @@ std::vector<std::shared_ptr<audio_detail::MusicStemStream>> AudioTestAccess::mus
     return out;
 }
 
-bool AudioTestAccess::music_service_pass(Audio& audio) { return audio.impl_->music_service_pass(); }  // no API lock, as the service thread
+bool AudioTestAccess::music_service_pass(Audio& audio) {
+    return audio.impl_->music_service_pass();
+}  // no API lock, as the service thread
 
 void AudioTestAccess::set_claim_wait_limit(Audio& audio, int milliseconds) {
     for (const auto& s : music_streams(audio)) s->set_claim_wait_limit(milliseconds);

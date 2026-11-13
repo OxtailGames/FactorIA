@@ -44,11 +44,15 @@ export default class Guard extends Behaviour {
 }
 )");
     Json ents = Json::array();
-    ents.push_back(Json::parse(R"({"id":"floor","components":{"Transform":{"position":[0,-0.5,0]},"Collider3D":{"size":[40,1,40]}}})"));
-    ents.push_back(Json::parse(R"({"id":"wall","components":{"Transform":{"position":[0,1.5,0]},"Collider3D":{"size":[0.4,3,12]}}})"));
-    ents.push_back(Json::parse(R"({"id":"navmesh","components":{"Transform":{"position":[0,2,0]},"NavMesh3D":{"size":[40,6,40]}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"floor","components":{"Transform":{"position":[0,-0.5,0]},"Collider3D":{"size":[40,1,40]}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"wall","components":{"Transform":{"position":[0,1.5,0]},"Collider3D":{"size":[0.4,3,12]}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"navmesh","components":{"Transform":{"position":[0,2,0]},"NavMesh3D":{"size":[40,6,40]}}})"));
     ents.push_back(Json::parse(R"({"id":"player","components":{"Transform":{"position":[5,0,0]}}})"));
-    ents.push_back(Json::parse(R"({"id":"guard","components":{"Transform":{"position":[-5,0,0]},"Script":{"path":"scripts/guard.js"}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"guard","components":{"Transform":{"position":[-5,0,0]},"Script":{"path":"scripts/guard.js"}}})"));
     h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", ents}}).dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
@@ -62,17 +66,27 @@ export default class Guard extends Behaviour {
 
 TEST_CASE("nav.findPath: results and errors explain themselves") {
     TestHost h("nav_errors");
-    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({
-        Json::parse(R"({"id":"floor","components":{"Transform":{"position":[0,-0.5,0]},"Collider3D":{"size":[20,1,20]}}})"),
-        Json::parse(R"({"id":"navmesh","components":{"Transform":{"position":[0,2,0]},"NavMesh3D":{"size":[20,6,20]}}})")})}}).dump());
+    h.file(
+        "scenes/main.scene.json",
+        Json::object(
+            {{"format", "factoria.scene/1"},
+             {"entities",
+              Json::array(
+                  {Json::parse(
+                       R"({"id":"floor","components":{"Transform":{"position":[0,-0.5,0]},"Collider3D":{"size":[20,1,20]}}})"),
+                   Json::parse(
+                       R"({"id":"navmesh","components":{"Transform":{"position":[0,2,0]},"NavMesh3D":{"size":[20,6,20]}}})")})}})
+            .dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     h.step_frames(2);
     CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [5, 0, 0]).found") == true);
     CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], vec3(5, 0, 0)).points.length").get<int>() >= 1);
-    CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [5, 0, 0]).length").get<double>() == doctest::Approx(10.0).epsilon(0.01));
+    CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [5, 0, 0]).length").get<double>() ==
+          doctest::Approx(10.0).epsilon(0.01));
     CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [50, 0, 0]).reason") == "goal_off_mesh");
-    CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [50, 0, 0]).message").get<std::string>().find("outside the bounds") != std::string::npos);
+    CHECK(eval_ok(h, "nav.findPath([-5, 0, 0], [50, 0, 0]).message").get<std::string>().find("outside the bounds") !=
+          std::string::npos);
     const std::string m = eval_err(h, "nav.findPath([-5, 0, 0], [5, 0, 0], { radius: 2 })");
     CHECK(m.find("larger than") != std::string::npos);
     CHECK(m.find("agentRadius") != std::string::npos);

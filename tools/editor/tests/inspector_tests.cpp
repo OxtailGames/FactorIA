@@ -14,14 +14,18 @@ using namespace fa;
 using namespace fa::editor;
 
 TEST_CASE("inspector: every field kind gets a widget, and its arity matches the JSON the command takes") {
-    struct Row { FieldKind kind; FieldWidget widget; int arity; };
+    struct Row {
+        FieldKind kind;
+        FieldWidget widget;
+        int arity;
+    };
     const Row rows[] = {
-        {FieldKind::Bool, FieldWidget::Checkbox, 0},    {FieldKind::Int, FieldWidget::DragInt, 1},
-        {FieldKind::Float, FieldWidget::DragFloat, 1},  {FieldKind::String, FieldWidget::Text, 0},
-        {FieldKind::Vec2, FieldWidget::Vec2, 2},        {FieldKind::Vec3, FieldWidget::Vec3, 3},
-        {FieldKind::Vec4, FieldWidget::Vec4, 4},        {FieldKind::Color, FieldWidget::Color, 4},
-        {FieldKind::Rect, FieldWidget::Rect, 4},        {FieldKind::Entity, FieldWidget::EntityCombo, 0},
-        {FieldKind::Enum, FieldWidget::EnumCombo, 0},   {FieldKind::Asset, FieldWidget::AssetPicker, 0},
+        {FieldKind::Bool, FieldWidget::Checkbox, 0},   {FieldKind::Int, FieldWidget::DragInt, 1},
+        {FieldKind::Float, FieldWidget::DragFloat, 1}, {FieldKind::String, FieldWidget::Text, 0},
+        {FieldKind::Vec2, FieldWidget::Vec2, 2},       {FieldKind::Vec3, FieldWidget::Vec3, 3},
+        {FieldKind::Vec4, FieldWidget::Vec4, 4},       {FieldKind::Color, FieldWidget::Color, 4},
+        {FieldKind::Rect, FieldWidget::Rect, 4},       {FieldKind::Entity, FieldWidget::EntityCombo, 0},
+        {FieldKind::Enum, FieldWidget::EnumCombo, 0},  {FieldKind::Asset, FieldWidget::AssetPicker, 0},
         {FieldKind::Json, FieldWidget::JsonText, 0},
     };
     for (const Row& r : rows) {
@@ -42,7 +46,10 @@ TEST_CASE("inspector: the widget of every registered field is built from the fie
         for (const FieldInfo& f : t->fields) {
             INFO(t->name << "." << f.name);
             CHECK_FALSE(f.doc.empty());  // the doc string is the tooltip
-            if (!inspector_shows(f)) { ++hidden; continue; }
+            if (!inspector_shows(f)) {
+                ++hidden;
+                continue;
+            }
             ++shown;
             const FieldWidget w = widget_for(f);
             CHECK(std::string(widget_name(w)) != "?");
@@ -119,8 +126,9 @@ TEST_CASE("inspector: the Json box refuses invalid JSON with the parse error") {
 }
 
 TEST_CASE("inspector: command errors are shown with their hint") {
-    CHECK(command_error_text(Json::parse(R"({"code":"x","message":"Field 'a' is out of range.","hint":"Use 0..1."})")) ==
-          "Field 'a' is out of range. Use 0..1.");
+    CHECK(
+        command_error_text(Json::parse(R"({"code":"x","message":"Field 'a' is out of range.","hint":"Use 0..1."})")) ==
+        "Field 'a' is out of range. Use 0..1.");
     CHECK(command_error_text(Json::parse(R"({"message":"Nope."})")) == "Nope.");
 }
 
@@ -147,7 +155,8 @@ TEST_CASE("inspector: asset fields list the project's files of the right type") 
     touch("assets/hero.png");
     touch(".factoria/screenshots/s.material.json");
     touch("build/export/z.material.json");
-    CHECK(list_asset_files(dir.string(), "material") == std::vector<std::string>{"materials/a.material.json", "materials/b.material.json"});
+    CHECK(list_asset_files(dir.string(), "material") ==
+          std::vector<std::string>{"materials/a.material.json", "materials/b.material.json"});
     CHECK(list_asset_files(dir.string(), "texture") == std::vector<std::string>{"assets/hero.png"});
     CHECK(list_asset_files(dir.string(), "material", 1).size() == 1);
     std::error_code ec;
@@ -186,7 +195,9 @@ TEST_CASE("material inspector: params are typed by material.info") {
     CHECK(material_param_value(speed, Json(nullptr)) == 2.0);
 
     const Json set = material_param_edit_args("gem", speed, 6.0);
-    CHECK(set == Json::parse(R"({"id":"gem","component":"MeshRenderer","fields":{"materialParams":{"speed":6.0}},"merge":true})"));
+    CHECK(set ==
+          Json::parse(
+              R"({"id":"gem","component":"MeshRenderer","fields":{"materialParams":{"speed":6.0}},"merge":true})"));
     const Json reset = material_param_reset_args("gem", speed);
     CHECK(reset["fields"]["materialParams"]["speed"].is_null());
     CHECK(reset["merge"] == true);
@@ -201,7 +212,8 @@ TEST_CASE("material inspector: the build error comes from the renderer's asset r
     CHECK(material_build_error(broken, "materials/a.material.json").empty());
     CHECK(material_build_error(broken, "").empty());
     CHECK(material_build_error(Json::object(), "materials/m.material.json").empty());
-    const Json fixed = Json::parse(R"({"materials":[{"material":"materials/m.material.json","ok":true,"generation":2}]})");
+    const Json fixed =
+        Json::parse(R"({"materials":[{"material":"materials/m.material.json","ok":true,"generation":2}]})");
     CHECK(material_build_error(fixed, "materials/m.material.json").empty());
 }
 

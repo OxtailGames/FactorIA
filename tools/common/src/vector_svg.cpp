@@ -44,15 +44,21 @@ std::string decode_entities(const std::string& s) {
         }
         const std::string name = s.substr(i + 1, semi - i - 1);
         std::string rep;
-        if (name == "amp") rep = "&";
-        else if (name == "lt") rep = "<";
-        else if (name == "gt") rep = ">";
-        else if (name == "quot") rep = "\"";
-        else if (name == "apos") rep = "'";
+        if (name == "amp")
+            rep = "&";
+        else if (name == "lt")
+            rep = "<";
+        else if (name == "gt")
+            rep = ">";
+        else if (name == "quot")
+            rep = "\"";
+        else if (name == "apos")
+            rep = "'";
         else if (name.size() > 1 && name[0] == '#') {
             const bool hex = name[1] == 'x' || name[1] == 'X';
             const long cp = std::strtol(name.c_str() + (hex ? 2 : 1), nullptr, hex ? 16 : 10);
-            if (cp > 0 && cp < 0x80) rep = std::string(1, char(cp));
+            if (cp > 0 && cp < 0x80)
+                rep = std::string(1, char(cp));
             else if (cp >= 0x80 && cp < 0x800) {
                 rep += char(0xC0 | (cp >> 6));
                 rep += char(0x80 | (cp & 0x3F));
@@ -80,10 +86,14 @@ std::string decode_entities(const std::string& s) {
 std::string escape_attr(const std::string& v, char quote) {
     std::string out;
     for (char c : v) {
-        if (c == '&') out += "&amp;";
-        else if (c == '<') out += "&lt;";
-        else if (c == quote) out += quote == '"' ? "&quot;" : "&apos;";
-        else out += c;
+        if (c == '&')
+            out += "&amp;";
+        else if (c == '<')
+            out += "&lt;";
+        else if (c == quote)
+            out += quote == '"' ? "&quot;" : "&apos;";
+        else
+            out += c;
     }
     return out;
 }
@@ -118,15 +128,19 @@ public:
                 i = e + 3;
             } else if (s_.compare(i, 2, "<?") == 0) {
                 const std::size_t e = s_.find("?>", i + 2);
-                if (e == std::string::npos) error(i, "this processing instruction is never closed.", "Close it with ?>.");
+                if (e == std::string::npos)
+                    error(i, "this processing instruction is never closed.", "Close it with ?>.");
                 i = e + 2;
             } else if (s_.compare(i, 9, "<!DOCTYPE") == 0) {
                 int depth = 0;
                 std::size_t j = i + 9;
                 for (; j < s_.size(); ++j) {
-                    if (s_[j] == '[') ++depth;
-                    else if (s_[j] == ']') --depth;
-                    else if (s_[j] == '>' && depth <= 0) break;
+                    if (s_[j] == '[')
+                        ++depth;
+                    else if (s_[j] == ']')
+                        --depth;
+                    else if (s_[j] == '>' && depth <= 0)
+                        break;
                 }
                 if (j >= s_.size()) error(i, "this DOCTYPE is never closed.", "Close it with >.");
                 i = j + 1;
@@ -158,7 +172,8 @@ public:
                 break;
             }
             if (s_[i] == '/') {
-                if (i + 1 >= s_.size() || s_[i + 1] != '>') error(i, "a '/' inside the tag of <" + n->name + ">.", "A self-closing tag ends with />.");
+                if (i + 1 >= s_.size() || s_[i + 1] != '>')
+                    error(i, "a '/' inside the tag of <" + n->name + ">.", "A self-closing tag ends with />.");
                 i += 2;
                 n->selfClosed = true;
                 n->rawOpen = s_.substr(open, i - open);
@@ -168,16 +183,22 @@ public:
             const std::size_t as = i;
             while (i < s_.size() && !is_space(s_[i]) && s_[i] != '=' && s_[i] != '>' && s_[i] != '/') ++i;
             a.name = s_.substr(as, i - as);
-            if (a.name.empty()) error(i, "unexpected character '" + std::string(1, s_[i]) + "' in <" + n->name + ">.", "Attributes are written name=\"value\".");
+            if (a.name.empty())
+                error(i, "unexpected character '" + std::string(1, s_[i]) + "' in <" + n->name + ">.",
+                      "Attributes are written name=\"value\".");
             while (i < s_.size() && is_space(s_[i])) ++i;
-            if (i >= s_.size() || s_[i] != '=') error(i, "the attribute '" + a.name + "' has no value.", "Write " + a.name + "=\"...\".");
+            if (i >= s_.size() || s_[i] != '=')
+                error(i, "the attribute '" + a.name + "' has no value.", "Write " + a.name + "=\"...\".");
             ++i;
             while (i < s_.size() && is_space(s_[i])) ++i;
-            if (i >= s_.size() || (s_[i] != '"' && s_[i] != '\'')) error(i, "the value of '" + a.name + "' is not quoted.", "Put the value in double quotes: " + a.name + "=\"...\".");
+            if (i >= s_.size() || (s_[i] != '"' && s_[i] != '\''))
+                error(i, "the value of '" + a.name + "' is not quoted.",
+                      "Put the value in double quotes: " + a.name + "=\"...\".");
             a.quote = s_[i];
             const std::size_t vs = i + 1;
             const std::size_t ve = s_.find(a.quote, vs);
-            if (ve == std::string::npos) error(i, "the value of '" + a.name + "' is never closed.", "Close it with the same quote character.");
+            if (ve == std::string::npos)
+                error(i, "the value of '" + a.name + "' is never closed.", "Close it with the same quote character.");
             a.raw = s_.substr(vs, ve - vs);
             a.value = decode_entities(a.raw);
             i = ve + 1;
@@ -197,7 +218,8 @@ public:
             }
         };
         for (;;) {
-            if (i >= s_.size()) error(open, "<" + n->name + "> is never closed.", "Add </" + n->name + "> where it ends.");
+            if (i >= s_.size())
+                error(open, "<" + n->name + "> is never closed.", "Add </" + n->name + "> where it ends.");
             if (s_[i] != '<') {
                 const std::size_t e = s_.find('<', i);
                 text += s_.substr(i, e == std::string::npos ? std::string::npos : e - i);
@@ -216,7 +238,8 @@ public:
                 i = e + 3;
             } else if (s_.compare(i, 2, "<?") == 0) {
                 const std::size_t e = s_.find("?>", i + 2);
-                if (e == std::string::npos) error(i, "this processing instruction is never closed.", "Close it with ?>.");
+                if (e == std::string::npos)
+                    error(i, "this processing instruction is never closed.", "Close it with ?>.");
                 text += s_.substr(i, e + 2 - i);
                 i = e + 2;
             } else if (s_.compare(i, 2, "</") == 0) {
@@ -224,7 +247,9 @@ public:
                 if (e == std::string::npos) error(i, "this closing tag never ends.", "End it with >.");
                 const std::string closing = trimmed(s_.substr(i + 2, e - i - 2));
                 if (closing != n->name)
-                    error(i, "</" + closing + "> closes <" + n->name + "> (opened on line " + std::to_string(n->line) + ").",
+                    error(i,
+                          "</" + closing + "> closes <" + n->name + "> (opened on line " + std::to_string(n->line) +
+                              ").",
                           "Close the elements in the order they were opened: </" + n->name + "> comes first.");
                 flush();
                 i = e + 1;
@@ -261,13 +286,17 @@ void write_node(const XNode& n, std::string& out) {
             out += a.raw.empty() ? escape_attr(a.value, a.quote) : a.raw;
             out += a.quote;
         }
-        if (n.kids.empty() && n.selfClosed) out += "/>";
-        else out += '>';
+        if (n.kids.empty() && n.selfClosed)
+            out += "/>";
+        else
+            out += '>';
     }
     if (n.kids.empty() && n.selfClosed) return;
     for (const XItem& k : n.kids) {
-        if (k.el) write_node(*k.el, out);
-        else out += k.text;
+        if (k.el)
+            write_node(*k.el, out);
+        else
+            out += k.text;
     }
     out += "</";
     out += n.name;
@@ -285,7 +314,8 @@ std::string ws_before(const XNode& n) {
     const auto& kids = n.parent->kids;
     for (std::size_t i = 0; i < kids.size(); ++i)
         if (kids[i].el.get() == &n) {
-            if (i > 0 && !kids[i - 1].el && all_space(kids[i - 1].text) && !kids[i - 1].text.empty()) return kids[i - 1].text;
+            if (i > 0 && !kids[i - 1].el && all_space(kids[i - 1].text) && !kids[i - 1].text.empty())
+                return kids[i - 1].text;
             return {};
         }
     return {};
@@ -355,12 +385,16 @@ SvgDoc SvgDoc::parse(const std::string& text, const std::string& what) {
     Reader r(text, what);
     SvgDoc d;
     std::size_t i = r.skip_prolog();
-    if (i >= text.size()) r.error(0, "there is no <svg> element.", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"> and put the shapes inside.");
+    if (i >= text.size())
+        r.error(
+            0, "there is no <svg> element.",
+            "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"> and put the shapes inside.");
     if (text[i] != '<') r.error(i, "text before the root element.", "An SVG file is one <svg> element.");
     d.before_ = text.substr(0, i);
     d.root_ = r.element(i, nullptr, 0);
     if (d.root_->local() != "svg")
-        r.error(text.find('<', d.before_.size()), "the root element is <" + d.root_->name + ">, not <svg>.", "Wrap the shapes in <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>.");
+        r.error(text.find('<', d.before_.size()), "the root element is <" + d.root_->name + ">, not <svg>.",
+                "Wrap the shapes in <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>.");
     d.after_ = text.substr(i);
     return d;
 }
@@ -422,7 +456,8 @@ bool parse_numbers(const std::string& s, std::vector<double>& out) {
 
 Rect SvgDoc::canvas() const {
     std::vector<double> v;
-    if (const std::string* vb = root_->attr("viewBox"); vb && parse_numbers(*vb, v) && v.size() == 4 && v[2] > 0 && v[3] > 0) {
+    if (const std::string* vb = root_->attr("viewBox");
+        vb && parse_numbers(*vb, v) && v.size() == 4 && v[2] > 0 && v[3] > 0) {
         Rect r;
         r.add(P{v[0], v[1]});
         r.add(P{v[0] + v[2], v[1] + v[3]});
@@ -475,7 +510,8 @@ XNode* SvgDoc::insert_after(XNode* ref, std::unique_ptr<XNode> node) {
     XItem it;
     it.el = std::move(node);
     add.push_back(std::move(it));
-    parent->kids.insert(parent->kids.begin() + std::ptrdiff_t(at + 1), std::make_move_iterator(add.begin()), std::make_move_iterator(add.end()));
+    parent->kids.insert(parent->kids.begin() + std::ptrdiff_t(at + 1), std::make_move_iterator(add.begin()),
+                        std::make_move_iterator(add.end()));
     parent->rawOpen = parent->selfClosed ? std::string() : parent->rawOpen;
     return raw;
 }
@@ -495,7 +531,8 @@ XNode* SvgDoc::insert_before(XNode* ref, std::unique_ptr<XNode> node) {
         t.text = indent;
         add.push_back(std::move(t));
     }
-    parent->kids.insert(parent->kids.begin() + std::ptrdiff_t(at), std::make_move_iterator(add.begin()), std::make_move_iterator(add.end()));
+    parent->kids.insert(parent->kids.begin() + std::ptrdiff_t(at), std::make_move_iterator(add.begin()),
+                        std::make_move_iterator(add.end()));
     return raw;
 }
 
@@ -531,7 +568,8 @@ void SvgDoc::remove(XNode* node) {
     std::size_t at = index_in_parent(*node);
     if (at >= parent->kids.size()) return;
     parent->kids.erase(parent->kids.begin() + std::ptrdiff_t(at));
-    if (at > 0 && !parent->kids[at - 1].el && all_space(parent->kids[at - 1].text) && !parent->kids[at - 1].text.empty())
+    if (at > 0 && !parent->kids[at - 1].el && all_space(parent->kids[at - 1].text) &&
+        !parent->kids[at - 1].text.empty())
         parent->kids.erase(parent->kids.begin() + std::ptrdiff_t(at - 1));
 }
 
@@ -559,7 +597,8 @@ std::unique_ptr<XNode> SvgDoc::clone(const XNode& n) {
 
 bool is_shape_element(const XNode& n) {
     const std::string l = n.local();
-    return l == "path" || l == "rect" || l == "circle" || l == "ellipse" || l == "line" || l == "polyline" || l == "polygon";
+    return l == "path" || l == "rect" || l == "circle" || l == "ellipse" || l == "line" || l == "polyline" ||
+           l == "polygon";
 }
 bool is_group_element(const XNode& n) {
     const std::string l = n.local();
@@ -568,8 +607,9 @@ bool is_group_element(const XNode& n) {
 
 namespace {
 bool inert_name(const std::string& l) {
-    return l == "defs" || l == "clipPath" || l == "mask" || l == "pattern" || l == "symbol" || l == "marker" || l == "linearGradient" ||
-           l == "radialGradient" || l == "filter" || l == "style" || l == "title" || l == "desc" || l == "metadata" || l == "text";
+    return l == "defs" || l == "clipPath" || l == "mask" || l == "pattern" || l == "symbol" || l == "marker" ||
+           l == "linearGradient" || l == "radialGradient" || l == "filter" || l == "style" || l == "title" ||
+           l == "desc" || l == "metadata" || l == "text";
 }
 }  // namespace
 
@@ -653,8 +693,10 @@ void remove_prop(XNode& n, const std::string& name) {
             if (!out.empty()) out += ';';
             out += d.name + ":" + d.value;
         }
-        if (out.empty()) n.remove_attr("style");
-        else n.set_attr("style", out);
+        if (out.empty())
+            n.remove_attr("style");
+        else
+            n.set_attr("style", out);
     }
 }
 
@@ -665,7 +707,8 @@ Mat own_transform(const XNode& n) {
     std::string err;
     if (!parse_transform(*t, m, err))
         fail("invalid_svg", std::format("{}: the transform \"{}\" cannot be read: {}", describe_element(n), *t, err),
-             "Write transforms as translate(x y), rotate(deg), scale(s), skewX(deg), skewY(deg) or matrix(a b c d e f).");
+             "Write transforms as translate(x y), rotate(deg), scale(s), skewX(deg), skewY(deg) or matrix(a b c d e "
+             "f).");
     return m;
 }
 
@@ -691,13 +734,20 @@ bool parse_length(const std::string& text, double& out) {
     if (end == s.c_str() || !std::isfinite(v)) return false;
     const std::string unit = trimmed(std::string(end));
     double k = 1;
-    if (unit.empty() || unit == "px") k = 1;
-    else if (unit == "pt") k = 4.0 / 3.0;
-    else if (unit == "pc") k = 16;
-    else if (unit == "mm") k = 96.0 / 25.4;
-    else if (unit == "cm") k = 96.0 / 2.54;
-    else if (unit == "in") k = 96;
-    else return false;
+    if (unit.empty() || unit == "px")
+        k = 1;
+    else if (unit == "pt")
+        k = 4.0 / 3.0;
+    else if (unit == "pc")
+        k = 16;
+    else if (unit == "mm")
+        k = 96.0 / 25.4;
+    else if (unit == "cm")
+        k = 96.0 / 2.54;
+    else if (unit == "in")
+        k = 96;
+    else
+        return false;
     out = v * k;
     return true;
 }
@@ -729,9 +779,12 @@ bool shape_path(const XNode& n, Path& out, std::string& why) {
         const double x = num("x", 0, ok), y = num("y", 0, ok), w = num("width", 0, ok), h = num("height", 0, ok);
         double rx = num("rx", -1, ok), ry = num("ry", -1, ok);
         if (!ok) return false;
-        if (rx < 0 && ry < 0) rx = ry = 0;
-        else if (rx < 0) rx = ry;
-        else if (ry < 0) ry = rx;
+        if (rx < 0 && ry < 0)
+            rx = ry = 0;
+        else if (rx < 0)
+            rx = ry;
+        else if (ry < 0)
+            ry = rx;
         if (w <= 0 || h <= 0) return true;  // draws nothing
         rx = std::min(rx, w / 2);
         ry = std::min(ry, h / 2);
@@ -782,7 +835,8 @@ bool shape_path(const XNode& n, Path& out, std::string& why) {
 }
 
 void set_path_geometry(XNode& n, const std::string& d) {
-    static const char* const kGeometry[] = {"x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "x1", "y1", "x2", "y2", "points"};
+    static const char* const kGeometry[] = {"x",  "y", "width", "height", "rx", "ry", "cx",
+                                            "cy", "r", "x1",    "y1",     "x2", "y2", "points"};
     if (n.local() != "path") {
         const std::size_t colon = n.name.find(':');
         n.name = (colon == std::string::npos ? std::string() : n.name.substr(0, colon + 1)) + "path";
@@ -794,7 +848,10 @@ void set_path_geometry(XNode& n, const std::string& d) {
                 break;
             }
         n.attrs.erase(std::remove_if(n.attrs.begin(), n.attrs.end(),
-                                     [&](const Attr& a) { return std::find(std::begin(kGeometry), std::end(kGeometry), a.name) != std::end(kGeometry); }),
+                                     [&](const Attr& a) {
+                                         return std::find(std::begin(kGeometry), std::end(kGeometry), a.name) !=
+                                                std::end(kGeometry);
+                                     }),
                       n.attrs.end());
         if (!n.attr("d")) {
             Attr a;
@@ -824,7 +881,9 @@ std::string describe_element(const XNode& n) {
     if (n.parent) {
         const std::vector<XNode*> sib = n.parent->elements();
         for (std::size_t i = 0; i < sib.size(); ++i)
-            if (sib[i] == &n) return std::format("{} (child {} of {})", out, i + 1, n.parent->parent ? describe_element(*n.parent) : std::string("the root"));
+            if (sib[i] == &n)
+                return std::format("{} (child {} of {})", out, i + 1,
+                                   n.parent->parent ? describe_element(*n.parent) : std::string("the root"));
     }
     return out;
 }
@@ -887,7 +946,8 @@ using Complex = std::vector<Step>;
 
 class SelectorParser {
 public:
-    SelectorParser(const std::string& s, const char* command, const std::string& pointer) : s_(s), command_(command), pointer_(pointer) {}
+    SelectorParser(const std::string& s, const char* command, const std::string& pointer)
+        : s_(s), command_(command), pointer_(pointer) {}
 
     std::vector<Complex> parse() {
         std::vector<Complex> out;
@@ -906,8 +966,11 @@ public:
 
 private:
     [[noreturn]] void bad(const std::string& what) const {
-        assets_detail::arg_error(command_, pointer_, std::format("the selector \"{}\" is not valid: {} (at character {}).", s_, what, i_ + 1),
-                                 "Use an id (\"badge\"), #id, .class, a tag (path), [attr=value], g > path, path:first-child, :nth-child(2) or a list separated by commas.");
+        assets_detail::arg_error(
+            command_, pointer_,
+            std::format("the selector \"{}\" is not valid: {} (at character {}).", s_, what, i_ + 1),
+            "Use an id (\"badge\"), #id, .class, a tag (path), [attr=value], g > path, path:first-child, :nth-child(2) "
+            "or a list separated by commas.");
     }
     void skip_ws() {
         while (i_ < s_.size() && is_space(s_[i_])) ++i_;
@@ -952,7 +1015,8 @@ private:
             if (ch == '*') {
                 ++i_;
                 any = true;
-            } else if (std::isalpha((unsigned char)ch) && !any && c.tag.empty() && c.id.empty() && c.classes.empty() && c.attrs.empty() && c.pseudos.empty()) {
+            } else if (std::isalpha((unsigned char)ch) && !any && c.tag.empty() && c.id.empty() && c.classes.empty() &&
+                       c.attrs.empty() && c.pseudos.empty()) {
                 c.tag = ident();
                 any = true;
             } else if (ch == '#') {
@@ -974,7 +1038,9 @@ private:
                 skip_ws();
                 if (i_ < s_.size() && s_[i_] != ']') {
                     const std::size_t o = i_;
-                    while (i_ < s_.size() && (s_[i_] == '=' || s_[i_] == '~' || s_[i_] == '^' || s_[i_] == '$' || s_[i_] == '*' || s_[i_] == '|')) ++i_;
+                    while (i_ < s_.size() && (s_[i_] == '=' || s_[i_] == '~' || s_[i_] == '^' || s_[i_] == '$' ||
+                                              s_[i_] == '*' || s_[i_] == '|'))
+                        ++i_;
                     t.op = s_.substr(o, i_ - o);
                     if (t.op != "=" && t.op != "~=" && t.op != "^=" && t.op != "$=" && t.op != "*=" && t.op != "|=")
                         bad("the operator '" + t.op + "' is not one of =, ~=, ^=, $=, *=, |=");
@@ -1010,8 +1076,10 @@ private:
                     if (e == std::string::npos) bad("the ( ) is never closed");
                     const std::string arg = trimmed(s_.substr(i_, e - i_));
                     i_ = e + 1;
-                    if (arg == "odd") p.a = 2, p.b = 1;
-                    else if (arg == "even") p.a = 2, p.b = 0;
+                    if (arg == "odd")
+                        p.a = 2, p.b = 1;
+                    else if (arg == "even")
+                        p.a = 2, p.b = 0;
                     else {
                         char* end = nullptr;
                         const long k = std::strtol(arg.c_str(), &end, 10);
@@ -1042,7 +1110,9 @@ bool match_attr(const XNode& n, const AttrTest& t) {
     if (t.op.empty()) return true;
     if (t.op == "=") return *v == t.value;
     if (t.op == "^=") return !t.value.empty() && v->rfind(t.value, 0) == 0;
-    if (t.op == "$=") return !t.value.empty() && v->size() >= t.value.size() && v->compare(v->size() - t.value.size(), t.value.size(), t.value) == 0;
+    if (t.op == "$=")
+        return !t.value.empty() && v->size() >= t.value.size() &&
+               v->compare(v->size() - t.value.size(), t.value.size(), t.value) == 0;
     if (t.op == "*=") return !t.value.empty() && v->find(t.value) != std::string::npos;
     if (t.op == "|=") return *v == t.value || v->rfind(t.value + "-", 0) == 0;
     if (t.op == "~=") {
@@ -1091,9 +1161,12 @@ bool match_complex(const XNode& n, const Complex& c, std::size_t i) {
 
 }  // namespace
 
-std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& refIn, const char* command, const std::string& pointer) {
+std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& refIn, const char* command,
+                                    const std::string& pointer) {
     const std::string ref = trimmed(refIn);
-    if (ref.empty()) assets_detail::arg_error(command, pointer, "the element reference is empty.", "Pass an SVG id (\"badge\") or a selector (\"g.ring path\").");
+    if (ref.empty())
+        assets_detail::arg_error(command, pointer, "the element reference is empty.",
+                                 "Pass an SVG id (\"badge\") or a selector (\"g.ring path\").");
     if (XNode* n = doc.by_id(ref)) return {n};
     const std::vector<XNode*> all = doc.all_elements();
     std::vector<XNode*> out;
@@ -1116,10 +1189,13 @@ std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& refIn,
         std::string list;
         for (std::size_t i = 0; i < ids.size() && i < 20; ++i) list += (i ? ", " : "") + ids[i];
         if (ids.size() > 20) list += ", ...";
-        assets_detail::fail("not_found", std::format("{} {}: no element has the id or matches the selector '{}'.", command, pointer, ref),
-                            (ids.empty() ? "This SVG has no ids: give the shapes id=\"...\" attributes, or use a selector such as \"path:first-child\" or \".ring\"."
-                                         : did_you_mean(ref, ids) + " Ids in this SVG: " + list + ".") +
-                                " Run vector.info to list the shapes.");
+        assets_detail::fail(
+            "not_found",
+            std::format("{} {}: no element has the id or matches the selector '{}'.", command, pointer, ref),
+            (ids.empty() ? "This SVG has no ids: give the shapes id=\"...\" attributes, or use a selector such as "
+                           "\"path:first-child\" or \".ring\"."
+                         : did_you_mean(ref, ids) + " Ids in this SVG: " + list + ".") +
+                " Run vector.info to list the shapes.");
     }
     return out;
 }

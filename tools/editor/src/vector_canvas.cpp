@@ -21,7 +21,9 @@ constexpr float kHit = 6.0f;          // pixels: how near the pointer must be to
 constexpr float kBoxHandle = 4.5f;    // half the size of a transform handle, in pixels
 constexpr int kMaxNodesShown = 4000;  // anchors drawn per frame
 
-ImTextureRef texture_ref(const VectorTexture& t) { return ImTextureRef(ImTextureID(ui::texture_from_view(t.view, true))); }
+ImTextureRef texture_ref(const VectorTexture& t) {
+    return ImTextureRef(ImTextureID(ui::texture_from_view(t.view, true)));
+}
 
 double dist2(ImVec2 a, ImVec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 
@@ -45,13 +47,15 @@ std::vector<const VecItem*> node_shapes(const VectorModel& m) {
 // ---------------------------------------------------------------------------------------------------------------- the view --
 ImVec2 Editor::vector_to_screen(VecPoint p) const {
     const VecRect cv = vector_.model ? vector_.model->scene().canvas : VecRect{};
-    return ImVec2(vector_.canvasX + vector_.panX + float(p.x - cv.x0) * vector_.zoom, vector_.canvasY + vector_.panY + float(p.y - cv.y0) * vector_.zoom);
+    return ImVec2(vector_.canvasX + vector_.panX + float(p.x - cv.x0) * vector_.zoom,
+                  vector_.canvasY + vector_.panY + float(p.y - cv.y0) * vector_.zoom);
 }
 
 VecPoint Editor::vector_from_screen(ImVec2 p) const {
     const VecRect cv = vector_.model ? vector_.model->scene().canvas : VecRect{};
     const double z = std::max(vector_.zoom, 1e-6f);
-    return VecPoint{(p.x - vector_.canvasX - vector_.panX) / z + cv.x0, (p.y - vector_.canvasY - vector_.panY) / z + cv.y0};
+    return VecPoint{(p.x - vector_.canvasX - vector_.panX) / z + cv.x0,
+                    (p.y - vector_.canvasY - vector_.panY) / z + cv.y0};
 }
 
 void Editor::vector_fit() {
@@ -72,8 +76,10 @@ void Editor::vector_update_texture(VectorModel& m) {
         if (t.image || t.view) u.graveyard.push_back({t.image, t.view, uiFrame_});
         t = VectorTexture{};
     };
-    if (u.viewMoving) u.idleFrames = 0;
-    else ++u.idleFrames;
+    if (u.viewMoving)
+        u.idleFrames = 0;
+    else
+        ++u.idleFrames;
     u.viewMoving = false;
     if (!m.valid()) {
         retire(u.picture);
@@ -84,21 +90,24 @@ void Editor::vector_update_texture(VectorModel& m) {
     const VecPoint tl = vector_from_screen(ImVec2(u.canvasX, u.canvasY));
     const VecPoint br = vector_from_screen(ImVec2(u.canvasX + u.canvasW, u.canvasY + u.canvasH));
     VecRect vis{std::max(cv.x0, tl.x), std::max(cv.y0, tl.y), std::min(cv.x1, br.x), std::min(cv.y1, br.y)};
-    if (vis.x1 <= vis.x0 || vis.y1 <= vis.y0) return;   // the canvas is out of view: keep what there is
+    if (vis.x1 <= vis.x0 || vis.y1 <= vis.y0) return;  // the canvas is out of view: keep what there is
     const VectorTexture& pic = u.picture;
     const bool stale = pic.view == 0 || pic.revision != m.revision();
     const double eps = 1e-6;
-    const bool covers = pic.view != 0 && pic.region.x0 <= vis.x0 + eps && pic.region.y0 <= vis.y0 + eps && pic.region.x1 >= vis.x1 - eps && pic.region.y1 >= vis.y1 - eps;
+    const bool covers = pic.view != 0 && pic.region.x0 <= vis.x0 + eps && pic.region.y0 <= vis.y0 + eps &&
+                        pic.region.x1 >= vis.x1 - eps && pic.region.y1 >= vis.y1 - eps;
     const bool sharp = pic.view != 0 && std::abs(pic.zoom - u.zoom) <= 0.02f * u.zoom;
     if (!stale && (covers && sharp)) return;
-    if (!stale && u.idleFrames < 6) return;   // the view is moving: the old picture is stretched until it stops
+    if (!stale && u.idleFrames < 6) return;  // the view is moving: the old picture is stretched until it stops
     // the part to make: what is on screen plus a quarter of it on each side, so a small pan does not need a new picture
     const double padX = vis.width() * 0.25, padY = vis.height() * 0.25;
-    VecRect want{std::max(cv.x0, vis.x0 - padX), std::max(cv.y0, vis.y0 - padY), std::min(cv.x1, vis.x1 + padX), std::min(cv.y1, vis.y1 + padY)};
+    VecRect want{std::max(cv.x0, vis.x0 - padX), std::max(cv.y0, vis.y0 - padY), std::min(cv.x1, vis.x1 + padX),
+                 std::min(cv.y1, vis.y1 + padY)};
     double scale = u.zoom;
     const double longest = std::max(want.width(), want.height()) * scale;
     if (longest > kMaxTexture) scale *= kMaxTexture / longest;
-    const int w = std::max(1, int(std::ceil(want.width() * scale))), h = std::max(1, int(std::ceil(want.height() * scale)));
+    const int w = std::max(1, int(std::ceil(want.width() * scale))),
+              h = std::max(1, int(std::ceil(want.height() * scale)));
     Result<Image> img = m.rasterize(&want, w, h);
     if (!img.ok()) {
         m.set_status("Cannot draw the picture: " + img.error().message);
@@ -153,19 +162,25 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
     if (m.snapping.grid && m.snapping.gridSize * u.zoom >= 5.0) {
         const double g = m.snapping.gridSize;
         const VecPoint tl = vector_from_screen(cmin), br = vector_from_screen(cmax);
-        const double x0 = std::max(tl.x, sc.canvas.x0), x1 = std::min(br.x, sc.canvas.x1), y0 = std::max(tl.y, sc.canvas.y0), y1 = std::min(br.y, sc.canvas.y1);
-        for (double x = std::ceil(x0 / g) * g; x <= x1 + 1e-9; x += g) dl->AddLine(S({x, y0}), S({x, y1}), IM_COL32(110, 160, 255, 60));
-        for (double y = std::ceil(y0 / g) * g; y <= y1 + 1e-9; y += g) dl->AddLine(S({x0, y}), S({x1, y}), IM_COL32(110, 160, 255, 60));
+        const double x0 = std::max(tl.x, sc.canvas.x0), x1 = std::min(br.x, sc.canvas.x1),
+                     y0 = std::max(tl.y, sc.canvas.y0), y1 = std::min(br.y, sc.canvas.y1);
+        for (double x = std::ceil(x0 / g) * g; x <= x1 + 1e-9; x += g)
+            dl->AddLine(S({x, y0}), S({x, y1}), IM_COL32(110, 160, 255, 60));
+        for (double y = std::ceil(y0 / g) * g; y <= y1 + 1e-9; y += g)
+            dl->AddLine(S({x0, y}), S({x1, y}), IM_COL32(110, 160, 255, 60));
     }
     if (m.snapping.guides) {
-        for (double gx : m.guidesX) dl->AddLine(ImVec2(S({gx, 0}).x, cmin.y), ImVec2(S({gx, 0}).x, cmax.y), IM_COL32(40, 220, 220, 200));
-        for (double gy : m.guidesY) dl->AddLine(ImVec2(cmin.x, S({0, gy}).y), ImVec2(cmax.x, S({0, gy}).y), IM_COL32(40, 220, 220, 200));
+        for (double gx : m.guidesX)
+            dl->AddLine(ImVec2(S({gx, 0}).x, cmin.y), ImVec2(S({gx, 0}).x, cmax.y), IM_COL32(40, 220, 220, 200));
+        for (double gy : m.guidesY)
+            dl->AddLine(ImVec2(cmin.x, S({0, gy}).y), ImVec2(cmax.x, S({0, gy}).y), IM_COL32(40, 220, 220, 200));
     }
     (void)c0;
     (void)c1;
 
     // ---- hover
-    if (editable && u.drag == VectorUi::Drag::None && !u.hover.empty() && !m.is_selected(u.hover) && u.tool != VectorTool::Pen) {
+    if (editable && u.drag == VectorUi::Drag::None && !u.hover.empty() && !m.is_selected(u.hover) &&
+        u.tool != VectorTool::Pen) {
         const int hi = sc.find(u.hover);
         if (hi >= 0 && sc.items[std::size_t(hi)].hasBounds) {
             const VecRect b = sc.items[std::size_t(hi)].bounds;
@@ -179,7 +194,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
         const VecItem& it = sc.items[std::size_t(i)];
         if (!it.hasBounds) continue;
         const ImVec2 a = S({it.bounds.x0, it.bounds.y0}), b = S({it.bounds.x1, it.bounds.y1});
-        if (selected.size() > 1 || u.tool != VectorTool::Select) dl->AddRect(a, b, IM_COL32(60, 150, 255, 140), 0.0f, 0, 1.0f);
+        if (selected.size() > 1 || u.tool != VectorTool::Select)
+            dl->AddRect(a, b, IM_COL32(60, 150, 255, 140), 0.0f, 0, 1.0f);
         if (u.tool == VectorTool::Node && !it.isGroup) {
             // the outline the nodes belong to, so the path is visible over a fill that hides it
             std::vector<VecPoint> pts;
@@ -187,7 +203,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
                 polyline_of(sub, pts);
                 std::vector<ImVec2> sp;
                 for (VecPoint p : pts) sp.push_back(S(p));
-                if (sp.size() >= 2) dl->AddPolyline(sp.data(), int(sp.size()), blue, sub.closed ? ImDrawFlags_Closed : 0, 1.5f);
+                if (sp.size() >= 2)
+                    dl->AddPolyline(sp.data(), int(sp.size()), blue, sub.closed ? ImDrawFlags_Closed : 0, 1.5f);
             }
         }
     }
@@ -200,9 +217,12 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
             for (int dy = -1; dy <= 1; ++dy)
                 for (int dx = -1; dx <= 1; ++dx) {
                     if (dx == 0 && dy == 0) continue;
-                    const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f, (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
-                    dl->AddRectFilled(ImVec2(s.x - kBoxHandle, s.y - kBoxHandle), ImVec2(s.x + kBoxHandle, s.y + kBoxHandle), IM_COL32(255, 255, 255, 255));
-                    dl->AddRect(ImVec2(s.x - kBoxHandle, s.y - kBoxHandle), ImVec2(s.x + kBoxHandle, s.y + kBoxHandle), IM_COL32(0, 0, 0, 255));
+                    const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f,
+                                   (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
+                    dl->AddRectFilled(ImVec2(s.x - kBoxHandle, s.y - kBoxHandle),
+                                      ImVec2(s.x + kBoxHandle, s.y + kBoxHandle), IM_COL32(255, 255, 255, 255));
+                    dl->AddRect(ImVec2(s.x - kBoxHandle, s.y - kBoxHandle), ImVec2(s.x + kBoxHandle, s.y + kBoxHandle),
+                                IM_COL32(0, 0, 0, 255));
                 }
         }
     }
@@ -233,7 +253,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
                         dl->AddCircleFilled(p, 4.5f, sel ? blue : IM_COL32(255, 255, 255, 255));
                         dl->AddCircle(p, 4.5f, IM_COL32(0, 0, 0, 255));
                     } else {
-                        dl->AddRectFilled(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4), sel ? blue : IM_COL32(255, 255, 255, 255));
+                        dl->AddRectFilled(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4),
+                                          sel ? blue : IM_COL32(255, 255, 255, 255));
                         dl->AddRect(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4), IM_COL32(0, 0, 0, 255));
                     }
                 }
@@ -273,7 +294,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
                 dl->AddCircleFilled(S(n.in), 3.5f, IM_COL32(255, 200, 80, 255));
             }
             const bool first = i == 0 && pen.continueShape.empty();
-            dl->AddRectFilled(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4), first ? IM_COL32(255, 200, 80, 255) : IM_COL32(255, 255, 255, 255));
+            dl->AddRectFilled(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4),
+                              first ? IM_COL32(255, 200, 80, 255) : IM_COL32(255, 255, 255, 255));
             dl->AddRect(ImVec2(p.x - 4, p.y - 4), ImVec2(p.x + 4, p.y + 4), IM_COL32(0, 0, 0, 255));
         }
     }
@@ -283,7 +305,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
         const VecPoint a = u.press, b = u.current;
         const ImVec2 sa = S(a), sb = S(b);
         if (u.tool == VectorTool::Ellipse) {
-            const ImVec2 c((sa.x + sb.x) / 2, (sa.y + sb.y) / 2), r(std::abs(sb.x - sa.x) / 2, std::abs(sb.y - sa.y) / 2);
+            const ImVec2 c((sa.x + sb.x) / 2, (sa.y + sb.y) / 2),
+                r(std::abs(sb.x - sa.x) / 2, std::abs(sb.y - sa.y) / 2);
             dl->AddEllipse(c, r, IM_COL32(0, 0, 0, 255), 0.0f, 48, 3.0f);
             dl->AddEllipse(c, r, IM_COL32(255, 255, 255, 255), 0.0f, 48, 1.0f);
         } else if (u.tool == VectorTool::Line || (u.tool == VectorTool::Shape && u.shapeKind == "arrow")) {
@@ -307,7 +330,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
     // ---- the snap indicator
     if (u.snapShown && u.snapKind != VectorSnapKind::None) {
         const ImVec2 p = S(u.snapAt);
-        const ImU32 col = u.snapKind == VectorSnapKind::Point ? IM_COL32(255, 80, 200, 255) : IM_COL32(40, 220, 220, 255);
+        const ImU32 col =
+            u.snapKind == VectorSnapKind::Point ? IM_COL32(255, 80, 200, 255) : IM_COL32(40, 220, 220, 255);
         dl->AddCircle(p, 6.0f, col, 0, 1.5f);
         dl->AddLine(ImVec2(p.x - 10, p.y), ImVec2(p.x + 10, p.y), col);
         dl->AddLine(ImVec2(p.x, p.y - 10), ImVec2(p.x, p.y + 10), col);
@@ -318,7 +342,8 @@ void Editor::vector_draw_overlay(VectorModel& m, ImDrawList* dl) {
 void Editor::draw_vector_canvas(VectorModel& m, ImVec2 size) {
     VectorUi& u = vector_;
     const bool editable = play_ == PlayState::Edit && m.valid();
-    ImGui::BeginChild("##veccanvas", size, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
+    ImGui::BeginChild("##veccanvas", size, false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     u.canvasX = origin.x;
@@ -330,7 +355,8 @@ void Editor::draw_vector_canvas(VectorModel& m, ImVec2 size) {
         u.fitNext = false;
     }
     ImGui::InvisibleButton("##veccanvasbtn", ImVec2(std::max(1.0f, avail.x), std::max(1.0f, avail.y)),
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
     at_track("vec:canvas");
     const bool hovered = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -345,7 +371,8 @@ void Editor::draw_vector_canvas(VectorModel& m, ImVec2 size) {
     const ImVec2 p0 = vector_to_screen({cv.x0, cv.y0});
     const ImVec2 p1 = vector_to_screen({cv.x1, cv.y1});
     if (u.checker) {
-        const float x0 = std::max(p0.x, cmin.x), y0 = std::max(p0.y, cmin.y), x1 = std::min(p1.x, cmax.x), y1 = std::min(p1.y, cmax.y);
+        const float x0 = std::max(p0.x, cmin.x), y0 = std::max(p0.y, cmin.y), x1 = std::min(p1.x, cmax.x),
+                    y1 = std::min(p1.y, cmax.y);
         if (x1 > x0 && y1 > y0) {
             constexpr float cell = 12.0f;
             dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), IM_COL32(200, 200, 204, 255));
@@ -355,8 +382,10 @@ void Editor::draw_vector_canvas(VectorModel& m, ImVec2 size) {
                 if (((ix + iy) & 1) == 0) ++ix;
                 for (; p0.x + float(ix) * cell < x1; ix += 2) {
                     const float ax = std::max(p0.x + float(ix) * cell, x0), ay = std::max(p0.y + float(iy) * cell, y0);
-                    const float bx = std::min(p0.x + float(ix + 1) * cell, x1), by = std::min(p0.y + float(iy + 1) * cell, y1);
-                    if (bx > ax && by > ay) dl->AddRectFilled(ImVec2(ax, ay), ImVec2(bx, by), IM_COL32(150, 150, 156, 255));
+                    const float bx = std::min(p0.x + float(ix + 1) * cell, x1),
+                                by = std::min(p0.y + float(iy + 1) * cell, y1);
+                    if (bx > ax && by > ay)
+                        dl->AddRectFilled(ImVec2(ax, ay), ImVec2(bx, by), IM_COL32(150, 150, 156, 255));
                 }
             }
         }
@@ -385,7 +414,7 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
     const bool keys = (u.focused || hovered) && !io.WantTextInput;
     const bool mod = io.KeyCtrl || io.KeySuper;
     const double z = std::max(double(u.zoom), 1e-6);
-    const double tol = double(kHit) / z;          // a hit, in drawing units
+    const double tol = double(kHit) / z;  // a hit, in drawing units
     const double snapTol = 8.0 / z;
 
     // ---- the view: wheel and pan
@@ -397,7 +426,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
             u.panY = (mouseScreen.y - u.canvasY) - float(f.y - cv.y0) * nz;
             u.viewMoving = true;
         };
-        if (io.MouseWheel != 0 && (!io.KeyShift || mod)) zoom_around(std::pow(1.15f, io.MouseWheel));
+        if (io.MouseWheel != 0 && (!io.KeyShift || mod))
+            zoom_around(std::pow(1.15f, io.MouseWheel));
         else if (io.MouseWheel != 0) {
             u.panX += io.MouseWheel * 40.0f;
             u.viewMoving = true;
@@ -420,7 +450,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
         }
         return;
     }
-    if (hovered && u.drag == VectorUi::Drag::None && (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (space && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+    if (hovered && u.drag == VectorUi::Drag::None &&
+        (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (space && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
         u.drag = VectorUi::Drag::Pan;
         return;
     }
@@ -459,15 +490,14 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
         if (!u.dragged && dist2(mouseScreen, ImVec2(u.pressScreenX, u.pressScreenY)) >= 3.0f) u.dragged = true;
         switch (u.drag) {
             case VectorUi::Drag::Marquee:
-            case VectorUi::Drag::NodeMarquee:
-                u.current = f;
-                break;
+            case VectorUi::Drag::NodeMarquee: u.current = f; break;
             case VectorUi::Drag::Create: {
                 VecPoint p = snapped(f, {});
                 if (u.tool == VectorTool::Line || (u.tool == VectorTool::Shape && u.shapeKind == "arrow")) {
                     if (shift) {
                         const double dx = p.x - u.press.x, dy = p.y - u.press.y;
-                        const double ang = std::round(std::atan2(dy, dx) / (kPiD / 4)) * (kPiD / 4), len = std::hypot(dx, dy);
+                        const double ang = std::round(std::atan2(dy, dx) / (kPiD / 4)) * (kPiD / 4),
+                                     len = std::hypot(dx, dy);
                         p = {u.press.x + std::cos(ang) * len, u.press.y + std::sin(ang) * len};
                     }
                 } else if (shift) {
@@ -486,21 +516,24 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 if (!u.dragged) break;
                 VecPoint delta{f.x - u.press.x, f.y - u.press.y};
                 if (shift) {
-                    if (std::abs(delta.x) >= std::abs(delta.y)) delta.y = 0;
-                    else delta.x = 0;
+                    if (std::abs(delta.x) >= std::abs(delta.y))
+                        delta.y = 0;
+                    else
+                        delta.x = 0;
                 }
                 const VecPoint d = m.snap_move(u.dragBox, delta, snapTol, u.dragRefs);
                 const VecPoint sd = shift ? VecPoint{delta.x == 0 ? 0 : d.x, delta.y == 0 ? 0 : d.y} : d;
                 u.snapShown = false;
                 u.applied = sd;
-                m.preview_edit("vector.transform", Json::object({{"elements", Json(u.dragRefs)}, {"translate", Json::array({sd.x, sd.y})}}));
+                m.preview_edit("vector.transform", Json::object({{"elements", Json(u.dragRefs)},
+                                                                 {"translate", Json::array({sd.x, sd.y})}}));
                 break;
             }
             case VectorUi::Drag::Scale: {
                 if (!u.dragged) break;
                 const VecPoint p = snapped(f, u.dragRefs);
                 const VecRect b = u.dragBox;
-                const double hx = u.dirX < 0 ? b.x0 : b.x1, hy = u.dirY < 0 ? b.y0 : b.y1;   // the handle's own position
+                const double hx = u.dirX < 0 ? b.x0 : b.x1, hy = u.dirY < 0 ? b.y0 : b.y1;  // the handle's own position
                 double sx = 1, sy = 1;
                 VecPoint about = u.dragAnchor;
                 if (alt) about = b.center();
@@ -513,8 +546,9 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 auto fix = [](double s) { return std::abs(s) < 1e-3 ? (s < 0 ? -1e-3 : 1e-3) : s; };
                 sx = fix(sx);
                 sy = fix(sy);
-                m.preview_edit("vector.transform",
-                               Json::object({{"elements", Json(u.dragRefs)}, {"scale", Json::array({sx, sy})}, {"about", Json::array({about.x, about.y})}}));
+                m.preview_edit("vector.transform", Json::object({{"elements", Json(u.dragRefs)},
+                                                                 {"scale", Json::array({sx, sy})},
+                                                                 {"about", Json::array({about.x, about.y})}}));
                 break;
             }
             case VectorUi::Drag::Rotate: {
@@ -522,22 +556,30 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 if (!u.dragged) break;
                 double deg = (std::atan2(f.y - u.dragAnchor.y, f.x - u.dragAnchor.x) - u.startAngle) * 180.0 / kPiD;
                 if (shift) deg = std::round(deg / 15.0) * 15.0;
-                m.preview_edit("vector.transform", Json::object({{"elements", Json(u.dragRefs)}, {"rotate", deg}, {"about", Json::array({u.dragAnchor.x, u.dragAnchor.y})}}));
+                m.preview_edit("vector.transform",
+                               Json::object({{"elements", Json(u.dragRefs)},
+                                             {"rotate", deg},
+                                             {"about", Json::array({u.dragAnchor.x, u.dragAnchor.y})}}));
                 break;
             }
             case VectorUi::Drag::NodeMove: {
                 if (!u.dragged) break;
                 VecPoint target{u.nodeStart.x + (f.x - u.press.x), u.nodeStart.y + (f.y - u.press.y)};
                 if (shift) {
-                    if (std::abs(target.x - u.nodeStart.x) >= std::abs(target.y - u.nodeStart.y)) target.y = u.nodeStart.y;
-                    else target.x = u.nodeStart.x;
+                    if (std::abs(target.x - u.nodeStart.x) >= std::abs(target.y - u.nodeStart.y))
+                        target.y = u.nodeStart.y;
+                    else
+                        target.x = u.nodeStart.x;
                 }
                 target = snapped(target, {u.nodeRef.shape});
                 const VecPoint d{target.x - u.nodeStart.x, target.y - u.nodeStart.y};
                 Json ops = Json::array();
                 for (const VectorNodeRef& n : m.selected_nodes())
                     if (n.shape == u.nodeRef.shape)
-                        ops.push_back(Json::object({{"op", "move"}, {"subpath", n.subpath}, {"node", n.node}, {"by", Json::array({d.x, d.y})}}));
+                        ops.push_back(Json::object({{"op", "move"},
+                                                    {"subpath", n.subpath},
+                                                    {"node", n.node},
+                                                    {"by", Json::array({d.x, d.y})}}));
                 m.preview_node_ops(u.nodeRef.shape, ops);
                 break;
             }
@@ -546,8 +588,12 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 VecPoint target{u.nodeStart.x + (f.x - u.press.x), u.nodeStart.y + (f.y - u.press.y)};
                 target = snapped(target, {u.nodeRef.shape});
                 m.preview_node_ops(u.nodeRef.shape,
-                                   Json::array({Json::object({{"op", "handle"}, {"subpath", u.nodeRef.subpath}, {"node", u.nodeRef.node}, {"which", u.handleOut ? "out" : "in"},
-                                                              {"to", Json::array({target.x, target.y})}, {"link", alt ? "none" : "auto"}})}));
+                                   Json::array({Json::object({{"op", "handle"},
+                                                              {"subpath", u.nodeRef.subpath},
+                                                              {"node", u.nodeRef.node},
+                                                              {"which", u.handleOut ? "out" : "in"},
+                                                              {"to", Json::array({target.x, target.y})},
+                                                              {"link", alt ? "none" : "auto"}})}));
                 break;
             }
             default: break;
@@ -564,7 +610,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                     if (!u.shiftAtPress) m.clear_selection();
                     break;
                 }
-                const VecRect box{std::min(u.press.x, u.current.x), std::min(u.press.y, u.current.y), std::max(u.press.x, u.current.x), std::max(u.press.y, u.current.y)};
+                const VecRect box{std::min(u.press.x, u.current.x), std::min(u.press.y, u.current.y),
+                                  std::max(u.press.x, u.current.x), std::max(u.press.y, u.current.y)};
                 // dragging to the left also picks what the box only touches
                 const bool touch = u.current.x < u.press.x;
                 std::vector<std::string> refs = u.shiftAtPress ? m.selection() : std::vector<std::string>{};
@@ -580,7 +627,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                     if (!u.shiftAtPress) m.select_nodes({});
                     break;
                 }
-                const VecRect box{std::min(u.press.x, u.current.x), std::min(u.press.y, u.current.y), std::max(u.press.x, u.current.x), std::max(u.press.y, u.current.y)};
+                const VecRect box{std::min(u.press.x, u.current.x), std::min(u.press.y, u.current.y),
+                                  std::max(u.press.x, u.current.x), std::max(u.press.y, u.current.y)};
                 std::vector<VectorNodeRef> sel = u.shiftAtPress ? m.selected_nodes() : std::vector<VectorNodeRef>{};
                 for (const VecItem* it : node_shapes(m))
                     for (std::size_t si = 0; si < it->nodes.size(); ++si)
@@ -598,21 +646,27 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 const bool line = u.tool == VectorTool::Line || (u.tool == VectorTool::Shape && u.shapeKind == "arrow");
                 if (alt && !line) a = {2 * u.press.x - b.x, 2 * u.press.y - b.y};
                 VectorEditOutcome out;
-                if (u.tool == VectorTool::Rectangle) out = m.add_rect(a, b);
-                else if (u.tool == VectorTool::Ellipse) out = m.add_ellipse(a, b);
-                else if (u.tool == VectorTool::Line) out = m.add_line(a, b);
-                else out = m.add_shape(u.shapeKind, a, b, Json::object());
+                if (u.tool == VectorTool::Rectangle)
+                    out = m.add_rect(a, b);
+                else if (u.tool == VectorTool::Ellipse)
+                    out = m.add_ellipse(a, b);
+                else if (u.tool == VectorTool::Line)
+                    out = m.add_line(a, b);
+                else
+                    out = m.add_shape(u.shapeKind, a, b, Json::object());
                 vector_edited(out);
                 break;
             }
-            case VectorUi::Drag::Pen:
-                m.pen_release();
-                break;
+            case VectorUi::Drag::Pen: m.pen_release(); break;
             case VectorUi::Drag::Move:
             case VectorUi::Drag::Scale:
             case VectorUi::Drag::Rotate:
-                if (u.dragged && m.previewing()) vector_edited(m.commit_preview(d == VectorUi::Drag::Move ? "Move" : d == VectorUi::Drag::Scale ? "Scale" : "Rotate"));
-                else m.cancel_preview();
+                if (u.dragged && m.previewing())
+                    vector_edited(m.commit_preview(d == VectorUi::Drag::Move    ? "Move"
+                                                   : d == VectorUi::Drag::Scale ? "Scale"
+                                                                                : "Rotate"));
+                else
+                    m.cancel_preview();
                 // a click without a drag on an already selected shape among several narrows the selection to it
                 if (!u.dragged && d == VectorUi::Drag::Move && !u.shiftAtPress && m.selection().size() > 1) {
                     const int hit = m.pick(u.press, tol);
@@ -621,8 +675,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 break;
             case VectorUi::Drag::NodeMove:
             case VectorUi::Drag::HandleMove:
-                if (u.dragged && m.previewing()) vector_edited(m.commit_preview(d == VectorUi::Drag::NodeMove ? "Move nodes" : "Move handle"));
-                else m.cancel_preview();
+                if (u.dragged && m.previewing())
+                    vector_edited(m.commit_preview(d == VectorUi::Drag::NodeMove ? "Move nodes" : "Move handle"));
+                else
+                    m.cancel_preview();
                 break;
             default: break;
         }
@@ -657,7 +713,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                     for (int dy = -1; dy <= 1 && hitX == 99; ++dy)
                         for (int dx = -1; dx <= 1; ++dx) {
                             if (dx == 0 && dy == 0) continue;
-                            const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f, (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
+                            const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f,
+                                           (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
                             if (dist2(mouseScreen, s) <= kBoxHandle + 3.0f) {
                                 hitX = dx;
                                 hitY = dy;
@@ -668,9 +725,11 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                         // just outside a corner: rotate
                         for (int dy = -1; dy <= 1; dy += 2)
                             for (int dx = -1; dx <= 1; dx += 2) {
-                                const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f, (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
-                                const float d = dist2(mouseScreen, s);
-                                const bool outside = (mouseScreen.x - s.x) * float(dx) > 0 || (mouseScreen.y - s.y) * float(dy) > 0;
+                                const ImVec2 s((a.x + b.x) * 0.5f + float(dx) * (b.x - a.x) * 0.5f,
+                                               (a.y + b.y) * 0.5f + float(dy) * (b.y - a.y) * 0.5f);
+                                const float d = static_cast<float>(dist2(mouseScreen, s));
+                                const bool outside =
+                                    (mouseScreen.x - s.x) * float(dx) > 0 || (mouseScreen.y - s.y) * float(dy) > 0;
                                 if (d > kBoxHandle + 3.0f && d <= 22.0f && outside) rotate = true;
                             }
                     }
@@ -681,7 +740,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                         if (hitX != 99) {
                             u.dirX = hitX;
                             u.dirY = hitY;
-                            u.dragAnchor = {hitX < 0 ? box.x1 : (hitX > 0 ? box.x0 : box.center().x), hitY < 0 ? box.y1 : (hitY > 0 ? box.y0 : box.center().y)};
+                            u.dragAnchor = {hitX < 0 ? box.x1 : (hitX > 0 ? box.x0 : box.center().x),
+                                            hitY < 0 ? box.y1 : (hitY > 0 ? box.y0 : box.center().y)};
                         } else {
                             u.dragAnchor = box.center();
                             u.startAngle = std::atan2(f.y - u.dragAnchor.y, f.x - u.dragAnchor.x);
@@ -692,8 +752,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 // 2. a shape
                 const int hit = m.pick(f, tol);
                 if (doubleClick) {
-                    if (hit >= 0 && m.scene().items[std::size_t(hit)].isGroup) m.enter_group(m.scene().items[std::size_t(hit)].ref);
-                    else if (hit < 0) m.leave_group();
+                    if (hit >= 0 && m.scene().items[std::size_t(hit)].isGroup)
+                        m.enter_group(m.scene().items[std::size_t(hit)].ref);
+                    else if (hit < 0)
+                        m.leave_group();
                     break;
                 }
                 if (hit >= 0) {
@@ -721,7 +783,9 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 // a handle of a selected node
                 for (const VectorNodeRef& n : m.selected_nodes()) {
                     const VecNodePath* path = m.nodes_of(n.shape);
-                    if (!path || n.subpath >= int(path->size()) || n.node >= int((*path)[std::size_t(n.subpath)].nodes.size())) continue;
+                    if (!path || n.subpath >= int(path->size()) ||
+                        n.node >= int((*path)[std::size_t(n.subpath)].nodes.size()))
+                        continue;
                     const VecNode& node = (*path)[std::size_t(n.subpath)].nodes[std::size_t(n.node)];
                     for (int which = 0; which < 2; ++which) {
                         if (!(which ? node.hasOut : node.hasIn)) continue;
@@ -747,13 +811,18 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                             if (doubleClick) {
                                 // corner <-> smooth
                                 const char* to = vector_node_kind(node) == VecNodeKind::Corner ? "smooth" : "corner";
-                                vector_edited(m.node_ops(it->ref, Json::array({Json::object({{"op", "convert"}, {"subpath", int(si)}, {"node", int(ni)}, {"to", to}})}),
-                                                         std::string("Make ") + to));
+                                vector_edited(m.node_ops(
+                                    it->ref,
+                                    Json::array({Json::object(
+                                        {{"op", "convert"}, {"subpath", int(si)}, {"node", int(ni)}, {"to", to}})}),
+                                    std::string("Make ") + to));
                                 u.drag = VectorUi::Drag::None;
                                 goto node_done;
                             }
-                            if (shift) m.toggle_node(ref);
-                            else if (!m.node_selected(ref)) m.select_nodes({ref});
+                            if (shift)
+                                m.toggle_node(ref);
+                            else if (!m.node_selected(ref))
+                                m.select_nodes({ref});
                             if (!m.node_selected(ref)) goto node_done;
                             u.drag = VectorUi::Drag::NodeMove;
                             u.nodeRef = ref;
@@ -775,9 +844,13 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                         }
                     }
                     if (best && bestN.distance * z <= kHit * 1.5) {
-                        vector_edited(m.node_ops(best->ref,
-                                                 Json::array({Json::object({{"op", "insert"}, {"subpath", bestN.subpath}, {"segment", bestN.segment}, {"t", std::clamp(bestN.t, 1e-3, 1 - 1e-3)}})}),
-                                                 "Add node"));
+                        vector_edited(
+                            m.node_ops(best->ref,
+                                       Json::array({Json::object({{"op", "insert"},
+                                                                  {"subpath", bestN.subpath},
+                                                                  {"segment", bestN.segment},
+                                                                  {"t", std::clamp(bestN.t, 1e-3, 1 - 1e-3)}})}),
+                                       "Add node"));
                         m.select_nodes({});
                         break;
                     }
@@ -787,8 +860,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                     const int hit = m.pick(f, tol);
                     if (hit >= 0) {
                         const std::string ref = m.scene().items[std::size_t(hit)].ref;
-                        if (shift) m.toggle_selected(ref);
-                        else if (!m.is_selected(ref)) m.select({ref});
+                        if (shift)
+                            m.toggle_selected(ref);
+                        else if (!m.is_selected(ref))
+                            m.select({ref});
                         m.select_nodes({});
                     } else {
                         u.drag = VectorUi::Drag::NodeMarquee;
@@ -799,8 +874,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
             }
             case VectorTool::Pen: {
                 if (m.pen().active && doubleClick) {
-                    if (m.pen_can_finish()) vector_edited(m.pen_finish(false));
-                    else m.pen_cancel();
+                    if (m.pen_can_finish())
+                        vector_edited(m.pen_finish(false));
+                    else
+                        m.pen_cancel();
                     break;
                 }
                 if (!m.pen().active) {
@@ -812,7 +889,8 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                             if (sub.closed || sub.nodes.size() < 1) continue;
                             for (int atEnd = 1; atEnd >= 0; --atEnd) {
                                 const VecNode& n = atEnd ? sub.nodes.back() : sub.nodes.front();
-                                if (dist2(mouseScreen, vector_to_screen(n.p)) <= kHit && m.pen_continue(it->ref, int(si), atEnd == 1)) {
+                                if (dist2(mouseScreen, vector_to_screen(n.p)) <= kHit &&
+                                    m.pen_continue(it->ref, int(si), atEnd == 1)) {
                                     continued = true;
                                     break;
                                 }
@@ -823,8 +901,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                     if (continued) break;
                 }
                 const VecPoint p = snapped(f, {});
-                if (m.pen_press(p, tol)) vector_edited(m.pen_finish(true));
-                else u.drag = VectorUi::Drag::Pen;
+                if (m.pen_press(p, tol))
+                    vector_edited(m.pen_finish(true));
+                else
+                    u.drag = VectorUi::Drag::Pen;
                 break;
             }
             default: {
@@ -840,31 +920,39 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
     // ---- the keyboard
     if (!keys) return;
     if (!mod && !alt) {
-        const std::pair<ImGuiKey, VectorTool> hotkeys[] = {{ImGuiKey_V, VectorTool::Select}, {ImGuiKey_A, VectorTool::Node},      {ImGuiKey_P, VectorTool::Pen},
-                                                           {ImGuiKey_R, VectorTool::Rectangle}, {ImGuiKey_O, VectorTool::Ellipse}, {ImGuiKey_L, VectorTool::Line},
-                                                           {ImGuiKey_S, VectorTool::Shape}};
+        const std::pair<ImGuiKey, VectorTool> hotkeys[] = {
+            {ImGuiKey_V, VectorTool::Select},    {ImGuiKey_A, VectorTool::Node},    {ImGuiKey_P, VectorTool::Pen},
+            {ImGuiKey_R, VectorTool::Rectangle}, {ImGuiKey_O, VectorTool::Ellipse}, {ImGuiKey_L, VectorTool::Line},
+            {ImGuiKey_S, VectorTool::Shape}};
         for (const auto& [key, tool] : hotkeys)
             if (ImGui::IsKeyPressed(key, false) && tool != u.tool) {
                 if (m.pen().active) {
-                    if (m.pen_can_finish()) vector_edited(m.pen_finish(false));
-                    else m.pen_cancel();
+                    if (m.pen_can_finish())
+                        vector_edited(m.pen_finish(false));
+                    else
+                        m.pen_cancel();
                 }
                 u.tool = tool;
             }
     }
     if (m.pen().active) {
         if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
-            if (m.pen_can_finish()) vector_edited(m.pen_finish(false));
-            else m.pen_cancel();
+            if (m.pen_can_finish())
+                vector_edited(m.pen_finish(false));
+            else
+                m.pen_cancel();
         } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             m.pen_cancel();
         }
         return;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        if (!m.selected_nodes().empty()) m.select_nodes({});
-        else if (!m.selection().empty()) m.clear_selection();
-        else if (!m.context().empty()) m.leave_group();
+        if (!m.selected_nodes().empty())
+            m.select_nodes({});
+        else if (!m.selection().empty())
+            m.clear_selection();
+        else if (!m.context().empty())
+            m.leave_group();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) u.fitNext = true;
     if (!m.valid()) return;
@@ -874,9 +962,12 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
             std::vector<VectorNodeRef> sel = m.selected_nodes();
             const std::string shape = sel[0].shape;
             Json ops = Json::array();
-            std::sort(sel.begin(), sel.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) { return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node; });
+            std::sort(sel.begin(), sel.end(), [](const VectorNodeRef& a, const VectorNodeRef& b) {
+                return a.subpath != b.subpath ? a.subpath > b.subpath : a.node > b.node;
+            });
             for (const VectorNodeRef& n : sel)
-                if (n.shape == shape) ops.push_back(Json::object({{"op", "delete"}, {"subpath", n.subpath}, {"node", n.node}}));
+                if (n.shape == shape)
+                    ops.push_back(Json::object({{"op", "delete"}, {"subpath", n.subpath}, {"node", n.node}}));
             vector_edited(m.node_ops(shape, ops, "Delete nodes"));
             m.select_nodes({});
         } else if (!m.selection().empty()) {
@@ -896,7 +987,9 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
                 const std::string shape = m.selected_nodes()[0].shape;
                 Json ops = Json::array();
                 for (const VectorNodeRef& n : m.selected_nodes())
-                    if (n.shape == shape) ops.push_back(Json::object({{"op", "move"}, {"subpath", n.subpath}, {"node", n.node}, {"by", Json::array({dx, dy})}}));
+                    if (n.shape == shape)
+                        ops.push_back(Json::object(
+                            {{"op", "move"}, {"subpath", n.subpath}, {"node", n.node}, {"by", Json::array({dx, dy})}}));
                 vector_edited(m.node_ops(shape, ops, "Nudge nodes"));
             } else if (!m.selection().empty()) {
                 vector_edited(m.move_selection(dx, dy));
@@ -905,8 +998,10 @@ void Editor::vector_canvas_input(VectorModel& m, bool hovered, bool editable) {
     }
     if (mod) {
         if (ImGui::IsKeyPressed(ImGuiKey_A, false)) m.select_all();
-        if (ImGui::IsKeyPressed(ImGuiKey_D, false) && !m.selection().empty()) vector_edited(m.duplicate_selection(10, 10));
-        if (ImGui::IsKeyPressed(ImGuiKey_G, false) && !m.selection().empty()) vector_edited(shift ? m.ungroup_selection() : m.group_selection());
+        if (ImGui::IsKeyPressed(ImGuiKey_D, false) && !m.selection().empty())
+            vector_edited(m.duplicate_selection(10, 10));
+        if (ImGui::IsKeyPressed(ImGuiKey_G, false) && !m.selection().empty())
+            vector_edited(shift ? m.ungroup_selection() : m.group_selection());
     }
 }
 

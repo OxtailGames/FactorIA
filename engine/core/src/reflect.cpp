@@ -80,9 +80,7 @@ std::vector<std::string> TypeRegistry::names() const {
     return out;
 }
 
-std::string TypeRegistry::suggest(std::string_view unknownName) const {
-    return closest_match(unknownName, names());
-}
+std::string TypeRegistry::suggest(std::string_view unknownName) const { return closest_match(unknownName, names()); }
 
 Json TypeRegistry::describe_all() const {
     Json arr = Json::array();
@@ -150,7 +148,8 @@ Error range_error(const FieldInfo& f, double value) {
     std::string hint = "Use a value from " + lo + " to " + hi + " (both allowed); the nearest is " +
                        (value < f.minValue ? lo : hi) + ".";
     if (!f.doc.empty()) hint += " " + f.doc;
-    return make_error("Field '" + f.name + "': value " + text + " is outside the allowed range " + lo + ".." + hi, hint);
+    return make_error("Field '" + f.name + "': value " + text + " is outside the allowed range " + lo + ".." + hi,
+                      hint);
 }
 
 }  // namespace
@@ -253,9 +252,10 @@ Result<void> field_from_json(const FieldInfo& f, void* o, const Json& value) {
                 as<Entity>(f, o) = kNullEntity;
                 return {};
             }
-            return make_error("Field '" + f.name + "' references another entity and cannot be set through generic reflection",
-                              "Resolve entity ids through fa_scene: use fa::patch_component(world, entity, type, fields) "
-                              "or load the scene/prefab JSON.");
+            return make_error(
+                "Field '" + f.name + "' references another entity and cannot be set through generic reflection",
+                "Resolve entity ids through fa_scene: use fa::patch_component(world, entity, type, fields) "
+                "or load the scene/prefab JSON.");
         case FieldKind::Enum: {
             if (value.is_string()) {
                 const std::string& s = value.get_ref<const std::string&>();
@@ -275,15 +275,14 @@ Result<void> field_from_json(const FieldInfo& f, void* o, const Json& value) {
                     as<std::int32_t>(f, o) = std::int32_t(i);
                     return {};
                 }
-                err = "index " + std::to_string(i) + " is out of range (0.." + std::to_string(f.enumNames.size() - 1) + ").";
+                err = "index " + std::to_string(i) + " is out of range (0.." + std::to_string(f.enumNames.size() - 1) +
+                      ").";
                 return make_error("Field '" + f.name + "': " + err, "Use one of " + enum_list(f) + ".");
             }
             err = "expected a string, got " + describe_json_value(value);
             return bad();
         }
-        case FieldKind::Json:
-            as<Json>(f, o) = value;
-            return {};
+        case FieldKind::Json: as<Json>(f, o) = value; return {};
     }
     return make_error("Unsupported field kind");
 }
@@ -303,7 +302,8 @@ Json object_to_json(const TypeInfo& t, const void* object, bool includeDefaults,
 
 Result<void> object_patch_from_json(const TypeInfo& t, void* object, const Json& patch) {
     if (!patch.is_object()) {
-        return make_error("Patch for '" + t.name + "' must be a JSON object of field values, got " + describe_json_value(patch),
+        return make_error("Patch for '" + t.name + "' must be a JSON object of field values, got " +
+                              describe_json_value(patch),
                           "Example: {\"" + (t.fields.empty() ? std::string("field") : t.fields[0].name) + "\": ...}");
     }
     // Work on a copy so a bad value leaves the object untouched.
@@ -323,7 +323,8 @@ Result<void> object_patch_from_json(const TypeInfo& t, void* object, const Json&
             note(make_error("Unknown field '" + it.key() + "' on " + t.name, did_you_mean(it.key(), fieldNames)));
             continue;
         }
-        if (f->readOnly && it.value() == field_to_json(*f, scratch.get())) continue;  // echoing the current value is harmless
+        if (f->readOnly && it.value() == field_to_json(*f, scratch.get()))
+            continue;  // echoing the current value is harmless
         if (f->readOnly) {
             note(make_error("Field '" + t.name + "." + f->name + "' is read-only",
                             "Read-only fields are maintained by the engine; remove it from the patch."));
@@ -340,7 +341,8 @@ Result<void> object_patch_from_json(const TypeInfo& t, void* object, const Json&
 namespace {
 
 Json number_array_schema(int n) {
-    return Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", n}, {"maxItems", n}});
+    return Json::object(
+        {{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", n}, {"maxItems", n}});
 }
 
 Json field_schema(const FieldInfo& f, const Json& def) {
@@ -365,13 +367,13 @@ Json field_schema(const FieldInfo& f, const Json& def) {
             s["anyOf"] = Json::array({number_array_schema(4), Json::object({{"type", "object"}})});
             break;
         case FieldKind::Color:
-            s["anyOf"] = Json::array({Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})},
-                                                    {"minItems", 3}, {"maxItems", 4}}),
+            s["anyOf"] = Json::array({Json::object({{"type", "array"},
+                                                    {"items", Json::object({{"type", "number"}})},
+                                                    {"minItems", 3},
+                                                    {"maxItems", 4}}),
                                       Json::object({{"type", "string"}})});
             break;
-        case FieldKind::Entity:
-            s["type"] = Json::array({"string", "null"});
-            break;
+        case FieldKind::Entity: s["type"] = Json::array({"string", "null"}); break;
         case FieldKind::Enum: {
             Json names = Json::array();
             for (const auto& n : f.enumNames) names.push_back(n);

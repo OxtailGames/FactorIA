@@ -68,8 +68,10 @@ public:
     }
     void set_recorder(InputRecorder* recorder) { recorder_ = recorder; }
     void set(const std::string& text) override {
-        if (system_) system_clipboard().set(text);
-        else memory_.set(text);
+        if (system_)
+            system_clipboard().set(text);
+        else
+            memory_.set(text);
     }
     void log_reads(bool on) {
         logging_ = on;
@@ -88,7 +90,7 @@ private:
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
-    StartupTimeline startup;      // Engine::startup_timeline()
+    StartupTimeline startup;  // Engine::startup_timeline()
     bool firstGameFrameMarked = false;
     std::unique_ptr<LoadTrace> loadTrace;  // EngineConfig::traceLoads / Engine::begin_load_trace; null = not tracing
     // This engine's token as a reader (fa/core/load_trace.h): never reused, so a loader thread that finishes after the
@@ -97,9 +99,12 @@ struct Engine::Impl {
     std::uint64_t logSeqAtInit = 0;  // state() only reports logs emitted by THIS engine
     ProjectSettings project;
     bool initialized = false;
-    bool jobsStarted = false;      // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
-    std::string jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
-    jobs::Owner jobOwner{"engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
+    bool jobsStarted =
+        false;  // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
+    std::string
+        jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
+    jobs::Owner jobOwner{
+        "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
 
     World world;
@@ -110,13 +115,16 @@ struct Engine::Impl {
     ScriptSystem scripts;
     UiSystem ui;
     std::function<Vec2(Vec2)> designToWindow;  // Engine::set_design_to_window; empty = design pixels
-    PlatformServices platform;  // achievements, purchases, ...: the catalog of factoria.json and the backend (platform_backend.h)
-    I18n i18n;                  // string tables and the current language (factoria.json "localization"); off without the section
+    PlatformServices
+        platform;  // achievements, purchases, ...: the catalog of factoria.json and the backend (platform_backend.h)
+    I18n i18n;     // string tables and the current language (factoria.json "localization"); off without the section
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
-    CameraSet cpuCameras;  // the cameras when there is no renderer: refreshed where Renderer::update would (render()), answers like it
-    TextMeasurer cpuText;  // text sizes when there is no renderer: the same fonts and shaping (fa/render/text_measure.h); settings kept in step either way
+    CameraSet
+        cpuCameras;  // the cameras when there is no renderer: refreshed where Renderer::update would (render()), answers like it
+    TextMeasurer
+        cpuText;  // text sizes when there is no renderer: the same fonts and shaping (fa/render/text_measure.h); settings kept in step either way
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
     EngineClipboard clipboard;
     InputRecorder recorder;  // the Input observer; records only between start_input_recording and stop_input_recording
@@ -128,8 +136,8 @@ struct Engine::Impl {
     bool pendingKeepProps = false;  // the scene change scheduled for the end of the frame is a reload
     void take_scene_props(bool keepProps);
 
-    double heldScale = 1.0;         // Engine::hold_render_scale: the render scale between captures
-    bool renderStale = false;       // OnDemand: simulated since the last draw
+    double heldScale = 1.0;    // Engine::hold_render_scale: the render scale between captures
+    bool renderStale = false;  // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;
@@ -175,7 +183,8 @@ struct Engine::Impl {
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;
-    RichTextStyle richStyle;  // the project's "text" section: markup colours, icons, bold faces (empty when absent or broken)
+    RichTextStyle
+        richStyle;  // the project's "text" section: markup colours, icons, bold faces (empty when absent or broken)
     int pluginSteamDeck = -1;  // what a plugin said about the Steam Deck (plugin API 4): -1 nothing, 0 no, 1 yes
 
     // Hot reload
@@ -186,20 +195,22 @@ struct Engine::Impl {
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
-    void render(double dt);       // per-frame: draws in Always mode, only simulates visuals in OnDemand
-    void draw(double dt, bool settled = false);  // draws the world now; settled = settle_visuals() already ran since the last step
-    void settle_visuals();        // dt = 0 step of the sprite animators and particles: what scripts and loads changed since the last step (no renderer needed)
+    void render(double dt);  // per-frame: draws in Always mode, only simulates visuals in OnDemand
+    void draw(double dt,
+              bool settled = false);  // draws the world now; settled = settle_visuals() already ran since the last step
+    void
+    settle_visuals();  // dt = 0 step of the sprite animators and particles: what scripts and loads changed since the last step (no renderer needed)
     void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt, bool simulated = true);  // simulated false: a paused redraw keeps the input edges
     // `traceTag`: the switch of an async scene load (its load-trace entry); `hotReload`: the file watcher reloads the scene
     // (async scene loads asked for keep going). Any other load cancels the async scene loads asked for before it.
-    bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false, std::uint64_t traceTag = 0,
-                         bool hotReload = false);
+    bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false,
+                         std::uint64_t traceTag = 0, bool hotReload = false);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
     std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
-    std::optional<bool> appliedProjectMirrorRtl;  // the project's ui.mirrorRtl last applied
+    std::optional<bool> appliedProjectMirrorRtl;             // the project's ui.mirrorRtl last applied
     float appliedProjectUiScale = -1.0f;  // the project's ui.scale last applied; -1 before the first time
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
     // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.
@@ -207,10 +218,12 @@ struct Engine::Impl {
     void reload_localization();  // read locales/*.json again (hot reload) and rewrite the texts
     void apply_localization();
     Result<std::string> switch_language(std::string_view requested);  // the language now in use, or why not
-    void apply_fallback_fonts();  // the renderer's fallback fonts for the language in use (localization.fallbackFonts / languageFonts)
+    void
+    apply_fallback_fonts();  // the renderer's fallback fonts for the language in use (localization.fallbackFonts / languageFonts)
     CameraTarget camera_target() const;  // what the cameras are drawn into: the design size (a run without a window)
-    Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
-    VisualMeasure measure() const;  // text sizes from the renderer, else from the CPU measurer (same fonts, same numbers)
+    Vec2 design_size() const;  // the renderer's target size (UI anchors are fractions of it); without one the project's
+    VisualMeasure
+    measure() const;  // text sizes from the renderer, else from the CPU measurer (same fonts, same numbers)
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 
@@ -227,41 +240,61 @@ struct Engine::Impl {
 void apply_gamepad_json(Input& input, const Json& value, std::vector<std::string>& problems);
 void apply_touch_json(Input& input, const Json& value, std::vector<std::string>& problems);
 
-UiPageAimFn make_ui_page_aim(Engine::Impl& impl);  // surface_pointer.cpp: where to click a widget that only a render target shows (game.click {id})
-UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
+UiPageAimFn make_ui_page_aim(
+    Engine::Impl&
+        impl);  // surface_pointer.cpp: where to click a widget that only a render target shows (game.click {id})
+UiSurfaceFn make_ui_surface_pointer(
+    Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
-void register_terrain_commands(Engine& engine, Engine::Impl& impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+void register_terrain_commands(
+    Engine& engine,
+    Engine::Impl&
+        impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
 void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
-void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
-void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
-void register_background_load_commands(Engine& engine, Engine::Impl& impl);  // background_load_commands.cpp: scene.preload, assets.preload, load.status, load.cancel
-void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
+void register_scene_file_commands(Engine& engine,
+                                  Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+void register_play_session_commands(Engine& engine,
+                                    Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
+void register_background_load_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // background_load_commands.cpp: scene.preload, assets.preload, load.status, load.cancel
+void register_i18n_commands(Engine& engine, Engine::Impl& impl);      // localization.cpp: i18n.state, i18n.set_language
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
-void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
-void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
+void register_shot_commands(Engine& engine,
+                            Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
+void register_anim_commands(Engine& engine,
+                            Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
-void register_vfx_commands(Engine& engine, Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
-void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
-void register_feel_commands(Engine& engine, Engine::Impl& impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
+void register_vfx_commands(Engine& engine,
+                           Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
+void register_mesh_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+void register_feel_commands(
+    Engine& engine,
+    Engine::Impl&
+        impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 
 // The grid of an ASCII level in the format of scene.import_ascii (`rows`, `legend`, `legendFrom`), read for a command that learns
 // from it (tilemap.generate). Checks it with the errors of scene.import_ascii (ragged rows, unknown glyphs with suggestions).
 // Throws CommandError. The legend need not define '.' and ' ' (empty tiles).
 struct AsciiSampleGlyph {
-    std::string glyph;                  // one character (UTF-8)
-    int tile = -1;                      // tile value (flags included), -1 = no tile
-    bool hasPrefab = false;             // the legend entry also spawns an object
-    Json legendEntry;                   // the entry as the (merged) legend wrote it; null for a default-empty glyph
-    bool placeOnly = false;             // defined by the legend but drawn nowhere in the rows (AsciiSample::legendOnly): no cell of `cells` holds it
+    std::string glyph;       // one character (UTF-8)
+    int tile = -1;           // tile value (flags included), -1 = no tile
+    bool hasPrefab = false;  // the legend entry also spawns an object
+    Json legendEntry;        // the entry as the (merged) legend wrote it; null for a default-empty glyph
+    bool placeOnly =
+        false;  // defined by the legend but drawn nowhere in the rows (AsciiSample::legendOnly): no cell of `cells` holds it
 };
 struct AsciiSample {
     int width = 0;
     int height = 0;
-    std::vector<int> cells;             // row-major, row 0 = TOP: index into `glyphs`
+    std::vector<int> cells;                // row-major, row 0 = TOP: index into `glyphs`
     std::vector<AsciiSampleGlyph> glyphs;  // in order of first appearance
-    std::vector<AsciiSampleGlyph> legendOnly;  // the legend's other glyphs (placeOnly), in the order of the legend; not part of `glyphs`
+    std::vector<AsciiSampleGlyph>
+        legendOnly;  // the legend's other glyphs (placeOnly), in the order of the legend; not part of `glyphs`
 };
 AsciiSample read_ascii_sample(const Json& args);
 

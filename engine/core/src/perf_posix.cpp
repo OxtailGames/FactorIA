@@ -57,7 +57,8 @@ std::uint64_t current_memory_bytes() {
 #elif defined(__APPLE__)
     mach_task_basic_info info{};
     mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS) return 0;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
+        return 0;
     return std::uint64_t(info.resident_size);
 #else
     std::FILE* f = std::fopen("/proc/self/statm", "r");  // pages: size resident shared ...

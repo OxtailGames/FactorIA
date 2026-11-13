@@ -20,7 +20,8 @@ namespace {
 struct Inherited {
     std::optional<std::string> part, material;
     std::optional<Vec4> color;
-    Mat4 world = Mat4::identity();  // this node's space to the model's: the transforms of the nodes above, this node's included
+    Mat4 world =
+        Mat4::identity();  // this node's space to the model's: the transforms of the nodes above, this node's included
 };
 
 struct Group {
@@ -52,7 +53,8 @@ bool is_file_font(const std::string& font) { return !font.empty() && font.rfind(
 
 std::string codepoint_list(const std::vector<char32_t>& cps) {
     std::string s;
-    for (std::size_t k = 0; k < cps.size() && k < 8; ++k) s += (k ? ", " : "") + std::format("U+{:04X}", static_cast<unsigned>(cps[k]));
+    for (std::size_t k = 0; k < cps.size() && k < 8; ++k)
+        s += (k ? ", " : "") + std::format("U+{:04X}", static_cast<unsigned>(cps[k]));
     if (cps.size() > 8) s += ", ...";
     return s;
 }
@@ -85,7 +87,8 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
         q.capTop = p["capTop"].get<bool>();
         mesh = model_cylinder(q);
     } else if (n.op == "cone") {
-        mesh = model_cone({f(p, "radius"), f(p, "radiusTop"), f(p, "height"), i(p, "segments"), i(p, "heightSegments"), p["cap"].get<bool>()});
+        mesh = model_cone({f(p, "radius"), f(p, "radiusTop"), f(p, "height"), i(p, "segments"), i(p, "heightSegments"),
+                           p["cap"].get<bool>()});
     } else if (n.op == "sphere") {
         mesh = model_sphere({f(p, "radius"), i(p, "segments"), p.contains("rings") ? i(p, "rings") : 0});
     } else if (n.op == "capsule") {
@@ -97,7 +100,8 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
     } else if (n.op == "stairs") {
         mesh = model_stairs({i(p, "steps"), f(p, "width"), f(p, "height"), f(p, "depth")});
     } else if (n.op == "arch") {
-        mesh = model_arch({f(p, "width"), f(p, "height"), f(p, "depth"), f(p, "openingWidth"), f(p, "openingHeight"), i(p, "segments")});
+        mesh = model_arch({f(p, "width"), f(p, "height"), f(p, "depth"), f(p, "openingWidth"), f(p, "openingHeight"),
+                           i(p, "segments")});
     } else if (n.op == "pipe") {
         mesh = model_pipe({f(p, "radius"), f(p, "innerRadius"), f(p, "height"), i(p, "segments")});
     } else if (n.op == "lathe") {
@@ -109,7 +113,8 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
         q.creaseAngle = f(p, "creaseAngle");
         mesh = model_lathe(q);
         if (mesh.empty()) {
-            fail(eval, n, "the lathe profile makes no surface", "Give the profile at least two different points, one of them off the axis.");
+            fail(eval, n, "the lathe profile makes no surface",
+                 "Give the profile at least two different points, one of them off the axis.");
             return false;
         }
     } else if (n.op == "sweep") {
@@ -161,14 +166,17 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
         req.lineSpacing = f(p, "lineSpacing");
         auto outline = eval.options.text(req);
         if (!outline) {
-            eval.error = n.pointer + ": " + outline.error().message + (outline.error().hint.empty() ? "" : " (hint: " + outline.error().hint + ")");
+            eval.error = n.pointer + ": " + outline.error().message +
+                         (outline.error().hint.empty() ? "" : " (hint: " + outline.error().hint + ")");
             return false;
         }
         if (is_file_font(req.font)) eval.inputs.insert(req.font);
         if (!outline->missing.empty())
-            eval.out.warnings.push_back(std::format("{}: the font has no glyph for {} (they are left out)", n.pointer, codepoint_list(outline->missing)));
+            eval.out.warnings.push_back(std::format("{}: the font has no glyph for {} (they are left out)", n.pointer,
+                                                    codepoint_list(outline->missing)));
         mesh = model_text(*outline, {f(p, "size"), f(p, "depth"), i(p, "curveSegments")});
-        if (mesh.empty()) eval.out.warnings.push_back(n.pointer + ": the text has no ink (only spaces?), nothing was made");
+        if (mesh.empty())
+            eval.out.warnings.push_back(n.pointer + ": the text has no ink (only spaces?), nothing was made");
     } else {
         eval.error = n.pointer + ": internal: operation " + n.op + " has no builder";
         return false;
@@ -182,15 +190,20 @@ bool build_mesh_node(Eval& eval, const ModelNode& n, const Inherited& in, ModelM
     const std::string source = n.params["source"].get<std::string>();
     auto read = read_gltf_mesh(source);
     if (!read) {
-        fail(eval, n, read.error().message, read.error().hint.empty() ? "Check the path; the file must be inside the project." : read.error().hint);
+        fail(eval, n, read.error().message,
+             read.error().hint.empty() ? "Check the path; the file must be inside the project." : read.error().hint);
         return false;
     }
     eval.inputs.insert(fs::normalize(source));
-    for (const std::string& w : read->warnings) eval.out.warnings.push_back(std::format("{}: {}: {}", n.pointer, source, w));
+    for (const std::string& w : read->warnings)
+        eval.out.warnings.push_back(std::format("{}: {}: {}", n.pointer, source, w));
     const MeshData& d = read->data;
     if (d.triangle_count() > kModelMaxTriangles) {
-        fail(eval, n, std::format("'{}' has {} triangles, more than the {} a node may make", source, d.triangle_count(), kModelMaxTriangles),
-             "Clean and decimate it first: model.import_clean {\"source\":\"" + source + "\"} brings it to a platform's triangle budget.");
+        fail(eval, n,
+             std::format("'{}' has {} triangles, more than the {} a node may make", source, d.triangle_count(),
+                         kModelMaxTriangles),
+             "Clean and decimate it first: model.import_clean {\"source\":\"" + source +
+                 "\"} brings it to a platform's triangle budget.");
         return false;
     }
     const std::size_t verts = d.vertex_count();
@@ -204,16 +217,20 @@ bool build_mesh_node(Eval& eval, const ModelNode& n, const Inherited& in, ModelM
     }
     if (!d.colors.empty()) {
         mesh.colors.resize(verts);
-        for (std::size_t v = 0; v < verts; ++v) mesh.colors[v] = {d.colors[v * 4], d.colors[v * 4 + 1], d.colors[v * 4 + 2], d.colors[v * 4 + 3]};
+        for (std::size_t v = 0; v < verts; ++v)
+            mesh.colors[v] = {d.colors[v * 4], d.colors[v * 4 + 1], d.colors[v * 4 + 2], d.colors[v * 4 + 3]};
     }
     std::set<std::string> unknown;
     for (const MeshSubmesh& sm : d.submeshes) {
         Inherited g = in;
         if (!n.part && !sm.part.empty()) g.part = sm.part;
         if (!n.material && !sm.material.name.empty()) {
-            const bool known = std::any_of(eval.doc.materials.begin(), eval.doc.materials.end(), [&](const auto& m) { return m.first == sm.material.name; });
-            if (known) g.material = sm.material.name;
-            else unknown.insert(sm.material.name);
+            const bool known = std::any_of(eval.doc.materials.begin(), eval.doc.materials.end(),
+                                           [&](const auto& m) { return m.first == sm.material.name; });
+            if (known)
+                g.material = sm.material.name;
+            else
+                unknown.insert(sm.material.name);
         }
         const std::uint32_t group = eval.group_of(g);
         for (std::uint32_t k = sm.start; k < sm.start + sm.count; ++k) mesh.indices.push_back(d.indices[k]);
@@ -222,7 +239,10 @@ bool build_mesh_node(Eval& eval, const ModelNode& n, const Inherited& in, ModelM
     if (!unknown.empty()) {
         std::string names;
         for (const std::string& u : unknown) names += (names.empty() ? "" : ", ") + u;
-        eval.out.warnings.push_back(std::format("{}: the materials {} of '{}' are not in the document's `materials`, so those triangles have the default material (add entries with these names, or set `material` on the node)", n.pointer, names, source));
+        eval.out.warnings.push_back(
+            std::format("{}: the materials {} of '{}' are not in the document's `materials`, so those triangles have "
+                        "the default material (add entries with these names, or set `material` on the node)",
+                        n.pointer, names, source));
     }
     return true;
 }
@@ -244,7 +264,10 @@ int axis_of(const Json& p, const char* key) {
 // False (with the error recorded) when `triangles` is more than a node may make.
 bool within_limit(Eval& eval, const ModelNode& n, const char* what, std::size_t triangles, const char* hint) {
     if (triangles <= kModelMaxTriangles) return true;
-    fail(eval, n, std::format("{} would make {} triangles, more than the {} a node may make", what, triangles, kModelMaxTriangles), hint);
+    fail(eval, n,
+         std::format("{} would make {} triangles, more than the {} a node may make", what, triangles,
+                     kModelMaxTriangles),
+         hint);
     return false;
 }
 
@@ -254,7 +277,8 @@ ModelEditContext make_context(Eval& eval, const Inherited& in) {
     for (const Group& g : eval.groups) ctx.partNames.push_back(g.part);
     for (const auto& m : eval.doc.materials) ctx.materialNames.push_back(m.first);
     ctx.toModel = in.world;
-    ctx.group_with = [&eval](std::uint32_t source, const std::optional<std::string>& part, const std::optional<std::string>& material) {
+    ctx.group_with = [&eval](std::uint32_t source, const std::optional<std::string>& part,
+                             const std::optional<std::string>& material) {
         Inherited tmp;
         tmp.part = part ? *part : eval.groups[source].part;
         tmp.material = material ? *material : eval.groups[source].material;
@@ -279,7 +303,9 @@ bool eval_edit(Eval& eval, const ModelNode& n, const Inherited& in, const ModelM
     edited->report.pointer = n.pointer;
     edited->report.op = n.op;
     eval.out.edits.push_back(edited->report);
-    if (!within_limit(eval, n, ("the " + n.op).c_str(), edited->mesh.triangle_count(), "Select fewer faces, or use fewer segments on the model below.")) return false;
+    if (!within_limit(eval, n, ("the " + n.op).c_str(), edited->mesh.triangle_count(),
+                      "Select fewer faces, or use fewer segments on the model below."))
+        return false;
     out.append(edited->mesh);
     return true;
 }
@@ -301,14 +327,21 @@ bool eval_boolean(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh
         return true;
     }
     if (operands.size() == 1)
-        eval.out.warnings.push_back(n.pointer + ": a boolean needs two or more children to combine; with one it only checks that the solid is closed and passes it on");
-    auto result = model_boolean(operands, mode == "union" ? ModelBooleanMode::Union : mode == "difference" ? ModelBooleanMode::Difference : ModelBooleanMode::Intersection, names);
+        eval.out.warnings.push_back(n.pointer + ": a boolean needs two or more children to combine; with one it only "
+                                                "checks that the solid is closed and passes it on");
+    auto result = model_boolean(operands,
+                                mode == "union"        ? ModelBooleanMode::Union
+                                : mode == "difference" ? ModelBooleanMode::Difference
+                                                       : ModelBooleanMode::Intersection,
+                                names);
     if (!result) {
         fail(eval, n, result.error().message, result.error().hint);
         return false;
     }
     out = std::move(*result);
-    if (out.empty()) eval.out.warnings.push_back(n.pointer + ": the " + mode + " is empty (the solids " + (mode == "intersection" ? "do not overlap" : "cancel out") + ")");
+    if (out.empty())
+        eval.out.warnings.push_back(n.pointer + ": the " + mode + " is empty (the solids " +
+                                    (mode == "intersection" ? "do not overlap" : "cancel out") + ")");
     return true;
 }
 
@@ -318,7 +351,8 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
     ModelMesh m;
     if (!eval_nodes(eval, n.children, in, m)) return false;
     if (m.empty()) {
-        eval.out.warnings.push_back(n.pointer + ": the " + n.op + " has no child that makes geometry, nothing was made");
+        eval.out.warnings.push_back(n.pointer + ": the " + n.op +
+                                    " has no child that makes geometry, nothing was made");
         return true;
     }
     probe(eval, n, m, in);
@@ -337,7 +371,9 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
     }
     if (n.op == "array") {
         const std::size_t count = std::size_t(i(p, "count"));
-        if (!within_limit(eval, n, std::format("an array of {} copies of {} triangles", count, tris).c_str(), tris * count, "Lower `count`, or use fewer segments on the children.")) return false;
+        if (!within_limit(eval, n, std::format("an array of {} copies of {} triangles", count, tris).c_str(),
+                          tris * count, "Lower `count`, or use fewer segments on the children."))
+            return false;
         ModelArrayParams q;
         q.count = int(count);
         q.offset = v3(p["offset"]);
@@ -351,7 +387,9 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
     }
     if (n.op == "radial_array") {
         const std::size_t count = std::size_t(i(p, "count"));
-        if (!within_limit(eval, n, std::format("a radial array of {} copies of {} triangles", count, tris).c_str(), tris * count, "Lower `count`, or use fewer segments on the children.")) return false;
+        if (!within_limit(eval, n, std::format("a radial array of {} copies of {} triangles", count, tris).c_str(),
+                          tris * count, "Lower `count`, or use fewer segments on the children."))
+            return false;
         ModelRadialArrayParams q;
         q.count = int(count);
         q.axis = axis_of(p, "axis");
@@ -376,15 +414,22 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
             return false;
         }
         if (edges == 0)
-            eval.out.warnings.push_back(std::format("{}: no edge turns by more than {:g} degrees, so nothing was bevelled (lower `angle` to bevel gentler edges)", n.pointer, q.angle));
-        if (!within_limit(eval, n, "the bevel", made->triangle_count(), "Lower `segments`, raise `angle` so fewer edges are bevelled, or bevel a simpler mesh.")) return false;
+            eval.out.warnings.push_back(std::format("{}: no edge turns by more than {:g} degrees, so nothing was "
+                                                    "bevelled (lower `angle` to bevel gentler edges)",
+                                                    n.pointer, q.angle));
+        if (!within_limit(eval, n, "the bevel", made->triangle_count(),
+                          "Lower `segments`, raise `angle` so fewer edges are bevelled, or bevel a simpler mesh."))
+            return false;
         out.append(*made);
         return true;
     }
     if (n.op == "subdivide") {
         const int levels = i(p, "levels");
         const std::size_t bound = model_subdivide_triangle_bound(m, levels);
-        if (!within_limit(eval, n, std::format("subdividing {} triangles {} time(s)", tris, levels).c_str(), bound, "Lower `levels`, or subdivide a mesh with fewer triangles (each level multiplies them by 4).")) return false;
+        if (!within_limit(
+                eval, n, std::format("subdividing {} triangles {} time(s)", tris, levels).c_str(), bound,
+                "Lower `levels`, or subdivide a mesh with fewer triangles (each level multiplies them by 4)."))
+            return false;
         ModelSubdivideParams q;
         q.levels = levels;
         q.creaseAngle = f(p, "creaseAngle");
@@ -398,7 +443,8 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
         q.offset = f(p, "offset");
         q.even = p["even"].get<bool>();
         ModelMesh made = model_solidify(m, q);
-        if (!within_limit(eval, n, "the solidify", made.triangle_count(), "Use fewer segments on the children.")) return false;
+        if (!within_limit(eval, n, "the solidify", made.triangle_count(), "Use fewer segments on the children."))
+            return false;
         out.append(made);
         return true;
     }
@@ -460,7 +506,9 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
     if (n.op == "shade") {
         ModelShadeParams q;
         const std::string mode = p["mode"].get<std::string>();
-        q.mode = mode == "flat" ? ModelShadeMode::Flat : mode == "smooth" ? ModelShadeMode::Smooth : ModelShadeMode::Auto;
+        q.mode = mode == "flat"     ? ModelShadeMode::Flat
+                 : mode == "smooth" ? ModelShadeMode::Smooth
+                                    : ModelShadeMode::Auto;
         q.angle = f(p, "angle");
         out.append(model_shade(m, q));
         return true;
@@ -473,7 +521,9 @@ bool eval_modifier(Eval& eval, const ModelNode& n, const Inherited& in, ModelMes
 
 ModelSdfBlend sdf_blend_of(const Json& p) {
     const std::string b = p["blend"].get<std::string>();
-    return b == "subtract" ? ModelSdfBlend::Subtract : b == "intersect" ? ModelSdfBlend::Intersect : ModelSdfBlend::Union;
+    return b == "subtract"    ? ModelSdfBlend::Subtract
+           : b == "intersect" ? ModelSdfBlend::Intersect
+                              : ModelSdfBlend::Union;
 }
 
 ModelSdfShapeParams sdf_shape_of(const ModelNode& n) {
@@ -514,7 +564,8 @@ ModelSdfShapeParams sdf_shape_of(const ModelNode& n) {
 
 // Adds the enabled `nodes` to `sdf` and returns their indices in order. Each leaf names its group the way a primitive does (its own part, material
 // and colour over the inherited ones).
-std::vector<int> add_sdf_nodes(Eval& eval, ModelSdf& sdf, const std::vector<ModelNode>& nodes, const Inherited& parent) {
+std::vector<int> add_sdf_nodes(Eval& eval, ModelSdf& sdf, const std::vector<ModelNode>& nodes,
+                               const Inherited& parent) {
     std::vector<int> indices;
     for (const ModelNode& c : nodes) {
         if (!c.enabled) continue;
@@ -529,7 +580,11 @@ std::vector<int> add_sdf_nodes(Eval& eval, ModelSdf& sdf, const std::vector<Mode
             const std::vector<int> kids = add_sdf_nodes(eval, sdf, c.children, in);
             if (kids.empty()) continue;  // a group with nothing enabled in it is left out
             const std::string m = c.params["mirror"].get<std::string>();
-            indices.push_back(sdf.add_group(kids, local, blend, smooth, m == "x" ? 0 : m == "y" ? 1 : m == "z" ? 2 : -1));
+            indices.push_back(sdf.add_group(kids, local, blend, smooth,
+                                            m == "x"   ? 0
+                                            : m == "y" ? 1
+                                            : m == "z" ? 2
+                                                       : -1));
         } else {
             indices.push_back(sdf.add_shape(sdf_shape_of(c), local, blend, smooth, eval.group_of(in), in.color));
         }
@@ -548,7 +603,8 @@ bool eval_sdf(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& me
     sdf.set_root(roots.size() == 1 ? roots[0] : sdf.add_group(roots, Mat4::identity(), ModelSdfBlend::Union, 0, -1));
     const Json& p = n.params;
     ModelSdfMeshParams q;
-    if (p.contains("voxelSize")) q.voxelSize = f(p, "voxelSize");
+    if (p.contains("voxelSize"))
+        q.voxelSize = f(p, "voxelSize");
     else {
         const std::string quality = p["quality"].get<std::string>();
         q.cells = quality == "draft" ? 40 : quality == "fine" ? 160 : quality == "ultra" ? 200 : 96;
@@ -566,13 +622,18 @@ bool eval_sdf(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& me
         return false;
     }
     if (made->empty()) {
-        eval.out.warnings.push_back(n.pointer + ": the sdf has no surface (everything was subtracted away, or the shapes are smaller than a cell of " +
-                                    std::format("{:g}", info.voxelSize) + " m): lower `voxelSize` or check the subtractions");
+        eval.out.warnings.push_back(
+            n.pointer +
+            ": the sdf has no surface (everything was subtracted away, or the shapes are smaller than a cell of " +
+            std::format("{:g}", info.voxelSize) + " m): lower `voxelSize` or check the subtractions");
         return true;
     }
     if (info.touchedEdge)
-        eval.out.warnings.push_back(n.pointer + ": the sdf surface reached the edge of its sampling box and was cut there; lower `noiseAmplitude` or report this");
-    if (!within_limit(eval, n, "the sdf", made->triangle_count(), "Raise `voxelSize`, lower `quality` or set `targetTriangles`.")) return false;
+        eval.out.warnings.push_back(n.pointer + ": the sdf surface reached the edge of its sampling box and was cut "
+                                                "there; lower `noiseAmplitude` or report this");
+    if (!within_limit(eval, n, "the sdf", made->triangle_count(),
+                      "Raise `voxelSize`, lower `quality` or set `targetTriangles`."))
+        return false;
     mesh = std::move(*made);
     return true;
 }
@@ -596,15 +657,19 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
         probe(eval, n, mesh, in);
         Vec3 bmin, bmax;
         mesh.bounds(bmin, bmax);
-        if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
-        else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
+        if (n.align == "bottom")
+            mesh.transform(Mat4::translate({0, -bmin.y, 0}));
+        else if (n.align == "top")
+            mesh.transform(Mat4::translate({0, -bmax.y, 0}));
     } else if (n.op == "mesh") {
         if (!build_mesh_node(eval, n, in, mesh)) return false;
         if (mesh.empty()) return true;
         Vec3 bmin, bmax;
         mesh.bounds(bmin, bmax);
-        if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
-        else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
+        if (n.align == "bottom")
+            mesh.transform(Mat4::translate({0, -bmin.y, 0}));
+        else if (n.align == "top")
+            mesh.transform(Mat4::translate({0, -bmax.y, 0}));
         if (in.color) mesh.set_color(*in.color);
         probe(eval, n, mesh, in);
     } else {
@@ -612,8 +677,10 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
         if (mesh.empty()) return true;
         Vec3 bmin, bmax;
         mesh.bounds(bmin, bmax);
-        if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
-        else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
+        if (n.align == "bottom")
+            mesh.transform(Mat4::translate({0, -bmin.y, 0}));
+        else if (n.align == "top")
+            mesh.transform(Mat4::translate({0, -bmax.y, 0}));
         if (in.color) mesh.set_color(*in.color);
         mesh.set_part(eval.group_of(in));
         probe(eval, n, mesh, in);
@@ -636,13 +703,19 @@ Result<ModelBuild> evaluate_model(const ModelDoc& doc, const ModelEvalOptions& o
     ModelBuild build;
     Eval eval{doc, options, build, {}, {}, {}, {}};
     ModelMesh mesh;
-    if (!eval_nodes(eval, doc.nodes, {}, mesh)) return make_error(eval.error, "Fix the node, or set `enabled: false` on it to leave it out.");
+    if (!eval_nodes(eval, doc.nodes, {}, mesh))
+        return make_error(eval.error, "Fix the node, or set `enabled: false` on it to leave it out.");
     if (mesh.empty())
-        return make_error("the model has no triangles: no node made any geometry",
-                          doc.nodes.empty() ? "Add a node, e.g. model.edit {\"add\": {\"op\": \"box\"}}." : "Every node is disabled, or a text has no ink. Enable a node or give it something to draw.");
+        return make_error(
+            "the model has no triangles: no node made any geometry",
+            doc.nodes.empty()
+                ? "Add a node, e.g. model.edit {\"add\": {\"op\": \"box\"}}."
+                : "Every node is disabled, or a text has no ink. Enable a node or give it something to draw.");
     if (mesh.vertex_count() > (1u << 20) || mesh.indices.size() > (6u << 20))
-        return make_error(std::format("the model has {} vertices and {} triangles, more than a mesh can hold ({} vertices)", mesh.vertex_count(), mesh.triangle_count(), 1u << 20),
-                          "Lower `segments` on the round primitives, or use fewer nodes.");
+        return make_error(
+            std::format("the model has {} vertices and {} triangles, more than a mesh can hold ({} vertices)",
+                        mesh.vertex_count(), mesh.triangle_count(), 1u << 20),
+            "Lower `segments` on the round primitives, or use fewer nodes.");
 
     // The `uv` section replaces every node's own uvs (a primitive's, an sdf's box default) once the model is complete: the settings see the
     // whole merged mesh and the part of each triangle.
@@ -659,23 +732,32 @@ Result<ModelBuild> evaluate_model(const ModelDoc& doc, const ModelEvalOptions& o
                 std::vector<std::string> named;
                 for (const std::string& n : partNames)
                     if (!n.empty()) named.push_back(n);
-                build.warnings.push_back(std::format("uv.parts names \"{}\", which no node makes: it has no effect. {}", name, named.empty() ? "No node names a part (set `part` on a node)." : did_you_mean(name, named)));
+                build.warnings.push_back(std::format(
+                    "uv.parts names \"{}\", which no node makes: it has no effect. {}", name,
+                    named.empty() ? "No node names a part (set `part` on a node)." : did_you_mean(name, named)));
             }
         }
         for (const std::string& w : made->report.warnings) build.warnings.push_back("uv: " + w);
         build.uv = std::move(made->report);
         if (mesh.vertex_count() > (1u << 20))
-            return make_error(std::format("uv: cutting the model into uv pieces made {} vertices, more than a mesh can hold ({})", mesh.vertex_count(), 1u << 20), "Use fewer cuts (`seams`: \"few\") or lower `segments`.");
+            return make_error(
+                std::format("uv: cutting the model into uv pieces made {} vertices, more than a mesh can hold ({})",
+                            mesh.vertex_count(), 1u << 20),
+                "Use fewer cuts (`seams`: \"few\") or lower `segments`.");
     }
     // The `vertexColors` section colours the finished mesh (it may split vertices; triangles keep their order and parts).
     if (doc.vertexColors) {
         std::vector<std::string> partNames;
         for (const auto& g : eval.groups) partNames.push_back(g.part);
-        ModelVertexColorReport made = model_apply_vertex_colors(mesh, partNames, *doc.vertexColors, options.stylePalette);
+        ModelVertexColorReport made =
+            model_apply_vertex_colors(mesh, partNames, *doc.vertexColors, options.stylePalette);
         for (const std::string& w : made.warnings) build.warnings.push_back("vertexColors: " + w);
         build.vertexColors = std::move(made);
         if (mesh.vertex_count() > (1u << 20))
-            return make_error(std::format("vertexColors: giving each triangle its own colour made {} vertices, more than a mesh can hold ({})", mesh.vertex_count(), 1u << 20), "Turn `flat` off, or lower `segments`.");
+            return make_error(std::format("vertexColors: giving each triangle its own colour made {} vertices, more "
+                                          "than a mesh can hold ({})",
+                                          mesh.vertex_count(), 1u << 20),
+                              "Turn `flat` off, or lower `segments`.");
     }
     build.stats = model_mesh_stats(mesh);
 
@@ -737,7 +819,8 @@ Result<ModelBuild> evaluate_model(const ModelDoc& doc, const ModelEvalOptions& o
     if (build.stats.degenerateTriangles > 0)
         build.warnings.push_back(std::format("{} triangle(s) have no area", build.stats.degenerateTriangles));
     if (build.stats.triangles > 200000)
-        build.warnings.push_back(std::format("the model has {} triangles, heavy for a game asset: lower `segments`", build.stats.triangles));
+        build.warnings.push_back(
+            std::format("the model has {} triangles, heavy for a game asset: lower `segments`", build.stats.triangles));
     return build;
 }
 

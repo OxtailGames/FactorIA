@@ -66,8 +66,8 @@ void remember_log_line(const LogEntry& entry) {
 // only shows where it was called, not what was thrown), then do what the default handler does.
 void on_terminate() {
     if (std::current_exception()) {
-        crash_detail::note_uncaught([] { throw; },
-                                    [](const char* head, const char* what) { std::fprintf(stderr, "%s%s\n", head, what); });
+        crash_detail::note_uncaught(
+            [] { throw; }, [](const char* head, const char* what) { std::fprintf(stderr, "%s%s\n", head, what); });
     } else {
         const char* text = "std::terminate() was called";
         std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "%s", text);
@@ -91,12 +91,14 @@ Result<void> install_crash_reporter(const CrashReporterOptions& options) {
                      "pick a writable folder (the player uses <save folder>/crashes)"};
     prune_reports(options.dir, options.keep);
 
-    std::string header = std::string("FactorIA crash report\nengine: ") + FA_ENGINE_VERSION + " (" + FA_PLATFORM_NAME + ")\n";
+    std::string header =
+        std::string("FactorIA crash report\nengine: ") + FA_ENGINE_VERSION + " (" + FA_PLATFORM_NAME + ")\n";
     for (const std::string& line : options.info) header += line + '\n';
     std::snprintf(g_shared.header, cd::kHeaderBytes, "%s", header.c_str());  // cut when longer: still a header
 
     std::string error;
-    if (!cd::platform_install(stdfs::absolute(options.dir, ec), error))  // absolute: the game may change directory later
+    if (!cd::platform_install(stdfs::absolute(options.dir, ec),
+                              error))  // absolute: the game may change directory later
         return Error{error, "mobile systems keep their own crash logs (adb logcat and tombstones on Android, Xcode "
                             "Organizer on iOS): do not install the reporter there"};
 

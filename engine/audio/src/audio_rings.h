@@ -26,14 +26,17 @@ inline std::size_t round_up_pow2(std::size_t n) {
 template <class T>
 class SpscRing {
 public:
-    explicit SpscRing(std::size_t capacity) : slots_(round_up_pow2(capacity < 2 ? 2 : capacity)), mask_(slots_.size() - 1) {}
+    explicit SpscRing(std::size_t capacity)
+        : slots_(round_up_pow2(capacity < 2 ? 2 : capacity)), mask_(slots_.size() - 1) {}
 
     std::size_t capacity() const { return slots_.size(); }
 
     // ---- producer side
     // Room for this many more pushes. Acquire: the consumer's release of `read_` means it has finished copying the slots
     // before that index, so they may be overwritten.
-    std::size_t free_space() const { return slots_.size() - std::size_t(staged_ - read_.load(std::memory_order_acquire)); }
+    std::size_t free_space() const {
+        return slots_.size() - std::size_t(staged_ - read_.load(std::memory_order_acquire));
+    }
     bool push(const T& v) {
         if (free_space() == 0) return false;
         slots_[std::size_t(staged_ & mask_)] = v;
@@ -68,9 +71,9 @@ public:
 private:
     std::vector<T> slots_;
     std::size_t mask_;
-    std::uint64_t staged_ = 0;                // producer only: pushed, maybe not committed
-    std::atomic<std::uint64_t> write_{0};     // written by the producer (commit), read by both
-    std::atomic<std::uint64_t> read_{0};      // written by the consumer (pop), read by both
+    std::uint64_t staged_ = 0;             // producer only: pushed, maybe not committed
+    std::atomic<std::uint64_t> write_{0};  // written by the producer (commit), read by both
+    std::atomic<std::uint64_t> read_{0};   // written by the consumer (pop), read by both
 };
 
 // The latest value of something one thread writes and another reads, without either waiting: three slots, the writer

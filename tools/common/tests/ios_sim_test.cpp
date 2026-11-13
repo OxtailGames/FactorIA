@@ -14,10 +14,13 @@ using namespace fa;
 
 namespace {
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 bool any_step(const Json& steps, const std::string& needle) {
-    return std::any_of(steps.begin(), steps.end(), [&](const Json& s) { return has_text(s.get<std::string>(), needle); });
+    return std::any_of(steps.begin(), steps.end(),
+                       [&](const Json& s) { return has_text(s.get<std::string>(), needle); });
 }
 
 const char* kPlist = R"(<?xml version="1.0" encoding="UTF-8"?>
@@ -25,7 +28,8 @@ const char* kPlist = R"(<?xml version="1.0" encoding="UTF-8"?>
 
 }  // namespace
 
-TEST_CASE("player.run_ios_sim: dryRun lists the simctl steps with the replay and the orientation in the launch environment") {
+TEST_CASE(
+    "player.run_ios_sim: dryRun lists the simctl steps with the replay and the orientation in the launch environment") {
     testing::TempDir tmp;
     testing::write_all(tmp.path / "build" / "factoria_player.app" / "Info.plist", kPlist);
     testing::write_all(tmp.path / "replays" / "play.json", R"({"frames":{"0":{"press":["jump"]}}})");
@@ -34,10 +38,15 @@ TEST_CASE("player.run_ios_sim: dryRun lists the simctl steps with the replay and
     const CommandInfo* info = registry.info("player.run_ios_sim");
     REQUIRE(info != nullptr);
     CHECK_FALSE(info->readOnly);
-    for (const char* key : {"app", "input", "orientation", "device", "bundleId", "screenshot", "seconds", "dryRun"}) CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
+    for (const char* key : {"app", "input", "orientation", "device", "bundleId", "screenshot", "seconds", "dryRun"})
+        CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
 
-    auto r = registry.call("player.run_ios_sim", Json::object({{"app", "build/factoria_player.app"}, {"input", "replays/play.json"}, {"orientation", "landscape"},
-                                                               {"device", "iPad Pro 13-inch"}, {"screenshot", "out/ipad.png"}, {"dryRun", true}}));
+    auto r = registry.call("player.run_ios_sim", Json::object({{"app", "build/factoria_player.app"},
+                                                               {"input", "replays/play.json"},
+                                                               {"orientation", "landscape"},
+                                                               {"device", "iPad Pro 13-inch"},
+                                                               {"screenshot", "out/ipad.png"},
+                                                               {"dryRun", true}}));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["bundleId"] == "com.example.sim");  // read from Info.plist
     CHECK(r.result["orientation"] == "landscape");
@@ -67,15 +76,21 @@ TEST_CASE("player.run_ios_sim: wrong arguments say what to fix") {
     REQUIRE_FALSE(noId.ok);
     CHECK(has_text(noId.error["hint"].get<std::string>(), "bundleId"));
 
-    auto noReplay = registry.call("player.run_ios_sim", Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"input", "none.json"}, {"dryRun", true}}));
+    auto noReplay =
+        registry.call("player.run_ios_sim",
+                      Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"input", "none.json"}, {"dryRun", true}}));
     REQUIRE_FALSE(noReplay.ok);
     CHECK(has_text(noReplay.error["message"].get<std::string>(), "none.json"));
 
-    auto turn = registry.call("player.run_ios_sim", Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"orientation", "landscap"}, {"dryRun", true}}));
+    auto turn = registry.call(
+        "player.run_ios_sim",
+        Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"orientation", "landscap"}, {"dryRun", true}}));
     REQUIRE_FALSE(turn.ok);
     CHECK(has_text(turn.error["hint"].get<std::string>(), "landscape"));
 
-    auto outside = registry.call("player.run_ios_sim", Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"screenshot", "../out.png"}, {"dryRun", true}}));
+    auto outside = registry.call(
+        "player.run_ios_sim",
+        Json::object({{"app", "x.app"}, {"bundleId", "a.b"}, {"screenshot", "../out.png"}, {"dryRun", true}}));
     REQUIRE_FALSE(outside.ok);
 }
 
@@ -86,7 +101,8 @@ TEST_CASE("player.run_ios_sim is part of the tooling every game project gets") {
     CHECK(registry.has("player.run_ios_sim"));
 }
 
-TEST_CASE("player.run_ios_sim: the screenshot stays inside the project for MCP and agents, the command-line user may name any file") {
+TEST_CASE("player.run_ios_sim: the screenshot stays inside the project for MCP and agents, the command-line user may "
+          "name any file") {
     testing::TempDir tmp;
     testing::TempDir other;
     testing::write_all(tmp.path / "build" / "factoria_player.app" / "Info.plist", kPlist);
@@ -94,7 +110,9 @@ TEST_CASE("player.run_ios_sim: the screenshot stays inside the project for MCP a
     register_ios_sim_commands(registry, tmp.str());
     const std::string outside = (other.path / "shot.png").generic_string();
     const auto shot = [&](const std::string& where) {
-        return registry.call("player.run_ios_sim", Json::object({{"app", "build/factoria_player.app"}, {"screenshot", where}, {"dryRun", true}}));
+        return registry.call(
+            "player.run_ios_sim",
+            Json::object({{"app", "build/factoria_player.app"}, {"screenshot", where}, {"dryRun", true}}));
     };
     {
         CommandCapabilityScope mcp(capability_sets::mcp());

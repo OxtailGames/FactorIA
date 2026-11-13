@@ -25,7 +25,8 @@ struct TwoScenes {
         write("factoria.json", R"({"format":"factoria.project/1","name":"Trace","id":"com.example.trace",
             "mainScene":"scenes/main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60},
             "input":{"actions":{"jump":["Space"]}}})");
-        write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        write("scenes/main.scene.json",
+              R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
             {"id":"go","components":{"Transform":{},"Script":{"path":"scripts/go.js"}}}]})");
         write("scripts/go.js", R"(
 import { Behaviour, scene } from "factoria";
@@ -34,7 +35,8 @@ export default class Go extends Behaviour {
   onUpdate() { if (++this.frames === 5) scene.load("scenes/level.scene.json"); }
 }
 )");
-        write("scenes/level.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        write("scenes/level.scene.json",
+              R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
             {"id":"lv","components":{"Transform":{},"Script":{"path":"scripts/level.js"}}}]})");
         write("scripts/level.js", R"(
 import { Behaviour } from "factoria";
@@ -47,13 +49,16 @@ import { game } from "factoria";
 import { choose } from "./bot_helper.js";
 game.autoplay((bot) => choose(bot));
 )");
-        write("scripts/bot_helper.js", "export function choose(bot) { return bot.rng.chance(0.1) ? [\"jump\"] : []; }\n");
+        write("scripts/bot_helper.js",
+              "export function choose(bot) { return bot.rng.chance(0.1) ? [\"jump\"] : []; }\n");
     }
     ~TwoScenes() {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
-    void write(const char* rel, const std::string& text) const { REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok()); }
+    void write(const char* rel, const std::string& text) const {
+        REQUIRE(fs::write_text((dir / rel).generic_string(), text).ok());
+    }
     EngineConfig config(LoadOrder* sinkOut) const {
         EngineConfig c;
         c.projectDir = dir.generic_string();
@@ -68,7 +73,9 @@ const SceneFiles* find_scene(const LoadOrder& order, const std::string& scene) {
     return it == order.end() ? nullptr : &*it;
 }
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 bool anywhere(const LoadOrder& order, const std::string& file) {
     return std::any_of(order.begin(), order.end(), [&](const SceneFiles& s) { return has(s.files, file); });
@@ -76,7 +83,8 @@ bool anywhere(const LoadOrder& order, const std::string& file) {
 
 }  // namespace
 
-TEST_CASE("load trace: play.auto records the scene a script loads, its modules and the bot's, and play.report shows the loads") {
+TEST_CASE("load trace: play.auto records the scene a script loads, its modules and the bot's, and play.report shows "
+          "the loads") {
     TwoScenes p;
     LoadOrder order;
     PlayAutoOptions o;
@@ -102,7 +110,8 @@ TEST_CASE("load trace: play.auto records the scene a script loads, its modules a
     CHECK(anywhere(order, "scripts/bot_helper.js"));
 
     // play.report's loading section of the session: both scenes, with their reads.
-    auto session = load_json_file((p.dir / ".factoria" / "sessions" / r.value()["session"].get<std::string>() / "session.json").generic_string());
+    auto session = load_json_file(
+        (p.dir / ".factoria" / "sessions" / r.value()["session"].get<std::string>() / "session.json").generic_string());
     REQUIRE(session.ok());
     REQUIRE(session.value().contains("loading"));
     const Json& loading = session.value()["loading"];

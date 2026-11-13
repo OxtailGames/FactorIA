@@ -60,7 +60,8 @@ ValidateOptions engine_validate_options(Engine& engine) {
             } else {
                 i.file = scriptPath;
                 i.message = "Syntax error: " + r.error().message;
-                i.hint = r.error().hint.empty() ? "Fix the script; 'factoria call script.eval' can test snippets." : r.error().hint;
+                i.hint = r.error().hint.empty() ? "Fix the script; 'factoria call script.eval' can test snippets."
+                                                : r.error().hint;
             }
             issues.push_back(std::move(i));
         }
@@ -68,7 +69,9 @@ ValidateOptions engine_validate_options(Engine& engine) {
     };
     vo.loadCheck = [e](const std::string& scriptPath) { return e->scripts().check_load(scriptPath); };
     vo.scriptApi = e->scripts().api_manifest();
-    vo.propsCheck = [e](const std::string& modulePath, const Json& props) { return e->scripts().check_props(modulePath, props); };
+    vo.propsCheck = [e](const std::string& modulePath, const Json& props) {
+        return e->scripts().check_props(modulePath, props);
+    };
     vo.hooksCheck = [e](const std::string& modulePath) { return e->scripts().check_hooks(modulePath); };
     return vo;
 }
@@ -80,16 +83,22 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         // project.validate bound to this engine: script syntax and Script.props go through its script system.
         if (const CommandInfo* ci = registry.info("project.validate")) {
             CommandInfo info = *ci;
-            info.details += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
-                                "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
-                                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). Reports, as file:line:column, "
-                                "a name imported from \"factoria\" that does not exist, a member the engine's objects lack "
-                                "(physics.raycats), a literal component name that is wrong, a module whose top level throws, and a "
-                                "colour array that mixes 0..1 and 0..255, or that has channels over 1 (none over 8) and none in 0..1, so it reads as "
-                                "almost black (for MeshRenderer.emissive the warning points to emissiveStrength) (docs/SCRIPTING.md, \"What factoria "
-                                "validate checks in a script\").";
+            info.details +=
+                " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
+                "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
+                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world). "
+                "Reports, as file:line:column, "
+                "a name imported from \"factoria\" that does not exist, a member the engine's objects lack "
+                "(physics.raycats), a literal component name that is wrong, a module whose top level throws, and a "
+                "colour array that mixes 0..1 and 0..255, or that has channels over 1 (none over 8) and none in 0..1, "
+                "so it reads as "
+                "almost black (for MeshRenderer.emissive the warning points to emissiveStrength) (docs/SCRIPTING.md, "
+                "\"What factoria "
+                "validate checks in a script\").";
             Engine* e = &engine;
-            registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
+            registry.add(info, [e, projectDir](const Json&) {
+                return validate_project(projectDir, engine_validate_options(*e)).to_json();
+            });
         }
     } else {
         register_docs_commands(registry);
@@ -107,7 +116,8 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         registry.add(info, [](const Json&) {
             Json arr = Json::array();
             for (const auto& t : list_templates())
-                arr.push_back(Json::object({{"name", t.name}, {"description", t.description}, {"dimension", t.dimension}}));
+                arr.push_back(
+                    Json::object({{"name", t.name}, {"description", t.description}, {"dimension", t.dimension}}));
             return arr;
         });
     }
@@ -118,7 +128,8 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         info.description =
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
             "scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
-            "`factoria mcp --project <dir>` to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
+            "`factoria mcp --project <dir>` to work on it. Example: "
+            "{\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
         info.readOnly = false;
         info.category = "project";
         info.inputSchema = Json::parse(R"({
@@ -138,7 +149,8 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
             // path a caller gives to a writer); one that may (the command line) names any folder, relative to the working directory.
             std::string dir;
             if (caller_capabilities().has(Capability::WriteAnywhere))
-                dir = fs::path_to_utf8(std::filesystem::absolute(fs::path_from_utf8(a.at("dir").get<std::string>()), ec).lexically_normal());
+                dir = fs::path_to_utf8(std::filesystem::absolute(fs::path_from_utf8(a.at("dir").get<std::string>()), ec)
+                                           .lexically_normal());
             else
                 dir = resolve_caller_write_path(a.at("dir").get<std::string>(), "project.create");
             auto r = create_project(dir, a.value("template", std::string("2d-empty")), o);
@@ -148,7 +160,8 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
     }
     // project.create makes a new folder where its caller says (with no project open there is no root to keep it in: the bootstrap flow of
     // `factoria mcp` without a project calls it with an absolute folder), so it is declared writeProject, not writeAnywhere.
-    declare_command_capabilities(registry, {{"project.templates", capability_sets::reads()}, {"project.create", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"project.templates", capability_sets::reads()},
+                                            {"project.create", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

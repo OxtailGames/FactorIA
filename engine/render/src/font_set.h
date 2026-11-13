@@ -39,21 +39,21 @@ int text_raster_px(float fontSize, float pixelsPerUnit);
 
 // A text shaped and measured, with what placing its glyphs needs.
 struct TextPrep {
-    FontFace* primary = nullptr;  // the Text's own font (or the built-in one); null: nothing could be laid out
-    int px = 0;                   // raster pixels per em
-    float unitsPerPx = 1.0f;      // local units per raster pixel
-    FontMetrics fm;               // of the primary font at px
-    float lineH = 0;              // pixels between two baselines
-    float maxW = 0;               // wrap width in raster pixels (0 = never)
-    bool rich = false;            // Text.markup or Text.bold
-    std::u32string text;          // the code points laid out (markup tags removed)
-    std::vector<MarkupAttr> attrs;      // one per code point of `text` (rich text)
-    std::vector<int> iconDef;           // by markup icon index: index in `iconDefs`, or -1 (not defined: a blank box)
-    std::vector<int> colorSlot;         // by attr.color: 0 = the Text's colour, else palette index + 1
-    std::vector<RichIcon> iconDefs;     // the icons the project defines that the text uses
-    std::vector<Color> palette;         // the colours the text uses, resolved
+    FontFace* primary = nullptr;     // the Text's own font (or the built-in one); null: nothing could be laid out
+    int px = 0;                      // raster pixels per em
+    float unitsPerPx = 1.0f;         // local units per raster pixel
+    FontMetrics fm;                  // of the primary font at px
+    float lineH = 0;                 // pixels between two baselines
+    float maxW = 0;                  // wrap width in raster pixels (0 = never)
+    bool rich = false;               // Text.markup or Text.bold
+    std::u32string text;             // the code points laid out (markup tags removed)
+    std::vector<MarkupAttr> attrs;   // one per code point of `text` (rich text)
+    std::vector<int> iconDef;        // by markup icon index: index in `iconDefs`, or -1 (not defined: a blank box)
+    std::vector<int> colorSlot;      // by attr.color: 0 = the Text's colour, else palette index + 1
+    std::vector<RichIcon> iconDefs;  // the icons the project defines that the text uses
+    std::vector<Color> palette;      // the colours the text uses, resolved
     ShapedText shaped;
-    Vec2 size{0, 0};              // the widest line and all the lines, in local units: what measuring sees
+    Vec2 size{0, 0};  // the widest line and all the lines, in local units: what measuring sees
 };
 
 class FontSet {
@@ -115,8 +115,8 @@ std::string font_face_key(const std::string& font);
 // Renderer::measure_text and TextMeasurer::measure_text are these two, with the renderer's or the measurer's FontSet and scales
 // (text_measure.cpp): the very layout of Text drawing at entity scale 1. Screen-space text is measured at the interface scale it
 // is drawn at (rasterized `uiScale` times as large, the result in UI units).
-Vec2 measure_plain_text(FontSet& fonts, std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space,
-                        TextStyle style, float textScale, float uiScale);
+Vec2 measure_plain_text(FontSet& fonts, std::string_view text, float fontSize, std::string_view font, float maxWidth,
+                        RenderSpace space, TextStyle style, float textScale, float uiScale);
 // With the Text's maxTextScale cap and autoShrink applied at `textScale` (text_fit.h).
 Vec2 measure_text_component(FontSet& fonts, const Text& text, float textScale, float uiScale);
 

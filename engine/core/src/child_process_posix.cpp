@@ -19,7 +19,8 @@ ChildProcess::ChildProcess() = default;
 ChildProcess::~ChildProcess() = default;
 Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& opt) {
     const std::string program = opt.argv.empty() ? std::string("a program") : "'" + opt.argv[0] + "'";
-    return make_error("Cannot start " + program + ": running other programs is not available on iOS, Android and the web",
+    return make_error("Cannot start " + program +
+                          ": running other programs is not available on iOS, Android and the web",
                       "Local tool servers (stdio) run on the desktop: use Windows, macOS or Linux.");
 }
 bool ChildProcess::write(std::string_view) { return false; }
@@ -80,13 +81,18 @@ struct ChildProcess::Impl {
     bool reap(bool block) {
         if (reaped) return true;
         pid_t w;
-        do { w = waitpid(pid, &status, block ? 0 : WNOHANG); } while (w < 0 && errno == EINTR);
+        do {
+            w = waitpid(pid, &status, block ? 0 : WNOHANG);
+        } while (w < 0 && errno == EINTR);
         if (w == pid || (w < 0 && errno == ECHILD)) reaped = true;
         return reaped;
     }
     void close_all() {
         for (int* fd : {&inFd, &outFd, &errFd})
-            if (*fd >= 0) { close(*fd); *fd = -1; }
+            if (*fd >= 0) {
+                close(*fd);
+                *fd = -1;
+            }
     }
     void kill_group(int sig) {
         if (pid <= 0) return;
@@ -99,7 +105,10 @@ ChildProcess::ChildProcess() : impl_(std::make_unique<Impl>()) {}
 
 ChildProcess::~ChildProcess() {
     if (!impl_ || impl_->pid <= 0) return;
-    if (impl_->inFd >= 0) { close(impl_->inFd); impl_->inFd = -1; }  // a well-behaved server exits on end of input
+    if (impl_->inFd >= 0) {
+        close(impl_->inFd);
+        impl_->inFd = -1;
+    }  // a well-behaved server exits on end of input
     double until = now_seconds() + 0.5;
     while (!impl_->reap(false) && now_seconds() < until) usleep(5000);
     if (!impl_->reaped) {
@@ -119,7 +128,8 @@ ChildProcess::~ChildProcess() {
 Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& opt) {
     if (opt.argv.empty()) return make_error("ChildProcess: empty argv", "Pass at least the executable name.");
     static std::once_flag sigpipe;
-    std::call_once(sigpipe, [] { std::signal(SIGPIPE, SIG_IGN); });  // a write to an exited child returns an error instead
+    std::call_once(sigpipe,
+                   [] { std::signal(SIGPIPE, SIG_IGN); });  // a write to an exited child returns an error instead
 
     std::vector<char*> argv;
     for (const auto& a : opt.argv) argv.push_back(const_cast<char*>(a.c_str()));
@@ -138,19 +148,31 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
     envp.push_back(nullptr);
 
     int inPipe[2], outPipe[2], errPipe[2], execPipe[2];
-    auto close_pair = [](int* p) { close(p[0]); close(p[1]); };
+    auto close_pair = [](int* p) {
+        close(p[0]);
+        close(p[1]);
+    };
     if (pipe(inPipe) != 0) return make_error(std::string("pipe failed: ") + std::strerror(errno));
-    if (pipe(outPipe) != 0) { close_pair(inPipe); return make_error(std::string("pipe failed: ") + std::strerror(errno)); }
+    if (pipe(outPipe) != 0) {
+        close_pair(inPipe);
+        return make_error(std::string("pipe failed: ") + std::strerror(errno));
+    }
     if (pipe(errPipe) != 0) {
-        close_pair(inPipe); close_pair(outPipe);
+        close_pair(inPipe);
+        close_pair(outPipe);
         return make_error(std::string("pipe failed: ") + std::strerror(errno));
     }
     if (pipe(execPipe) != 0) {
-        close_pair(inPipe); close_pair(outPipe); close_pair(errPipe);
+        close_pair(inPipe);
+        close_pair(outPipe);
+        close_pair(errPipe);
         return make_error(std::string("pipe failed: ") + std::strerror(errno));
     }
-    set_cloexec(execPipe[0]); set_cloexec(execPipe[1]);
-    set_cloexec(inPipe[1]); set_cloexec(outPipe[0]); set_cloexec(errPipe[0]);
+    set_cloexec(execPipe[0]);
+    set_cloexec(execPipe[1]);
+    set_cloexec(inPipe[1]);
+    set_cloexec(outPipe[0]);
+    set_cloexec(errPipe[0]);
 
     const char* cwd = opt.workingDir.empty() ? nullptr : opt.workingDir.c_str();
     const bool hasSlash = opt.argv[0].find('/') != std::string::npos;
@@ -158,7 +180,10 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
     pid_t pid = fork();
     if (pid < 0) {
         int e = errno;
-        close_pair(inPipe); close_pair(outPipe); close_pair(errPipe); close_pair(execPipe);
+        close_pair(inPipe);
+        close_pair(outPipe);
+        close_pair(errPipe);
+        close_pair(execPipe);
         return make_error(std::string("fork failed: ") + std::strerror(e));
     }
     if (pid == 0) {
@@ -170,25 +195,34 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(const ChildOptions& op
             if (fd > 2) close(fd);
         if (cwd && chdir(cwd) != 0) {
             int e = errno;
-            ssize_t w = ::write(execPipe[1], &e, sizeof e); (void)w;
+            ssize_t w = ::write(execPipe[1], &e, sizeof e);
+            (void)w;
             _exit(127);
         }
         environ = envp.data();
         detail::close_inherited_descriptors(execPipe[1]);
         detail::exec_with_retry(hasSlash, argv.data());
         int e = errno;
-        ssize_t w = ::write(execPipe[1], &e, sizeof e); (void)w;
+        ssize_t w = ::write(execPipe[1], &e, sizeof e);
+        (void)w;
         _exit(127);
     }
     setpgid(pid, pid);
-    close(inPipe[0]); close(outPipe[1]); close(errPipe[1]); close(execPipe[1]);
+    close(inPipe[0]);
+    close(outPipe[1]);
+    close(errPipe[1]);
+    close(execPipe[1]);
 
     int execErr = 0;
     ssize_t r;
-    do { r = read(execPipe[0], &execErr, sizeof execErr); } while (r < 0 && errno == EINTR);
+    do {
+        r = read(execPipe[0], &execErr, sizeof execErr);
+    } while (r < 0 && errno == EINTR);
     close(execPipe[0]);
     if (r == static_cast<ssize_t>(sizeof execErr)) {
-        close(inPipe[1]); close(outPipe[0]); close(errPipe[0]);
+        close(inPipe[1]);
+        close(outPipe[0]);
+        close(errPipe[0]);
         int st = 0;
         waitpid(pid, &st, 0);
         return make_error("Cannot start '" + opt.argv[0] + "': " + std::strerror(execErr),
@@ -233,7 +267,11 @@ ChildProcess::Read ChildProcess::read_line(std::string& line, double timeoutSeco
             return Read::Line;
         }
         if (d.outFd < 0) {
-            if (!d.outBuf.empty()) { line = std::move(d.outBuf); d.outBuf.clear(); return Read::Line; }
+            if (!d.outBuf.empty()) {
+                line = std::move(d.outBuf);
+                d.outBuf.clear();
+                return Read::Line;
+            }
             // The output ended: the program is exiting. Give it a moment to be reaped so running() agrees with Closed.
             const double until = now_seconds() + 0.5;
             while (!d.reap(false) && now_seconds() < until) usleep(2000);
@@ -244,7 +282,10 @@ ChildProcess::Read ChildProcess::read_line(std::string& line, double timeoutSeco
         pollfd fds[2];
         int n = 0, idxErr = -1;
         fds[n++] = {d.outFd, POLLIN, 0};
-        if (d.errFd >= 0) { idxErr = n; fds[n++] = {d.errFd, POLLIN, 0}; }
+        if (d.errFd >= 0) {
+            idxErr = n;
+            fds[n++] = {d.errFd, POLLIN, 0};
+        }
         int pr = poll(fds, static_cast<nfds_t>(n), 50);
         if (pr < 0) {
             if (errno == EINTR) continue;
@@ -252,13 +293,21 @@ ChildProcess::Read ChildProcess::read_line(std::string& line, double timeoutSeco
         }
         if (idxErr >= 0 && (fds[idxErr].revents & (POLLIN | POLLHUP | POLLERR))) {
             ssize_t e = ::read(d.errFd, buf, sizeof buf);
-            if (e > 0) d.add_stderr(buf, static_cast<std::size_t>(e));
-            else if (e == 0 || errno != EINTR) { close(d.errFd); d.errFd = -1; }
+            if (e > 0)
+                d.add_stderr(buf, static_cast<std::size_t>(e));
+            else if (e == 0 || errno != EINTR) {
+                close(d.errFd);
+                d.errFd = -1;
+            }
         }
         if (fds[0].revents & (POLLIN | POLLHUP | POLLERR)) {
             ssize_t g = ::read(d.outFd, buf, sizeof buf);
-            if (g > 0) d.outBuf.append(buf, static_cast<std::size_t>(g));
-            else if (g == 0 || errno != EINTR) { close(d.outFd); d.outFd = -1; }
+            if (g > 0)
+                d.outBuf.append(buf, static_cast<std::size_t>(g));
+            else if (g == 0 || errno != EINTR) {
+                close(d.outFd);
+                d.outFd = -1;
+            }
         }
     }
 }
@@ -275,8 +324,11 @@ void ChildProcess::terminate() {
     d.kill_group(SIGTERM);
     double until = now_seconds() + 1.0;
     while (!d.reap(false) && now_seconds() < until) usleep(5000);
-    if (!d.reaped) { d.kill_group(SIGKILL); d.reap(true); }
-    else kill(-d.pid, SIGKILL);
+    if (!d.reaped) {
+        d.kill_group(SIGKILL);
+        d.reap(true);
+    } else
+        kill(-d.pid, SIGKILL);
 }
 
 std::string ChildProcess::stderr_tail() const {

@@ -46,9 +46,14 @@ HttpResponse send_with_retry(const ProviderRuntime& rt, HttpRequest request, int
                     ", retrying in " + std::to_string(static_cast<int>(delay)) + "s (attempt " +
                     std::to_string(attempt + 1) + "/" + std::to_string(maxRetries) + ")");
         }
-        if (rt.sleep) rt.sleep(delay);
-        else default_sleep(delay, cancel);
-        if (is_cancelled(cancel)) { resp.cancelled = true; return resp; }
+        if (rt.sleep)
+            rt.sleep(delay);
+        else
+            default_sleep(delay, cancel);
+        if (is_cancelled(cancel)) {
+            resp.cancelled = true;
+            return resp;
+        }
     }
 }
 
@@ -78,7 +83,8 @@ std::string describe_http_error(std::string_view provider, const HttpResponse& r
         // ElevenLabs: {"detail": {"status": ..., "message": ...}} or {"detail": [{"loc": ..., "msg": ...}]}; Meshy: {"message": ...}
         if (const Json* d = util::child(j, "detail")) {
             const Json* first = d->is_array() && !d->empty() ? &(*d)[0] : d;
-            std::string m = d->is_string() ? d->get<std::string>() : util::str(*first, "message", util::str(*first, "msg"));
+            std::string m =
+                d->is_string() ? d->get<std::string>() : util::str(*first, "message", util::str(*first, "msg"));
             if (!m.empty()) return msg + ": " + m;
         }
         if (std::string m = util::str(j, "message"); !m.empty()) return msg + ": " + m;
@@ -92,7 +98,8 @@ std::string http_error_hint(std::string_view provider, int status) {
     switch (status) {
         case 0: return "Check your internet connection / proxy (HTTPS_PROXY) and the baseUrl.";
         case 401:
-        case 403: return "The key was rejected. Check the key for " + std::string(provider) + " (docs/AI_PROVIDERS.md).";
+        case 403:
+            return "The key was rejected. Check the key for " + std::string(provider) + " (docs/AI_PROVIDERS.md).";
         case 404: return "Check the model name and baseUrl in ~/.factoria/ai.json.";
         case 429: return "Rate limited or out of credits. Wait and retry, or check your plan/credits.";
         case 529: return "The provider is overloaded. Retry in a moment.";
@@ -108,9 +115,10 @@ Result<std::shared_ptr<ChatProvider>> make_chat_provider(const ProviderConfig& c
         case ProviderKind::Meshy:
         case ProviderKind::Fake:
         case ProviderKind::AssetCommand:
-            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) + ") only generates assets",
-                              "A role needs a chat provider (anthropic, claude-code, openai...). Asset providers go under "
-                              "\"assets\" in ai.json.");
+            return make_error(
+                "Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) + ") only generates assets",
+                "A role needs a chat provider (anthropic, claude-code, openai...). Asset providers go under "
+                "\"assets\" in ai.json.");
         default:
             return make_error("Provider '" + cfg.name + "' is a CLI agent (" + provider_kind_name(cfg.kind) +
                                   "), not a chat API provider",

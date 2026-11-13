@@ -42,7 +42,7 @@ struct AiDelegate {
     std::string report, error;
 };
 
-struct AiTool {  // a tool call started and not ended
+struct AiTool {              // a tool call started and not ended
     std::string name, text;  // text: describe_agent_event() ("running Bash (cmake --build)")
     int depth = 0;
     long long startMs = 0;
@@ -63,9 +63,9 @@ public:
     const std::string chatId;  // the chat this run works for (a chat has at most one run)
 
     // ---- control (free to read from any thread)
-    std::atomic<bool> cancel{false};     // Stop: the agent, its workers and its queued commands end
-    std::atomic<bool> running{false};    // the agent thread is going
-    std::atomic<bool> detached{false};   // the orchestrator's turn ended while a delegated worker still runs
+    std::atomic<bool> cancel{false};    // Stop: the agent, its workers and its queued commands end
+    std::atomic<bool> running{false};   // the agent thread is going
+    std::atomic<bool> detached{false};  // the orchestrator's turn ended while a delegated worker still runs
     std::atomic<long long> startMs{0}, lastActivityMs{0};  // steady-clock milliseconds
     // limits.stuckAfterSeconds this run started with (the project's AI settings may change it); -1 = the editor's own config.
     std::atomic<int> stuckAfterSeconds{-1};
@@ -78,34 +78,34 @@ public:
 
     // ---- owned by the main thread
     std::thread thread;
-    McpHttpServer mcp;           // this run's endpoint for a CLI agent (Claude Code): it serves `proxy`
+    McpHttpServer mcp;  // this run's endpoint for a CLI agent (Claude Code): it serves `proxy`
     // What the endpoint's servers (one per message) share: the client's handshake and the requests in flight, so a
     // notifications/cancelled stops the tools/call it names. Thread-safe; set before `mcp` starts.
     std::shared_ptr<McpSession> mcpSession = std::make_shared<McpSession>();
-    std::string provider;        // the orchestrator's provider (the plan limits belong to it)
-    std::string role;            // the role this run plays ("" = orchestrator); a review runs artCritic or reviewer
-    std::string extraSystem;     // extra system prompt of the run (a reviewer's persona)
-    std::string checkpointId;    // the project checkpoint taken before the run ("" = none)
-    i64 startedAt = 0;           // epoch seconds
-    bool sceneEdited = false;    // a scene-editing command ran for this run
-    bool detachedOk = false;     // the orchestrator's turn ended well (so a continuation makes sense)
-    double snoozeUntil = 0;      // the stuck warning stays quiet until then (seconds, the editor's clock)
-    double sampledAt = 0;        // seconds of the last watchdog sample
-    ai::CpuSampler cpu;          // CPU use of the run's processes
+    std::string provider;      // the orchestrator's provider (the plan limits belong to it)
+    std::string role;          // the role this run plays ("" = orchestrator); a review runs artCritic or reviewer
+    std::string extraSystem;   // extra system prompt of the run (a reviewer's persona)
+    std::string checkpointId;  // the project checkpoint taken before the run ("" = none)
+    i64 startedAt = 0;         // epoch seconds
+    bool sceneEdited = false;  // a scene-editing command ran for this run
+    bool detachedOk = false;   // the orchestrator's turn ended well (so a continuation makes sense)
+    double snoozeUntil = 0;    // the stuck warning stays quiet until then (seconds, the editor's clock)
+    double sampledAt = 0;      // seconds of the last watchdog sample
+    ai::CpuSampler cpu;        // CPU use of the run's processes
     std::vector<ProcessEntry> lastTree;
     std::map<long long, double> deadSince;  // pid -> seconds when the watchdog first found it gone
 
     // ---- under mu
     std::mutex mu;
-    std::vector<ai::AgentEvent> pending;       // events for the main thread (the chat's transcript)
-    std::optional<ai::SessionResult> result;   // the orchestrator's turn ended with this
+    std::vector<ai::AgentEvent> pending;      // events for the main thread (the chat's transcript)
+    std::optional<ai::SessionResult> result;  // the orchestrator's turn ended with this
     std::vector<AiDelegate> delegates;
     std::vector<AiTool> tools;
     std::vector<AiProc> procs;
-    std::string cancelCause_;                  // why cancel was set (request_cancel)
-    std::string activity;                      // the latest thing the agent did ("worker > running Bash (cmake)")
-    std::shared_ptr<CommandRegistry> proxy;    // what the agent's tool calls run on (the MCP endpoint reads it)
-    std::string endpointRole;                  // the role whose capabilities the MCP endpoint enforces (set with `proxy`)
+    std::string cancelCause_;                // why cancel was set (request_cancel)
+    std::string activity;                    // the latest thing the agent did ("worker > running Bash (cmake)")
+    std::shared_ptr<CommandRegistry> proxy;  // what the agent's tool calls run on (the MCP endpoint reads it)
+    std::string endpointRole;                // the role whose capabilities the MCP endpoint enforces (set with `proxy`)
 
     // ---- called from the agent thread, the MCP connection threads and the main thread
     // One agent event: queued for the main thread, and the liveness the watchdog and the status line read.
@@ -114,8 +114,9 @@ public:
     void delegate_started(const ai::AiRunInfo& info, long long nowMs);
     void delegate_event(const ai::AiRunInfo& info, const ai::AgentEvent& ev, long long nowMs);  // shown one level in
     void delegate_process(const ai::AiRunInfo& info, long long pid);
-    void delegate_ended(const ai::AiRunInfo& info, bool ok, const std::string& report, const std::string& error, long long nowMs);
-    void process_started(long long pid, const std::string& role);  // the orchestrator's own CLI process
+    void delegate_ended(const ai::AiRunInfo& info, bool ok, const std::string& report, const std::string& error,
+                        long long nowMs);
+    void process_started(long long pid, const std::string& procRole);  // the orchestrator's own CLI process
     // The agent thread's session returned `r`. A delegate that still runs is an orphan: its ai_run call will never return its
     // result to anyone, so the run stays active (`detached`) until that worker ends. `detached` is set before `running`
     // drops, so active() never flickers.
@@ -126,8 +127,8 @@ public:
         std::vector<ai::AgentEvent> events;
         std::optional<ai::SessionResult> result;
         bool detached = false;
-        bool orphansDone = false;              // detached and every orphaned worker ended
-        std::vector<AiDelegate> finished;      // those workers, when orphansDone
+        bool orphansDone = false;          // detached and every orphaned worker ended
+        std::vector<AiDelegate> finished;  // those workers, when orphansDone
     };
     Drained drain();
     // A fresh run starts with no liveness left over (the status line's clock starts at `nowMs`).
@@ -155,12 +156,14 @@ std::string project_relative(const std::string& path, const std::string& project
 // files. `readOnly` commands change nothing. A command that edits the open scene changes `openScene` (the scene file it is
 // saved to). Looks at the path-like arguments (path, file, from, to, ...), the `saved` file a scene import reports, and the
 // `paths` / `files` lists.
-std::vector<std::string> command_touched_files(const std::string& name, const Json& args, const Json& result, bool readOnly,
-                                               bool editsScene, const std::string& openScene, const std::string& projectDir);
+std::vector<std::string> command_touched_files(const std::string& name, const Json& args, const Json& result,
+                                               bool readOnly, bool editsScene, const std::string& openScene,
+                                               const std::string& projectDir);
 // What a tool call of a CLI agent's own tools changed (Claude Code's Write / Edit / MultiEdit / NotebookEdit). Calls of the
 // editor's commands (mcp__factoria__fs_write...) are not seen here: they arrive as commands. Bash is not seen at all; the
 // checkpoint diff at the end of the run covers it.
-std::vector<std::string> tool_touched_files(const std::string& toolName, const Json& input, const std::string& projectDir);
+std::vector<std::string> tool_touched_files(const std::string& toolName, const Json& input,
+                                            const std::string& projectDir);
 
 // One file two runs changed.
 struct FileConflict {
@@ -241,9 +244,9 @@ struct RevertPlan {
     bool whole = true;
     // Otherwise only these files go back: the files of the run (and of the later runs of the same chat, which are taken back too).
     std::vector<std::string> files;
-    std::vector<SharedFile> shared;   // among `files`, those another chat's run also changed
-    bool sceneShared = false;         // the run edited the open scene and another chat's run did too
-    std::vector<std::string> running; // other chats whose run is still going
+    std::vector<SharedFile> shared;    // among `files`, those another chat's run also changed
+    bool sceneShared = false;          // the run edited the open scene and another chat's run did too
+    std::vector<std::string> running;  // other chats whose run is still going
 };
 
 // `own`: what the run being reverted changed (and its chat's later runs). `scene`: the open scene's file when the run changed

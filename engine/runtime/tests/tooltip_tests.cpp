@@ -265,7 +265,9 @@ test("a second file starts at the project's delay again", () => { expect(ui.tool
 }
 
 TEST_CASE("tooltips: factoria.json mistakes name the pointer and the fix") {
-    TempProject p("bad", R"({"format":"factoria.project/1","name":"x","mainScene":"scenes/main.scene.json","ui":{"tooltip":{"fontsize":12}}})");
+    TempProject p(
+        "bad",
+        R"({"format":"factoria.project/1","name":"x","mainScene":"scenes/main.scene.json","ui":{"tooltip":{"fontsize":12}}})");
     auto r = load_project(p.dir.generic_string());
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("/ui/tooltip/fontsize") != std::string::npos);
@@ -283,7 +285,9 @@ TEST_CASE("ui.check_layout reports a tooltip that cannot fit the screen") {
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    auto r = e.commands().call("ui.check_layout", Json{{"scenes", Json::array({"scenes/big.scene.json", "scenes/main.scene.json"})}, {"pseudo", false}});
+    auto r = e.commands().call(
+        "ui.check_layout",
+        Json{{"scenes", Json::array({"scenes/big.scene.json", "scenes/main.scene.json"})}, {"pseudo", false}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     int tooltipIssues = 0;
     for (const Json& i : r.result["issues"])

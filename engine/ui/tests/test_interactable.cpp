@@ -18,7 +18,8 @@ namespace {
 Vec2 at(float x, float y) { return {160 + x, 90 - y}; }
 
 // A rectangle of `size` centred on `pos` in world space with an Interactable.
-Entity card(Ui& t, const char* id, Vec2 pos, Vec2 size, Entity parent = kNullEntity, InteractableKind kind = InteractableKind::Button) {
+Entity card(Ui& t, const char* id, Vec2 pos, Vec2 size, Entity parent = kNullEntity,
+            InteractableKind kind = InteractableKind::Button) {
     Entity e = t.w.create(id, id);
     if (parent) t.w.set_parent(e, parent);
     t.w.get<Transform>(e)->position = {pos.x, pos.y, 0};
@@ -49,7 +50,8 @@ void move_to(Ui& t, Vec2 p) {
 
 }  // namespace
 
-TEST_CASE("Interactable: the area is the bounds of the entity and its children, through parents that move, scale and turn") {
+TEST_CASE(
+    "Interactable: the area is the bounds of the entity and its children, through parents that move, scale and turn") {
     Ui t;
     Entity page = t.w.create("page", "page");
     t.w.get<Transform>(page)->position = {50, 0, 0};
@@ -370,7 +372,8 @@ TEST_CASE("Interactable toggle: click flips `on`, and InteractableVisual shows t
     CHECK(t.w.get<Shape2D>(box)->color.r == doctest::Approx(0.5f));
 }
 
-TEST_CASE("Interactable slider: dragging along the area, the arrow keys, steps, and the knob and fill follow the value") {
+TEST_CASE(
+    "Interactable slider: dragging along the area, the arrow keys, steps, and the knob and fill follow the value") {
     Ui t;
     Entity bar = card(t, "bar", {0, 0}, {100, 10}, kNullEntity, InteractableKind::Slider);
     Entity knob = child_shape(t, "knob", bar, {0, 0}, {8, 14});
@@ -514,13 +517,13 @@ TEST_CASE("Interactable: focusOnHover also treats a widget that appears under a 
     t.w.get<Interactable>(b)->focusOnHover = true;
     t.w.info(b).active = false;  // not on the page yet
     t.frame();
-    move_to(t, at(60, 0));       // the pointer rests where b will be
+    move_to(t, at(60, 0));  // the pointer rests where b will be
     CHECK(t.ui.focused() == a);
-    t.w.info(b).active = true;   // the page turns; the pointer has not moved
+    t.w.info(b).active = true;  // the page turns; the pointer has not moved
     t.frame(2);
     CHECK(t.ui.hovered() == b);
     CHECK(t.ui.focused() == b);
-    t.tap_key(Key::Left);        // still once per entry: the arrows move the focus away
+    t.tap_key(Key::Left);  // still once per entry: the arrows move the focus away
     CHECK(t.ui.focused() == a);
     t.frame(3);
     CHECK(t.ui.focused() == a);
@@ -552,8 +555,8 @@ TEST_CASE("InteractableVisual when highlighted: shown while hovered OR focused")
     CHECK(t.w.info(ga).active);        // focused
     CHECK_FALSE(t.w.info(gb).active);  // neither
     move_to(t, at(60, 0));
-    CHECK(t.w.info(gb).active);        // hovered, not focused
-    CHECK(t.w.info(ga).active);        // focused, not hovered
+    CHECK(t.w.info(gb).active);  // hovered, not focused
+    CHECK(t.w.info(ga).active);  // focused, not hovered
     move_to(t, at(0, 80));
     CHECK_FALSE(t.w.info(gb).active);
     CHECK(t.w.info(ga).active);

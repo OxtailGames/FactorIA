@@ -33,7 +33,8 @@ MeshData cube(float s = 1.8f, float cx = 0, float cy = 0, float cz = 0) {
         Vec3 n = normalize(Vec3{x, y, z});
         m.normals.insert(m.normals.end(), {n.x, n.y, n.z});
     }
-    m.indices = {1, 3, 7, 1, 7, 5, 0, 4, 6, 0, 6, 2, 2, 6, 7, 2, 7, 3, 0, 1, 5, 0, 5, 4, 4, 5, 7, 4, 7, 6, 0, 2, 3, 0, 3, 1};
+    m.indices = {1, 3, 7, 1, 7, 5, 0, 4, 6, 0, 6, 2, 2, 6, 7, 2, 7, 3,
+                 0, 1, 5, 0, 5, 4, 4, 5, 7, 4, 7, 6, 0, 2, 3, 0, 3, 1};
     MeshSubmesh sm;
     sm.start = 0;
     sm.count = std::uint32_t(m.indices.size());
@@ -178,7 +179,8 @@ TEST_CASE("check: an empty mesh") {
 }
 
 TEST_CASE("check: triangle budgets use the platform table of the game-ready code") {
-    auto b = build(R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":0.5,"segments":256,"rings":128,"position":[0,0.5,0]}]})");
+    auto b = build(
+        R"({"format":"factoria.model/1","nodes":[{"op":"sphere","radius":0.5,"segments":256,"rings":128,"position":[0,0.5,0]}]})");
     REQUIRE(b.data.triangle_count() > 40000);
     auto r = check_model_mesh(b.data, {});
     std::vector<std::string> platforms;
@@ -209,7 +211,8 @@ TEST_CASE("check: triangle budgets use the platform table of the game-ready code
 TEST_CASE("check: more submeshes than a platform's draw call budget") {
     std::string nodes;
     for (int i = 0; i < 17; ++i)
-        nodes += std::string(i ? "," : "") + R"({"op":"box","size":[0.2,0.2,0.2],"part":"p)" + std::to_string(i) + R"(","position":[)" + std::to_string(i * 0.25) + R"(,0.1,0]})";
+        nodes += std::string(i ? "," : "") + R"({"op":"box","size":[0.2,0.2,0.2],"part":"p)" + std::to_string(i) +
+                 R"(","position":[)" + std::to_string(i * 0.25) + R"(,0.1,0]})";
     auto b = build(R"({"format":"factoria.model/1","nodes":[)" + nodes + "]}");
     REQUIRE(b.data.submeshes.size() == 17);
     ModelCheckOptions o;
@@ -230,7 +233,8 @@ TEST_CASE("check: evaluated documents are clean solids") {
     CHECK(r.insideOutPieces == 0);
     CHECK(r.openEdges == 0);
     // mirrored nodes keep their triangles facing out
-    auto m = build(R"({"format":"factoria.model/1","nodes":[{"op":"cylinder","radius":0.3,"height":1,"scale":[-1,1,1],"position":[0,0.5,0]}]})");
+    auto m = build(
+        R"({"format":"factoria.model/1","nodes":[{"op":"cylinder","radius":0.3,"height":1,"scale":[-1,1,1],"position":[0,0.5,0]}]})");
     CHECK(check_model_mesh(m.data, {}).findings.empty());
 }
 

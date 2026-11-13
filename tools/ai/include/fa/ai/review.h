@@ -23,7 +23,8 @@ struct ReviewPersona {
     std::string name;   // "all-rounder", "newcomer", ...
     std::string brief;  // what this reviewer pays attention to, and how they speak
 };
-const std::vector<ReviewPersona>& review_personas(std::string_view role);  // artCritic or reviewer: kMaxReviewers entries
+const std::vector<ReviewPersona>&
+review_personas(std::string_view role);  // artCritic or reviewer: kMaxReviewers entries
 // "artCritic" <-> "art", "reviewer" <-> "game" (the `kind` of ai.review and `factoria ai review`). "" for anything else.
 std::string review_role_for_kind(std::string_view kind);
 std::string review_kind_for_role(std::string_view role);
@@ -32,18 +33,18 @@ std::string persona_prompt(const ReviewPersona& persona, int index, int count);
 std::string review_task(std::string_view role, std::string_view focus);
 
 struct Review {
-    std::string id;        // file name without .json: "20261028-210301-reviewer", "...-reviewer-2"
-    std::string path;      // absolute; "" until saved
-    std::string role;      // artCritic | reviewer
-    std::string persona;   // ReviewPersona::name
-    std::string time;      // "2026-10-28T21:03:01" local time
+    std::string id;       // file name without .json: "20261028-210301-reviewer", "...-reviewer-2"
+    std::string path;     // absolute; "" until saved
+    std::string role;     // artCritic | reviewer
+    std::string persona;  // ReviewPersona::name
+    std::string time;     // "2026-10-28T21:03:01" local time
     std::string engineVersion;
     std::string gameName, gameVersion;  // from factoria.json
     std::string provider, model;
-    std::string focus;     // what the user asked to look at ("" = everything)
-    std::string text;      // the report, without the closing json block
-    std::string summary;   // one sentence (from the block)
-    double score = -1;     // 0..10; < 0 = the reviewer gave none
+    std::string focus;    // what the user asked to look at ("" = everything)
+    std::string text;     // the report, without the closing json block
+    std::string summary;  // one sentence (from the block)
+    double score = -1;    // 0..10; < 0 = the reviewer gave none
     std::vector<std::pair<std::string, double>> subScores;
     double costUsd = 0;
     Json to_json() const;
@@ -51,9 +52,9 @@ struct Review {
 };
 
 struct ParsedReport {
-    std::string text;      // the report without the closing fenced json block
+    std::string text;  // the report without the closing fenced json block
     std::string summary;
-    double score = -1;     // clamped to 0..10; -1 when the block is missing or has no number
+    double score = -1;  // clamped to 0..10; -1 when the block is missing or has no number
     std::vector<std::pair<std::string, double>> subScores;
 };
 // Splits a reviewer's final message into its text and the last fenced ```json block ({score, subScores, summary}).

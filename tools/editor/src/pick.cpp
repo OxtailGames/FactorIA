@@ -47,7 +47,8 @@ PickBounds pick_bounds(const World& w, Entity e, const VisualMeasure& measure) {
     b.valid = true;
     std::vector<VisualFootprint> all = visual_footprints(w, e, measure, true);
     // An entity with a world-space visual is picked in the world; one that only has screen-space visuals on the screen.
-    const bool anyWorld = std::any_of(all.begin(), all.end(), [](const VisualFootprint& v) { return v.space == RenderSpace::World; });
+    const bool anyWorld =
+        std::any_of(all.begin(), all.end(), [](const VisualFootprint& v) { return v.space == RenderSpace::World; });
     for (VisualFootprint& v : all)
         if (!anyWorld || v.space == RenderSpace::World) b.parts.push_back(v);
     if (!b.parts.empty()) {
@@ -62,7 +63,8 @@ PickBounds pick_bounds(const World& w, Entity e, const VisualMeasure& measure) {
         b.layer = -1000;
         return b;
     }
-    b.parts.push_back(marker("", -2000, {0, 0}, {12, 12}));  // a lone entity (empty, light, camera): a small handle at its origin
+    b.parts.push_back(
+        marker("", -2000, {0, 0}, {12, 12}));  // a lone entity (empty, light, camera): a small handle at its origin
     b.layer = -2000;
     return b;
 }

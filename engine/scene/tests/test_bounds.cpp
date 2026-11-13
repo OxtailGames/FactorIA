@@ -158,7 +158,7 @@ TEST_CASE("bounds: a Text with maxWidth is as wide as the box it is drawn in unl
     t.fontSize = 10;
     t.maxWidth = 200;
     VisualMeasure tight;
-    tight.textSize = [](const Text&) { return Vec2{30, 12}; };  // the widest line
+    tight.textSize = [](const Text&) { return Vec2{30, 12}; };     // the widest line
     check_rect(entity_world_rect(f.w, e, tight), 0, -12, 30, 12);  // left: the box is the text
     t.align = Align::Right;
     check_rect(entity_world_rect(f.w, e, tight), 0, -12, 200, 12);  // the renderer aligns inside the maxWidth box
@@ -278,7 +278,8 @@ TEST_CASE("bounds: Sprite.skew shears the box about the pivot; the world rectang
     s.skew = {500.0f, 0.0f};  // clamped to 80 degrees: tan(80) = 5.67, not tan(500)
     const auto parts = visual_footprints(f.w, e);
     REQUIRE(parts.size() == 1);
-    CHECK(box_of(parts[0]).w == doctest::Approx(20.0f + 2.0f * 20.0f * std::tan(80.0f * 3.14159265f / 180.0f)).epsilon(1e-3));
+    CHECK(box_of(parts[0]).w ==
+          doctest::Approx(20.0f + 2.0f * 20.0f * std::tan(80.0f * 3.14159265f / 180.0f)).epsilon(1e-3));
     CHECK(sprite_shear_point({0, 10}, {45.0f, 0.0f}).x == doctest::Approx(10.0f));
     CHECK(sprite_shear_point({10, 0}, {0.0f, 45.0f}).y == doctest::Approx(10.0f));
     const Mat4 m = sprite_shear_matrix({45.0f, 0.0f});
@@ -303,7 +304,8 @@ TEST_CASE("bounds: a deformable Sprite is bounded by its moved vertices") {
 
     int cols = 0, rows = 0;
     CHECK(sprite_mesh_grid(s, cols, rows));
-    CHECK(cols == 2);  CHECK(rows == 1);
+    CHECK(cols == 2);
+    CHECK(rows == 1);
     s.meshColumns = 200;  // a side above 128 is clamped
     s.meshRows = 1;
     CHECK(sprite_mesh_grid(s, cols, rows));
@@ -373,8 +375,8 @@ TEST_CASE("gradient_ease_apply: endpoints are exact, the curves bend the way the
     CHECK(gradient_ease_apply(GradientEase::CubicIn, 0.5f) == doctest::Approx(0.125f));
     CHECK(gradient_ease_apply(GradientEase::Smoothstep, 0.5f) == doctest::Approx(0.5f));
     CHECK(gradient_ease_apply(GradientEase::Smoothstep, 0.25f) == doctest::Approx(0.15625f));
-    for (GradientEase ease : {GradientEase::QuadInOut, GradientEase::CubicInOut, GradientEase::SineInOut, GradientEase::CircInOut,
-                              GradientEase::ExpoInOut})
+    for (GradientEase ease : {GradientEase::QuadInOut, GradientEase::CubicInOut, GradientEase::SineInOut,
+                              GradientEase::CircInOut, GradientEase::ExpoInOut})
         CHECK(gradient_ease_apply(ease, 0.5f) == doctest::Approx(0.5f).epsilon(1e-4));
     CHECK(gradient_ease_apply(GradientEase::SineIn, 0.5f) < 0.5f);
     CHECK(gradient_ease_apply(GradientEase::ExpoOut, 0.5f) > 0.5f);

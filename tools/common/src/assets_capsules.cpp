@@ -20,8 +20,12 @@ namespace {
 using StoreAsset = fa::StoreAsset;
 using LogoMode = fa::StoreLogo;
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error("assets.draw_capsules", pointer, what, hint); }
-void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) { check_arg_keys("assets.draw_capsules", obj, pointer, allowed); }
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
+    arg_error("assets.draw_capsules", pointer, what, hint);
+}
+void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
+    check_arg_keys("assets.draw_capsules", obj, pointer, allowed);
+}
 Color colour(const Json& v, const std::string& pointer) { return colour_arg("assets.draw_capsules", v, pointer); }
 
 // `over` composited onto `dst` with its top-left corner at (x, y); both straight (not premultiplied) RGBA8.
@@ -55,7 +59,8 @@ Image cover_crop(const Image& src, int w, int h, double fx, double fy) {
     crop.height = ch;
     crop.rgba.resize(std::size_t(cw) * ch * 4);
     for (int y = 0; y < ch; ++y)
-        std::copy_n(&src.rgba[(std::size_t(y0 + y) * src.width + x0) * 4], std::size_t(cw) * 4, &crop.rgba[std::size_t(y) * cw * 4]);
+        std::copy_n(&src.rgba[(std::size_t(y0 + y) * src.width + x0) * 4], std::size_t(cw) * 4,
+                    &crop.rgba[std::size_t(y) * cw * 4]);
     Image out = resize_image(crop, w, h);
     for (std::size_t i = 0; i < out.rgba.size(); i += 4) {  // the art is opaque: flatten what is not over black
         const unsigned a = out.rgba[i + 3];
@@ -77,9 +82,11 @@ struct Logo {
 
 // The logo scaled into box w x h (keeping its aspect), as an image.
 Image logo_for_box(const Logo& logo, int boxW, int boxH) {
-    if (logo.isText) return draw_title_logo(logo.text, logo.font, logo.fill, logo.hasOutline ? &logo.outline : nullptr, boxW, boxH);
+    if (logo.isText)
+        return draw_title_logo(logo.text, logo.font, logo.fill, logo.hasOutline ? &logo.outline : nullptr, boxW, boxH);
     const double s = std::min(double(boxW) / logo.image.width, double(boxH) / logo.image.height);
-    return resize_image(logo.image, std::max(1, int(std::lround(logo.image.width * s))), std::max(1, int(std::lround(logo.image.height * s))));
+    return resize_image(logo.image, std::max(1, int(std::lround(logo.image.width * s))),
+                        std::max(1, int(std::lround(logo.image.height * s))));
 }
 
 // The margins of an image the logo stays out of, as fractions of its width (left, right) and height (top, bottom).
@@ -108,7 +115,8 @@ Margins safe_margins(const Framing& f, const std::string& storeId, const StoreAs
     return m;
 }
 
-Image render_asset(const Image& art, const Logo& logo, const StoreAsset& a, const std::string& storeId, int w, int h, const Framing& framing) {
+Image render_asset(const Image& art, const Logo& logo, const StoreAsset& a, const std::string& storeId, int w, int h,
+                   const Framing& framing) {
     if (a.logo == LogoMode::Only) {  // a transparent PNG holding only the logo
         Image out;
         out.width = w;
@@ -124,12 +132,18 @@ Image render_asset(const Image& art, const Logo& logo, const StoreAsset& a, cons
     // The safe area: the logo fits inside it (its box is cut to the area) and is moved inside it.
     const Margins m = safe_margins(framing, storeId, a);
     const double sx = w * m.left, sy = h * m.top, sw = w * (1 - m.left - m.right), sh = h * (1 - m.top - m.bottom);
-    const Image l = logo_for_box(logo, std::max(1, int(std::min(w * a.widthFraction, sw))), std::max(1, int(std::min(h * a.heightFraction, sh))));
+    const Image l = logo_for_box(logo, std::max(1, int(std::min(w * a.widthFraction, sw))),
+                                 std::max(1, int(std::min(h * a.heightFraction, sh))));
     double x = (w - l.width) / 2.0, y = (h - l.height) / 2.0;
     switch (a.logo) {
-        case LogoMode::Top: y = h * 0.30 - l.height / 2.0; break;  // the top two thirds: text overlays use the bottom third
+        case LogoMode::Top:
+            y = h * 0.30 - l.height / 2.0;
+            break;  // the top two thirds: text overlays use the bottom third
         case LogoMode::Bottom: y = h * 0.92 - l.height; break;
-        case LogoMode::BottomLeft: x = w * 0.05; y = h * 0.92 - l.height; break;
+        case LogoMode::BottomLeft:
+            x = w * 0.05;
+            y = h * 0.92 - l.height;
+            break;
         default: break;
     }
     if (framing.hasAnchor) {
@@ -152,10 +166,13 @@ Image render_asset(const Image& art, const Logo& logo, const StoreAsset& a, cons
 // logoAnchor: a name or a point [x, y] (0..1 over the safe area; the logo's edge touches the area's edge at 0 and 1).
 void parse_logo_anchor(const Json& v, Framing& f) {
     static const std::vector<std::pair<std::string, std::pair<double, double>>> names = {
-        {"center", {0.5, 0.5}}, {"top", {0.5, 0}}, {"bottom", {0.5, 1}}, {"left", {0, 0.5}}, {"right", {1, 0.5}},
-        {"topLeft", {0, 0}}, {"topRight", {1, 0}}, {"bottomLeft", {0, 1}}, {"bottomRight", {1, 1}}};
-    const std::string hint = "A name (center, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight) or a point [x, y] of the "
-                             "safe area: [0, 0] is its top-left corner, [1, 1] its bottom-right one, [0.5, 0.5] the middle.";
+        {"center", {0.5, 0.5}}, {"top", {0.5, 0}},      {"bottom", {0.5, 1}},
+        {"left", {0, 0.5}},     {"right", {1, 0.5}},    {"topLeft", {0, 0}},
+        {"topRight", {1, 0}},   {"bottomLeft", {0, 1}}, {"bottomRight", {1, 1}}};
+    const std::string hint =
+        "A name (center, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight) or a point [x, y] of "
+        "the "
+        "safe area: [0, 0] is its top-left corner, [1, 1] its bottom-right one, [0.5, 0.5] the middle.";
     f.hasAnchor = true;
     if (v.is_string()) {
         const std::string s = v.get<std::string>();
@@ -169,14 +186,17 @@ void parse_logo_anchor(const Json& v, Framing& f) {
         for (const auto& n : names) ids.push_back(n.first);
         bad("/logoAnchor", "unknown anchor " + v.dump() + ".", did_you_mean(s, ids) + " " + hint);
     }
-    if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number()) bad("/logoAnchor", "expected a name or [x, y].", hint);
+    if (!v.is_array() || v.size() != 2 || !v[0].is_number() || !v[1].is_number())
+        bad("/logoAnchor", "expected a name or [x, y].", hint);
     f.anchorX = v[0].get<double>();
     f.anchorY = v[1].get<double>();
-    if (f.anchorX < 0 || f.anchorX > 1 || f.anchorY < 0 || f.anchorY > 1) bad("/logoAnchor", "x and y must be between 0 and 1.", hint);
+    if (f.anchorX < 0 || f.anchorX > 1 || f.anchorY < 0 || f.anchorY > 1)
+        bad("/logoAnchor", "x and y must be between 0 and 1.", hint);
 }
 
 Margins parse_margins(const Json& v, const std::string& pointer, const Margins& base) {
-    const std::string hint = "A fraction of the image kept free of the logo: 0.05 on every side, or {\"left\":0.05,\"top\":0.05,\"right\":0.05,\"bottom\":0.3}.";
+    const std::string hint = "A fraction of the image kept free of the logo: 0.05 on every side, or "
+                             "{\"left\":0.05,\"top\":0.05,\"right\":0.05,\"bottom\":0.3}.";
     Margins m = base;
     const auto check = [&](double x, const std::string& at) {
         if (x < 0 || x > 0.45) bad(at, "a margin must be between 0 and 0.45 (a fraction of the image).", hint);
@@ -188,13 +208,16 @@ Margins parse_margins(const Json& v, const std::string& pointer, const Margins& 
     }
     if (!v.is_object()) bad(pointer, "expected a number or {left, top, right, bottom}.", hint);
     check_keys(v, pointer, {"left", "top", "right", "bottom"});
-    for (const auto& [key, field] : {std::pair<const char*, double Margins::*>{"left", &Margins::left}, {"top", &Margins::top},
-                                     {"right", &Margins::right}, {"bottom", &Margins::bottom}})
+    for (const auto& [key, field] : {std::pair<const char*, double Margins::*>{"left", &Margins::left},
+                                     {"top", &Margins::top},
+                                     {"right", &Margins::right},
+                                     {"bottom", &Margins::bottom}})
         if (const auto it = v.find(key); it != v.end()) {
             if (!it->is_number()) bad(pointer + "/" + key, "expected a number.", hint);
             m.*field = check(it->get<double>(), pointer + "/" + key);
         }
-    if (m.left + m.right >= 0.9 || m.top + m.bottom >= 0.9) bad(pointer, "the margins leave no room for the logo (two opposite sides must add up to less than 0.9).", hint);
+    if (m.left + m.right >= 0.9 || m.top + m.bottom >= 0.9)
+        bad(pointer, "the margins leave no room for the logo (two opposite sides must add up to less than 0.9).", hint);
     return m;
 }
 
@@ -216,12 +239,17 @@ void parse_safe_area(const Json& v, Framing& f) {
         f.safeAll = parse_margins(v["default"], "/safeArea/default", Margins{});
     }  // without "default" the stores it does not name keep each asset's own default
     for (auto it = v.begin(); it != v.end(); ++it)
-        if (it.key() != "default") f.safeStore[it.key()] = parse_margins(it.value(), "/safeArea/" + it.key(), f.hasSafe ? f.safeAll : Margins{});
+        if (it.key() != "default")
+            f.safeStore[it.key()] =
+                parse_margins(it.value(), "/safeArea/" + it.key(), f.hasSafe ? f.safeAll : Margins{});
 }
 
 Json draw_capsules(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.draw_capsules expects an object.", "See the description of the command for the fields.");
-    check_keys(a, "", {"keyArt", "focus", "logo", "logoAnchor", "safeArea", "stores", "name", "orientation", "overwrite"});
+    if (!a.is_object())
+        fail("invalid_argument", "assets.draw_capsules expects an object.",
+             "See the description of the command for the fields.");
+    check_keys(a, "",
+               {"keyArt", "focus", "logo", "logoAnchor", "safeArea", "stores", "name", "orientation", "overwrite"});
 
     const std::string keyArt = tooling_detail::arg_string(a, "keyArt", true);
     Framing framing;
@@ -230,26 +258,34 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
     if (const auto f = a.find("focus"); f != a.end()) {
         framing.hasFocus = true;
         if (!f->is_array() || f->size() != 2 || !(*f)[0].is_number() || !(*f)[1].is_number())
-            bad("/focus", "expected [x, y] with two numbers.", "The focal point as a fraction of the key art: [0.5, 0.5] is the middle, [0.2, 0.7] left and low.");
+            bad("/focus", "expected [x, y] with two numbers.",
+                "The focal point as a fraction of the key art: [0.5, 0.5] is the middle, [0.2, 0.7] left and low.");
         fx = (*f)[0].get<double>();
         fy = (*f)[1].get<double>();
-        if (fx < 0 || fx > 1 || fy < 0 || fy > 1) bad("/focus", "x and y must be between 0 and 1.", "Fractions of the image: [0, 0] top-left, [1, 1] bottom-right.");
+        if (fx < 0 || fx > 1 || fy < 0 || fy > 1)
+            bad("/focus", "x and y must be between 0 and 1.",
+                "Fractions of the image: [0, 0] top-left, [1, 1] bottom-right.");
     }
     if (const auto v = a.find("logoAnchor"); v != a.end()) parse_logo_anchor(*v, framing);
     if (const auto v = a.find("safeArea"); v != a.end()) parse_safe_area(*v, framing);
     bool portrait = false;
     if (const auto o = a.find("orientation"); o != a.end()) {
         const std::string v = o->is_string() ? o->get<std::string>() : "";
-        if (v != "landscape" && v != "portrait") bad("/orientation", "expected \"landscape\" or \"portrait\".", "It turns the phone and tablet screenshot sizes of Google Play and the App Store; default landscape.");
+        if (v != "landscape" && v != "portrait")
+            bad("/orientation", "expected \"landscape\" or \"portrait\".",
+                "It turns the phone and tablet screenshot sizes of Google Play and the App Store; default landscape.");
         portrait = v == "portrait";
     }
 
     std::vector<std::string> stores;
     if (const auto s = a.find("stores"); s != a.end()) {
-        if (!s->is_array()) bad("/stores", "expected a list of store names.", "Example: [\"steam\", \"itch\"]. Leave it out for all stores.");
+        if (!s->is_array())
+            bad("/stores", "expected a list of store names.",
+                "Example: [\"steam\", \"itch\"]. Leave it out for all stores.");
         for (std::size_t i = 0; i < s->size(); ++i) {
             if (!(*s)[i].is_string() || !find_store_assets((*s)[i].get<std::string>()))
-                bad("/stores/" + std::to_string(i), "unknown store " + (*s)[i].dump() + ".", did_you_mean((*s)[i].is_string() ? (*s)[i].get<std::string>() : "", store_ids()));
+                bad("/stores/" + std::to_string(i), "unknown store " + (*s)[i].dump() + ".",
+                    did_you_mean((*s)[i].is_string() ? (*s)[i].get<std::string>() : "", store_ids()));
             stores.push_back((*s)[i].get<std::string>());
         }
     } else {
@@ -259,7 +295,8 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
     std::string name = tooling_detail::arg_string(a, "name", false);
     if (name.empty()) {
         if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / "factoria.json"))
-            if (auto parsed = parse_json(*text, "factoria.json"); parsed.ok() && parsed->is_object() && parsed->value("name", std::string()).size())
+            if (auto parsed = parse_json(*text, "factoria.json");
+                parsed.ok() && parsed->is_object() && parsed->value("name", std::string()).size())
                 name = parsed->value("name", std::string());
     }
     name = safe_file_name(tooling_detail::slugify(name, '-'), "game");
@@ -268,36 +305,51 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
     Logo logo;
     ProjectRootGuard root(projectDir);  // a text logo's font file is read from the project
     if (const auto l = a.find("logo"); l != a.end()) {
-        if (!l->is_object()) bad("/logo", "expected an object.", "Example: {\"text\":\"My Game\"} or {\"image\":\"assets/logo.png\"}.");
+        if (!l->is_object())
+            bad("/logo", "expected an object.", "Example: {\"text\":\"My Game\"} or {\"image\":\"assets/logo.png\"}.");
         check_keys(*l, "/logo", {"image", "text", "font", "fill", "outline"});
         const bool hasImage = l->contains("image"), hasText = l->contains("text");
-        if (hasImage == hasText) bad("/logo", "give either 'image' (a transparent PNG) or 'text' (the title to draw), not both and not neither.", "Example: {\"text\":\"My Game\"}.");
+        if (hasImage == hasText)
+            bad("/logo",
+                "give either 'image' (a transparent PNG) or 'text' (the title to draw), not both and not neither.",
+                "Example: {\"text\":\"My Game\"}.");
         logo.present = true;
         if (hasImage) {
-            if (!(*l)["image"].is_string()) bad("/logo/image", "expected a project path.", "Example: \"assets/logo.png\".");
+            if (!(*l)["image"].is_string())
+                bad("/logo/image", "expected a project path.", "Example: \"assets/logo.png\".");
             auto img = load_image(project_file(projectDir, (*l)["image"].get<std::string>()));
-            if (!img.ok()) bad("/logo/image", img.error().message, "Use a PNG inside the project, ideally with a transparent background.");
+            if (!img.ok())
+                bad("/logo/image", img.error().message,
+                    "Use a PNG inside the project, ideally with a transparent background.");
             logo.image = std::move(*img);
         } else {
-            if (!(*l)["text"].is_string() || (*l)["text"].get<std::string>().empty()) bad("/logo/text", "expected a non-empty string.", "The game's title, one line.");
+            if (!(*l)["text"].is_string() || (*l)["text"].get<std::string>().empty())
+                bad("/logo/text", "expected a non-empty string.", "The game's title, one line.");
             logo.isText = true;
             logo.text = (*l)["text"].get<std::string>();
             if (const auto f = l->find("font"); f != l->end()) {
-                if (!f->is_string()) bad("/logo/font", "expected a string.", "A project .ttf path, or leave it out for DejaVu Sans.");
+                if (!f->is_string())
+                    bad("/logo/font", "expected a string.", "A project .ttf path, or leave it out for DejaVu Sans.");
                 logo.font = f->get<std::string>();
             }
             if (const auto f = l->find("fill"); f != l->end()) logo.fill = colour(*f, "/logo/fill");
             if (const auto f = l->find("outline"); f != l->end()) {
-                if (f->is_boolean() && !f->get<bool>()) logo.hasOutline = false;
-                else logo.outline = colour(*f, "/logo/outline");
+                if (f->is_boolean() && !f->get<bool>())
+                    logo.hasOutline = false;
+                else
+                    logo.outline = colour(*f, "/logo/outline");
             }
         }
     }
 
     auto art = load_image(project_file(projectDir, keyArt));
     if (!art.ok())
-        bad("/keyArt", art.error().message, "Name an image inside the project, e.g. a screenshot: factoria run --headless --screenshot-at 60 --render-scale 1.5 --screenshot-pattern store/keyart.png.");
-    if (art->width < 64 || art->height < 64) bad("/keyArt", "the image is only " + std::to_string(art->width) + "x" + std::to_string(art->height) + " px.", "Use key art of at least the size of the biggest asset you need (1920x1080 or more).");
+        bad("/keyArt", art.error().message,
+            "Name an image inside the project, e.g. a screenshot: factoria run --headless --screenshot-at 60 "
+            "--render-scale 1.5 --screenshot-pattern store/keyart.png.");
+    if (art->width < 64 || art->height < 64)
+        bad("/keyArt", "the image is only " + std::to_string(art->width) + "x" + std::to_string(art->height) + " px.",
+            "Use key art of at least the size of the biggest asset you need (1920x1080 or more).");
 
     // The recipe of every capsule: this call, with the defaults it chose made explicit (the name from factoria.json, every store),
     // and the files it read (the key art, a logo image or a project font).
@@ -329,7 +381,9 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
             if (portrait && as.deviceShot) std::swap(w, h);
             const std::string rel = std::format("store/capsules/{}/{}_{}x{}.png", storeId, name, w, h);
             if (as.logo == LogoMode::Only && !logo.present) {
-                skipped.push_back(Json::object({{"store", storeId}, {"asset", as.asset}, {"reason", "it is only the logo and no logo was given"}}));
+                skipped.push_back(Json::object({{"store", storeId},
+                                                {"asset", as.asset},
+                                                {"reason", "it is only the logo and no logo was given"}}));
                 continue;
             }
             if (!done.insert(rel).second) {
@@ -339,7 +393,8 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
             }
             const stdfs::path file = project_write_file(projectDir, rel);
             if (!overwrite && stdfs::exists(file)) {
-                skipped.push_back(Json::object({{"store", storeId}, {"asset", as.asset}, {"reason", rel + " exists and overwrite is false"}}));
+                skipped.push_back(Json::object(
+                    {{"store", storeId}, {"asset", as.asset}, {"reason", rel + " exists and overwrite is false"}}));
                 continue;
             }
             const Image img = render_asset(*art, logo, as, storeId, w, h, framing);
@@ -347,18 +402,33 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
             for (std::size_t i = 3; i < img.rgba.size() && opaque; i += 4) opaque = img.rgba[i] == 255;
             const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
             std::string err;
-            if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+            if (!tooling_detail::write_file(
+                    file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+                fail("failed", err);
             {
                 auto r = assets::update_entry(rel, [&](Json& e) {
                     e.erase("analysis");
-                    e["provenance"] = Json::object({{"origin", "original"}, {"ai", keyArtAi}, {"kind", "image"}, {"date", assets::today()},
-                                                    {"notes", "Store page image cut from " + recipe_path(keyArt) + " by assets.draw_capsules."}, {"recipe", recipe}});
+                    e["provenance"] = Json::object(
+                        {{"origin", "original"},
+                         {"ai", keyArtAi},
+                         {"kind", "image"},
+                         {"date", assets::today()},
+                         {"notes", "Store page image cut from " + recipe_path(keyArt) + " by assets.draw_capsules."},
+                         {"recipe", recipe}});
                 });
-                if (!r.ok()) fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+                if (!r.ok())
+                    fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message,
+                         r.error().hint);
             }
-            entries.push_back({rel, Json::object({{"store", storeId}, {"assets", Json::array({as.asset})}, {"path", rel},
-                                                  {"size", Json::array({w, h})}, {"logo", as.logo != LogoMode::None && as.logo != LogoMode::Only && logo.present}})});
-            if (!as.verified) entries.back().second["sizeNote"] = "unverified: the store does not publish this size openly (see docs/EXPORTING.md#store-page-material)";
+            entries.push_back({rel, Json::object({{"store", storeId},
+                                                  {"assets", Json::array({as.asset})},
+                                                  {"path", rel},
+                                                  {"size", Json::array({w, h})},
+                                                  {"logo", as.logo != LogoMode::None && as.logo != LogoMode::Only &&
+                                                               logo.present}})});
+            if (!as.verified)
+                entries.back().second["sizeNote"] = "unverified: the store does not publish this size openly (see "
+                                                    "docs/EXPORTING.md#store-page-material)";
         }
         for (auto& [path, e] : entries) written.push_back(std::move(e));
     }
@@ -366,8 +436,12 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
     Json result = Json::object({{"written", written}, {"count", written.size()}});
     if (!skipped.empty()) result["skipped"] = skipped;
     Json next = Json::array();
-    if (!logo.present) next.push_back("No logo was given: the capsules are the bare art and the logo-only assets (Steam library logo, Epic logo) were skipped. Pass logo {text} or {image}.");
-    next.push_back("Look at the PNGs before uploading; change focus or the logo and call assets.draw_capsules again (it replaces the files). Screenshots for the store page are not capsules: take them with game.screenshot {scale} or factoria run --render-scale.");
+    if (!logo.present)
+        next.push_back("No logo was given: the capsules are the bare art and the logo-only assets (Steam library logo, "
+                       "Epic logo) were skipped. Pass logo {text} or {image}.");
+    next.push_back("Look at the PNGs before uploading; change focus or the logo and call assets.draw_capsules again "
+                   "(it replaces the files). Screenshots for the store page are not capsules: take them with "
+                   "game.screenshot {scale} or factoria run --render-scale.");
     result["nextSteps"] = next;
     return result;
 }
@@ -379,7 +453,8 @@ void register_draw_capsules_command(CommandRegistry& registry, const std::string
     info.name = "assets.draw_capsules";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo.";
+    info.summary = "Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one "
+                   "piece of key art and a logo.";
     info.description =
         "Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot "
         "{scale}) around `focus` to every image size the `stores` ask for and writes "
@@ -396,8 +471,7 @@ void register_draw_capsules_command(CommandRegistry& registry, const std::string
         "false = none).\n"
         "\n"
         "Example: {\"keyArt\":\"store/keyart.png\",\"focus\":[0.5,0.4],\"logo\":{\"text\":\"Lantern "
-        "Keep\"},\"stores\":[\"steam\"]}."
-        FA_COMMAND_DETAILS
+        "Keep\"},\"stores\":[\"steam\"]}." FA_COMMAND_DETAILS
         "Without a logo the art is cut without one and the logo-only assets are skipped.\n"
         "`safeArea` is the margin the logo keeps from the edges, as fractions of the image (default 0.05 on "
         "every side, and the bottom third on the Microsoft poster and box art, which the store overlays with "

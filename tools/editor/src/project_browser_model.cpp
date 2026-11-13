@@ -25,7 +25,10 @@ ProjectListing scan_project(const std::string& projectDir, std::size_t limit) {
         const std::string name = it->path().filename().string();
         std::error_code e2;
         if (it->is_directory(e2)) {
-            if (skip_project_dir(name)) { it.disable_recursion_pending(); continue; }
+            if (skip_project_dir(name)) {
+                it.disable_recursion_pending();
+                continue;
+            }
             const std::string rel = stdfs::relative(it->path(), root, e2).generic_string();
             if (!e2 && !rel.empty()) out.folders.push_back(rel);
             continue;
@@ -33,7 +36,10 @@ ProjectListing scan_project(const std::string& projectDir, std::size_t limit) {
         if (!it->is_regular_file(e2)) continue;
         const std::string rel = stdfs::relative(it->path(), root, e2).generic_string();
         if (e2 || rel.empty()) continue;
-        if (out.files.size() >= limit) { out.truncated = true; break; }
+        if (out.files.size() >= limit) {
+            out.truncated = true;
+            break;
+        }
         BrowserFile f;
         f.path = rel;
         f.type = asset_type_of(rel);
@@ -41,7 +47,8 @@ ProjectListing scan_project(const std::string& projectDir, std::size_t limit) {
         f.size = e2 ? 0 : std::uint64_t(sz);
         out.files.push_back(std::move(f));
     }
-    std::sort(out.files.begin(), out.files.end(), [](const BrowserFile& a, const BrowserFile& b) { return a.path < b.path; });
+    std::sort(out.files.begin(), out.files.end(),
+              [](const BrowserFile& a, const BrowserFile& b) { return a.path < b.path; });
     std::sort(out.folders.begin(), out.folders.end());
     out.recipes = asset_recipe_statuses(projectDir);
     return out;
@@ -67,8 +74,10 @@ std::string recipe_inputs_stamp(const std::string& projectDir, const ProjectList
             std::error_code ec;
             const stdfs::path file = stdfs::path(projectDir) / in;
             const auto size = stdfs::file_size(file, ec);
-            const std::int64_t time = ec ? -1 : fs::host_modified_time(file);  // fs:: so the Windows file rules cover it
-            out += in + ':' + (ec ? std::string("-") : std::to_string(std::uint64_t(size)) + '@' + std::to_string(time)) + ';';
+            const std::int64_t time =
+                ec ? -1 : fs::host_modified_time(file);  // fs:: so the Windows file rules cover it
+            out += in + ':' +
+                   (ec ? std::string("-") : std::to_string(std::uint64_t(size)) + '@' + std::to_string(time)) + ';';
         }
     return out;
 }
@@ -117,7 +126,8 @@ FolderNode build_folder_tree(const ProjectListing& listing) {
 }
 
 const std::vector<std::string>& browser_type_filters() {
-    static const std::vector<std::string> v = {"all", "texture", "audio", "font", "mesh", "script", "scene", "prefab", "material", "vfx"};
+    static const std::vector<std::string> v = {"all",    "texture", "audio",  "font",     "mesh",
+                                               "script", "scene",   "prefab", "material", "vfx"};
     return v;
 }
 
@@ -138,8 +148,10 @@ std::vector<std::size_t> query_files(const ProjectListing& listing, const Browse
         const BrowserFile& x = listing.files[a];
         const BrowserFile& y = listing.files[b];
         int c = 0;
-        if (q.sort == BrowserSort::Type) c = x.type.compare(y.type);
-        else if (q.sort == BrowserSort::Size) c = x.size < y.size ? -1 : x.size > y.size ? 1 : 0;
+        if (q.sort == BrowserSort::Type)
+            c = x.type.compare(y.type);
+        else if (q.sort == BrowserSort::Size)
+            c = x.size < y.size ? -1 : x.size > y.size ? 1 : 0;
         if (c == 0) {
             const std::string lx = to_lower(x.path), ly = to_lower(y.path);
             c = lx.compare(ly);
@@ -155,9 +167,12 @@ std::vector<std::size_t> query_files(const ProjectListing& listing, const Browse
 
 std::string size_text(std::uint64_t bytes) {
     char buf[32];
-    if (bytes < 1024) std::snprintf(buf, sizeof buf, "%llu B", (unsigned long long)bytes);
-    else if (bytes < 1024 * 1024) std::snprintf(buf, sizeof buf, "%.1f KB", double(bytes) / 1024.0);
-    else std::snprintf(buf, sizeof buf, "%.1f MB", double(bytes) / (1024.0 * 1024.0));
+    if (bytes < 1024)
+        std::snprintf(buf, sizeof buf, "%llu B", (unsigned long long)bytes);
+    else if (bytes < 1024 * 1024)
+        std::snprintf(buf, sizeof buf, "%.1f KB", double(bytes) / 1024.0);
+    else
+        std::snprintf(buf, sizeof buf, "%.1f MB", double(bytes) / (1024.0 * 1024.0));
     return buf;
 }
 

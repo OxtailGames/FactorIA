@@ -34,7 +34,7 @@ struct TestHost : ScriptHost {
     Physics ph;
     CommandRegistry cmds;
     PlatformServices platformServices;  // the fake store, with the platform.* commands; the catalog is proj["platform"]
-    I18n loc;                           // proj["localization"] {defaultLanguage, languages}; the tables are read by start()
+    I18n loc;  // proj["localization"] {defaultLanguage, languages}; the tables are read by start()
     Json proj = Json::object();
     ScriptSystem scripts;
     double fdt = 1.0 / 60.0;
@@ -50,13 +50,14 @@ struct TestHost : ScriptHost {
         proj = settings;
         if (!proj.contains("input"))
             proj["input"] = Json::object({{"actions", Json::object({{"jump", Json::array({"Space"})},
-                                                                     {"move_left", Json::array({"A"})},
-                                                                     {"move_right", Json::array({"D"})}})}});
+                                                                    {"move_left", Json::array({"A"})},
+                                                                    {"move_right", Json::array({"D"})}})}});
         in.set_actions(proj["input"]["actions"]);
         if (proj["input"].contains("schemes")) in.set_key_schemes(proj["input"]["schemes"]);
         au.init(false, nullptr);
         au.set_clock(&w);
-        if (proj.contains("audio")) au.set_snapshots(parse_audio_settings(proj["audio"]).snapshots);  // as the Engine does
+        if (proj.contains("audio"))
+            au.set_snapshots(parse_audio_settings(proj["audio"]).snapshots);  // as the Engine does
         ph.init(PhysicsSettings{});
         if (auto catalog = load_platform_catalog(proj.contains("platform") ? proj["platform"] : Json()); catalog.ok())
             platformServices.set_catalog(std::move(catalog.value()));
@@ -97,18 +98,24 @@ struct TestHost : ScriptHost {
         if (!r.ok()) return r.error().to_string();
         if (r.value() != previous) {
             localize_world(w, loc);
-            w.events().game.push_back(GameEvent{"i18n.change", Json::object({{"language", r.value()}, {"previous", previous}}), kNullEntity});
+            w.events().game.push_back(
+                GameEvent{"i18n.change", Json::object({{"language", r.value()}, {"previous", previous}}), kNullEntity});
         }
         return {};
     }
     CommandRegistry& commands() override { return cmds; }
-    std::vector<int> droppedJobs;   // what ScriptSystem asked to forget (tilemap.generate jobs it started)
-    void drop_script_jobs(const std::vector<int>& jobs) override { droppedJobs.insert(droppedJobs.end(), jobs.begin(), jobs.end()); }
+    std::vector<int> droppedJobs;  // what ScriptSystem asked to forget (tilemap.generate jobs it started)
+    void drop_script_jobs(const std::vector<int>& jobs) override {
+        droppedJobs.insert(droppedJobs.end(), jobs.begin(), jobs.end());
+    }
     Json project_settings() const override { return proj; }
     double fixed_dt() const override { return fdt; }
     void request_scene_change(std::string_view p) override { pendingScene = std::string(p); }
     void request_quit() override { quitRequested = true; }
-    bool screenshot(std::string_view, std::string* e) override { if (e) *e = "no renderer"; return false; }
+    bool screenshot(std::string_view, std::string* e) override {
+        if (e) *e = "no renderer";
+        return false;
+    }
     std::string load_scene_now(std::string_view p) override {
         LoadReport r = load_scene_file(w, p);
         ph.reset();
@@ -144,7 +151,11 @@ struct TestHost : ScriptHost {
             w.advance_clock(fdt);
             w.flush();
             in.begin_frame();
-            if (!pendingScene.empty()) { std::string s = pendingScene; pendingScene.clear(); load_scene_now(s); }
+            if (!pendingScene.empty()) {
+                std::string s = pendingScene;
+                pendingScene.clear();
+                load_scene_now(s);
+            }
         }
     }
 };

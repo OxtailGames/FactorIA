@@ -22,7 +22,8 @@ namespace fa::render {
 // ---------------------------------------------------------------------------
 namespace {
 
-void add_face(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, Vec3 n, Vec3 r, Vec3 u, Vec3 center, float half) {
+void add_face(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, Vec3 n, Vec3 r, Vec3 u, Vec3 center,
+              float half) {
     auto base = std::uint32_t(v.size());
     const Vec2 uvs[4] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
     const float sx[4] = {-1, 1, 1, -1}, sy[4] = {-1, -1, 1, 1};
@@ -53,7 +54,8 @@ void add_revolved(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, i
             float a = float(s) / float(segments) * kTau;
             float ca = std::cos(a), sa = std::sin(a);
             Vec3 n = normalize(Vec3{ringNormals[r].x * ca, ringNormals[r].y, ringNormals[r].x * sa});
-            v.push_back({rings[r].x * ca, rings[r].y, rings[r].x * sa, n.x, n.y, n.z, float(s) / float(segments), rings[r].z});
+            v.push_back(
+                {rings[r].x * ca, rings[r].y, rings[r].x * sa, n.x, n.y, n.z, float(s) / float(segments), rings[r].z});
         }
     }
     for (std::size_t r = 0; r + 1 < rings.size(); ++r) {
@@ -65,7 +67,8 @@ void add_revolved(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, i
     }
 }
 
-void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int segments, float radius, float y, float ny) {
+void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int segments, float radius, float y,
+              float ny) {
     auto base = std::uint32_t(v.size());
     v.push_back({0, y, 0, 0, ny, 0, 0.5f, 0.5f});
     for (int s = 0; s <= segments; ++s) {
@@ -73,7 +76,8 @@ void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int s
         float ca = std::cos(a), sa = std::sin(a);
         v.push_back({radius * ca, y, radius * sa, 0, ny, 0, 0.5f + 0.5f * ca, 0.5f + 0.5f * sa});
     }
-    for (int s = 0; s < segments; ++s) idx.insert(idx.end(), {base, base + 1 + std::uint32_t(s), base + 2 + std::uint32_t(s)});
+    for (int s = 0; s < segments; ++s)
+        idx.insert(idx.end(), {base, base + 1 + std::uint32_t(s), base + 2 + std::uint32_t(s)});
 }
 
 // Tangents from the UVs, per triangle and averaged over the vertex (the MikkTSpace idea without its vertex splitting):
@@ -91,7 +95,10 @@ void generate_tangents(std::vector<MeshVertex>& v, const std::vector<std::uint32
         float r = 1.0f / det;
         Vec3 t = (e1 * dv2 - e2 * dv1) * r;
         Vec3 bt = (e2 * du1 - e1 * du2) * r;
-        for (std::uint32_t k : {idx[i], idx[i + 1], idx[i + 2]}) { tan[k] = tan[k] + t; bit[k] = bit[k] + bt; }
+        for (std::uint32_t k : {idx[i], idx[i + 1], idx[i + 2]}) {
+            tan[k] = tan[k] + t;
+            bit[k] = bit[k] + bt;
+        }
     }
     for (std::size_t i = 0; i < v.size(); ++i) {
         MeshVertex& x = v[i];
@@ -103,7 +110,9 @@ void generate_tangents(std::vector<MeshVertex>& v, const std::vector<std::uint32
             t = std::fabs(n.y) < 0.9f ? cross(Vec3{0, 1, 0}, n) : cross(Vec3{1, 0, 0}, n);
         }
         t = normalize(t);
-        x.tx = t.x; x.ty = t.y; x.tz = t.z;
+        x.tx = t.x;
+        x.ty = t.y;
+        x.tz = t.z;
         x.tw = dot(cross(n, t), bit[i]) < 0.0f ? -1.0f : 1.0f;
     }
 }
@@ -213,12 +222,18 @@ void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_
     for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
         MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
         Vec3 n = cross(Vec3{b.px - a.px, b.py - a.py, b.pz - a.pz}, Vec3{c.px - a.px, c.py - a.py, c.pz - a.pz});
-        for (MeshVertex* m : {&a, &b, &c}) { m->nx += n.x; m->ny += n.y; m->nz += n.z; }
+        for (MeshVertex* m : {&a, &b, &c}) {
+            m->nx += n.x;
+            m->ny += n.y;
+            m->nz += n.z;
+        }
     }
     for (auto& x : v) {
         Vec3 n = normalize(Vec3{x.nx, x.ny, x.nz});
         if (length_sq(n) < 0.5f) n = {0, 1, 0};
-        x.nx = n.x; x.ny = n.y; x.nz = n.z;
+        x.nx = n.x;
+        x.ny = n.y;
+        x.nz = n.z;
     }
 }
 
@@ -227,11 +242,16 @@ bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& 
     const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
     for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
         const cgltf_attribute& at = prim.attributes[a];
-        if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
-        else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
-        else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
-        else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
-        else if (at.type == cgltf_attribute_type_color && at.index == 0 && (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+        if (at.type == cgltf_attribute_type_position && at.index == 0)
+            pos = at.data;
+        else if (at.type == cgltf_attribute_type_normal && at.index == 0)
+            nrm = at.data;
+        else if (at.type == cgltf_attribute_type_texcoord && at.index == 0)
+            uv = at.data;
+        else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4)
+            tng = at.data;
+        else if (at.type == cgltf_attribute_type_color && at.index == 0 &&
+                 (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
             col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
     }
     if (!pos) return false;
@@ -241,18 +261,26 @@ bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& 
         cgltf_accessor_read_float(pos, i, p, 3);
         Vec3 wp = world.transform_point({p[0], p[1], p[2]});
         MeshVertex& v = verts[i];
-        v.px = wp.x; v.py = wp.y; v.pz = wp.z;
+        v.px = wp.x;
+        v.py = wp.y;
+        v.pz = wp.z;
         float n[3] = {0, 1, 0};
         if (nrm) cgltf_accessor_read_float(nrm, i, n, 3);
         Vec3 wn = normalize(normalMat.transform_dir({n[0], n[1], n[2]}));
-        v.nx = wn.x; v.ny = wn.y; v.nz = wn.z;
+        v.nx = wn.x;
+        v.ny = wn.y;
+        v.nz = wn.z;
         float t[2] = {0, 0};
         if (uv) cgltf_accessor_read_float(uv, i, t, 2);
-        v.u = t[0]; v.v = t[1];
+        v.u = t[0];
+        v.v = t[1];
         float tn[4] = {1, 0, 0, 1};
         if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
         Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
-        v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
+        v.tx = wt.x;
+        v.ty = wt.y;
+        v.tz = wt.z;
+        v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
         if (col) {
             float c[4] = {1, 1, 1, 1};
             cgltf_accessor_read_float(col, i, c, col->type == cgltf_type_vec3 ? 3 : 4);
@@ -261,7 +289,8 @@ bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& 
     }
     if (prim.indices) {
         idx.resize(prim.indices->count);
-        for (cgltf_size i = 0; i < prim.indices->count; ++i) idx[i] = std::uint32_t(cgltf_accessor_read_index(prim.indices, i));
+        for (cgltf_size i = 0; i < prim.indices->count; ++i)
+            idx[i] = std::uint32_t(cgltf_accessor_read_index(prim.indices, i));
     } else {
         idx.resize(pos->count);
         for (cgltf_size i = 0; i < pos->count; ++i) idx[i] = std::uint32_t(i);
@@ -333,7 +362,8 @@ void prepare_material(const cgltf_material* mat, const std::string& dir, Prepare
     sm.blended = mat->alpha_mode == cgltf_alpha_mode_blend;
     if (mat->has_pbr_metallic_roughness) {
         const auto& pbr = mat->pbr_metallic_roughness;
-        sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
+        sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2],
+                             pbr.base_color_factor[3]};
         const cgltf_texture* tex = pbr.base_color_texture.texture;
         if (tex && tex->image) part.base = image_ref(*tex->image, dir);
         sm.hasPbr = true;
@@ -373,8 +403,10 @@ void prepare_skin(const std::string& path, std::shared_ptr<const SkeletonAsset>&
         if (sv.node != node || sv.primitive != primitive || sv.joints.size() != vertexCount) continue;
         const std::size_t joints = skeleton->skins[std::size_t(sv.skin)].joints.size();
         if (joints > std::size_t(kMaxSkinJoints)) {
-            warnings.push_back(std::format("{}: the skin has {} joints - drawn in bind pose, not animated. Skinning supports skins "
-                                           "with at most {} joints; re-export the model with fewer joints.", path, joints, kMaxSkinJoints));
+            warnings.push_back(
+                std::format("{}: the skin has {} joints - drawn in bind pose, not animated. Skinning supports skins "
+                            "with at most {} joints; re-export the model with fewer joints.",
+                            path, joints, kMaxSkinJoints));
             return;
         }
         part.skin.resize(vertexCount);
@@ -390,19 +422,31 @@ void prepare_skin(const std::string& path, std::shared_ptr<const SkeletonAsset>&
 
 }  // namespace
 
-bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t size, PreparedMesh& out, std::string& error) {
+bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t size, PreparedMesh& out,
+                 std::string& error) {
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
     cgltf_result r = cgltf_parse(&opts, bytes, size, &data);
     if (r != cgltf_result_success) {
-        error = std::format("cgltf could not parse '{}' (error code {}). The file must be a valid glTF 2.0 (.gltf or .glb) file.", path, int(r));
+        error = std::format(
+            "cgltf could not parse '{}' (error code {}). The file must be a valid glTF 2.0 (.gltf or .glb) file.", path,
+            int(r));
         return false;
     }
-    struct Guard { cgltf_data* d; ~Guard() { cgltf_free(d); } } guard{data};
+    struct Guard {
+        cgltf_data* d;
+        ~Guard() { cgltf_free(d); }
+    } guard{data};
     r = cgltf_load_buffers(&opts, data, path.c_str());
     if (r != cgltf_result_success) {
-        error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit next to the .gltf and be inside the project.", path, int(r));
+        error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit "
+                            "next to the .gltf and be inside the project.",
+                            path, int(r));
+        return false;
+    }
+    if (auto sound = gltf_check(data, path); !sound) {
+        error = sound.error().message + " " + sound.error().hint;
         return false;
     }
     const std::string dir = fs::parent(path);
@@ -447,7 +491,8 @@ public:
     MeshLoader(Assets& assets) : assets_(assets) {}
 
     bool load(const std::string& path, MeshAsset& out, std::string& error) {
-        AssetLoadScope trace("mesh", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
+        AssetLoadScope trace("mesh",
+                             path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
         auto bytes = fs::read_bytes(path);
         if (!bytes) {
             error = bytes.error().message;
@@ -539,7 +584,10 @@ Assets::Assets(Gpu& gpu) : gpu_(gpu) {
         for (int x = 0; x < 32; ++x) {
             bool on = ((x / 8) + (y / 8)) % 2 == 0;
             std::uint8_t* p = &chk.rgba[(std::size_t(y) * 32 + x) * 4];
-            p[0] = on ? 255 : 0; p[1] = 0; p[2] = on ? 255 : 0; p[3] = 255;
+            p[0] = on ? 255 : 0;
+            p[1] = 0;
+            p[2] = on ? 255 : 0;
+            p[3] = 255;
         }
     }
     placeholderTex_ = std::make_unique<TextureAsset>();
@@ -856,16 +904,23 @@ std::string Assets::missing_hint(const std::string& path, std::string_view ext) 
     std::string best = closest_match(path, candidates);
     std::string root = fs::project_root().generic_string();
     std::string msg = std::format("file not found: {} (project root is {}).", path, root);
-    if (!best.empty()) msg += std::format(" Did you mean {}?", best);
-    else if (candidates.empty()) msg += std::format(" No {} files exist under assets/; put the file in <project>/assets/ and reference it as assets/<name>.", ext.empty() ? "asset" : std::string(ext));
-    else msg += " Existing files: " + did_you_mean(path, candidates, 8);
+    if (!best.empty())
+        msg += std::format(" Did you mean {}?", best);
+    else if (candidates.empty())
+        msg += std::format(
+            " No {} files exist under assets/; put the file in <project>/assets/ and reference it as assets/<name>.",
+            ext.empty() ? "asset" : std::string(ext));
+    else
+        msg += " Existing files: " + did_you_mean(path, candidates, 8);
     return msg;
 }
 
-void Assets::note_failure(const std::string& kind, const std::string& path, const std::string& message, const std::string& hint) {
+void Assets::note_failure(const std::string& kind, const std::string& path, const std::string& message,
+                          const std::string& hint) {
     if (failure_logged(kind, path)) return;
     failures_.push_back({kind, path, message, hint});
-    const bool hinted = hint.empty() || message.find(hint) != std::string::npos;  // a shader diagnostic carries its hints
+    const bool hinted =
+        hint.empty() || message.find(hint) != std::string::npos;  // a shader diagnostic carries its hints
     FA_ERROR("render", "{}{}", message, hinted ? std::string() : " Hint: " + hint);
 }
 
@@ -899,7 +954,8 @@ TextureAsset* Assets::load_texture(const std::string& path) {
     if (const assets::PackedTexture packed = assets::packed_texture(path); !packed.atlas.empty()) {
         TextureAsset* atlas = texture(packed.atlas);
         if (atlas->placeholder)
-            return failed(std::format("texture '{}' is packed into the atlas '{}', which could not be loaded", path, packed.atlas),
+            return failed(std::format("texture '{}' is packed into the atlas '{}', which could not be loaded", path,
+                                      packed.atlas),
                           "Export the project again.");
         t.atlas = atlas;
         t.atlasX = packed.x;
@@ -911,7 +967,8 @@ TextureAsset* Assets::load_texture(const std::string& path) {
         return loaded();
     }
 
-    AssetLoadScope trace("texture", path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
+    AssetLoadScope trace("texture",
+                         path);  // the load trace's read and decode time (fa/core/load_trace.h); free without one
     // An export replaces a texture by its compressed twin (path + ".ktx2"): the twin is loaded in place of the original.
     const std::string twin = fs::extension(path) == kTextureTwinExtension ? path : path + kTextureTwinExtension;
     if (fs::exists(twin)) {
@@ -925,7 +982,8 @@ TextureAsset* Assets::load_texture(const std::string& path) {
         return failed("texture " + missing_hint(path, fs::extension(path)), "");
     }
     auto img = load_image(path);
-    if (!img) return failed(std::format("texture '{}' could not be loaded: {}", path, img.error().message), img.error().hint);
+    if (!img)
+        return failed(std::format("texture '{}' could not be loaded: {}", path, img.error().message), img.error().hint);
     upload_texture(t, *img, true);
     return loaded();
 }
@@ -938,15 +996,19 @@ TextureAsset* Assets::texture(const std::string& path) {
         if (!slot) {
             slot = std::make_unique<TextureAsset>();
             slot->path = path;
-            note_failure("texture", path,
-                         std::format("'{}' is not a texture file but a run-time texture id, and no such texture exists now (it was "
-                                     "destroyed with texture.destroy(), or it was made by an earlier run of the game).", path),
-                         "Make the texture again with render.captureTexture() or render.textureFromPNG() and use its `id`.");
+            note_failure(
+                "texture", path,
+                std::format(
+                    "'{}' is not a texture file but a run-time texture id, and no such texture exists now (it was "
+                    "destroyed with texture.destroy(), or it was made by an earlier run of the game).",
+                    path),
+                "Make the texture again with render.captureTexture() or render.textureFromPNG() and use its `id`.");
             use_placeholder(*slot);
         }
         return slot.get();
     }
-    if (is_target_id(path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
+    if (is_target_id(
+            path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
         TextureAsset* t = targetResolver_ ? targetResolver_(path.substr(7)) : nullptr;
         if (t) {
             if (!failures_.empty())  // a camera renders into it now: an older "nobody renders into it" record is stale
@@ -955,11 +1017,16 @@ TextureAsset* Assets::texture(const std::string& path) {
                                 failures_.end());
             return t;
         }
-        if (drawing_) note_failure("texture", path,
-                     std::format("'{}' is a render target id but no active Camera renders into it now (Camera.renderTarget = '{}'). "
-                                 "Until one does, the missing-texture checker is drawn.", path, path.substr(7)),
-                     "Add a Camera entity with \"renderTarget\": \"" + path.substr(7) + "\" (and a renderTargetSize), keep it active, "
-                     "and check the name against the camera's.");
+        if (drawing_)
+            note_failure(
+                "texture", path,
+                std::format(
+                    "'{}' is a render target id but no active Camera renders into it now (Camera.renderTarget = '{}'). "
+                    "Until one does, the missing-texture checker is drawn.",
+                    path, path.substr(7)),
+                "Add a Camera entity with \"renderTarget\": \"" + path.substr(7) +
+                    "\" (and a renderTargetSize), keep it active, "
+                    "and check the name against the camera's.");
         return placeholderTex_.get();
     }
     std::string key = fs::normalize(path);
@@ -982,9 +1049,7 @@ TextureAsset* Assets::texture(const std::string& path) {
     return t;
 }
 
-bool Assets::has_loaded(const std::string& path) const {
-    return textures_.count(path) || meshes_.count(path);
-}
+bool Assets::has_loaded(const std::string& path) const { return textures_.count(path) || meshes_.count(path); }
 
 MeshAsset* Assets::load_mesh(const std::string& name) {
     auto& slot = meshes_[name];
@@ -1097,7 +1162,8 @@ MeshAsset* Assets::procedural_mesh(const std::string& id) {
             hint = err.hint;
         }
         note_failure("mesh", id, message,
-                     hint.empty() ? "Make the mesh with mesh.create() in a script of the scene that shows it, and set MeshRenderer.mesh to its `id`."
+                     hint.empty() ? "Make the mesh with mesh.create() in a script of the scene that shows it, and set "
+                                    "MeshRenderer.mesh to its `id`."
                                   : hint);
         return placeholderMesh_.get();
     }
@@ -1122,11 +1188,20 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
     std::vector<MeshVertex> verts(n);
     for (std::size_t i = 0; i < n; ++i) {
         MeshVertex& v = verts[i];
-        v.px = d.positions[i * 3]; v.py = d.positions[i * 3 + 1]; v.pz = d.positions[i * 3 + 2];
-        v.nx = d.normals[i * 3]; v.ny = d.normals[i * 3 + 1]; v.nz = d.normals[i * 3 + 2];
-        v.u = d.uvs[i * 2]; v.v = d.uvs[i * 2 + 1];
-        v.tx = d.tangents[i * 4]; v.ty = d.tangents[i * 4 + 1]; v.tz = d.tangents[i * 4 + 2]; v.tw = d.tangents[i * 4 + 3];
-        if (!d.colors.empty()) v.color = pack_vertex_color(d.colors[i * 4], d.colors[i * 4 + 1], d.colors[i * 4 + 2], d.colors[i * 4 + 3]);
+        v.px = d.positions[i * 3];
+        v.py = d.positions[i * 3 + 1];
+        v.pz = d.positions[i * 3 + 2];
+        v.nx = d.normals[i * 3];
+        v.ny = d.normals[i * 3 + 1];
+        v.nz = d.normals[i * 3 + 2];
+        v.u = d.uvs[i * 2];
+        v.v = d.uvs[i * 2 + 1];
+        v.tx = d.tangents[i * 4];
+        v.ty = d.tangents[i * 4 + 1];
+        v.tz = d.tangents[i * 4 + 2];
+        v.tw = d.tangents[i * 4 + 3];
+        if (!d.colors.empty())
+            v.color = pack_vertex_color(d.colors[i * 4], d.colors[i * 4 + 1], d.colors[i * 4 + 2], d.colors[i * 4 + 3]);
     }
     const std::size_t vbBytes = n * sizeof(MeshVertex), ibBytes = d.indices.size() * sizeof(std::uint32_t);
 
@@ -1284,13 +1359,21 @@ Json Assets::report() const {
     Json tex = Json::array();
     for (const auto& [k, t] : textures_) {
         if (t->placeholder) continue;
-        Json entry = {{"path", k}, {"width", t->width}, {"height", t->height}, {"format", pixel_format_name(t->format)}, {"bytes", t->bytes}};
+        Json entry = {{"path", k},
+                      {"width", t->width},
+                      {"height", t->height},
+                      {"format", pixel_format_name(t->format)},
+                      {"bytes", t->bytes}};
         if (t->atlas) entry["atlas"] = t->atlas->path;  // packed: the bytes are the atlas's
         tex.push_back(std::move(entry));
     }
     for (const auto& [k, t] : runtime_)
-        tex.push_back({{"path", k}, {"width", t->width}, {"height", t->height}, {"format", pixel_format_name(t->format)},
-                       {"bytes", t->bytes}, {"runtime", true}});
+        tex.push_back({{"path", k},
+                       {"width", t->width},
+                       {"height", t->height},
+                       {"format", pixel_format_name(t->format)},
+                       {"bytes", t->bytes},
+                       {"runtime", true}});
     Json meshes = Json::array();
     for (const auto& [k, m] : meshes_) {
         if (m->placeholder) continue;
@@ -1301,11 +1384,16 @@ Json Assets::report() const {
     for (const auto& [k, pm] : procedural_) {
         int tris = 0;
         for (const auto& p : pm.asset->parts) tris += p.indexCount / 3;
-        meshes.push_back({{"mesh", k}, {"triangles", tris}, {"parts", pm.asset->parts.size()}, {"procedural", true},
-                          {"version", pm.version}, {"bytes", pm.vbCap + pm.ibCap}});
+        meshes.push_back({{"mesh", k},
+                          {"triangles", tris},
+                          {"parts", pm.asset->parts.size()},
+                          {"procedural", true},
+                          {"version", pm.version},
+                          {"bytes", pm.vbCap + pm.ibCap}});
     }
     Json fails = Json::array();
-    for (const auto& f : failures_) fails.push_back({{"kind", f.kind}, {"path", f.path}, {"message", f.message}, {"hint", f.hint}});
+    for (const auto& f : failures_)
+        fails.push_back({{"kind", f.kind}, {"path", f.path}, {"message", f.message}, {"hint", f.hint}});
     Json mats = Json::array();
     for (const auto& [k, m] : materials_) {
         Json entry = {{"material", k}, {"ok", m->ok}, {"generation", m->generation}};

@@ -10,7 +10,8 @@ namespace fa {
 namespace {
 
 Vec3 apply(const float* m, Vec3 p) {
-    return {m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3], m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7], m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11]};
+    return {m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3], m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+            m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11]};
 }
 
 void affine_of(const Mat4& m, float* out) {
@@ -69,8 +70,11 @@ float shape_distance(const ModelSdfShapeParams& s, float capsuleLen, Vec3 p) {
         }
         case ModelSdfShape::Box: {
             const float rd = s.round;
-            const float qx = std::fabs(p.x) - s.size.x * 0.5f + rd, qy = std::fabs(p.y) - s.size.y * 0.5f + rd, qz = std::fabs(p.z) - s.size.z * 0.5f + rd;
-            const float outside = std::sqrt(std::max(qx, 0.0f) * std::max(qx, 0.0f) + std::max(qy, 0.0f) * std::max(qy, 0.0f) + std::max(qz, 0.0f) * std::max(qz, 0.0f));
+            const float qx = std::fabs(p.x) - s.size.x * 0.5f + rd, qy = std::fabs(p.y) - s.size.y * 0.5f + rd,
+                        qz = std::fabs(p.z) - s.size.z * 0.5f + rd;
+            const float outside =
+                std::sqrt(std::max(qx, 0.0f) * std::max(qx, 0.0f) + std::max(qy, 0.0f) * std::max(qy, 0.0f) +
+                          std::max(qz, 0.0f) * std::max(qz, 0.0f));
             return outside + std::min(std::max(qx, std::max(qy, qz)), 0.0f) - rd;
         }
         case ModelSdfShape::Cylinder: {
@@ -97,16 +101,28 @@ float shape_distance(const ModelSdfShapeParams& s, float capsuleLen, Vec3 p) {
 // The shape's own box, centred as the shape is.
 void shape_box(const ModelSdfShapeParams& s, float capsuleLen, Vec3& lo, Vec3& hi) {
     switch (s.shape) {
-        case ModelSdfShape::Sphere: lo = {-s.radius, -s.radius, -s.radius}; hi = {s.radius, s.radius, s.radius}; break;
+        case ModelSdfShape::Sphere:
+            lo = {-s.radius, -s.radius, -s.radius};
+            hi = {s.radius, s.radius, s.radius};
+            break;
         case ModelSdfShape::Capsule: {
             const float r1 = s.radius, r2 = s.radiusTop < 0 ? s.radius : s.radiusTop, rm = std::max(r1, r2);
             lo = {-rm, -capsuleLen * 0.5f - r1, -rm};
             hi = {rm, capsuleLen * 0.5f + r2, rm};
             break;
         }
-        case ModelSdfShape::Ellipsoid: lo = s.size * -1.0f; hi = s.size; break;
-        case ModelSdfShape::Box: lo = s.size * -0.5f; hi = s.size * 0.5f; break;
-        case ModelSdfShape::Cylinder: lo = {-s.radius, -s.height * 0.5f, -s.radius}; hi = {s.radius, s.height * 0.5f, s.radius}; break;
+        case ModelSdfShape::Ellipsoid:
+            lo = s.size * -1.0f;
+            hi = s.size;
+            break;
+        case ModelSdfShape::Box:
+            lo = s.size * -0.5f;
+            hi = s.size * 0.5f;
+            break;
+        case ModelSdfShape::Cylinder:
+            lo = {-s.radius, -s.height * 0.5f, -s.radius};
+            hi = {s.radius, s.height * 0.5f, s.radius};
+            break;
         case ModelSdfShape::Cone: {
             const float rm = std::max(s.radius, s.radiusTop < 0 ? 0.0f : s.radiusTop);
             lo = {-rm, -s.height * 0.5f, -rm};
@@ -122,7 +138,8 @@ void shape_box(const ModelSdfShapeParams& s, float capsuleLen, Vec3& lo, Vec3& h
         case ModelSdfShape::Volume:
             if (s.volume) {
                 lo = s.volume->origin;
-                hi = lo + Vec3{float(s.volume->nx - 1), float(s.volume->ny - 1), float(s.volume->nz - 1)} * s.volume->cell;
+                hi = lo +
+                     Vec3{float(s.volume->nx - 1), float(s.volume->ny - 1), float(s.volume->nz - 1)} * s.volume->cell;
             }
             break;
     }
@@ -142,16 +159,21 @@ Vec4 mix4(Vec4 a, Vec4 b, float tA) { return a * tA + b * (1.0f - tA); }
 }  // namespace
 
 float ModelSdfVolume::sample(Vec3 p) const {
-    if (nx < 2 || ny < 2 || nz < 2 || values.size() != std::size_t(nx) * std::size_t(ny) * std::size_t(nz)) return 1.0e30f;
+    if (nx < 2 || ny < 2 || nz < 2 || values.size() != std::size_t(nx) * std::size_t(ny) * std::size_t(nz))
+        return 1.0e30f;
     const float inv = 1.0f / cell;
     const Vec3 g = (p - origin) * inv;
     const Vec3 c{clamp(g.x, 0.0f, float(nx - 1)), clamp(g.y, 0.0f, float(ny - 1)), clamp(g.z, 0.0f, float(nz - 1))};
     const float outside = length(g - c) * cell;
     const int x0 = std::min(int(c.x), nx - 2), y0 = std::min(int(c.y), ny - 2), z0 = std::min(int(c.z), nz - 2);
     const float fx = c.x - float(x0), fy = c.y - float(y0), fz = c.z - float(z0);
-    auto at = [&](int x, int y, int z) { return values[std::size_t(x) + std::size_t(nx) * (std::size_t(y) + std::size_t(ny) * std::size_t(z))]; };
-    const float c00 = at(x0, y0, z0) * (1 - fx) + at(x0 + 1, y0, z0) * fx, c10 = at(x0, y0 + 1, z0) * (1 - fx) + at(x0 + 1, y0 + 1, z0) * fx;
-    const float c01 = at(x0, y0, z0 + 1) * (1 - fx) + at(x0 + 1, y0, z0 + 1) * fx, c11 = at(x0, y0 + 1, z0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1, z0 + 1) * fx;
+    auto at = [&](int x, int y, int z) {
+        return values[std::size_t(x) + std::size_t(nx) * (std::size_t(y) + std::size_t(ny) * std::size_t(z))];
+    };
+    const float c00 = at(x0, y0, z0) * (1 - fx) + at(x0 + 1, y0, z0) * fx,
+                c10 = at(x0, y0 + 1, z0) * (1 - fx) + at(x0 + 1, y0 + 1, z0) * fx;
+    const float c01 = at(x0, y0, z0 + 1) * (1 - fx) + at(x0 + 1, y0, z0 + 1) * fx,
+                c11 = at(x0, y0 + 1, z0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1, z0 + 1) * fx;
     const float c0 = c00 * (1 - fy) + c10 * fy, c1 = c01 * (1 - fy) + c11 * fy;
     return c0 * (1 - fz) + c1 * fz + outside;
 }
@@ -166,7 +188,8 @@ int ModelSdf::add_node(Node n, const Mat4& local) {
     return int(nodes_.size()) - 1;
 }
 
-int ModelSdf::add_shape(const ModelSdfShapeParams& shape, const Mat4& local, ModelSdfBlend blend, float smooth, std::uint32_t group, std::optional<Vec4> color) {
+int ModelSdf::add_shape(const ModelSdfShapeParams& shape, const Mat4& local, ModelSdfBlend blend, float smooth,
+                        std::uint32_t group, std::optional<Vec4> color) {
     Node n;
     n.leaf = true;
     n.shape = shape;
@@ -191,7 +214,8 @@ int ModelSdf::add_shape(const ModelSdfShapeParams& shape, const Mat4& local, Mod
     return add_node(std::move(n), local);
 }
 
-int ModelSdf::add_group(const std::vector<int>& children, const Mat4& local, ModelSdfBlend blend, float smooth, int mirror) {
+int ModelSdf::add_group(const std::vector<int>& children, const Mat4& local, ModelSdfBlend blend, float smooth,
+                        int mirror) {
     Node n;
     n.leaf = false;
     n.children = children;
@@ -277,7 +301,8 @@ bool ModelSdf::node_bounds(const Node& n, Vec3& bmin, Vec3& bmax) const {
                     hi = chi;
                     have = true;
                 }
-                const float grow = c.smooth * 0.25f;  // a smooth union bulges by at most a quarter of its blend distance
+                const float grow =
+                    c.smooth * 0.25f;  // a smooth union bulges by at most a quarter of its blend distance
                 lo = lo - Vec3{grow, grow, grow};
                 hi = hi + Vec3{grow, grow, grow};
             } else if (c.blend == ModelSdfBlend::Intersect && have) {
@@ -310,7 +335,8 @@ bool ModelSdf::bounds(Vec3& bmin, Vec3& bmax) const {
 float model_sdf_noise(Vec3 p, float frequency, int octaves, int seed) {
     float sum = 0, amp = 1, total = 0, freq = frequency;
     for (int o = 0; o < std::max(octaves, 1); ++o) {
-        sum += amp * model_value_noise(p * freq, std::uint32_t(seed) * 7919u + 0x5bd1e995u + std::uint32_t(o) * 104729u);
+        sum +=
+            amp * model_value_noise(p * freq, std::uint32_t(seed) * 7919u + 0x5bd1e995u + std::uint32_t(o) * 104729u);
         total += amp;
         amp *= 0.5f;
         freq *= 2.0f;

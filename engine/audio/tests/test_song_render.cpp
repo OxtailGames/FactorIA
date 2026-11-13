@@ -75,7 +75,7 @@ TEST_CASE("layers: a song declares them, the tracks left out form 'other', inten
     CHECK(layers[0].name == "rhythm");
     CHECK(layers[0].intensity == doctest::Approx(0.0));
     CHECK(layers[1].name == "harmony");
-    CHECK(layers[1].intensity == doctest::Approx(0.3));   // written
+    CHECK(layers[1].intensity == doctest::Approx(0.3));  // written
     CHECK(layers[2].name == kSongRestLayer);
     CHECK(layers[2].tracks == std::vector<std::string>{"pluck"});
     CHECK(layers[2].intensity == doctest::Approx(1.0));
@@ -151,9 +151,9 @@ TEST_CASE("render asset: the loop is seamless, the tail of its last bar wraps on
     ro.tailSeconds = 1.0;
     auto ref = render_song(songFour, timeline_of(songFour), ro);
     REQUIRE(bool(ref));
-    const std::size_t len = asset.mix.clip.loop->end - asset.mix.clip.loop->start;   // 4 s
+    const std::size_t len = asset.mix.clip.loop->end - asset.mix.clip.loop->start;  // 4 s
     REQUIRE(len == std::size_t(4 * 44100));
-    const std::size_t from = 2 * len;   // the third pass of the reference
+    const std::size_t from = 2 * len;  // the third pass of the reference
     double worst = 0.0, peak = 0.0;
     for (std::size_t i = 0; i < len * 2; ++i) {
         const double a = double(asset.mix.clip.samples[i]);
@@ -169,8 +169,10 @@ TEST_CASE("render asset: the loop is seamless, the tail of its last bar wraps on
     const std::size_t last = asset.mix.clip.loop->end - 1, first = asset.mix.clip.loop->start;
     double maxStep = 0.0;
     for (std::size_t i = first + 1; i < last; ++i)
-        for (std::size_t c = 0; c < 2; ++c) maxStep = std::max(maxStep, double(std::abs(s[2 * i + c] - s[2 * (i - 1) + c])));
-    for (std::size_t c = 0; c < 2; ++c) CHECK(std::abs(double(s[2 * first + c] - s[2 * last + c])) <= maxStep * 1.5 + 1e-4);
+        for (std::size_t c = 0; c < 2; ++c)
+            maxStep = std::max(maxStep, double(std::abs(s[2 * i + c] - s[2 * (i - 1) + c])));
+    for (std::size_t c = 0; c < 2; ++c)
+        CHECK(std::abs(double(s[2 * first + c] - s[2 * last + c])) <= maxStep * 1.5 + 1e-4);
 }
 
 TEST_CASE("render asset: without folding the tail the seam would be a different sound (the fold does something)") {
@@ -184,7 +186,8 @@ TEST_CASE("render asset: without folding the tail the seam would be a different 
     CHECK_FALSE(b.mix.clip.loop.has_value());
     // the first bar of the loop differs by the reverb tail that comes round from the end
     double diff = 0.0;
-    for (std::size_t i = 0; i < 44100 * 2; ++i) diff = std::max(diff, double(std::abs(a.mix.clip.samples[i] - b.mix.clip.samples[i])));
+    for (std::size_t i = 0; i < 44100 * 2; ++i)
+        diff = std::max(diff, double(std::abs(a.mix.clip.samples[i] - b.mix.clip.samples[i])));
     CHECK(diff > 1e-3);
 }
 
@@ -248,7 +251,8 @@ TEST_CASE("stems: same length and loop points, and they add up to the mix") {
                 for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += double(s.clip.samples[i]);
             }
             double worst = 0.0;
-            for (std::size_t i = 0; i < sum.size(); ++i) worst = std::max(worst, std::abs(sum[i] - double(r.mix.clip.samples[i])));
+            for (std::size_t i = 0; i < sum.size(); ++i)
+                worst = std::max(worst, std::abs(sum[i] - double(r.mix.clip.samples[i])));
             CHECK(r.stemsExact);
             CHECK(worst < 1e-4 * peak_of(r.mix.clip.samples));
             CHECK(r.stemSumErrorDb < -80.0);
@@ -256,7 +260,8 @@ TEST_CASE("stems: same length and loop points, and they add up to the mix") {
     }
 }
 
-TEST_CASE("stems: they carry the loudness gain and the limiter of the mix, so they add up to it before and after limiting") {
+TEST_CASE(
+    "stems: they carry the loudness gain and the limiter of the mix, so they add up to it before and after limiting") {
     Json j = demo();
     j["mixer"]["master"] = Json::parse(R"({"loudness": -9, "limiter": {"ceilingDb": -3, "release": 0.05}})");
     j["volume"] = 1.4;
@@ -264,20 +269,22 @@ TEST_CASE("stems: they carry the loudness gain and the limiter of the mix, so th
     SongAssetOptions o;
     o.stems = *song_stem_plan(song, "tracks");
     const SongAssetRender r = render_asset(song, o);
-    CHECK(r.mix.master.limiterReductionDb > 0.0);   // the limiter acted, so the stems had to follow its gain
+    CHECK(r.mix.master.limiterReductionDb > 0.0);  // the limiter acted, so the stems had to follow its gain
     CHECK(r.mix.master.normalizeGainDb != 0.0);
     std::vector<double> sum(r.mix.clip.samples.size(), 0.0);
     for (const SongStem& s : r.stems)
         for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += double(s.clip.samples[i]);
     double worst = 0.0;
-    for (std::size_t i = 0; i < sum.size(); ++i) worst = std::max(worst, std::abs(sum[i] - double(r.mix.clip.samples[i])));
+    for (std::size_t i = 0; i < sum.size(); ++i)
+        worst = std::max(worst, std::abs(sum[i] - double(r.mix.clip.samples[i])));
     CHECK(worst < 1e-4);
     CHECK(r.stemSumErrorDb < -80.0);
     // the mix stays under the ceiling (-3 dBFS = 0.708)
     CHECK(peak_of(r.mix.clip.samples) <= 0.7080);
 }
 
-TEST_CASE("stems: a compressor on the master acts on the sum, so the stems add up only approximately, and the result says so") {
+TEST_CASE("stems: a compressor on the master acts on the sum, so the stems add up only approximately, and the result "
+          "says so") {
     Json j = demo();
     j["mixer"]["master"]["effects"] = Json::parse(R"([{"type": "compressor", "thresholdDb": -30, "ratio": 6}])");
     SongDoc song = parsed(j);

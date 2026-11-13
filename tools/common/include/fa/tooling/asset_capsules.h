@@ -18,13 +18,13 @@ enum class StoreLogo {
 };
 
 struct StoreAsset {
-    const char* asset;         // "header capsule"
-    int width, height;         // landscape for deviceShot assets
+    const char* asset;  // "header capsule"
+    int width, height;  // landscape for deviceShot assets
     StoreLogo logo;
-    double widthFraction;      // the logo fits in widthFraction x heightFraction of the image
+    double widthFraction;  // the logo fits in widthFraction x heightFraction of the image
     double heightFraction;
-    bool deviceShot;           // a phone or tablet screenshot: `orientation` portrait swaps width and height
-    bool verified;             // the size is in the store's public documentation
+    bool deviceShot;  // a phone or tablet screenshot: `orientation` portrait swaps width and height
+    bool verified;    // the size is in the store's public documentation
 };
 
 // "steam", "epic", "gog", "microsoft", "googleplay", "appstore", "itch".

@@ -101,7 +101,9 @@ Json raw_event(const Replay& r, const std::string& type, const std::string& subt
 void check_claude_common(const Replay& r) {
     NEED(r, r.sawResult, "no `result` event was read (type \"result\")");
     NEED(r, !r.sessionId.empty(), "no session id (system/init `session_id`, `result.session_id`)");
-    NEED(r, r.first(AgentEvent::Type::Info) && r.first(AgentEvent::Type::Info)->text.find("Claude Code started (model claude-") == 0,
+    NEED(r,
+         r.first(AgentEvent::Type::Info) &&
+             r.first(AgentEvent::Type::Info)->text.find("Claude Code started (model claude-") == 0,
          "no Info event from system/init with `model`");
     NEED(r, !r.costIsEstimate, "the cost is still an estimate: `result.total_cost_usd` is missing");
     NEED(r, r.cost > 0, "`result.total_cost_usd` is not read");
@@ -115,8 +117,8 @@ void check_claude_common(const Replay& r) {
     const Json res = raw_event(r, "result");
     if (res.contains("modelUsage") && res["modelUsage"].is_object()) {
         for (const auto& [model, m] : res["modelUsage"].items()) {
-            const double used = m.value("inputTokens", 0.0) + m.value("outputTokens", 0.0) + m.value("cacheReadInputTokens", 0.0) +
-                                m.value("cacheCreationInputTokens", 0.0);
+            const double used = m.value("inputTokens", 0.0) + m.value("outputTokens", 0.0) +
+                                m.value("cacheReadInputTokens", 0.0) + m.value("cacheCreationInputTokens", 0.0);
             if (used > most) {
                 most = used;
                 expectedWindow = static_cast<u64>(m.value("contextWindow", 0.0));
@@ -130,8 +132,9 @@ void check_claude_common(const Replay& r) {
          "the context tokens of the last assistant message (`message.usage`) are not read");
     // The keys of the first `assistant` event: the parser needs these to count tokens once per message.
     const Json a = raw_event(r, "assistant");
-    NEED(r, a.is_object() && a.contains("message") && a["message"].contains("id") && a["message"].contains("usage") &&
-                a["message"].contains("model") && a["message"].contains("content"),
+    NEED(r,
+         a.is_object() && a.contains("message") && a["message"].contains("id") && a["message"].contains("usage") &&
+             a["message"].contains("model") && a["message"].contains("content"),
          "assistant events lost `message.id` / `usage` / `model` / `content`");
 }
 
@@ -158,7 +161,8 @@ TEST_CASE("contract Claude Code: a tool use") {
     const Replay r = replay(ProviderKind::ClaudeCode, kClaude, "tool_use.jsonl");
     check_claude_common(r);
     NEED(r, r.finalText.find("banana") != std::string::npos, "the final text lost the tool's answer");
-    NEED(r, r.first(AgentEvent::Type::ThinkingDelta) != nullptr, "assistant `thinking` blocks are not read (ThinkingDelta)");
+    NEED(r, r.first(AgentEvent::Type::ThinkingDelta) != nullptr,
+         "assistant `thinking` blocks are not read (ThinkingDelta)");
     NEED(r, !r.resultIsError, "a successful run is read as an error");
     const AgentEvent* s = r.first(AgentEvent::Type::ToolStart, "Read");
     NEED(r, s != nullptr, "no ToolStart for the assistant `tool_use` block (`name`)");
@@ -167,7 +171,8 @@ TEST_CASE("contract Claude Code: a tool use") {
         NEED(r, s->toolInput.is_object() && s->toolInput.contains("file_path"), "`tool_use.input` is not read");
     }
     const AgentEvent* e = r.first(AgentEvent::Type::ToolEnd, "Read");
-    NEED(r, e != nullptr, "no ToolEnd for the user `tool_result` block (`tool_use_id` does not match a ToolStart `id`)");
+    NEED(r, e != nullptr,
+         "no ToolEnd for the user `tool_result` block (`tool_use_id` does not match a ToolStart `id`)");
     if (e && s) {
         NEED(r, e->toolId == s->toolId, "ToolEnd `tool_use_id` differs from the ToolStart id");
         NEED(r, !e->isError, "`tool_result.is_error` is true for a good call");
@@ -219,7 +224,8 @@ struct Fed {
 };
 
 // The first line of a fixture that is an event of this type, as the CLI printed it.
-std::string raw_line(const std::string& folder, const std::string& file, const std::string& type, const std::string& subtype = {}) {
+std::string raw_line(const std::string& folder, const std::string& file, const std::string& type,
+                     const std::string& subtype = {}) {
     for (auto line : fa::split(read_file(fixture_path(folder, file)), '\n')) {
         Json j = Json::parse(line, nullptr, false);
         if (!j.is_object() || j.value("type", "") != type) continue;
@@ -248,7 +254,8 @@ TEST_CASE("contract Claude Code: the session id comes from system/init, and resu
         Json r = Json::parse(result);
         r.erase("session_id");
         f.feed(r.dump());
-        CHECK_MESSAGE(f.parser.session_id() == initId, "plain.jsonl: a result without `session_id` lost the id of init");
+        CHECK_MESSAGE(f.parser.session_id() == initId,
+                      "plain.jsonl: a result without `session_id` lost the id of init");
     }
     {
         Fed f;  // a result with another id: the engine resumes the one of the result
@@ -256,12 +263,14 @@ TEST_CASE("contract Claude Code: the session id comes from system/init, and resu
         Json r = Json::parse(result);
         r["session_id"] = "11111111-1111-4111-8111-111111111111";
         f.feed(r.dump());
-        CHECK_MESSAGE(f.parser.session_id() == "11111111-1111-4111-8111-111111111111", "plain.jsonl: `result.session_id` is not read");
+        CHECK_MESSAGE(f.parser.session_id() == "11111111-1111-4111-8111-111111111111",
+                      "plain.jsonl: `result.session_id` is not read");
     }
     {
         Fed f;  // no init at all: the id of the result
         f.feed(result);
-        CHECK_MESSAGE(f.parser.session_id() == Json::parse(result).value("session_id", ""), "plain.jsonl: `result.session_id` alone is not read");
+        CHECK_MESSAGE(f.parser.session_id() == Json::parse(result).value("session_id", ""),
+                      "plain.jsonl: `result.session_id` alone is not read");
     }
 }
 
@@ -269,7 +278,8 @@ TEST_CASE("contract Claude Code: cache_creation ephemeral_1h_input_tokens raise 
     const std::string line = raw_line(kClaude, "plain.jsonl", "assistant");
     REQUIRE(!line.empty());
     const Json a = Json::parse(line);
-    const Json* cc = a["message"]["usage"].contains("cache_creation") ? &a["message"]["usage"]["cache_creation"] : nullptr;
+    const Json* cc =
+        a["message"]["usage"].contains("cache_creation") ? &a["message"]["usage"]["cache_creation"] : nullptr;
     const bool has1h = cc && cc->value("ephemeral_1h_input_tokens", 0) > 0;
     REQUIRE_MESSAGE(has1h, "plain.jsonl: the assistant usage lost `cache_creation.ephemeral_1h_input_tokens`");
     Json without = a;
@@ -277,8 +287,9 @@ TEST_CASE("contract Claude Code: cache_creation ephemeral_1h_input_tokens raise 
     Fed with1h, without1h;
     with1h.feed(line);
     without1h.feed(without.dump());
-    CHECK_MESSAGE(with1h.parser.cost_usd() > without1h.parser.cost_usd(),
-                  "plain.jsonl: `message.usage.cache_creation.ephemeral_1h_input_tokens` does not change the estimated cost");
+    CHECK_MESSAGE(
+        with1h.parser.cost_usd() > without1h.parser.cost_usd(),
+        "plain.jsonl: `message.usage.cache_creation.ephemeral_1h_input_tokens` does not change the estimated cost");
 }
 
 TEST_CASE("contract Claude Code: a sub-agent's assistant message (parent_tool_use_id) is not the main context") {
@@ -296,7 +307,8 @@ TEST_CASE("contract Claude Code: a sub-agent's assistant message (parent_tool_us
     sub["parent_tool_use_id"] = "toolu_FIXTURE9999";
     Fed fed;
     fed.feed(sub.dump());
-    CHECK_MESSAGE(context_of(fed) == 0, "plain.jsonl: an assistant event with `parent_tool_use_id` counts as the main context");
+    CHECK_MESSAGE(context_of(fed) == 0,
+                  "plain.jsonl: an assistant event with `parent_tool_use_id` counts as the main context");
 }
 
 TEST_CASE("contract Claude Code: system/init names an MCP server that is not connected") {
@@ -308,7 +320,8 @@ TEST_CASE("contract Claude Code: system/init names an MCP server that is not con
     REQUIRE(!f.events.empty());
     CHECK_MESSAGE(f.events[0].text.find("MCP server 'factoria' is failed") != std::string::npos,
                   "plain.jsonl: `system/init.mcp_servers[].status` != connected is not reported");
-    CHECK_MESSAGE(f.events[0].text.find("other") == std::string::npos, "a connected MCP server is reported as a problem");
+    CHECK_MESSAGE(f.events[0].text.find("other") == std::string::npos,
+                  "a connected MCP server is reported as a problem");
 }
 
 TEST_CASE("contract Codex (from the docs): a text answer") {
@@ -327,26 +340,31 @@ TEST_CASE("contract Codex (from the docs): tools, the shell and file changes") {
     const Replay r = replay(ProviderKind::Codex, kCodex, "tool_use.jsonl");
     NEED(r, r.finalText == "The secret word is banana.", "agent_message text");
     const AgentEvent* s = r.first(AgentEvent::Type::ToolStart, "shell");
-    NEED(r, s && s->toolInput.value("command", "") == "bash -lc cat hello.txt", "`command_execution.command` is not read");
+    NEED(r, s && s->toolInput.value("command", "") == "bash -lc cat hello.txt",
+         "`command_execution.command` is not read");
     const AgentEvent* e = r.first(AgentEvent::Type::ToolEnd, "shell");
     NEED(r, e && !e->isError && rtext(e->toolResult).find("banana") != std::string::npos,
          "`command_execution.aggregated_output` / `exit_code` are not read");
     NEED(r, r.first(AgentEvent::Type::ToolStart, "project_validate") != nullptr, "mcp_tool_call `tool` (item.started)");
     const AgentEvent* me = r.first(AgentEvent::Type::ToolEnd, "project_validate");
-    NEED(r, me && !me->isError && rtext(me->toolResult).find("ok") != std::string::npos, "mcp_tool_call `result` (item.completed)");
+    NEED(r, me && !me->isError && rtext(me->toolResult).find("ok") != std::string::npos,
+         "mcp_tool_call `result` (item.completed)");
     const AgentEvent* info = r.first(AgentEvent::Type::Info);
     bool changed = false;
-    for (const auto& ev : r.events) changed = changed || (ev.type == AgentEvent::Type::Info && ev.text == "Codex changed files");
+    for (const auto& ev : r.events)
+        changed = changed || (ev.type == AgentEvent::Type::Info && ev.text == "Codex changed files");
     NEED(r, info && changed, "`file_change` items are not read");
 }
 
 TEST_CASE("contract Codex (from the docs): a command refused by the sandbox") {
     const Replay r = replay(ProviderKind::Codex, kCodex, "sandbox_denied.jsonl");
     const AgentEvent* e = r.first(AgentEvent::Type::ToolEnd, "shell");
-    NEED(r, e && e->isError, "a `command_execution` with status \"declined\" (exit_code null) is not read as a failed call");
+    NEED(r, e && e->isError,
+         "a `command_execution` with status \"declined\" (exit_code null) is not read as a failed call");
     const AgentEvent* me = r.first(AgentEvent::Type::ToolEnd, "project_validate");
     NEED(r, me && me->isError, "an `mcp_tool_call` with status \"failed\" is not read as a failed call");
-    NEED(r, me && rtext(me->toolResult).find("tool call refused") != std::string::npos, "`mcp_tool_call.error.message` is not read into the tool result");
+    NEED(r, me && rtext(me->toolResult).find("tool call refused") != std::string::npos,
+         "`mcp_tool_call.error.message` is not read into the tool result");
     NEED(r, !r.resultIsError && r.sawResult, "the run after a refused command still ends with turn.completed");
 }
 
@@ -362,16 +380,20 @@ TEST_CASE("contract Codex (from the docs): an error") {
 
 TEST_CASE("contract Codex (from the docs): the older id/msg event format") {
     const Replay r = replay(ProviderKind::Codex, kCodex, "legacy_events.jsonl");
-    NEED(r, r.finalText == "Validated the project.", "msg agent_message `message` / task_complete `last_agent_message`");
+    NEED(r, r.finalText == "Validated the project.",
+         "msg agent_message `message` / task_complete `last_agent_message`");
     NEED(r, r.sawResult, "msg task_complete is not the end of the run");
-    NEED(r, r.first(AgentEvent::Type::ToolStart, "project_validate") && r.first(AgentEvent::Type::ToolEnd, "project_validate"),
+    NEED(r,
+         r.first(AgentEvent::Type::ToolStart, "project_validate") &&
+             r.first(AgentEvent::Type::ToolEnd, "project_validate"),
          "msg mcp_tool_call_begin / mcp_tool_call_end `invocation.tool`");
     NEED(r, r.usage.inputTokens == 300 && r.usage.outputTokens == 40, "msg token_count");
 }
 
 TEST_CASE("contract generic CLI (from the format the engine expects)") {
     const Replay text = replay(ProviderKind::GenericCli, kGeneric, "plain_text.txt");
-    NEED(text, text.finalText == "Reading the project...\nDone: the project has 3 scenes.\n", "plain stdout lines are the answer");
+    NEED(text, text.finalText == "Reading the project...\nDone: the project has 3 scenes.\n",
+         "plain stdout lines are the answer");
     NEED(text, text.first(AgentEvent::Type::TextDelta) != nullptr, "no TextDelta per line");
     const Replay json = replay(ProviderKind::GenericCli, kGeneric, "json_lines.jsonl");
     NEED(json, json.finalText == "Looking at the scene.\nThe scene has 3 entities.\n",
@@ -426,14 +448,16 @@ TEST_CASE("contract: the --version line the doctor shows") {
     for (const auto& s : detect_providers(cfg, o)) {
         if (s.name == "claude-code") {
             ++matched;
-            CHECK_MESSAGE(s.version == "2.1.318 (Claude Code)", "claude-code-2.1.318/version.txt: got \"" << s.version << "\"");
+            CHECK_MESSAGE(s.version == "2.1.318 (Claude Code)",
+                          "claude-code-2.1.318/version.txt: got \"" << s.version << "\"");
         }
         if (s.name == "codex") {
             ++matched;
             CHECK_MESSAGE(s.version == "codex-cli 0.46.0", "codex-docs/version.txt: got \"" << s.version << "\"");
         }
     }
-    CHECK_MESSAGE(matched == 2, "detect_providers found " << matched << " of the 2 providers the fixtures stand in for");
+    CHECK_MESSAGE(matched == 2,
+                  "detect_providers found " << matched << " of the 2 providers the fixtures stand in for");
 }
 
 #endif

@@ -91,7 +91,8 @@ void read_art_display(const std::string& projectDir, ProjectArtUse& use) {
             const Json& d = j["display"];
             if (d.value("width", 0) > 0) use.designWidth = d.value("width", 1280);
             if (d.value("height", 0) > 0) use.designHeight = d.value("height", 720);
-            if (d.contains("orientation") && d["orientation"].is_string()) use.orientation = d["orientation"].get<std::string>();
+            if (d.contains("orientation") && d["orientation"].is_string())
+                use.orientation = d["orientation"].get<std::string>();
         }
     }
 }
@@ -142,8 +143,10 @@ ReferenceScreens reference_screens(const ProjectArtUse& project) {
     return s;
 }
 
-double on_screen_px(const TextureUse& u, const SceneView* view, const ProjectArtUse& project, double screenWidth, double screenHeight) {
-    const double halfH = view && view->hasCamera && view->halfHeight > 0 ? view->halfHeight : project.designHeight / 2.0;
+double on_screen_px(const TextureUse& u, const SceneView* view, const ProjectArtUse& project, double screenWidth,
+                    double screenHeight) {
+    const double halfH =
+        view && view->hasCamera && view->halfHeight > 0 ? view->halfHeight : project.designHeight / 2.0;
     const double designPerUnit = u.screenSpace ? 1.0 : project.designHeight / (2 * halfH);
     const double device = std::min(screenWidth / project.designWidth, screenHeight / project.designHeight);
     return std::max(u.world[0], u.world[1]) * designPerUnit * device;

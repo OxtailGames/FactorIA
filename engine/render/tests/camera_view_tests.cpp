@@ -10,8 +10,8 @@ using namespace fa::test;
 
 namespace {
 
-const Color kClear{0.1f, 0.1f, 0.1f, 1};   // what the game camera clears to
-const Color kStage{0.1f, 0.2f, 0.6f, 1};   // what the view camera clears to
+const Color kClear{0.1f, 0.1f, 0.1f, 1};  // what the game camera clears to
+const Color kStage{0.1f, 0.2f, 0.6f, 1};  // what the view camera clears to
 
 bool near(const Color& a, const Color& b, float tol = 0.03f) {
     return std::fabs(a.r - b.r) <= tol && std::fabs(a.g - b.g) <= tol && std::fabs(a.b - b.b) <= tol;
@@ -75,11 +75,11 @@ TEST_CASE("camera view: draws its camera inside the rectangle, and only there") 
     view_widget(w, "view", "stage", 40, 30, 120, 100);
     Image img = g.render(w);
     CHECK(g.renderer.stats().views == 1);
-    CHECK(near(img.pixel(100, 80), Color::hex(0xe04040), 0.5f));       // the cube, lit
+    CHECK(near(img.pixel(100, 80), Color::hex(0xe04040), 0.5f));  // the cube, lit
     CHECK(img.pixel(100, 80).r > img.pixel(100, 80).b * 2.0f);
-    CHECK(near(img.pixel(45, 35), kStage));                             // the view camera's own clear colour
+    CHECK(near(img.pixel(45, 35), kStage));  // the view camera's own clear colour
     CHECK(near(img.pixel(155, 125), kStage));
-    CHECK(near(img.pixel(20, 80), kClear));                             // outside the rectangle: the game
+    CHECK(near(img.pixel(20, 80), kClear));  // outside the rectangle: the game
     CHECK(near(img.pixel(200, 80), kClear));
     CHECK(near(img.pixel(100, 15), kClear));
     CHECK(near(img.pixel(100, 145), kClear));
@@ -114,7 +114,7 @@ TEST_CASE("camera view: what the mesh does shows in the widget (a turning mesh),
     game_camera(w);
     view_camera(w, "stage", {500, 0, 0});
     Entity cube = cube_at(w, {500, 0, 0}, Color::hex(0xe0b040));
-    w.get<Transform>(cube)->scale = {1.6f, 1, 1};   // not a cube: turning it changes the outline
+    w.get<Transform>(cube)->scale = {1.6f, 1, 1};  // not a cube: turning it changes the outline
     view_widget(w, "view", "stage", 40, 30, 120, 100);
     const Image a = g.render(w);
     w.get<Transform>(cube)->rotation = {0, 50, 0};
@@ -125,7 +125,8 @@ TEST_CASE("camera view: what the mesh does shows in the widget (a turning mesh),
     CHECK(differing(a, b, 160, 0, 320, 180) == 0);
 }
 
-TEST_CASE("camera view: a ScrollList clips it, a Panel above it covers it, two views of one camera each get a picture") {
+TEST_CASE(
+    "camera view: a ScrollList clips it, a Panel above it covers it, two views of one camera each get a picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -154,11 +155,11 @@ TEST_CASE("camera view: a ScrollList clips it, a Panel above it covers it, two v
 
     Image img = g.render(w);
     CHECK(g.renderer.stats().views == 2);
-    CHECK(near(img.pixel(15, 25), kStage));             // inside the list: the view's background
+    CHECK(near(img.pixel(15, 25), kStage));  // inside the list: the view's background
     CHECK(near(img.pixel(15, 75), kStage));
-    CHECK(near(img.pixel(15, 90), kClear));             // below the list's bottom edge: clipped away
+    CHECK(near(img.pixel(15, 90), kClear));  // below the list's bottom edge: clipped away
     CHECK(near(img.pixel(15, 135), kClear));
-    CHECK(near(img.pixel(155, 25), kStage));            // second view, left of the dialog
+    CHECK(near(img.pixel(155, 25), kStage));                      // second view, left of the dialog
     CHECK(near(img.pixel(235, 25), Color{0.9f, 0.9f, 0.1f, 1}));  // the dialog covers it
     CHECK(near(img.pixel(300, 130), Color{0.9f, 0.9f, 0.1f, 1}));
     // Both pictures show the cube (the first through the clip, the second to the left of the dialog).
@@ -233,7 +234,8 @@ TEST_CASE("camera: viewportSpace design counts the fractions on the design area,
     shape.size = {40, 40};
     shape.color = Color{1, 0, 0, 1};
 
-    g.renderer.set_target_size(640, 180);  // what Expand does on a wider window: the design area is 320 x 180 from the left
+    g.renderer.set_target_size(640,
+                               180);  // what Expand does on a wider window: the design area is 320 x 180 from the left
     cam.viewportSpace = ViewportSpace::Screen;
     Image screen = g.render(w);
     cam.viewportSpace = ViewportSpace::Design;
@@ -241,7 +243,7 @@ TEST_CASE("camera: viewportSpace design counts the fractions on the design area,
     g.renderer.set_target_size(320, 180);
 
     REQUIRE(screen.width == 640);
-    CHECK(near(screen.pixel(160, 90), Color{1, 0, 0, 1}));   // the left half of 640 px: centre at x = 160
-    CHECK(near(design.pixel(80, 90), Color{1, 0, 0, 1}));    // the left half of the 320 px design area: centre at x = 80
+    CHECK(near(screen.pixel(160, 90), Color{1, 0, 0, 1}));  // the left half of 640 px: centre at x = 160
+    CHECK(near(design.pixel(80, 90), Color{1, 0, 0, 1}));   // the left half of the 320 px design area: centre at x = 80
     CHECK(near(design.pixel(160, 90), kClear));
 }

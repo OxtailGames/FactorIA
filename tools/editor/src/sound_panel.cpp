@@ -23,7 +23,7 @@ namespace {
 constexpr float kWaveH = 150.0f;
 constexpr float kSpecH = 110.0f;
 constexpr float kRulerH = 14.0f;
-constexpr float kGrab = 6.0f;   // pixels around a loop marker that grab it
+constexpr float kGrab = 6.0f;  // pixels around a loop marker that grab it
 
 const ImVec4 kBad(1.0f, 0.55f, 0.45f, 1);
 const ImVec4 kWarn(1.0f, 0.8f, 0.4f, 1);
@@ -47,7 +47,8 @@ bool knob(const char* id, double& value, double lo, double hi, float size) {
     ImGui::InvisibleButton(id, ImVec2(size, size));
     bool changed = false;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-        const double delta = -double(ImGui::GetIO().MouseDelta.y) * (hi - lo) / (ImGui::GetIO().KeyShift ? 1200.0 : 150.0);
+        const double delta =
+            -double(ImGui::GetIO().MouseDelta.y) * (hi - lo) / (ImGui::GetIO().KeyShift ? 1200.0 : 150.0);
         const double v = std::clamp(value + delta, lo, hi);
         changed = v != value;
         value = v;
@@ -69,7 +70,8 @@ bool knob(const char* id, double& value, double lo, double hi, float size) {
     dl->PathArcTo(c, r - 3.0f, std::min(mid, a), std::max(mid, a), 24);
     dl->PathStroke(IM_COL32(110, 170, 255, 255), 0, 3.0f);
     dl->AddLine(ImVec2(c.x + std::cos(a) * (r * 0.35f), c.y + std::sin(a) * (r * 0.35f)),
-                ImVec2(c.x + std::cos(a) * (r - 2.0f), c.y + std::sin(a) * (r - 2.0f)), IM_COL32(240, 240, 245, 255), 2.0f);
+                ImVec2(c.x + std::cos(a) * (r - 2.0f), c.y + std::sin(a) * (r - 2.0f)), IM_COL32(240, 240, 245, 255),
+                2.0f);
     return changed;
 }
 
@@ -84,7 +86,9 @@ SoundModel& Editor::sound_ensure_model() {
             return r;
         });
     }
-    if (!sound_.player) sound_.player = std::make_unique<SoundPlayer>(&engine_->audio(), [this] { return play_ == PlayState::Playing; });
+    if (!sound_.player)
+        sound_.player =
+            std::make_unique<SoundPlayer>(&engine_->audio(), [this] { return play_ == PlayState::Playing; });
     return *sound_.model;
 }
 
@@ -131,7 +135,8 @@ void Editor::sound_save() {
     }
     u.model->set_overwrite_on_save(u.overwriteBaked);
     const SoundEditOutcome out = u.model->save();
-    if (!out.ok) notify(out.error, 2);
+    if (!out.ok)
+        notify(out.error, 2);
     else {
         u.model->set_status("Baked " + u.model->baked_path());
         project_files_changed();
@@ -212,13 +217,15 @@ void Editor::draw_sound_panel() {
     draw_sound_toolbar(m);
     if (!m.is_open()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Open a sound patch (*.sfx.json), an audio document (*.audio.json) or a sound file (.wav, .ogg) from the list above,");
+        ImGui::TextDisabled("Open a sound patch (*.sfx.json), an audio document (*.audio.json) or a sound file (.wav, "
+                            ".ogg) from the list above,");
         ImGui::TextDisabled("or double click one in the Project panel.");
         if (!u.openError.empty()) ImGui::TextColored(kBad, "%s", u.openError.c_str());
         ImGui::End();
         return;
     }
-    if (uiFrame_ - u.lastPoll >= 20 && !m.macro_previewing() && !m.field_previewing() && !m.loop_previewing() && u.drag == SoundUi::Drag::None) {
+    if (uiFrame_ - u.lastPoll >= 20 && !m.macro_previewing() && !m.field_previewing() && !m.loop_previewing() &&
+        u.drag == SoundUi::Drag::None) {
         u.lastPoll = uiFrame_;
         if (m.poll_external()) m.set_status("The file changed on disk and was read again.");
     }
@@ -247,7 +254,8 @@ void Editor::draw_sound_panel() {
         draw_sound_chain(m);
     } else {
         ImGui::TextWrapped("This is a plain sound file: it can be played and measured here, not edited.");
-        ImGui::TextDisabled("An audio document keeps the original and lists the steps (trim, normalize, loop, ...) that make the sound the game plays.");
+        ImGui::TextDisabled("An audio document keeps the original and lists the steps (trim, normalize, loop, ...) "
+                            "that make the sound the game plays.");
         ImGui::BeginDisabled(play_ != PlayState::Edit);
         if (ImGui::Button("Make an audio document from this")) {
             const SoundEditOutcome out = m.make_document();
@@ -260,7 +268,8 @@ void Editor::draw_sound_panel() {
         at_track("snd:make_doc");
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("audio.create: writes <name>.audio.json with this file as its source. The document's sound goes to <name>_edit.wav, so the original is never overwritten.");
+            ImGui::SetTooltip("audio.create: writes <name>.audio.json with this file as its source. The document's "
+                              "sound goes to <name>_edit.wav, so the original is never overwritten.");
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -279,7 +288,9 @@ void Editor::draw_sound_toolbar(SoundModel& m) {
     const bool editable = play_ == PlayState::Edit;
     std::vector<std::string> files;
     for (const BrowserFile& f : projBrowser_.listing.files)
-        if (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") || ends_with(f.path, ".ogg")) files.push_back(f.path);
+        if (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") ||
+            ends_with(f.path, ".ogg"))
+            files.push_back(f.path);
     std::sort(files.begin(), files.end());
     ImGui::SetNextItemWidth(320);
     if (ImGui::BeginCombo("##sndfile", m.is_open() ? m.title().c_str() : "Open a sound...")) {
@@ -291,7 +302,9 @@ void Editor::draw_sound_toolbar(SoundModel& m) {
         ImGui::EndCombo();
     }
     at_track("snd:open");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The sound patches (*.sfx.json), audio documents (*.audio.json) and sound files of the project. A double click in the Project panel opens one too.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The sound patches (*.sfx.json), audio documents (*.audio.json) and sound files of the "
+                          "project. A double click in the Project panel opens one too.");
     if (!m.is_open()) return;
     ImGui::SameLine();
     ImGui::BeginDisabled(!editable || !m.editable() || !m.valid());
@@ -299,12 +312,16 @@ void Editor::draw_sound_toolbar(SoundModel& m) {
     at_track("snd:save");
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Writes the sound next to the patch (sfx.render, with the variants when it declares some) or the document's output (audio.bake). Ctrl+S while this panel has the keyboard.\n"
-                          "Every edit is already written to the file; baking is what changes the sound the game plays.");
+        ImGui::SetTooltip(
+            "Writes the sound next to the patch (sfx.render, with the variants when it declares some) or the "
+            "document's output (audio.bake). Ctrl+S while this panel has the keyboard.\n"
+            "Every edit is already written to the file; baking is what changes the sound the game plays.");
     ImGui::SameLine();
     ImGui::Checkbox("Replace foreign file", &u.overwriteBaked);
     at_track("snd:overwrite");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bake over a sound file that nothing of ours made (no recipe in assets.json). Off: the bake stops with a message instead.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Bake over a sound file that nothing of ours made (no recipe in assets.json). Off: the bake "
+                          "stops with a message instead.");
     ImGui::SameLine();
     if (ImGui::Button("Reload")) m.reload();
     at_track("snd:reload");
@@ -342,7 +359,7 @@ void Editor::sound_play_clip(SoundRenderPtr clip, double gainDb, int heard, cons
         }
     }
     if (u.player->playing() && u.heard != 0 && heard != 3 && u.heard != heard) {
-        u.player->switch_to(clip, gainDb, name);   // A/B: the same place of the other sound
+        u.player->switch_to(clip, gainDb, name);  // A/B: the same place of the other sound
     } else if (!u.player->play(req)) {
         notify("The sound could not be played.", 1);
         return;
@@ -376,7 +393,8 @@ void Editor::sound_play_slot(int which) {
     if (u.levelMatch) {
         SoundRenderPtr other = u.model->slot(o);
         if (other) {
-            const auto g = which == 1 ? sound_level_match(clip->lufs, other->lufs) : sound_level_match(other->lufs, clip->lufs);
+            const auto g =
+                which == 1 ? sound_level_match(clip->lufs, other->lufs) : sound_level_match(other->lufs, clip->lufs);
             gain = which == 1 ? g.first : g.second;
         }
     }
@@ -388,17 +406,22 @@ void Editor::draw_sound_transport(SoundModel& m) {
     const bool playing = u.player->playing();
     if (ImGui::Button(playing ? "Stop" : "Play", ImVec2(60, 0))) sound_toggle_play();
     at_track("snd:play");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Plays the sound (the selection when there is one). Space while this panel has the keyboard.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Plays the sound (the selection when there is one). Space while this panel has the keyboard.");
     ImGui::SameLine();
     ImGui::Checkbox("Loop", &u.loopPlay);
     at_track("snd:loop");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Wraps at the end of the region. A sound with loop points plays its intro once and then wraps between the loop points.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Wraps at the end of the region. A sound with loop points plays its intro once and then "
+                          "wraps between the loop points.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!u.hasSelection);
     ImGui::Checkbox("Selection", &u.playSelection);
     at_track("snd:play_selection");
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Play only the selected part (drag on the waveform to select).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Play only the selected part (drag on the waveform to select).");
     ImGui::SameLine(0, 18);
     SoundRenderPtr r = m.current();
     const double pos = playing ? u.player->position() : u.cursor;
@@ -409,7 +432,8 @@ void Editor::draw_sound_transport(SoundModel& m) {
     ImGui::Dummy(ImVec2(0, 0));
     if (u.hasSelection) {
         ImGui::SameLine();
-        ImGui::TextDisabled("  selection %s - %s", seconds_text(std::min(u.sel0, u.sel1)).c_str(), seconds_text(std::max(u.sel0, u.sel1)).c_str());
+        ImGui::TextDisabled("  selection %s - %s", seconds_text(std::min(u.sel0, u.sel1)).c_str(),
+                            seconds_text(std::max(u.sel0, u.sel1)).c_str());
     }
     ImGui::SameLine(0, 18);
     if (ImGui::Button("-")) {
@@ -449,8 +473,10 @@ void Editor::draw_sound_wave(SoundModel& m) {
     const float w = std::max(60.0f, ImGui::GetContentRegionAvail().x);
     if (!r) {
         ImGui::Dummy(ImVec2(w, kWaveH));
-        if (!m.render_error().empty()) ImGui::TextColored(kBad, "%s", m.render_error().c_str());
-        else ImGui::TextDisabled("Rendering the sound...");
+        if (!m.render_error().empty())
+            ImGui::TextColored(kBad, "%s", m.render_error().c_str());
+        else
+            ImGui::TextDisabled("Rendering the sound...");
         return;
     }
     const double dur = std::max(1e-3, r->seconds);
@@ -465,9 +491,11 @@ void Editor::draw_sound_wave(SoundModel& m) {
     u.viewLen = std::clamp(u.viewLen, std::min(0.002, dur), dur);
     u.viewStart = std::clamp(u.viewStart, 0.0, std::max(0.0, dur - u.viewLen));
 
-    if (!m.render_error().empty()) ImGui::TextColored(kBad, "%s (the picture shows the last good render)", m.render_error().c_str());
+    if (!m.render_error().empty())
+        ImGui::TextColored(kBad, "%s (the picture shows the last good render)", m.render_error().c_str());
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    ImGui::InvisibleButton("##wave", ImVec2(w, kWaveH), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+    ImGui::InvisibleButton("##wave", ImVec2(w, kWaveH),
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
     at_track("snd:wave");
     const bool hovered = ImGui::IsItemHovered();
     u.waveX = p0.x;
@@ -512,21 +540,15 @@ void Editor::draw_sound_wave(SoundModel& m) {
     if (ImGui::IsItemActive()) {
         const double t = std::clamp(time_at(io.MousePos.x), 0.0, dur);
         switch (u.drag) {
-        case SoundUi::Drag::Pan:
-            u.viewStart += u.panAnchor - time_at(io.MousePos.x);
-            break;
-        case SoundUi::Drag::Select:
-            u.sel0 = std::min(u.dragAnchor, t);
-            u.sel1 = std::max(u.dragAnchor, t);
-            u.hasSelection = (u.sel1 - u.sel0) > 3.0 * secPerPx;
-            break;
-        case SoundUi::Drag::LoopStart:
-            m.preview_loop(std::min(t, loop->second - 0.001), loop->second);
-            break;
-        case SoundUi::Drag::LoopEnd:
-            m.preview_loop(loop->first, std::max(t, loop->first + 0.001));
-            break;
-        case SoundUi::Drag::None: break;
+            case SoundUi::Drag::Pan: u.viewStart += u.panAnchor - time_at(io.MousePos.x); break;
+            case SoundUi::Drag::Select:
+                u.sel0 = std::min(u.dragAnchor, t);
+                u.sel1 = std::max(u.dragAnchor, t);
+                u.hasSelection = (u.sel1 - u.sel0) > 3.0 * secPerPx;
+                break;
+            case SoundUi::Drag::LoopStart: m.preview_loop(std::min(t, loop->second - 0.001), loop->second); break;
+            case SoundUi::Drag::LoopEnd: m.preview_loop(loop->first, std::max(t, loop->first + 0.001)); break;
+            case SoundUi::Drag::None: break;
         }
         if (dragLoop && u.player->playing()) {
             if (auto lp = m.loop_seconds()) u.player->set_loop(lp->first, lp->second);
@@ -598,21 +620,24 @@ void Editor::draw_sound_wave(SoundModel& m) {
         }
     };
     if (SoundRenderPtr ghost = m.loop_ghost()) draw_wave(*ghost, IM_COL32(90, 96, 112, 160));
-    draw_wave(*r, (m.macro_previewing() || m.field_previewing()) ? IM_COL32(150, 200, 255, 255) : IM_COL32(110, 200, 150, 255));
+    draw_wave(*r, (m.macro_previewing() || m.field_previewing()) ? IM_COL32(150, 200, 255, 255)
+                                                                 : IM_COL32(110, 200, 150, 255));
     if (loop) {
         const float xs = x_at(loop->first), xe = x_at(loop->second);
         const ImU32 col = editLoop ? IM_COL32(255, 190, 70, 255) : IM_COL32(190, 150, 80, 200);
         dl->AddRectFilled(ImVec2(xs, p0.y + kRulerH), ImVec2(xe, p1.y), IM_COL32(255, 190, 70, 22));
         for (float x : {xs, xe}) {
             dl->AddLine(ImVec2(x, p0.y + kRulerH), ImVec2(x, p1.y), col, 2.0f);
-            dl->AddTriangleFilled(ImVec2(x - 5, p0.y + kRulerH), ImVec2(x + 5, p0.y + kRulerH), ImVec2(x, p0.y + kRulerH + 8), col);
+            dl->AddTriangleFilled(ImVec2(x - 5, p0.y + kRulerH), ImVec2(x + 5, p0.y + kRulerH),
+                                  ImVec2(x, p0.y + kRulerH + 8), col);
         }
         if (editLoop) {
             // the autotest finds the markers by these two points
             at_track_at("snd:loop_start", Vec2{std::clamp(xs, p0.x + 3, p1.x - 3), p0.y + kRulerH + 6});
             at_track_at("snd:loop_end", Vec2{std::clamp(xe, p0.x + 3, p1.x - 3), p0.y + kRulerH + 6});
         }
-        if (hovered && editLoop && (std::abs(io.MousePos.x - xs) <= kGrab || std::abs(io.MousePos.x - xe) <= kGrab)) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (hovered && editLoop && (std::abs(io.MousePos.x - xs) <= kGrab || std::abs(io.MousePos.x - xe) <= kGrab))
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
     }
     if (u.heard != 0 || u.player->playing()) {
         const float x = x_at(u.player->position());
@@ -622,8 +647,9 @@ void Editor::draw_sound_wave(SoundModel& m) {
         dl->AddLine(ImVec2(x, p0.y + kRulerH), ImVec2(x, p1.y), IM_COL32(255, 255, 255, 90));
     }
     dl->PopClipRect();
-    if (hovered) ImGui::SetTooltip("Drag: select. Click: place the play cursor. Wheel: zoom. Shift+drag or middle drag: pan.%s",
-                                   editLoop ? "\nDrag the orange loop markers to move the loop points." : "");
+    if (hovered)
+        ImGui::SetTooltip("Drag: select. Click: place the play cursor. Wheel: zoom. Shift+drag or middle drag: pan.%s",
+                          editLoop ? "\nDrag the orange loop markers to move the loop points." : "");
     if (u.showSpectrogram) draw_sound_spectrogram(*r);
 }
 
@@ -650,7 +676,9 @@ void Editor::draw_sound_spectrogram(const SoundRender& r) {
     dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 255));
     const double dur = std::max(1e-3, r.seconds);
     const float u0 = float(u.viewStart / dur), u1 = float((u.viewStart + u.viewLen) / dur);
-    if (u.specView) dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.specView, true))), p0, p1, ImVec2(u0, 0), ImVec2(u1, 1));
+    if (u.specView)
+        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.specView, true))), p0, p1, ImVec2(u0, 0),
+                     ImVec2(u1, 1));
     for (double hz : {100.0, 1000.0, 10000.0}) {
         if (hz <= s.minHz || hz >= s.maxHz) continue;
         const float y = p0.y + float(std::log(s.maxHz / hz) / std::log(s.maxHz / s.minHz)) * kSpecH;
@@ -660,14 +688,16 @@ void Editor::draw_sound_spectrogram(const SoundRender& r) {
     }
     if (u.hasSelection) {
         const double secPerPx = u.viewLen / double(w);
-        dl->AddRectFilled(ImVec2(p0.x + float((u.sel0 - u.viewStart) / secPerPx), p0.y), ImVec2(p0.x + float((u.sel1 - u.viewStart) / secPerPx), p1.y),
-                          IM_COL32(80, 130, 220, 50));
+        dl->AddRectFilled(ImVec2(p0.x + float((u.sel0 - u.viewStart) / secPerPx), p0.y),
+                          ImVec2(p0.x + float((u.sel1 - u.viewStart) / secPerPx), p1.y), IM_COL32(80, 130, 220, 50));
     }
     if (u.player->playing()) {
         const float x = p0.x + float((u.player->position() - u.viewStart) / (u.viewLen / double(w)));
         dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p1.y), IM_COL32(255, 255, 255, 230), 1.5f);
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Spectrogram of the whole sound at the same time axis (frequency on a log scale, 20 Hz at the bottom, 20 kHz at the top; brighter is louder).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Spectrogram of the whole sound at the same time axis (frequency on a log scale, 20 Hz at "
+                          "the bottom, 20 kHz at the top; brighter is louder).");
 }
 
 void Editor::draw_sound_measures(SoundModel& m) {
@@ -683,8 +713,10 @@ void Editor::draw_sound_measures(SoundModel& m) {
     ImGui::SameLine(0, 14);
     ImGui::TextDisabled("true peak");
     ImGui::SameLine();
-    if (r->view.truePeakDb > -1.0) ImGui::TextColored(kWarn, "%.1f dB", r->view.truePeakDb);
-    else ImGui::Text("%.1f dB", r->view.truePeakDb);
+    if (r->view.truePeakDb > -1.0)
+        ImGui::TextColored(kWarn, "%.1f dB", r->view.truePeakDb);
+    else
+        ImGui::Text("%.1f dB", r->view.truePeakDb);
     ImGui::SameLine(0, 14);
     ImGui::TextDisabled("length");
     ImGui::SameLine();
@@ -705,8 +737,10 @@ void Editor::draw_sound_measures(SoundModel& m) {
         ImGui::SameLine(0, 14);
         ImGui::TextDisabled("loop seam");
         ImGui::SameLine();
-        if (r->view.seamJumpRatio > 8.0) ImGui::TextColored(kWarn, "%.1fx (click)", r->view.seamJumpRatio);
-        else ImGui::Text("%.1fx", r->view.seamJumpRatio);
+        if (r->view.seamJumpRatio > 8.0)
+            ImGui::TextColored(kWarn, "%.1fx (click)", r->view.seamJumpRatio);
+        else
+            ImGui::Text("%.1fx", r->view.seamJumpRatio);
     }
     if (r->truncated) {
         ImGui::SameLine(0, 14);
@@ -733,8 +767,9 @@ void Editor::draw_sound_macros(SoundModel& m) {
         at_track("snd:knob:" + k.name, editable);
         if (ImGui::IsItemDeactivated() && m.macro_previewing()) sound_edited(m.commit_macros("Turn " + k.name));
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s\nDrag up and down (Shift: fine), double click for 0. -1 to 1; 0 leaves the patch as written.%s", k.what.c_str(),
-                              k.builtin ? "" : "\n(a macro of this patch)");
+            ImGui::SetTooltip(
+                "%s\nDrag up and down (Shift: fine), double click for 0. -1 to 1; 0 leaves the patch as written.%s",
+                k.what.c_str(), k.builtin ? "" : "\n(a macro of this patch)");
         ImGui::Text("%s", k.name.c_str());
         ImGui::TextDisabled("%+.2f", k.shown);
         ImGui::PopID();
@@ -749,9 +784,12 @@ namespace {
 std::string item_label(const Json& item, std::size_t i) {
     std::string out = "#" + std::to_string(i + 1);
     if (item.is_object()) {
-        if (item.contains("name") && item["name"].is_string()) out += " " + item["name"].get<std::string>();
-        else if (item.contains("type") && item["type"].is_string()) out += " " + item["type"].get<std::string>();
-        else if (item.contains("wave") && item["wave"].is_string()) out += " " + item["wave"].get<std::string>();
+        if (item.contains("name") && item["name"].is_string())
+            out += " " + item["name"].get<std::string>();
+        else if (item.contains("type") && item["type"].is_string())
+            out += " " + item["type"].get<std::string>();
+        else if (item.contains("wave") && item["wave"].is_string())
+            out += " " + item["wave"].get<std::string>();
     }
     return out;
 }
@@ -771,13 +809,16 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
         auto tip = [&] {
             if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
             std::string t = f.doc;
-            if (f.min && f.max) t += std::format("\n({} to {}{})", *f.min, *f.max, f.def ? ", default " + f.def->dump() : "");
-            else if (f.def) t += "\n(default " + f.def->dump() + ")";
+            if (f.min && f.max)
+                t += std::format("\n({} to {}{})", *f.min, *f.max, f.def ? ", default " + f.def->dump() : "");
+            else if (f.def)
+                t += "\n(default " + f.def->dump() + ")";
             if (!t.empty()) ImGui::SetTooltip("%s", t.c_str());
         };
         if (f.kind == "number" || f.kind == "integer") {
             const bool integer = f.kind == "integer";
-            double v = f.value.is_number() ? f.value.get<double>() : (f.def && f.def->is_number() ? f.def->get<double>() : f.min.value_or(0.0));
+            double v = f.value.is_number() ? f.value.get<double>()
+                                           : (f.def && f.def->is_number() ? f.def->get<double>() : f.min.value_or(0.0));
             bool changed = false;
             ImGui::SetNextItemWidth(width);
             if (f.min && f.max) {
@@ -794,26 +835,34 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
                 }
             } else {
                 double lo = f.min.value_or(-1e9), hi = f.max.value_or(1e9);
-                changed = ImGui::DragScalar(f.key.c_str(), ImGuiDataType_Double, &v, integer ? 1.0f : std::max(0.001f, float(std::abs(v)) * 0.01f), &lo, &hi, integer ? "%.0f" : "%.4g");
+                changed = ImGui::DragScalar(f.key.c_str(), ImGuiDataType_Double, &v,
+                                            integer ? 1.0f : std::max(0.001f, float(std::abs(v)) * 0.01f), &lo, &hi,
+                                            integer ? "%.0f" : "%.4g");
             }
             at_track(tag, editable);
             tip();
             if (changed) {
-                if (integer) m.preview_field(f.pointer, Json(static_cast<long long>(std::llround(v))));
-                else m.preview_field(f.pointer, Json(f.min && f.max ? sound_round_to_step(v, *f.min, *f.max) : v));
+                if (integer)
+                    m.preview_field(f.pointer, Json(static_cast<long long>(std::llround(v))));
+                else
+                    m.preview_field(f.pointer, Json(f.min && f.max ? sound_round_to_step(v, *f.min, *f.max) : v));
             }
             if (ImGui::IsItemDeactivated() && m.field_previewing()) sound_edited(m.commit_field("Set " + f.key));
         } else if (f.kind == "boolean") {
-            bool b = f.value.is_boolean() ? f.value.get<bool>() : (f.def && f.def->is_boolean() ? f.def->get<bool>() : false);
+            bool b = f.value.is_boolean() ? f.value.get<bool>()
+                                          : (f.def && f.def->is_boolean() ? f.def->get<bool>() : false);
             if (ImGui::Checkbox(f.key.c_str(), &b)) sound_edited(m.set_field(f.pointer, Json(b), "Set " + f.key));
             at_track(tag, editable);
             tip();
         } else if (f.kind == "enum") {
-            std::string cur = f.value.is_string() ? f.value.get<std::string>() : (f.def && f.def->is_string() ? f.def->get<std::string>() : std::string());
+            std::string cur = f.value.is_string()
+                                  ? f.value.get<std::string>()
+                                  : (f.def && f.def->is_string() ? f.def->get<std::string>() : std::string());
             ImGui::SetNextItemWidth(width);
             if (ImGui::BeginCombo(f.key.c_str(), cur.empty() ? "(unset)" : cur.c_str())) {
                 for (const std::string& c : f.choices) {
-                    if (ImGui::Selectable(c.c_str(), c == cur)) sound_edited(m.set_field(f.pointer, Json(c), "Set " + f.key));
+                    if (ImGui::Selectable(c.c_str(), c == cur))
+                        sound_edited(m.set_field(f.pointer, Json(c), "Set " + f.key));
                     at_track(tag + ":" + c, editable);
                 }
                 ImGui::EndCombo();
@@ -823,13 +872,15 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
         } else if (f.kind == "object") {
             ImGui::SetNextItemOpen(top || f.present, ImGuiCond_Appearing);
             if (!f.present) {
-                if (ImGui::SmallButton("+")) sound_edited(m.set_field(f.pointer, sfx_new_value(patch, f.pointer), "Add " + f.key));
+                if (ImGui::SmallButton("+"))
+                    sound_edited(m.set_field(f.pointer, sfx_new_value(patch, f.pointer), "Add " + f.key));
                 at_track(tag + ":add", editable);
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s", f.key.c_str());
                 tip();
             } else {
-                const bool open = ImGui::TreeNodeEx(f.key.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+                const bool open = ImGui::TreeNodeEx(f.key.c_str(),
+                                                    ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
                 at_track(tag, editable);
                 tip();
                 if (!f.required) {
@@ -851,7 +902,9 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
             const SoundArrayInfo info = sfx_array_info(patch, f.pointer);
             const bool objects = info.known && info.itemKind == "object";
             if (objects) {
-                const bool open = ImGui::TreeNodeEx(f.key.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%zu)", f.key.c_str(), f.value.size());
+                const bool open =
+                    ImGui::TreeNodeEx(f.key.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
+                                      "%s (%zu)", f.key.c_str(), f.value.size());
                 at_track(tag, editable);
                 tip();
                 if (open) {
@@ -859,8 +912,9 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
                     for (int i = 0; i < count; ++i) {
                         const std::string ip = f.pointer + "/" + std::to_string(i);
                         ImGui::PushID(i);
-                        const bool itemOpen = ImGui::TreeNodeEx("##item", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s",
-                                                                item_label(f.value[std::size_t(i)], std::size_t(i)).c_str());
+                        const bool itemOpen = ImGui::TreeNodeEx(
+                            "##item", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s",
+                            item_label(f.value[std::size_t(i)], std::size_t(i)).c_str());
                         at_track(tag + "/" + std::to_string(i), editable);
                         ImGui::SameLine();
                         ImGui::BeginDisabled(i == 0);
@@ -907,14 +961,21 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
                         if (ImGui::BeginCombo("##addfx", "Add effect...")) {
                             for (const std::string& t : sfx_effect_types()) {
                                 if (ImGui::Selectable(t.c_str()))
-                                    sound_edited(m.add_item(f.pointer, sfx_new_value(patch, f.pointer + "/" + std::to_string(count), t), -1, "Add " + t));
+                                    sound_edited(m.add_item(
+                                        f.pointer, sfx_new_value(patch, f.pointer + "/" + std::to_string(count), t), -1,
+                                        "Add " + t));
                                 at_track(tag + ":add:" + t, editable);
                             }
                             ImGui::EndCombo();
                         }
                         at_track(tag + ":add", editable);
-                    } else if (ImGui::SmallButton(("+ " + f.key.substr(0, f.key.size() > 1 && f.key.back() == 's' ? f.key.size() - 1 : f.key.size())).c_str())) {
-                        sound_edited(m.add_item(f.pointer, sfx_new_value(patch, f.pointer + "/" + std::to_string(count)), -1, "Add " + f.key));
+                    } else if (ImGui::SmallButton(
+                                   ("+ " + f.key.substr(0, f.key.size() > 1 && f.key.back() == 's' ? f.key.size() - 1
+                                                                                                   : f.key.size()))
+                                       .c_str())) {
+                        sound_edited(m.add_item(f.pointer,
+                                                sfx_new_value(patch, f.pointer + "/" + std::to_string(count)), -1,
+                                                "Add " + f.key));
                     }
                     if (f.key != "effects") at_track(tag + ":add", editable);
                     ImGui::EndDisabled();
@@ -936,12 +997,16 @@ void Editor::draw_sound_fields(SoundModel& m, const std::string& pointer, bool t
 void Editor::draw_sound_json_field(SoundModel& m, const SoundField& f, float width) {
     SoundUi& u = sound_;
     const bool isString = f.kind == "string";
-    const std::string shown = f.present ? (isString && f.value.is_string() ? f.value.get<std::string>() : f.value.dump()) : (f.def ? (isString && f.def->is_string() ? f.def->get<std::string>() : f.def->dump()) : std::string());
+    const std::string shown =
+        f.present
+            ? (isString && f.value.is_string() ? f.value.get<std::string>() : f.value.dump())
+            : (f.def ? (isString && f.def->is_string() ? f.def->get<std::string>() : f.def->dump()) : std::string());
     std::string buf = u.textKey == f.pointer ? u.text : shown;
     ImGui::SetNextItemWidth(width);
     const bool changed = ImGui::InputText(f.key.c_str(), &buf);
     at_track("snd:field:" + f.pointer, play_ == PlayState::Edit);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !f.doc.empty()) ImGui::SetTooltip("%s", f.doc.c_str());
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !f.doc.empty())
+        ImGui::SetTooltip("%s", f.doc.c_str());
     auto parsed = [&](const std::string& text, Json& out) {
         if (isString) {
             out = text;
@@ -961,7 +1026,8 @@ void Editor::draw_sound_json_field(SoundModel& m, const SoundField& f, float wid
     if (ImGui::IsItemDeactivated()) {
         if (u.textKey == f.pointer) {
             Json v;
-            if (m.field_previewing() && parsed(u.text, v)) sound_edited(m.commit_field("Set " + f.key));
+            if (m.field_previewing() && parsed(u.text, v))
+                sound_edited(m.commit_field("Set " + f.key));
             else {
                 m.cancel_field_preview();
                 if (!isString) notify(f.key + ": that is not valid JSON.", 1);
@@ -979,7 +1045,8 @@ void Editor::draw_sound_chain(SoundModel& m) {
     ImGui::SeparatorText("Document");
     ImGui::BeginDisabled(!editable);
     {
-        const std::string source = doc.value("source", Json("")).is_string() ? doc.value("source", std::string()) : std::string("(see the file)");
+        const std::string source = doc.value("source", Json("")).is_string() ? doc.value("source", std::string())
+                                                                             : std::string("(see the file)");
         std::string buf = u.textKey == "doc:source" ? u.text : source;
         ImGui::SetNextItemWidth(std::max(160.0f, ImGui::GetContentRegionAvail().x * 0.6f));
         if (ImGui::InputText("source", &buf)) {
@@ -987,25 +1054,33 @@ void Editor::draw_sound_chain(SoundModel& m) {
             u.text = buf;
         }
         at_track("snd:doc:source", editable);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("The sound the chain starts from: a sound file, a sound patch (*.sfx.json) or another audio document.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "The sound the chain starts from: a sound file, a sound patch (*.sfx.json) or another audio document.");
         if (ImGui::IsItemDeactivatedAfterEdit() && u.textKey == "doc:source") {
             sound_edited(m.set_document(Json::object({{"source", u.text}})));
             u.textKey.clear();
         }
-        const std::string fmt = doc.contains("output") && doc["output"].is_object() ? doc["output"].value("format", std::string("wav")) : std::string("wav");
+        const std::string fmt = doc.contains("output") && doc["output"].is_object()
+                                    ? doc["output"].value("format", std::string("wav"))
+                                    : std::string("wav");
         ImGui::SetNextItemWidth(90);
         if (ImGui::BeginCombo("format", fmt.c_str())) {
             for (const char* f : {"wav", "ogg"})
-                if (ImGui::Selectable(f, fmt == f)) sound_edited(m.set_document(Json::object({{"output", Json::object({{"format", f}})}})));
+                if (ImGui::Selectable(f, fmt == f))
+                    sound_edited(m.set_document(Json::object({{"output", Json::object({{"format", f}})}})));
             ImGui::EndCombo();
         }
         at_track("snd:doc:format", editable);
         ImGui::SameLine();
-        const std::string chans = doc.contains("output") && doc["output"].is_object() ? doc["output"].value("channels", std::string("source")) : std::string("source");
+        const std::string chans = doc.contains("output") && doc["output"].is_object()
+                                      ? doc["output"].value("channels", std::string("source"))
+                                      : std::string("source");
         ImGui::SetNextItemWidth(90);
         if (ImGui::BeginCombo("channels", chans.c_str())) {
             for (const char* f : {"source", "mono"})
-                if (ImGui::Selectable(f, chans == f)) sound_edited(m.set_document(Json::object({{"output", Json::object({{"channels", f}})}})));
+                if (ImGui::Selectable(f, chans == f))
+                    sound_edited(m.set_document(Json::object({{"output", Json::object({{"channels", f}})}})));
             ImGui::EndCombo();
         }
         at_track("snd:doc:channels", editable);
@@ -1019,12 +1094,15 @@ void Editor::draw_sound_chain(SoundModel& m) {
         bool en = s.enabled;
         if (ImGui::Checkbox("##en", &en)) sound_edited(m.set_step_enabled(i, en));
         at_track("snd:step:" + std::to_string(i) + ":enable", editable);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Skip this step without deleting it.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Skip this step without deleting it.");
         ImGui::SameLine();
         const bool open = u.openStep == i;
         std::string label = std::format("{}. {}", i + 1, s.type);
         if (s.reported) label += std::format("   {:.2f} s, peak {:.1f} dB", s.seconds, s.peakDb);
-        if (ImGui::Selectable(label.c_str(), open, 0, ImVec2(std::max(60.0f, ImGui::GetContentRegionAvail().x - 120.0f), 0))) u.openStep = open ? -1 : i;
+        if (ImGui::Selectable(label.c_str(), open, 0,
+                              ImVec2(std::max(60.0f, ImGui::GetContentRegionAvail().x - 120.0f), 0)))
+            u.openStep = open ? -1 : i;
         at_track("snd:step:" + std::to_string(i), true);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             for (const AudioStepInfo& info : audio_step_types())
@@ -1042,7 +1120,9 @@ void Editor::draw_sound_chain(SoundModel& m) {
         ImGui::SameLine();
         const bool hear = ImGui::SmallButton("Hear");
         at_track("snd:step:" + std::to_string(i) + ":hear", true);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Render and play the chain only up to this step (click again on the last step to hear it all).");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Render and play the chain only up to this step (click again on the last step to hear it all).");
         ImGui::SameLine();
         const bool remove = ImGui::SmallButton("x");
         at_track("snd:step:" + std::to_string(i) + ":remove", editable);
@@ -1083,7 +1163,9 @@ void Editor::draw_sound_chain(SoundModel& m) {
         if (out.ok) u.openStep = int(m.chain().size()) - 1;
     }
     at_track("snd:step:add", editable);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Adds a step of that type at the end (before a loop step); its fields show when you click it.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "Adds a step of that type at the end (before a loop step); its fields show when you click it.");
     ImGui::EndDisabled();
     if (m.loop_step() >= 0) {
         const auto lp = m.loop_seconds();
@@ -1100,7 +1182,10 @@ void Editor::draw_sound_step_fields(SoundModel& m, const SoundChainStep& s) {
         if (i.type == s.type) info = &i;
     if (!info) return;
     const Json& shownDoc = m.shown_json();
-    const Json step = shownDoc.contains("steps") && shownDoc["steps"].is_array() && std::size_t(s.index) < shownDoc["steps"].size() ? shownDoc["steps"][std::size_t(s.index)] : s.params;
+    const Json step =
+        shownDoc.contains("steps") && shownDoc["steps"].is_array() && std::size_t(s.index) < shownDoc["steps"].size()
+            ? shownDoc["steps"][std::size_t(s.index)]
+            : s.params;
     ImGui::Indent();
     ImGui::BeginDisabled(!editable);
     for (const AudioFieldInfo& f : info->fields) {
@@ -1110,15 +1195,19 @@ void Editor::draw_sound_step_fields(SoundModel& m, const SoundChainStep& s) {
         auto tip = [&] {
             if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
             std::string t = f.doc;
-            if (f.min && f.max) t += std::format("\n({} to {}{})", *f.min, *f.max, f.def ? ", default " + f.def->dump() : "");
-            else if (f.def) t += "\n(default " + f.def->dump() + ")";
+            if (f.min && f.max)
+                t += std::format("\n({} to {}{})", *f.min, *f.max, f.def ? ", default " + f.def->dump() : "");
+            else if (f.def)
+                t += "\n(default " + f.def->dump() + ")";
             ImGui::SetTooltip("%s", t.c_str());
         };
         const float width = std::max(110.0f, ImGui::GetContentRegionAvail().x * 0.5f);
         ImGui::SetNextItemWidth(width);
         if (f.type == "number" || f.type == "integer") {
             const bool integer = f.type == "integer";
-            double v = cur && cur->is_number() ? cur->get<double>() : (f.def && f.def->is_number() ? f.def->get<double>() : f.min.value_or(0.0));
+            double v = cur && cur->is_number()
+                           ? cur->get<double>()
+                           : (f.def && f.def->is_number() ? f.def->get<double>() : f.min.value_or(0.0));
             bool changed;
             if (f.min && f.max) {
                 ImGuiSliderFlags flags = ImGuiSliderFlags_AlwaysClamp;
@@ -1133,22 +1222,32 @@ void Editor::draw_sound_step_fields(SoundModel& m, const SoundChainStep& s) {
                 }
             } else {
                 double lo = f.min.value_or(-1e9), hi = f.max.value_or(1e9);
-                changed = ImGui::DragScalar(f.key.c_str(), ImGuiDataType_Double, &v, integer ? 1.0f : std::max(0.001f, float(std::abs(v)) * 0.01f), &lo, &hi, integer ? "%.0f" : "%.4g");
+                changed = ImGui::DragScalar(f.key.c_str(), ImGuiDataType_Double, &v,
+                                            integer ? 1.0f : std::max(0.001f, float(std::abs(v)) * 0.01f), &lo, &hi,
+                                            integer ? "%.0f" : "%.4g");
             }
             at_track(tag, editable);
             tip();
-            if (changed) m.preview_step(s.index, Json::object({{f.key, integer ? Json(static_cast<long long>(std::llround(v))) : Json(v)}}));
-            if (ImGui::IsItemDeactivated() && m.field_previewing()) sound_edited(m.commit_step("Set " + s.type + " " + f.key));
+            if (changed)
+                m.preview_step(s.index, Json::object({{f.key, integer ? Json(static_cast<long long>(std::llround(v)))
+                                                                      : Json(v)}}));
+            if (ImGui::IsItemDeactivated() && m.field_previewing())
+                sound_edited(m.commit_step("Set " + s.type + " " + f.key));
         } else if (f.type == "boolean") {
-            bool b = cur && cur->is_boolean() ? cur->get<bool>() : (f.def && f.def->is_boolean() ? f.def->get<bool>() : false);
-            if (ImGui::Checkbox(f.key.c_str(), &b)) sound_edited(m.set_step(s.index, Json::object({{f.key, b}}), "Set " + s.type + " " + f.key));
+            bool b = cur && cur->is_boolean() ? cur->get<bool>()
+                                              : (f.def && f.def->is_boolean() ? f.def->get<bool>() : false);
+            if (ImGui::Checkbox(f.key.c_str(), &b))
+                sound_edited(m.set_step(s.index, Json::object({{f.key, b}}), "Set " + s.type + " " + f.key));
             at_track(tag, editable);
             tip();
         } else if (f.type == "string" && !f.choices.empty()) {
-            const std::string c = cur && cur->is_string() ? cur->get<std::string>() : (f.def && f.def->is_string() ? f.def->get<std::string>() : std::string());
+            const std::string c = cur && cur->is_string()
+                                      ? cur->get<std::string>()
+                                      : (f.def && f.def->is_string() ? f.def->get<std::string>() : std::string());
             if (ImGui::BeginCombo(f.key.c_str(), c.empty() ? "(unset)" : c.c_str())) {
                 for (const std::string& ch : f.choices) {
-                    if (ImGui::Selectable(ch.c_str(), ch == c)) sound_edited(m.set_step(s.index, Json::object({{f.key, ch}}), "Set " + s.type + " " + f.key));
+                    if (ImGui::Selectable(ch.c_str(), ch == c))
+                        sound_edited(m.set_step(s.index, Json::object({{f.key, ch}}), "Set " + s.type + " " + f.key));
                     at_track(tag + ":" + ch, editable);
                 }
                 ImGui::EndCombo();
@@ -1158,7 +1257,10 @@ void Editor::draw_sound_step_fields(SoundModel& m, const SoundChainStep& s) {
         } else {
             const bool isText = f.type == "string" || f.type == "path";
             const std::string key = "step:" + std::to_string(s.index) + ":" + f.key;
-            const std::string shown = cur ? (isText && cur->is_string() ? cur->get<std::string>() : cur->dump()) : (f.def ? (isText && f.def->is_string() ? f.def->get<std::string>() : f.def->dump()) : std::string());
+            const std::string shown =
+                cur ? (isText && cur->is_string() ? cur->get<std::string>() : cur->dump())
+                    : (f.def ? (isText && f.def->is_string() ? f.def->get<std::string>() : f.def->dump())
+                             : std::string());
             std::string buf = u.textKey == key ? u.text : shown;
             if (ImGui::InputText(f.key.c_str(), &buf)) {
                 u.textKey = key;
@@ -1177,8 +1279,10 @@ void Editor::draw_sound_step_fields(SoundModel& m, const SoundChainStep& s) {
                     if (ok) v = *j;
                 }
                 if (u.text.empty() && !f.required) v = nullptr;
-                if (ok) sound_edited(m.set_step(s.index, Json::object({{f.key, v}}), "Set " + s.type + " " + f.key));
-                else notify(f.key + ": that is not valid JSON.", 1);
+                if (ok)
+                    sound_edited(m.set_step(s.index, Json::object({{f.key, v}}), "Set " + s.type + " " + f.key));
+                else
+                    notify(f.key + ": that is not valid JSON.", 1);
                 u.textKey.clear();
             } else if (ImGui::IsItemDeactivated() && u.textKey == key) {
                 u.textKey.clear();
@@ -1229,14 +1333,20 @@ void Editor::draw_sound_ab(SoundModel& m) {
     at_track("snd:ab_swap");
     ImGui::Checkbox("Same loudness", &u.levelMatch);
     at_track("snd:level");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Plays the louder of A and B quieter, by the difference of their LUFS, so a louder sound does not win just for being louder. Nothing is boosted, so nothing clips.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plays the louder of A and B quieter, by the difference of their LUFS, so a louder sound "
+                          "does not win just for being louder. Nothing is boosted, so nothing clips.");
     SoundRenderPtr a = m.slot(u.slotA), b = m.slot(u.slotB);
     if (a && b) {
         const auto g = sound_level_match(a->lufs, b->lufs);
-        ImGui::TextDisabled("A %.1f LUFS, peak %.1f dB   |   B %.1f LUFS, peak %.1f dB%s", a->lufs, a->peakDb, b->lufs, b->peakDb,
-                            u.levelMatch ? std::format("   |   A {:+.1f} dB, B {:+.1f} dB", g.first, g.second).c_str() : "");
+        ImGui::TextDisabled(
+            "A %.1f LUFS, peak %.1f dB   |   B %.1f LUFS, peak %.1f dB%s", a->lufs, a->peakDb, b->lufs, b->peakDb,
+            u.levelMatch ? std::format("   |   A {:+.1f} dB, B {:+.1f} dB", g.first, g.second).c_str() : "");
     } else {
-        ImGui::TextDisabled("%s", (!a || !b) ? "Rendering, or there is nothing to compare yet. Edit the sound, then compare it with Before." : "");
+        ImGui::TextDisabled(
+            "%s", (!a || !b)
+                      ? "Rendering, or there is nothing to compare yet. Edit the sound, then compare it with Before."
+                      : "");
     }
 }
 
@@ -1245,11 +1355,13 @@ void Editor::draw_sound_variants(SoundModel& m) {
     const SoundVariantInfo vi = m.variations();
     ImGui::SeparatorText("Variants");
     if (vi.count <= 0) {
-        ImGui::TextDisabled("This patch declares no variations. Add a \"variations\" object (count, seed, spread) in the inspector to make takes of it.");
+        ImGui::TextDisabled("This patch declares no variations. Add a \"variations\" object (count, seed, spread) in "
+                            "the inspector to make takes of it.");
         return;
     }
-    ImGui::TextDisabled("%d variants, seed %llu: pitch +-%.0f cents, length +-%.0f%%, gain +-%.1f dB, filter +-%.2f oct", vi.count, (unsigned long long)vi.seed, vi.pitchCents,
-                        vi.lengthFraction * 100.0, vi.gainDb, vi.filterOctaves);
+    ImGui::TextDisabled(
+        "%d variants, seed %llu: pitch +-%.0f cents, length +-%.0f%%, gain +-%.1f dB, filter +-%.2f oct", vi.count,
+        (unsigned long long)vi.seed, vi.pitchCents, vi.lengthFraction * 100.0, vi.gainDb, vi.filterOctaves);
     for (int n = 1; n <= vi.count; ++n) {
         ImGui::PushID(n);
         if (ImGui::SmallButton("Play")) {
@@ -1293,7 +1405,9 @@ void Editor::draw_sound_presets(SoundModel& m) {
     if (ImGui::Button("Replace patch")) sound_edited(m.apply_preset(u.presetPick));
     at_track("snd:preset:apply", editable && !u.presetPick.empty());
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("sfx.preset over this file: the patch becomes the preset (a starting point). Ctrl+Z brings the old one back.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("sfx.preset over this file: the patch becomes the preset (a starting point). Ctrl+Z brings "
+                          "the old one back.");
     if (ImGui::Button("Make a UI family")) {
         const SoundEditOutcome out = m.make_family("ui");
         sound_edited(out);
@@ -1301,7 +1415,10 @@ void Editor::draw_sound_presets(SoundModel& m) {
     }
     at_track("snd:family", editable);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("sfx.family {preset: \"ui\"}: writes the interface sounds of a game (click, hover, confirm, cancel, error, ...) as patches that share this one's character, into %s. Ctrl+Z removes them.", m.family_dir().c_str());
+        ImGui::SetTooltip(
+            "sfx.family {preset: \"ui\"}: writes the interface sounds of a game (click, hover, confirm, cancel, error, "
+            "...) as patches that share this one's character, into %s. Ctrl+Z removes them.",
+            m.family_dir().c_str());
     ImGui::EndDisabled();
 }
 

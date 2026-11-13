@@ -67,7 +67,9 @@ struct Rig {
     }
 };
 
-struct Px { int r, g, b, a; };
+struct Px {
+    int r, g, b, a;
+};
 Px at(const Image& img, int x, int y) {
     const std::size_t i = (std::size_t(y) * std::size_t(img.width) + std::size_t(x)) * 4;
     return {img.rgba[i], img.rgba[i + 1], img.rgba[i + 2], img.rgba[i + 3]};
@@ -75,7 +77,10 @@ Px at(const Image& img, int x, int y) {
 bool near_color(Px p, int r, int g, int b, int a = 255) {
     return std::abs(p.r - r) <= 3 && std::abs(p.g - g) <= 3 && std::abs(p.b - b) <= 3 && std::abs(p.a - a) <= 3;
 }
-std::string show(Px p) { return "(" + std::to_string(p.r) + "," + std::to_string(p.g) + "," + std::to_string(p.b) + "," + std::to_string(p.a) + ")"; }
+std::string show(Px p) {
+    return "(" + std::to_string(p.r) + "," + std::to_string(p.g) + "," + std::to_string(p.b) + "," +
+           std::to_string(p.a) + ")";
+}
 
 }  // namespace
 

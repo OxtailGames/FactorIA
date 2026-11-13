@@ -44,7 +44,8 @@ long long content_length(std::string_view header, std::string& why) {
         }
         length = n;
     }
-    if (length < 0 && why.empty()) why = "the header has no Content-Length. A message is 'Content-Length: N\\r\\n\\r\\n' + N bytes of JSON";
+    if (length < 0 && why.empty())
+        why = "the header has no Content-Length. A message is 'Content-Length: N\\r\\n\\r\\n' + N bytes of JSON";
     return length;
 }
 
@@ -57,8 +58,9 @@ std::vector<DapFrameReader::Item> DapFrameReader::feed(std::string_view bytes) {
         std::size_t end = buffer_.find("\r\n\r\n");
         if (end == std::string::npos) {
             if (buffer_.size() > kMaxHeader) {  // no end of header in sight: this is not a DAP stream
-                out.push_back({Json(), "no 'Content-Length' header in the first " + std::to_string(buffer_.size()) +
-                                           " bytes; discarding them. Frames are 'Content-Length: N\\r\\n\\r\\n' + JSON"});
+                out.push_back(
+                    {Json(), "no 'Content-Length' header in the first " + std::to_string(buffer_.size()) +
+                                 " bytes; discarding them. Frames are 'Content-Length: N\\r\\n\\r\\n' + JSON"});
                 buffer_.clear();
             }
             break;
@@ -80,9 +82,10 @@ std::vector<DapFrameReader::Item> DapFrameReader::feed(std::string_view bytes) {
         if (buffer_.size() < bodyStart + static_cast<std::size_t>(length)) break;  // the body is still arriving
         const std::string body = buffer_.substr(bodyStart, static_cast<std::size_t>(length));
         buffer_.erase(0, bodyStart + static_cast<std::size_t>(length));
-        Json parsed = Json::parse(body, nullptr, false);
+        Json parsed = parse_json_lenient(body);
         if (parsed.is_discarded())
-            out.push_back({Json(), "the message body is not valid JSON: '" + body.substr(0, 80) + (body.size() > 80 ? "..." : "") + "'"});
+            out.push_back({Json(), "the message body is not valid JSON: '" + body.substr(0, 80) +
+                                       (body.size() > 80 ? "..." : "") + "'"});
         else
             out.push_back({std::move(parsed), {}});
     }

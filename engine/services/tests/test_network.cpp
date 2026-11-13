@@ -55,8 +55,10 @@ public:
     void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) override {
         REQUIRE(method == "http.fetch");
         requests.push_back(args);
-        if (answerAtOnce) sink.complete(id, Json::object({{"status", 204}, {"headers", Json::object()}, {"text", ""}}));
-        else waiting = id;
+        if (answerAtOnce)
+            sink.complete(id, Json::object({{"status", 204}, {"headers", Json::object()}, {"text", ""}}));
+        else
+            waiting = id;
     }
 };
 
@@ -132,7 +134,7 @@ TEST_CASE("network: URLs are taken apart and checked against the policy") {
     CHECK(check_http_url("https://api.example.com", p)->url == "https://api.example.com/");
     CHECK(check_http_url("https://api.example.com:8443/", p)->port == 8443);
     CHECK(check_http_url("https://a.cdn.example.com/x.json", p).ok());
-    CHECK(check_http_url("http://localhost:8080/x", p).ok());      // loopback may use http
+    CHECK(check_http_url("http://localhost:8080/x", p).ok());  // loopback may use http
     CHECK(check_http_url("http://127.0.0.1:8080/x", p).ok());
 
     auto message = [&](const char* url) {
@@ -140,11 +142,11 @@ TEST_CASE("network: URLs are taken apart and checked against the policy") {
         REQUIRE_FALSE(r.ok());
         return r.error().message + " | " + r.error().hint;
     };
-    CHECK(has(message("http://api.example.com/x"), "plain http://"));         // http to a real host
+    CHECK(has(message("http://api.example.com/x"), "plain http://"));  // http to a real host
     CHECK(has(message("http://api.example.com/x"), "https://api.example.com"));
     CHECK(has(message("https://other.example.com/x"), "not declared"));
-    CHECK(has(message("https://api.example.co/x"), "Did you mean"));          // near miss
-    CHECK(has(message("https://cdn.example.com/x"), "not declared"));         // the wildcard does not cover the domain
+    CHECK(has(message("https://api.example.co/x"), "Did you mean"));   // near miss
+    CHECK(has(message("https://cdn.example.com/x"), "not declared"));  // the wildcard does not cover the domain
     CHECK(has(message("ftp://api.example.com/x"), "only speaks https"));
     CHECK(has(message("https://user:pw@api.example.com/x"), "user name or password"));
     CHECK(has(message("api.example.com/x"), "not absolute"));
@@ -155,7 +157,8 @@ TEST_CASE("network: URLs are taken apart and checked against the policy") {
     // A host that is not declared stays refused even over the loopback exception.
     CHECK(has(message("http://127.0.0.2/x"), "not declared"));
     CHECK_FALSE(check_http_url("https://api.example.com/", NetworkPolicy()).ok());
-    CHECK(has(check_http_url("https://api.example.com/", NetworkPolicy()).error().message, "declares no network hosts"));
+    CHECK(
+        has(check_http_url("https://api.example.com/", NetworkPolicy()).error().message, "declares no network hosts"));
 }
 
 // ------------------------------------------------------------------------------------------------------ prepare ----
@@ -163,22 +166,31 @@ TEST_CASE("http.fetch: the call is checked before anything is sent") {
     Game g;
     CHECK(has(g.mistake(Json::object()), "url"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://other.example.com/"})")), "not declared"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"POSTT"})")), "did you mean \"POST\""));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"TRACE"})")), "GET, HEAD, POST, PUT, PATCH or DELETE"));
+    CHECK(
+        has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"POSTT"})")), "did you mean \"POST\""));
+    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"TRACE"})")),
+              "GET, HEAD, POST, PUT, PATCH or DELETE"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":7})")), "must be a string"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","body":"x"})")), "cannot have a body"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"POST","body":5})")), "\"body\" must be a string"));
+    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","method":"POST","body":5})")),
+              "\"body\" must be a string"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":[]})")), "must be an object"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"X-A":1}})")), "must be a string"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"Host":"evil.com"}})")), "set by the system"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"Sec-Fetch-Mode":"x"}})")), "set by the system"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"X-A":"1","x-a":"2"}})")), "twice"));
+    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"Host":"evil.com"}})")),
+              "set by the system"));
+    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"Sec-Fetch-Mode":"x"}})")),
+              "set by the system"));
+    CHECK(
+        has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"X-A":"1","x-a":"2"}})")), "twice"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"X-A":"a\nb"}})")), "line break"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","headers":{"bad name":"a"}})")), "not valid"));
     CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","timeout":0})")), "above 0 and at most 120"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","timeout":500})")), "above 0 and at most 120"));
-    CHECK(has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","timeout":"x"})")), "above 0 and at most 120"));
-    Json big = Json::object({{"url", "https://api.example.com/"}, {"method", "POST"}, {"body", std::string(1024 * 1024 + 1, 'x')}});
+    CHECK(
+        has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","timeout":500})")), "above 0 and at most 120"));
+    CHECK(
+        has(g.mistake(Json::parse(R"({"url":"https://api.example.com/","timeout":"x"})")), "above 0 and at most 120"));
+    Json big = Json::object(
+        {{"url", "https://api.example.com/"}, {"method", "POST"}, {"body", std::string(1024 * 1024 + 1, 'x')}});
     CHECK(has(g.mistake(big), "the most is 1048576"));
 }
 
@@ -189,7 +201,10 @@ TEST_CASE("http.fetch: what the backend receives is shaped") {
     FakeClient* c = client.get();
     ps.set_backend(std::make_unique<FakeBackend>());
     ps.set_http_backend(std::move(client));
-    auto r = ps.start("http.fetch", Json::parse(R"({"url":"HTTPS://Api.Example.com","method":"post","body":"{}","headers":{"Content-Type":"application/json"},"timeout":30})"));
+    auto r = ps.start(
+        "http.fetch",
+        Json::parse(
+            R"({"url":"HTTPS://Api.Example.com","method":"post","body":"{}","headers":{"Content-Type":"application/json"},"timeout":30})"));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     REQUIRE(c->requests.size() == 1);
     const Json& got = c->requests[0];
@@ -222,7 +237,8 @@ TEST_CASE("http.fetch: the fake answers only what a test scripted and never reac
     CHECK(has(none.error.message, "never reaches the network"));
     CHECK(has(none.error.hint, "game.platform.respond"));
 
-    REQUIRE(g.fake().respond("http.fetch", Json::parse(R"({"status":201,"json":{"id":7},"headers":{"X-Rate":"5"}})")).ok());
+    REQUIRE(
+        g.fake().respond("http.fetch", Json::parse(R"({"status":201,"json":{"id":7},"headers":{"X-Rate":"5"}})")).ok());
     PlatformAnswer made = g.answer(call);
     REQUIRE(made.ok);
     CHECK(made.result["status"] == 201);
@@ -292,7 +308,9 @@ TEST_CASE("http.fetch: an http backend answers instead of the fake, and a client
     public:
         std::string name() const override { return "broken"; }
         std::vector<std::string> services() const override { return {}; }
-        void request(std::uint64_t, const std::string&, const Json&, const PlatformSink&) override { FAIL("must not be asked"); }
+        void request(std::uint64_t, const std::string&, const Json&, const PlatformSink&) override {
+            FAIL("must not be asked");
+        }
     };
     ps.set_http_backend(std::make_unique<Broken>(), "no libcurl here");
     CHECK_FALSE(ps.has_service("http"));
@@ -373,7 +391,8 @@ TEST_CASE("http.fetch: the http log hands answers over in request order, with th
 
 TEST_CASE("analytics and remoteConfig sections: the endpoint must be https and its host declared") {
     const NetworkPolicy net = policy(R"(["stats.example.com"])");
-    auto a = parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":10,"flushSeconds":15})"), net);
+    auto a =
+        parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":10,"flushSeconds":15})"), net);
     CHECK(a.ok());
     CHECK(a.settings.configured);
     CHECK(a.settings.batch == 10);
@@ -396,13 +415,18 @@ TEST_CASE("analytics and remoteConfig sections: the endpoint must be https and i
 
     CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":0})"), net).ok());
     CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","batch":101})"), net).ok());
-    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","flushSeconds":0})"), net).ok());
-    CHECK_FALSE(parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","consentFromAds":"yes"})"), net).ok());
+    CHECK_FALSE(
+        parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","flushSeconds":0})"), net).ok());
+    CHECK_FALSE(
+        parse_analytics(Json::parse(R"({"endpoint":"https://stats.example.com/e","consentFromAds":"yes"})"), net).ok());
     CHECK_FALSE(parse_analytics(Json::parse(R"({"batch":3})"), net).ok());  // no endpoint
 
-    auto r = parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":2})"), net);
+    auto r =
+        parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":2})"), net);
     CHECK(r.ok());
     CHECK(r.settings.timeoutSeconds == 2);
-    CHECK_FALSE(parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":31})"), net).ok());
+    CHECK_FALSE(
+        parse_remote_config(Json::parse(R"({"url":"https://stats.example.com/cfg.json","timeoutSeconds":31})"), net)
+            .ok());
     CHECK_FALSE(parse_remote_config(Json::parse(R"({"url":"https://nope.example.com/cfg.json"})"), net).ok());
 }

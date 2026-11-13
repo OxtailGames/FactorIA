@@ -109,7 +109,8 @@ std::string local_stamp(i64 now) {
     bool ok = false;
     const std::tm tm = local_tm(now, &ok);
     char buf[32];
-    if (!ok || std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm) == 0) return "chat-" + std::to_string(now);  // no clock: still unique
+    if (!ok || std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm) == 0)
+        return "chat-" + std::to_string(now);  // no clock: still unique
     return buf;
 }
 
@@ -192,7 +193,8 @@ ChatItem ChatItem::from_json(const Json& j) {
 Json AiChat::to_json() const {
     Json its = Json::array();
     for (const auto& it : items) {
-        if (it.kind != ChatItem::Kind::Thinking) its.push_back(it.to_json());  // reasoning text is bulky and not worth keeping
+        if (it.kind != ChatItem::Kind::Thinking)
+            its.push_back(it.to_json());  // reasoning text is bulky and not worth keeping
     }
     return Json::object({{"format", kChatFormat},
                          {"id", id},
@@ -214,7 +216,8 @@ AiChat AiChat::from_json(const Json& j) {
     c.title = str_of(j, "title");
     c.created = static_cast<i64>(num_of(j, "created"));
     c.updated = static_cast<i64>(num_of(j, "updated"));
-    if (j.contains("conversation") && j["conversation"].is_object()) c.conversation = ai::Conversation::from_json(j["conversation"]);
+    if (j.contains("conversation") && j["conversation"].is_object())
+        c.conversation = ai::Conversation::from_json(j["conversation"]);
     if (j.contains("usage")) c.usage = usage_from(j["usage"]);
     c.costUsd = num_of(j, "costUsd");
     c.contextTokens = static_cast<u64>(num_of(j, "contextTokens"));
@@ -234,7 +237,8 @@ std::string AiChats::path_of(const std::string& id) const { return utf8_string(u
 std::string AiChats::make_id(i64 now) const {
     const std::string base = local_stamp(now);
     std::string id = base;
-    for (int n = 2; index_of(id) >= 0 || (!dir.empty() && stdfs::exists(utf8_path(path_of(id)))); ++n) id = base + "-" + std::to_string(n);
+    for (int n = 2; index_of(id) >= 0 || (!dir.empty() && stdfs::exists(utf8_path(path_of(id)))); ++n)
+        id = base + "-" + std::to_string(n);
     return id;
 }
 
@@ -312,7 +316,8 @@ bool AiChats::close(int index) {
         tabs.push_back(blank_chat(make_id(now), now));
         active = 0;
     } else {
-        if (index < active) --active;  // the neighbour that moved into this slot becomes active when it was the active one
+        if (index < active)
+            --active;  // the neighbour that moved into this slot becomes active when it was the active one
         active = std::min(active, static_cast<int>(tabs.size()) - 1);
     }
     save_open_list();
@@ -374,9 +379,11 @@ void AiChats::save_open_list() const {
         if (!t.empty()) ids.push_back(t.id);
     }
     std::error_code ec;
-    if (ids.empty() && !stdfs::exists(utf8_path(path_of(kOpenFile)), ec)) return;  // never used the AI here: write nothing
+    if (ids.empty() && !stdfs::exists(utf8_path(path_of(kOpenFile)), ec))
+        return;  // never used the AI here: write nothing
     const AiChat& a = current();
-    write_json(path_of(kOpenFile), Json::object({{"format", kOpenFormat}, {"open", ids}, {"active", a.empty() ? "" : a.id}}));
+    write_json(path_of(kOpenFile),
+               Json::object({{"format", kOpenFormat}, {"open", ids}, {"active", a.empty() ? "" : a.id}}));
 }
 
 std::vector<ChatHistoryEntry> AiChats::history() const {
@@ -433,7 +440,8 @@ std::string attachment_problem(const std::string& path) {
     const stdfs::path p = utf8_path(path);
     const std::string name = utf8_string(p.filename());
     std::error_code ec;
-    if (!stdfs::is_regular_file(p, ec)) return "'" + name + "' is not a file. Drop or pick an image file (png, jpg, jpeg, gif, webp).";
+    if (!stdfs::is_regular_file(p, ec))
+        return "'" + name + "' is not a file. Drop or pick an image file (png, jpg, jpeg, gif, webp).";
     if (ai::image_media_type_for_path(name).empty()) {
         return "'" + name + "' is not an image the AI accepts. Use a png, jpg, jpeg, gif or webp file.";
     }
@@ -455,7 +463,8 @@ std::string unique_file_name(const std::string& dir, const std::string& fileName
     if (stem.empty()) stem = "image";
     std::string name = stem + ext;
     std::error_code ec;
-    for (int n = 2; stdfs::exists(utf8_path(dir) / utf8_path(name), ec); ++n) name = stem + "-" + std::to_string(n) + ext;
+    for (int n = 2; stdfs::exists(utf8_path(dir) / utf8_path(name), ec); ++n)
+        name = stem + "-" + std::to_string(n) + ext;
     return name;
 }
 
@@ -477,7 +486,8 @@ Image shrink_image(const Image& src, int maxSide) {
             unsigned sum[4] = {0, 0, 0, 0};
             for (int sy = y0; sy < y1; ++sy)
                 for (int sx = x0; sx < x1; ++sx)
-                    for (int c = 0; c < 4; ++c) sum[c] += src.rgba[(static_cast<std::size_t>(sy) * src.width + sx) * 4 + c];
+                    for (int c = 0; c < 4; ++c)
+                        sum[c] += src.rgba[(static_cast<std::size_t>(sy) * src.width + sx) * 4 + c];
             const unsigned n = static_cast<unsigned>((y1 - y0) * (x1 - x0));
             for (int c = 0; c < 4; ++c)
                 out.rgba[(static_cast<std::size_t>(y) * out.width + x) * 4 + c] = static_cast<std::uint8_t>(sum[c] / n);
@@ -509,7 +519,9 @@ Result<std::string> fit_for_ai(const stdfs::path& dir, const std::string& name) 
     const std::string shrunk = unique_file_name(utf8_string(dir), utf8_string(utf8_path(name).stem()) + ".png");
     std::ofstream out(dir / utf8_path(shrunk), std::ios::binary | std::ios::trunc);
     if (out) out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
-    if (!out) return make_error("Cannot write " + std::string(kAttachmentsRel) + "/" + shrunk, "Is the project folder writable?");
+    if (!out)
+        return make_error("Cannot write " + std::string(kAttachmentsRel) + "/" + shrunk,
+                          "Is the project folder writable?");
     return shrunk;
 }
 }  // namespace
@@ -530,7 +542,8 @@ Result<ChatAttachment> attach_file(const std::string& projectDir, const std::str
     return ChatAttachment{std::string(kAttachmentsRel) + "/" + *fitted, *fitted};
 }
 
-Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName, const std::vector<std::uint8_t>& bytes) {
+Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName,
+                                    const std::vector<std::uint8_t>& bytes) {
     if (bytes.empty()) return make_error("The picture is empty", "Copy the image again.");
     const stdfs::path dir = utf8_path(projectDir) / kAttachmentsRel;
     std::error_code ec;
@@ -579,19 +592,26 @@ std::string revert_line(const std::vector<ChatItem>& items) {
             net.push_back(&it);
             continue;
         }
-        auto match = std::find_if(net.begin(), net.end(), [&](const ChatItem* r) { return !r->isUndo && r->safetyId == it.safetyId; });
-        if (match != net.end()) net.erase(match);
-        else net.push_back(&it);  // it takes back a revert the model was told about earlier
+        auto match = std::find_if(net.begin(), net.end(),
+                                  [&](const ChatItem* r) { return !r->isUndo && r->safetyId == it.safetyId; });
+        if (match != net.end())
+            net.erase(match);
+        else
+            net.push_back(&it);  // it takes back a revert the model was told about earlier
     }
     if (net.empty()) return {};
-    std::string out = "[The user changed the project since your last message with the editor's Revert button, outside your control.";
+    std::string out =
+        "[The user changed the project since your last message with the editor's Revert button, outside your control.";
     for (const ChatItem* r : net) {
         out += r->isUndo ? " They took back an earlier revert, so these files are again as your run left them: "
-                         : " They reverted your previous run; the project went back to how it was before it. Files restored to their earlier content: ";
+                         : " They reverted your previous run; the project went back to how it was before it. Files "
+                           "restored to their earlier content: ";
         std::vector<std::string> back = r->modified;
         back.insert(back.end(), r->deleted.begin(), r->deleted.end());
         out += back.empty() ? "none" : names_line(back);
-        if (!r->added.empty()) out += (r->isUndo ? "; files removed again: " : "; files deleted (you had created them): ") + names_line(r->added);
+        if (!r->added.empty())
+            out += (r->isUndo ? "; files removed again: " : "; files deleted (you had created them): ") +
+                   names_line(r->added);
         if (r->omitted) out += " (and " + std::to_string(r->omitted) + " more)";
         out += ".";
         if (r->sceneChanged) out += " The open scene went back too.";
@@ -604,9 +624,13 @@ std::string revert_line(const std::vector<ChatItem>& items) {
 
 Image image_from_dib(const std::uint8_t* d, std::size_t size) {
     if (!d || size < 40) return {};
-    auto u32 = [&](std::size_t o) { return std::uint32_t(d[o]) | std::uint32_t(d[o + 1]) << 8 | std::uint32_t(d[o + 2]) << 16 | std::uint32_t(d[o + 3]) << 24; };
+    auto u32 = [&](std::size_t o) {
+        return std::uint32_t(d[o]) | std::uint32_t(d[o + 1]) << 8 | std::uint32_t(d[o + 2]) << 16 |
+               std::uint32_t(d[o + 3]) << 24;
+    };
     const std::uint32_t header = u32(0), compression = u32(16);
-    const std::int64_t w = static_cast<std::int32_t>(u32(4)), h = std::abs(static_cast<std::int32_t>(u32(8))), bpp = u32(12) >> 16;
+    const std::int64_t w = static_cast<std::int32_t>(u32(4)), h = std::abs(static_cast<std::int32_t>(u32(8))),
+                       bpp = u32(12) >> 16;
     // the pixels follow the header, the three masks of a plain BITFIELDS header and the palette
     const std::int64_t pixels = header + (header == 40 && compression == 3 ? 12 : 0) + std::int64_t(u32(32)) * 4;
     // stb_image reads .bmp files and does not notice truncated pixels: check them here (no RLE either)

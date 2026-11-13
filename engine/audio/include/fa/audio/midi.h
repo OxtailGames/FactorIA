@@ -19,29 +19,32 @@ namespace fa {
 // 0xC0 program change, 0xD0 channel pressure, 0xE0 pitch bend) or 0xFF for a meta event (`metaType` says which) or 0xF0 for a system
 // exclusive message (`data` holds its bytes).
 struct MidiEvent {
-    std::int64_t tick = 0;            // absolute, from the start of the track
+    std::int64_t tick = 0;  // absolute, from the start of the track
     std::uint8_t kind = 0;
-    std::uint8_t channel = 0;         // 0..15 (channel messages)
+    std::uint8_t channel = 0;  // 0..15 (channel messages)
     std::uint8_t data1 = 0, data2 = 0;
-    std::uint8_t metaType = 0;        // kind 0xFF
-    std::vector<std::uint8_t> data;   // payload of a meta or system exclusive event
-    std::size_t offset = 0;           // byte offset of the event in the file (reader); 0 for events a program builds
+    std::uint8_t metaType = 0;       // kind 0xFF
+    std::vector<std::uint8_t> data;  // payload of a meta or system exclusive event
+    std::size_t offset = 0;          // byte offset of the event in the file (reader); 0 for events a program builds
 
     std::string text() const { return std::string(data.begin(), data.end()); }
 };
 
-inline constexpr std::uint8_t kMidiNoteOff = 0x80, kMidiNoteOn = 0x90, kMidiController = 0xB0, kMidiProgram = 0xC0, kMidiMeta = 0xFF, kMidiSysex = 0xF0;
+inline constexpr std::uint8_t kMidiNoteOff = 0x80, kMidiNoteOn = 0x90, kMidiController = 0xB0, kMidiProgram = 0xC0,
+                              kMidiMeta = 0xFF, kMidiSysex = 0xF0;
 // Meta event types used by songs.
-inline constexpr std::uint8_t kMetaText = 0x01, kMetaCopyright = 0x02, kMetaTrackName = 0x03, kMetaInstrumentName = 0x04, kMetaLyric = 0x05,
-                              kMetaMarker = 0x06, kMetaCue = 0x07, kMetaEndOfTrack = 0x2F, kMetaTempo = 0x51, kMetaTimeSignature = 0x58, kMetaKeySignature = 0x59;
+inline constexpr std::uint8_t kMetaText = 0x01, kMetaCopyright = 0x02, kMetaTrackName = 0x03,
+                              kMetaInstrumentName = 0x04, kMetaLyric = 0x05, kMetaMarker = 0x06, kMetaCue = 0x07,
+                              kMetaEndOfTrack = 0x2F, kMetaTempo = 0x51, kMetaTimeSignature = 0x58,
+                              kMetaKeySignature = 0x59;
 
 struct MidiTrack {
-    std::vector<MidiEvent> events;    // in file order (ticks never decrease)
+    std::vector<MidiEvent> events;  // in file order (ticks never decrease)
 };
 
 struct MidiFile {
-    int format = 1;                   // 0 (one track) or 1 (a conductor track and one track per part)
-    int division = 480;               // ticks per quarter note
+    int format = 1;      // 0 (one track) or 1 (a conductor track and one track per part)
+    int division = 480;  // ticks per quarter note
     std::vector<MidiTrack> tracks;
 };
 

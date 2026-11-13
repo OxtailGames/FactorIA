@@ -29,48 +29,49 @@ class World;
 enum class ClipInterp : std::uint8_t { Linear, Step, Bezier, Ease };
 
 struct ClipKey {
-    float t = 0.0f;                    // seconds from the start of the clip
+    float t = 0.0f;  // seconds from the start of the clip
     ClipInterp interp = ClipInterp::Linear;
-    int ease = -1;                     // Ease: index into clip_ease_names()
-    std::array<float, 4> value{};      // interpolating fields: the channels of the value (1 for a number, 2/3/4 for vectors)
-    std::array<float, 4> inTan{};      // bezier: slope arriving at this key, field units per second per channel
-    std::array<float, 4> outTan{};     // bezier: slope leaving this key
-    Json raw;                          // stepping fields: the value as written (bool, integer, enum name, asset path, rect)
+    int ease = -1;  // Ease: index into clip_ease_names()
+    std::array<float, 4>
+        value{};  // interpolating fields: the channels of the value (1 for a number, 2/3/4 for vectors)
+    std::array<float, 4> inTan{};   // bezier: slope arriving at this key, field units per second per channel
+    std::array<float, 4> outTan{};  // bezier: slope leaving this key
+    Json raw;  // stepping fields: the value as written (bool, integer, enum name, asset path, rect)
 };
 
 struct ClipTrack {
-    std::string path;                  // as written: names of the entities from the player down, "" = the player itself
-    int pathIndex = 0;                 // index in ClipAsset::paths
-    std::string component;             // reflected component name, "Transform" when the file leaves it out
-    std::string field;                 // reflected field name without the channel ("rotation")
-    std::string spelled;               // field as written, with the channel ("rotation.z")
-    int channel = -1;                  // -1 = the whole field, 0..3 = one component (x y z w, or r g b a for a Color)
-    int channels = 1;                  // number of channels the value of a key has
-    bool stepped = false;              // bool, int, enum, asset or rect: switches at the key, never interpolates
-    bool angle = false;                // degrees: a cross-fade or a layer takes the short way round
+    std::string path;       // as written: names of the entities from the player down, "" = the player itself
+    int pathIndex = 0;      // index in ClipAsset::paths
+    std::string component;  // reflected component name, "Transform" when the file leaves it out
+    std::string field;      // reflected field name without the channel ("rotation")
+    std::string spelled;    // field as written, with the channel ("rotation.z")
+    int channel = -1;       // -1 = the whole field, 0..3 = one component (x y z w, or r g b a for a Color)
+    int channels = 1;       // number of channels the value of a key has
+    bool stepped = false;   // bool, int, enum, asset or rect: switches at the key, never interpolates
+    bool angle = false;     // degrees: a cross-fade or a layer takes the short way round
     const TypeInfo* type = nullptr;
     const FieldInfo* info = nullptr;
-    std::vector<ClipKey> keys;         // ascending in t, at least one
+    std::vector<ClipKey> keys;  // ascending in t, at least one
 };
 
 // A moment of a clip: it sends the game event `name` (when it has one) and runs the game feel actions of `feel` (when it has
 // any, docs/GAME_FEEL.md, "Effects as data"). An event has a name, feel actions, or both.
 struct ClipEvent {
     float t = 0.0f;
-    std::string name;                  // "" = the event only runs its `feel` actions
-    Json data = Json::object();        // sent with the event next to {id, clip, time}
-    std::vector<Json> feel;            // game feel actions in the JSON form of feel_apply_action, each already checked
+    std::string name;            // "" = the event only runs its `feel` actions
+    Json data = Json::object();  // sent with the event next to {id, clip, time}
+    std::vector<Json> feel;      // game feel actions in the JSON form of feel_apply_action, each already checked
 };
 
 struct ClipAsset {
-    std::string path;                  // project-relative file ("" for a clip parsed from memory)
-    std::int64_t mtime = -1;           // modification time the file had when it was read
-    float duration = 0.0f;             // seconds; no key or event is later
-    bool loop = true;                  // the default of the Animator: a state's `loop` overrides it
+    std::string path;         // project-relative file ("" for a clip parsed from memory)
+    std::int64_t mtime = -1;  // modification time the file had when it was read
+    float duration = 0.0f;    // seconds; no key or event is later
+    bool loop = true;         // the default of the Animator: a state's `loop` overrides it
     std::string doc;
     std::vector<ClipTrack> tracks;
-    std::vector<ClipEvent> events;     // ascending in t
-    std::vector<std::string> paths;    // the distinct track paths, in order of first use
+    std::vector<ClipEvent> events;                   // ascending in t
+    std::vector<std::string> paths;                  // the distinct track paths, in order of first use
     std::vector<std::vector<std::string>> segments;  // paths split at '/'
 };
 
@@ -100,7 +101,8 @@ Result<std::shared_ptr<const ClipAsset>> parse_anim_clip(const Json& json, std::
 // Reads the file through fa::fs. Cached per path and modification time: every animator that plays the same file shares
 // one ClipAsset, and a file that changed on disk is read again by the next call (hot reload). An unreadable or invalid
 // file is an Error (the cache keeps the last good one).
-Result<std::shared_ptr<const ClipAsset>> load_anim_clip(std::string_view path, std::vector<ClipIssue>* issues = nullptr);
+Result<std::shared_ptr<const ClipAsset>> load_anim_clip(std::string_view path,
+                                                        std::vector<ClipIssue>* issues = nullptr);
 // Forgets every cached clip (tests).
 void clear_anim_clip_cache();
 
@@ -108,7 +110,8 @@ void clear_anim_clip_cache();
 // feel_check_action. A problem is added to `issues` as "<pointer>/feel" or "<pointer>/feel/<i>" with the action's own error;
 // returns false when there is one. Absent `feel` = true with nothing in `out`. The one reader behind the clip files, the
 // Animator's inline `events`, the SpriteAnimator's `events` and `validate`.
-bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out, std::vector<ClipIssue>& issues);
+bool read_event_feel(const Json& event, const std::string& pointer, std::vector<Json>& out,
+                     std::vector<ClipIssue>& issues);
 
 // Problems of one inline event of `Animator.events` ({clip, time, name?, feel?}), or of the whole list, with the JSON pointer of
 // each: not an object, no `clip`, a `clip` or `name` that is not a non-empty string, a `time` that is not a number from 0, a

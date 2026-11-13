@@ -50,7 +50,8 @@ std::string text_in(const StoreKitLanguage& lang, const std::string& key, const 
     return plain;
 }
 
-Json localizations(const PlatformProduct& p, const std::string& locale, const std::vector<StoreKitLanguage>& languages) {
+Json localizations(const PlatformProduct& p, const std::string& locale,
+                   const std::vector<StoreKitLanguage>& languages) {
     const std::string fallbackName = p.title.empty() ? p.id : p.title;
     if (languages.empty())
         return Json::array({Json::object({{"description", p.description.empty() ? fallbackName : p.description},

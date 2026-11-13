@@ -27,8 +27,8 @@ struct HttpRequest {
     std::string method = "GET";  // GET, HEAD, POST, PUT, PATCH or DELETE (upper case)
     std::string url;             // absolute http:// or https:// URL
     std::vector<std::pair<std::string, std::string>> headers;
-    std::string body;            // sent as is; empty = no body
-    double timeoutSec = 15.0;    // the whole request, connecting included
+    std::string body;          // sent as is; empty = no body
+    double timeoutSec = 15.0;  // the whole request, connecting included
     // A response longer than this is an error, not a truncated answer.
     std::size_t maxResponseBytes = 4 * 1024 * 1024;
 };
@@ -42,8 +42,8 @@ struct HttpResponse {
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
     // When !ok:
-    std::string error;       // what went wrong, in a sentence ("could not connect to api.example.com")
-    std::string hint;        // how to fix it or what to try
+    std::string error;  // what went wrong, in a sentence ("could not connect to api.example.com")
+    std::string hint;   // how to fix it or what to try
     bool timedOut = false;
 };
 

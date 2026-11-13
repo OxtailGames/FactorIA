@@ -20,9 +20,12 @@ std::vector<ModelIssue> issues_of(const char* text) {
     return issues;
 }
 
-bool has_issue(const std::vector<ModelIssue>& issues, const std::string& pointer, const std::string& messagePart = {}, const std::string& hintPart = {}) {
+bool has_issue(const std::vector<ModelIssue>& issues, const std::string& pointer, const std::string& messagePart = {},
+               const std::string& hintPart = {}) {
     for (const ModelIssue& i : issues)
-        if (i.pointer == pointer && i.message.find(messagePart) != std::string::npos && i.hint.find(hintPart) != std::string::npos) return true;
+        if (i.pointer == pointer && i.message.find(messagePart) != std::string::npos &&
+            i.hint.find(hintPart) != std::string::npos)
+            return true;
     return false;
 }
 
@@ -55,11 +58,14 @@ ModelTextOutline square_glyph() {
 }  // namespace
 
 TEST_CASE("model doc: the catalog lists every operation with documented fields") {
-    const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group", "mesh",
-                              "lathe", "sweep", "loft", "boolean", "mirror", "array", "radial_array", "bevel", "subdivide", "solidify",
-                              "bend", "twist", "taper", "noise", "smooth", "weld", "shade",
-                              "extrude_faces", "inset_faces", "loop_cut", "bevel_edges", "delete_faces", "assign_faces",
-                              "sdf", "sdf_group", "sdf_sphere", "sdf_capsule", "sdf_ellipsoid", "sdf_box", "sdf_cylinder", "sdf_cone", "sdf_torus"};
+    const char* expected[] = {
+        "box",          "rounded_box",  "cylinder", "cone",          "sphere",      "capsule",     "torus",
+        "grid",         "stairs",       "arch",     "pipe",          "text",        "group",       "mesh",
+        "lathe",        "sweep",        "loft",     "boolean",       "mirror",      "array",       "radial_array",
+        "bevel",        "subdivide",    "solidify", "bend",          "twist",       "taper",       "noise",
+        "smooth",       "weld",         "shade",    "extrude_faces", "inset_faces", "loop_cut",    "bevel_edges",
+        "delete_faces", "assign_faces", "sdf",      "sdf_group",     "sdf_sphere",  "sdf_capsule", "sdf_ellipsoid",
+        "sdf_box",      "sdf_cylinder", "sdf_cone", "sdf_torus"};
     REQUIRE(model_ops().size() == std::size(expected));
     for (const char* name : expected) {
         const ModelOpInfo* found = nullptr;
@@ -74,7 +80,8 @@ TEST_CASE("model doc: the catalog lists every operation with documented fields")
 }
 
 TEST_CASE("model doc: a minimal document gets the documented defaults") {
-    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[{"op":"cylinder"},{"op":"sphere","radius":2}]})"));
+    auto doc =
+        parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[{"op":"cylinder"},{"op":"sphere","radius":2}]})"));
     REQUIRE(doc.ok());
     REQUIRE(doc->nodes.size() == 2);
     CHECK(doc->nodes[0].params["segments"] == 24);
@@ -93,17 +100,20 @@ TEST_CASE("model doc: problems carry the JSON pointer, the fix and did-you-mean"
     auto b = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","sise":[1,2,3]}]})");
     CHECK(has_issue(b, "/nodes/0/sise", "not a field", "size"));
 
-    auto c = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"group","children":[{"op":"sphere","radius":-1},{"op":"box","size":[1,2]}]}]})");
+    auto c = issues_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"group","children":[{"op":"sphere","radius":-1},{"op":"box","size":[1,2]}]}]})");
     CHECK(has_issue(c, "/nodes/0/children/0/radius", "from 0.001 to 1000"));
     CHECK(has_issue(c, "/nodes/0/children/1/size", "list"));
 
-    auto d = issues_of(R"({"format":"factoria.model/1","materials":{"wood":{}},"nodes":[{"op":"box","material":"wod"}]})");
+    auto d =
+        issues_of(R"({"format":"factoria.model/1","materials":{"wood":{}},"nodes":[{"op":"box","material":"wod"}]})");
     CHECK(has_issue(d, "/nodes/0/material", "not in", "wood"));
 
     auto e = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","id":"a"},{"op":"box","id":"a"}]})");
     CHECK(has_issue(e, "/nodes/1/id", "already used by /nodes/0"));
 
-    auto f = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"torus","radius":0.2,"tube":0.5},{"op":"arch","openingWidth":3},{"op":"capsule","height":0.5}]})");
+    auto f = issues_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"torus","radius":0.2,"tube":0.5},{"op":"arch","openingWidth":3},{"op":"capsule","height":0.5}]})");
     CHECK(has_issue(f, "/nodes/0/tube", "larger"));
     CHECK(has_issue(f, "/nodes/1/openingWidth", "not smaller"));
     CHECK(has_issue(f, "/nodes/2/height", "less than twice"));
@@ -113,13 +123,15 @@ TEST_CASE("model doc: problems carry the JSON pointer, the fix and did-you-mean"
     CHECK(has_issue(g, "/extra"));
     CHECK(has_issue(g, "/nodes/0", "need \"text\""));
 
-    auto h = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","scale":[1,0,1],"color":[2,0,0],"align":"middle"}]})");
+    auto h = issues_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"box","scale":[1,0,1],"color":[2,0,0],"align":"middle"}]})");
     CHECK(has_issue(h, "/nodes/0/scale", "0"));
     CHECK(has_issue(h, "/nodes/0/color"));
     CHECK(has_issue(h, "/nodes/0/align", "one of", "center"));
 
     // the first problem is the returned error, with the file and the pointer
-    auto bad = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[{"op":"boxx"},{"op":"sphere","segments":1}]})"), "door.model.json");
+    auto bad = parse_model_doc(
+        J(R"({"format":"factoria.model/1","nodes":[{"op":"boxx"},{"op":"sphere","segments":1}]})"), "door.model.json");
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("door.model.json /nodes/0/op") != std::string::npos);
     CHECK(bad.error().message.find("1 more problem") != std::string::npos);
@@ -177,26 +189,32 @@ TEST_CASE("model eval: parts and materials become submeshes, colours and parts a
 }
 
 TEST_CASE("model eval: transforms, align, enabled and mirroring") {
-    const ModelBuild stand = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[1,2,1],"align":"bottom","position":[0,5,0]}]})");
+    const ModelBuild stand = build_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[1,2,1],"align":"bottom","position":[0,5,0]}]})");
     CHECK(stand.stats.bmin.y == doctest::Approx(5.0f));
     CHECK(stand.stats.bmax.y == doctest::Approx(7.0f));
-    const ModelBuild hang = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[1,2,1],"align":"top"}]})");
+    const ModelBuild hang =
+        build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[1,2,1],"align":"top"}]})");
     CHECK(hang.stats.bmax.y == doctest::Approx(0.0f));
 
-    const ModelBuild rot = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[2,1,1],"rotation":[0,90,0]}]})");
+    const ModelBuild rot =
+        build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","size":[2,1,1],"rotation":[0,90,0]}]})");
     CHECK(rot.stats.bmax.x == doctest::Approx(0.5f));
     CHECK(rot.stats.bmax.z == doctest::Approx(1.0f));
 
-    const ModelBuild off = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"},{"op":"sphere","enabled":false},{"op":"group","enabled":false,"children":[{"op":"box"}]}]})");
+    const ModelBuild off = build_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"box"},{"op":"sphere","enabled":false},{"op":"group","enabled":false,"children":[{"op":"box"}]}]})");
     CHECK(off.stats.triangles == 12);
 
     // a mirrored node keeps facing out: the solid still has a positive volume and is closed
-    const ModelBuild mirror = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"cone","scale":[-1,1,1],"position":[2,0,0]}]})");
+    const ModelBuild mirror =
+        build_of(R"({"format":"factoria.model/1","nodes":[{"op":"cone","scale":[-1,1,1],"position":[2,0,0]}]})");
     CHECK(mirror.stats.closed());
     CHECK(mirror.stats.volume > 0);
 
     // nested groups multiply
-    const ModelBuild nest = build_of(R"({"format":"factoria.model/1","nodes":[{"op":"group","position":[10,0,0],"scale":2,"children":[{"op":"box","position":[1,0,0]}]}]})");
+    const ModelBuild nest = build_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"group","position":[10,0,0],"scale":2,"children":[{"op":"box","position":[1,0,0]}]}]})");
     CHECK(nest.stats.bmin.x == doctest::Approx(11.0f));
     CHECK(nest.stats.bmax.x == doctest::Approx(13.0f));
 }
@@ -217,7 +235,8 @@ TEST_CASE("model eval: the same document gives byte-identical meshes, closed and
 }
 
 TEST_CASE("model eval: text uses the given outline source and reports what it needs") {
-    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","nodes":[{"op":"text","text":"I","font":"assets/fonts/x.ttf","size":2,"depth":0.5}]})"));
+    auto doc = parse_model_doc(J(
+        R"({"format":"factoria.model/1","nodes":[{"op":"text","text":"I","font":"assets/fonts/x.ttf","size":2,"depth":0.5}]})"));
     REQUIRE(doc.ok());
     // without a source the node says so, with its pointer
     auto none = evaluate_model(*doc);
@@ -245,7 +264,9 @@ TEST_CASE("model eval: text uses the given outline source and reports what it ne
     REQUIRE(build->warnings.size() == 1);
     CHECK(build->warnings[0].find("U+4E2D") != std::string::npos);
 
-    options.text = [](const ModelTextRequest&) -> Result<ModelTextOutline> { return make_error("font 'x' not found", "Check the path."); };
+    options.text = [](const ModelTextRequest&) -> Result<ModelTextOutline> {
+        return make_error("font 'x' not found", "Check the path.");
+    };
     auto failed = evaluate_model(*doc, options);
     REQUIRE_FALSE(failed.ok());
     CHECK(failed.error().message.find("/nodes/0: font 'x' not found") != std::string::npos);
@@ -260,7 +281,8 @@ TEST_CASE("model eval: an empty model is an error that says what to do") {
 }
 
 TEST_CASE("model doc: finding nodes by id and by pointer") {
-    Json doc = J(R"({"format":"factoria.model/1","nodes":[{"op":"box","id":"base"},{"op":"group","id":"top","children":[{"op":"sphere","id":"ball"},{"op":"box"}]}]})");
+    Json doc = J(
+        R"({"format":"factoria.model/1","nodes":[{"op":"box","id":"base"},{"op":"group","id":"top","children":[{"op":"sphere","id":"ball"},{"op":"box"}]}]})");
     std::string pointer, why;
     Json* ball = find_model_node(doc, "ball", &pointer, &why);
     REQUIRE(ball);
@@ -295,7 +317,8 @@ TEST_CASE("model doc: the schema accepts what the reader accepts and rejects wha
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/2","nodes":[]})")).empty());
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"boxx"}]})")).empty());
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"box","sise":1}]})")).empty());
-    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"sphere","segments":2}]})")).empty());
+    CHECK_FALSE(
+        validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"sphere","segments":2}]})")).empty());
     CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"text"}]})")).empty());
 }
 
@@ -322,7 +345,8 @@ TEST_CASE("model doc: modifiers wrap their children and every field is read with
     CHECK(has_issue(a, "/nodes/4/axis", "one of"));
 
     // a primitive cannot hold children, and `align` belongs to primitives only
-    auto b = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box","children":[{"op":"box"}]},{"op":"mirror","align":"bottom","children":[]}]})");
+    auto b = issues_of(
+        R"({"format":"factoria.model/1","nodes":[{"op":"box","children":[{"op":"box"}]},{"op":"mirror","align":"bottom","children":[]}]})");
     CHECK(has_issue(b, "/nodes/0/children"));
     CHECK(has_issue(b, "/nodes/1/align"));
 }
@@ -348,7 +372,8 @@ TEST_CASE("model doc: lathe, sweep and loft check their lists") {
 }
 
 TEST_CASE("model eval: modifiers keep parts and materials, and chain") {
-    const ModelBuild b = build_of(R"({"format":"factoria.model/1","materials":{"wood":{"color":[0.5,0.3,0.1,1]}},"nodes":[
+    const ModelBuild b =
+        build_of(R"({"format":"factoria.model/1","materials":{"wood":{"color":[0.5,0.3,0.1,1]}},"nodes":[
         {"op":"mirror","axis":"x","children":[
             {"op":"array","count":2,"offset":[0,2,0],"children":[
                 {"op":"box","size":[1,1,1],"position":[1,0,0],"part":"leg","material":"wood"}]}]}]})");
@@ -432,7 +457,11 @@ TEST_CASE("model doc: the schema covers the modifiers") {
         {"op":"array","count":4,"children":[{"op":"box"}]},
         {"op":"loft","sections":[[[0,0,0],[1,0,0],[0,1,0]],[[0,0,1],[1,0,1],[0,1,1]]]}]})");
     for (const SchemaError& e : validate_json(schema, good)) FAIL_CHECK(e.to_string());
-    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"array","count":0,"children":[]}]})")).empty());
-    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"lathe","profile":[[1,0]]}]})")).empty());
-    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"mirror","axis":"q"}]})")).empty());
+    CHECK_FALSE(
+        validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"array","count":0,"children":[]}]})"))
+            .empty());
+    CHECK_FALSE(validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"lathe","profile":[[1,0]]}]})"))
+                    .empty());
+    CHECK_FALSE(
+        validate_json(schema, J(R"({"format":"factoria.model/1","nodes":[{"op":"mirror","axis":"q"}]})")).empty());
 }

@@ -10,11 +10,11 @@
 
 namespace fa::editor::music_ui {
 
-constexpr float kGutter = 44.0f;   // the pitch names on the left of the roll
+constexpr float kGutter = 44.0f;  // the pitch names on the left of the roll
 constexpr float kRowH = 12.0f;
 constexpr float kRulerH = 16.0f;
 constexpr float kVelH = 52.0f;
-constexpr int kRows = 37;          // three octaves
+constexpr int kRows = 37;  // three octaves
 
 const ImVec4 kBad(1.0f, 0.55f, 0.45f, 1);
 const ImVec4 kWarn(1.0f, 0.8f, 0.4f, 1);
@@ -36,6 +36,8 @@ inline std::string seconds_text(double s) {
 }
 
 // A text box over a std::string. True while the text changes.
-inline bool text_field(const char* id, std::string& text, std::size_t /*maxLen*/ = 256) { return ImGui::InputText(id, &text); }
+inline bool text_field(const char* id, std::string& text, std::size_t /*maxLen*/ = 256) {
+    return ImGui::InputText(id, &text);
+}
 
 }  // namespace fa::editor::music_ui

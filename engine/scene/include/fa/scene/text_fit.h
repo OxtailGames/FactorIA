@@ -28,28 +28,29 @@ struct TextStyle {
 
 // Size {w, h} of `text` laid out with `font` ("" = built-in) at the font size `px` (final pixels, no text scale applied),
 // wrapped at `wrap` (> 0), read as `style` says. The renderer's layout, or approx_text_size without one.
-using TextExtent = std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap, TextStyle style)>;
+using TextExtent =
+    std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap, TextStyle style)>;
 
 // The text scale that applies to a text with this cap: min(textScale, maxTextScale), or textScale when maxTextScale <= 0.
 float effective_text_scale(float textScale, float maxTextScale);
 
 // What fit_text needs to know about a text and its box.
 struct TextFitSpec {
-    float fontSize = 24.0f;       // design pixels, before the text scale
-    float minFontSize = 0.0f;     // autoShrink floor, same unit as fontSize
+    float fontSize = 24.0f;    // design pixels, before the text scale
+    float minFontSize = 0.0f;  // autoShrink floor, same unit as fontSize
     bool autoShrink = false;
-    float maxTextScale = 0.0f;    // 0 = no cap
-    bool followsTextScale = true; // false: world-space Text, which ui.textScale does not touch
-    float wrap = 0.0f;            // > 0 wraps lines at this width (design pixels)
+    float maxTextScale = 0.0f;       // 0 = no cap
+    bool followsTextScale = true;    // false: world-space Text, which ui.textScale does not touch
+    float wrap = 0.0f;               // > 0 wraps lines at this width (design pixels)
     float boxW = 0.0f, boxH = 0.0f;  // the box the text must fit, 0 = that axis is not checked
-    TextStyle style;              // Text.markup / Text.bold of the text
+    TextStyle style;                 // Text.markup / Text.bold of the text
 };
 
 struct TextFit {
-    float px = 0.0f;              // the effective font size to lay the text out at
-    Vec2 size{0, 0};              // the laid-out size at px
-    bool overflow = false;        // still wider or taller than the box at px
-    bool shrunk = false;          // autoShrink made px smaller than fontSize * scale
+    float px = 0.0f;        // the effective font size to lay the text out at
+    Vec2 size{0, 0};        // the laid-out size at px
+    bool overflow = false;  // still wider or taller than the box at px
+    bool shrunk = false;    // autoShrink made px smaller than fontSize * scale
 };
 
 // Decides the size of `text`. Deterministic: a bisection with a fixed number of steps, rounded down to a quarter pixel.
@@ -68,8 +69,8 @@ TextExtent approx_text_extent();
 struct UiLabel {
     const std::string* text = nullptr;
     const std::string* font = nullptr;
-    TextFitSpec spec;             // box = the zone
-    Rect zone;                    // where the label sits: Button margins, right of a Toggle's box, a Slider's label zone...
+    TextFitSpec spec;  // box = the zone
+    Rect zone;         // where the label sits: Button margins, right of a Toggle's box, a Slider's label zone...
 };
 // nullopt for a widget without a label (Panel, ScrollList, TextField, TouchStick, Captions).
 // `textScale` is the player's text size: a Toggle's box follows the font size, so the label's zone depends on it.
@@ -86,8 +87,8 @@ inline constexpr float kUiButtonIconGap = 6.0f;
 // Where a Button with an icon puts it and its label inside the rectangle `r`: `labelSize` is the laid-out label (0 for none).
 // The icon and the label are centred as one group; `alone` centres the icon and leaves no label.
 struct UiButtonContent {
-    Rect icon;        // empty (zero size) without an icon
-    Vec2 labelPos;    // top-left of the label
+    Rect icon;      // empty (zero size) without an icon
+    Vec2 labelPos;  // top-left of the label
 };
 // `mirrored` (ui_mirrored): the icon and the label change sides.
 UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize, bool mirrored = false);
@@ -97,7 +98,8 @@ struct UiLabelFit {
     TextFit fit;
 };
 // ui_label + fit_text; what the renderer draws and `ui.overflowed(id)` reports. nullopt when there is no label or it is empty.
-std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, float textScale, const TextExtent& extent);
+std::optional<UiLabelFit> ui_label_fit(const World& w, Entity e, const Rect& r, float textScale,
+                                       const TextExtent& extent);
 
 // True when the text of `e` (a Text with a box, or a widget label) still does not fit at its effective size.
 bool ui_text_overflowed(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure);

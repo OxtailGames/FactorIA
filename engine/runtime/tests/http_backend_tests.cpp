@@ -64,7 +64,8 @@ struct Rig {
 
 }  // namespace
 
-TEST_CASE("http backend: a response becomes {status, headers, text}; repeated headers are joined and the text is valid UTF-8") {
+TEST_CASE("http backend: a response becomes {status, headers, text}; repeated headers are joined and the text is valid "
+          "UTF-8") {
     Rig rig;
     auto r = rig.fetch(R"(,"method":"POST","body":"{}","headers":{"X-Key":"k"},"timeout":3)");
     REQUIRE(r.ok());
@@ -81,7 +82,11 @@ TEST_CASE("http backend: a response becomes {status, headers, text}; repeated he
     HttpResponse response;
     response.ok = true;
     response.status = 201;
-    response.headers = {{"content-type", "text/plain"}, {"set-cookie", "a=1"}, {"set-cookie", "b=2"}, {"x-bad", "a\xFF" "b"}};
+    response.headers = {{"content-type", "text/plain"},
+                        {"set-cookie", "a=1"},
+                        {"set-cookie", "b=2"},
+                        {"x-bad", "a\xFF"
+                                  "b"}};
     response.body = std::string("caf\xC3\xA9 \xFF\xFE end");
     rig.answer(response);
     auto answers = rig.ps.take_answers();
@@ -91,7 +96,8 @@ TEST_CASE("http backend: a response becomes {status, headers, text}; repeated he
     CHECK(result["status"] == 201);
     CHECK(result["headers"]["content-type"] == "text/plain");
     CHECK(result["headers"]["set-cookie"] == "a=1, b=2");
-    CHECK(result["headers"]["x-bad"] == "a\xEF\xBF\xBD" "b");
+    CHECK(result["headers"]["x-bad"] == "a\xEF\xBF\xBD"
+                                        "b");
     CHECK(result["text"] == "caf\xC3\xA9 \xEF\xBF\xBD\xEF\xBF\xBD end");
 }
 

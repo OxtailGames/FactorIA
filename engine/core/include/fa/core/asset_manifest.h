@@ -74,10 +74,10 @@ struct SheetClip {
 struct Sheet {
     int columns = 1;
     int rows = 1;
-    int frameWidth = 0;   // 0 = not recorded: the cell is the image divided by the grid
+    int frameWidth = 0;  // 0 = not recorded: the cell is the image divided by the grid
     int frameHeight = 0;
-    int frames = 0;       // 0 = not recorded: columns * rows
-    int padding = 0;      // transparent gutter around every cell, in pixels
+    int frames = 0;                             // 0 = not recorded: columns * rows
+    int padding = 0;                            // transparent gutter around every cell, in pixels
     std::optional<std::array<float, 2>> pivot;  // top-left based
     std::vector<SheetClip> clips;
     const SheetClip* find(std::string_view name) const;

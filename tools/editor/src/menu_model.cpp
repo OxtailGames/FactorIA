@@ -60,7 +60,10 @@ Shortcut parse_shortcut(const std::string& text) {
     while (start <= text.size()) {
         std::size_t plus = text.find('+', start);
         // A trailing "+" is the key itself ("Ctrl++"): the part after the last separator is empty.
-        if (plus == start && start + 1 == text.size()) { s.key = "+"; break; }
+        if (plus == start && start + 1 == text.size()) {
+            s.key = "+";
+            break;
+        }
         const std::string part = text.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
         std::string low;
         for (char c : part) low += char(std::tolower(static_cast<unsigned char>(c)));
@@ -70,10 +73,14 @@ Shortcut parse_shortcut(const std::string& text) {
             s.key = low;
             break;
         }
-        if (low == "ctrl" || low == "cmd" || low == "command" || low == "super") s.ctrl = true;
-        else if (low == "shift") s.shift = true;
-        else if (low == "alt" || low == "option" || low == "opt") s.alt = true;
-        else return Shortcut{};  // an unknown modifier: not a shortcut
+        if (low == "ctrl" || low == "cmd" || low == "command" || low == "super")
+            s.ctrl = true;
+        else if (low == "shift")
+            s.shift = true;
+        else if (low == "alt" || low == "option" || low == "opt")
+            s.alt = true;
+        else
+            return Shortcut{};  // an unknown modifier: not a shortcut
         start = plus + 1;
     }
     return s;

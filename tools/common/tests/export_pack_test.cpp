@@ -39,7 +39,9 @@ bool running_under_wine() {
 #endif
 }
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::string make_fake_player(const testing::TempDir& tmp) {
     std::string p = tmp.sub("fake_player/factoria_player");
@@ -57,7 +59,8 @@ std::string make_project(const testing::TempDir& tmp, const std::string& tpl = "
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     testing::write_all(stdfs::path(dir) / "data" / "README.md", "credits the game shows");
     testing::write_all(stdfs::path(dir) / ".factoria" / "cache.bin", "x");
-    testing::write_all(stdfs::path(dir) / "ENGINE_FEEDBACK.archive.json", "{}");  // the feedback archive is not shipped either
+    testing::write_all(stdfs::path(dir) / "ENGINE_FEEDBACK.archive.json",
+                       "{}");  // the feedback archive is not shipped either
     return dir;
 }
 
@@ -148,7 +151,8 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
         CHECK(j["pack"] == "game.pak");
         CHECK(j["packed"].size() == p.file_count());
         bool mentionsPack = false;
-        for (const auto& step : rep.nextSteps) mentionsPack = mentionsPack || step.find("game.pak") != std::string::npos;
+        for (const auto& step : rep.nextSteps)
+            mentionsPack = mentionsPack || step.find("game.pak") != std::string::npos;
         CHECK(mentionsPack);
         // The pack stays when the same game is exported again (the folder was written by an export, so it is replaced). The
         // reader lets go of it first: a mapped pack cannot be replaced on Windows (FA_FS_WINDOWS_RULES=1 says so here too).
@@ -160,7 +164,8 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
     CHECK(testing::read_all(stdfs::path(proj) / "scripts" / "player.js").find("export default") != std::string::npos);
 }
 
-TEST_CASE("export --release: the files a glob import names are packed, and the compiled script reads them from game.pak") {
+TEST_CASE(
+    "export --release: the files a glob import names are packed, and the compiled script reads them from game.pak") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     testing::write_all(stdfs::path(proj) / "data" / "tables" / "one.json", "{\"n\": 1}");
@@ -194,11 +199,13 @@ TEST_CASE("export --release: export.scriptBytecode false packs the scripts as th
     CHECK_FALSE(is_script_bytecode(text));
     CHECK(text == testing::read_all(stdfs::path(proj) / "scripts" / "player.js"));
     bool mentionsSource = false;
-    for (const auto& step : r->nextSteps) mentionsSource = mentionsSource || step.find("scripts as source") != std::string::npos;
+    for (const auto& step : r->nextSteps)
+        mentionsSource = mentionsSource || step.find("scripts as source") != std::string::npos;
     CHECK(mentionsSource);
 }
 
-TEST_CASE("export --release: a script that does not compile is packed as source, with a warning that names file and line") {
+TEST_CASE(
+    "export --release: a script that does not compile is packed as source, with a warning that names file and line") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     testing::write_all(stdfs::path(proj) / "scripts" / "broken.js", "export const ok = 1;\nconst = ;\n");
@@ -206,7 +213,8 @@ TEST_CASE("export --release: a script that does not compile is packed as source,
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     bool warned = false;
     for (const auto& w : r->warnings)
-        if (w.find("scripts/broken.js:2") != std::string::npos && w.find("packed as plain source") != std::string::npos) warned = true;
+        if (w.find("scripts/broken.js:2") != std::string::npos && w.find("packed as plain source") != std::string::npos)
+            warned = true;
     CHECK(warned);
     auto pack = PackReader::open(tmp.sub("out/pack-test-windows/game.pak"));
     REQUIRE(pack.ok());
@@ -226,7 +234,8 @@ TEST_CASE("export: without --release a desktop game is still a game/ folder of l
     const std::string game = tmp.sub("out/pack-test-linux/game");
     CHECK_FALSE(stdfs::exists(tmp.sub("out/pack-test-linux/game.pak")));
     CHECK(stdfs::exists(game + "/scripts/player.js"));
-    CHECK(testing::read_all(game + "/scripts/player.js") == testing::read_all(stdfs::path(proj) / "scripts" / "player.js"));
+    CHECK(testing::read_all(game + "/scripts/player.js") ==
+          testing::read_all(stdfs::path(proj) / "scripts" / "player.js"));
     CHECK(r->pack.empty());
     CHECK_FALSE(r->to_json().contains("pack"));
 }
@@ -266,18 +275,21 @@ TEST_CASE("export: a shipped script that calls a command of a tool module is war
                        "const opts = { name: \"helper\" };\n"
                        "export default {\n  name : 'make-path',\n  summary: \"x\",\n  run() { return {}; },\n};\n");
     testing::write_all(dir / "tools" / "no_default.js", "export function f() {}\n");  // registers nothing
-    testing::write_all(dir / "scripts" / "uses_tool.js",
-                       "fa.call(\"project.scatter_gems\", {});\nfa.call('project.renamed', {});\n"
-                       "fa . call ( \"project.make_path\" );\nfa.call(\"project.helper\");\nfa.call(\"project.no_default\");\n"
-                       "fa.call(\"project.scatter_gems\", {});\nfa.call(\"project.not_a_tool\", {});\nfa.call(\"scene.list\");\n");
+    testing::write_all(
+        dir / "scripts" / "uses_tool.js",
+        "fa.call(\"project.scatter_gems\", {});\nfa.call('project.renamed', {});\n"
+        "fa . call ( \"project.make_path\" );\nfa.call(\"project.helper\");\nfa.call(\"project.no_default\");\n"
+        "fa.call(\"project.scatter_gems\", {});\nfa.call(\"project.not_a_tool\", {});\nfa.call(\"scene.list\");\n");
     testing::write_all(dir / "scripts" / "no_tool.js", "fa.call(\"scene.list\");\n");
     auto r = export_project(options_for(tmp, proj, "linux", false));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     int scatter = 0, renamed = 0, nested = 0, other = 0;
     for (const std::string& w : r->warnings) {
-        if (w.find("scripts/uses_tool.js:1 calls project.scatter_gems, the command of tools/scatter_gems.js") == 0) ++scatter;
+        if (w.find("scripts/uses_tool.js:1 calls project.scatter_gems, the command of tools/scatter_gems.js") == 0)
+            ++scatter;
         if (w.find("scripts/uses_tool.js:2 calls project.renamed, the command of tools/other_file.js") == 0) ++renamed;
-        if (w.find("scripts/uses_tool.js:3 calls project.make_path, the command of tools/level/paths.js") == 0) ++nested;
+        if (w.find("scripts/uses_tool.js:3 calls project.make_path, the command of tools/level/paths.js") == 0)
+            ++nested;
         for (const char* never : {"not_a_tool", "no_tool.js", "project.helper", "project.no_default"})
             if (w.find(never) != std::string::npos) ++other;
     }
@@ -333,7 +345,8 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     CHECK(byPath->to_json()["packStats"]["order"] == "path");
     CHECK(byPath->to_json()["packStats"]["orderedFiles"] == 0);
     bool explains = false;
-    for (const std::string& line : byPath->size_lines()) explains = explains || line.find("Pack order: by path") != std::string::npos;
+    for (const std::string& line : byPath->size_lines())
+        explains = explains || line.find("Pack order: by path") != std::string::npos;
     CHECK(explains);
 
     // A session recorded a menu scene first, then the main scene, and the start-up reads after them (a file the export
@@ -369,7 +382,7 @@ TEST_CASE("export --release: game.pak follows the recorded first-use order, main
     CHECK(order[0] == "factoria.json");           // what the game reads before its first scene
     CHECK(order[1] == "scenes/main.scene.json");  // then the main scene's group, its scene file at the front
     CHECK(order[2] == "scripts/player.js");
-    CHECK(order[3] == "data/README.md");          // then the other scene's files
+    CHECK(order[3] == "data/README.md");  // then the other scene's files
     CHECK(pack.value()->format_version() == 2);
     pack.value().reset();  // a mapped pack cannot be replaced on Windows: the reader lets go before the next export
 
@@ -468,7 +481,7 @@ TEST_CASE("export --release: export.pack.codecs picks the codec of an extension,
     for (const std::string& w : r->warnings) CHECK_MESSAGE(w.find("could not be compressed") == std::string::npos, w);
     auto pack = PackReader::open(tmp.sub("out/pack-test-linux/game.pak"));
     REQUIRE(pack.ok());
-    CHECK(pack.value()->codec_of("data/big.json") == Codec::Lz4);  // the default of .json
+    CHECK(pack.value()->codec_of("data/big.json") == Codec::Lz4);   // the default of .json
     CHECK(pack.value()->codec_of("data/big.txt") == Codec::Store);  // overridden (zstd by default)
     auto big = pack.value()->read("data/big.json");
     REQUIRE(big.ok());

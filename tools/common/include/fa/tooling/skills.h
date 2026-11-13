@@ -23,8 +23,8 @@ struct SkillFrontmatter {
     std::string description;
     // The other keys of the frontmatter (license, compatibility, allowed-tools...) as text; nested values are kept as written.
     std::vector<std::pair<std::string, std::string>> other;
-    std::string body;      // the instructions: everything after the closing ---
-    int bodyLine = 1;      // 1-based line of the file where `body` starts
+    std::string body;  // the instructions: everything after the closing ---
+    int bodyLine = 1;  // 1-based line of the file where `body` starts
 };
 
 // "" when `name` is a valid skill name (the Agent Skills rules: 1-64 characters, lowercase letters, digits and single hyphens,
@@ -40,8 +40,8 @@ Result<SkillFrontmatter> parse_skill_md(std::string_view text, std::string_view 
 
 // One problem found in a skill folder.
 struct SkillProblem {
-    std::string file;     // "skills/gdd/SKILL.md" (how the caller named the folder, then the file)
-    int line = 0;         // 1-based, 0 when not about a line
+    std::string file;  // "skills/gdd/SKILL.md" (how the caller named the folder, then the file)
+    int line = 0;      // 1-based, 0 when not about a line
     std::string message;
     std::string hint;
     bool warning = false;
@@ -54,7 +54,7 @@ std::vector<SkillProblem> check_skill_folder(const std::string& dir, std::string
 std::string skill_template(std::string_view name, std::string_view description);
 
 // --- the skills inside the binary (skills/<name>/ of the repository; read from the source tree in a build without embedding) ---
-std::vector<std::string> engine_skill_names();                      // sorted
+std::vector<std::string> engine_skill_names();  // sorted
 // Files of an engine skill, relative to its folder with forward slashes, SKILL.md first, then sorted. Empty for an unknown name.
 std::vector<std::string> engine_skill_files(std::string_view name);
 std::optional<std::string> engine_skill_read(std::string_view name, std::string_view file = "SKILL.md");

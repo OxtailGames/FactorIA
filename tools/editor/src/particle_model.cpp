@@ -16,7 +16,8 @@ namespace fa::editor {
 
 namespace stdfs = std::filesystem;
 
-ParticleModel::ParticleModel(std::string projectDir, ParticleCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+ParticleModel::ParticleModel(std::string projectDir, ParticleCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 std::string ParticleModel::title() const {
     const auto slash = rel_.find_last_of('/');
@@ -38,7 +39,8 @@ bool ParticleModel::write_text(const std::string& text) {
     }
     // fs::write_bytes replaces the file atomically, so an undo never leaves half a document, and says why when it cannot (a file open elsewhere).
     if (auto w = fs::write_bytes(abs->generic_string(), text.data(), text.size()); !w.ok()) {
-        status_ = "Cannot write " + rel_ + ": " + w.error().message + (w.error().hint.empty() ? "" : " " + w.error().hint);
+        status_ =
+            "Cannot write " + rel_ + ": " + w.error().message + (w.error().hint.empty() ? "" : " " + w.error().hint);
         return false;
     }
     return true;
@@ -119,7 +121,7 @@ void ParticleModel::parse_shown() {
         doc_ = *doc;
         if (!preview_) error_.clear();
     } else if (!preview_) {
-        doc_.reset();   // the saved file is not an effect: nothing plays, the issues say why
+        doc_.reset();  // the saved file is not an effect: nothing plays, the issues say why
         error_ = doc.error().message;
     }
     // While a value is dragged, a value that does not make a valid effect keeps the last good document playing.
@@ -222,14 +224,17 @@ ParticleEditOutcome ParticleModel::run(const std::string& label, const std::stri
 }
 
 ParticleEditOutcome ParticleModel::set_field(const std::string& pointer, const Json& value, const std::string& label) {
-    return run(label.empty() ? "Set " + pointer : label, "vfx.edit", Json::object({{"path", rel_}, {"op", "set"}, {"pointer", pointer}, {"value", value}}));
+    return run(label.empty() ? "Set " + pointer : label, "vfx.edit",
+               Json::object({{"path", rel_}, {"op", "set"}, {"pointer", pointer}, {"value", value}}));
 }
 
 ParticleEditOutcome ParticleModel::remove_field(const std::string& pointer, const std::string& label) {
-    return run(label.empty() ? "Remove " + pointer : label, "vfx.edit", Json::object({{"path", rel_}, {"op", "remove"}, {"pointer", pointer}}));
+    return run(label.empty() ? "Remove " + pointer : label, "vfx.edit",
+               Json::object({{"path", rel_}, {"op", "remove"}, {"pointer", pointer}}));
 }
 
-ParticleEditOutcome ParticleModel::add_item(const std::string& pointer, const Json& value, int index, const std::string& label) {
+ParticleEditOutcome ParticleModel::add_item(const std::string& pointer, const Json& value, int index,
+                                            const std::string& label) {
     Json args = Json::object({{"path", rel_}, {"op", "add"}, {"pointer", pointer}, {"value", value}});
     if (index >= 0) args["index"] = index;
     return run(label.empty() ? "Add to " + pointer : label, "vfx.edit", args);
@@ -242,13 +247,18 @@ ParticleEditOutcome ParticleModel::move_item(const std::string& pointer, int fro
 
 Json ParticleModel::starter_part(const std::string& type, const std::string& what) {
     if (type == "light")
-        return Json::object({{"type", "light"}, {"duration", 0.2}, {"light", Json::object({{"color", "#ffe9a0"}, {"intensity", 1.5}, {"radius", 120}})}});
-    if (type == "sound")
-        return Json::object({{"type", "sound"}, {"clip", what}});
+        return Json::object({{"type", "light"},
+                             {"duration", 0.2},
+                             {"light", Json::object({{"color", "#ffe9a0"}, {"intensity", 1.5}, {"radius", 120}})}});
+    if (type == "sound") return Json::object({{"type", "sound"}, {"clip", what}});
     if (type == "command")
-        return Json::object({{"type", "command"}, {"command", what.empty() ? "feel.shake" : what}, {"args", Json::object()}});
-    return Json::object({{"type", "emitter"},
-                         {"emitter", Json::object({{"burst", 12}, {"lifetime", 0.6}, {"speed", 100}, {"spread", 180}, {"startSize", 8}, {"endSize", 2}})}});
+        return Json::object(
+            {{"type", "command"}, {"command", what.empty() ? "feel.shake" : what}, {"args", Json::object()}});
+    return Json::object(
+        {{"type", "emitter"},
+         {"emitter",
+          Json::object(
+              {{"burst", 12}, {"lifetime", 0.6}, {"speed", 100}, {"spread", 180}, {"startSize", 8}, {"endSize", 2}})}});
 }
 
 void ParticleModel::preview_field(const std::string& pointer, const Json& value) {
@@ -311,7 +321,8 @@ bool ParticleModel::apply_step(int id, bool forward) {
         conflict_ = true;
         staleStep_ = id;
         status_ = std::string("Cannot ") + (forward ? "redo" : "undo") + " '" + s->label + "': " + rel_ +
-                  " was changed outside the editor since, and this would overwrite that change. Press Reload to take the file as it is.";
+                  " was changed outside the editor since, and this would overwrite that change. Press Reload to take "
+                  "the file as it is.";
         return false;
     }
     if (!write_text(forward ? s->after : s->before)) return false;
@@ -322,8 +333,10 @@ bool ParticleModel::apply_step(int id, bool forward) {
 
 void ParticleModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 

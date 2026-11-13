@@ -39,7 +39,8 @@ std::vector<DebugBreakpointState> ScriptDebugger::set_breakpoints(const std::str
 // ---------------------------------------------------------------------------------------------------------------------
 // Breakpoints
 // ---------------------------------------------------------------------------------------------------------------------
-Result<InstrumentedScript> ScriptDebugger::Impl::instrument(const std::string& file, std::string_view source, int moduleId) {
+Result<InstrumentedScript> ScriptDebugger::Impl::instrument(const std::string& file, std::string_view source,
+                                                            int moduleId) {
     if (!instrumenter) return Error{"no script instrumenter", "Pass a ScriptInstrumenter to the ScriptDebugger."};
     std::lock_guard<std::mutex> lock(instrumenterMutex);
     return instrumenter(file, source, moduleId);
@@ -70,8 +71,10 @@ std::vector<DebugBreakpointState> ScriptDebugger::Impl::set_breakpoints(const st
             problem = "cannot read '" + file + "' to find its breakable lines: " + text.error().message;
         } else {
             auto r = instrument(file, *text, -1);
-            if (r.ok()) info = std::make_shared<const ScriptDebugInfo>(std::move(r.value().info));
-            else problem = file + " does not parse: " + r.error().message;
+            if (r.ok())
+                info = std::make_shared<const ScriptDebugInfo>(std::move(r.value().info));
+            else
+                problem = file + " does not parse: " + r.error().message;
         }
     }
     std::vector<int> lines = info ? info->breakable_lines() : std::vector<int>();
@@ -87,8 +90,9 @@ std::vector<DebugBreakpointState> ScriptDebugger::Impl::set_breakpoints(const st
         rec.hitCondition = bp.hitCondition;
         rec.logMessage = bp.logMessage;
         for (const DebugBpRec& o : old)  // the same breakpoint again keeps its id (and its hit count)
-            if (o.requestedLine == rec.requestedLine && o.condition == rec.condition && o.hitCondition == rec.hitCondition &&
-                o.logMessage == rec.logMessage && std::none_of(fresh.begin(), fresh.end(), [&](const DebugBpRec& f) { return f.id == o.id; })) {
+            if (o.requestedLine == rec.requestedLine && o.condition == rec.condition &&
+                o.hitCondition == rec.hitCondition && o.logMessage == rec.logMessage &&
+                std::none_of(fresh.begin(), fresh.end(), [&](const DebugBpRec& f) { return f.id == o.id; })) {
                 rec.id = o.id;
                 break;
             }
@@ -100,8 +104,8 @@ std::vector<DebugBreakpointState> ScriptDebugger::Impl::set_breakpoints(const st
             st.verified = rec.line > 0;
             st.line = rec.line > 0 ? rec.line : bp.line;
             if (!st.verified)
-                st.message = std::format("no code at or after line {} of {}: the last statement is on line {}", bp.line, file,
-                                         lines.empty() ? 0 : lines.back());
+                st.message = std::format("no code at or after line {} of {}: the last statement is on line {}", bp.line,
+                                         file, lines.empty() ? 0 : lines.back());
         } else {
             st.line = bp.line;
             st.message = problem;
@@ -181,7 +185,8 @@ std::string ScriptDebugger::Impl::map_stack(const std::string& text) const {
         size_t c1 = (c2 != std::string::npos && c2 > 0) ? ln.rfind(':', c2 - 1) : std::string::npos;
         if (c1 != std::string::npos) {
             size_t lp = ln.rfind('(', c1);
-            size_t start = lp != std::string::npos ? lp + 1 : (ln.find("at ") != std::string::npos ? ln.find("at ") + 3 : 0);
+            size_t start =
+                lp != std::string::npos ? lp + 1 : (ln.find("at ") != std::string::npos ? ln.find("at ") + 3 : 0);
             if (start <= c1) {
                 std::string name = ln.substr(start, c1 - start);
                 int l = std::atoi(ln.c_str() + c1 + 1), col = std::atoi(ln.c_str() + c2 + 1);

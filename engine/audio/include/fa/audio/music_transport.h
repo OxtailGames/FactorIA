@@ -28,8 +28,9 @@ enum class MusicEventKind : std::uint8_t { Beat, Bar, Section, Loop, Ended, Stin
 struct MusicEvent {
     MusicEventKind kind = MusicEventKind::Beat;
     std::int32_t a = 0, b = 0, c = 0, d = 0;
-    std::uint64_t frame = 0;      // output frames mixed when it happened
-    const MusicSource* src = nullptr;   // the song it happened in (valid until the owner prunes sources, after it has taken the events)
+    std::uint64_t frame = 0;  // output frames mixed when it happened
+    const MusicSource* src =
+        nullptr;  // the song it happened in (valid until the owner prunes sources, after it has taken the events)
     // Beat: a bar (1-based), b beat (1-based), c section index, d beats played since play (1 for the first).
     // Bar: a bar, b section index, c bars played since play.
     // Section: a section index, b pass (0-based), c bar.
@@ -46,9 +47,9 @@ constexpr std::size_t kMusicMaxWants = 12;
 // Where a song is going to be read, for the decode jobs of streamed stems: a playhead, or the target of a jump or stinger that waits.
 struct MusicWant {
     const MusicSource* src = nullptr;
-    double pos = 0.0;                 // song frames
-    double end = 0.0;                 // where the playhead wraps or ends (0 = nowhere known)
-    double wrapStart = 0.0;           // it continues from here at `end` (only when `wraps`)
+    double pos = 0.0;        // song frames
+    double end = 0.0;        // where the playhead wraps or ends (0 = nowhere known)
+    double wrapStart = 0.0;  // it continues from here at `end` (only when `wraps`)
     bool wraps = false;
 };
 
@@ -66,8 +67,8 @@ struct MusicTransportState {
     std::uint64_t mixed = 0;
     std::array<float, kMusicMaxStems> stemGains{};
     std::size_t stemCount = 0;
-    double limit = 0.0;                // where the main playhead wraps or ends (song frames; 0 = no limit)
-    double ratio = 1.0;                // song frames per output frame
+    double limit = 0.0;  // where the main playhead wraps or ends (song frames; 0 = no limit)
+    double ratio = 1.0;  // song frames per output frame
     // The earliest quantized jump that waits (a section change or a crossfade): the source and position it lands on, and the
     // output frame. The latest intensity change that waits, if any.
     const MusicSource* pendingSrc = nullptr;
@@ -94,7 +95,10 @@ public:
     void set_loop(bool loop);
     bool loop() const { return loop_; }
     // Layer fades: seconds a stem takes, and the intensity span of a fade-in.
-    void set_layer_fade(float seconds, float range) { layerFade_ = seconds; layerRange_ = range; }
+    void set_layer_fade(float seconds, float range) {
+        layerFade_ = seconds;
+        layerRange_ = range;
+    }
 
     // ---- commands (game thread). Each returns false with `error` set when it cannot be done.
     // Starts the song at section `section` (-1: the beginning) at once; whatever played is cut after a short fade.
@@ -124,31 +128,34 @@ public:
     // Crosses over to another song: from the boundary (of the song now playing), the new one starts at `section` (-1: the beginning) and
     // fades in while the old fades out, both over `fadeSeconds`. The new song's own tempo is not changed: the boundary is a bar line of the
     // old song and the new one starts on a bar line of its own.
-    bool crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q, float fadeSeconds, std::string* error);
-    bool crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds, std::string* error);  // see start()
+    bool crossfade_to(std::shared_ptr<const MusicSource> src, int section, MusicQuantize q, float fadeSeconds,
+                      std::string* error);
+    bool crossfade_to(const MusicSource* src, int section, MusicQuantize q, float fadeSeconds,
+                      std::string* error);  // see start()
 
     // ---- the audio thread
     // Adds `frames` stereo frames to `out`.
     void mix(float* out, int frames);
 
     // ---- state (any thread the owner locks for)
-    bool active() const;                    // a playhead is sounding or something is pending
+    bool active() const;  // a playhead is sounding or something is pending
     bool playing() const { return main_ >= 0; }
-    bool ended() const { return ended_; }   // the music reached its end or was stopped (until start() again)
+    bool ended() const { return ended_; }  // the music reached its end or was stopped (until start() again)
     std::uint64_t mixed() const { return mixed_; }
     float intensity() const { return intensity_; }
     int pending_count() const;
     int head_count() const;
-    const MusicSource* source() const;      // of the main playhead (null when nothing plays)
-    double position() const;                // song frames of the main playhead (0 when nothing plays)
-    MusicStatus status() const;  // status_of(capture())
+    const MusicSource* source() const;  // of the main playhead (null when nothing plays)
+    double position() const;            // song frames of the main playhead (0 when nothing plays)
+    MusicStatus status() const;         // status_of(capture())
     void capture(MusicTransportState& out) const;
     static MusicStatus status_of(const MusicTransportState& state);
     // The gain the layer fades have reached, per stem of the main head's source.
     std::vector<float> stem_gains() const;
     // Moves the queued events to `out` (oldest first).
     void take_events(std::vector<MusicEvent>& out);
-    bool pop_event(MusicEvent& out);  // moves the oldest queued event to `out`; false when none waits (allocates nothing)
+    bool
+    pop_event(MusicEvent& out);  // moves the oldest queued event to `out`; false when none waits (allocates nothing)
     std::size_t event_count() const { return ringCount_; }
     std::uint64_t dropped_events() const { return dropped_; }
     // True when no head or pending refers to `src` (the owner may free it).
@@ -159,22 +166,22 @@ private:
         bool active = false, main = false, overlay = false;
         const MusicSource* src = nullptr;
         double pos = 0.0;
-        bool armed = false;                // wraps at wrapEnd
+        bool armed = false;  // wraps at wrapEnd
         double wrapStart = 0.0, wrapEnd = 0.0;
-        double endPos = 0.0, tailFade = 0.0;   // the head ends at endPos; the last tailFade frames fade out
-        float level = 1.0f;                // overlay volume
-        float x = 1.0f, xTarget = 1.0f, xStep = 0.0f;   // equal-power fade: gain sqrt(x)
+        double endPos = 0.0, tailFade = 0.0;           // the head ends at endPos; the last tailFade frames fade out
+        float level = 1.0f;                            // overlay volume
+        float x = 1.0f, xTarget = 1.0f, xStep = 0.0f;  // equal-power fade: gain sqrt(x)
         long xLeft = 0;
         bool killAtFade = false;
         std::array<float, kMusicMaxStems> gain{}, target{}, step{};
         std::array<long, kMusicMaxStems> left{};
-        std::size_t cursor = 0;            // next mark to announce (main head only)
+        std::size_t cursor = 0;  // next mark to announce (main head only)
     };
     enum class Kind : std::uint8_t { Jump, Intensity, Stop, Overlay, Duck, Event };
     struct Pending {
         bool used = false;
         Kind kind = Kind::Event;
-        std::uint64_t at = 0, seq = 0;     // output frame; order of the request
+        std::uint64_t at = 0, seq = 0;  // output frame; order of the request
         const MusicSource* src = nullptr;
         double pos = 0.0, end = 0.0;
         long fadeFrames = 0;
@@ -190,7 +197,8 @@ private:
     };
 
     long frames_of(float seconds) const;
-    std::uint64_t frame_at(double songPos, double fromPos) const;       // output frame (absolute) a song position is reached at
+    std::uint64_t frame_at(double songPos,
+                           double fromPos) const;  // output frame (absolute) a song position is reached at
     Pending* add_pending(Kind kind, std::uint64_t at);
     double limit_of(const Head& h) const;
     Head* free_head();
@@ -224,7 +232,8 @@ private:
     float layerFade_ = 1.0f, layerRange_ = 0.25f;
     std::int64_t beats_ = 0, bars_ = 0, loops_ = 0;
     DuckState duck_;
-    std::vector<std::shared_ptr<const MusicSource>> held_;   // the heads and pendings hold raw pointers: these keep the sources alive
+    std::vector<std::shared_ptr<const MusicSource>>
+        held_;  // the heads and pendings hold raw pointers: these keep the sources alive
 
 public:
     // Drops the sources the shared_ptr commands hold that no head or pending reads any more (same thread as mix()).

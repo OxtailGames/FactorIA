@@ -135,9 +135,10 @@ bool file_in_use(const std::filesystem::path& file, bool* markLost = nullptr);
 // of it; for a file, false skips the file. Call it before remove_tree when a half-deleted folder would be worse than an
 // error; it reads the folder and opens files, so never on a UI thread. It looks at `maxFiles` files at most (a
 // deterministic count, not a time: what lies past it is not looked at). `markLost`: as for file_in_use, for the file returned.
-std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
-                                       const std::function<bool(const std::filesystem::path& rel, bool folder)>& which = {},
-                                       std::size_t maxFiles = 100000, bool* markLost = nullptr);
+std::filesystem::path
+find_file_in_use(const std::filesystem::path& dir,
+                 const std::function<bool(const std::filesystem::path& rel, bool folder)>& which = {},
+                 std::size_t maxFiles = 100000, bool* markLost = nullptr);
 
 // ---- Windows file rules ------------------------------------------------------------------------------------------
 // Some file bugs only happen on Windows, so only a Windows CI run found them. Two rules cause most of them:
@@ -158,8 +159,9 @@ std::filesystem::path find_file_in_use(const std::filesystem::path& dir,
 // game; an unmapped pack shares delete, so a delete of it goes through); replace_file, remove_file, remove_tree and
 // write_bytes against them; modified_time. What it does not: files held open for writing or
 // mapped by anything else, other processes, reserved names (CON, NUL), the 260-character limit, text/binary newline translation.
-bool windows_rules();             // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on
-void set_windows_rules(bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
+bool windows_rules();  // true when file operations follow Windows rules: on Windows always, elsewhere when the mode is on
+void set_windows_rules(
+    bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
 // The size of one step of a file's modification time under the Windows rules, in nanoseconds (15.625 ms = 1/64 s).
 constexpr std::int64_t kWindowsTimeStepNs = 15'625'000;
 
@@ -246,7 +248,7 @@ Result<void> write_text(std::string_view path, std::string_view text);  // creat
 Result<void> write_bytes(std::string_view path, const void* data, std::size_t size);
 bool exists(std::string_view path);
 bool is_directory(std::string_view path);
-std::int64_t file_size(std::string_view path);      // bytes; -1 if missing or not a file
+std::int64_t file_size(std::string_view path);  // bytes; -1 if missing or not a file
 // -1 if missing; nanoseconds since 1970 (file_time_ns; a file of a pack: the pack's time). Under the Windows rules a file's time is rounded down to
 // steps of 15.625 ms: compare it for "changed" only together with something else (size, content), or read once more after a change.
 std::int64_t modified_time(std::string_view path);
@@ -342,8 +344,9 @@ Result<std::filesystem::path> resolve_for_write(std::string_view path, WriteRoot
                                                 ManagedFolders managed = ManagedFolders::Refuse);
 // The same against an explicit root folder (`root` only chooses the wording and the managed-folder exemption). For code that
 // holds its own project folder (the tooling commands get it when they are registered, not from project_root()).
-Result<std::filesystem::path> resolve_for_write_in(const std::filesystem::path& rootDir, WriteRoot root, std::string_view path,
-                                                   bool allowAnywhere, ManagedFolders managed = ManagedFolders::Refuse);
+Result<std::filesystem::path> resolve_for_write_in(const std::filesystem::path& rootDir, WriteRoot root,
+                                                   std::string_view path, bool allowAnywhere,
+                                                   ManagedFolders managed = ManagedFolders::Refuse);
 // The spelling of a path that resolve_for_write returned for the project: relative to the project folder (forward slashes, ""
 // for the folder itself) when it lies inside it, else the absolute path. The form the rest of this API (read_text, exists,
 // write_text...) takes for a project file, so a command keeps its own bookkeeping (watched files, undo records) in it.

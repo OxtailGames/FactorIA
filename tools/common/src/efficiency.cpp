@@ -25,7 +25,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr double kBytesPerTokenEstimate = 3.75;  // the estimate of ai.session_timeline and AI_COSTS.md (fa_ai: kBytesPerToken)
+constexpr double kBytesPerTokenEstimate =
+    3.75;  // the estimate of ai.session_timeline and AI_COSTS.md (fa_ai: kBytesPerToken)
 
 std::string jstr(const Json& j, const char* key) {
     if (!j.is_object()) return {};
@@ -44,7 +45,8 @@ constexpr double kMaxJsonCount = 1e15;
 std::uint64_t juint(const Json& j, const char* key) {
     if (const Json* c = jchild(j, key); c && c->is_number()) {
         const double v = c->get<double>();
-        if (v >= 1.0) return static_cast<std::uint64_t>(std::min(v, kMaxJsonCount));  // false for NaN and for anything below 1
+        if (v >= 1.0)
+            return static_cast<std::uint64_t>(std::min(v, kMaxJsonCount));  // false for NaN and for anything below 1
     }
     return 0;
 }
@@ -57,7 +59,9 @@ double jamount(const Json& j, const char* key) {
     return 0.0;
 }
 // The same for a count held in an int (a step number...).
-int jint(const Json& j, const char* key) { return static_cast<int>(std::min<std::uint64_t>(juint(j, key), 2'000'000'000u)); }
+int jint(const Json& j, const char* key) {
+    return static_cast<int>(std::min<std::uint64_t>(juint(j, key), 2'000'000'000u));
+}
 
 // A path as UTF-8 text and back, whatever the platform: string() on Windows is the ANSI code page, which turns an accented letter of a
 // session name into '?' or another byte sequence.
@@ -65,9 +69,13 @@ std::string u8text(const stdfs::path& p) {
     const std::u8string u = p.u8string();
     return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
-stdfs::path path_of_text(const std::string& text) { return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size())); }
+stdfs::path path_of_text(const std::string& text) {
+    return stdfs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
 double round_to(double v, double scale) { return std::round(v * scale) / scale; }
-bool contains_string(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains_string(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 bool jbool(const Json& j, const char* key) {
     const Json* c = jchild(j, key);
     return c && c->is_boolean() && c->get<bool>();
@@ -92,8 +100,8 @@ std::string code_of_text(const std::string& text) {
 
 // What a call acted on: the first of the usual argument names that is a string, cut to 200 bytes (never inside a UTF-8 sequence).
 std::string ref_of(const Json& args) {
-    static const char* const kKeys[] = {"path",  "file_path", "filePath", "file",   "topic",     "page", "doc", "name",
-                                        "query", "component", "entity",   "scene",  "pattern",   "id"};
+    static const char* const kKeys[] = {"path", "file_path", "filePath",  "file",   "topic", "page",    "doc",
+                                        "name", "query",     "component", "entity", "scene", "pattern", "id"};
     if (!args.is_object()) return {};
     for (const char* k : kKeys) {
         if (const Json* c = jchild(args, k); c && c->is_string() && !c->get<std::string>().empty()) {
@@ -116,8 +124,8 @@ std::string command_from_tool_name(std::string name) {
         if (p != std::string::npos && p + 2 < name.size()) name = name.substr(p + 2);
     }
     const std::size_t us = name.find('_');
-    if (us != std::string::npos && us > 0 && std::islower(static_cast<unsigned char>(name[0])) && name.find('.') == std::string::npos &&
-        name.find(' ') == std::string::npos)
+    if (us != std::string::npos && us > 0 && std::islower(static_cast<unsigned char>(name[0])) &&
+        name.find('.') == std::string::npos && name.find(' ') == std::string::npos)
         name[us] = '.';
     return name;
 }
@@ -145,7 +153,9 @@ void resolve_cli_call(EfficiencyToolCall& c, const Json& input) {
     const std::string cmdline = jstr(input, "command");
     if (cmdline.empty()) return;
     c.shell = cmdline.substr(0, 200);
-    while (!c.shell.empty() && c.shell.size() < cmdline.size() && (static_cast<unsigned char>(cmdline[c.shell.size()]) & 0xC0) == 0x80) c.shell.pop_back();
+    while (!c.shell.empty() && c.shell.size() < cmdline.size() &&
+           (static_cast<unsigned char>(cmdline[c.shell.size()]) & 0xC0) == 0x80)
+        c.shell.pop_back();
     auto words = [](std::string_view s) {
         std::vector<std::string> out;
         std::string cur;
@@ -166,13 +176,17 @@ void resolve_cli_call(EfficiencyToolCall& c, const Json& input) {
         if (bin != "factoria" || i + 1 >= w.size()) continue;
         if (w[i + 1] == "call" && i + 2 < w.size()) {
             std::size_t cmdAt = i + 2;  // `factoria call --project . play.auto`: the options come before the command
-            while (cmdAt + 1 < w.size() && w[cmdAt].size() > 1 && w[cmdAt][0] == '-') cmdAt += w[cmdAt] == "--project" ? 2 : 1;
+            while (cmdAt + 1 < w.size() && w[cmdAt].size() > 1 && w[cmdAt][0] == '-')
+                cmdAt += w[cmdAt] == "--project" ? 2 : 1;
             if (cmdAt >= w.size()) cmdAt = i + 2;
             c.command = w[cmdAt];
             c.ref.clear();
             // the first plain word after the command is what it acted on
             for (std::size_t k = cmdAt + 1; k < w.size() && k < cmdAt + 4; ++k) {
-                if (!w[k].empty() && w[k][0] != '-' && w[k][0] != '{' && w[k] != "--project") { c.ref = w[k]; break; }
+                if (!w[k].empty() && w[k][0] != '-' && w[k][0] != '{' && w[k] != "--project") {
+                    c.ref = w[k];
+                    break;
+                }
                 if (w[k] == "--project") ++k;
             }
         } else if (w[i + 1] == "docs" && i + 2 < w.size()) {
@@ -188,7 +202,8 @@ void judge_cli_result(EfficiencyToolCall& c, const std::string& result) {
     c.resultBytes = result.size();
     if (result.size() < 12 || result.front() != '{') return;
     const std::string code = code_of_text(result);
-    if (!code.empty() && result.find("\"message\"") != std::string::npos && result.find("\"ok\":true") == std::string::npos) {
+    if (!code.empty() && result.find("\"message\"") != std::string::npos &&
+        result.find("\"ok\":true") == std::string::npos) {
         c.failed = true;
         c.code = code;
     }
@@ -213,17 +228,26 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
     EfficiencySession s;
     s.id = id;
     std::map<std::string, std::pair<std::size_t, std::size_t>> pending;  // tool call id -> (step index, call index)
-    std::vector<std::uint64_t> cliBytes;                                  // per step, CLI agents
+    std::vector<std::uint64_t> cliBytes;                                 // per step, CLI agents
     bool cliLastWasEnd = true;
     std::int64_t lastMs = 0;
     std::string_view raw;
     bool tooLong = false;
     while (next(raw, tooLong)) {
-        if (tooLong) { ++s.skippedLines; continue; }
+        if (tooLong) {
+            ++s.skippedLines;
+            continue;
+        }
         if (raw.empty()) continue;
-        if (raw.size() > kEfficiencyMaxLine) { ++s.skippedLines; continue; }
-        const Json j = Json::parse(raw.begin(), raw.end(), nullptr, false);
-        if (!j.is_object()) { ++s.skippedLines; continue; }
+        if (raw.size() > kEfficiencyMaxLine) {
+            ++s.skippedLines;
+            continue;
+        }
+        const Json j = parse_json_lenient(raw);
+        if (!j.is_object()) {
+            ++s.skippedLines;
+            continue;
+        }
         std::int64_t t = 0;
         if (parse_iso_utc_ms(jstr(j, "t"), t) && t > 0) {
             if (s.startMs == 0) s.startMs = t;
@@ -231,16 +255,22 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
             s.hasTimes = true;
         }
         const std::string kind = jstr(j, "kind");
-        auto stamp = [&](EfficiencyStep& st) { if (t > 0) st.endMs = t; };
+        auto stamp = [&](EfficiencyStep& st) {
+            if (t > 0) st.endMs = t;
+        };
 
         if (kind == "assistant") {
-            if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) { s.truncated = true; break; }
+            if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) {
+                s.truncated = true;
+                break;
+            }
             s.agent = "builtin";
             EfficiencyStep st;
             st.number = static_cast<int>(s.steps.size()) + 1;
             st.endMs = t > 0 ? t : (s.steps.empty() ? lastMs : s.steps.back().endMs);
             if (const Json* u = jchild(j, "usage"); u && u->is_object())
-                st.tokens = juint(*u, "inputTokens") + juint(*u, "outputTokens") + juint(*u, "cacheCreationTokens") + juint(*u, "cacheReadTokens");
+                st.tokens = juint(*u, "inputTokens") + juint(*u, "outputTokens") + juint(*u, "cacheCreationTokens") +
+                            juint(*u, "cacheReadTokens");
             st.costUsd = jamount(j, "costUsd");
             const Json* content = jchild(j, "content");
             auto add_call = [&](const std::string& callId, const std::string& name, const Json& input) {
@@ -253,15 +283,17 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
             };
             if (content && content->is_array()) {  // Anthropic: [{type:"tool_use", id, name, input}]
                 for (const Json& b : *content)
-                    if (jstr(b, "type") == "tool_use") add_call(jstr(b, "id"), jstr(b, "name"), b.contains("input") ? b["input"] : Json::object());
-            } else if (content && content->is_object()) {  // OpenAI-style: {tool_calls:[{id, function:{name, arguments}}]}
+                    if (jstr(b, "type") == "tool_use")
+                        add_call(jstr(b, "id"), jstr(b, "name"), b.contains("input") ? b["input"] : Json::object());
+            } else if (content &&
+                       content->is_object()) {  // OpenAI-style: {tool_calls:[{id, function:{name, arguments}}]}
                 if (const Json* calls = jchild(*content, "tool_calls"); calls && calls->is_array()) {
                     for (const Json& c : *calls) {
                         const Json* fn = jchild(c, "function");
                         if (!fn) continue;
                         Json input = Json::object();
                         if (const Json* a = jchild(*fn, "arguments"); a && a->is_string()) {
-                            Json parsed = Json::parse(a->get<std::string>(), nullptr, false);
+                            Json parsed = parse_json_lenient(a->get<std::string>());
                             if (parsed.is_object()) input = std::move(parsed);
                         } else if (a && a->is_object()) {
                             input = *a;
@@ -294,7 +326,10 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
             s.agent = s.agent.empty() ? "cli" : s.agent;
             if (s.agent != "cli") continue;
             if (s.steps.empty() || cliLastWasEnd) {
-                if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) { s.truncated = true; break; }
+                if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) {
+                    s.truncated = true;
+                    break;
+                }
                 EfficiencyStep st;
                 st.number = static_cast<int>(s.steps.size()) + 1;
                 st.endMs = t > 0 ? t : (s.steps.empty() ? lastMs : s.steps.back().endMs);
@@ -322,14 +357,17 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
             EfficiencyToolCall* match = nullptr;
             for (std::size_t k = s.steps.size(); k-- > 0 && !match && s.steps.size() - k <= 8;) {
                 for (EfficiencyToolCall& c : s.steps[k].calls) {
-                    if (c.resultBytes == 0 && !c.failed && c.ms == 0 && (callId.empty() ? c.name == name : c.id == callId)) {
+                    if (c.resultBytes == 0 && !c.failed && c.ms == 0 &&
+                        (callId.empty() ? c.name == name : c.id == callId)) {
                         match = &c;
                         break;
                     }
                 }
             }
             const Json* res = jchild(j, "result");
-            const std::string resultText = res && res->is_string() ? res->get<std::string>() : (res && !res->is_null() ? res->dump() : std::string());
+            const std::string resultText = res && res->is_string()
+                                               ? res->get<std::string>()
+                                               : (res && !res->is_null() ? res->dump() : std::string());
             if (match) {
                 match->ms = static_cast<std::int64_t>(juint(j, "ms"));
                 judge_cli_result(*match, resultText);
@@ -341,7 +379,8 @@ EfficiencySession read_session_lines(const LineSource& next, const std::string& 
     }
     if (s.agent == "cli") {
         s.estimated = true;
-        for (std::size_t i = 0; i < s.steps.size() && i < cliBytes.size(); ++i) s.steps[i].tokens = tokens_from_bytes(cliBytes[i]);
+        for (std::size_t i = 0; i < s.steps.size() && i < cliBytes.size(); ++i)
+            s.steps[i].tokens = tokens_from_bytes(cliBytes[i]);
     }
     // A step without a time keeps the time of the one before it, so a span's minutes never go backwards.
     std::int64_t prev = s.startMs;
@@ -369,8 +408,11 @@ public:
             const std::size_t take = nl ? static_cast<std::size_t>(static_cast<const char*>(nl) - begin) : avail;
             any = true;
             if (!tooLong) {
-                if (line_.size() + take > kEfficiencyMaxLine) { tooLong = true; line_.clear(); }
-                else line_.append(begin, take);
+                if (line_.size() + take > kEfficiencyMaxLine) {
+                    tooLong = true;
+                    line_.clear();
+                } else
+                    line_.append(begin, take);
             }
             pos_ += take + (nl ? 1 : 0);
             if (nl) break;
@@ -424,7 +466,8 @@ EfficiencySession read_efficiency_session(const std::string& text, const std::st
 
 EfficiencySession read_efficiency_session(std::istream& in, const std::string& id, std::uint64_t maxBytes) {
     StreamLines lines(in, maxBytes);
-    EfficiencySession s = read_session_lines([&](std::string_view& line, bool& tooLong) { return lines.next(line, tooLong); }, id);
+    EfficiencySession s =
+        read_session_lines([&](std::string_view& line, bool& tooLong) { return lines.next(line, tooLong); }, id);
     if (lines.cut()) s.truncated = true;
     return s;
 }
@@ -442,7 +485,8 @@ std::string efficiency_sessions_dir(const std::string& projectDir) {
 std::vector<std::string> list_efficiency_sessions(const std::string& projectDir) {
     std::vector<std::string> names;
     std::error_code ec;
-    for (const auto& e : stdfs::directory_iterator(fs::os_path(path_of_text(efficiency_sessions_dir(projectDir))), ec)) {
+    for (const auto& e :
+         stdfs::directory_iterator(fs::os_path(path_of_text(efficiency_sessions_dir(projectDir))), ec)) {
         std::error_code ec2;
         if (e.is_regular_file(ec2) && e.path().extension() == ".jsonl") names.push_back(u8text(e.path().stem()));
     }
@@ -450,7 +494,8 @@ std::vector<std::string> list_efficiency_sessions(const std::string& projectDir)
     return names;
 }
 
-Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session, EfficiencyLoadBudget* budget) {
+Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session,
+                                                  EfficiencyLoadBudget* budget) {
     std::string id = u8text(path_of_text(session).filename());
     if (ends_with(id, ".jsonl")) id.resize(id.size() - 6);
     const stdfs::path file = path_of_text(efficiency_sessions_dir(projectDir)) / path_of_text(id + ".jsonl");
@@ -458,26 +503,33 @@ Result<EfficiencySession> load_efficiency_session(const std::string& projectDir,
     if (id.empty() || !stdfs::is_regular_file(fs::os_path(file), ec)) {
         const std::vector<std::string> names = list_efficiency_sessions(projectDir);
         return make_error("No session named '" + session + "' in " + efficiency_sessions_dir(projectDir) + ".",
-                          names.empty() ? "No AI session was recorded in this project: sessions are written there while an agent runs (ai.run or the AI panel)."
+                          names.empty() ? "No AI session was recorded in this project: sessions are written there "
+                                          "while an agent runs (ai.run or the AI panel)."
                                         : did_you_mean(id, names) + " ai.session_timeline lists the newest one.");
     }
     const std::uintmax_t size = stdfs::file_size(fs::os_path(file), ec);
     const std::uint64_t maxFile = budget ? budget->maxFile : kEfficiencyMaxBytes;
     if (!ec && size > maxFile)
-        return make_error("The session '" + id + "' is " + std::to_string(size / (1024 * 1024)) + " MB, more than the " +
-                              std::to_string(maxFile / (1024 * 1024)) + " MB that are read for a measurement.",
-                          "Point at a shorter session (the sessions of one request each), or delete the oldest ones in " + efficiency_sessions_dir(projectDir) + ".");
+        return make_error(
+            "The session '" + id + "' is " + std::to_string(size / (1024 * 1024)) + " MB, more than the " +
+                std::to_string(maxFile / (1024 * 1024)) + " MB that are read for a measurement.",
+            "Point at a shorter session (the sessions of one request each), or delete the oldest ones in " +
+                efficiency_sessions_dir(projectDir) + ".");
     // The budget is checked before the file is opened: a call that reads many sessions stays within kEfficiencyMaxTotalBytes in all.
     if (budget && !ec) {
         if (size > budget->bytesLeft)
-            return make_error("The session '" + id + "' (" + std::to_string(size / (1024 * 1024)) + " MB) was not read: this call already read " +
+            return make_error("The session '" + id + "' (" + std::to_string(size / (1024 * 1024)) +
+                                  " MB) was not read: this call already read " +
                                   std::to_string((budget->total - budget->bytesLeft) / (1024 * 1024)) + " of the " +
                                   std::to_string(budget->total / (1024 * 1024)) + " MB it may read in all.",
-                              "Name fewer or shorter sessions, or delete the oldest ones in " + efficiency_sessions_dir(projectDir) + ".");
+                              "Name fewer or shorter sessions, or delete the oldest ones in " +
+                                  efficiency_sessions_dir(projectDir) + ".");
         budget->bytesLeft -= size;
     }
     fs::ReadStream in(fs::os_path(file), std::ios::binary);
-    if (!in) return make_error("Cannot read " + u8text(file) + ".", "Check that the file exists and that no other program has it locked.");
+    if (!in)
+        return make_error("Cannot read " + u8text(file) + ".",
+                          "Check that the file exists and that no other program has it locked.");
     return read_efficiency_session(in, id, maxFile);
 }
 
@@ -493,8 +545,12 @@ EfficiencyMeasure& EfficiencyMeasure::operator+=(const EfficiencyMeasure& o) {
 }
 
 Json EfficiencyMeasure::to_json() const {
-    return Json::object({{"steps", steps}, {"toolCalls", toolCalls}, {"minutes", round_to(minutes, 10)}, {"tokens", tokens},
-                         {"costUsd", round_to(costUsd, 10000)}, {"estimated", estimated}});
+    return Json::object({{"steps", steps},
+                         {"toolCalls", toolCalls},
+                         {"minutes", round_to(minutes, 10)},
+                         {"tokens", tokens},
+                         {"costUsd", round_to(costUsd, 10000)},
+                         {"estimated", estimated}});
 }
 
 EfficiencyMeasure EfficiencyMeasure::from_json(const Json& j) {
@@ -548,7 +604,8 @@ EfficiencyMeasure scale_measure(const EfficiencyMeasure& m, double share) {
 
 // ---------------------------------------------------------------------------------------------------------------- tables --
 const std::vector<std::string>& efficiency_fix_types() {
-    static const std::vector<std::string> v = {"doc", "guide", "example", "commandOption", "newCommand", "engineChange"};
+    static const std::vector<std::string> v = {"doc",           "guide",      "example",
+                                               "commandOption", "newCommand", "engineChange"};
     return v;
 }
 
@@ -594,11 +651,12 @@ std::string threshold_text(const EfficiencyThreshold& t) {
 }  // namespace
 
 std::string efficiency_threshold_table() {
-    std::string out = "| Fix type | Saving per game where it applies | Applies to | What the fix is |\n|---|---|---|---|\n";
+    std::string out =
+        "| Fix type | Saving per game where it applies | Applies to | What the fix is |\n|---|---|---|---|\n";
     for (const EfficiencyThreshold& t : efficiency_thresholds()) {
         out += "| `" + t.fixType + "` | " + threshold_text(t) + " | " +
-               (t.widerThanFeature ? "every game or a genre (wider than one feature)" : "any engine feature") + " | " + t.cost +
-               (t.candidateOnly ? " (a candidate for triage)" : "") + " |\n";
+               (t.widerThanFeature ? "every game or a genre (wider than one feature)" : "any engine feature") + " | " +
+               t.cost + (t.candidateOnly ? " (a candidate for triage)" : "") + " |\n";
     }
     return out;
 }
@@ -636,22 +694,27 @@ bool wider_than_feature(const std::string& appliesTo) { return appliesTo == "eve
 
 std::vector<std::string> significant_words(const std::string& text) {
     static const std::set<std::string> skip = {
-        "the",  "and",   "for",  "with",  "guide", "docs", "doc",   "missing", "step",  "steps", "how",   "use",    "using", "takes", "took",
-        "long", "many",  "tool", "tools", "call",  "calls", "read", "again",  "time",  "times", "every", "each",   "from",  "into",  "that",
-        "this", "are",   "was",  "were",  "has",   "have", "need",  "needs",  "slow",  "too",   "new",   "add",    "fix",   "engine", "when",
-        "than", "more",  "less", "which", "about", "does", "not",   "all",    "per",   "without", "wasted", "waste", "minutes", "tokens", "section"};
+        "the",   "and",  "for",   "with",   "guide",   "docs",   "doc",   "missing", "step",   "steps",
+        "how",   "use",  "using", "takes",  "took",    "long",   "many",  "tool",    "tools",  "call",
+        "calls", "read", "again", "time",   "times",   "every",  "each",  "from",    "into",   "that",
+        "this",  "are",  "was",   "were",   "has",     "have",   "need",  "needs",   "slow",   "too",
+        "new",   "add",  "fix",   "engine", "when",    "than",   "more",  "less",    "which",  "about",
+        "does",  "not",  "all",   "per",    "without", "wasted", "waste", "minutes", "tokens", "section"};
     std::vector<std::string> out;
     std::string cur;
     auto flush = [&] {
-        if (cur.size() >= 3 && !skip.count(cur) && !std::all_of(cur.begin(), cur.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) &&
+        if (cur.size() >= 3 && !skip.count(cur) &&
+            !std::all_of(cur.begin(), cur.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) &&
             std::find(out.begin(), out.end(), cur) == out.end())
             out.push_back(cur);
         cur.clear();
     };
     for (char c : text) {
         const unsigned char u = static_cast<unsigned char>(c);
-        if (std::isalnum(u)) cur += static_cast<char>(std::tolower(u));
-        else flush();
+        if (std::isalnum(u))
+            cur += static_cast<char>(std::tolower(u));
+        else
+            flush();
     }
     flush();
     return out;
@@ -709,8 +772,10 @@ std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, Ef
     if (const Json* c = jchild(args, "everyStepTokens")) {
         if (!c->is_number() || !(c->get<double>() >= 0))
             return refuse("invalid_argument", "/everyStepTokens must be a number of tokens (0 or more).",
-                          "It is the size, in tokens, of the text the fix adds to EVERY step of every run (AGENTS.md, the system prompt). Leave it out for a fix read only on demand.");
-        out.everyStepTokens = static_cast<std::uint64_t>(std::min(c->get<double>(), 1e12));  // times the steps of a run below: stays far from the 64-bit limit
+                          "It is the size, in tokens, of the text the fix adds to EVERY step of every run (AGENTS.md, "
+                          "the system prompt). Leave it out for a fix read only on demand.");
+        out.everyStepTokens = static_cast<std::uint64_t>(
+            std::min(c->get<double>(), 1e12));  // times the steps of a run below: stays far from the 64-bit limit
     }
     if (const Json* c = jchild(args, "searched")) {
         if (c->is_string()) {
@@ -723,15 +788,18 @@ std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, Ef
                 out.searched.push_back(std::string(trim((*c)[i].get<std::string>())));
             }
         } else {
-            return refuse("invalid_argument", "/searched must be a list of strings.", "List the words you gave docs.search, one string each.");
+            return refuse("invalid_argument", "/searched must be a list of strings.",
+                          "List the words you gave docs.search, one string each.");
         }
-        out.searched.erase(std::remove_if(out.searched.begin(), out.searched.end(), [](const std::string& s) { return s.empty(); }),
-                           out.searched.end());
+        out.searched.erase(
+            std::remove_if(out.searched.begin(), out.searched.end(), [](const std::string& s) { return s.empty(); }),
+            out.searched.end());
     }
     if (const Json* e = jchild(args, "expectedSaving")) {
         if (!e->is_object() || !jchild(*e, "share") || !jchild(*e, "share")->is_number())
             return refuse("invalid_argument", "/expectedSaving must be {share, why}: share a number from 0.01 to 1.",
-                          "Example: {\"share\":0.7,\"why\":\"the guide gives the three calls that took the other 30 steps to find\"}.");
+                          "Example: {\"share\":0.7,\"why\":\"the guide gives the three calls that took the other 30 "
+                          "steps to find\"}.");
         out.saveShare = (*e)["share"].get<double>();
         out.saveWhy = std::string(trim(jstr(*e, "why")));
     }
@@ -739,19 +807,22 @@ std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, Ef
     if (ev) {
         if (!ev->is_array())
             return refuse("invalid_argument", "/evidence must be a list of spans [{session, fromStep, toStep}].",
-                          "Name the steps where the waste happened, from ai.session_timeline or the transcript in .factoria/ai/sessions.");
+                          "Name the steps where the waste happened, from ai.session_timeline or the transcript in "
+                          ".factoria/ai/sessions.");
         for (std::size_t i = 0; i < ev->size(); ++i) {
             const Json& span = (*ev)[i];
             const std::string at = "/evidence/" + std::to_string(i);
             if (!span.is_object())
-                return refuse("invalid_argument", at + " must be {session, fromStep, toStep}.", "Example: {\"session\":\"20261014-153012-main\",\"fromStep\":12,\"toStep\":52}.");
+                return refuse("invalid_argument", at + " must be {session, fromStep, toStep}.",
+                              "Example: {\"session\":\"20261014-153012-main\",\"fromStep\":12,\"toStep\":52}.");
             EfficiencySpan sp;
             sp.session = std::string(trim(jstr(span, "session")));
             for (const char* key : {"fromStep", "toStep"}) {
                 const Json* n = jchild(span, key);
                 if (!n || !n->is_number_integer())
                     return refuse("invalid_argument", at + "/" + key + " must be a whole number (steps count from 1).",
-                                  "Steps are the model calls of the transcript, numbered from 1 (the `steps` of ai.session_timeline's `context`).");
+                                  "Steps are the model calls of the transcript, numbered from 1 (the `steps` of "
+                                  "ai.session_timeline's `context`).");
                 (std::string(key) == "fromStep" ? sp.fromStep : sp.toStep) = n->get<int>();
             }
             out.evidence.push_back(std::move(sp));
@@ -760,50 +831,71 @@ std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, Ef
     return std::nullopt;
 }
 
-std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& projectDir, const EfficiencyInput& in, EfficiencyVerdict& verdict) {
+std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& projectDir, const EfficiencyInput& in,
+                                                         EfficiencyVerdict& verdict) {
     // ---- the words of the report
     if (!contains_string(efficiency_fix_types(), in.fixType))
         return refuse("invalid_argument",
-                      "/fixType '" + in.fixType + "' is not a fix type. " + did_you_mean(in.fixType, efficiency_fix_types()),
+                      "/fixType '" + in.fixType + "' is not a fix type. " +
+                          did_you_mean(in.fixType, efficiency_fix_types()),
                       "Pick the cheapest fix that removes the waste: " + fix_types_text() + " (cheapest first).");
     if (std::count_if(in.waste.begin(), in.waste.end(), [](unsigned char c) { return std::isspace(c) != 0; }) < 3)
         return refuse("invalid_argument", "/waste is missing or too short: say in engine terms what took the time.",
-                      "Example: \"Understanding how Tilemap layers map to collision took 40 steps of reading components and trying values.\"");
-    if (std::count_if(in.suggestion.begin(), in.suggestion.end(), [](unsigned char c) { return std::isspace(c) != 0; }) < 2)
+                      "Example: \"Understanding how Tilemap layers map to collision took 40 steps of reading "
+                      "components and trying values.\"");
+    if (std::count_if(in.suggestion.begin(), in.suggestion.end(),
+                      [](unsigned char c) { return std::isspace(c) != 0; }) < 2)
         return refuse("invalid_argument", "/suggestion is missing: the fix is part of the report.",
-                      "Say the doc section, guide, example, command option or command that would have removed the waste, in a sentence.");
+                      "Say the doc section, guide, example, command option or command that would have removed the "
+                      "waste, in a sentence.");
     if (!contains_string(efficiency_applies_to(), in.appliesTo))
-        return refuse("invalid_argument", "/appliesTo '" + in.appliesTo + "' is not one of every-game, genre, feature, this-game. " +
-                                              did_you_mean(in.appliesTo, efficiency_applies_to()),
-                      "every-game: any game would hit it; genre: games of one kind (say which in the waste); feature: one engine feature; this-game: only this project.");
+        return refuse("invalid_argument",
+                      "/appliesTo '" + in.appliesTo + "' is not one of every-game, genre, feature, this-game. " +
+                          did_you_mean(in.appliesTo, efficiency_applies_to()),
+                      "every-game: any game would hit it; genre: games of one kind (say which in the waste); feature: "
+                      "one engine feature; this-game: only this project.");
     if (in.appliesTo == "this-game")
         return refuse("project_fact",
                       "/appliesTo is this-game: a lesson that is true only for this game is not engine feedback.",
-                      "Record it as a project fact instead (the retrospective proposes them; `ai.savers` shows savers.projectFacts, and AGENTS.md \"Project facts\" is where they live), so every later run of this game starts knowing it.");
+                      "Record it as a project fact instead (the retrospective proposes them; `ai.savers` shows "
+                      "savers.projectFacts, and AGENTS.md \"Project facts\" is where they live), so every later run of "
+                      "this game starts knowing it.");
     const std::string lowered = lower_text(in.title + " . " + in.waste + " . " + in.suggestion);
-    if (mentions(lowered, {"cheaper model", "smaller model", "faster model", "different model", "switch model", "switch to haiku", "use haiku",
-                           "use sonnet", "use opus", "lower effort", "reduce effort", "less effort", "effort level", "reasoning effort",
-                           "thinking budget", "turn limit", "token limit", "cost limit", "token budget", "cost budget", "run budget",
-                           "raise the limit", "raise limits", "lower the limit", "max tokens", "max turns"}))
+    if (mentions(lowered, {"cheaper model",   "smaller model",   "faster model", "different model",  "switch model",
+                           "switch to haiku", "use haiku",       "use sonnet",   "use opus",         "lower effort",
+                           "reduce effort",   "less effort",     "effort level", "reasoning effort", "thinking budget",
+                           "turn limit",      "token limit",     "cost limit",   "token budget",     "cost budget",
+                           "run budget",      "raise the limit", "raise limits", "lower the limit",  "max tokens",
+                           "max turns"}))
         return refuse("user_setting",
-                      "The report asks for a different model, effort or limit: those are the user's settings, not engine feedback.",
-                      "The retrospective can suggest them to the user (ai.settings, the AI panel); an efficiency entry is about what the ENGINE could do so that any model needs fewer steps.");
+                      "The report asks for a different model, effort or limit: those are the user's settings, not "
+                      "engine feedback.",
+                      "The retrospective can suggest them to the user (ai.settings, the AI panel); an efficiency entry "
+                      "is about what the ENGINE could do so that any model needs fewer steps.");
     if (in.saveShare < 0.01 || in.saveShare > 1)
-        return refuse("invalid_argument", "/expectedSaving/share must be between 0.01 and 1: the share of the measured span that the fix removes.",
-                      "0.5 means half of the measured steps, minutes and tokens would not have been needed.");
+        return refuse(
+            "invalid_argument",
+            "/expectedSaving/share must be between 0.01 and 1: the share of the measured span that the fix removes.",
+            "0.5 means half of the measured steps, minutes and tokens would not have been needed.");
     if (std::count_if(in.saveWhy.begin(), in.saveWhy.end(), [](unsigned char c) { return std::isspace(c) != 0; }) < 2)
         return refuse("invalid_argument", "/expectedSaving/why is missing: one line on why the fix removes that share.",
                       "Say what the AI would have read or called once instead of what it did in the span.");
     const bool beyondDocs = in.fixType == "commandOption" || in.fixType == "newCommand" || in.fixType == "engineChange";
-    if (beyondDocs && std::count_if(in.whyNotCheaper.begin(), in.whyNotCheaper.end(), [](unsigned char c) { return std::isspace(c) != 0; }) < 4)
-        return refuse("not_cheapest",
-                      "/whyNotCheaper is missing: the cheapest fix that removes the waste wins, and " + a_fix(in.fixType) + " is not the cheapest.",
-                      "Say why a doc section, a topic guide and an example would not have removed the waste (the order is " + fix_types_text() + ").");
+    if (beyondDocs && std::count_if(in.whyNotCheaper.begin(), in.whyNotCheaper.end(),
+                                    [](unsigned char c) { return std::isspace(c) != 0; }) < 4)
+        return refuse(
+            "not_cheapest",
+            "/whyNotCheaper is missing: the cheapest fix that removes the waste wins, and " + a_fix(in.fixType) +
+                " is not the cheapest.",
+            "Say why a doc section, a topic guide and an example would not have removed the waste (the order is " +
+                fix_types_text() + ").");
 
     // ---- the evidence: measured, not guessed
     if (in.evidence.empty())
-        return refuse("no_evidence", "/evidence is missing: the engine measures the waste from the transcript, so name the span.",
-                      "Give [{session, fromStep, toStep}] for the steps where the waste happened. ai.session_timeline shows the steps of a session; the transcripts are in " +
+        return refuse("no_evidence",
+                      "/evidence is missing: the engine measures the waste from the transcript, so name the span.",
+                      "Give [{session, fromStep, toStep}] for the steps where the waste happened. ai.session_timeline "
+                      "shows the steps of a session; the transcripts are in " +
                           efficiency_sessions_dir(projectDir) + ".");
     if (in.evidence.size() > 10)
         return refuse("invalid_argument", "/evidence has " + std::to_string(in.evidence.size()) + " spans; at most 10.",
@@ -820,22 +912,25 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
         auto found = sessions.find(id);
         if (found == sessions.end()) {
             auto loaded = load_efficiency_session(projectDir, id, &budget);
-            if (!loaded.ok()) return refuse("no_evidence", at + "/session: " + loaded.error().message, loaded.error().hint);
+            if (!loaded.ok())
+                return refuse("no_evidence", at + "/session: " + loaded.error().message, loaded.error().hint);
             found = sessions.emplace(id, std::move(loaded.value())).first;
         }
         const EfficiencySession& s = found->second;
         const int n = static_cast<int>(s.steps.size());
         if (sp.fromStep < 1 || sp.toStep < sp.fromStep || sp.toStep > n)
             return refuse("no_evidence",
-                          at + " asks for steps " + std::to_string(sp.fromStep) + ".." + std::to_string(sp.toStep) + " but session '" + id + "' has " +
-                              std::to_string(n) + " steps" + (s.agent == "cli" ? " (a step of a CLI agent is one model turn)" : "") + ".",
+                          at + " asks for steps " + std::to_string(sp.fromStep) + ".." + std::to_string(sp.toStep) +
+                              " but session '" + id + "' has " + std::to_string(n) + " steps" +
+                              (s.agent == "cli" ? " (a step of a CLI agent is one model turn)" : "") + ".",
                           n == 0 ? "That transcript has no model steps; point at another session."
-                                 : "fromStep is at least 1, toStep at least fromStep and at most " + std::to_string(n) + ".");
+                                 : "fromStep is at least 1, toStep at least fromStep and at most " + std::to_string(n) +
+                                       ".");
         for (const auto& [a, b] : taken[id])
             if (sp.fromStep <= b && sp.toStep >= a)
                 return refuse("invalid_argument",
-                              at + " overlaps another span of session '" + id + "' (steps " + std::to_string(a) + ".." + std::to_string(b) +
-                                  "): the same steps would be counted twice.",
+                              at + " overlaps another span of session '" + id + "' (steps " + std::to_string(a) + ".." +
+                                  std::to_string(b) + "): the same steps would be counted twice.",
                               "Join them into one span, or make them not overlap.");
         taken[id].push_back({sp.fromStep, sp.toStep});
         verdict.evidence.push_back({id, sp.fromStep, sp.toStep});
@@ -846,11 +941,13 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
 
     // ---- text loaded on every step costs on every step
     const std::string suggestionLower = lower_text(in.suggestion + " " + in.waste);
-    if (in.everyStepTokens == 0 &&
-        mentions(suggestionLower, {"agents.md", "claude.md", "system prompt", "every step", "every run", "always loaded", "always load"})) {
+    if (in.everyStepTokens == 0 && mentions(suggestionLower, {"agents.md", "claude.md", "system prompt", "every step",
+                                                              "every run", "always loaded", "always load"})) {
         return refuse("costs_every_step",
-                      "/suggestion puts text where it is loaded on every step of every run (AGENTS.md or the system prompt), and /everyStepTokens does not say how much.",
-                      "Give everyStepTokens (the size of that text in tokens): the fix must save more than it adds on every step. Most fixes belong in an on-demand topic guide (a skill) instead: fixType guide.");
+                      "/suggestion puts text where it is loaded on every step of every run (AGENTS.md or the system "
+                      "prompt), and /everyStepTokens does not say how much.",
+                      "Give everyStepTokens (the size of that text in tokens): the fix must save more than it adds on "
+                      "every step. Most fixes belong in an on-demand topic guide (a skill) instead: fixType guide.");
     }
     if (in.everyStepTokens > 0) {
         std::uint64_t allSteps = 0;
@@ -858,10 +955,12 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
         const std::uint64_t added = in.everyStepTokens * allSteps;
         if (verdict.saving.tokens <= added)
             return refuse("costs_every_step",
-                          "The fix adds " + std::to_string(in.everyStepTokens) + " tokens to every step: over the " + std::to_string(allSteps) +
-                              " steps of the named sessions that is " + std::to_string(added) + " tokens, and it saves " +
-                              std::to_string(verdict.saving.tokens) + ".",
-                          "Text loaded on every step must save more than it adds. Make it an on-demand topic guide (fixType guide, everyStepTokens 0) or shorten it.");
+                          "The fix adds " + std::to_string(in.everyStepTokens) + " tokens to every step: over the " +
+                              std::to_string(allSteps) + " steps of the named sessions that is " +
+                              std::to_string(added) + " tokens, and it saves " + std::to_string(verdict.saving.tokens) +
+                              ".",
+                          "Text loaded on every step must save more than it adds. Make it an on-demand topic guide "
+                          "(fixType guide, everyStepTokens 0) or shorten it.");
     }
 
     // ---- "a guide is missing" for a doc that docs.search finds
@@ -880,17 +979,22 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
             const std::string where = describe_hit(*existing);
             if (in.searched.empty())
                 return refuse("exists_in_docs",
-                              "The docs already have a section that carries the words of this report: " + where + ". A \"missing guide\" for something docs.search finds is not a missing guide.",
-                              "Read it. If you did and it did not help, say what is missing from it. If you could not FIND it, this is a findability report: list in /searched the words you gave docs.search (they must not find this section), and make the fix the title and keywords of " +
+                              "The docs already have a section that carries the words of this report: " + where +
+                                  ". A \"missing guide\" for something docs.search finds is not a missing guide.",
+                              "Read it. If you did and it did not help, say what is missing from it. If you could not "
+                              "FIND it, this is a findability report: list in /searched the words you gave docs.search "
+                              "(they must not find this section), and make the fix the title and keywords of " +
                                   where + ".");
             for (std::size_t i = 0; i < in.searched.size(); ++i) {
                 const std::vector<DocHit> top = search_docs(in.searched[i], 5);
                 for (std::size_t k = 0; k < top.size(); ++k)
                     if (top[k].path == existing->path && top[k].heading == existing->heading)
                         return refuse("exists_in_docs",
-                                      "/searched/" + std::to_string(i) + " ('" + in.searched[i] + "') finds " + where + " as result " + std::to_string(k + 1) +
+                                      "/searched/" + std::to_string(i) + " ('" + in.searched[i] + "') finds " + where +
+                                          " as result " + std::to_string(k + 1) +
                                           " of docs.search: the section is findable with those words.",
-                                      "Read the section. A findability report needs words that docs.search does not answer with it.");
+                                      "Read the section. A findability report needs words that docs.search does not "
+                                      "answer with it.");
             }
             verdict.existingDoc = where;
         }
@@ -901,23 +1005,33 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
     verdict.candidateOnly = th && th->candidateOnly;
     if (th && th->widerThanFeature && !wider_than_feature(in.appliesTo))
         return refuse("below_threshold",
-                      a_fix(in.fixType, true) + " is justified only for waste that every game or a genre meets; /appliesTo is " + in.appliesTo + ".",
-                      "Say appliesTo every-game or genre if it is true, else use a doc section or an example for this one feature (" +
+                      a_fix(in.fixType, true) +
+                          " is justified only for waste that every game or a genre meets; /appliesTo is " +
+                          in.appliesTo + ".",
+                      "Say appliesTo every-game or genre if it is true, else use a doc section or an example for this "
+                      "one feature (" +
                           threshold_text(*threshold_of("doc")) + " per game).");
     if (th && !meets(*th, verdict.saving)) {
         std::string ok;
         for (const EfficiencyThreshold& t : efficiency_thresholds())
-            if (meets(t, verdict.saving) && (!t.widerThanFeature || wider_than_feature(in.appliesTo))) ok += (ok.empty() ? "" : ", ") + t.fixType;
+            if (meets(t, verdict.saving) && (!t.widerThanFeature || wider_than_feature(in.appliesTo)))
+                ok += (ok.empty() ? "" : ", ") + t.fixType;
         char saved[160];
         std::snprintf(saved, sizeof saved, "%.1f minutes, %llu tokens, $%.2f", verdict.saving.minutes,
                       static_cast<unsigned long long>(verdict.saving.tokens), verdict.saving.costUsd);
-        return refuse("below_threshold",
-                      std::string("The saving is ") + saved + " per game (the measured span times /expectedSaving/share" +
-                          (verdict.measured.estimated ? "; tokens are estimated from bytes, the cost of a CLI agent is not known" : "") +
-                          "); " + a_fix(in.fixType) + " is justified from " + threshold_text(*th) + ".",
-                      ok.empty() ? "Not worth filing. Waste this small is part of how the work goes; it is not engine feedback. (An engine change goes on the roadmap only when the reports add up to $" +
-                                       number_text(kEfficiencyRoadmapUsd) + " or " + number_text(kEfficiencyRoadmapHours) + " hours across games.)"
-                                 : "This saving justifies: " + ok + ". Would one of those remove the waste? If so report that fix; if not, it is not worth filing.");
+        return refuse(
+            "below_threshold",
+            std::string("The saving is ") + saved + " per game (the measured span times /expectedSaving/share" +
+                (verdict.measured.estimated ? "; tokens are estimated from bytes, the cost of a CLI agent is not known"
+                                            : "") +
+                "); " + a_fix(in.fixType) + " is justified from " + threshold_text(*th) + ".",
+            ok.empty()
+                ? "Not worth filing. Waste this small is part of how the work goes; it is not engine feedback. (An "
+                  "engine change goes on the roadmap only when the reports add up to $" +
+                      number_text(kEfficiencyRoadmapUsd) + " or " + number_text(kEfficiencyRoadmapHours) +
+                      " hours across games.)"
+                : "This saving justifies: " + ok +
+                      ". Would one of those remove the waste? If so report that fix; if not, it is not worth filing.");
     }
     return std::nullopt;
 }
@@ -935,7 +1049,9 @@ std::string cli_error_code(const std::string& text) {
         at += 8;
     }
     std::size_t end = at;
-    while (end < text.size() && (std::islower(static_cast<unsigned char>(text[end])) || text[end] == '_' || std::isdigit(static_cast<unsigned char>(text[end])))) ++end;
+    while (end < text.size() && (std::islower(static_cast<unsigned char>(text[end])) || text[end] == '_' ||
+                                 std::isdigit(static_cast<unsigned char>(text[end]))))
+        ++end;
     if (end == at || end >= text.size() || text[end] != ':') return {};
     return text.substr(at, end - at);
 }
@@ -967,9 +1083,12 @@ EfficiencySession read_claude_stream_session(const std::string& text, const std:
         std::size_t eol = text.find('\n', pos);
         if (eol == std::string::npos) eol = text.size();
         const std::size_t len = eol - pos;
-        const Json j = len > kEfficiencyMaxLine ? Json() : Json::parse(text.begin() + static_cast<std::ptrdiff_t>(pos), text.begin() + static_cast<std::ptrdiff_t>(eol), nullptr, false);
+        const Json j = len > kEfficiencyMaxLine ? Json() : parse_json_lenient(std::string_view(text).substr(pos, len));
         pos = eol + 1;
-        if (!j.is_object()) { if (len > 0) ++s.skippedLines; continue; }
+        if (!j.is_object()) {
+            if (len > 0) ++s.skippedLines;
+            continue;
+        }
         std::int64_t t = 0;
         if (parse_iso_utc_ms(jstr(j, "timestamp"), t) && t > 0) {
             if (s.startMs == 0) s.startMs = t;
@@ -980,7 +1099,10 @@ EfficiencySession read_claude_stream_session(const std::string& text, const std:
         if (type == "assistant" && msg) {
             const std::string mid = jstr(*msg, "id");
             if (s.steps.empty() || mid.empty() || mid != lastMessage) {
-                if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) { s.truncated = true; break; }
+                if (static_cast<int>(s.steps.size()) >= kEfficiencyMaxSteps) {
+                    s.truncated = true;
+                    break;
+                }
                 close_step();
                 EfficiencyStep st;
                 st.number = static_cast<int>(s.steps.size()) + 1;
@@ -1005,7 +1127,8 @@ EfficiencySession read_claude_stream_session(const std::string& text, const std:
                     call.name = jstr(b, "name");
                     resolve_cli_call(call, b.contains("input") ? b["input"] : Json::object());
                     st.calls.push_back(std::move(call));
-                    if (!st.calls.back().id.empty()) pending[st.calls.back().id] = {s.steps.size() - 1, st.calls.size() - 1};
+                    if (!st.calls.back().id.empty())
+                        pending[st.calls.back().id] = {s.steps.size() - 1, st.calls.size() - 1};
                 }
             }
         } else if (type == "user" && msg) {

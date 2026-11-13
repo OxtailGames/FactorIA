@@ -22,8 +22,10 @@ void set_env(const char* name, const char* value) {
 #if defined(_WIN32)
     _putenv_s(name, value ? value : "");
 #else
-    if (value) setenv(name, value, 1);
-    else unsetenv(name);
+    if (value)
+        setenv(name, value, 1);
+    else
+        unsetenv(name);
 #endif
 }
 
@@ -69,19 +71,24 @@ TEST_CASE("factoria_executable: FA_FACTORIA_EXE names a file, and a wrong one is
 
 TEST_CASE("play_auto_in_child: the child's answer comes back, and its error keeps its message and hint") {
     testing::TempDir tmp;
-    const stdfs::path project = tmp.path / stdfs::path(u8"juego-José");  // an accent: the child must start in this folder
+    const stdfs::path project =
+        tmp.path / stdfs::path(u8"juego-José");  // an accent: the child must start in this folder
     std::error_code ec;
     stdfs::create_directories(project, ec);
     {
-        ScopedExe exe(stand_in(tmp.path, "echo here > here.txt\necho '{\"session\":\"20260101-000000-auto\",\"ended\":\"won\"}'",
-                               "@echo here > here.txt\r\n@echo {\"session\":\"20260101-000000-auto\",\"ended\":\"won\"}"));
+        ScopedExe exe(
+            stand_in(tmp.path, "echo here > here.txt\necho '{\"session\":\"20260101-000000-auto\",\"ended\":\"won\"}'",
+                     "@echo here > here.txt\r\n@echo {\"session\":\"20260101-000000-auto\",\"ended\":\"won\"}"));
         const Json r = play_auto_in_child(project.string(), Json::object({{"seconds", 5}}), nullptr);
         CHECK(r.value("ended", std::string()) == "won");
         CHECK(stdfs::exists(project / "here.txt"));  // its working directory is the project, UTF-8 all the way
     }
     {
-        ScopedExe exe(stand_in(tmp.path, "echo '{\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"/seconds: bad\",\"hint\":\"Use 60.\"}}'\nexit 1",
-                               "@echo {\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"/seconds: bad\",\"hint\":\"Use 60.\"}}\r\n@exit /b 1"));
+        ScopedExe exe(stand_in(tmp.path,
+                               "echo '{\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"/seconds: "
+                               "bad\",\"hint\":\"Use 60.\"}}'\nexit 1",
+                               "@echo {\"ok\":false,\"error\":{\"code\":\"invalid_argument\",\"message\":\"/seconds: "
+                               "bad\",\"hint\":\"Use 60.\"}}\r\n@exit /b 1"));
         try {
             play_auto_in_child(project.string(), Json::object(), nullptr);
             FAIL("the child's error should be thrown");

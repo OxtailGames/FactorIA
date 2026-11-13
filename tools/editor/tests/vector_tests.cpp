@@ -19,7 +19,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr const char* kHead = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\">";
+constexpr const char* kHead =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\">";
 constexpr const char* kSvg = "assets/art/t.svg";
 constexpr const char* kDoc = "assets/art/t.image.json";
 
@@ -33,7 +34,8 @@ struct Project {
     Project() {
         dir = fs::make_temp_dir("fa_vector_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<VectorModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<VectorModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
     }
     ~Project() {
         model.reset();
@@ -67,8 +69,8 @@ struct Project {
     }
 };
 
-constexpr const char* kTwoRects =
-    "<rect id=\"a\" x=\"10\" y=\"10\" width=\"40\" height=\"40\" fill=\"#ff0000\"/><rect id=\"b\" x=\"30\" y=\"30\" width=\"40\" height=\"40\" fill=\"#0000ff\"/>";
+constexpr const char* kTwoRects = "<rect id=\"a\" x=\"10\" y=\"10\" width=\"40\" height=\"40\" fill=\"#ff0000\"/><rect "
+                                  "id=\"b\" x=\"30\" y=\"30\" width=\"40\" height=\"40\" fill=\"#0000ff\"/>";
 
 }  // namespace
 
@@ -81,14 +83,14 @@ TEST_CASE("the pen: corners, a dragged curve, closing on the first node; one und
     CHECK_FALSE(m.pen_press({10, 10}, 2));
     m.pen_release();
     CHECK_FALSE(m.pen_press({60, 10}, 2));
-    m.pen_drag({80, 20});   // a curve node: the out handle follows, the in handle is its mirror image
+    m.pen_drag({80, 20});  // a curve node: the out handle follows, the in handle is its mirror image
     m.pen_release();
     CHECK_FALSE(m.pen_press({60, 60}, 2));
     m.pen_release();
     CHECK(m.pen().active);
     CHECK(m.pen().path[0].nodes[1].hasOut);
     CHECK(m.pen().path[0].nodes[1].in.x == doctest::Approx(40));
-    CHECK(m.pen_press({11, 10.5}, 2));   // within reach of the first node: close
+    CHECK(m.pen_press({11, 10.5}, 2));  // within reach of the first node: close
     const VectorEditOutcome out = m.pen_finish(true);
     REQUIRE_MESSAGE(out.ok, out.error);
     CHECK(out.step > 0);
@@ -112,14 +114,15 @@ TEST_CASE("the pen: corners, a dragged curve, closing on the first node; one und
     CHECK(p.text(kSvg) == drawn);
 }
 
-TEST_CASE("the pen: fewer than two nodes writes nothing; Escape drops the path; continuing an open path appends to it") {
+TEST_CASE(
+    "the pen: fewer than two nodes writes nothing; Escape drops the path; continuing an open path appends to it") {
     Project p;
     p.open_svg("<path id=\"line\" d=\"M10 10 L30 10\" fill=\"none\" stroke=\"#000000\" stroke-width=\"2\"/>");
     VectorModel& m = *p.model;
     m.pen_press({50, 50}, 2);
     m.pen_release();
     CHECK_FALSE(m.pen_can_finish());
-    CHECK_FALSE(m.pen_finish(false).ok);   // a path needs two nodes
+    CHECK_FALSE(m.pen_finish(false).ok);  // a path needs two nodes
     CHECK_FALSE(m.pen().active);
     CHECK(m.step_count() == 0);
     CHECK(m.scene().items.size() == 1);
@@ -130,7 +133,7 @@ TEST_CASE("the pen: fewer than two nodes writes nothing; Escape drops the path; 
 
     // continue "line" from its end
     REQUIRE(m.pen_continue("line", 0, true));
-    CHECK_FALSE(m.pen_can_finish());   // nothing added yet
+    CHECK_FALSE(m.pen_can_finish());  // nothing added yet
     m.pen_press({50, 30}, 2);
     m.pen_release();
     CHECK(m.pen_can_finish());
@@ -138,7 +141,7 @@ TEST_CASE("the pen: fewer than two nodes writes nothing; Escape drops the path; 
     REQUIRE_MESSAGE(out.ok, out.error);
     CHECK(p.item("line").nodeCount == 3);
     CHECK(p.item("line").nodes[0].nodes.back().p.x == doctest::Approx(50));
-    CHECK(m.scene().items.size() == 1);   // still the same element
+    CHECK(m.scene().items.size() == 1);  // still the same element
 
     // from its start: the new node comes first
     REQUIRE(m.pen_continue("line", 0, false));
@@ -151,14 +154,17 @@ TEST_CASE("the pen: fewer than two nodes writes nothing; Escape drops the path; 
     CHECK(np[0].nodes.back().p.y == doctest::Approx(30));
 }
 
-TEST_CASE("node edits: move, convert and delete are vector.nodes ops, each one undo step; a drag previews without touching the disk") {
+TEST_CASE("node edits: move, convert and delete are vector.nodes ops, each one undo step; a drag previews without "
+          "touching the disk") {
     Project p;
     p.open_svg("<path id=\"tri\" d=\"M10 10 L50 10 L50 50 Z\" fill=\"#00ff00\"/>");
     VectorModel& m = *p.model;
     const std::string before = p.text(kSvg);
 
     // a live drag: the canvas changes, the file does not
-    REQUIRE(m.preview_node_ops("tri", Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 1}, {"by", Json::array({10, 0})}})})));
+    REQUIRE(m.preview_node_ops(
+        "tri",
+        Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 1}, {"by", Json::array({10, 0})}})})));
     CHECK(m.previewing());
     CHECK(p.item("tri").nodes[0].nodes[1].p.x == doctest::Approx(60));
     CHECK(m.svg() != before);
@@ -168,7 +174,9 @@ TEST_CASE("node edits: move, convert and delete are vector.nodes ops, each one u
     CHECK(p.item("tri").nodes[0].nodes[1].p.x == doctest::Approx(50));
 
     // ...and letting go keeps the last position as one step
-    REQUIRE(m.preview_node_ops("tri", Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 1}, {"by", Json::array({15, 5})}})})));
+    REQUIRE(m.preview_node_ops(
+        "tri",
+        Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 1}, {"by", Json::array({15, 5})}})})));
     const VectorEditOutcome moved = m.commit_preview("Move nodes");
     REQUIRE_MESSAGE(moved.ok, moved.error);
     CHECK(moved.step > 0);
@@ -176,10 +184,13 @@ TEST_CASE("node edits: move, convert and delete are vector.nodes ops, each one u
     CHECK(p.item("tri").nodes[0].nodes[1].p.y == doctest::Approx(15));
     CHECK(p.text(kSvg) != before);
 
-    const VectorEditOutcome smooth = m.node_ops("tri", Json::array({Json::object({{"op", "convert"}, {"subpath", 0}, {"node", 2}, {"to", "smooth"}})}), "Make smooth");
+    const VectorEditOutcome smooth = m.node_ops(
+        "tri", Json::array({Json::object({{"op", "convert"}, {"subpath", 0}, {"node", 2}, {"to", "smooth"}})}),
+        "Make smooth");
     REQUIRE_MESSAGE(smooth.ok, smooth.error);
     CHECK(p.item("tri").curves);
-    const VectorEditOutcome del = m.node_ops("tri", Json::array({Json::object({{"op", "delete"}, {"subpath", 0}, {"node", 0}})}), "Delete node");
+    const VectorEditOutcome del =
+        m.node_ops("tri", Json::array({Json::object({{"op", "delete"}, {"subpath", 0}, {"node", 0}})}), "Delete node");
     REQUIRE_MESSAGE(del.ok, del.error);
     CHECK(p.item("tri").nodeCount == 2);
 
@@ -200,7 +211,9 @@ TEST_CASE("an edit that fails changes nothing and says why") {
     p.open_svg(kTwoRects);
     VectorModel& m = *p.model;
     const std::string before = p.text(kSvg);
-    const VectorEditOutcome bad = m.node_ops("a", Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 99}, {"to", Json::array({1, 1})}})}), "Move");
+    const VectorEditOutcome bad = m.node_ops(
+        "a", Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 99}, {"to", Json::array({1, 1})}})}),
+        "Move");
     CHECK_FALSE(bad.ok);
     CHECK_FALSE(bad.error.empty());
     CHECK(bad.step == 0);
@@ -242,7 +255,8 @@ TEST_CASE("boolean buttons: union, subtract, intersect and exclude of the select
 
 TEST_CASE("ids, groups and transforms survive the edits; unnamed elements get an id in the same step") {
     Project p;
-    p.open_svg("<g id=\"grp\" transform=\"translate(5,5)\"><rect id=\"r1\" x=\"10\" y=\"10\" width=\"20\" height=\"20\" fill=\"#123456\"/></g>"
+    p.open_svg("<g id=\"grp\" transform=\"translate(5,5)\"><rect id=\"r1\" x=\"10\" y=\"10\" width=\"20\" "
+               "height=\"20\" fill=\"#123456\"/></g>"
                "<circle cx=\"70\" cy=\"70\" r=\"10\" fill=\"#abcdef\"/>");
     VectorModel& m = *p.model;
     const std::string original = p.text(kSvg);
@@ -297,7 +311,7 @@ TEST_CASE("layers: hide, lock, rename, group, ungroup, reorder and regroup are c
     REQUIRE(m.rename("c", "cap").ok);
     CHECK(m.scene().find("cap") >= 0);
     CHECK(m.scene().find("c") < 0);
-    CHECK_FALSE(m.rename("cap", "a").ok);   // taken
+    CHECK_FALSE(m.rename("cap", "a").ok);  // taken
 
     m.select({"a", "b"});
     REQUIRE(m.group_selection().ok);
@@ -318,21 +332,22 @@ TEST_CASE("layers: hide, lock, rename, group, ungroup, reorder and regroup are c
 
 TEST_CASE("selection: click picks at the group level, double click goes in, marquee and nodes") {
     Project p;
-    p.open_svg("<g id=\"g1\"><rect id=\"r1\" x=\"10\" y=\"10\" width=\"20\" height=\"20\"/><rect id=\"r2\" x=\"40\" y=\"10\" width=\"20\" height=\"20\"/></g>"
+    p.open_svg("<g id=\"g1\"><rect id=\"r1\" x=\"10\" y=\"10\" width=\"20\" height=\"20\"/><rect id=\"r2\" x=\"40\" "
+               "y=\"10\" width=\"20\" height=\"20\"/></g>"
                "<rect id=\"r3\" x=\"10\" y=\"60\" width=\"20\" height=\"20\"/>");
     VectorModel& m = *p.model;
-    CHECK(m.pick({20, 20}, 1) == p.item("g1").index);   // the group, not the rect inside
+    CHECK(m.pick({20, 20}, 1) == p.item("g1").index);  // the group, not the rect inside
     m.enter_group("g1");
     CHECK(m.pick({20, 20}, 1) == p.item("r1").index);
-    CHECK(m.pick({20, 70}, 1) == p.item("r3").index);   // outside the group: the shape at the top level
+    CHECK(m.pick({20, 70}, 1) == p.item("r3").index);  // outside the group: the shape at the top level
     m.leave_group();
     CHECK(m.context().empty());
     CHECK(m.selection() == std::vector<std::string>{"g1"});
 
     const std::vector<int> all = m.marquee({0, 0, 100, 100}, false);
-    CHECK(all.size() == 2);   // g1 and r3
+    CHECK(all.size() == 2);  // g1 and r3
     CHECK(m.marquee({0, 55, 100, 100}, false).size() == 1);
-    CHECK(m.marquee({35, 0, 45, 100}, true).size() == 1);   // touches r2 (so g1)
+    CHECK(m.marquee({35, 0, 45, 100}, true).size() == 1);  // touches r2 (so g1)
     m.select_all();
     CHECK(m.selection().size() == 2);
 
@@ -348,7 +363,8 @@ TEST_CASE("selection: click picks at the group level, double click goes in, marq
     CHECK_FALSE(m.node_selected(n));
 }
 
-TEST_CASE("shapes: rectangle, ellipse, line and a parametric star drawn by the tools keep their parameters; the inspector redraws them") {
+TEST_CASE("shapes: rectangle, ellipse, line and a parametric star drawn by the tools keep their parameters; the "
+          "inspector redraws them") {
     Project p;
     p.open_svg("");
     VectorModel& m = *p.model;
@@ -358,7 +374,7 @@ TEST_CASE("shapes: rectangle, ellipse, line and a parametric star drawn by the t
     REQUIRE(m.add_ellipse({50, 10}, {90, 30}).ok);
     REQUIRE(m.add_line({10, 90}, {90, 90}).ok);
     CHECK(m.scene().items.size() == 3);
-    CHECK_FALSE(m.add_rect({5, 5}, {5, 20}).ok);   // no width
+    CHECK_FALSE(m.add_rect({5, 5}, {5, 20}).ok);  // no width
     CHECK(m.scene().items.size() == 3);
 
     const VectorEditOutcome star = m.add_shape("star", {20, 40}, {60, 80}, Json::object({{"points", 6}}));
@@ -368,14 +384,19 @@ TEST_CASE("shapes: rectangle, ellipse, line and a parametric star drawn by the t
     CHECK_FALSE(p.item(ref).shapeArgs.empty());
     const int before = p.item(ref).nodeCount;
     // a live preview of a parameter, then the commit
-    REQUIRE(m.preview_shape_args(ref, "star", Json::object({{"points", 9}, {"radius", 20}, {"center", Json::array({40, 60})}})));
+    REQUIRE(m.preview_shape_args(ref, "star",
+                                 Json::object({{"points", 9}, {"radius", 20}, {"center", Json::array({40, 60})}})));
     CHECK(m.previewing());
     CHECK(p.item(ref).nodeCount > before);
     REQUIRE(m.commit_preview("Change star").ok);
     CHECK(p.item(ref).shapeKind == "star");
     CHECK(p.item(ref).nodeCount > before);
     // the shape stays parametric: a node edit turns it into a plain path
-    REQUIRE(m.node_ops(ref, Json::array({Json::object({{"op", "move"}, {"subpath", 0}, {"node", 0}, {"by", Json::array({1, 1})}})}), "Move node").ok);
+    REQUIRE(m.node_ops(ref,
+                       Json::array(
+                           {Json::object({{"op", "move"}, {"subpath", 0}, {"node", 0}, {"by", Json::array({1, 1})}})}),
+                       "Move node")
+                .ok);
     CHECK(p.item(ref).shapeKind.empty());
 }
 
@@ -392,7 +413,7 @@ TEST_CASE("snapping: grid, guides, points of other shapes; the moving shape does
     CHECK(s.x == doctest::Approx(10));
     CHECK(s.y == doctest::Approx(10));
     CHECK(kind == VectorSnapKind::Grid);
-    s = m.snap_point({15, 15}, 3, {}, &kind);   // too far from every line
+    s = m.snap_point({15, 15}, 3, {}, &kind);  // too far from every line
     CHECK(kind == VectorSnapKind::None);
     CHECK(s.x == doctest::Approx(15));
 
@@ -406,7 +427,7 @@ TEST_CASE("snapping: grid, guides, points of other shapes; the moving shape does
 
     m.snapping.guides = false;
     m.snapping.points = true;
-    s = m.snap_point({50.8, 10.4}, 3, {}, &kind);   // the corner of "a"
+    s = m.snap_point({50.8, 10.4}, 3, {}, &kind);  // the corner of "a"
     CHECK(kind == VectorSnapKind::Point);
     CHECK(s.x == doctest::Approx(50));
     CHECK(s.y == doctest::Approx(10));
@@ -416,15 +437,23 @@ TEST_CASE("snapping: grid, guides, points of other shapes; the moving shape does
     // moving the box of "a" by (19, 0): its right edge x=50+19 is near b's left edge? b spans 30..70, so its edges are 30, 50, 70
     const VecRect box = p.item("a").bounds;
     const VecPoint d = m.snap_move(box, {19.4, 0}, 1.5, {"a"});
-    CHECK(d.x == doctest::Approx(20));   // a's right edge lands on 70
+    CHECK(d.x == doctest::Approx(20));  // a's right edge lands on 70
 }
 
 TEST_CASE("an svg layer of an image document is edited through the same code, and Save bakes the PNG") {
     Project p;
-    p.ok("image.create", Json::object({{"path", kDoc}, {"width", 64}, {"height", 64},
-                                       {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#ffffff"}}),
-                                                               Json::object({{"kind", "svg"}, {"name", "art"}, {"width", 64}, {"height", 64},
-                                                                             {"svg", svg_of("<rect id=\"box\" x=\"10\" y=\"10\" width=\"30\" height=\"30\" fill=\"#ff0000\"/>")}})})}}));
+    p.ok("image.create",
+         Json::object(
+             {{"path", kDoc},
+              {"width", 64},
+              {"height", 64},
+              {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "bg"}, {"color", "#ffffff"}}),
+                                      Json::object({{"kind", "svg"},
+                                                    {"name", "art"},
+                                                    {"width", 64},
+                                                    {"height", 64},
+                                                    {"svg", svg_of("<rect id=\"box\" x=\"10\" y=\"10\" width=\"30\" "
+                                                                   "height=\"30\" fill=\"#ff0000\"/>")}})})}}));
     VectorModel& m = *p.model;
     REQUIRE_MESSAGE(m.open_layer(kDoc, "art"), m.error());
     CHECK(m.is_layer());
@@ -436,8 +465,8 @@ TEST_CASE("an svg layer of an image document is edited through the same code, an
     CHECK(m.scene().items.size() == 2);
     const std::string docAfter = p.text(kDoc);
     CHECK(docAfter != docBefore);
-    CHECK(has(docAfter, "<circle"));   // a 20 x 20 ellipse is a circle
-    CHECK(has(docAfter, "id=\\\"box\\\""));   // the JSON string keeps the id
+    CHECK(has(docAfter, "<circle"));         // a 20 x 20 ellipse is a circle
+    CHECK(has(docAfter, "id=\\\"box\\\""));  // the JSON string keeps the id
 
     m.select({"box"});
     const VectorEditOutcome out = m.move_selection(5, 5);
@@ -478,14 +507,16 @@ TEST_CASE("the picture: the engine's rasterizer draws a region of the drawing") 
     VectorModel& m = *p.model;
     auto img = m.rasterize(nullptr, 100, 100);
     REQUIRE(img.ok());
-    auto px = [&](const Image& i, int x, int y) { return &i.rgba[(std::size_t(y) * std::size_t(i.width) + std::size_t(x)) * 4]; };
+    auto px = [&](const Image& i, int x, int y) {
+        return &i.rgba[(std::size_t(y) * std::size_t(i.width) + std::size_t(x)) * 4];
+    };
     CHECK(px(*img, 10, 50)[0] == 255);
     CHECK(px(*img, 10, 50)[3] == 255);
     CHECK(px(*img, 90, 50)[3] == 0);
     const VecRect right{50, 0, 100, 100};
     auto half = m.rasterize(&right, 50, 100);
     REQUIRE(half.ok());
-    CHECK(px(*half, 5, 50)[3] == 0);   // that half is empty
+    CHECK(px(*half, 5, 50)[3] == 0);  // that half is empty
     CHECK(m.last_raster_ms() >= 0);
 }
 
@@ -510,13 +541,20 @@ TEST_CASE("a drawing of several hundred paths: the cost of reading it, of a drag
     constexpr int kCount = 600;
     for (int i = 0; i < kCount; ++i) {
         const double x = (i % 30) * 33.0 + 4, y = (i / 30) * 48.0 + 4;
-        body += "<path id=\"p" + std::to_string(i) + "\" d=\"M" + std::to_string(x) + " " + std::to_string(y) + " C" + std::to_string(x + 20) + " " + std::to_string(y) +
-                " " + std::to_string(x + 30) + " " + std::to_string(y + 20) + " " + std::to_string(x + 10) + " " + std::to_string(y + 30) + " L" + std::to_string(x) + " " +
-                std::to_string(y + 30) + " Z\" fill=\"#" + (i % 2 ? "3366cc" : "cc6633") + "\" stroke=\"#101018\" stroke-width=\"1\"/>";
+        body += "<path id=\"p" + std::to_string(i) + "\" d=\"M" + std::to_string(x) + " " + std::to_string(y) + " C" +
+                std::to_string(x + 20) + " " + std::to_string(y) + " " + std::to_string(x + 30) + " " +
+                std::to_string(y + 20) + " " + std::to_string(x + 10) + " " + std::to_string(y + 30) + " L" +
+                std::to_string(x) + " " + std::to_string(y + 30) + " Z\" fill=\"#" + (i % 2 ? "3366cc" : "cc6633") +
+                "\" stroke=\"#101018\" stroke-width=\"1\"/>";
     }
-    p.write(kSvg, std::string("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 1000\" width=\"1000\" height=\"1000\">") + body + "</svg>");
+    p.write(kSvg,
+            std::string(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 1000\" width=\"1000\" height=\"1000\">") +
+                body + "</svg>");
     using Clock = std::chrono::steady_clock;
-    const auto ms = [](Clock::time_point a) { return std::chrono::duration<double, std::milli>(Clock::now() - a).count(); };
+    const auto ms = [](Clock::time_point a) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - a).count();
+    };
     VectorModel& m = *p.model;
     const auto t0 = Clock::now();
     REQUIRE_MESSAGE(m.open(kSvg), m.error());
@@ -533,7 +571,8 @@ TEST_CASE("a drawing of several hundred paths: the cost of reading it, of a drag
     constexpr int kMoves = 20;
     for (int i = 1; i <= kMoves; ++i) {
         const auto t = Clock::now();
-        REQUIRE(m.preview_edit("vector.transform", Json::object({{"elements", Json::array({"p10"})}, {"translate", Json::array({double(i), 0.0})}})));
+        REQUIRE(m.preview_edit("vector.transform", Json::object({{"elements", Json::array({"p10"})},
+                                                                 {"translate", Json::array({double(i), 0.0})}})));
         const double e = ms(t);
         worst = std::max(worst, e);
         total += e;
@@ -548,8 +587,9 @@ TEST_CASE("a drawing of several hundred paths: the cost of reading it, of a drag
     const double rasterMs = ms(t3);
     REQUIRE(img.ok());
 
-    MESSAGE(kCount << " paths: open + read " << openMs << " ms, a hit test " << pickMs << " ms (" << hits << " hits of 100), a drag step " << total / kMoves
-                    << " ms on average (worst " << worst << " ms), the edit written " << commitMs << " ms, the 1024x1024 picture " << rasterMs << " ms");
+    MESSAGE(kCount << " paths: open + read " << openMs << " ms, a hit test " << pickMs << " ms (" << hits
+                   << " hits of 100), a drag step " << total / kMoves << " ms on average (worst " << worst
+                   << " ms), the edit written " << commitMs << " ms, the 1024x1024 picture " << rasterMs << " ms");
     // generous: a debug build on a loaded machine; the numbers above are what is reported
     CHECK(total / kMoves < 4000);
 }

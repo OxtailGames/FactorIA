@@ -32,7 +32,8 @@ struct Arm {
 
 }  // namespace
 
-TEST_CASE("SpriteSkin: bones at their bind pose draw the sprite as it is; a bent bone bends the picture, in the same draw calls") {
+TEST_CASE("SpriteSkin: bones at their bind pose draw the sprite as it is; a bent bone bends the picture, in the same "
+          "draw calls") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Arm a;
@@ -56,9 +57,9 @@ TEST_CASE("SpriteSkin: bones at their bind pose draw the sprite as it is; a bent
     const Image bent = g.render(a.w);
     CHECK(g.renderer.stats().drawCalls == plainCalls);
     CHECK(g.renderer.stats().sprites == 1);
-    CHECK(bent.pixel(130, 90).r > 0.95f);   // the left half did not move
-    CHECK(bent.pixel(160, 55).r > 0.9f);    // the right half now stands above the middle (x 150..170, y 50..90)
-    CHECK(bent.pixel(192, 90).r < 0.05f);   // and no longer lies to the right
+    CHECK(bent.pixel(130, 90).r > 0.95f);  // the left half did not move
+    CHECK(bent.pixel(160, 55).r > 0.9f);   // the right half now stands above the middle (x 150..170, y 50..90)
+    CHECK(bent.pixel(192, 90).r < 0.05f);  // and no longer lies to the right
     CHECK(bent.pixel(176, 90).r < 0.3f);
 
     // A bone outside the angle of the picture's pixels does not matter: turning back restores the picture.
@@ -67,7 +68,8 @@ TEST_CASE("SpriteSkin: bones at their bind pose draw the sprite as it is; a bent
     CHECK(diff_images(plain, back, 2.0f / 255.0f).meanError < 0.0005);
 }
 
-TEST_CASE("SpriteSkin: a screen-space sprite and a sprite without a mesh draw as plain sprites; the problem is reported once") {
+TEST_CASE("SpriteSkin: a screen-space sprite and a sprite without a mesh draw as plain sprites; the problem is "
+          "reported once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Arm a;

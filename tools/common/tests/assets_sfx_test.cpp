@@ -20,11 +20,14 @@ const char* kBlip = R"({"format": "factoria.sfx/1", "doc": "test blip", "length"
 const char* kBlipLower = R"({"format": "factoria.sfx/1", "doc": "test blip", "length": 0.15, "layers": [
     {"oscillators": [{"wave": "square", "duty": 0.25}], "pitch": {"note": "A3"}, "amp": {"attack": 0.002, "decay": 0.1, "sustain": 0}}]})";
 
-Json recipe_of(const AssetsProject& p, const std::string& rel) { return p.manifest()["assets"][rel]["provenance"]["recipe"]; }
+Json recipe_of(const AssetsProject& p, const std::string& rel) {
+    return p.manifest()["assets"][rel]["provenance"]["recipe"];
+}
 
 }  // namespace
 
-TEST_CASE("sfx.render: writes the WAV next to the patch with measurements, a picture and a recipe whose input is the patch") {
+TEST_CASE(
+    "sfx.render: writes the WAV next to the patch with measurements, a picture and a recipe whose input is the patch") {
     AssetsProject p;
     write_all(p.file("assets/audio/blip.sfx.json"), kBlip);
     const Json r = p.ok("sfx.render", {{"path", "assets/audio/blip.sfx.json"}});
@@ -61,7 +64,10 @@ TEST_CASE("sfx.render: seed, note and an .ogg output change one render; the reci
     write_all(p.file("assets/audio/blip.sfx.json"), kBlip);
     p.ok("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"picture", false}});
     const std::string base = read_all(p.file("assets/audio/blip.wav"));
-    p.ok("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"out", "assets/audio/blip_c4.wav"}, {"note", "C4"}, {"picture", false}});
+    p.ok("sfx.render", {{"path", "assets/audio/blip.sfx.json"},
+                        {"out", "assets/audio/blip_c4.wav"},
+                        {"note", "C4"},
+                        {"picture", false}});
     CHECK(read_all(p.file("assets/audio/blip_c4.wav")) != base);
     CHECK(recipe_of(p, "assets/audio/blip_c4.wav")["args"]["note"] == "C4");
     p.ok("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"out", "assets/audio/blip.ogg"}, {"picture", false}});
@@ -85,7 +91,8 @@ TEST_CASE("sfx.render: errors say what is wrong and how to fix it") {
     CHECK(missing.error["hint"].get<std::string>().find("blip.sfx.json") != std::string::npos);  // did you mean
     CHECK(p.call("sfx.render", {{"path", "assets/audio/blip.json"}}).error["code"] == "invalid_argument");
     CHECK(p.call("sfx.render", {{"path", "sounds/blip.sfx.json"}}).error["code"] == "invalid_argument");
-    CHECK(p.call("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"freq", 440}, {"note", "A4"}}).error["code"] == "invalid_argument");
+    CHECK(p.call("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"freq", 440}, {"note", "A4"}}).error["code"] ==
+          "invalid_argument");
     CHECK(p.call("sfx.render", {{"path", "assets/audio/blip.sfx.json"}, {"length", 99}}).ok == false);
 
     // a file at the output path that sfx.render did not make is not replaced
@@ -108,7 +115,8 @@ TEST_CASE("sfx.render: errors say what is wrong and how to fix it") {
     bool sawSquare = false, sawCutoff = false, sawEmpty = false;
     for (const Json& i : issues) {
         const std::string ptr = i["pointer"].get<std::string>();
-        if (ptr == "/layers/0/oscillators/0/wave") sawSquare = i["hint"].get<std::string>().find("square") != std::string::npos;
+        if (ptr == "/layers/0/oscillators/0/wave")
+            sawSquare = i["hint"].get<std::string>().find("square") != std::string::npos;
         if (ptr == "/layers/0/filter/cutoff") sawCutoff = true;
         if (ptr == "/layers/1/oscillators") sawEmpty = true;
     }
@@ -164,12 +172,14 @@ TEST_CASE("sfx: a changed patch makes its sound stale, validate warns, regenerat
     CHECK(read_all(p.file("assets/audio/blip.wav")) == first);
 }
 
-TEST_CASE("sfx.bake: bakes patches whose sound is missing, skips a file it did not make, lists a broken patch with its issues") {
+TEST_CASE("sfx.bake: bakes patches whose sound is missing, skips a file it did not make, lists a broken patch with its "
+          "issues") {
     AssetsProject p;
     write_all(p.file("assets/audio/a.sfx.json"), kBlip);
     write_all(p.file("assets/audio/b.sfx.json"), kBlip);
     write_all(p.file("assets/audio/b.wav"), "not mine");
-    write_all(p.file("assets/audio/c.sfx.json"), R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "sine"}], "pitch": {"freq": 0}}]})");
+    write_all(p.file("assets/audio/c.sfx.json"),
+              R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "sine"}], "pitch": {"freq": 0}}]})");
     const Json r = p.ok("sfx.bake", {});
     CHECK(r["count"] == 1);
     CHECK(r["baked"][0]["patch"] == "assets/audio/a.sfx.json");
@@ -202,7 +212,8 @@ TEST_CASE("sfx.preset: lists, returns, writes; an existing file needs overwrite;
     CommandResult bad = p.call("sfx.preset", {{"name", "lasser"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error["hint"].get<std::string>().find("laser") != std::string::npos);
-    CHECK(p.call("sfx.preset", {{"name", "coin"}, {"path", "assets/audio/coin.json"}}).error["code"] == "invalid_argument");
+    CHECK(p.call("sfx.preset", {{"name", "coin"}, {"path", "assets/audio/coin.json"}}).error["code"] ==
+          "invalid_argument");
 
     // a written preset renders
     const Json r = p.ok("sfx.render", {{"path", "assets/audio/coin.sfx.json"}, {"picture", false}});
@@ -221,7 +232,13 @@ TEST_CASE("sfx.info: a valid patch says what it holds, an invalid one lists ever
     CHECK(info["measurements"]["seconds"].get<double>() == doctest::Approx(0.15).epsilon(0.01));
     CHECK_FALSE(p.exists("assets/audio/blip.wav"));  // read-only
 
-    const Json bad = p.ok("sfx.info", {{"patch", parse_json(R"({"format": "factoria.sfx/2", "length": 0, "layerz": [], "layers": [{"oscillators": [{"wave": "sine", "detune": 99999}]}]})", "patch").value()}});
+    const Json bad = p.ok(
+        "sfx.info",
+        {{"patch",
+          parse_json(
+              R"({"format": "factoria.sfx/2", "length": 0, "layerz": [], "layers": [{"oscillators": [{"wave": "sine", "detune": 99999}]}]})",
+              "patch")
+              .value()}});
     CHECK(bad["valid"] == false);
     std::set<std::string> pointers;
     for (const Json& i : bad["issues"]) {
@@ -235,14 +252,17 @@ TEST_CASE("sfx.info: a valid patch says what it holds, an invalid one lists ever
     CHECK(pointers.count("/layers/0/oscillators/0/detune"));
     bool suggested = false;
     for (const Json& i : bad["issues"])
-        if (i["hint"].get<std::string>().find("layers") != std::string::npos && i["message"].get<std::string>().find("layerz") != std::string::npos) suggested = true;
+        if (i["hint"].get<std::string>().find("layers") != std::string::npos &&
+            i["message"].get<std::string>().find("layerz") != std::string::npos)
+            suggested = true;
     CHECK(suggested);
 
     CHECK(p.call("sfx.info", {}).error["code"] == "invalid_argument");
     CHECK(p.call("sfx.info", {{"preset", "nope"}}).error["code"] == "not_found");
 }
 
-TEST_CASE("assets.synth_sound is a preset rendered through the patch synthesizer: same arguments, same bytes as sfx.render of the preset") {
+TEST_CASE("assets.synth_sound is a preset rendered through the patch synthesizer: same arguments, same bytes as "
+          "sfx.render of the preset") {
     AssetsProject p;
     p.ok("assets.synth_sound", {{"path", "assets/audio/hit.wav"}, {"preset", "hit"}, {"seed", 5}});
     const std::string a = read_all(p.file("assets/audio/hit.wav"));
@@ -279,21 +299,26 @@ TEST_CASE("sfx.render: macros change one render, are remembered in the recipe an
     AssetsProject p;
     write_all(p.file("assets/audio/base.sfx.json"), kBase);
     const Json plain = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}});
-    const Json bright = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"brightness", 0.8}}}});
+    const Json bright = p.ok(
+        "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"brightness", 0.8}}}});
     CHECK(bright["measurements"]["centroidHz"].get<double>() > plain["measurements"]["centroidHz"].get<double>());
-    const Json longer = p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"tail", 0.6}}}});
+    const Json longer =
+        p.ok("sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"picture", false}, {"macros", {{"tail", 0.6}}}});
     CHECK(longer["measurements"]["seconds"].get<double>() > plain["measurements"]["seconds"].get<double>());
     CHECK(recipe_of(p, "assets/audio/base.wav")["args"]["macros"]["tail"] == 0.6);
 
-    const Json bad = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brigthness", 0.2}}}});
+    const Json bad =
+        failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brigthness", 0.2}}}});
     CHECK(bad["error"]["message"].get<std::string>().find("brigthness") != std::string::npos);
     CHECK(bad["error"]["hint"].get<std::string>().find("brightness") != std::string::npos);
-    const Json range = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"weight", 3}}}});
+    const Json range =
+        failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"weight", 3}}}});
     INFO(range.dump());
     CHECK(range["error"]["message"].get<std::string>().find("/macros/weight") != std::string::npos);
 }
 
-TEST_CASE("sfx.render, sfx.bake: variants are baked as name_NN.wav, each with its own recipe, stale together with the patch") {
+TEST_CASE("sfx.render, sfx.bake: variants are baked as name_NN.wav, each with its own recipe, stale together with the "
+          "patch") {
     AssetsProject p;
     write_all(p.file("assets/audio/base.sfx.json"), kBase);
 
@@ -314,7 +339,8 @@ TEST_CASE("sfx.render, sfx.bake: variants are baked as name_NN.wav, each with it
 
     const Json noVariants = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variant", 5}});
     CHECK(noVariants["error"]["message"].get<std::string>().find("has 4") != std::string::npos);
-    const Json both = failed_call(p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variants", true}, {"out", "assets/audio/x.wav"}});
+    const Json both = failed_call(
+        p, "sfx.render", {{"path", "assets/audio/base.sfx.json"}, {"variants", true}, {"out", "assets/audio/x.wav"}});
     CHECK(both["error"]["code"] == "invalid_argument");
 
     // bake: the base is missing, the variants are up to date until the patch changes
@@ -347,16 +373,21 @@ TEST_CASE("sfx.tweak: macro amounts are added to the declared ones, written to t
     CHECK(written["macros"]["brightness"] == 0.5);
     CHECK(written["doc"] == "ui base");
 
-    const Json again = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", 0.9}}}, {"picture", false}});
+    const Json again = p.ok(
+        "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", 0.9}}}, {"picture", false}});
     CHECK(again["macros"]["brightness"]["before"] == 0.5);
     CHECK(again["macros"]["brightness"]["after"] == 1.0);  // clamped
-    const Json absolute = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"brightness", -0.25}}}, {"absolute", true}, {"render", false}});
+    const Json absolute = p.ok("sfx.tweak", {{"path", "assets/audio/base.sfx.json"},
+                                             {"macros", {{"brightness", -0.25}}},
+                                             {"absolute", true},
+                                             {"render", false}});
     CHECK(absolute["macros"]["brightness"]["after"] == -0.25);
     CHECK_FALSE(absolute.contains("measurements"));
 
     const Json bad = failed_call(p, "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", {{"tial", 0.1}}}});
     CHECK(bad["error"]["hint"].get<std::string>().find("tail") != std::string::npos);
-    const Json empty = failed_call(p, "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", Json::object()}});
+    const Json empty =
+        failed_call(p, "sfx.tweak", {{"path", "assets/audio/base.sfx.json"}, {"macros", Json::object()}});
     CHECK(empty["error"]["code"] == "invalid_argument");
 }
 
@@ -379,16 +410,21 @@ TEST_CASE("sfx.family: a set of interface sounds from one base that share its ti
     const Json confirm = parse_json(read_all(p.file("assets/audio/ui_family/confirm.sfx.json")), "t").value();
     CHECK(confirm["layers"][0]["oscillators"] == parse_json(kBase, "t").value()["layers"][0]["oscillators"]);
     CHECK(confirm["layers"][0]["pitch"]["arpeggio"]["steps"].size() == 2);
-    CHECK(recipe_of(p, "assets/audio/ui_family/confirm.wav")["inputs"][0]["path"] == "assets/audio/ui_family/confirm.sfx.json");
+    CHECK(recipe_of(p, "assets/audio/ui_family/confirm.wav")["inputs"][0]["path"] ==
+          "assets/audio/ui_family/confirm.sfx.json");
     // the sounds differ from each other
     CHECK(read_all(p.file("assets/audio/ui_family/click.wav")) != read_all(p.file("assets/audio/ui_family/hover.wav")));
 
     const Json exists = failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"preset", "ui"}});
     CHECK(exists["error"]["code"] == "exists");
-    const Json some = p.ok("sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"click", "open"})}, {"out", "assets/audio/few"}, {"render", false}});
+    const Json some = p.ok("sfx.family", {{"from", "assets/audio/ui.sfx.json"},
+                                          {"names", Json::array({"click", "open"})},
+                                          {"out", "assets/audio/few"},
+                                          {"render", false}});
     CHECK(some["sounds"].size() == 2);
     CHECK_FALSE(p.exists("assets/audio/few/click.wav"));
-    const Json bad = failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"clik"})}});
+    const Json bad =
+        failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"clik"})}});
     CHECK(bad["error"]["hint"].get<std::string>().find("click") != std::string::npos);
 }
 
@@ -402,7 +438,11 @@ TEST_CASE("sfx.edit: set, add, move and remove by JSON pointer, written only whe
     p.ok("sfx.edit", {{"path", file}, {"op", "set"}, {"pointer", "/length"}, {"value", 0.4}});
     CHECK(parse_json(read_all(p.file(file)), "t").value()["length"] == 0.4);
 
-    p.ok("sfx.edit", {{"path", file}, {"op", "add"}, {"pointer", "/layers/0/oscillators"}, {"value", {{"wave", "sine"}, {"gain", 0.2}}}, {"index", 0}});
+    p.ok("sfx.edit", {{"path", file},
+                      {"op", "add"},
+                      {"pointer", "/layers/0/oscillators"},
+                      {"value", {{"wave", "sine"}, {"gain", 0.2}}},
+                      {"index", 0}});
     CHECK(layers()[0]["oscillators"].size() == oscBefore + 1);
     CHECK(layers()[0]["oscillators"][0]["wave"] == "sine");
 
@@ -413,14 +453,17 @@ TEST_CASE("sfx.edit: set, add, move and remove by JSON pointer, written only whe
     CHECK(layers()[0]["oscillators"].size() == oscBefore);
 
     const std::string before = read_all(p.file(file));
-    const Json bad = failed_call(p, "sfx.edit", {{"path", file}, {"op", "set"}, {"pointer", "/layers/0/oscillators/0/wave"}, {"value", "sinee"}});
+    const Json bad =
+        failed_call(p, "sfx.edit",
+                    {{"path", file}, {"op", "set"}, {"pointer", "/layers/0/oscillators/0/wave"}, {"value", "sinee"}});
     CHECK(bad.contains("error"));
     CHECK(read_all(p.file(file)) == before);
     const Json op = failed_call(p, "sfx.edit", {{"path", file}, {"op", "swap"}, {"pointer", "/length"}});
     CHECK(op["error"]["code"] == "invalid_arguments");
 }
 
-TEST_CASE("sfx.bake: `path` bakes only those patches, and assets.regenerate says what it compared when it skips an up-to-date sound") {
+TEST_CASE("sfx.bake: `path` bakes only those patches, and assets.regenerate says what it compared when it skips an "
+          "up-to-date sound") {
     AssetsProject p;
     auto call = [&](const std::string& name, const Json& args) { return p.registry.call(name, args); };
     auto ok = [&](const std::string& name, const Json& args) { return p.ok(name, args); };
@@ -495,10 +538,12 @@ TEST_CASE("assets.regenerate: the compared list is bounded and the missing input
     CHECK(f["missingInputs"][1] == "assets/raw/in5.txt");
 }
 
-TEST_CASE("sfx.bake: a path with backslashes or another case bakes the patch and its variants, with shared normalization") {
+TEST_CASE(
+    "sfx.bake: a path with backslashes or another case bakes the patch and its variants, with shared normalization") {
     AssetsProject p;
-    write_all(p.file("assets/audio/pop.sfx.json"),
-              R"({"format": "factoria.sfx/1", "length": 0.2, "tail": 0.02, "variations": {"count": 3, "seed": 4, "spread": {"filter": 1.5}},
+    write_all(
+        p.file("assets/audio/pop.sfx.json"),
+        R"({"format": "factoria.sfx/1", "length": 0.2, "tail": 0.02, "variations": {"count": 3, "seed": 4, "spread": {"filter": 1.5}},
                   "layers": [{"oscillators": [{"wave": "noise", "color": "white"}], "filter": {"mode": "lowpass", "cutoff": 1500}}],
                   "master": {"normalize": {"mode": "lufs", "target": -20, "ceilingDb": -3, "shared": true}}})");
     // Backslashes and another case than the file's: the same patch (patches are matched case-insensitively, as Windows would).

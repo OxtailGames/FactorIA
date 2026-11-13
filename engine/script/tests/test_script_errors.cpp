@@ -122,7 +122,8 @@ TEST_CASE("then, symbols, toJSON and the members of Object.prototype pass") {
     one_entity(h);
     CHECK(eval_ok(h, "world.find('p').then === undefined").get<bool>());
     CHECK(eval_ok(h, "input.then === undefined && input.toJSON === undefined").get<bool>());
-    CHECK(eval_ok(h, "world.find('p')[Symbol.iterator] === undefined && input[Symbol.toPrimitive] === undefined").get<bool>());
+    CHECK(eval_ok(h, "world.find('p')[Symbol.iterator] === undefined && input[Symbol.toPrimitive] === undefined")
+              .get<bool>());
     CHECK(eval_ok(h, "JSON.parse(JSON.stringify(world.find('p'))).id") == "p");
     CHECK(eval_ok(h, "world.find('p').hasOwnProperty('$h') && String(world.find('p')) === 'Entity(p)'").get<bool>());
     CHECK(eval_ok(h, "typeof input.hasOwnProperty === 'function' && input.constructor === Object").get<bool>());
@@ -180,9 +181,8 @@ TEST_CASE("an import the engine lacks suggests the closest export and blames the
     for (const bool exported : {false, true}) {
         TestHost h(exported ? "err_import_player" : "err_import_dev");
         h.scripts.set_exported_player(exported);
-        h.file("scripts/calls.js",
-               "import { Behaviour, inptu } from \"factoria\";\n"
-               "export default class Calls extends Behaviour {}\n");
+        h.file("scripts/calls.js", "import { Behaviour, inptu } from \"factoria\";\n"
+                                   "export default class Calls extends Behaviour {}\n");
         h.file("scenes/main.scene.json", kSceneWithScript);
         REQUIRE(h.start());
         h.load_scene_now("scenes/main.scene.json");
@@ -196,7 +196,8 @@ TEST_CASE("an import the engine lacks suggests the closest export and blames the
     }
 }
 
-TEST_CASE("a call the player lacks: the hint is the method check, and the sentence about an old player is the player's only") {
+TEST_CASE("a call the player lacks: the hint is the method check, and the sentence about an old player is the player's "
+          "only") {
     for (const bool exported : {false, true}) {
         TestHost h(exported ? "err_call_player" : "err_call_dev");
         h.scripts.set_exported_player(exported);
@@ -216,7 +217,8 @@ TEST_CASE("a call the player lacks: the hint is the method check, and the senten
         CHECK(has(text, "older than the game's engine") == exported);
         const std::vector<std::string> logged = errors.take();
         REQUIRE_FALSE(logged.empty());
-        CHECK(has(logged.front(), "hint: Check the method name"));  // "not a function" comes before the old-player advice
+        CHECK(
+            has(logged.front(), "hint: Check the method name"));  // "not a function" comes before the old-player advice
         CHECK_FALSE(has(logged.front(), "factoria setup players"));
     }
 }

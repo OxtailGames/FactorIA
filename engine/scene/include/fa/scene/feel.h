@@ -41,36 +41,40 @@ namespace fa {
 class World;
 
 // ----------------------------------------------------------------------------------------------- accessibility factors
-inline constexpr float kReduceMotionShake = 0.25f;     // shake amount multiplier with reduce motion on
-inline constexpr float kReduceMotionSquash = 0.25f;    // squash amount multiplier with reduce motion on
-inline constexpr float kReduceMotionHitStop = 0.5f;    // hit-stop duration multiplier with reduce motion on
-inline constexpr float kReducedEffectsFlash = 0.35f;   // largest flash strength with reduced effects on
+inline constexpr float kReduceMotionShake = 0.25f;    // shake amount multiplier with reduce motion on
+inline constexpr float kReduceMotionSquash = 0.25f;   // squash amount multiplier with reduce motion on
+inline constexpr float kReduceMotionHitStop = 0.5f;   // hit-stop duration multiplier with reduce motion on
+inline constexpr float kReducedEffectsFlash = 0.35f;  // largest flash strength with reduced effects on
 
 inline constexpr float kDefaultKnockbackSpeed = 6.0f;  // metres per second when `speed` is not given
 
-inline constexpr float kMaxHitStopSeconds = 5.0f;      // a longer freeze is almost always a mistake (a script that forgot a unit)
+inline constexpr float kMaxHitStopSeconds =
+    5.0f;  // a longer freeze is almost always a mistake (a script that forgot a unit)
 
 // ------------------------------------------------------------------------------------------------------------ options
 struct ShakeOptions {
     float amount = 0.4f;      // trauma to add, 0..1; trauma stacks up to `cap` and the shake is trauma squared
     float duration = 0.4f;    // seconds the shake takes to die out (a longer one already running is kept)
     float frequency = 25.0f;  // noise samples per second (how jittery)
-    float maxOffset = 0.0f;   // largest offset at trauma 1, world units; 0 = the camera's default (feel_default_shake_offset)
-    float maxAngle = 2.0f;    // largest turn at trauma 1, degrees
-    float cap = 1.0f;         // trauma never goes above this (0..1)
+    float maxOffset =
+        0.0f;  // largest offset at trauma 1, world units; 0 = the camera's default (feel_default_shake_offset)
+    float maxAngle = 2.0f;  // largest turn at trauma 1, degrees
+    float cap = 1.0f;       // trauma never goes above this (0..1)
 };
 
 struct FlashOptions {
     Color color{1, 1, 1, 1};  // the colour the entity is drawn in (alpha ignored)
     float duration = 0.12f;   // seconds
-    bool fade = true;         // true: from `strength` down to 0 over the duration; false: `strength` for the whole duration, then off
-    float strength = 1.0f;    // 0..1: how much of the colour replaces the entity's own (1 = solid)
+    bool fade =
+        true;  // true: from `strength` down to 0 over the duration; false: `strength` for the whole duration, then off
+    float strength = 1.0f;  // 0..1: how much of the colour replaces the entity's own (1 = solid)
 };
 
 struct SquashOptions {
-    float amount = 0.3f;      // > 0 squashes (wider and flatter), < 0 stretches (taller and thinner); 0.3 is a clear landing
-    float duration = 0.3f;    // seconds until the entity is back to exactly its own scale
-    char axis = 'y';          // 'y' or 'x': the axis that gets shorter when `amount` > 0
+    float amount =
+        0.3f;  // > 0 squashes (wider and flatter), < 0 stretches (taller and thinner); 0.3 is a clear landing
+    float duration = 0.3f;  // seconds until the entity is back to exactly its own scale
+    char axis = 'y';        // 'y' or 'x': the axis that gets shorter when `amount` > 0
 };
 
 struct KnockbackOptions {
@@ -79,22 +83,24 @@ struct KnockbackOptions {
     // a 3D body or mesh that many units, for every other (2D) one times FeelState::pixelsPerMeter, because a 2D world unit is a
     // pixel and 6 pixels per second would not be seen. A speed you give is in world units, whatever the entity.
     std::optional<float> speed;
-    float lockTime = 0.25f;   // seconds `isKnockedBack` stays true (the loss of control)
-    float decay = 8.0f;       // entities WITHOUT a dynamic body: the velocity falls by exp(-decay * dt) per second
-    bool local = false;       // true: `direction` is in the entity's own space (its world matrix turns it, a mirrored sprite flips x)
+    float lockTime = 0.25f;  // seconds `isKnockedBack` stays true (the loss of control)
+    float decay = 8.0f;      // entities WITHOUT a dynamic body: the velocity falls by exp(-decay * dt) per second
+    bool local =
+        false;  // true: `direction` is in the entity's own space (its world matrix turns it, a mirrored sprite flips x)
 };
 
 struct HitStopOptions {
-    float duration = 0.08f;   // real seconds
-    float scale = 0.0f;       // game-time scale during the stop: 0 = frozen, 0.2 = slow motion
+    float duration = 0.08f;  // real seconds
+    float scale = 0.0f;      // game-time scale during the stop: 0 = frozen, 0.2 = slow motion
 };
 
 // Makes an effect appear: a prefab instantiated at the entity (plus `offset`) the next time feel_update runs.
 struct SpawnOptions {
-    std::string prefab;       // project-relative path of the prefab (required)
-    Vec3 offset{0, 0, 0};     // added to the world position of the entity the action belongs to
-    bool local = false;       // true: `offset` is in the entity's own space (a mirrored sprite flips x)
-    float lifetime = 0.0f;    // seconds of game time (a hit-stop or a pause holds it) after which the spawned entity is destroyed; 0 = the prefab ends itself
+    std::string prefab;    // project-relative path of the prefab (required)
+    Vec3 offset{0, 0, 0};  // added to the world position of the entity the action belongs to
+    bool local = false;    // true: `offset` is in the entity's own space (a mirrored sprite flips x)
+    float lifetime =
+        0.0f;  // seconds of game time (a hit-stop or a pause holds it) after which the spawned entity is destroyed; 0 = the prefab ends itself
 };
 
 // Plays a sound once. The sound goes to a queue that Audio::update drains (the audio module sits above this one).
@@ -116,13 +122,13 @@ struct FeelPose {
 
 struct FeelShake {
     float trauma = 0.0f;
-    float remaining = 0.0f;   // seconds until it is over
-    float decay = 0.0f;       // trauma per second
+    float remaining = 0.0f;  // seconds until it is over
+    float decay = 0.0f;      // trauma per second
     float frequency = 25.0f;
     float maxOffset = 0.0f;
     float maxAngle = 2.0f;
     std::uint32_t seed = 0;
-    double phase = 0.0;       // position in the noise (samples)
+    double phase = 0.0;  // position in the noise (samples)
     bool perspective = false;
 };
 
@@ -139,11 +145,11 @@ struct FeelSquash {
     float duration = 0.0f;
     float time = 0.0f;
     char axis = 'y';
-    bool volume3d = false;    // an entity with a mesh keeps x * y * z constant, a 2D one x * y
+    bool volume3d = false;  // an entity with a mesh keeps x * y * z constant, a 2D one x * y
 };
 
 struct FeelKnock {
-    Vec3 velocity{};          // body-less entities: world units per second, decaying
+    Vec3 velocity{};  // body-less entities: world units per second, decaying
     float decay = 8.0f;
     float lockRemaining = 0.0f;
 };
@@ -153,7 +159,7 @@ struct FeelEntity {
     std::optional<FeelFlash> flash;
     std::optional<FeelSquash> squash;
     std::optional<FeelKnock> knock;
-    FeelPose pose;            // computed by feel_update from shake and squash
+    FeelPose pose;  // computed by feel_update from shake and squash
     bool hasPose = false;
 };
 
@@ -165,16 +171,17 @@ struct FeelHitStop {
 // A sound waiting for the audio system (FeelState::sounds).
 struct FeelSound {
     SoundOptions options;
-    std::string source;       // id of the entity whose action asked for it ("" when none): the audio play log shows it as the source of the sound
+    std::string
+        source;  // id of the entity whose action asked for it ("" when none): the audio play log shows it as the source of the sound
 };
 
 // An effect prefab waiting to be instantiated, and a spawned entity that is destroyed when its time is up.
 struct FeelSpawn {
     SpawnOptions options;
-    Vec3 position{};          // where, in the world: computed when the action ran
+    Vec3 position{};  // where, in the world: computed when the action ran
 };
 struct FeelLifetime {
-    std::uint64_t entity = 0; // Entity::bits()
+    std::uint64_t entity = 0;  // Entity::bits()
     float remaining = 0.0f;
 };
 
@@ -182,39 +189,42 @@ class FeelState {
 public:
     // The per-entity records, keyed by Entity::bits() (ordered, so output and iteration are deterministic).
     std::map<std::uint64_t, FeelEntity> entities;
-    std::vector<FeelHitStop> hitStops;   // the running hit-stops (a few at most)
-    std::uint32_t counter = 0;           // makes the seed of every shake different
-    std::size_t poseCount = 0;           // records with hasPose: 0 = drawn_matrix is world_matrix
-    float pixelsPerMeter = 100.0f;       // factoria.json physics.pixelsPerMeter, pushed by the runtime: the 2D default of knockback
-    bool warnedNoCamera = false;         // a shake with no camera in the scene was ignored and said so (once per scene)
-    std::vector<FeelSound> sounds;       // `sound` actions since the audio system last drained them (feel_take_sounds)
-    std::vector<FeelSpawn> spawns;       // `spawn` actions waiting for feel_update (a spawn never happens inside an iteration)
-    std::vector<FeelLifetime> lifetimes; // spawned effects with a `lifetime`
+    std::vector<FeelHitStop> hitStops;  // the running hit-stops (a few at most)
+    std::uint32_t counter = 0;          // makes the seed of every shake different
+    std::size_t poseCount = 0;          // records with hasPose: 0 = drawn_matrix is world_matrix
+    float pixelsPerMeter =
+        100.0f;  // factoria.json physics.pixelsPerMeter, pushed by the runtime: the 2D default of knockback
+    bool warnedNoCamera = false;    // a shake with no camera in the scene was ignored and said so (once per scene)
+    std::vector<FeelSound> sounds;  // `sound` actions since the audio system last drained them (feel_take_sounds)
+    std::vector<FeelSpawn>
+        spawns;  // `spawn` actions waiting for feel_update (a spawn never happens inside an iteration)
+    std::vector<FeelLifetime> lifetimes;      // spawned effects with a `lifetime`
     std::set<std::string> warnedClipActions;  // clip-event actions that failed and said so (once each per scene)
-    std::set<std::string> failedSounds;       // `sound` paths the audio system could not play in this scene: not tried (decoded, listed) again until the scene changes
+    std::set<std::string>
+        failedSounds;  // `sound` paths the audio system could not play in this scene: not tried (decoded, listed) again until the scene changes
 
     // The player's choices; they survive World::clear() (they are not part of a scene). null = follow the system.
     std::optional<bool> reduceMotionSetting;
     std::optional<bool> reducedEffectsSetting;
-    bool systemReduceMotion = false;     // the operating system's value, pushed by the runtime every frame
+    bool systemReduceMotion = false;  // the operating system's value, pushed by the runtime every frame
 
     bool reduce_motion() const { return reduceMotionSetting ? *reduceMotionSetting : systemReduceMotion; }
     bool reduced_effects() const { return reducedEffectsSetting ? *reducedEffectsSetting : systemReduceMotion; }
 
     // Multiplier of the game clock caused by hit-stops: 1 when none runs, else the smallest scale of the running ones.
     float hit_stop_factor() const;
-    float hit_stop_remaining() const;    // the longest running one, seconds (0 = none)
+    float hit_stop_remaining() const;  // the longest running one, seconds (0 = none)
 
     const FeelEntity* find(Entity e) const;
     FeelEntity* find(Entity e);
-    const FeelPose* pose_of(Entity e) const;           // null = no visual pose now
+    const FeelPose* pose_of(Entity e) const;  // null = no visual pose now
     // The flash colour of `e` itself with alpha = how much of it shows now (0..1); null = not flashing.
     std::optional<Color> flash_of(Entity e) const;
     bool any_flash() const;
     bool knocked_back(Entity e) const;
     float knockback_remaining(Entity e) const;
 
-    void clear_scene();                  // World::clear(): drops the effects, keeps the settings
+    void clear_scene();  // World::clear(): drops the effects, keeps the settings
 };
 
 // ------------------------------------------------------------------------------------------------------------ actions

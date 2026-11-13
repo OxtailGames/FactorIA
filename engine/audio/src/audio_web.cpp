@@ -38,6 +38,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE float* fa_web_audio_pull(int frames) {
 }
 
 // Opens the context and the node. Returns the context's sample rate, or 0 without WebAudio.
+// clang-format off
 EM_JS(int, fa_web_audio_open_impl, (int rate, int channels, int chunk, int target), {
     if (typeof AudioContext === 'undefined') {
         console.log('factoria audio: no WebAudio support');
@@ -187,13 +188,17 @@ EM_JS(int, fa_web_audio_open_impl, (int rate, int channels, int chunk, int targe
     };
     return ctx.sampleRate | 0;
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_audio_close_impl, (), {
     if (Module.faAudioClose) { Module.faAudioClose(); Module.faAudioClose = null; }
 });
+// clang-format on
 
 namespace fa {
 
+// clang-format off
 EM_JS(void, fa_web_audio_unlock_impl, (), {
     if (Module.faAudioUnlock) return;
     const events = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown', 'keyup'];
@@ -210,6 +215,7 @@ EM_JS(void, fa_web_audio_unlock_impl, (), {
     Module.faAudioUnlock = unlock;
     for (const e of events) document.addEventListener(e, unlock, true);
 });
+// clang-format on
 
 void audio_web_unlock() { fa_web_audio_unlock_impl(); }
 

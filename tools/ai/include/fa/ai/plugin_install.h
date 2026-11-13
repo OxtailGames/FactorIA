@@ -15,13 +15,13 @@
 namespace fa::ai {
 
 struct PluginInstallRequest {
-    std::string marketplace;   // what `claude plugin marketplace add` takes: "owner/repo", a git URL or a path
-    std::string plugin;        // "name@marketplace" as `claude plugin install` takes it
+    std::string marketplace;         // what `claude plugin marketplace add` takes: "owner/repo", a git URL or a path
+    std::string plugin;              // "name@marketplace" as `claude plugin install` takes it
     std::vector<std::string> roles;  // roles of the ai.json entry; empty = the default roles
-    std::string entryName;     // the entry's key in "extensions.plugins"; empty = the plugin's name
-    std::string note;          // the entry's note
-    std::string requiresPython;  // "3.10": the plugin needs this Python or newer; empty = none
-    bool dryRun = false;       // report the commands and which are needed; run nothing that changes anything
+    std::string entryName;           // the entry's key in "extensions.plugins"; empty = the plugin's name
+    std::string note;                // the entry's note
+    std::string requiresPython;      // "3.10": the plugin needs this Python or newer; empty = none
+    bool dryRun = false;             // report the commands and which are needed; run nothing that changes anything
     // Where ai.json is written. Empty: the loaded config's file, else default_config_path().
     std::string configPath;
 };
@@ -42,9 +42,10 @@ PluginInstallRequest token_economizer_request();
 bool python_version_at_least(const std::string& version, const std::string& minimum);
 
 // Runs (or, with dryRun, plans) the install with the configured claude-code provider's executable. Result:
-// {ok, dryRun, provider, command, marketplace, plugin, python:{required, command, version, ok, message}, 
+// {ok, dryRun, provider, command, marketplace, plugin, python:{required, command, version, ok, message},
 //  steps:[{id: marketplace|plugin|entry, command: [argv] | "", needed, status, detail}], entry:{name, added, path}, message}.
 // An Error names the step that failed, what the CLI said and how to fix it; the steps before it are in the message.
-Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& request, const PluginInstallHooks& hooks = {});
+Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& request,
+                            const PluginInstallHooks& hooks = {});
 
 }  // namespace fa::ai

@@ -23,7 +23,9 @@ namespace {
 void install_source() {
     {
         set_builtin_font_source([](std::string_view file) -> std::optional<std::string> {
-            std::ifstream in(std::filesystem::path(FA_REPO_ROOT) / "engine/render/assets/fonts/extra" / std::string(file), std::ios::binary);
+            std::ifstream in(std::filesystem::path(FA_REPO_ROOT) / "engine/render/assets/fonts/extra" /
+                                 std::string(file),
+                             std::ios::binary);
             if (!in) return std::nullopt;
             std::ostringstream ss;
             ss << in.rdbuf();
@@ -51,7 +53,8 @@ TEST_CASE("builtin fonts: every name resolves, has the Spanish and German letter
         for (char32_t cp : fr::decode_text(kSpanishGerman)) {
             if (cp == U' ' || font.name == "builtin:pixel") continue;
             CAPTURE(std::uint32_t(cp));
-            if (font.name == "builtin" || font.name == "builtin:serif" || font.name == "builtin:hand" || font.name == "builtin:display")
+            if (font.name == "builtin" || font.name == "builtin:serif" || font.name == "builtin:hand" ||
+                font.name == "builtin:display")
                 CHECK(face->has_glyph(cp));
         }
         auto bitmap = rasterize_text("Ñandú ¿Qué? Straße", font.name, 32);
@@ -76,14 +79,17 @@ TEST_CASE("builtin fonts: the faces of a family exist as the catalog says") {
         CHECK(builtin_variant_file(font, true, true).empty() == !font.hasBoldItalic);
         for (const char* variant : {"#bold", "#italic", "#bolditalic"}) {
             auto face = fr::load_font_face(font.name + variant);
-            const bool exists = std::string(variant) == "#bold" ? font.hasBold : std::string(variant) == "#italic" ? font.hasItalic : font.hasBoldItalic;
+            const bool exists = std::string(variant) == "#bold"     ? font.hasBold
+                                : std::string(variant) == "#italic" ? font.hasItalic
+                                                                    : font.hasBoldItalic;
             CAPTURE(variant);
             CHECK(face->ok == exists);
         }
     }
 }
 
-TEST_CASE("builtin fonts: an unknown builtin: name is an error that lists every built-in font and suggests the closest") {
+TEST_CASE(
+    "builtin fonts: an unknown builtin: name is an error that lists every built-in font and suggests the closest") {
     install_source();
     auto face = fr::load_font_face("builtin:serf");
     CHECK_FALSE(face->ok);
@@ -98,7 +104,8 @@ TEST_CASE("builtin fonts: an unknown builtin: name is an error that lists every 
     CHECK(missing.error().hint.find("builtin:blackletter") != std::string::npos);
 }
 
-TEST_CASE("builtin fonts: without the file a player says where it looked, and a project font path is not confused with them") {
+TEST_CASE("builtin fonts: without the file a player says where it looked, and a project font path is not confused with "
+          "them") {
     set_builtin_font_source({});
     auto face = fr::load_font_face("builtin:display");
     CHECK_FALSE(face->ok);
@@ -114,7 +121,8 @@ TEST_CASE("builtin fonts: builtin_fonts_named_in finds whole names only") {
         for (const BuiltinFont* f : builtin_fonts_named_in(text)) out.push_back(f->name);
         return out;
     };
-    CHECK(names(R"({"font": "builtin:serif"} "builtin:hand")") == std::vector<std::string>{"builtin:serif", "builtin:hand"});
+    CHECK(names(R"({"font": "builtin:serif"} "builtin:hand")") ==
+          std::vector<std::string>{"builtin:serif", "builtin:hand"});
     CHECK(names("builtin:serif-bold builtin:handwriting builtin:serif2").empty());
     CHECK(names("builtin:pixel and the default font").empty());  // inside the player: nothing to copy
     CHECK(names("font:'builtin:display'") == std::vector<std::string>{"builtin:display"});
@@ -144,14 +152,19 @@ TEST_CASE("builtin fonts: bold and italic draw the real faces of the family") {
     CHECK(bothW != doctest::Approx(italicW).epsilon(0.001));
     // a family without the face stays as it is: no italic in the blackletter, DejaVu Sans or the pixel font
     for (const char* font : {"builtin:blackletter", "", "builtin:pixel"})
-        CHECK(width("[i]Hamburgefonstiv[/i]", font, markup) == doctest::Approx(width("Hamburgefonstiv", font)).epsilon(0.001));
+        CHECK(width("[i]Hamburgefonstiv[/i]", font, markup) ==
+              doctest::Approx(width("Hamburgefonstiv", font)).epsilon(0.001));
     // handwriting has a bold face but no italic one
-    CHECK(width("[i]Hamburgefonstiv[/i]", "builtin:hand", markup) == doctest::Approx(width("Hamburgefonstiv", "builtin:hand")).epsilon(0.001));
-    CHECK(width("Hamburgefonstiv", "builtin:hand", bold) != doctest::Approx(width("Hamburgefonstiv", "builtin:hand")).epsilon(0.001));
-    CHECK(width("[i]Hamburgefonstiv[/i]", "builtin:display", markup) != doctest::Approx(width("Hamburgefonstiv", "builtin:display")).epsilon(0.001));
+    CHECK(width("[i]Hamburgefonstiv[/i]", "builtin:hand", markup) ==
+          doctest::Approx(width("Hamburgefonstiv", "builtin:hand")).epsilon(0.001));
+    CHECK(width("Hamburgefonstiv", "builtin:hand", bold) !=
+          doctest::Approx(width("Hamburgefonstiv", "builtin:hand")).epsilon(0.001));
+    CHECK(width("[i]Hamburgefonstiv[/i]", "builtin:display", markup) !=
+          doctest::Approx(width("Hamburgefonstiv", "builtin:display")).epsilon(0.001));
 }
 
-TEST_CASE("builtin fonts: the text.fonts italic entry of a project font draws [i], and a text.fonts entry wins over the family's face") {
+TEST_CASE("builtin fonts: the text.fonts italic entry of a project font draws [i], and a text.fonts entry wins over "
+          "the family's face") {
     install_source();
     Gfx& g = gfx();
     REQUIRE(g.ok);

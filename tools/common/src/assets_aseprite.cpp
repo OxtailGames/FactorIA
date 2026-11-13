@@ -44,8 +44,10 @@ public:
         return p;
     }
     void seek(std::size_t pos) {
-        if (pos > n_) overrun_ = true;
-        else pos_ = pos;
+        if (pos > n_)
+            overrun_ = true;
+        else
+            pos_ = pos;
     }
     std::string string() {
         const std::size_t len = u16();
@@ -109,22 +111,24 @@ struct Ase {
 };
 
 const char* blend_name(int mode) {
-    static const char* names[] = {"normal", "multiply", "screen", "overlay", "darken", "lighten", "color dodge",
-                                  "color burn", "hard light", "soft light", "difference", "exclusion", "hue",
-                                  "saturation", "color", "luminosity", "addition", "subtract", "divide"};
+    static const char* names[] = {"normal",     "multiply",    "screen",     "overlay",    "darken",
+                                  "lighten",    "color dodge", "color burn", "hard light", "soft light",
+                                  "difference", "exclusion",   "hue",        "saturation", "color",
+                                  "luminosity", "addition",    "subtract",   "divide"};
     return mode >= 0 && mode < int(std::size(names)) ? names[mode] : "unknown";
 }
 
 Error bad(const std::string& file, const std::string& what) {
-    return make_error(std::format("'{}' is not a valid Aseprite file: {}", file, what),
-                      "Save it again from Aseprite (File > Save As, .aseprite) and import that file; if Aseprite opens it "
-                      "fine, export a PNG sprite sheet from Aseprite (File > Export Sprite Sheet) and import the PNG.");
+    return make_error(
+        std::format("'{}' is not a valid Aseprite file: {}", file, what),
+        "Save it again from Aseprite (File > Save As, .aseprite) and import that file; if Aseprite opens it "
+        "fine, export a PNG sprite sheet from Aseprite (File > Export Sprite Sheet) and import the PNG.");
 }
 
 Pixels inflate(const std::uint8_t* data, std::size_t size, std::size_t expected) {
     int length = 0;
-    char* out = stbi_zlib_decode_malloc_guesssize_headerflag(reinterpret_cast<const char*>(data), int(size), int(expected),
-                                                             &length, 1);
+    char* out = stbi_zlib_decode_malloc_guesssize_headerflag(reinterpret_cast<const char*>(data), int(size),
+                                                             int(expected), &length, 1);
     if (!out) return nullptr;
     auto pixels = std::make_shared<std::vector<std::uint8_t>>(out, out + length);
     stbi_image_free(out);
@@ -135,7 +139,8 @@ void read_palette_chunk(Cursor& c, Ase& ase) {
     const std::uint32_t size = c.u32(), first = c.u32(), last = c.u32();
     c.skip(8);
     if (c.overrun() || first > last || last >= 65536) return;
-    if (ase.palette.size() < std::max<std::size_t>(size, last + 1)) ase.palette.resize(std::max<std::size_t>(size, last + 1));
+    if (ase.palette.size() < std::max<std::size_t>(size, last + 1))
+        ase.palette.resize(std::max<std::size_t>(size, last + 1));
     for (std::uint32_t i = first; i <= last && !c.overrun(); ++i) {
         const int flags = int(c.u16());
         Rgba& e = ase.palette[i];
@@ -170,8 +175,8 @@ void read_layer_chunk(Cursor& c, Ase& ase, std::vector<int>& lastAtLevel) {
     layer.name = c.string();
     const bool opacityValid = layer.type == kLayerGroup ? (ase.headerFlags & 2) != 0 : (ase.headerFlags & 1) != 0;
     const int parent = layer.level > 0 && layer.level <= int(lastAtLevel.size()) ? lastAtLevel[layer.level - 1] : -1;
-    layer.visible = (layer.flags & kLayerVisible) && !(layer.flags & kLayerReference) &&
-                    (parent < 0 || ase.layers[parent].visible);
+    layer.visible =
+        (layer.flags & kLayerVisible) && !(layer.flags & kLayerReference) && (parent < 0 || ase.layers[parent].visible);
     layer.opacity = (opacityValid ? float(opacity) / 255.0f : 1.0f) * (parent < 0 ? 1.0f : ase.layers[parent].opacity);
     if (lastAtLevel.size() <= std::size_t(layer.level)) lastAtLevel.resize(std::size_t(layer.level) + 1, -1);
     lastAtLevel[layer.level] = int(ase.layers.size());
@@ -190,7 +195,8 @@ std::string read_cel_chunk(Cursor& c, Ase& ase, int frameIndex) {
     c.skip(5);
     if (c.overrun()) return "a cel chunk is cut short";
     if (cel.layer >= int(ase.layers.size()))
-        return std::format("a cel is on layer {} but only {} layers were defined before it", cel.layer, ase.layers.size());
+        return std::format("a cel is on layer {} but only {} layers were defined before it", cel.layer,
+                           ase.layers.size());
     const std::string where = std::format("frame {}, layer '{}'", frameIndex, ase.layers[cel.layer].name);
     if (type == 3) {  // a tilemap cel: not drawn
         ++ase.tilemapCels;
@@ -199,7 +205,8 @@ std::string read_cel_chunk(Cursor& c, Ase& ase, int frameIndex) {
     Frame& frame = ase.frames[frameIndex];
     if (type == 1) {
         const int link = int(c.u16());
-        if (link < 0 || link >= frameIndex) return std::format("{}: a linked cel points to frame {}, which does not come before it", where, link);
+        if (link < 0 || link >= frameIndex)
+            return std::format("{}: a linked cel points to frame {}, which does not come before it", where, link);
         for (const Cel& other : ase.frames[link].cels) {
             if (other.layer != cel.layer) continue;
             Cel linked = other;  // a linked cel shares the position and opacity of the cel it links to
@@ -249,7 +256,8 @@ Result<Ase> parse(const std::vector<std::uint8_t>& bytes, const std::string& fil
     Cursor c(bytes.data(), bytes.size());
     Ase ase;
     c.skip(4);  // file size
-    if (c.u16() != 0xA5E0) return bad(file, "it does not start with the Aseprite signature (is it really an .aseprite file?)");
+    if (c.u16() != 0xA5E0)
+        return bad(file, "it does not start with the Aseprite signature (is it really an .aseprite file?)");
     const int frameCount = int(c.u16());
     ase.width = int(c.u16());
     ase.height = int(c.u16());
@@ -264,8 +272,8 @@ Result<Ase> parse(const std::vector<std::uint8_t>& bytes, const std::string& fil
         return bad(file, std::format("color depth {} is not 32 (RGBA), 16 (grayscale) or 8 (indexed)", ase.depth));
     if (ase.width == 0 || ase.height == 0 || frameCount == 0) return bad(file, "the sprite has no pixels or no frames");
     if (std::size_t(ase.width) * std::size_t(ase.height) * std::size_t(frameCount) > kMaxSheetPixels)
-        return make_error(std::format("'{}' has {} frames of {}x{} px: the sprite sheet would be too large.", file, frameCount,
-                                      ase.width, ase.height),
+        return make_error(std::format("'{}' has {} frames of {}x{} px: the sprite sheet would be too large.", file,
+                                      frameCount, ase.width, ase.height),
                           "Import a smaller sprite, or export the frames you need from Aseprite as a PNG sheet.");
 
     std::vector<int> lastAtLevel;
@@ -299,7 +307,8 @@ Result<Ase> parse(const std::vector<std::uint8_t>& bytes, const std::string& fil
                 default: break;  // color profile, user data, slices, tilesets...: not needed for the sheet
             }
             if (!problem.empty()) return bad(file, problem);
-            if (body.overrun() && type != 0x2005) return bad(file, std::format("a chunk (type 0x{:04x}) of frame {} is cut short", type, f));
+            if (body.overrun() && type != 0x2005)
+                return bad(file, std::format("a chunk (type 0x{:04x}) of frame {} is cut short", type, f));
             c.seek(chunkStart + chunkBytes);
         }
         c.seek(frameEnd);
@@ -338,15 +347,17 @@ Image render_frame(const Ase& ase, const Frame& frame) {
             for (int x = 0; x < cel->width; ++x) {
                 const int dx = cel->x + x;
                 if (dx < 0 || dx >= ase.width) continue;
-                const Rgba src = decode_pixel(ase, cel->pixels->data() + (std::size_t(y) * cel->width + x) * bytesPerPixel,
-                                              (layer.flags & kLayerBackground) != 0);
+                const Rgba src =
+                    decode_pixel(ase, cel->pixels->data() + (std::size_t(y) * cel->width + x) * bytesPerPixel,
+                                 (layer.flags & kLayerBackground) != 0);
                 const float sa = float(src.a) / 255.0f * opacity;
                 if (sa <= 0) continue;
                 std::uint8_t* dst = &canvas.rgba[(std::size_t(dy) * ase.width + dx) * 4];
                 const float da = float(dst[3]) / 255.0f;
                 const float oa = sa + da * (1 - sa);
                 const float s[3] = {float(src.r), float(src.g), float(src.b)};
-                for (int k = 0; k < 3; ++k) dst[k] = std::uint8_t(std::lround((s[k] * sa + float(dst[k]) * da * (1 - sa)) / oa));
+                for (int k = 0; k < 3; ++k)
+                    dst[k] = std::uint8_t(std::lround((s[k] * sa + float(dst[k]) * da * (1 - sa)) / oa));
                 dst[3] = std::uint8_t(std::lround(oa * 255.0f));
             }
         }
@@ -368,8 +379,8 @@ struct CelState {
     int x = 0, y = 0;
     float opacity = 1;
     int w = 0, h = 0;
-    std::vector<std::uint8_t> rgba;     // a pixels layer
-    std::vector<std::string> rows;      // an indexed layer
+    std::vector<std::uint8_t> rgba;  // a pixels layer
+    std::vector<std::string> rows;   // an indexed layer
     bool operator==(const CelState& o) const {
         if (empty || o.empty) return empty == o.empty;
         return x == o.x && y == o.y && opacity == o.opacity && w == o.w && h == o.h && rgba == o.rgba && rows == o.rows;
@@ -385,7 +396,9 @@ struct IndexedPlan {
     std::vector<Rgba> colours;
 };
 
-bool imported_layer(const Layer& layer) { return layer.type != kLayerGroup && layer.type != kLayerTilemap && !(layer.flags & kLayerReference); }
+bool imported_layer(const Layer& layer) {
+    return layer.type != kLayerGroup && layer.type != kLayerTilemap && !(layer.flags & kLayerReference);
+}
 
 IndexedPlan plan_indexed(const Ase& ase) {
     IndexedPlan plan;
@@ -403,7 +416,8 @@ IndexedPlan plan_indexed(const Ase& ase) {
         if (!used[i]) continue;
         const Rgba c = ase.palette[std::size_t(i)];
         if (c.a != 255) {
-            plan.why = std::format("palette entry {} has an alpha of {}, and a palette colour of a document is opaque", i, c.a);
+            plan.why = std::format("palette entry {} has an alpha of {}, and a palette colour of a document is opaque",
+                                   i, c.a);
             return plan;
         }
         int found = -1;
@@ -420,7 +434,8 @@ IndexedPlan plan_indexed(const Ase& ase) {
         return plan;
     }
     if (int(plan.colours.size()) > fa::kMaxIndexedColours) {
-        plan.why = std::format("the pictures use {} colors and a document palette holds at most {}", plan.colours.size(), fa::kMaxIndexedColours);
+        plan.why = std::format("the pictures use {} colors and a document palette holds at most {}",
+                               plan.colours.size(), fa::kMaxIndexedColours);
         return plan;
     }
     plan.ok = true;
@@ -437,7 +452,8 @@ CelState make_cel_state(const Ase& ase, const Layer& layer, const Cel* cel, cons
         for (int y = 0; y < cel->height; ++y) {
             std::string row(std::size_t(cel->width), '.');
             for (int x = 0; x < cel->width; ++x) {
-                const std::uint8_t index = (*cel->pixels)[(std::size_t(y) * std::size_t(cel->width) + std::size_t(x)) * bytesPerPixel];
+                const std::uint8_t index =
+                    (*cel->pixels)[(std::size_t(y) * std::size_t(cel->width) + std::size_t(x)) * bytesPerPixel];
                 if (!background && index == ase.transparentIndex) continue;
                 row[std::size_t(x)] = fa::kPixelIndexChars[std::size_t(plan.remap[index])];
                 any = true;
@@ -470,8 +486,9 @@ CelState make_cel_state(const Ase& ase, const Layer& layer, const Cel* cel, cons
 }
 
 const char* document_blend(int mode) {
-    static const char* names[] = {"normal", "multiply", "screen", "overlay", "darken", "lighten", "colorDodge", "colorBurn", "hardLight",
-                                  "softLight", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "add", "subtract"};
+    static const char* names[] = {"normal",     "multiply",   "screen",    "overlay",    "darken",     "lighten",
+                                  "colorDodge", "colorBurn",  "hardLight", "softLight",  "difference", "exclusion",
+                                  "hue",        "saturation", "color",     "luminosity", "add",        "subtract"};
     return mode >= 0 && mode < int(std::size(names)) ? names[mode] : "normal";
 }
 
@@ -484,7 +501,8 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
     const std::string layersDir = stem + ".layers/";
     const IndexedPlan plan = plan_indexed(ase);
     if (ase.depth == 8 && !plan.ok)
-        out.warnings.push_back("The file is indexed but its palette cannot be kept as a document palette (" + plan.why + "), so the layers are pixels layers with the colors drawn.");
+        out.warnings.push_back("The file is indexed but its palette cannot be kept as a document palette (" + plan.why +
+                               "), so the layers are pixels layers with the colors drawn.");
 
     std::set<std::string> usedNames, usedFiles;
     std::vector<OutFile> layerFiles;
@@ -590,17 +608,21 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
             cels.push_back(std::move(cel));
         }
         if (!cels.empty()) j["cels"] = cels;
-        const double layerOpacity = double(layer.opacity) * double(reference);   // the groups' opacity is already in layer.opacity
+        const double layerOpacity =
+            double(layer.opacity) * double(reference);  // the groups' opacity is already in layer.opacity
         if (layerOpacity < 0.9999) j["opacity"] = round4(layerOpacity);
         if (!layer.visible) j["visible"] = false;
         if (layer.blend != 0) {
-            if (layer.blend > 17) blendLost.push_back(std::format("'{}' ({})", name, blend_name(layer.blend)));
-            else j["blend"] = document_blend(layer.blend);
+            if (layer.blend > 17)
+                blendLost.push_back(std::format("'{}' ({})", name, blend_name(layer.blend)));
+            else
+                j["blend"] = document_blend(layer.blend);
         }
         layers.push_back(std::move(j));
     }
     if (layers.empty())
-        return make_error("'" + file + "' has no layer with pixels.", "Draw something in Aseprite and save again, or export a PNG from it and import that.");
+        return make_error("'" + file + "' has no layer with pixels.",
+                          "Draw something in Aseprite and save again, or export a PNG from it and import that.");
 
     // Frames and tags. A tag keeps its range, direction and repeat count; a name used twice gets a number.
     Json tags = Json::array();
@@ -608,37 +630,60 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
     std::vector<std::string> pingPongReverse;
     for (const Tag& tag : ase.tags) {
         if (tag.from > tag.to || tag.to >= frameCount) {
-            out.warnings.push_back(std::format("Tag '{}' covers frames {}-{} but the sprite has {} frames: skipped.", tag.name, tag.from, tag.to, frameCount));
+            out.warnings.push_back(std::format("Tag '{}' covers frames {}-{} but the sprite has {} frames: skipped.",
+                                               tag.name, tag.from, tag.to, frameCount));
             continue;
         }
         const std::string baseName = tag.name.empty() ? "tag" : tag.name;
         std::string name = baseName;
         for (int n = 2; tagNames.count(name); ++n) name = baseName + " " + std::to_string(n);
         if (name != tag.name)
-            out.warnings.push_back("A tag is called '" + tag.name + "' more than once (or has no name); this one is '" + name + "', because a clip name is unique.");
+            out.warnings.push_back("A tag is called '" + tag.name + "' more than once (or has no name); this one is '" +
+                                   name + "', because a clip name is unique.");
         tagNames.insert(name);
         Json t = Json::object({{"name", name}, {"from", tag.from}, {"to", tag.to}});
-        if (tag.direction == 1) t["direction"] = "reverse";
-        else if (tag.direction >= 2) t["direction"] = "pingpong";
+        if (tag.direction == 1)
+            t["direction"] = "reverse";
+        else if (tag.direction >= 2)
+            t["direction"] = "pingpong";
         if (tag.direction == 3) pingPongReverse.push_back("'" + name + "'");
         if (tag.repeat > 0) t["repeat"] = std::min(tag.repeat, 1000);
         tags.push_back(std::move(t));
     }
     if (!pingPongReverse.empty())
-        out.warnings.push_back("These tags play ping-pong in reverse in Aseprite; a document tag has no reverse ping-pong, so they play ping-pong forward: " + join(pingPongReverse, ", ") + ".");
+        out.warnings.push_back("These tags play ping-pong in reverse in Aseprite; a document tag has no reverse "
+                               "ping-pong, so they play ping-pong forward: " +
+                               join(pingPongReverse, ", ") + ".");
     Json frames = Json::array();
-    for (const Frame& frame : ase.frames) frames.push_back(Json::object({{"duration", std::clamp(frame.duration, 1, 60000)}}));
+    for (const Frame& frame : ase.frames)
+        frames.push_back(Json::object({{"duration", std::clamp(frame.duration, 1, 60000)}}));
     const bool animated = frameCount > 1 || !tags.empty();
 
-    if (!blendLost.empty()) out.warnings.push_back("These layers use a blend mode a document does not have and were composited as normal: " + join(blendLost, ", ") + ".");
-    if (!groupBlend.empty()) out.warnings.push_back("Groups are flattened into their layers (their visibility and opacity are kept); the blend mode of these groups was dropped: " + join(groupBlend, ", ") + ".");
-    if (!noCels.empty()) out.warnings.push_back("These layers have no pixels in any frame and were left out: " + join(noCels, ", ") + ".");
-    if (!referenceLayers.empty()) out.warnings.push_back("Reference layers are not part of the picture and were left out: " + join(referenceLayers, ", ") + ".");
-    if (!opacityClamped.empty()) out.warnings.push_back("The cels of these indexed layers get brighter than the first one shows; an indexed cel cannot be more opaque than the layer, so they were capped: " + join(opacityClamped, ", ") + ".");
-    if (zOffsets) out.warnings.push_back("Some cels have a z-index; a document stacks whole layers, so cels follow their layer's order.");
+    if (!blendLost.empty())
+        out.warnings.push_back(
+            "These layers use a blend mode a document does not have and were composited as normal: " +
+            join(blendLost, ", ") + ".");
+    if (!groupBlend.empty())
+        out.warnings.push_back("Groups are flattened into their layers (their visibility and opacity are kept); the "
+                               "blend mode of these groups was dropped: " +
+                               join(groupBlend, ", ") + ".");
+    if (!noCels.empty())
+        out.warnings.push_back("These layers have no pixels in any frame and were left out: " + join(noCels, ", ") +
+                               ".");
+    if (!referenceLayers.empty())
+        out.warnings.push_back(
+            "Reference layers are not part of the picture and were left out: " + join(referenceLayers, ", ") + ".");
+    if (!opacityClamped.empty())
+        out.warnings.push_back("The cels of these indexed layers get brighter than the first one shows; an indexed cel "
+                               "cannot be more opaque than the layer, so they were capped: " +
+                               join(opacityClamped, ", ") + ".");
+    if (zOffsets)
+        out.warnings.push_back(
+            "Some cels have a z-index; a document stacks whole layers, so cels follow their layer's order.");
     if (ase.tilemapCels > 0) out.warnings.push_back("The sprite has tilemap layers; they are not imported.");
 
-    Json document = Json::object({{"width", ase.width}, {"height", ase.height}, {"description", "Imported from " + file + "."}});
+    Json document =
+        Json::object({{"width", ase.width}, {"height", ase.height}, {"description", "Imported from " + file + "."}});
     if (plan.ok) {
         Json palette = Json::array();
         for (const Rgba& c : plan.colours) palette.push_back(std::format("#{:02x}{:02x}{:02x}", c.r, c.g, c.b));
@@ -646,7 +691,8 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
     }
     if (animated) document["frames"] = frames;
     if (!tags.empty()) document["tags"] = tags;
-    if (animated && request.columns > 0) document["sheet"] = Json::object({{"columns", std::min(request.columns, frameCount)}});
+    if (animated && request.columns > 0)
+        document["sheet"] = Json::object({{"columns", std::min(request.columns, frameCount)}});
     document["layers"] = layers;
 
     // files[0] is the PNG the file always imported to; the document's bake replaces it with the sheet (or the picture) drawn from the layers.
@@ -656,11 +702,22 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
     out.document = std::move(document);
     double totalMs = 0;
     for (const Frame& frame : ase.frames) totalMs += frame.duration;
-    out.details = Json::object({{"width", ase.width}, {"height", ase.height}, {"layers", layers.size()}, {"frames", frameCount}, {"tags", tags.size()},
-                                {"colorDepth", ase.depth == 32 ? "rgba" : ase.depth == 16 ? "grayscale" : "indexed"}, {"indexedDocument", plan.ok},
-                                {"totalMs", totalMs}, {"document", out.documentPath}});
-    out.nextSteps.push_back("The layers are an image document: image.info {\"path\":\"" + out.documentPath + "\"} lists the layers, frames and tags; image.pixel, image.draw, image.edit "
-                            "and image.paint take a `frame`, image.frame.* and image.tag.* change the animation, and the PNG at \"" + request.dest + "\" is baked from it.");
+    out.details = Json::object({{"width", ase.width},
+                                {"height", ase.height},
+                                {"layers", layers.size()},
+                                {"frames", frameCount},
+                                {"tags", tags.size()},
+                                {"colorDepth", ase.depth == 32   ? "rgba"
+                                               : ase.depth == 16 ? "grayscale"
+                                                                 : "indexed"},
+                                {"indexedDocument", plan.ok},
+                                {"totalMs", totalMs},
+                                {"document", out.documentPath}});
+    out.nextSteps.push_back(
+        "The layers are an image document: image.info {\"path\":\"" + out.documentPath +
+        "\"} lists the layers, frames and tags; image.pixel, image.draw, image.edit "
+        "and image.paint take a `frame`, image.frame.* and image.tag.* change the animation, and the PNG at \"" +
+        request.dest + "\" is baked from it.");
     return out;
 }
 
@@ -668,12 +725,14 @@ Result<ImportOutput> import_document(const Ase& ase, const ImportRequest& reques
 Result<ImportOutput> import_flat_sheet(const Ase& ase, const ImportRequest& request) {
     ImportOutput out;
     const int frames = int(ase.frames.size());
-    const int columns = request.columns > 0 ? std::min(request.columns, frames) : int(std::ceil(std::sqrt(double(frames))));
+    const int columns =
+        request.columns > 0 ? std::min(request.columns, frames) : int(std::ceil(std::sqrt(double(frames))));
     const int rows = (frames + columns - 1) / columns;
     if (std::size_t(columns) * ase.width > 16384 || std::size_t(rows) * ase.height > 16384)
-        return make_error(std::format("The sheet would be {}x{} px (columns {}, rows {}), more than the 16384 px a texture can have.",
-                                      columns * ase.width, rows * ase.height, columns, rows),
-                          "Pass a different `columns` so the sheet is closer to square, or import a sprite with fewer frames.");
+        return make_error(
+            std::format("The sheet would be {}x{} px (columns {}, rows {}), more than the 16384 px a texture can have.",
+                        columns * ase.width, rows * ase.height, columns, rows),
+            "Pass a different `columns` so the sheet is closer to square, or import a sprite with fewer frames.");
     Image sheet;
     sheet.width = columns * ase.width;
     sheet.height = rows * ase.height;
@@ -694,8 +753,8 @@ Result<ImportOutput> import_flat_sheet(const Ase& ase, const ImportRequest& requ
     std::vector<std::string> slowedDirections;
     for (const Tag& tag : ase.tags) {
         if (tag.from > tag.to || tag.to >= frames) {
-            out.warnings.push_back(std::format("Tag '{}' covers frames {}-{} but the sprite has {} frames: skipped.", tag.name,
-                                               tag.from, tag.to, frames));
+            out.warnings.push_back(std::format("Tag '{}' covers frames {}-{} but the sprite has {} frames: skipped.",
+                                               tag.name, tag.from, tag.to, frames));
             continue;
         }
         double ms = 0;
@@ -707,20 +766,27 @@ Result<ImportOutput> import_flat_sheet(const Ase& ase, const ImportRequest& requ
         }
     }
     if (!slowedDirections.empty())
-        out.warnings.push_back("The sheet has no direction per clip, so these tags are clips that play forward: " + join(slowedDirections, ", ") + ". Set SpriteAnimator.mode to \"reverse\" or \"pingpong\" to play them that way.");
+        out.warnings.push_back("The sheet has no direction per clip, so these tags are clips that play forward: " +
+                               join(slowedDirections, ", ") +
+                               ". Set SpriteAnimator.mode to \"reverse\" or \"pingpong\" to play them that way.");
     std::vector<std::string> blended;
     for (const Layer& layer : ase.layers)
-        if (layer.visible && layer.type != kLayerGroup && layer.blend != 0) blended.push_back(std::format("'{}' ({})", layer.name, blend_name(layer.blend)));
+        if (layer.visible && layer.type != kLayerGroup && layer.blend != 0)
+            blended.push_back(std::format("'{}' ({})", layer.name, blend_name(layer.blend)));
     if (!blended.empty())
-        out.warnings.push_back("These layers use a blend mode other than normal and were composited as normal: " + join(blended, ", ") + ".");
-    if (ase.tilemapCels > 0)
-        out.warnings.push_back("The sprite has tilemap layers; they are not drawn in the sheet.");
+        out.warnings.push_back("These layers use a blend mode other than normal and were composited as normal: " +
+                               join(blended, ", ") + ".");
+    if (ase.tilemapCels > 0) out.warnings.push_back("The sprite has tilemap layers; they are not drawn in the sheet.");
 
     const double fps = round2(1000.0 * frames / totalMs);
     out.sheet = sheet_entry(columns, rows, ase.width, ase.height, frames, clips);
     out.files.push_back({request.dest, encode_png(sheet)});
-    out.details = Json::object({{"layers", ase.layers.size()}, {"colorDepth", ase.depth == 32 ? "rgba" : ase.depth == 16 ? "grayscale" : "indexed"},
-                                {"frameDurationsMs", durations}, {"fps", fps}});
+    out.details = Json::object({{"layers", ase.layers.size()},
+                                {"colorDepth", ase.depth == 32   ? "rgba"
+                                               : ase.depth == 16 ? "grayscale"
+                                                                 : "indexed"},
+                                {"frameDurationsMs", durations},
+                                {"fps", fps}});
     out.nextSteps = sheet_next_steps(request.dest, out.sheet, fps);
     return out;
 }

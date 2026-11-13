@@ -48,7 +48,8 @@ void arc_segments(SubPath& sp, P c, double r, double a0, double a1) {
         const double s = rad(a0 + step * i), e = rad(a0 + step * (i + 1));
         const double k = 4.0 / 3.0 * std::tan((e - s) / 4.0) * r;
         const P p0{c.x + r * std::cos(s), c.y + r * std::sin(s)}, p3{c.x + r * std::cos(e), c.y + r * std::sin(e)};
-        cubic_to(sp, {p0.x - k * std::sin(s) * 1.0, p0.y + k * std::cos(s)}, {p3.x + k * std::sin(e), p3.y - k * std::cos(e)}, p3);
+        cubic_to(sp, {p0.x - k * std::sin(s) * 1.0, p0.y + k * std::cos(s)},
+                 {p3.x + k * std::sin(e), p3.y - k * std::cos(e)}, p3);
     }
 }
 
@@ -143,7 +144,8 @@ Path build_star(const VecStarSpec& s) {
     const int n = clampi(s.points, 3, 128);
     const double ratio = clampd(s.innerRatio, 0.02, 0.98);
     Poly v;
-    for (int i = 0; i < 2 * n; ++i) v.push_back(polar({s.center.x, s.center.y}, i % 2 ? s.radius * ratio : s.radius, s.rotation + 180.0 * i / n));
+    for (int i = 0; i < 2 * n; ++i)
+        v.push_back(polar({s.center.x, s.center.y}, i % 2 ? s.radius * ratio : s.radius, s.rotation + 180.0 * i / n));
     const double round = clampd(s.roundness, 0.0, 1.0);
     if (round <= 0) return {polygon_subpath(v)};
     return round_corners(v, [&](int, double, double shortest) { return round * 0.5 * shortest; });
@@ -202,7 +204,8 @@ Path build_arrow(const VecArrowSpec& s) {
     const double sw = s.shaftWidth / 2, hw = s.headWidth / 2;
     if (std::fabs(s.curve) < 1e-4) {
         const P b = to - u * hl;
-        Poly v = {from - right * sw, b - right * sw, b - right * hw, to, b + right * hw, b + right * sw, from + right * sw};
+        Poly v = {from - right * sw, b - right * sw, b - right * hw,   to,
+                  b + right * hw,    b + right * sw, from + right * sw};
         return {polygon_subpath(v)};
     }
     const double sag = clampd(s.curve, -0.5, 0.5) * c;  // positive: bulges to the right
@@ -318,8 +321,11 @@ VecRibbonPieces vector_ribbon_paths(const VecRibbonSpec& s, int dec) {
     Poly lt = {{bx0 - ext, top + drop}, {bx0, top + drop}, {bx0, bot + drop}, {bx0 - ext, bot + drop}};
     if (notch > 0) lt.push_back({bx0 - ext + notch, cy + drop});
     out.leftTail = poly(lt);
-    out.rightTail = poly(Poly{{bx1, top + drop}, {bx1 + ext, top + drop}, notch > 0 ? P{bx1 + ext - notch, cy + drop} : P{bx1 + ext, cy + drop},
-                              {bx1 + ext, bot + drop}, {bx1, bot + drop}});
+    out.rightTail = poly(Poly{{bx1, top + drop},
+                              {bx1 + ext, top + drop},
+                              notch > 0 ? P{bx1 + ext - notch, cy + drop} : P{bx1 + ext, cy + drop},
+                              {bx1 + ext, bot + drop},
+                              {bx1, bot + drop}});
     out.leftFold = poly(Poly{{bx0, bot}, {bx0 + std::max(drop, 1.0), bot}, {bx0, bot + drop}});
     out.rightFold = poly(Poly{{bx1, bot}, {bx1, bot + drop}, {bx1 - std::max(drop, 1.0), bot}});
     out.band = path_to_data(rect_path(bx0, top, W, H, 0, 0), dec);

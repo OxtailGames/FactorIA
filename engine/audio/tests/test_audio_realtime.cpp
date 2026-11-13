@@ -36,6 +36,10 @@ std::size_t allocations_while_mixing(Fixture& fx, double seconds) {
 }  // namespace
 
 TEST_CASE("audio callback: the counter sees this thread's allocations and only while a scope is alive") {
+    if constexpr (!AllocCounter::available) {
+        MESSAGE("skipped: a sanitizer build owns the global operator new, so nothing is counted");
+        return;
+    }
     {
         AllocCounter::Scope scope;
         void* p = AllocCounter::allocate_for_test(16);
@@ -55,7 +59,8 @@ TEST_CASE("audio callback: the counter sees this thread's allocations and only w
 
 TEST_CASE("audio callback: mixing voices on several buses with effects and ducking allocates nothing") {
     Fixture fx;
-    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
+    fx.write_assets(
+        R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
     std::vector<float> st;  // 22050 Hz stereo, 1.5 s: the resampler works while it streams
     for (int i = 0; i < 33075; ++i) {
         st.push_back(0.3f * std::sin(0.05f * float(i)));
@@ -89,7 +94,8 @@ TEST_CASE("audio callback: mixing voices on several buses with effects and ducki
     fx.audio.push_pcm(pcm, st.data(), 22050);
 
     fx.run(0.2);  // warm-up: whatever the first blocks set up lazily
-    CHECK(fx.audio.take_ended_voices().empty());  // a game takes them every frame: it must not cost the mixer its capacity
+    CHECK(fx.audio.take_ended_voices()
+              .empty());  // a game takes them every frame: it must not cost the mixer its capacity
 
     // The voiceover starts after the warm-up, so the ducking attacks, holds and releases inside the counted blocks.
     const VoiceId vo = fx.audio.play("sounds/short.wav", on("voiceover", false, true));

@@ -52,14 +52,14 @@ std::optional<std::string> gm_drum_lane(int key);
 int gm_drum_key(std::string_view lane);
 
 struct MidiImportOptions {
-    std::string quantize = "off";     // "off" or a note value: "4", "8", "16", "32", "64", "8t", "16t"...
-    std::string source;               // the file name, for the document's `doc` text
-    std::string soundfont;            // project path of an .sf2: pitched tracks play its preset with the track's program
-    bool loopWhole = false;           // a file without markers: the one section is the song's loop
+    std::string quantize = "off";  // "off" or a note value: "4", "8", "16", "32", "64", "8t", "16t"...
+    std::string source;            // the file name, for the document's `doc` text
+    std::string soundfont;         // project path of an .sf2: pitched tracks play its preset with the track's program
+    bool loopWhole = false;        // a file without markers: the one section is the song's loop
 };
 
 struct MidiImportResult {
-    Json song;                        // a song document (it parses: parse_song accepts it)
+    Json song;  // a song document (it parses: parse_song accepts it)
     std::vector<std::string> warnings;
     int tracks = 0;
     int notes = 0;
@@ -79,7 +79,7 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
 struct MidiExportResult {
     std::vector<std::uint8_t> bytes;
     std::vector<std::string> warnings;
-    int tracks = 0;                   // song tracks written
+    int tracks = 0;  // song tracks written
     int notes = 0;
 };
 

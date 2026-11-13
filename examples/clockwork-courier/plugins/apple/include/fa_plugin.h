@@ -64,7 +64,8 @@ extern "C" {
 
 typedef struct FaPluginApi FaPluginApi;
 typedef struct FaCall FaCall; /* one call of a command or function; answer it with api->reply or api->fail */
-typedef struct FaRequest FaRequest; /* one platform request; answer it once with resolve() or reject(), now or later, any thread */
+typedef struct FaRequest
+    FaRequest; /* one platform request; answer it once with resolve() or reject(), now or later, any thread */
 
 /* Runs a command or a script function. args_json: UTF-8 JSON text, an object for a command (already checked against
  * its input_schema, defaults filled in), an array of the arguments for a function. `user` is the desc's user. */
@@ -81,16 +82,17 @@ typedef struct FaCommandDesc {
 } FaCommandDesc;
 
 typedef struct FaFunctionDesc {
-    const char* name;  /* a JavaScript identifier: scripts call plugins.<plugin>.<name>(...args) */
-    const char* doc;   /* what it does, its arguments and its result (required): it goes into types/factoria.d.ts */
+    const char* name; /* a JavaScript identifier: scripts call plugins.<plugin>.<name>(...args) */
+    const char* doc;  /* what it does, its arguments and its result (required): it goes into types/factoria.d.ts */
     FaHandler handler;
     void* user;
 } FaFunctionDesc;
 
 /* A platform backend (version 2): the plugin answers the game's `platform` requests with a store SDK. */
 typedef struct FaBackendDesc {
-    const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
-    const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
+    const char* name; /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
+    const char*
+        services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
                            * "overlay","presence","integrity" (required) */
     /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
      * store's own id for the entry in "storeId" (docs/PLATFORM.md lists every method). Answer req with resolve() or
@@ -102,7 +104,7 @@ typedef struct FaBackendDesc {
 } FaBackendDesc;
 
 struct FaPluginApi {
-    uint32_t version;    /* FA_PLUGIN_API_VERSION of the engine running the plugin */
+    uint32_t version;     /* FA_PLUGIN_API_VERSION of the engine running the plugin */
     const char* plugin;   /* the plugin's name in factoria.json */
     const char* platform; /* "windows", "macos", "linux", "android" or "ios" */
     void* host;           /* the engine's: never touch it */

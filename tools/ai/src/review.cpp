@@ -21,45 +21,52 @@ namespace {
 
 std::vector<ReviewPersona> make_art_personas() {
     return {
-        {"all-rounder",
-         "You judge the whole look with the same weight on every point: direction, consistency, readability, polish. Balanced, "
-         "precise, no pet peeves."},
-        {"art director",
-         "You think like the art director of a studio: visual identity, palette and mood, cohesion between scenes, whether "
-         "every asset looks like it belongs to one game. You are strict about direction and drift, and say what the look "
-         "should be rather than only what it is."},
+        {"all-rounder", "You judge the whole look with the same weight on every point: direction, consistency, "
+                        "readability, polish. Balanced, "
+                        "precise, no pet peeves."},
+        {"art director", "You think like the art director of a studio: visual identity, palette and mood, cohesion "
+                         "between scenes, whether "
+                         "every asset looks like it belongs to one game. You are strict about direction and drift, and "
+                         "say what the look "
+                         "should be rather than only what it is."},
         {"first impression",
-         "You see the game for the first time, like a player scrolling a store page: what does the eye go to, can you tell "
+         "You see the game for the first time, like a player scrolling a store page: what does the eye go to, can you "
+         "tell "
          "what is what at a glance, does the first screen sell the game? You notice clutter, empty screens and unclear "
          "silhouettes before anything technical."},
         {"technical artist",
          "You look at the craft: texture and sprite resolution against the screen, scaling and filtering, aliasing and "
-         "shimmering, inconsistent pixel sizes, seams in tiles, animation smoothness, lighting and effects cost, banding. "
+         "shimmering, inconsistent pixel sizes, seams in tiles, animation smoothness, lighting and effects cost, "
+         "banding. "
          "You check numbers (sizes, render stats) as well as pictures."},
         {"UI and accessibility designer",
-         "You look at the HUD, menus and text: typography, contrast, spacing and alignment, icon clarity, scaling to small and "
+         "You look at the HUD, menus and text: typography, contrast, spacing and alignment, icon clarity, scaling to "
+         "small and "
          "large windows, colour-blind safety (screenshots can simulate deuteranopia), feedback of buttons and states."},
     };
 }
 
 std::vector<ReviewPersona> make_game_personas() {
     return {
-        {"all-rounder",
-         "You review the game as a whole with equal attention to fun, feel, design, UX, stability, polish, art and audio. "
-         "Balanced and fair, the reviewer a reader trusts."},
+        {"all-rounder", "You review the game as a whole with equal attention to fun, feel, design, UX, stability, "
+                        "polish, art and audio. "
+                        "Balanced and fair, the reviewer a reader trusts."},
         {"genre veteran",
-         "You have played hundreds of games of this genre and compare it with the best of them: what is original, what is "
+         "You have played hundreds of games of this genre and compare it with the best of them: what is original, what "
+         "is "
          "borrowed badly, where the depth runs out. Demanding about the core loop and about what makes this game worth "
          "choosing over the classics."},
-        {"newcomer",
-         "You are a casual player with little patience: do you understand what to do in the first minute, is the onboarding "
-         "clear, where do you get lost or frustrated, would you keep playing? Speak plainly."},
-        {"QA tester",
-         "You hunt bugs: odd inputs, repeated actions, edge cases, restarting and pausing at bad moments, scene changes, "
-         "script errors and warnings in the logs, things that stay on screen. Every bug you report has steps to reproduce "
-         "it and how bad it is."},
+        {"newcomer", "You are a casual player with little patience: do you understand what to do in the first minute, "
+                     "is the onboarding "
+                     "clear, where do you get lost or frustrated, would you keep playing? Speak plainly."},
+        {"QA tester", "You hunt bugs: odd inputs, repeated actions, edge cases, restarting and pausing at bad moments, "
+                      "scene changes, "
+                      "script errors and warnings in the logs, things that stay on screen. Every bug you report has "
+                      "steps to reproduce "
+                      "it and how bad it is."},
         {"design critic",
-         "You examine the systems: rules, balance, difficulty curve, pacing, progression, player agency, risk and reward, "
+         "You examine the systems: rules, balance, difficulty curve, pacing, progression, player agency, risk and "
+         "reward, "
          "how the parts reinforce each other. You say which decisions are interesting and which are noise."},
     };
 }
@@ -107,12 +114,14 @@ std::string persona_prompt(const ReviewPersona& persona, int index, int count) {
 }
 
 std::string review_task(std::string_view role, std::string_view focus) {
-    std::string out = role == kRoleArtCritic
-                          ? "Look at the current build of the game and write your art critique: play it and take screenshots of "
-                            "every scene and state you can reach, then judge the art as your role describes."
-                          : "Play the current build of the game and write your review: reach every scene and state you can, play "
-                            "like a reviewer would (by hand first, then with play_auto as support, as your role says), then judge the game as your "
-                            "role describes.";
+    std::string out =
+        role == kRoleArtCritic
+            ? "Look at the current build of the game and write your art critique: play it and take screenshots of "
+              "every scene and state you can reach, then judge the art as your role describes."
+            : "Play the current build of the game and write your review: reach every scene and state you can, play "
+              "like a reviewer would (by hand first, then with play_auto as support, as your role says), then judge "
+              "the game as your "
+              "role describes.";
     if (!focus.empty()) out += "\nThe user asks you to pay special attention to: " + std::string(focus);
     out += "\nEnd with the report's closing json block (score, subScores, summary) exactly as your role says.";
     return out;
@@ -184,7 +193,8 @@ ParsedReport parse_review_report(std::string_view finalText) {
             out.summary = str(j, "summary");
             if (const Json* sub = child(j, "subScores"); sub && sub->is_object()) {
                 for (auto it = sub->begin(); it != sub->end(); ++it)
-                    if (it.value().is_number()) out.subScores.emplace_back(it.key(), std::clamp(it.value().get<double>(), 0.0, 10.0));
+                    if (it.value().is_number())
+                        out.subScores.emplace_back(it.key(), std::clamp(it.value().get<double>(), 0.0, 10.0));
             }
             std::string text(finalText.substr(0, open));
             while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
@@ -198,7 +208,8 @@ ParsedReport parse_review_report(std::string_view finalText) {
 
 std::string review_as_message(const Review& r) {
     const bool art = r.role == kRoleArtCritic;
-    std::string out = std::string("Here is ") + (art ? "an art critique" : "a game review") + " of the current build that I asked for (" +
+    std::string out = std::string("Here is ") + (art ? "an art critique" : "a game review") +
+                      " of the current build that I asked for (" +
                       (r.persona.empty() ? std::string("reviewer") : r.persona) + ", ";
     if (r.score >= 0) {
         char buf[32];
@@ -217,8 +228,10 @@ std::string review_as_message(const Review& r) {
         out += "no score";
     }
     out += ").\n\n" + r.text;
-    out += "\n\nGo through it with me: decide what is worth fixing, delegate the work (the artist for art, the audio role for sound, "
-           "the worker for code), and tell me what you changed. The reviewer cannot be asked questions; do not start another review.";
+    out += "\n\nGo through it with me: decide what is worth fixing, delegate the work (the artist for art, the audio "
+           "role for sound, "
+           "the worker for code), and tell me what you changed. The reviewer cannot be asked questions; do not start "
+           "another review.";
     return out;
 }
 
@@ -227,7 +240,8 @@ std::string reviews_dir(const std::string& projectDir) {
 }
 
 Result<Review> save_review(const std::string& projectDir, Review r) {
-    if (projectDir.empty()) return make_error("No project is open, so the review cannot be saved", "Open a project first.");
+    if (projectDir.empty())
+        return make_error("No project is open, so the review cannot be saved", "Open a project first.");
     if (r.time.empty()) r.time = now_stamp("%Y-%m-%dT%H:%M:%S");
     if (r.engineVersion.empty()) {
         r.engineVersion = FA_ENGINE_VERSION;
@@ -268,7 +282,8 @@ std::vector<Review> list_reviews(const std::string& projectDir, std::string_view
         if (!role.empty() && r.role != role) continue;
         out.push_back(std::move(r));
     }
-    std::sort(out.begin(), out.end(), [](const Review& a, const Review& b) { return a.id > b.id; });  // ids start with the time
+    std::sort(out.begin(), out.end(),
+              [](const Review& a, const Review& b) { return a.id > b.id; });  // ids start with the time
     if (limit > 0 && out.size() > limit) out.resize(limit);
     return out;
 }

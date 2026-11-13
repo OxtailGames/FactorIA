@@ -52,8 +52,10 @@ bool NavCostGrid::set_cost(int col, int row, float cost) {
     ++version_;
     // Keep the cheapest open cost current without sweeping, unless the cell that held it got dearer or blocked.
     if (grid_.minOpenCost >= 0.0f) {
-        if (v >= 0.0f && v < grid_.minOpenCost) grid_.minOpenCost = v;
-        else if (old >= 0.0f && old <= grid_.minOpenCost) grid_.minOpenCost = -1.0f;  // the next query sweeps once
+        if (v >= 0.0f && v < grid_.minOpenCost)
+            grid_.minOpenCost = v;
+        else if (old >= 0.0f && old <= grid_.minOpenCost)
+            grid_.minOpenCost = -1.0f;  // the next query sweeps once
     }
     return true;
 }
@@ -72,7 +74,8 @@ NavFlowField::NavFlowField(std::shared_ptr<NavCostGrid> grid, std::vector<std::p
 
 float NavFlowField::enter_cost(std::int32_t i) const {
     const float c = grid_->grid().cost[std::size_t(i)];
-    return c >= 0.0f ? c : 1.0f;  // only a blocked GOAL is ever asked: it is entered at cost 1, as allowBlockedGoal does
+    return c >= 0.0f ? c
+                     : 1.0f;  // only a blocked GOAL is ever asked: it is entered at cost 1, as allowBlockedGoal does
 }
 
 void NavFlowField::refresh() {

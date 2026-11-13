@@ -60,15 +60,21 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
     const float pad = 2.0f * h;
     const Vec3 origin = lo - Vec3{pad, pad, pad};
     const Vec3 ext = ext0 + Vec3{2 * pad, 2 * pad, 2 * pad};
-    const double gx = std::ceil(double(ext.x) / h) + 1, gy = std::ceil(double(ext.y) / h) + 1, gz = std::ceil(double(ext.z) / h) + 1;
+    const double gx = std::ceil(double(ext.x) / h) + 1, gy = std::ceil(double(ext.y) / h) + 1,
+                 gz = std::ceil(double(ext.z) / h) + 1;
     const double samplesD = gx * gy * gz;
     const double costD = samplesD * double(sdf.leaf_count());
     if (samplesD > double(kModelSdfMaxSamples) || costD > double(kModelSdfMaxCost)) {
-        const double byMemory = det::f64::cbrt(samplesD / double(kModelSdfMaxSamples)), byCost = det::f64::cbrt(costD / double(kModelSdfMaxCost));
+        const double byMemory = det::f64::cbrt(samplesD / double(kModelSdfMaxSamples)),
+                     byCost = det::f64::cbrt(costD / double(kModelSdfMaxCost));
         const double needed = double(h) * std::max(byMemory, byCost) * 1.02;
-        return make_error(std::format("the sdf would sample {:.0f} x {:.0f} x {:.0f} = {:.0f} points ({} m cells over a box of {} x {} x {} m, {} shape(s)), more than the {} points or {} evaluations allowed",
-                                      gx, gy, gz, samplesD, metres(h), metres(ext.x), metres(ext.y), metres(ext.z), sdf.leaf_count(), kModelSdfMaxSamples, kModelSdfMaxCost),
-                          "Raise `voxelSize` to " + metres(needed) + " or more (or lower `quality`), or split the shape into several sdf nodes of their own.");
+        return make_error(
+            std::format("the sdf would sample {:.0f} x {:.0f} x {:.0f} = {:.0f} points ({} m cells over a box of {} x "
+                        "{} x {} m, {} shape(s)), more than the {} points or {} evaluations allowed",
+                        gx, gy, gz, samplesD, metres(h), metres(ext.x), metres(ext.y), metres(ext.z), sdf.leaf_count(),
+                        kModelSdfMaxSamples, kModelSdfMaxCost),
+            "Raise `voxelSize` to " + metres(needed) +
+                " or more (or lower `quality`), or split the shape into several sdf nodes of their own.");
     }
     const int nx = int(gx), ny = int(gy), nz = int(gz);
     const std::size_t samples = std::size_t(nx) * std::size_t(ny) * std::size_t(nz);
@@ -106,12 +112,15 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
     std::unordered_map<std::uint64_t, std::uint32_t> lookup;
     lookup.reserve(4096);
     std::size_t offs[8];
-    for (int c = 0; c < 8; ++c) offs[c] = std::size_t(c & 1) + std::size_t(nx) * (std::size_t((c >> 1) & 1) + std::size_t(ny) * std::size_t(c >> 2));
+    for (int c = 0; c < 8; ++c)
+        offs[c] =
+            std::size_t(c & 1) + std::size_t(nx) * (std::size_t((c >> 1) & 1) + std::size_t(ny) * std::size_t(c >> 2));
 
     for (int z = 0; z + 1 < nz; ++z) {
         for (int y = 0; y + 1 < ny; ++y)
             for (int x = 0; x + 1 < nx; ++x) {
-                const std::size_t base = std::size_t(x) + std::size_t(nx) * (std::size_t(y) + std::size_t(ny) * std::size_t(z));
+                const std::size_t base =
+                    std::size_t(x) + std::size_t(nx) * (std::size_t(y) + std::size_t(ny) * std::size_t(z));
                 std::size_t g[8];
                 float val[8];
                 int mask = 0;
@@ -122,7 +131,9 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
                 }
                 if (mask == 0 || mask == 255) continue;
                 Vec3 cp[8];
-                for (int c = 0; c < 8; ++c) cp[c] = origin + Vec3{float(x + (c & 1)) * h, float(y + ((c >> 1) & 1)) * h, float(z + (c >> 2)) * h};
+                for (int c = 0; c < 8; ++c)
+                    cp[c] =
+                        origin + Vec3{float(x + (c & 1)) * h, float(y + ((c >> 1) & 1)) * h, float(z + (c >> 2)) * h};
 
                 auto edge_vertex = [&](int ci, int co) -> std::uint32_t {
                     const std::uint64_t a = g[ci], b = g[co];
@@ -153,20 +164,27 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
                     for (int k = 0; k < no; ++k) mo = mo + cp[out[k]];
                     const Vec3 outward = mo / float(no) - mi / float(ni);
                     if (ni == 1) {
-                        emit(edge_vertex(in[0], out[0]), edge_vertex(in[0], out[1]), edge_vertex(in[0], out[2]), outward);
+                        emit(edge_vertex(in[0], out[0]), edge_vertex(in[0], out[1]), edge_vertex(in[0], out[2]),
+                             outward);
                     } else if (ni == 3) {
-                        emit(edge_vertex(in[0], out[0]), edge_vertex(in[1], out[0]), edge_vertex(in[2], out[0]), outward);
+                        emit(edge_vertex(in[0], out[0]), edge_vertex(in[1], out[0]), edge_vertex(in[2], out[0]),
+                             outward);
                     } else {
-                        const std::uint32_t q0 = edge_vertex(in[0], out[0]), q1 = edge_vertex(in[0], out[1]), q2 = edge_vertex(in[1], out[1]), q3 = edge_vertex(in[1], out[0]);
+                        const std::uint32_t q0 = edge_vertex(in[0], out[0]), q1 = edge_vertex(in[0], out[1]),
+                                            q2 = edge_vertex(in[1], out[1]), q3 = edge_vertex(in[1], out[0]);
                         emit(q0, q1, q2, outward);
                         emit(q0, q2, q3, outward);
                     }
                 }
             }
         if (idx.size() / 3 > kModelSdfMaxRawTriangles) {
-            const double ratio = std::sqrt(double(idx.size() / 3) / double(kModelSdfMaxRawTriangles)) * double(nz) / double(z + 1);
-            return make_error(std::format("the sdf makes more than {} triangles before decimation at a cell size of {} m", kModelSdfMaxRawTriangles, metres(h)),
-                              "Raise `voxelSize` to about " + metres(double(h) * std::max(ratio, 1.5)) + " or more (or lower `quality`).");
+            const double ratio =
+                std::sqrt(double(idx.size() / 3) / double(kModelSdfMaxRawTriangles)) * double(nz) / double(z + 1);
+            return make_error(
+                std::format("the sdf makes more than {} triangles before decimation at a cell size of {} m",
+                            kModelSdfMaxRawTriangles, metres(h)),
+                "Raise `voxelSize` to about " + metres(double(h) * std::max(ratio, 1.5)) +
+                    " or more (or lower `quality`).");
         }
     }
     lookup = {};
@@ -179,7 +197,8 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
     // ---- move every vertex onto the zero of the field along its edge (false position on the real field) ---------------------------
     auto grid_pos = [&](std::uint32_t id) {
         const std::size_t i = id;
-        const int x = int(i % std::size_t(nx)), y = int((i / std::size_t(nx)) % std::size_t(ny)), z = int(i / (std::size_t(nx) * std::size_t(ny)));
+        const int x = int(i % std::size_t(nx)), y = int((i / std::size_t(nx)) % std::size_t(ny)),
+                  z = int(i / (std::size_t(nx) * std::size_t(ny)));
         return origin + Vec3{float(x) * h, float(y) * h, float(z) * h};
     };
     for (std::size_t v = 0; v < pos.size(); ++v) {
@@ -220,8 +239,10 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
 
     // ---- decimate ----------------------------------------------------------------------------------------------------------------------
     double maxError = 0;
-    if (P.maxError >= 0) maxError = P.maxError;
-    else if (P.targetTriangles == 0) maxError = 0.25 * double(h);
+    if (P.maxError >= 0)
+        maxError = P.maxError;
+    else if (P.targetTriangles == 0)
+        maxError = 0.25 * double(h);
     info.maxErrorUsed = float(maxError);
     if (P.targetTriangles > 0 || maxError > 0) {
         ModelDecimateParams dp;
@@ -244,7 +265,8 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
     if (sdf.has_color()) colors.resize(pos.size());
     for (std::size_t v = 0; v < pos.size(); ++v) {
         const Vec3 p = pos[v];
-        const Vec3 grad{field({p.x + e, p.y, p.z}) - field({p.x - e, p.y, p.z}), field({p.x, p.y + e, p.z}) - field({p.x, p.y - e, p.z}),
+        const Vec3 grad{field({p.x + e, p.y, p.z}) - field({p.x - e, p.y, p.z}),
+                        field({p.x, p.y + e, p.z}) - field({p.x, p.y - e, p.z}),
                         field({p.x, p.y, p.z + e}) - field({p.x, p.y, p.z - e})};
         Vec3 n = normalize(grad);
         if (length_sq(n) < 0.5f) n = normalize(faceSum[v]);
@@ -269,7 +291,9 @@ Result<ModelMesh> model_sdf_mesh(const ModelSdf& sdf, const ModelSdfMeshParams& 
                 if (slot < 0) {
                     slot = std::int32_t(mesh.positions.size());
                     const Vec3 p = pos[v];
-                    Vec2 uv = axis == 0 ? Vec2{-p.z * sgn, -p.y} : axis == 1 ? Vec2{p.x, p.z * sgn} : Vec2{p.x * sgn, -p.y};
+                    Vec2 uv = axis == 0   ? Vec2{-p.z * sgn, -p.y}
+                              : axis == 1 ? Vec2{p.x, p.z * sgn}
+                                          : Vec2{p.x * sgn, -p.y};
                     mesh.positions.push_back(p);
                     mesh.normals.push_back(normals[v]);
                     mesh.uvs.push_back(uv);

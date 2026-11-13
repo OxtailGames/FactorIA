@@ -29,7 +29,8 @@ inline constexpr int kRecommendedIconSize = 512;
 // is not a file, or cannot be decoded. Warnings (appended to `warnings` when given): not square, or smaller than
 // `recommendedSize` (default kRecommendedIconSize) in either direction. ExportSettingsIssue::to_string() prints one.
 Result<Image> load_icon_image(const std::string& projectDir, const std::string& relPath, const std::string& pointer,
-                              std::vector<ExportSettingsIssue>* warnings = nullptr, int recommendedSize = kRecommendedIconSize);
+                              std::vector<ExportSettingsIssue>* warnings = nullptr,
+                              int recommendedSize = kRecommendedIconSize);
 
 // "#RRGGBB" -> an opaque Color; `fallback` for anything else.
 Color icon_color_from_hex(const std::string& hex, Color fallback = Color::white());
@@ -62,10 +63,10 @@ std::vector<std::uint8_t> make_ico_bmp(const Image& icon, const std::vector<int>
 // The adaptive icon layers (Android 8+): the foreground is a 108dp layer of which only the inner 72dp are always
 // visible, so by default the icon is scaled into the 66dp safe zone (66/108 of the layer) over transparency.
 struct AdaptiveIcon {
-    std::optional<Image> foreground;       // the whole 108dp layer; none = derived from the icon
+    std::optional<Image> foreground;          // the whole 108dp layer; none = derived from the icon
     std::string backgroundColor = "#FFFFFF";  // "#RRGGBB", used when backgroundImage is empty
-    std::optional<Image> backgroundImage;  // replaces the colour
-    std::optional<Image> monochrome;       // themed icons (Android 13); none = not written
+    std::optional<Image> backgroundImage;     // replaces the colour
+    std::optional<Image> monochrome;          // themed icons (Android 13); none = not written
 };
 
 // Loads the layers named by `settings.adaptiveIcon` (relative to projectDir; `background` is a colour when it starts

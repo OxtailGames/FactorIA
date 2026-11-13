@@ -108,7 +108,8 @@ test("logs with console.error", () => {
     CHECK(rep.ok());
 }
 
-TEST_CASE("test errors: expected errors pass, an expected error that never comes fails, an unexpected one still fails") {
+TEST_CASE(
+    "test errors: expected errors pass, an expected error that never comes fails, an unexpected one still fails") {
     TestHost h("testerr_expect");
     h.file("scripts/bomb.js", kBomb);
     h.file("scenes/main.scene.json", kScene);
@@ -168,7 +169,9 @@ test("a bad option teaches", () => {
     CHECK_FALSE(contains(rep.cases[3].message, "bomb went off\n"));
     CHECK_FALSE(rep.cases[4].passed);
     CHECK(contains(rep.cases[4].message, "expected: 2"));
-    CHECK_FALSE(rep.cases[4].loggedError);  // the assertion is the failure; the expectation of a test that threw is not held against it
+    CHECK_FALSE(
+        rep.cases[4]
+            .loggedError);  // the assertion is the failure; the expectation of a test that threw is not held against it
     CHECK_MESSAGE(rep.cases[5].passed, rep.cases[5].message);
     CHECK_MESSAGE(rep.cases[6].passed, rep.cases[6].message);
 }
@@ -244,7 +247,8 @@ test("the last test of the file leaves a rejection", () => {
     CHECK(rep.cases[5].loggedError);
 }
 
-TEST_CASE("test errors: once-per-run errors reach every test, a chatty test keeps an earlier error, test.skip checks options") {
+TEST_CASE("test errors: once-per-run errors reach every test, a chatty test keeps an earlier error, test.skip checks "
+          "options") {
     TestHost h("testerr_polish");
     h.file("tests/t.test.js", R"JS(
 import { test, expect } from "factoria:test";
@@ -281,7 +285,7 @@ test("runs", () => {});
     CHECK_FALSE(only.cases[0].passed);  // the same result with --filter
     TestReport pending = h.scripts.run_tests({"tests/pending.test.js"});
     CHECK(pending.loadErrors.empty());  // test.skip("name") with no body is a pending test, not an error
-    CHECK(pending.cases.size() == 1);  // a skipped test is not a case of the report; "runs" is
+    CHECK(pending.cases.size() == 1);   // a skipped test is not a case of the report; "runs" is
     TestReport skip = h.scripts.run_tests({"tests/skip.test.js"});
     REQUIRE(skip.loadErrors.size() == 1);
     CHECK(contains(skip.loadErrors[0].message, "unknown option 'expectError'"));

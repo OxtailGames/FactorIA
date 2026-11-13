@@ -13,8 +13,8 @@ namespace fa {
 
 using ui_detail::control_of;
 using ui_detail::depth_of;
-using ui_detail::Item;
 using ui_detail::is_custom;
+using ui_detail::Item;
 using ui_detail::item_contains;
 
 namespace {
@@ -61,8 +61,10 @@ bool wants_auto_focus(const World& w, Entity e) {
     return ia && ia->autoFocus;
 }
 void set_focused_flag(World& w, Entity e, bool on) {
-    if (UiControl* c = control_of(w, e)) c->focused = on;
-    else if (Interactable* ia = w.get<Interactable>(e)) ia->focused = on;
+    if (UiControl* c = control_of(w, e))
+        c->focused = on;
+    else if (Interactable* ia = w.get<Interactable>(e))
+        ia->focused = on;
 }
 
 // Active Button / Toggle / Slider / TextField in creation order.
@@ -70,7 +72,8 @@ void set_focused_flag(World& w, Entity e, bool on) {
 std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
     std::vector<Item> out;
     bool any = false;
-    for (const TypeInfo* t : {&World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(), &World::type_of<TextField>()})
+    for (const TypeInfo* t : {&World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
+                              &World::type_of<TextField>()})
         any = any || !w.entities_with(t).empty();
     if (!any) return out;
     for (Entity e : w.entities()) {
@@ -90,8 +93,10 @@ std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
 // The on-screen gamepad: the rectangles of the active TouchStick / TouchButton widgets go to Input in creation order (a
 // later one wins an overlap, like the pointer); the touch pad's state comes back into their runtime fields.
 void touch_controls(World& w, Input& in, Vec2 design) {
-    static_assert(std::size_t(PadButton::RightThumb) + 1 == std::size_t(GamepadButton::Count), "PadButton mirrors GamepadButton");
-    if (w.entities_with(&World::type_of<TouchStick>()).empty() && w.entities_with(&World::type_of<TouchButton>()).empty()) {
+    static_assert(std::size_t(PadButton::RightThumb) + 1 == std::size_t(GamepadButton::Count),
+                  "PadButton mirrors GamepadButton");
+    if (w.entities_with(&World::type_of<TouchStick>()).empty() &&
+        w.entities_with(&World::type_of<TouchButton>()).empty()) {
         if (!in.touch_controls().empty()) in.set_touch_controls({});
         return;
     }
@@ -138,7 +143,8 @@ bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& meas
     float bottom = -1e30f;
     for (Entity c : w.children(e))
         if (w.active_in_hierarchy(c))
-            if (const std::optional<Rect> cr = ui_detail::screen_rect(w, c, design, measure)) bottom = std::max(bottom, cr->y + cr->h);
+            if (const std::optional<Rect> cr = ui_detail::screen_rect(w, c, design, measure))
+                bottom = std::max(bottom, cr->y + cr->h);
     if (bottom < -1e29f) return false;
     const float content = bottom + s.scroll - (r.y + s.padding.y);
     return content - (r.h - s.padding.y - s.padding.w) > 0.5f;
@@ -238,10 +244,12 @@ Entity UiSystem::widget_at(const World& w, Vec2 design, Vec2 p, const VisualMeas
     Entity best;
     bool any = false;
     int bestLayer = 0;
-    const std::optional<UiSurface> surface = surface_ ? surface_(p, nullptr) : std::nullopt;  // a page under p: its Interactables, not the main view's
+    const std::optional<UiSurface> surface =
+        surface_ ? surface_(p, nullptr) : std::nullopt;  // a page under p: its Interactables, not the main view's
     std::vector<ui_detail::Item> candidates =
-        surface ? ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point, surface->mask)
-                : ui_detail::interactable_items(w, design, measure, modal, project_, &p, mask_at(&p));
+        surface
+            ? ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point, surface->mask)
+            : ui_detail::interactable_items(w, design, measure, modal, project_, &p, mask_at(&p));
     for (const ui_detail::Item& it : candidates) {
         if (!it.inScope || !item_contains(it, surface && it.world ? surface->point : p)) continue;
         if (ignore) {
@@ -264,7 +272,8 @@ bool UiSystem::Repeat::tick(bool pressed, bool down, float dt) {
         held = false;
         return false;
     }
-    if (pressed || !held) {  // a press edge (also when the key went up again before this frame), or a held key first seen
+    if (pressed ||
+        !held) {  // a press edge (also when the key went up again before this frame), or a held key first seen
         held = down;
         time = 0.0f;
         next = kRepeatDelay;
@@ -310,7 +319,9 @@ void UiSystem::release_platform_keyboard(const World* w) {
 }
 
 bool UiSystem::submit_text(World& w, const std::string& text) {
-    TextField* tf = platformField_ && platformField_ == focus_ && w.alive(platformField_) ? w.get<TextField>(platformField_) : nullptr;
+    TextField* tf = platformField_ && platformField_ == focus_ && w.alive(platformField_)
+                        ? w.get<TextField>(platformField_)
+                        : nullptr;
     if (!tf) return false;
     std::string clean;
     for (std::size_t i = 0; i < text.size();) {
@@ -372,8 +383,9 @@ void UiSystem::update_chart_hover(World& w, Vec2 design, Vec2 mouse) {
         if (Chart* old = w.get<Chart>(chartHover_)) {
             old->hoverIndex = old->hoverSeries = -1;
             if (chart != chartHover_) {
-                w.events().game.push_back(GameEvent{"ui.chartHover", Json::object({{"id", w.id_of(chartHover_)}, {"index", -1}, {"series", -1}}),
-                                                    chartHover_});
+                w.events().game.push_back(GameEvent{
+                    "ui.chartHover", Json::object({{"id", w.id_of(chartHover_)}, {"index", -1}, {"series", -1}}),
+                    chartHover_});
             }
         }
     chartHover_ = chart;
@@ -384,7 +396,11 @@ void UiSystem::update_chart_hover(World& w, Vec2 design, Vec2 mouse) {
         c.hoverIndex = index;
         c.hoverSeries = series;
         w.events().game.push_back(GameEvent{"ui.chartHover",
-            Json::object({{"id", w.id_of(chart)}, {"index", index}, {"series", series}, {"value", to_json(float(sample->value))}}), chart});
+                                            Json::object({{"id", w.id_of(chart)},
+                                                          {"index", index},
+                                                          {"series", series},
+                                                          {"value", to_json(float(sample->value))}}),
+                                            chart});
     }
 }
 
@@ -428,8 +444,9 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
     pointerPrevDown_ = pointerOn_ && pointerDown_;
     std::vector<Item> items = controls(w, design, modal);  // creation order
-    for (Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &mouse, mask_at(&mouse))) items.push_back(std::move(it));
-    std::vector<Item> ordered = items;                    // reading order: top, then left
+    for (Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &mouse, mask_at(&mouse)))
+        items.push_back(std::move(it));
+    std::vector<Item> ordered = items;  // reading order: top, then left
     reading_order(ordered);
     // A page under the pointer (a render target shown on a mesh): its world-space Interactables are seen through the page's camera and
     // the pointer is where it lands on the page, so they replace the ones seen through the main camera.
@@ -439,7 +456,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         surface = surface_(mouse, press_ ? &pressSurface_ : nullptr);
     if (surface) {
         std::erase_if(items, [](const Item& it) { return it.custom && it.world; });
-        for (Item& it : ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point, surface->mask)) {
+        for (Item& it : ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point,
+                                                      surface->mask)) {
             if (!it.world) continue;
             it.surface = true;
             it.at = surface->point;
@@ -490,10 +508,14 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     // ---- keys and pad
     for (int d = 0; d < 4; ++d) {
-        if (!nav_[std::size_t(d)].tick(in.action_pressed(kDirAction[d]), in.action_down(kDirAction[d]), dt) || !focus_ || navWoke) continue;
+        if (!nav_[std::size_t(d)].tick(in.action_pressed(kDirAction[d]), in.action_down(kDirAction[d]), dt) ||
+            !focus_ || navWoke)
+            continue;
         const UiKind kind = ui_kind(w, focus_);
-        if (d >= Left && kind == UiKind::TextField) continue;  // ponytail: no caret movement, the caret stays at the end
-        if (Interactable* ia = kind == UiKind::None ? w.get<Interactable>(focus_) : nullptr; ia && ia->kind == InteractableKind::Slider) {
+        if (d >= Left && kind == UiKind::TextField)
+            continue;  // ponytail: no caret movement, the caret stays at the end
+        if (Interactable* ia = kind == UiKind::None ? w.get<Interactable>(focus_) : nullptr;
+            ia && ia->kind == InteractableKind::Slider) {
             // A custom slider: the keys along its axis change the value (right / up raise it), the others move the focus.
             const bool along = ia->axis == InteractableAxis::X ? d >= Left : d < Left;
             if (along) {
@@ -532,8 +554,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             const float across = std::fabs(dot(delta, perp(dir)));
             const Rect& o = it.rect;
             const bool inBeam = d >= Left ? o.y < r.y + r.h && r.y < o.y + o.h : o.x < r.x + r.w && r.x < o.x + o.w;
-            const std::array<float, 3> key = inBeam ? std::array<float, 3>{0, along, across}
-                                                    : std::array<float, 3>{1, along + 2.0f * across, 0};
+            const std::array<float, 3> key =
+                inBeam ? std::array<float, 3>{0, along, across} : std::array<float, 3>{1, along + 2.0f * across, 0};
             if (!best || key < bestKey) {
                 best = &it;
                 bestKey = key;
@@ -579,15 +601,15 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
     }
     const bool navCancel = in.action_pressed("ui_cancel");
-    if (navCancel && !drag_.active) emit(w, "ui.cancel", focus_);  // while dragging, cancel ends the drag instead
+    if (navCancel && !drag_.active) emit(w, "ui.cancel", focus_);   // while dragging, cancel ends the drag instead
     if (navCancel && drag_.active) in.consume_action("ui_cancel");  // the drag took it
 
     if (focus_) {
         if (TextField* tf = w.get<TextField>(focus_)) {
             bool changed = false;
             // A Ctrl or Cmd chord (Ctrl+V) is a command, not typing; Ctrl+Alt is AltGr, which does type.
-            const bool chord = (in.key_down(Key::LeftControl) || in.key_down(Key::RightControl) || in.key_down(Key::LeftSuper) ||
-                                in.key_down(Key::RightSuper)) &&
+            const bool chord = (in.key_down(Key::LeftControl) || in.key_down(Key::RightControl) ||
+                                in.key_down(Key::LeftSuper) || in.key_down(Key::RightSuper)) &&
                                !in.key_down(Key::LeftAlt) && !in.key_down(Key::RightAlt);
             for (const char32_t c : chord ? std::u32string() : in.text_input()) {
                 if (c < 32 || c == 127 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) continue;
@@ -654,7 +676,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             emit(w, "ui.hover", hover_, Json(true));
         }
         prevHover_ = hover_;
-        hoverFocused_ = kNullEntity;  // a new hover is an entry, whether the pointer moved or the widget appeared under it
+        hoverFocused_ =
+            kNullEntity;  // a new hover is an entry, whether the pointer moved or the widget appeared under it
     }
     // focusOnHover: once per entry. Not done yet = the entry did not get to focus (the widget could not take the focus yet,
     // or focusOnHover was switched on while the pointer already rested on it), so it is tried again until it does.
@@ -671,7 +694,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
     update_drag(w, design, mouse, ptrDown, ptrPressed, ptrReleased, measure, navCancel);
     if (press_) {
-        if (Interactable* ia = is_custom(w, press_) ? w.get<Interactable>(press_) : nullptr; ia && ia->kind == InteractableKind::Slider) {
+        if (Interactable* ia = is_custom(w, press_) ? w.get<Interactable>(press_) : nullptr;
+            ia && ia->kind == InteractableKind::Slider) {
             if (const Item* it = find(press_)) {
                 const float t = ui_detail::track_fraction(*it, it->at);
                 const float v = snap_slider(*ia, ia->min + t * (std::max(ia->min, ia->max) - ia->min));
@@ -683,7 +707,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
         if (Slider* s = w.get<Slider>(press_)) {
             const Item* it = find(press_);
-            const float k = ui_scale_clamped(w.ui_scale());  // the track is laid out in UI units, the pointer is in pixels
+            const float k =
+                ui_scale_clamped(w.ui_scale());  // the track is laid out in UI units, the pointer is in pixels
             const Rect unitRect{it->rect.x / k, it->rect.y / k, it->rect.w / k, it->rect.h / k};
             const bool mirrored = ui_mirrored(w, press_);
             const float t = ui_slider_fraction(ui_slider_track(*s, unitRect, mirrored), mouse.x / k, mirrored);
@@ -721,7 +746,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     // ---- wheel: scrolls the innermost ScrollList under the pointer
     wheelConsumed_ = false;
-    update_view_pointer(w, in, design, mouse, ptrDown, ptrPressed, ptrReleased);  // before the lists: a view under the pointer takes the wheel
+    update_view_pointer(w, in, design, mouse, ptrDown, ptrPressed,
+                        ptrReleased);  // before the lists: a view under the pointer takes the wheel
     if (in.mouse_wheel() != 0.0f) {
         ScrollList* target = nullptr;
         Entity targetEntity;
@@ -740,7 +766,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         });
         if (target) {
             const bool scrolls = scrollable(w, targetEntity, design, measure);  // before the scroll moves
-            target->scroll -= in.mouse_wheel() * target->scrollSpeed;           // wheel up (positive) scrolls towards the top
+            target->scroll -= in.mouse_wheel() * target->scrollSpeed;  // wheel up (positive) scrolls towards the top
             // A list with more to show keeps the wheel for itself, also at the end of its range (the map must not zoom there).
             if (scrolls) {
                 wheelConsumed_ = true;
@@ -750,7 +776,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
 
     const Panel* modalPanel = modal ? w.get<Panel>(modal) : nullptr;
-    if (modal && in.mouse_wheel() != 0.0f && !wheelConsumed_ && !(modalPanel && modalPanel->wheelPassThrough)) {  // the wheel stays in the modal: the game below must not zoom
+    if (modal && in.mouse_wheel() != 0.0f && !wheelConsumed_ &&
+        !(modalPanel && modalPanel->wheelPassThrough)) {  // the wheel stays in the modal: the game below must not zoom
         wheelConsumed_ = true;
         in.consume_mouse_wheel();
     }
@@ -792,7 +819,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (textInput_) {
         const TextField* tf = focus_ ? w.get<TextField>(focus_) : nullptr;
         const bool padOnField = tf && in.last_device() == InputDevice::Gamepad;
-        const bool again = padOnField && in.action_pressed("ui_submit");  // A on the field after the player closed the keyboard
+        const bool again =
+            padOnField && in.action_pressed("ui_submit");  // A on the field after the player closed the keyboard
         if (!padOnField && !platformField_) askedField_ = kNullEntity;
         if (padOnField && (focus_ != askedField_ || again)) {
             askedField_ = focus_;
@@ -800,8 +828,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             r.rect = *ui_rect(w, focus_, design);
             r.text = tf->text;
             r.maxLength = tf->maxLength;
-            if (textInput_(r)) platformField_ = focus_;
-            else if (platformField_ == focus_) platformField_ = kNullEntity;
+            if (textInput_(r))
+                platformField_ = focus_;
+            else if (platformField_ == focus_)
+                platformField_ = kNullEntity;
         }
     }
     in.set_platform_keyboard(platformField_ != kNullEntity);
@@ -827,7 +857,8 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
         const UiControl* c = control_of(w, e);
         items.push_back({e, k, *ui_rect(w, e, design), 0, c && c->interactable});
     }
-    for (Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, &lastPointer_, mask_at(&lastPointer_))) {
+    for (Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, &lastPointer_,
+                                                  mask_at(&lastPointer_))) {
         it.interactable = w.get<Interactable>(it.e)->enabled;
         items.push_back(std::move(it));
     }
@@ -836,15 +867,20 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
     for (const Item& it : items) {
         const std::optional<Rect> clip = ui_clip_rect(w, it.e, design);
         const bool visible = !clip || (clip->w > 0 && clip->h > 0 && clip->overlaps(it.rect));
-        Json j = Json::object({{"id", w.id_of(it.e)}, {"kind", it.custom ? "Interactable" : ui_kind_name(it.kind)},
+        Json j = Json::object({{"id", w.id_of(it.e)},
+                               {"kind", it.custom ? "Interactable" : ui_kind_name(it.kind)},
                                {"rect", to_json(it.rect)},
-                               {"focused", it.e == focus_}, {"hovered", it.e == hover_}, {"pressed", it.e == press_},
-                               {"interactable", it.interactable}, {"visible", visible}});
+                               {"focused", it.e == focus_},
+                               {"hovered", it.e == hover_},
+                               {"pressed", it.e == press_},
+                               {"interactable", it.interactable},
+                               {"visible", visible}});
         if (it.custom) {
             const Interactable& ia = *w.get<Interactable>(it.e);
             static const char* const kinds[] = {"button", "toggle", "slider"};
             j["interactableKind"] = kinds[int(ia.kind)];
-            j["state"] = std::array<const char*, 5>{"normal", "hover", "pressed", "focused", "disabled"}[std::size_t(ia.state)];
+            j["state"] =
+                std::array<const char*, 5>{"normal", "hover", "pressed", "focused", "disabled"}[std::size_t(ia.state)];
             j["world"] = it.world;
             if (ia.kind == InteractableKind::Toggle) j["value"] = ia.on;
             if (ia.kind == InteractableKind::Slider) j["value"] = to_json(ia.value);
@@ -883,10 +919,17 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
         return a.first.y != b.first.y ? a.first.y < b.first.y : a.first.x < b.first.x;
     });
     for (const auto& [rect, e] : texts) {
-        const std::optional<Rect> clip = ui_clip_rect(w, e, design);  // a ScrollList clips its Text children like its widgets
+        const std::optional<Rect> clip =
+            ui_clip_rect(w, e, design);  // a ScrollList clips its Text children like its widgets
         const bool visible = !clip || (clip->w > 0 && clip->h > 0 && clip->overlaps(rect));
-        Json j = Json::object({{"id", w.id_of(e)}, {"kind", "Text"}, {"rect", to_json(rect)}, {"text", w.get<Text>(e)->text},
-                               {"focused", false}, {"hovered", false}, {"pressed", false}, {"interactable", false},
+        Json j = Json::object({{"id", w.id_of(e)},
+                               {"kind", "Text"},
+                               {"rect", to_json(rect)},
+                               {"text", w.get<Text>(e)->text},
+                               {"focused", false},
+                               {"hovered", false},
+                               {"pressed", false},
+                               {"interactable", false},
                                {"visible", visible}});
         if (ui_text_overflowed(w, e, design, measure)) j["overflowed"] = true;
         list.push_back(std::move(j));

@@ -17,7 +17,11 @@ struct Attr {
     Vec2 uv{};
     Vec4 color{1, 1, 1, 1};
 };
-inline Attr lerp_attr(const Attr& a, const Attr& b, float t) { return {lerp(a.uv, b.uv, t), {lerp(a.color.x, b.color.x, t), lerp(a.color.y, b.color.y, t), lerp(a.color.z, b.color.z, t), lerp(a.color.w, b.color.w, t)}}; }
+inline Attr lerp_attr(const Attr& a, const Attr& b, float t) {
+    return {lerp(a.uv, b.uv, t),
+            {lerp(a.color.x, b.color.x, t), lerp(a.color.y, b.color.y, t), lerp(a.color.z, b.color.z, t),
+             lerp(a.color.w, b.color.w, t)}};
+}
 inline Attr mix_attr(const Attr& a, float wa, const Attr& b, float wb, const Attr& c, float wc) {
     Attr r;
     r.uv = a.uv * wa + b.uv * wb + c.uv * wc;
@@ -34,24 +38,28 @@ struct Soup {
     std::vector<std::array<Attr, 3>> attr;
     std::vector<std::uint32_t> part;
     std::vector<std::uint32_t> src;  // to_soup only: the triangle of the source mesh each soup triangle came from
-    bool colors = false;  // the source mesh had vertex colours
+    bool colors = false;             // the source mesh had vertex colours
 
     std::size_t triangle_count() const { return tris.size(); }
     std::uint32_t add_vertex(Vec3 p) {
         pos.push_back(p);
         return std::uint32_t(pos.size() - 1);
     }
-    void add_tri(std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac, std::uint32_t partIndex) {
+    void add_tri(std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac,
+                 std::uint32_t partIndex) {
         tris.push_back({a, b, c});
         attr.push_back({aa, ab, ac});
         part.push_back(partIndex);
     }
-    Vec3 face_cross(std::size_t t) const { return cross(pos[tris[t][1]] - pos[tris[t][0]], pos[tris[t][2]] - pos[tris[t][0]]); }
+    Vec3 face_cross(std::size_t t) const {
+        return cross(pos[tris[t][1]] - pos[tris[t][0]], pos[tris[t][2]] - pos[tris[t][0]]);
+    }
 };
 
 // Cluster id of every point: points within `distance` of an earlier cluster's first point join it (spatial hash, processed in order, so
 // the answer does not depend on anything but the input). `centers` (optional) gets the average of each cluster's points.
-std::vector<std::uint32_t> cluster_points(const std::vector<Vec3>& points, float distance, std::vector<Vec3>* centers = nullptr);
+std::vector<std::uint32_t> cluster_points(const std::vector<Vec3>& points, float distance,
+                                          std::vector<Vec3>* centers = nullptr);
 
 // `welded` (optional) gets, for every vertex of `m`, the id of its welded vertex in the soup.
 Soup to_soup(const ModelMesh& m, float tolerance = kWeldTolerance, std::vector<std::uint32_t>* welded = nullptr);
@@ -85,7 +93,9 @@ struct Edges {
     std::vector<EdgeUse> uses;
     std::vector<std::uint32_t> triEdge;  // 3 per triangle: the edge index of side `slot`
     // True when the edge has exactly two uses that walk it in opposite directions (a regular manifold edge).
-    bool regular(std::size_t e) const { return edges[e].count == 2 && uses[edges[e].first].forward != uses[edges[e].first + 1].forward; }
+    bool regular(std::size_t e) const {
+        return edges[e].count == 2 && uses[edges[e].first].forward != uses[edges[e].first + 1].forward;
+    }
 };
 Edges build_edges(const Soup& s);
 

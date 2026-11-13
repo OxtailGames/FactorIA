@@ -43,7 +43,8 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     }
     out.resize(std::size_t(width) * height * 4);
     for (int y = 0; y < height; ++y)  // D3D rows are top-down; the offscreen format is RGBA8
-        std::memcpy(&out[std::size_t(y) * width * 4], static_cast<const std::uint8_t*>(map.pData) + std::size_t(y) * map.RowPitch,
+        std::memcpy(&out[std::size_t(y) * width * 4],
+                    static_cast<const std::uint8_t*>(map.pData) + std::size_t(y) * map.RowPitch,
                     std::size_t(width) * 4);
     ctx->Unmap(staging, 0);
     staging->Release();

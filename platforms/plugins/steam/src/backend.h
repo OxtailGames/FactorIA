@@ -24,8 +24,8 @@ using ResultHandler = std::function<void(const std::uint8_t* data, int size, boo
 struct Backend {
     const FaPluginApi* api = nullptr;
     SteamApi steam;
-    u64 selfId = 0;   // the player's SteamID
-    u32 appId = 0;    // the game's app id (ISteamUtils::GetAppID)
+    u64 selfId = 0;        // the player's SteamID
+    u32 appId = 0;         // the game's app id (ISteamUtils::GetAppID)
     bool started = false;  // Steam is initialised and not yet shut down
 
     // Stats: SDK 1.61 and newer have them at init (Ready); older ones load them after RequestCurrentStats (Loading) and
@@ -43,11 +43,11 @@ struct Backend {
         int callback;  // the id of the result structure the request waits for
         ResultHandler handler;
     };
-    std::map<u64, Call> calls;                      // API call handle -> who waits for it
-    std::map<std::string, u64> leaderboards;        // store name -> handle (a leaderboard handle is valid for the session)
-    std::set<std::string> warned;                   // warnings that are logged once
+    std::map<u64, Call> calls;                // API call handle -> who waits for it
+    std::map<std::string, u64> leaderboards;  // store name -> handle (a leaderboard handle is valid for the session)
+    std::set<std::string> warned;             // warnings that are logged once
     std::string library;
-    std::map<u32, Json> remoteSessions;             // Remote Play session id -> its description while connected
+    std::map<u32, Json> remoteSessions;  // Remote Play session id -> its description while connected
 
     // The platform keyboard (text_input.cpp): which of Steam's keyboards is up for the focused TextField.
     enum class Keyboard { None, Floating, Modal };
@@ -58,7 +58,7 @@ Backend& backend();
 inline SteamApi& steam() { return backend().steam; }
 
 // ----------------------------------------------------------------------------------------------------- answering --
-void log(int level, const std::string& message);   // 0 debug, 1 info, 2 warning, 3 error
+void log(int level, const std::string& message);  // 0 debug, 1 info, 2 warning, 3 error
 void warn_once(const std::string& key, const std::string& message);
 void resolve(FaRequest* request, const Json& result);
 // code: "unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed" (docs/PLATFORM.md).
@@ -83,8 +83,8 @@ void wait_for(FaRequest* request, u64 call, Ok ok) {
             reject(request, "failed",
                    "Steam answered with a result of " + std::to_string(size) + " bytes, but this plugin expects " +
                        std::to_string(sizeof(T)),
-                   "The Steam library does not match the SDK this plugin was checked against (" + std::string(kCheckedSdk) +
-                       "): use the redistributable of one of them, or update the plugin.");
+                   "The Steam library does not match the SDK this plugin was checked against (" +
+                       std::string(kCheckedSdk) + "): use the redistributable of one of them, or update the plugin.");
             return;
         }
         T value;
@@ -108,17 +108,18 @@ void flush_stats();
 // (Steam types into the window as key presses) or, where that is not offered, the modal one (the text comes back through
 // text_input_dismissed). Returns 1 when Steam shows a keyboard.
 int on_text_input(const FaTextInput* input, void* user);
-void text_input_dismissed(const GamepadTextInputDismissed& result);   // the modal keyboard closed: hand its text to the field
-void floating_text_input_dismissed();                                  // the floating keyboard closed
+void text_input_dismissed(
+    const GamepadTextInputDismissed& result);  // the modal keyboard closed: hand its text to the field
+void floating_text_input_dismissed();          // the floating keyboard closed
 
 // ------------------------------------------------------------------------------------------------------ methods --
 // plugin.cpp routes a request to one of these; each answers the request exactly once.
 void handle_request(FaRequest* request, const char* method, const char* argsJson);
 
 using Handler = void (*)(FaRequest*, const Json&);
-const std::map<std::string, Handler>& player_and_stats_methods();   // methods_game.cpp
-const std::map<std::string, Handler>& store_methods();              // methods_store.cpp
-const std::map<std::string, Handler>& remote_play_methods();        // remote_play.cpp
+const std::map<std::string, Handler>& player_and_stats_methods();  // methods_game.cpp
+const std::map<std::string, Handler>& store_methods();             // methods_store.cpp
+const std::map<std::string, Handler>& remote_play_methods();       // remote_play.cpp
 
 // Remote Play Together (remote_play.cpp): the description of a connected session, as the remotePlay events and
 // remotePlay.sessions give it; the callbacks Steam sends; and the sessions already connected when the plugin starts.
@@ -128,10 +129,10 @@ void remote_play_disconnected(u32 id);
 void remember_remote_play_sessions();
 
 // Helpers the method files share.
-Json player_json();                                      // {id, name, signedIn} of the player
-std::string app_text();                                // "app 480"
-std::string quoted(const std::string& s);                // "\"text\""
-bool parse_app_id(const std::string& text, u32& id);     // a DLC's app id written as digits
-std::string display_name(u64 steamId);                   // GetFriendPersonaName, "" when unknown
+Json player_json();                                   // {id, name, signedIn} of the player
+std::string app_text();                               // "app 480"
+std::string quoted(const std::string& s);             // "\"text\""
+bool parse_app_id(const std::string& text, u32& id);  // a DLC's app id written as digits
+std::string display_name(u64 steamId);                // GetFriendPersonaName, "" when unknown
 
 }  // namespace steam_plugin

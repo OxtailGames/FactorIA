@@ -21,7 +21,8 @@
 // slower answers, never a 503. A connection's thread is joined when the next connection is accepted, or at stop(), so
 // there are never more threads than maxConnections + 1. A connection that sends nothing for `receiveTimeout` is closed
 // (an idle keep-alive one too: replies say `Keep-Alive: timeout=` with less, 5 s at most, so the client lets it go
-// first), and a body over `maxBody` gets 413 with a JSON-RPC error that says what to do instead. The listener is polled,
+// first), a connection the server ends after an answer (an error, `Connection: close`, a stream) lingers before it is
+// closed (net::linger_close: up to 500 ms, 300 ms without input), so it holds its slot a little longer, and a body over `maxBody` gets 413 with a JSON-RPC error that says what to do instead. The listener is polled,
 // so stop() never waits on a full backlog.
 #pragma once
 

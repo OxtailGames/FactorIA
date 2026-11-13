@@ -35,7 +35,8 @@ bool has_warning(const ValidationReport& r, const std::string& file, const std::
 
 }  // namespace
 
-TEST_CASE("assets.analyze_audio: measures a sound, keeps the result in assets.json and reuses it while the file is the same") {
+TEST_CASE("assets.analyze_audio: measures a sound, keeps the result in assets.json and reuses it while the file is the "
+          "same") {
     Project p;
     p.write("assets/tone.wav", sine_wav(5.0, -23.0));
     p.write("assets.json", R"({"format": "factoria.assets/1", "assets": {"assets/tone.wav": {
@@ -60,10 +61,11 @@ TEST_CASE("assets.analyze_audio: measures a sound, keeps the result in assets.js
     CHECK(stored["analysis"]["loudnessLufs"] == f["loudnessLufs"]);
     CHECK(stored["analysis"]["bytes"] == sine_wav(5.0, -23.0).size());
     CHECK(stored["analysis"]["sha256"] == sha256_hex(sine_wav(5.0, -23.0)));
-    CHECK(stored["import"]["normalize"] == true);          // what was there stays
+    CHECK(stored["import"]["normalize"] == true);  // what was there stays
     CHECK(stored["provenance"]["origin"] == "original");
 
-    for (const ValidationIssue& e : validate_project(p.tmp.str()).errors) CHECK(e.file != "assets.json");  // the schema accepts it
+    for (const ValidationIssue& e : validate_project(p.tmp.str()).errors)
+        CHECK(e.file != "assets.json");  // the schema accepts it
 
     CommandResult again = p.analyze({{"path", "assets/tone.wav"}});
     REQUIRE(again.ok);
@@ -95,7 +97,8 @@ TEST_CASE("assets.analyze_audio: without a path it analyzes every sound the proj
     CHECK(all.result["failed"] == 1);
     std::vector<std::string> paths;
     for (const Json& f : all.result["files"]) paths.push_back(f["path"]);
-    CHECK(paths == std::vector<std::string>{"assets/a.wav", "assets/broken.ogg", "assets/sub/b.wav", "sounds/outside.wav"});
+    CHECK(paths ==
+          std::vector<std::string>{"assets/a.wav", "assets/broken.ogg", "assets/sub/b.wav", "sounds/outside.wav"});
     CHECK(all.result["files"][1].contains("error"));
     CHECK(p.manifest()["assets"].contains("sounds/outside.wav"));
     CHECK_FALSE(p.manifest()["assets"].contains("assets/broken.ogg"));
@@ -133,7 +136,8 @@ TEST_CASE("project.validate: warns about clipped, very loud and very quiet sound
     CHECK(has_warning(r, "assets/broken.mp3", "Cannot measure"));
     for (const ValidationIssue& w : r.warnings) CHECK(w.file != "assets/fine.wav");
     for (const ValidationIssue& w : r.warnings)
-        if (w.file.rfind("assets/", 0) == 0 && w.message.find("Cannot measure") == std::string::npos) CHECK_FALSE(w.hint.empty());
+        if (w.file.rfind("assets/", 0) == 0 && w.message.find("Cannot measure") == std::string::npos)
+            CHECK_FALSE(w.hint.empty());
     CHECK_FALSE(stdfs::exists(tmp.path / "assets.json"));  // validate never writes
 
     testing::write_all(tmp.path / "assets.json", R"({"format": "factoria.assets/1"})");
@@ -145,9 +149,11 @@ TEST_CASE("project.validate: uses the analysis of assets.json while it describes
     testing::TempDir tmp;
     const std::string wav = sine_wav(2.0, -16.0);
     testing::write_all(tmp.path / "assets/clip.wav", wav);
-    const std::string record = R"({"loudnessLufs": -50.0, "peakDb": -45.0, "seconds": 2.0, "bytes": )" + std::to_string(wav.size()) +
-                               R"(, "sha256": ")" + sha256_hex(wav) + R"("})";
-    testing::write_all(tmp.path / "assets.json", R"({"format": "factoria.assets/1", "assets": {"assets/clip.wav": {"analysis": )" + record + "}}}");
+    const std::string record = R"({"loudnessLufs": -50.0, "peakDb": -45.0, "seconds": 2.0, "bytes": )" +
+                               std::to_string(wav.size()) + R"(, "sha256": ")" + sha256_hex(wav) + R"("})";
+    testing::write_all(tmp.path / "assets.json",
+                       R"({"format": "factoria.assets/1", "assets": {"assets/clip.wav": {"analysis": )" + record +
+                           "}}}");
     CHECK(has_warning(validate_project(tmp.str()), "assets/clip.wav", "-50.0 LUFS"));  // the record is believed
 
     testing::write_all(tmp.path / "assets/clip.wav", sine_wav(2.0, -15.5));  // another file: the record is stale
@@ -161,16 +167,19 @@ TEST_CASE("project.validate: warns when sound effects differ by more than 12 LU,
     ValidationReport spread = validate_project(fx.str());
     CHECK(has_warning(spread, "assets/a.wav", "differ by 16.0 LU"));
     for (const ValidationIssue& w : spread.warnings)
-        if (w.message.find("differ by") != std::string::npos) CHECK(w.message.find("assets/b.wav") != std::string::npos);  // names the quietest
+        if (w.message.find("differ by") != std::string::npos)
+            CHECK(w.message.find("assets/b.wav") != std::string::npos);  // names the quietest
 
     testing::write_all(fx.path / "assets.json",  // normalized, they play equally loud
                        R"({"format": "factoria.assets/1", "defaults": {"audio": {"normalize": true}}})");
-    for (const ValidationIssue& w : validate_project(fx.str()).warnings) CHECK(w.message.find("differ by") == std::string::npos);
+    for (const ValidationIssue& w : validate_project(fx.str()).warnings)
+        CHECK(w.message.find("differ by") == std::string::npos);
 
     testing::TempDir music;  // long clips (music) are not effects
     testing::write_all(music.path / "assets/a.wav", sine_wav(12.0, -12.0));
     testing::write_all(music.path / "assets/b.wav", sine_wav(12.0, -28.0));
-    for (const ValidationIssue& w : validate_project(music.str()).warnings) CHECK(w.message.find("differ by") == std::string::npos);
+    for (const ValidationIssue& w : validate_project(music.str()).warnings)
+        CHECK(w.message.find("differ by") == std::string::npos);
 }
 
 TEST_CASE("project.validate: a sound with import normalize on has no loudness warning left") {
@@ -180,7 +189,9 @@ TEST_CASE("project.validate: a sound with import normalize on has no loudness wa
     ValidationReport before = validate_project(tmp.str());
     CHECK(has_warning(before, "assets/quiet.wav", "Very quiet"));
     CHECK(has_warning(before, "assets/clipped.wav", "Peaks at"));
-    testing::write_all(tmp.path / "assets.json", R"({"format": "factoria.assets/1", "defaults": {"audio": {"normalize": true}}})");
+    testing::write_all(tmp.path / "assets.json",
+                       R"({"format": "factoria.assets/1", "defaults": {"audio": {"normalize": true}}})");
     ValidationReport after = validate_project(tmp.str());
-    for (const ValidationIssue& w : after.warnings) CHECK_MESSAGE(w.file.rfind("assets/", 0) != 0, w.file, ": ", w.message);
+    for (const ValidationIssue& w : after.warnings)
+        CHECK_MESSAGE(w.file.rfind("assets/", 0) != 0, w.file, ": ", w.message);
 }

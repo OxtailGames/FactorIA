@@ -56,26 +56,28 @@ struct Anim3DContact {
 };
 
 struct Anim3DClip {
-    std::string path;                  // project-relative file ("" for a clip made in memory)
+    std::string path;  // project-relative file ("" for a clip made in memory)
     std::int64_t mtime = -1;
     std::string doc;
-    std::string rig;                   // the rig document or model the clip was made for ("" = any), informational
-    std::string templateName;          // the rig template (humanoid, quadruped...) the bones follow, "" = unknown
+    std::string rig;           // the rig document or model the clip was made for ("" = any), informational
+    std::string templateName;  // the rig template (humanoid, quadruped...) the bones follow, "" = unknown
     float duration = 1.0f;
     bool loop = true;
-    bool quat = false;                 // rotation keys are quaternions (true) or euler degrees (false)
-    float groundSpeed = 0.0f;          // model units per second the ground moves under the feet in stance (0 = no stance or in place)
+    bool quat = false;  // rotation keys are quaternions (true) or euler degrees (false)
+    float groundSpeed =
+        0.0f;  // model units per second the ground moves under the feet in stance (0 = no stance or in place)
     std::vector<Anim3DTrack> tracks;
-    std::vector<ClipEvent> events;     // ascending in t
+    std::vector<ClipEvent> events;  // ascending in t
     std::vector<Anim3DContact> contacts;
-    Json generated = Json();           // what anim3d.generate made it from (kind and parameters), null for a hand-made clip
+    Json generated = Json();  // what anim3d.generate made it from (kind and parameters), null for a hand-made clip
 };
 
 // True when the JSON is a 3D bone clip (its `format` is "factoria.anim3d/1").
 bool is_anim3d_json(const Json& json);
 // Reads a clip. On failure the Error names the file and the JSON pointer of the first problem and says how many more there are;
 // `issues` (may be null) receives all of them.
-Result<std::shared_ptr<const Anim3DClip>> parse_anim3d(const Json& json, std::string_view file, std::vector<ClipIssue>* issues = nullptr);
+Result<std::shared_ptr<const Anim3DClip>> parse_anim3d(const Json& json, std::string_view file,
+                                                       std::vector<ClipIssue>* issues = nullptr);
 // The clip as JSON, the way parse_anim3d reads it back (numbers rounded to 7 digits so files stay readable and stable).
 Json anim3d_to_json(const Anim3DClip& clip);
 // Reads the file through fa::fs; cached per path and modification time. A file that is a 2D clip is an Error that says so.
@@ -91,10 +93,12 @@ struct Anim3DBinding {
 Anim3DBinding bind_anim3d(const Anim3DClip& clip, const SkeletonAsset& skeleton);
 // Poses `pose` as the clip is at `time` (clamped to [0, duration]); bones with no track keep what `pose` has. Rotation = rest * the
 // track's rotation, translation = rest + the track's, scale = rest * the track's.
-void sample_anim3d(const Anim3DClip& clip, const Anim3DBinding& binding, const SkeletonAsset& skeleton, float time, Pose& pose);
+void sample_anim3d(const Anim3DClip& clip, const Anim3DBinding& binding, const SkeletonAsset& skeleton, float time,
+                   Pose& pose);
 // The clip as a glTF-style AnimClip of the skeleton (dense linear keys, so eases and beziers survive), with its events and `loop`.
 // `name` becomes the clip's name.
-AnimClip anim3d_to_anim_clip(const Anim3DClip& clip, const Anim3DBinding& binding, const SkeletonAsset& skeleton, const std::string& name);
+AnimClip anim3d_to_anim_clip(const Anim3DClip& clip, const Anim3DBinding& binding, const SkeletonAsset& skeleton,
+                             const std::string& name);
 
 // Checks the clip against a rig: every bone a track names must exist (did you mean), contacts must name bones too.
 std::vector<ClipIssue> check_anim3d_rig(const Anim3DClip& clip, const Rig3D& rig);

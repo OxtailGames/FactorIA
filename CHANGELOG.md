@@ -2,89 +2,86 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-Older versions, one file per minor version with its patch releases: [0.24](changelog/0.24.md), [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
+Older versions, one file per minor version with its patch releases: [0.25](changelog/0.25.md), [0.24](changelog/0.24.md), [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
 
 ## Unreleased
 
-## 0.25.0
+## 0.26.0
 
-FactorIA 0.25.0 (M92) is the safety release. Every command declares the capabilities it needs (`read`, `state`,
-`writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish`) and every caller runs with a set: the CLI user
-has all, `factoria mcp` all but `writeAnywhere` (`--read-only`: `{read, state}`), a game script `{read, state}` (a test
-asks for more with its `capabilities` option, and the modules a test imports run as game code), each AI role its own
-(builders lose `publish`, critics are `{read, state}`); a refused call fails with `capability_denied`, says who may run
-it and never reaches the AI hooks. Every path a caller gives to a writing command goes through one check: inside the
-project (absolute paths only for the CLI user), never into `.git/` or `.factoria/`, no Windows device names or trailing
-dots, and a shared asset folder linked from outside the project is now outside it. Secrets stay out of process lists
-and environments: signing passwords go through stdin, the programs the AI starts get an environment allow-list
-(`inheritEnv` adds names), secret files are private on Windows too and temporary folders are private and never reused
-(a relative `TMPDIR` is refused). Each CLI agent has a permission mode, the feedback server limits every write route,
-and recorded contract tests catch a Claude Code or Codex output change.
+FactorIA 0.26.0 (M93) adds the checks that find bugs before users do. `FA_SANITIZE` builds run the Debug suite
+under AddressSanitizer + UndefinedBehaviorSanitizer and the threaded tests under ThreadSanitizer, both in CI; fuzz
+targets cover the JSON, scene, pack, MCP and file decoder entry points (replayed by ctest, fuzzed weekly); CI builds
+with warnings as errors on every compiler and checks formatting and clang-tidy on changed files; `FA_COVERAGE` and
+`scripts/coverage-report.sh` measure test coverage; and `fa_bench` measures the hot paths against a baseline. The
+bugs these found are fixed: use-after-free in two editor inspectors, a race in a test, decoder crashes on damaged
+images, fonts, glTF, audio, MIDI and SoundFonts, and JSON input that ended the program instead of giving an error.
+The whole C++ code base is formatted with `.clang-format` (the commit is listed in `.git-blame-ignore-revs`).
 
-- Hooks, scripts and AI polish (M92.POLISH-F2): docs/HOOKS.md and docs/AI_PROVIDERS.md say that a call refused with `capability_denied` is not hooked, the AI trust files re-compare the hash under the lock before dropping a record, the sweep of stale `factoria-run_*` folders spares a folder with a file written in the last day, and the Android license-fetch problem names which of its two causes happened.
-- MCP, AI sessions and CLI contract tests polish (M92.POLISH-D): `readOnlyHint` is false for a `{read}` command with an optional output path (`x-fa-path` `write`) or a run-time write (`feedback.check` `reject`), docs/MCP.md says what `_meta` and `tool_describe` carry, the `--read-only` wording matches `{read, state}`, `factoria commands <name>` documents its `Capabilities:` line, the CLI contract tests cover the session id, thinking, sub-agents, 1-hour cache writes and unconnected MCP servers, and the feedback server has a `networkOf` table test.
-- Capabilities polish (M92.POLISH-E): the capability check now runs before a command interceptor (a denied call never reaches the AI hooks), `capabilities: []` is refused with a teaching error from core, JS tools and plugins, a JS tool's `readOnly: true` next to more than `{read}` logs a warning, a module first imported by a test (loaded by `game.load` or imported statically by the test file, transitively) runs its top level with the game's set, and docs/SCRIPTING.md says that game promise continuations run with the set of whoever pumps the jobs.
-- Feedback server limits (M92.POLISH-C): `ALLOW_NO_CLIENT_IP` is on only for `1` or `true`, an empty `CF-Connecting-IP` counts as missing, IPv6 clients share one bucket per /64 and IPv4-mapped addresses key like the IPv4; the README says the whole-server counters can be used up by one abuser and what the owner can do.
-- Path safety, last part of M92.2 (M92.2b3): a managed folder (`.git/`, `.factoria/` except `.factoria/tmp/`) is refused when
-  either its spelling or the place it leads to is managed (a symlink `meta -> .factoria` no longer gets round it; `.git./` and
-  `.GIT/` are the same folder), `COM¹`..`LPT³` and `CONIN$`/`CONOUT$` are device names, and the rule for names Windows cannot
-  create (`nul`, trailing dot or space) is always applied on Windows and, on Linux and macOS, only where a call creates the
-  file, so an existing file, folder or link with such a name can still be written or deleted there. `prefab.save`, `scene.format` and the editor's `scene.save` confine their paths like the other
-  writers (and their errors name the command), `scene.import_ascii` and `scene.ascii_edit` with `dryRun: true` no longer need
-  `writeProject`, and two tests walk the whole command registry: every command declares its capabilities, and every schema path
-  marked `"x-fa-path": "write"` refuses `..` and absolute paths for an MCP client without creating a file outside the project.
-- AI providers and settings polish (M92.POLISH-B): run files with a secret fall back to a private folder in the temporary folder
-  when the project's `.factoria/ai` refuses the owner-only write, the curl config is written private from its first byte, hooks
-  inherit proxies and certificates like every other program the AI starts, saves of `ai.json` take a file lock, `ai.providers` and
-  `ai.tool_servers` are `{read}` (only `doctor` and `test:true` need Process and Network, so critics and `factoria mcp --read-only`
-  keep the listing), and the docs say what the environment floor is not (a barrier against an unsandboxed shell).
-- Path safety polish (M92.POLISH-F1): Windows refuses `:` (alternate data streams) in an absolute path and `\??\` paths as
-  `invalid_path`; `temp_base` asks the system for the temporary folder per platform; `resolve_for_write` shares one helper for the
-  elements below the root; a `writeProject` refusal of a command with `dryRun` says that a dry run needs none; `project.create`
-  `dir` is confined for a caller that may not write anywhere, `project.serve_web` `lan: true` needs `publish`, and
-  `model.bake_maps` is declared `{read, state}` like the other previews; a `pictureOut` with the picture off is an error that
-  says so instead of being ignored; `vector.info` no longer carries a write path in its schema; `input.record` keeps the replay in
-  its error when the file cannot be written; `mesh.save` resolves its path once; `scene.save` in the editor recognises the open
-  scene under any spelling of its path; the docs reference shows what each path argument is used for; the registry-walk test
-  now reaches `anim.filmstrip` and `vfx.filmstrip` (they judge `path` before they render).
-- Contract tests for the AI CLIs (M92.4): recordings of Claude Code 2.1.318 (`stream-json` runs: text answer, tool use, a tool
-  refused by the permission mode, the turn limit; the model list; `--version`) and fixtures written from the docs for Codex and a
-  generic CLI, in `tools/ai/tests/fixtures/cli/`, are replayed through `CliStreamParser`, `list_models` and `detect_providers`;
-  a CLI update that changes its format fails the test naming the fixture and the field (docs/AI_PROVIDERS.md, fixtures README).
-- The asset commands declare their capabilities one by one (M92.1b2a): `assets.*`, `audio.*`, `sfx.*`, `music.*`, `model.*`, `rig.*`, `skin3d.*`, `anim3d.*` and `vfx.*` that make project files need `writeProject`; the previews that only keep a picture at a path you give (`model.preview` `out`, `audio.render` and `music.info` `pictureOut`, `assets.spectrogram` `out`, `assets.contact_sheet` `path`) are no longer `readOnly`, work without a path under `{read, state}` and ask for `writeProject` when you give one. Every output path of these commands (also the files inside documents: a model, a rig, a sound) goes through the project write check: an MCP client or an agent cannot leave the project, nobody writes into `.git` or `.factoria/` (a link into them included), and the schemas mark each path argument `x-fa-path` `read` or `write`. `assets.contact_sheet` `path` may now be an absolute path for the command-line user, like the other pictures.
-- The capabilities of every command are visible (M92.1c): `api.commands`, `factoria commands --json` and `factoria api --json`
-  carry `capabilities` and `capabilitiesDeclared`, `factoria commands <name>` prints a `Capabilities:` line, each command of the
-  generated reference says what it can do (or "not declared yet"), and each MCP tool has `_meta` `factoria/capabilities` and
-  `factoria/capabilitiesDeclared` (`tool_describe` returns them too).
 
-- Every `ai.*`, `assets.*`, `image.*`, `skills.*` and review command of `tools/ai` declares its capabilities (M92.1b3):
-  `ai.run` and `ai.review` need `process`, `network` and `spend`, the generators, image providers, reviews, `ai.review_feedback` and `ai.retrospective` `process` (a CLI agent or local-program provider), `network` and `spend`, `ai.plugin_install`
-  `writeAnywhere`, and the `user` scope of `ai.settings.set` and `skills.new` also asks for `writeAnywhere`. `ai.models`,
-  `ai.providers`, `ai.tool_servers` and `assets.review` are no longer read-only tools (they start a program or call a paid service).
-- The MCP server enforces a capability set on every tool call: `factoria mcp` grants all but `writeAnywhere`, and
-  `--read-only` grants `{read, state}` and refuses the tools it does not serve (`tool_not_available`). Tool
-  hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) now come from the command's capabilities, so `game_screenshot`
-  is no longer reported as destructive.
-- `setup.install` is the user's call (`writeAnywhere`: an MCP client or an agent gets `capability_denied`; an AI calls `setup.status` and tells the user to press the editor's setup button or run `factoria setup`), and `checkpoint.read` `out` / `feedback.check` `reject` are refused to the read-only roles (tested).
-- The tooling commands outside assets and audio (image, vector, feedback, checkpoint, export, signing, setup, ...) declare their capabilities explicitly (read, writeProject, process, network, publish; `feedback.share` is `publish`, `setup.install` the only `writeAnywhere`), so `shader.compile` and `setup.status` (they run tools) are no longer read-only. Every output path of the image, vector, `vector.to_rig`, `checkpoint.read` and `sign.macos` (`app`, signed in place) commands is confined to the project for an MCP client or agent (`..`, absolute and `.git/` are refused before anything is read or drawn); their schemas mark `x-fa-path`.
-- The permission mode of each CLI agent is a setting (M92.3c): `providers.claude-code.permissionMode` (`manual`, `plan`, `dontAsk`, `acceptEdits` (default, what FactorIA always passed), `auto`, `bypassPermissions`) and `providers.codex.permissionMode` (`read-only`, `default`, `workspace-write`, `danger-full-access`), in your `ai.json` only (a project's file cannot hold it), in the new **Agents** tab of the AI settings window (a combo, one line per value on what it allows, a question before a dangerous mode) and through `ai.settings.get` / `ai.settings.set`. A role that only reads stays read-only; a command line of your own that already has a permission flag wins. `inheritEnv` names reject `*` alone and spaces, and a tool server made in the editor's form or pasted gets the global `inheritEnv` for its Test button. See docs/AI_PROVIDERS.md, "Permission mode".
-- The feedback server limits every write route per installation, per network and for the whole server (verdicts and
-  sign-ins gained network and global caps), and refuses write requests without `CF-Connecting-IP` (`missing_client_ip`)
-  unless `ALLOW_NO_CLIENT_IP` is set for local development.
-- Game scripts call commands with a capability set (M92.1d): `fa.call` from a game script runs with `{read, state}` in the
-  player and in the editor's Play, so a shipped game cannot write files, reach the network or start programs; the
-  `capability_denied` hint tells a game script, a test or a tool where to do it instead. A test can ask for more with
-  `test(name, fn, { capabilities: ["writeProject"] })` (never more than whoever runs it, typos get a "did you mean"), and a
-  project tool keeps the set of whoever calls it. New command `scene.place_ascii`: `scene.import_ascii` for the running world
-  only (`{read, state}`); `tilemap.generate`'s `place` uses it. Tests of games that write files need the `capabilities`
-  option, and a tool that only changes memory should declare `capabilities: ["read", "state"]`.
-- Command capabilities (M92): `fa::Capability` / `CapabilitySet` (core/capability.h), `CommandInfo::capabilities` (derived from `readOnly` until a command declares it), named caller sets, `CommandCapabilityScope` / `command_context()`, and the `capability_denied` error from `CommandRegistry::call`; `describe()` lists `capabilities`.
-- No signing or store password is an argument of a program FactorIA starts (the process list shows those). `sign.windows` on Windows imports the `.pfx` into the user's certificate store with PowerShell (password in its environment), signs with `signtool /sha1 <thumbprint> /s My` and removes the certificate again; with `osslsigncode` the password goes on stdin (`-readpass -`); `sign.macos` gives `notarytool` the Apple ID password on stdin. Steps list the names of their environment variables (`env`) and `stdinSecret`. GOG Pipeline Builder (`--password`) and `msstore reconfigure` (`--clientSecret`) leave no other way: `publish.gog` and `publish.microsoft` warn about it in the plan and docs/EXPORTING.md ("Secrets and the process list") explains it.
-- Every command of the runtime and the platform services, and JS project tools (`capabilities: [...]` in the tool definition) and native plugin commands (`set_command_capabilities`, plugin API version 5), declare their capabilities; a re-added copy of a derived `CommandInfo` stays undeclared.
-- The programs the AI starts (command hooks, Claude Code, Codex and other CLI agents, model listing, asset commands, stdio tool servers, `curl`) no longer inherit the editor's whole environment, which holds API keys and signing passwords: they get an allow-list (`ProcessOptions::inheritEnv`, `ChildOptions::inheritEnv`; the base list, the provider's own key, `CLAUDE_*`/`ANTHROPIC_*` for Claude Code, `CODEX_*`/`OPENAI_*` for Codex, plus the new `inheritEnv` names of ai.json, top level, per provider or per tool server). A hook or agent that relied on another variable (`AWS_PROFILE`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`) needs its name listed; see docs/AI_PROVIDERS.md, "Environment of the programs the AI starts".
-- Each AI role runs with its own capability set (M92.1d3): builders get `capability_sets::agent()` (no `writeAnywhere`, no `publish`), the art critic and the reviewer `{read, state}` (a filmstrip or screenshot `path` is refused to them) and only the commands that look and play (now `anim.filmstrip` and `vfx.filmstrip` too). `AgentSession` runs tool calls inside that set and offers only the commands it covers; the CLI agents carry it to the `factoria` they start (`FACTORIA_CAPABILITIES`, `FACTORIA_ROLE`, a `CommandCapabilityFloor`). A refusal names the role (the `CapabilityHintProvider` of the role, carried by `CommandContext`). A review role sees only the read-only tools also through `factoria call/mcp` in its shell and through the editor's MCP endpoint (`ai.*` is no longer reachable there). The editor's main-thread queue keeps the caller's set when it runs a queued command. A CLI builder can no longer publish or write outside the project over MCP.
-- Files with secrets are private on Windows too: `fs::write_private` creates them with a protected ACL that holds only your account (ai.json, the feedback admin token, the Android keystore).
-- `fa::fs::resolve_for_write(path, root, allowAnywhere)` (M92.2a): the one function that confines a path a caller gives to a command that writes to the project, the save folder or the export folder (`fs::export_dir()`, default `build/export`); `resolve_project_path` is now a wrapper over it, and `a/../b` inside the project is accepted.
-- Commands that write to a path their caller gives (M92.2b) go through `fs::resolve_for_write`: `docs.write_reference` (`out`), `perf.baseline` (`file`), `player.run_ios_sim` (`screenshot`), `i18n.export` (`out`), `project.new_plugin` (`path`), `project.export` and the `publish.*` commands (`out`) stay inside their folder for an MCP client or an agent, and only the command-line user may name an absolute path. A relative path that lands in `.git` or `.factoria/` (except `.factoria/tmp`) is refused with `managed_path_denied`; a NUL byte, a drive or `:` segment on Windows and a UNC share without a name are `invalid_path`. Input schemas mark such arguments with `"x-fa-path": "write"` (or `"read"`), documented in ARCHITECTURE "Commands". The same goes for `sign.macos` / `sign.windows` (`out`, `zip`, `pkg`, `msix`) and `ci.workflow` (`path`); `fs.write`, `fs.edit` and `fs.delete` and the assets commands that write a sound, a music file, a sheet, an atlas or a subset font judge the managed folders on the real path (a symlink into `.git` is refused). Breaking for the command-line user: these commands no longer write into `.git` or `.factoria/` (the exports of `project.export` and `factoria export --out` go to `build/export` or any other folder, not `.factoria/exports`). The `.git` and `.factoria` names are matched without regard to case on every system, and a name Windows cannot create (a device name such as `CON` or `NUL`, a trailing dot or space) is `invalid_path` everywhere.
-- The commands of the runtime that write a file at a path their caller gives (M92.2b2) go through the same check: `scene.save` and `input.record` (`path`), `scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), the `anim.*` clip commands and `mesh.save` stay inside the project and out of `.git` and `.factoria/` (except `.factoria/tmp/`) for an MCP client or an agent, and an absolute path is for the command-line user only; `input.record` checks the path before it stops the recording. A game script's `mesh.save` is confined to the project too. New `fs::project_spelling` and `resolve_caller_project_path`.
-- Processes and signing (M92.POLISH-A): `ProcessOptions::newSession` (POSIX `setsid()`: no controlling terminal; a cancel or timeout still signals the whole group, SIGTERM then SIGKILL; no effect on Windows) replaces the perl wrapper `sign.macos` used for `notarytool`; `base_child_env()` also passes `SOKOL_SHDC`, `FACTORIA_EXPORT_CONFIG`, `FACTORIA_FFMPEG`, `FACTORIA_STEAMCMD`, `FACTORIA_FASTLANE`, `FACTORIA_XCRUN` and `FA_JOB_THREADS`; `sign.windows` on Windows reads the thumbprint first (imports nothing, leaves no key on disk), skips the import when the store has the certificate with its key, otherwise imports only that certificate (not the chain, so no root-store prompt) under a per-user named mutex, deletes the key it loaded when the certificate does not get into the store, and always runs the removal (with a timeout), also after a failed or cancelled import; a failed removal is named in the error's hint; PowerShell quoting doubles the typographic single quotes; the output parser tolerates a BOM and CRLF.
+- The editor's MCP endpoint closes a connection gently after any answer that ends it (`Connection: close`, an error, a
+  stream): it stops sending, reads what the client still sends (for up to 500 ms, which keeps its connection slot that
+  long) and then closes, as it did after 413 only. On Windows and macOS closing a socket with unread input sends an RST
+  that can wipe the answer from the client's receive queue. This covers the case of input the server never read; the
+  intermittent "read 0 bytes" instead of the `204` of a cancelled request has no unread input and stays open (ROADMAP).
+- Coverage (M93.4): `-DFA_COVERAGE=ON` (Clang) instruments the build for llvm-cov and `scripts/coverage-report.sh <build-dir>` turns the profiles of a ctest run, the editor autotest included, into a table per module (Markdown and JSON) and an HTML report. The new informative CI job `coverage` uploads both and writes the table to its summary. docs/BUILDING.md, "Coverage".
+- Warnings as errors in CI (M93.3a): the CI jobs (Linux, Linux sniper, Windows, macOS, iOS, Android and Web, and
+  `scripts/ci-local.sh`) configure with `-DFA_WARNINGS_AS_ERRORS=ON`, so a compiler warning in the engine, the tools, the
+  player or the test programs fails the build (`-Werror` on GCC and Clang, `/WX` on MSVC); `external/` stays out. The
+  warning set is the same as before and the option stays OFF in the presets, so local builds and `release.yml` are not
+  affected (docs/BUILDING.md, "Strict builds"). The plugin test program `fa_test_plugin_example` now links `fa_warnings` too.
+  The warnings the CI logs of 0.25.0 showed are fixed: unused functions, constants, captures and members (some now only
+  compiled where they are used: the GPU timer ring, the iOS Simulator helpers, the folder picker's glob list), a trigraph in
+  `classify_path`, date buffers too small for GCC's range analysis, loop variables bound to temporaries, locals and
+  parameters that hid a member or an outer variable (MSVC C4456-C4459), narrowing conversions, an unhandled `Tileset` case
+  in the image panel's layer badge, `''` in the web HTTP script (Emscripten) and a 32-bit shift of the texture seed
+  (`>> 32` of a 32-bit `long` on Windows, now taken from a 64-bit value).
+- First strict CI run (M93): the formatting commit had split `===`, `!==` and `=>` in the JavaScript of the `EM_JS` blocks of
+  the web player (`== =`, `= >`), which broke the web build at link time; those blocks are back as they were, between
+  `// clang-format off` and `// clang-format on`. Also fixed: GCC's false `maybe-uninitialized` in the vendored stb_vorbis
+  (silenced around its `#include` only), a missing `<algorithm>` in a core test, `if constexpr` for the build-time
+  constants the MSVC compiler reports as constant conditions, and Apple's linker warning about the repeated libraries of
+  `fa_bench` and `fa_test_tooling`.
+- Second strict CI run (M93): MSVC's flow-analysis warnings in the vendored dr_wav, qoa, stb_vorbis and nanosvg
+  (every vendored implementation compiled in an engine file is now between `#pragma warning(push, 0)` and `pop` for
+  MSVC, around its `#include` only) and a truncating cast in a font test; the fuzz targets' stale-folder cleanup kept a reference into a temporary
+  file name (GCC `-Wdangling-reference`, a real bug); the audio tests' allocation counter, which replaces the global
+  `operator new`, is off in sanitizer builds, whose runtimes define it too (the TSan link failed); and
+  `scripts/tidy-changed.sh` leaves out the files only a commit of `.git-blame-ignore-revs` changed, so the reformat
+  does not make clang-tidy check every file. The first TSan run: the MCP HTTP test read the names its command handler
+  recorded on the server's threads without a lock (now behind a mutex), and Mesa llvmpipe's own races on the headless
+  runner are suppressed in `tools/ci/sanitizers/tsan.supp` with the reason.
+- First ASan run (M93): `register_ai_commands` leaked on every registry it filled (the command hooks' state owned the interceptor
+  whose lambdas own that state, an ownership cycle, so the hooks' configuration loader and everything it captured was never freed;
+  the interceptor is now held weakly, with a test that the state goes when the registry does). That one cycle was the thousands of
+  LeakSanitizer reports of the `ai`, `cli` and editor tests, and it made every child `factoria` the editor and the scripts start
+  exit with code 1 (`cli_plugin`, `cli_integration`, `agent_cost_script`, the editor autotests' "printed no result" steps). The
+  editor autotest's fake GitHub sign-in code now lasts far longer than the autotest takes to approve it on a slow build. The
+  `-fsanitize=function` findings in tinysoundfont and xatlas (a function stored under another function type, vendored) are in
+  `tools/ci/sanitizers/ubsan_ignorelist.txt` with the reason, and so is tinysoundfont's `NULL + 0` (`-fsanitize=pointer-overflow`,
+  a preset with no regions). Neither ninja nor ccache read the ignorelist's contents, so the compilers now get a copy named
+  after its MD5 and an edit to it reconfigures and rebuilds. The coverage job links two executables at a time (it ran out of memory). The `_perf` budget tests are registered `DISABLED` in
+  sanitizer builds (no baseline can exist for them). MSVC's C4702 in nanosvg comes from the optimizer, which ignores
+  `#pragma warning`, so it is off with `/wd4702` on the two files that compile nanosvg.
+- Formatting and lint (M93.3): `.clang-format`, `.clang-format-ignore` and `.editorconfig` describe the code style; `scripts/format.sh [--check] [--changed <base>]` formats or checks first-party C and C++ with a pinned clang-format (a pip wheel in `build/lint-venv`), and `.clang-tidy` with `scripts/tidy-changed.sh <base>` runs a few bug-finding checks over the changed sources. A new `lint` CI job runs both on what a change touches. docs/BUILDING.md, "Formatting and lint".
+- **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
+  AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,
+  and the suppression files live in `tools/ci/sanitizers/`. Two new CI jobs, `Linux (Clang, ASan + UBSan)` (the whole Debug suite)
+  and `Linux (Clang, TSan, threaded tests)`, are part of `CI result` (docs/BUILDING.md, "Sanitizers").
+- **Fixed, found by the first ASan run.** The editor's Particles inspector and Image layer inspector kept a reference into a
+  document that a row edited in the same frame (use after free while dragging a value or adding an adjustment); a
+  `tooling` test read a temporary after its end; the editor autotest's `scroll_to` kept a `const char*` into a local string.
+- Microbenchmarks (M93.5): `fa_bench` measures the engine's hot paths (ECS queries, the transform hierarchy, 2D and 3D physics steps, a headless render frame, command dispatch, the JS bridge, the audio mixer) from fixed seeds, with warm-up, repeats, median and spread. `--compare` checks a run against `tools/bench/baselines/<runner>.json` with a warning band and a fail limit (x2 on the median) and a teaching message; a new `bench` CI job runs it on Linux, and a `benchBaselines` run of the workflow refreshes the baselines. docs/PERFORMANCE.md, "Microbenchmarks".
+- Editor autotest: the 9900-line `autotest_tools.cpp` is split by section into `autotest_<group>.cpp` files (one
+  `Editor::at_section_<id>` per section, the shared helpers in `autotest_common.{h,cpp}`); no change in what it checks.
+- Fuzzing (M93.2): `tools/fuzz/` has fuzz targets for `parse_json`, `validate_json` and the schema helpers, `load_scene`, `entity_from_json`, the game pack reader, the MCP JSON-RPC server (read-only capabilities, empty project) and the translation tables (`read_csv`, `read_xliff`), each one `.cpp` plus a corpus folder. Every desktop build with `FA_BUILD_TESTS` (the default) replays the corpus as the ctests `fuzz_<name>` (label `fuzz`); `-DFA_FUZZ=ON` with Clang builds them as libFuzzer programs with AddressSanitizer and UBSan (`tools/fuzz/run.sh`), and the CI job `linux-fuzz` runs each for a minute. docs/BUILDING.md, "Fuzzing", says how to add a target and a crash.
+- Fuzzing the file decoders (M93.2b): new targets `image`, `ktx2`, `gltf`, `font`, `audio`, `midi` and `soundfont`, with seed files from the test fixtures. The decoders wrap code in `external/` that trusts file headers, so the engine now checks before it calls it: an image that claims more than 134 million pixels (a KTX2 texture also a side over 16384), an audio file with more than 32 channels, and a header that promises a huge length no longer decide how much memory is asked for; every glTF reader (skeletons, meshes, the model importer, the renderer) runs `cgltf_validate` first, so an accessor that reaches past its buffer is an error that names the file instead of an out-of-bounds read, and nodes that share one big mesh cannot place more than a mesh can hold; a TrueType font is walked table by table before stb_truetype reads it, and is refused as damaged only when its tables, glyph offsets or cmap lie outside the file or its cmap format is not read (a format 4 search header that differs from the specification still loads when the lookup stays inside the subtable); a glyph that includes itself or nests too deep, is placed by matching points, has contours that do not rise or ends in a lone point off the curve is drawn as the `.notdef` box while the rest of the font works; a KTX2 level whose stored size differs from its unpacked size, a picture with no rows, an Ogg Vorbis file whose comment lengths lie (one whose comments are over 16 MB is told apart from a damaged one) and a SoundFont whose preset, instrument or sample numbers point outside its tables are errors instead of an assert or an out-of-bounds read. New API: `decode_ktx2` (`fa/render/ktx2.h`, KTX2 to RGBA8 on the CPU), `read_gltf_mesh_bytes`, `rasterize_text` with a font in memory. docs/BUILDING.md, "Fuzzing", lists what stays inside `external/`.
+- The weekly fuzz run (`.github/workflows/fuzz-weekly.yml`) fuzzes every target for 25 minutes and leaves the minimized corpus and any crash as artifacts; the one-minute random run of the `linux-fuzz` CI job no longer blocks a pull request (it warns), and UBSan ignores `external/`.
+- Text that other programs write (script `JSON.parse` results, saved script storage, AI transcripts, feedback server answers, hook input, DAP messages, the MCP update hand-over) is now read through `parse_json` / `parse_json_lenient`, so the 256-level nesting limit applies to it too.
+- `PackReader::open_memory` opens a game pack from bytes in memory (the fuzz target of the pack format uses it) and gives the same errors as `open` for a damaged one.
+- A JSON number outside the range of a double (`1e999`) is now an `invalid JSON` error with its line and column and a hint instead of an exception that ended the program (found by the `json` fuzz target); it affected every file the engine parses with `parse_json`.
+- JSON nested more than 256 levels deep (`kMaxJsonDepth`) is now an `invalid JSON: nesting deeper than 256 levels` error with its line and column, from `parse_json` and from the MCP server's message readers, instead of a stack overflow when the value is printed or copied (found by the fuzz targets; a 64 KB file of `[` crashed the process). Real files nest a dozen levels. `json_nesting_overflow` and `parse_json_lenient` are the checks for code that reads untrusted text with `Json::parse` directly.
+- ThreadSanitizer over the threaded tests (M93.1): the job system, background loading, the audio mixer and its streams,
+  the MCP server, platform HTTP, scripts, services, tooling and AI test programs ran clean under TSan (macOS arm64) with
+  `halt_on_error=1`; the one race found was in a test (`process: onStart gives the pid...` read a pid written by another
+  thread without synchronization) and is fixed. `tools/ci/sanitizers/tsan.supp` is the suppressions file for races inside
+  `external/` (none needed so far).

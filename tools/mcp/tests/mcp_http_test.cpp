@@ -2,11 +2,23 @@
 // and the fake Claude Code of tools/ai/tests/fixtures calling a tool through the config the CLI agent writes for it.
 #include <doctest.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#endif
+
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -43,7 +55,13 @@ ai::HttpResponse send(const std::string& url, const std::string& body, const std
 // A registry with a stand-in scene.spawn, served the way the editor serves its proxy registry.
 struct Endpoint {
     CommandRegistry registry;
+    // Written by the server's connection threads, read by the test: every access holds spawnedMutex.
+    std::mutex spawnedMutex;
     std::vector<std::string> spawned;
+    std::vector<std::string> spawned_names() {
+        std::lock_guard lock(spawnedMutex);
+        return spawned;
+    }
     McpHttpServer server;
     std::string url;
     explicit Endpoint(std::chrono::milliseconds streamAfter = std::chrono::seconds(10)) {
@@ -51,8 +69,10 @@ struct Endpoint {
         i.name = "scene.spawn";
         i.summary = "Stand-in: records the name.";
         i.readOnly = false;
-        i.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Entity name."}}})");
+        i.inputSchema =
+            Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Entity name."}}})");
         registry.add(i, [this](const Json& a) {
+            std::lock_guard lock(spawnedMutex);
             spawned.push_back(a.value("name", std::string()));
             return Json::object({{"id", spawned.back()}});
         });
@@ -71,13 +91,15 @@ struct Endpoint {
             std::this_thread::sleep_for(std::chrono::milliseconds(400));
             return Json::object();
         });
-        auto started = server.start([this](std::string_view m, const McpHttpServer::Notify& notify) {
-            SimpleMcpHost host(registry, ".");
-            McpServer mcp(host);
-            mcp.set_notification_sink([&notify](const std::string& n) { notify(n); });
-            mcp.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
-            return mcp.handle_message(m);
-        }, streamAfter);
+        auto started = server.start(
+            [this](std::string_view m, const McpHttpServer::Notify& notify) {
+                SimpleMcpHost host(registry, ".");
+                McpServer mcp(host);
+                mcp.set_notification_sink([&notify](const std::string& n) { notify(n); });
+                mcp.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
+                return mcp.handle_message(m);
+            },
+            streamAfter);
         REQUIRE(started);
         url = *started;
     }
@@ -101,16 +123,20 @@ TEST_CASE("MCP over loopback HTTP: JSON replies, 202 for notifications, 405 for 
     CHECK(starts_with(ep.url, "http://127.0.0.1:"));
     CHECK(ep.url.find("/mcp/") != std::string::npos);
 
-    auto init = send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})");
+    auto init =
+        send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})");
     CHECK(init.status == 200);
     CHECK(init.header("content-type") == "application/json");
     CHECK(Json::parse(init.body)["result"]["protocolVersion"] == "2025-06-18");
     CHECK(send(ep.url, R"({"jsonrpc":"2.0","method":"notifications/initialized"})").status == 202);
 
-    auto call = send(ep.url, R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"A"}}})");
+    auto call = send(
+        ep.url,
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"A"}}})");
     CHECK(call.status == 200);
-    REQUIRE(ep.spawned.size() == 1);
-    CHECK(ep.spawned[0] == "A");
+    const auto spawned = ep.spawned_names();
+    REQUIRE(spawned.size() == 1);
+    CHECK(spawned[0] == "A");
     CHECK(Json::parse(Json::parse(call.body)["result"]["content"][0]["text"].get<std::string>())["id"] == "A");
 
     CHECK(send(ep.url, "", "GET").status == 405);  // no server stream: the client goes on without one
@@ -127,7 +153,8 @@ TEST_CASE("MCP over loopback HTTP: a long call is answered as an event stream, a
         return;
     }
     Endpoint ep(std::chrono::milliseconds(50));
-    auto call = send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_wait","arguments":{}}})");
+    auto call =
+        send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_wait","arguments":{}}})");
     CHECK(call.status == 200);
     CHECK(call.header("content-type") == "text/event-stream");
     const std::string event = "event: message\ndata: ";
@@ -136,7 +163,9 @@ TEST_CASE("MCP over loopback HTTP: a long call is answered as an event stream, a
     REQUIRE(at != std::string::npos);
     CHECK(Json::parse(call.body.substr(at + event.size()))["result"]["isError"] == false);
 
-    auto quick = send(ep.url, R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"B"}}})");
+    auto quick = send(
+        ep.url,
+        R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"B"}}})");
     CHECK(quick.header("content-type") == "application/json");
 }
 
@@ -146,7 +175,9 @@ TEST_CASE("MCP over loopback HTTP: progress notifications reach the client befor
         return;
     }
     Endpoint ep(std::chrono::seconds(30));  // streamAfter far away: the first notification switches to a stream
-    auto call = send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_progress","arguments":{},"_meta":{"progressToken":5}}})");
+    auto call = send(
+        ep.url,
+        R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_progress","arguments":{},"_meta":{"progressToken":5}}})");
     INFO("body: " << call.body);
     CHECK(call.status == 200);
     CHECK(call.header("content-type") == "text/event-stream");
@@ -159,7 +190,8 @@ TEST_CASE("MCP over loopback HTTP: progress notifications reach the client befor
     CHECK(call.body.find("\"progressToken\":5") != std::string::npos);
 
     // No token: no notification, plain JSON.
-    auto plain = send(ep.url, R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_progress","arguments":{}}})");
+    auto plain = send(
+        ep.url, R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_progress","arguments":{}}})");
     CHECK(plain.header("content-type") == "application/json");
 }
 
@@ -193,10 +225,12 @@ TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude
     // (the fake CLI copied it: the run's own file is deleted when the run ends)
     auto cfg = Json::parse(read_file(stdfs::path(argvFile.string() + ".mcpconfig")));
     CHECK(cfg["mcpServers"]["factoria"] ==
-          Json::object({{"type", "http"}, {"url", ep.url}, {"timeout", ai::kMcpToolTimeoutMs}}));  // long calls are allowed
+          Json::object(
+              {{"type", "http"}, {"url", ep.url}, {"timeout", ai::kMcpToolTimeoutMs}}));  // long calls are allowed
     // ...and its tool call ran on the endpoint's registry, with the result sent back.
-    REQUIRE(ep.spawned.size() == 1);
-    CHECK(ep.spawned[0] == "CliCoin");
+    const auto spawned = ep.spawned_names();
+    REQUIRE(spawned.size() == 1);
+    CHECK(spawned[0] == "CliCoin");
     const std::string reply = read_file(argvFile.string() + ".mcp");
     INFO("reply: " << reply);
     CHECK(Json::parse(reply)["result"]["isError"] == false);
@@ -244,19 +278,40 @@ struct RawClient {
             out.append(chunk, static_cast<std::size_t>(n));
         }
     }
-    // Everything until the server closes the connection (or the 30 s timeout).
+    // Everything until the server closes the connection (or the 30 s timeout). `ended` says how it ended, for a log:
+    // the server closed (0), or an error, a reset or the timeout (negative); `endedCode` is then the system error code
+    // (WSAGetLastError() on Windows, errno elsewhere: WSAECONNRESET, WSAECONNABORTED, WSAETIMEDOUT...).
+    mutable std::ptrdiff_t ended = 0;
+    mutable int endedCode = 0;
     std::string read_all() const {
         std::string out;
         char chunk[4096];
         for (;;) {
             const auto n = net::recv_some(s, chunk, sizeof chunk);
-            if (n <= 0) return out;
+            if (n <= 0) {
+                ended = n;
+                if (n < 0) endedCode = last_socket_error();
+                return out;
+            }
             out.append(chunk, static_cast<std::size_t>(n));
         }
     }
+    static int last_socket_error() {
+#ifdef _WIN32
+        return ::WSAGetLastError();
+#else
+        return errno;
+#endif
+    }
+    std::string ended_text() const {
+        return ended == 0 ? "the server closed the connection"
+                          : "a receive error, reset or timeout, system error code " + std::to_string(endedCode);
+    }
     static std::string post(const std::string& path, const std::string& body, bool close = true) {
-        return "POST " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nAccept: application/json\r\n" +
-               std::string(close ? "Connection: close\r\n" : "") + "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
+        return "POST " + path +
+               " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nAccept: application/json\r\n" +
+               std::string(close ? "Connection: close\r\n" : "") + "Content-Length: " + std::to_string(body.size()) +
+               "\r\n\r\n" + body;
     }
 };
 
@@ -264,7 +319,8 @@ constexpr const char* kPing = R"({"jsonrpc":"2.0","id":1,"method":"ping"})";
 
 }  // namespace
 
-TEST_CASE("MCP over loopback HTTP: beyond maxConnections and the spare a connection waits for a free slot; ended threads are joined") {
+TEST_CASE("MCP over loopback HTTP: beyond maxConnections and the spare a connection waits for a free slot; ended "
+          "threads are joined") {
     CommandRegistry registry;
     McpHttpServer server;
     McpHttpOptions options;
@@ -307,7 +363,8 @@ TEST_CASE("MCP over loopback HTTP: beyond maxConnections and the spare a connect
     CHECK(server.connection_threads() == 0);
 }
 
-TEST_CASE("MCP over loopback HTTP: at the cap the longest-idle keep-alive connection is closed, so the next client gets in") {
+TEST_CASE(
+    "MCP over loopback HTTP: at the cap the longest-idle keep-alive connection is closed, so the next client gets in") {
     CommandRegistry registry;
     McpHttpServer server;
     McpHttpOptions options;
@@ -404,13 +461,15 @@ TEST_CASE("MCP over loopback HTTP: a body over the cap gets 413 with a JSON-RPC 
 TEST_CASE("MCP over loopback HTTP: malformed messages get JSON-RPC errors and a handler that throws ends nothing") {
     CommandRegistry registry;
     McpHttpServer server;
-    auto started = server.start(
-        McpHttpServer::StreamHandler([&registry](std::string_view m, const McpHttpServer::Notify&) -> std::optional<std::string> {
-            if (m.find("\"boom\"") != std::string_view::npos) throw std::runtime_error("boom");  // a bug in a handler
-            SimpleMcpHost host(registry, ".");
-            return McpServer(host).handle_message(m);
-        }),
-        McpHttpOptions{});
+    auto started =
+        server.start(McpHttpServer::StreamHandler(
+                         [&registry](std::string_view m, const McpHttpServer::Notify&) -> std::optional<std::string> {
+                             if (m.find("\"boom\"") != std::string_view::npos)
+                                 throw std::runtime_error("boom");  // a bug in a handler
+                             SimpleMcpHost host(registry, ".");
+                             return McpServer(host).handle_message(m);
+                         }),
+                     McpHttpOptions{});
     REQUIRE(started);
     // Each body on a connection of its own; the reply's JSON body, or "" when it has none.
     auto post = [&](const std::string& body, std::string* head = nullptr) {
@@ -445,6 +504,50 @@ TEST_CASE("MCP over loopback HTTP: malformed messages get JSON-RPC errors and a 
     server.stop();
 }
 
+// Closing a socket that still has unread input makes Windows and macOS send an RST, and the RST wipes an answer the client
+// has not read yet from its receive queue: the client sees "connection reset" and 0 bytes instead of the status line. Here
+// the extra bytes arrive while the handler runs, after the server read the request, so they are unread when it closes (what
+// a client that pipelines, or a cancelled request's client, can do). The server must end the connection gracefully.
+// This is a regression test on Windows only: Linux does not send the RST this way, so there it passes with or without the
+// lingering close. It does not reproduce the intermittent "read 0 bytes" of the cancelled-request test (that case has no
+// unread input).
+TEST_CASE("MCP over loopback HTTP: an answer that ends the connection survives input the server never read") {
+    std::atomic<bool> inHandler{false}, release{false};
+    McpHttpServer server;
+    // Declared after the server, so it runs first: a failed REQUIRE releases the handler instead of waiting its 30 s.
+    struct Release {
+        std::atomic<bool>& flag;
+        ~Release() { flag = true; }
+    } releaseOnExit{release};
+    auto started = server.start(
+        McpHttpServer::StreamHandler([&](std::string_view, const McpHttpServer::Notify&) -> std::optional<std::string> {
+            inHandler = true;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (!release && std::chrono::steady_clock::now() < end)
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            return std::nullopt;  // no reply: a cancelled request, which gets 204 on a plain connection
+        }),
+        McpHttpOptions{});
+    REQUIRE(started);
+    RawClient c(port_of(*started));
+    REQUIRE(
+        c.send(RawClient::post(path_of(*started), R"({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{}})")));
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!inHandler && std::chrono::steady_clock::now() < end)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE(inHandler);
+    REQUIRE(c.send(std::string(2000, 'x')));  // after the request: nothing reads it
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(100));  // on loopback it is in the server's receive queue by now
+    release = true;
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(200));  // the answer and the close are at the client before it reads
+    const std::string reply = c.read_all();
+    INFO("reply: " << reply.substr(0, 200) << " (" << reply.size() << " bytes, ended by " << c.ended_text() << ")");
+    CHECK(reply.find("HTTP/1.1 204") == 0);
+    server.stop();
+}
+
 TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the request; it gets no result") {
     if (!ai::http_has_libcurl() && ai::which("curl").empty()) {
         MESSAGE("no HTTP client (libcurl or the curl executable); skipped");
@@ -458,7 +561,8 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     registry.add(i, [&](const Json&) {
         started = true;
         const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-        while (!command_cancelled() && std::chrono::steady_clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        while (!command_cancelled() && std::chrono::steady_clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         sawCancel = command_cancelled();
         return Json::object();
     });
@@ -478,13 +582,16 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     REQUIRE(url);
     ai::HttpResponse callReply;
     std::thread caller([&] {
-        callReply = send(*url, R"({"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
+        callReply = send(
+            *url, R"({"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"test_block","arguments":{}}})");
     });
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (!started && std::chrono::steady_clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (!started && std::chrono::steady_clock::now() < end)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(started);
     CHECK(session->requests_in_flight() == 1);
-    CHECK(send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":41}})").status == 202);
+    CHECK(send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":41}})").status ==
+          202);
     caller.join();
     CHECK(sawCancel);
     CHECK(callReply.status == 200);  // an empty event stream: no response for a cancelled request
@@ -493,8 +600,9 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     started = false;
     sawCancel = false;
     RawClient plain(port_of(*url));
-    REQUIRE(plain.send(RawClient::post(path_of(*url),
-                                       R"({"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"test_block","arguments":{}}})")));
+    REQUIRE(plain.send(RawClient::post(
+        path_of(*url),
+        R"({"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"test_block","arguments":{}}})")));
     // A safety net, not a known fix: the cancel has to find request 42 in the session, and the first case above already
     // checks requests_in_flight() == 1 once its command has started, so this wait probably changes nothing (the server
     // showed no bug for the Windows 204 failure; only CI runs tell whether it comes back). The deadline is far above
@@ -506,14 +614,18 @@ TEST_CASE("MCP over loopback HTTP: a cancel on another connection stops the requ
     REQUIRE(started);
     REQUIRE(session->requests_in_flight() == 1);
     const auto cancelSentAt = std::chrono::steady_clock::now();
-    const auto cancelReply = send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":42}})");
+    const auto cancelReply =
+        send(*url, R"({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":42}})");
     CHECK(cancelReply.status == 202);
     const std::string plainReply = plain.read_all();
-    const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - cancelSentAt).count();
+    const auto waitedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - cancelSentAt).count();
     // What the client saw, for a log that is all there is to learn from (a reply wiped by a connection reset, a 408 after
     // the receive timeout, or nothing at all look different here).
-    INFO("cancel notification status " << cancelReply.status << "; waited " << waitedMs << " ms for the plain client's reply; it read "
-                                       << plainReply.size() << " bytes: " << plainReply.substr(0, 200));
+    INFO("cancel notification status " << cancelReply.status << "; waited " << waitedMs
+                                       << " ms for the plain client's reply; it read " << plainReply.size()
+                                       << " bytes: " << plainReply.substr(0, 200) << "; it ended by "
+                                       << plain.ended_text());
     CHECK(plainReply.find("HTTP/1.1 204") == 0);
     CHECK(plainReply.find("Content-Length") == std::string::npos);
     CHECK(sawCancel);

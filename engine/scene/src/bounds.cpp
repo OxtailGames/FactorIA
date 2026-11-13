@@ -77,16 +77,19 @@ std::string sprite_vertex_colors_problem(const Sprite& s) {
     if (s.vertexColors.is_null() || (s.vertexColors.is_array() && s.vertexColors.empty())) return {};
     if (!s.vertexColors.is_array())
         return "Sprite.vertexColors must be an array of numbers [r, g, b, a, ...], one RGBA per grid vertex, got " +
-               std::string(s.vertexColors.type_name()) + ". Example for a 2 x 1 grid: [1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1, 1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1]";
+               std::string(s.vertexColors.type_name()) +
+               ". Example for a 2 x 1 grid: [1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1, 1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1]";
     int columns = 0, rows = 0;
     if (!sprite_mesh_grid(s, columns, rows))
-        return "Sprite.vertexColors is set but the sprite is not deformable (meshColumns " + std::to_string(s.meshColumns) + ", meshRows " +
-               std::to_string(s.meshRows) + "). Set meshColumns and meshRows above 0 (e.g. 16 and 1 for a page), or clear vertexColors";
+        return "Sprite.vertexColors is set but the sprite is not deformable (meshColumns " +
+               std::to_string(s.meshColumns) + ", meshRows " + std::to_string(s.meshRows) +
+               "). Set meshColumns and meshRows above 0 (e.g. 16 and 1 for a page), or clear vertexColors";
     const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
     if (s.vertexColors.size() == need) return {};
-    return "Sprite.vertexColors has " + std::to_string(s.vertexColors.size()) + " numbers but the " + std::to_string(columns) + " x " +
-           std::to_string(rows) + " grid (meshColumns x meshRows) has " + std::to_string((columns + 1) * (rows + 1)) + " vertices and needs " +
-           std::to_string(need) + " (4 per vertex: r, g, b, a, row by row from the top row, left to right). Write exactly " +
+    return "Sprite.vertexColors has " + std::to_string(s.vertexColors.size()) + " numbers but the " +
+           std::to_string(columns) + " x " + std::to_string(rows) + " grid (meshColumns x meshRows) has " +
+           std::to_string((columns + 1) * (rows + 1)) + " vertices and needs " + std::to_string(need) +
+           " (4 per vertex: r, g, b, a, row by row from the top row, left to right). Write exactly " +
            std::to_string(need) + " numbers, or change meshColumns / meshRows to match";
 }
 
@@ -108,8 +111,10 @@ Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, b
         const MarkupText m = parse_markup(utf8_decode(text));
         std::string visible;
         for (std::size_t i = 0; i < m.text.size(); ++i) {
-            if (m.attrs[i].icon >= 0) visible += "ii";
-            else utf8_append(visible, m.text[i]);
+            if (m.attrs[i].icon >= 0)
+                visible += "ii";
+            else
+                utf8_append(visible, m.text[i]);
         }
         return approx_text_size(visible, fontSize, maxWidth, false);
     }
@@ -134,7 +139,8 @@ Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, b
     return {maxLine, static_cast<float>(lines) * fontSize * 1.2f};
 }
 
-std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const VisualMeasure& measure, bool includeScreenSpace) {
+std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const VisualMeasure& measure,
+                                               bool includeScreenSpace) {
     std::vector<VisualFootprint> out;
 
     if (const Tilemap* tm = W.get<Tilemap>(e)) {
@@ -142,7 +148,8 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         // What the renderer draws: local x right, y DOWN from the top-left corner (an isometric map: the box of its diamonds).
         if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0) {
             const Rect b = tilemap_local_bounds(*tm, size);
-            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false, rect_quad(b.x, b.y, b.x + b.w, b.y + b.h)));
+            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false,
+                               rect_quad(b.x, b.y, b.x + b.w, b.y + b.h)));
         }
     }
 
@@ -167,18 +174,24 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
             }
             size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
         }
-        const float x0 = -pivot.x * size.x, y0 = -pivot.y * size.y, x1 = (1.0f - pivot.x) * size.x, y1 = (1.0f - pivot.y) * size.y;
+        const float x0 = -pivot.x * size.x, y0 = -pivot.y * size.y, x1 = (1.0f - pivot.x) * size.x,
+                    y1 = (1.0f - pivot.y) * size.y;
         std::array<Vec2, 4> box = rect_quad(x0, y0, x1, y1);
         int cols = 0, rows = 0;
-        const std::vector<float> offsets = sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();
+        const std::vector<float> offsets =
+            sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();
         SkinMesh skinMesh;
-        const bool skinned = W.has<SpriteSkin>(e) && build_skin_mesh(W, e, *s, SkinBox{x0, y0, x1, y1}, skinMesh, nullptr) && !skinMesh.position.empty();
+        const bool skinned = W.has<SpriteSkin>(e) &&
+                             build_skin_mesh(W, e, *s, SkinBox{x0, y0, x1, y1}, skinMesh, nullptr) &&
+                             !skinMesh.position.empty();
         if (skinned) {  // a skinned sprite: the rectangle around its bone-driven, sheared vertices
             float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
             for (const Vec2& v : skinMesh.position) {
                 const Vec2 p = sprite_shear_point(v, s->skew);
-                lox = std::min(lox, p.x); hix = std::max(hix, p.x);
-                loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+                lox = std::min(lox, p.x);
+                hix = std::max(hix, p.x);
+                loy = std::min(loy, p.y);
+                hiy = std::max(hiy, p.y);
             }
             box = rect_quad(lox, loy, hix, hiy);
         } else if (!offsets.empty()) {  // a deformed grid: the rectangle around its moved, sheared vertices
@@ -187,9 +200,12 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                 for (int i = 0; i <= cols; ++i) {
                     const std::size_t k = (std::size_t(j) * std::size_t(cols + 1) + std::size_t(i)) * 2;
                     const Vec2 p = sprite_shear_point({x0 + (x1 - x0) * float(i) / float(cols) + offsets[k],
-                                                       y1 + (y0 - y1) * float(j) / float(rows) + offsets[k + 1]}, s->skew);
-                    lox = std::min(lox, p.x); hix = std::max(hix, p.x);
-                    loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+                                                       y1 + (y0 - y1) * float(j) / float(rows) + offsets[k + 1]},
+                                                      s->skew);
+                    lox = std::min(lox, p.x);
+                    hix = std::max(hix, p.x);
+                    loy = std::min(loy, p.y);
+                    hiy = std::max(hiy, p.y);
                 }
             box = rect_quad(lox, loy, hix, hiy);
         } else if (s->skew.x != 0.0f || s->skew.y != 0.0f) {
@@ -208,14 +224,18 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                 break;
             }
             case ShapeType::Triangle:
-            case ShapeType::Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
+            case ShapeType::
+                Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
             case ShapeType::Star:
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, by0, bx0 + s->size.x, by0 + s->size.y)));
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
+                                   rect_quad(bx0, by0, bx0 + s->size.x, by0 + s->size.y)));
                 break;
             case ShapeType::Diamond: {  // the rhombus on the midpoints of the size box's edges
                 const float w = s->size.x, h = s->size.y;
-                VisualFootprint v = make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, by0, bx0 + w, by0 + h));
-                v.hull = {Vec2{bx0 + w * 0.5f, by0}, Vec2{bx0 + w, by0 + h * 0.5f}, Vec2{bx0 + w * 0.5f, by0 + h}, Vec2{bx0, by0 + h * 0.5f}};
+                VisualFootprint v =
+                    make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, by0, bx0 + w, by0 + h));
+                v.hull = {Vec2{bx0 + w * 0.5f, by0}, Vec2{bx0 + w, by0 + h * 0.5f}, Vec2{bx0 + w * 0.5f, by0 + h},
+                          Vec2{bx0, by0 + h * 0.5f}};
                 out.push_back(v);
                 break;
             }
@@ -244,7 +264,8 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         // A centred or right-aligned Text with a maxWidth is drawn in a box of that width (the renderer aligns inside it), so
         // that is the box layout and ui.state must see: a short note aligned to the end of a wrap box stays in its rectangle.
         const bool startIsRight = text_starts_right(*t, W.rtl());
-        const bool left = t->align == Align::Left || (t->align == Align::Start && !startIsRight) || (t->align == Align::End && startIsRight);
+        const bool left = t->align == Align::Left || (t->align == Align::Start && !startIsRight) ||
+                          (t->align == Align::End && startIsRight);
         if (t->maxWidth > 0.0f && !left) size.x = std::max(size.x, t->maxWidth);
         out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
@@ -255,7 +276,8 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor, b->safeArea,
                            rect_quad(-b->pivot.x * b->size.x, -b->pivot.y * b->size.y, (1.0f - b->pivot.x) * b->size.x,
                                      (1.0f - b->pivot.y) * b->size.y)));
-    if (includeScreenSpace && ui_mirrored(W, e))  // the mirror image of what is drawn in screen space: x flips about the origin
+    if (includeScreenSpace &&
+        ui_mirrored(W, e))  // the mirror image of what is drawn in screen space: x flips about the origin
         for (VisualFootprint& v : out) {
             if (v.space != RenderSpace::Screen) continue;
             v.mirrored = true;
@@ -305,7 +327,8 @@ std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeas
 }
 
 Mat4 footprint_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
-    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
+    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e)
+                                               : visual_world_matrix(w, e);  // world parts: moved by Parallax
     if (part.space == RenderSpace::Screen) {
         const float k = ui_scale_clamped(w.ui_scale());
         m = Mat4::scale({k, k, 1.0f}) * m;
@@ -339,8 +362,10 @@ bool point_in_quad(Vec2 p, const std::array<Vec2, 4>& q) {
         if (edge < 1e-9f) continue;
         // Signed distance of p from the edge line; a thousandth of a unit of slack so a point exactly on a border is inside.
         const float side = ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / edge;
-        if (side > 1e-3f) anyPositive = true;
-        else if (side < -1e-3f) anyNegative = true;
+        if (side > 1e-3f)
+            anyPositive = true;
+        else if (side < -1e-3f)
+            anyNegative = true;
     }
     return !(anyPositive && anyNegative);
 }

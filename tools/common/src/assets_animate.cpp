@@ -30,11 +30,11 @@ namespace fa::assets_detail {
 namespace {
 
 constexpr const char* kCommand = "assets.animate_svg";
-constexpr int kMaxCell = 1024;        // a frame side
-constexpr int kMaxSheetSide = 8192;   // the PNG's side
+constexpr int kMaxCell = 1024;       // a frame side
+constexpr int kMaxSheetSide = 8192;  // the PNG's side
 constexpr int kMaxFrames = 2048;
 constexpr std::size_t kMaxRampColours = 32;
-constexpr double kMaxBakeBytes = 1024.0 * 1024.0 * 1024.0;   // the pictures of all layers and their sheets, held at once
+constexpr double kMaxBakeBytes = 1024.0 * 1024.0 * 1024.0;  // the pictures of all layers and their sheets, held at once
 
 // The layers of a baked effect, in the order they are stacked: behind the character, in front of it, and an additive light pass.
 const std::vector<std::string>& layer_names() {
@@ -54,7 +54,9 @@ std::array<double, 3> ramp_colour(const Palette& ramp, double u) {
     const std::size_t i = std::min(ramp.size() - 2, std::size_t(x));
     const double f = x - double(i);
     std::array<double, 3> out{};
-    for (int c = 0; c < 3; ++c) out[std::size_t(c)] = ramp[i][std::size_t(c)] + (double(ramp[i + 1][std::size_t(c)]) - ramp[i][std::size_t(c)]) * f;
+    for (int c = 0; c < 3; ++c)
+        out[std::size_t(c)] =
+            ramp[i][std::size_t(c)] + (double(ramp[i + 1][std::size_t(c)]) - ramp[i][std::size_t(c)]) * f;
     return out;
 }
 
@@ -71,7 +73,9 @@ Image map_to_ramp(const Image& src, const Palette& ramp) {
     return out;
 }
 
-std::string hex_of(const std::array<std::uint8_t, 3>& c) { return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]); }
+std::string hex_of(const std::array<std::uint8_t, 3>& c) {
+    return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+}
 
 struct ClipSpec {
     std::string name;
@@ -83,8 +87,8 @@ struct ClipSpec {
 };
 
 struct FrameJob {
-    int clip = 0;         // index in the clips
-    int frame = 0;        // inside the clip
+    int clip = 0;   // index in the clips
+    int frame = 0;  // inside the clip
     int sheetFrame = 0;
 };
 
@@ -93,22 +97,27 @@ bool project_targets_mobile(const std::string& projectDir) {
     auto text = tooling_detail::read_file(project_file(projectDir, "factoria.json"));
     if (!text) return false;
     auto parsed = parse_json(*text, "factoria.json");
-    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("platforms") || !(*parsed)["platforms"].is_array()) return false;
+    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("platforms") || !(*parsed)["platforms"].is_array())
+        return false;
     for (const Json& p : (*parsed)["platforms"])
-        if (p.is_string() && (to_lower(p.get<std::string>()) == "android" || to_lower(p.get<std::string>()) == "ios")) return true;
+        if (p.is_string() && (to_lower(p.get<std::string>()) == "android" || to_lower(p.get<std::string>()) == "ios"))
+            return true;
     return false;
 }
 
 std::string checked_png_path(const std::string& path) {
     auto norm = fs::normalize_checked(path);
     if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
-        fail("invalid_argument", "The sheet goes under assets/, and '" + path + "' is not there.", "Use a path such as \"assets/art/coin_spin.png\".");
+        fail("invalid_argument", "The sheet goes under assets/, and '" + path + "' is not there.",
+             "Use a path such as \"assets/art/coin_spin.png\".");
     if (to_lower(fs::extension(*norm)) != ".png")
-        fail("invalid_argument", std::string(kCommand) + " writes PNG files, and '" + *norm + "' does not end in .png.", "Use a path such as \"assets/art/coin_spin.png\".");
+        fail("invalid_argument", std::string(kCommand) + " writes PNG files, and '" + *norm + "' does not end in .png.",
+             "Use a path such as \"assets/art/coin_spin.png\".");
     return *norm;
 }
 
-int int_arg(const Json& obj, const char* key, const std::string& pointer, int lo, int hi, int fallback, const char* hint) {
+int int_arg(const Json& obj, const char* key, const std::string& pointer, int lo, int hi, int fallback,
+            const char* hint) {
     auto it = obj.find(key);
     if (it == obj.end() || it->is_null()) return fallback;
     if (!it->is_number_integer() || it->get<long long>() < lo || it->get<long long>() > hi)
@@ -120,44 +129,62 @@ double fps_arg(const Json& obj, const std::string& pointer, double fallback) {
     auto it = obj.find("fps");
     if (it == obj.end() || it->is_null()) return fallback;
     if (!it->is_number() || !(it->get<double>() > 0.0 && it->get<double>() <= 240.0))
-        arg_error(kCommand, pointer + "/fps", "expected a number above 0 and up to 240 (frames per second).", "12 is a good rate for hand-drawn motion, 24 for smooth motion.");
+        arg_error(kCommand, pointer + "/fps", "expected a number above 0 and up to 240 (frames per second).",
+                  "12 is a good rate for hand-drawn motion, 24 for smooth motion.");
     return it->get<double>();
 }
 
 bool loop_arg(const Json& obj, const std::string& pointer, bool fallback) {
     auto it = obj.find("loop");
     if (it == obj.end() || it->is_null()) return fallback;
-    if (!it->is_boolean()) arg_error(kCommand, pointer + "/loop", "expected true or false.", "true repeats the clip (the default); false plays it once.");
+    if (!it->is_boolean())
+        arg_error(kCommand, pointer + "/loop", "expected true or false.",
+                  "true repeats the clip (the default); false plays it once.");
     return it->get<bool>();
 }
 
 Json params_arg(const Json& obj, const std::string& pointer) {
     auto it = obj.find("params");
     if (it == obj.end() || it->is_null()) return Json::object();
-    if (!it->is_object()) arg_error(kCommand, pointer + "/params", "expected an object.", "params is the object the module receives as `params`: {\"color\": \"#e8c66a\"}.");
+    if (!it->is_object())
+        arg_error(kCommand, pointer + "/params", "expected an object.",
+                  "params is the object the module receives as `params`: {\"color\": \"#e8c66a\"}.");
     return *it;
 }
 
 std::optional<std::array<double, 2>> pivot_arg(const Json& obj, const std::string& pointer) {
     auto it = obj.find("pivot");
     if (it == obj.end() || it->is_null()) return std::nullopt;
-    if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number() || (*it)[0].get<double>() < 0 || (*it)[0].get<double>() > 1 ||
-        (*it)[1].get<double>() < 0 || (*it)[1].get<double>() > 1)
-        arg_error(kCommand, pointer + "/pivot", "expected [x, y], two numbers from 0 to 1 measured from the top-left of the frame.",
-                  "[0.5, 0.5] is the centre (the default); [0.5, 1] is the middle of the bottom edge, where a character stands.");
+    if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number() ||
+        (*it)[0].get<double>() < 0 || (*it)[0].get<double>() > 1 || (*it)[1].get<double>() < 0 ||
+        (*it)[1].get<double>() > 1)
+        arg_error(kCommand, pointer + "/pivot",
+                  "expected [x, y], two numbers from 0 to 1 measured from the top-left of the frame.",
+                  "[0.5, 0.5] is the centre (the default); [0.5, 1] is the middle of the bottom edge, where a "
+                  "character stands.");
     return std::array<double, 2>{(*it)[0].get<double>(), (*it)[1].get<double>()};
 }
 
 Json animate(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.animate_svg expects an object.", "See the description of the command for the fields.");
-    check_arg_keys(kCommand, a, "", {"path", "source", "svg", "frames", "fps", "loop", "columns", "frameWidth", "frameHeight", "params", "seed", "clips", "pivot",
-                                     "palette", "ramp", "rampIndex", "rampMap", "layers", "prefab", "style", "styleStrength", "padding", "overwrite", "ai", "author", "license", "timeLimitMs"});
+    if (!a.is_object())
+        fail("invalid_argument", "assets.animate_svg expects an object.",
+             "See the description of the command for the fields.");
+    check_arg_keys(kCommand, a, "",
+                   {"path",       "source",      "svg",     "frames", "fps",     "loop",       "columns",
+                    "frameWidth", "frameHeight", "params",  "seed",   "clips",   "pivot",      "palette",
+                    "ramp",       "rampIndex",   "rampMap", "layers", "prefab",  "style",      "styleStrength",
+                    "padding",    "overwrite",   "ai",      "author", "license", "timeLimitMs"});
     const std::string rel = checked_png_path(tooling_detail::arg_string(a, "path", true));
     const bool hasSvg = a.contains("svg"), hasSource = a.contains("source");
     if (hasSvg == hasSource)
-        fail("invalid_argument", hasSvg ? "Give either `source` (a module or an SVG file of the project) or `svg` (SVG text with SMIL animation), not both."
-                                        : "Give `source` (a project module such as \"art/coin_spin.anim.js\") or `svg` (one SVG with SMIL animation).",
-             "Example: {\"path\":\"assets/art/coin_spin.png\",\"source\":\"art/coin_spin.anim.js\",\"frames\":8,\"fps\":10,\"frameWidth\":64,\"frameHeight\":64}");
+        fail("invalid_argument",
+             hasSvg ? "Give either `source` (a module or an SVG file of the project) or `svg` (SVG text with SMIL "
+                      "animation), not both."
+                    : "Give `source` (a project module such as \"art/coin_spin.anim.js\") or `svg` (one SVG with SMIL "
+                      "animation).",
+             "Example: "
+             "{\"path\":\"assets/art/coin_spin.png\",\"source\":\"art/"
+             "coin_spin.anim.js\",\"frames\":8,\"fps\":10,\"frameWidth\":64,\"frameHeight\":64}");
 
     // ---- the source ----
     std::string sourceRel, svgText;
@@ -165,34 +192,48 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (hasSvg) {
         svgText = tooling_detail::arg_string(a, "svg", true);
         if (svgText.find("<svg") == std::string::npos)
-            arg_error(kCommand, "/svg", "the text has no <svg> element.", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"> and put <animate> elements inside the shapes.");
+            arg_error(kCommand, "/svg", "the text has no <svg> element.",
+                      "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\"> and put <animate> "
+                      "elements inside the shapes.");
     } else {
         auto norm = fs::normalize_checked(tooling_detail::arg_string(a, "source", true));
-        if (!norm.ok() || norm->empty()) arg_error(kCommand, "/source", "not a project path.", "Use a project-relative path such as \"art/coin_spin.anim.js\".");
+        if (!norm.ok() || norm->empty())
+            arg_error(kCommand, "/source", "not a project path.",
+                      "Use a project-relative path such as \"art/coin_spin.anim.js\".");
         sourceRel = *norm;
         const std::string ext = to_lower(fs::extension(sourceRel));
         if (ext == ".js" || ext == ".mjs") {
             isModule = true;
         } else if (ext == ".svg") {
             auto data = tooling_detail::read_file(project_file(projectDir, sourceRel));
-            if (!data) fail("not_found", "Cannot read '" + sourceRel + "'.", "Check the path; it is relative to the project folder.");
+            if (!data)
+                fail("not_found", "Cannot read '" + sourceRel + "'.",
+                     "Check the path; it is relative to the project folder.");
             svgText = std::move(*data);
         } else {
-            arg_error(kCommand, "/source", "'" + sourceRel + "' is neither a JavaScript module (.js) nor an .svg file.",
-                      "Name the module that draws the frames (\"art/coin_spin.anim.js\"), or an .svg with SMIL animation.");
+            arg_error(
+                kCommand, "/source", "'" + sourceRel + "' is neither a JavaScript module (.js) nor an .svg file.",
+                "Name the module that draws the frames (\"art/coin_spin.anim.js\"), or an .svg with SMIL animation.");
         }
     }
 
     // ---- the frames ----
     const double fps = fps_arg(a, "", 12);
     const bool loop = loop_arg(a, "", true);
-    const int frameW = int_arg(a, "frameWidth", "", 1, kMaxCell, 64, "The size of one frame in pixels, 1 to 1024; the SVG is fitted inside, aspect kept, centred.");
-    const int frameH = int_arg(a, "frameHeight", "", 1, kMaxCell, frameW, "The size of one frame in pixels, 1 to 1024; the SVG is fitted inside, aspect kept, centred.");
-    const int padding = int_arg(a, "padding", "", 0, 64, 0, "Transparent pixels around every cell (0 to 64): 1 or 2 keeps filtered frames from bleeding into each other.");
+    const int frameW =
+        int_arg(a, "frameWidth", "", 1, kMaxCell, 64,
+                "The size of one frame in pixels, 1 to 1024; the SVG is fitted inside, aspect kept, centred.");
+    const int frameH =
+        int_arg(a, "frameHeight", "", 1, kMaxCell, frameW,
+                "The size of one frame in pixels, 1 to 1024; the SVG is fitted inside, aspect kept, centred.");
+    const int padding = int_arg(
+        a, "padding", "", 0, 64, 0,
+        "Transparent pixels around every cell (0 to 64): 1 or 2 keeps filtered frames from bleeding into each other.");
     const std::uint32_t seed = std::uint32_t(tooling_detail::arg_int(a, "seed", 0));
     const Json params = params_arg(a, "");
     const auto pivot = pivot_arg(a, "");
-    const int timeLimitMs = int_arg(a, "timeLimitMs", "", 10, 60000, 2000, "Milliseconds a module may take to load, and for each frame (default 2000).");
+    const int timeLimitMs = int_arg(a, "timeLimitMs", "", 10, 60000, 2000,
+                                    "Milliseconds a module may take to load, and for each frame (default 2000).");
     std::vector<std::string> warnings;
     auto warn = [&](const std::string& w) {
         if (std::find(warnings.begin(), warnings.end(), w) == warnings.end()) warnings.push_back(w);
@@ -202,12 +243,17 @@ Json animate(const std::string& projectDir, const Json& a) {
     double cycle = 0;
     if (!isModule) {
         auto parsed = SmilSvg::parse(svgText);
-        if (!parsed.ok()) fail("invalid_svg", (sourceRel.empty() ? std::string("`svg`: ") : sourceRel + ": ") + parsed.error().message, parsed.error().hint);
+        if (!parsed.ok())
+            fail("invalid_svg",
+                 (sourceRel.empty() ? std::string("`svg`: ") : sourceRel + ": ") + parsed.error().message,
+                 parsed.error().hint);
         smil = std::move(*parsed);
         cycle = smil->cycle_seconds();
         if (smil->animation_count() == 0)
-            warn("The SVG has no <animate>, <set>, <animateTransform> or <animateMotion> element: every frame is the same. Animate it, or give `source` a module that draws each frame.");
-        if (a.contains("params") && !params.empty()) warn("`params` only reaches a module (`source`); an SVG with SMIL ignores it.");
+            warn("The SVG has no <animate>, <set>, <animateTransform> or <animateMotion> element: every frame is the "
+                 "same. Animate it, or give `source` a module that draws each frame.");
+        if (a.contains("params") && !params.empty())
+            warn("`params` only reaches a module (`source`); an SVG with SMIL ignores it.");
     }
 
     std::vector<ClipSpec> clips;
@@ -215,26 +261,37 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (hasClips) {
         if (!isModule)
             arg_error(kCommand, "/clips", "clips need a module (`source`): one SMIL SVG has a single timeline.",
-                      "Draw the clips in a module that reads `clip` from its argument, or call assets.animate_svg once per animation.");
+                      "Draw the clips in a module that reads `clip` from its argument, or call assets.animate_svg once "
+                      "per animation.");
         if (a.contains("frames"))
-            arg_error(kCommand, "/frames", "give `frames` per clip when there are `clips`; the sheet holds all of them one after another.", "Remove /frames and set /clips/0/frames.");
+            arg_error(kCommand, "/frames",
+                      "give `frames` per clip when there are `clips`; the sheet holds all of them one after another.",
+                      "Remove /frames and set /clips/0/frames.");
         const Json& list = a["clips"];
         if (!list.is_array() || list.empty())
-            arg_error(kCommand, "/clips", "expected a non-empty array of clips.",
-                      "Example: [{\"name\":\"idle\",\"frames\":4,\"fps\":6},{\"name\":\"spin\",\"frames\":8,\"fps\":12}]");
+            arg_error(
+                kCommand, "/clips", "expected a non-empty array of clips.",
+                "Example: [{\"name\":\"idle\",\"frames\":4,\"fps\":6},{\"name\":\"spin\",\"frames\":8,\"fps\":12}]");
         std::set<std::string> seen;
         for (std::size_t i = 0; i < list.size(); ++i) {
             const std::string ptr = "/clips/" + std::to_string(i);
             const Json& c = list[i];
-            if (!c.is_object()) arg_error(kCommand, ptr, "expected an object {name, frames, fps, loop, params, pivot}.", "Example: {\"name\":\"idle\",\"frames\":4,\"fps\":6}");
+            if (!c.is_object())
+                arg_error(kCommand, ptr, "expected an object {name, frames, fps, loop, params, pivot}.",
+                          "Example: {\"name\":\"idle\",\"frames\":4,\"fps\":6}");
             check_arg_keys(kCommand, c, ptr, {"name", "frames", "fps", "loop", "params", "pivot"});
             ClipSpec spec;
             if (!c.contains("name") || !c["name"].is_string() || c["name"].get<std::string>().empty())
-                arg_error(kCommand, ptr + "/name", "expected a non-empty string.", "The name the module reads as `clip` and the SpriteAnimator plays: \"idle\", \"spin\".");
+                arg_error(kCommand, ptr + "/name", "expected a non-empty string.",
+                          "The name the module reads as `clip` and the SpriteAnimator plays: \"idle\", \"spin\".");
             spec.name = c["name"].get<std::string>();
-            if (!seen.insert(spec.name).second) arg_error(kCommand, ptr + "/name", "the name '" + spec.name + "' is used by two clips.", "Give every clip its own name.");
+            if (!seen.insert(spec.name).second)
+                arg_error(kCommand, ptr + "/name", "the name '" + spec.name + "' is used by two clips.",
+                          "Give every clip its own name.");
             spec.frames = int_arg(c, "frames", ptr, 1, kMaxFrames, 0, "The number of frames of this clip.");
-            if (spec.frames == 0) arg_error(kCommand, ptr + "/frames", "required: how many frames the clip has.", "For example \"frames\": 8.");
+            if (spec.frames == 0)
+                arg_error(kCommand, ptr + "/frames", "required: how many frames the clip has.",
+                          "For example \"frames\": 8.");
             spec.fps = fps_arg(c, ptr, fps);
             spec.loop = loop_arg(c, ptr, loop);
             spec.params = params_arg(c, ptr);
@@ -248,9 +305,13 @@ Json animate(const std::string& projectDir, const Json& a) {
         int frames = int_arg(a, "frames", "", 1, kMaxFrames, 0, "The number of frames of the animation.");
         if (frames == 0) {
             if (isModule)
-                arg_error(kCommand, "/frames", "required with a module: how many frames to draw.", "For example \"frames\": 8 (with fps 10 that is 0.8 s).");
+                arg_error(kCommand, "/frames", "required with a module: how many frames to draw.",
+                          "For example \"frames\": 8 (with fps 10 that is 0.8 s).");
             frames = cycle > 0 ? std::max(1, int(std::lround(cycle * fps))) : 1;
-            if (frames > kMaxFrames) arg_error(kCommand, "/frames", std::format("the animation lasts {} s, which is {} frames at {} fps.", cycle, frames, fps), "Pass `frames` and a lower `fps`.");
+            if (frames > kMaxFrames)
+                arg_error(kCommand, "/frames",
+                          std::format("the animation lasts {} s, which is {} frames at {} fps.", cycle, frames, fps),
+                          "Pass `frames` and a lower `fps`.");
         }
         spec.frames = frames;
         spec.fps = fps;
@@ -259,7 +320,10 @@ Json animate(const std::string& projectDir, const Json& a) {
     }
     int total = 0;
     for (const ClipSpec& c : clips) total += c.frames;
-    if (total > kMaxFrames) arg_error(kCommand, hasClips ? "/clips" : "/frames", std::format("{} frames in all; the most a sheet takes is {}.", total, kMaxFrames), "Draw fewer frames, or split the animation into two sheets.");
+    if (total > kMaxFrames)
+        arg_error(kCommand, hasClips ? "/clips" : "/frames",
+                  std::format("{} frames in all; the most a sheet takes is {}.", total, kMaxFrames),
+                  "Draw fewer frames, or split the animation into two sheets.");
 
     int columns = int_arg(a, "columns", "", 1, kMaxFrames, 0, "How many frames per row of the sheet.");
     if (columns == 0) columns = int(std::ceil(std::sqrt(double(total))));
@@ -271,25 +335,34 @@ Json animate(const std::string& projectDir, const Json& a) {
     const int cellW = frameW + 2 * padding, cellH = frameH + 2 * padding;
     const long long sheetW = (long long)columns * cellW, sheetH = (long long)rows * cellH;
     if (sheetW > kMaxSheetSide || sheetH > kMaxSheetSide)
-        fail("invalid_argument", std::format("The sheet would be {}x{} px ({} columns x {} rows of {}x{} cells); the most is {}.", sheetW, sheetH, columns, rows, cellW, cellH, kMaxSheetSide),
-             "Make the frames smaller, or set `columns` so the sheet is closer to a square (" + std::to_string(int(std::ceil(std::sqrt(double(total))))) + " columns for " + std::to_string(total) + " frames).");
+        fail("invalid_argument",
+             std::format("The sheet would be {}x{} px ({} columns x {} rows of {}x{} cells); the most is {}.", sheetW,
+                         sheetH, columns, rows, cellW, cellH, kMaxSheetSide),
+             "Make the frames smaller, or set `columns` so the sheet is closer to a square (" +
+                 std::to_string(int(std::ceil(std::sqrt(double(total))))) + " columns for " + std::to_string(total) +
+                 " frames).");
 
     // ---- the look ----
     std::string style = "none";
     if (a.contains("style") && !a["style"].is_null()) {
-        if (!a["style"].is_string()) arg_error(kCommand, "/style", "expected a string.", "One of: " + join(image_style_names(), ", ") + ".");
+        if (!a["style"].is_string())
+            arg_error(kCommand, "/style", "expected a string.", "One of: " + join(image_style_names(), ", ") + ".");
         style = to_lower(a["style"].get<std::string>());
         const auto& names = image_style_names();
         if (std::find(names.begin(), names.end(), style) == names.end())
-            arg_error(kCommand, "/style", "unknown style '" + a["style"].get<std::string>() + "'.", did_you_mean(style, names) + " Styles: " + join(names, ", ") + ".");
+            arg_error(kCommand, "/style", "unknown style '" + a["style"].get<std::string>() + "'.",
+                      did_you_mean(style, names) + " Styles: " + join(names, ", ") + ".");
     }
     double styleStrength = 1.0;
     if (a.contains("styleStrength") && !a["styleStrength"].is_null()) {
-        if (!a["styleStrength"].is_number() || !(a["styleStrength"].get<double>() >= 0.0 && a["styleStrength"].get<double>() <= 1.0))
-            arg_error(kCommand, "/styleStrength", "expected a number from 0 to 1.", "0 leaves the picture as drawn, 1 is the full effect (the default); 0.5 is subtle.");
+        if (!a["styleStrength"].is_number() ||
+            !(a["styleStrength"].get<double>() >= 0.0 && a["styleStrength"].get<double>() <= 1.0))
+            arg_error(kCommand, "/styleStrength", "expected a number from 0 to 1.",
+                      "0 leaves the picture as drawn, 1 is the full effect (the default); 0.5 is subtle.");
         styleStrength = a["styleStrength"].get<double>();
     }
-    if (style == "none" && a.contains("styleStrength")) warn("styleStrength only matters with a `style`; it was ignored.");
+    if (style == "none" && a.contains("styleStrength"))
+        warn("styleStrength only matters with a `style`; it was ignored.");
     std::optional<Palette> palette;
     std::vector<std::string> inputs;
     if (a.contains("palette") && !a["palette"].is_null()) {
@@ -307,61 +380,92 @@ Json animate(const std::string& projectDir, const Json& a) {
     Palette ramp;
     if (a.contains("ramp") && !a["ramp"].is_null()) {
         const Json& spec = a["ramp"];
-        const std::string rampHint = "Example: \"ramp\": [\"#1b1034\", \"#c4382a\", \"#ffd36b\"] (darkest first), or the path of an image document with `ramps` (\"assets/art/hero.image.json\") and `rampIndex`.";
+        const std::string rampHint =
+            "Example: \"ramp\": [\"#1b1034\", \"#c4382a\", \"#ffd36b\"] (darkest first), or the path of an image "
+            "document with `ramps` (\"assets/art/hero.image.json\") and `rampIndex`.";
         if (spec.is_array()) {
-            if (a.contains("rampIndex")) warn("`rampIndex` only matters when `ramp` is the path of an image document; it was ignored.");
+            if (a.contains("rampIndex"))
+                warn("`rampIndex` only matters when `ramp` is the path of an image document; it was ignored.");
             auto loaded = load_palette(spec);
             if (!loaded.ok()) arg_error(kCommand, "/ramp", loaded.error().message, rampHint);
             ramp = std::move(*loaded);
         } else if (spec.is_string()) {
             auto norm = fs::normalize_checked(spec.get<std::string>());
             if (!norm.ok() || norm->empty() || !ends_with(to_lower(*norm), ".image.json"))
-                arg_error(kCommand, "/ramp", "'" + spec.get<std::string>() + "' is not a list of colours or the path of an image document (*.image.json).", rampHint);
+                arg_error(kCommand, "/ramp",
+                          "'" + spec.get<std::string>() +
+                              "' is not a list of colours or the path of an image document (*.image.json).",
+                          rampHint);
             auto doc = load_image_document(projectDir, *norm);
             if (!doc.ok()) arg_error(kCommand, "/ramp", doc.error().message, doc.error().hint);
             const PixelPalette& pal = doc->palette;
-            const int index = int_arg(a, "rampIndex", "", 0, 1000, 0, "Which ramp of the document: 0 is the first one image.palette lists.");
+            const int index = int_arg(a, "rampIndex", "", 0, 1000, 0,
+                                      "Which ramp of the document: 0 is the first one image.palette lists.");
             if (pal.ramps.empty())
-                arg_error(kCommand, "/ramp", "the document '" + *norm + "' declares no colour ramps.", "Declare one with image.palette {\"path\":\"" + *norm + "\",\"ramps\":[[\"#1b1034\",\"#c4382a\",\"#ffd36b\"]]}, or list the colours here.");
+                arg_error(kCommand, "/ramp", "the document '" + *norm + "' declares no colour ramps.",
+                          "Declare one with image.palette {\"path\":\"" + *norm +
+                              "\",\"ramps\":[[\"#1b1034\",\"#c4382a\",\"#ffd36b\"]]}, or list the colours here.");
             if (std::size_t(index) >= pal.ramps.size())
-                arg_error(kCommand, "/rampIndex", std::format("the document has {} ramp(s), numbered from 0; {} is not one of them.", pal.ramps.size(), index), "image.palette {\"path\":\"" + *norm + "\"} lists the ramps.");
+                arg_error(kCommand, "/rampIndex",
+                          std::format("the document has {} ramp(s), numbered from 0; {} is not one of them.",
+                                      pal.ramps.size(), index),
+                          "image.palette {\"path\":\"" + *norm + "\"} lists the ramps.");
             for (int colour : pal.ramps[std::size_t(index)]) ramp.push_back(pal.entries[std::size_t(colour)].rgb);
             inputs.push_back(*norm);
         } else {
-            arg_error(kCommand, "/ramp", "expected a list of \"#rrggbb\" colours or the path of an image document, got " + describe_json_value(spec) + ".", rampHint);
+            arg_error(kCommand, "/ramp",
+                      "expected a list of \"#rrggbb\" colours or the path of an image document, got " +
+                          describe_json_value(spec) + ".",
+                      rampHint);
         }
         if (ramp.size() < 2 || ramp.size() > kMaxRampColours)
-            arg_error(kCommand, "/ramp", std::format("a ramp has 2 to {} colours, this one has {}.", kMaxRampColours, ramp.size()), rampHint);
+            arg_error(kCommand, "/ramp",
+                      std::format("a ramp has 2 to {} colours, this one has {}.", kMaxRampColours, ramp.size()),
+                      rampHint);
     } else if (a.contains("rampIndex")) {
-        arg_error(kCommand, "/rampIndex", "there is no `ramp` to pick from.", "Give `ramp` as the path of an image document, or remove `rampIndex`.");
+        arg_error(kCommand, "/rampIndex", "there is no `ramp` to pick from.",
+                  "Give `ramp` as the path of an image document, or remove `rampIndex`.");
     }
     bool rampMap = false;
     if (a.contains("rampMap") && !a["rampMap"].is_null()) {
-        if (!a["rampMap"].is_boolean()) arg_error(kCommand, "/rampMap", "expected true or false.", "true recolours the finished frames by brightness with the `ramp`.");
+        if (!a["rampMap"].is_boolean())
+            arg_error(kCommand, "/rampMap", "expected true or false.",
+                      "true recolours the finished frames by brightness with the `ramp`.");
         rampMap = a["rampMap"].get<bool>();
-        if (rampMap && ramp.empty()) arg_error(kCommand, "/rampMap", "there is no `ramp` to recolour with.", "Give `ramp`, a list of colours from dark to bright.");
+        if (rampMap && ramp.empty())
+            arg_error(kCommand, "/rampMap", "there is no `ramp` to recolour with.",
+                      "Give `ramp`, a list of colours from dark to bright.");
     }
     if (!ramp.empty() && !isModule && !rampMap)
         arg_error(kCommand, "/ramp", "an SVG with SMIL cannot read the ramp: its colours are written in the SVG.",
-                  "Add \"rampMap\": true to recolour the frames by brightness (draw the effect in greys, dark to bright), or draw the frames with a module that reads `ramp` and `rampAt(u)`.");
+                  "Add \"rampMap\": true to recolour the frames by brightness (draw the effect in greys, dark to "
+                  "bright), or draw the frames with a module that reads `ramp` and `rampAt(u)`.");
     std::vector<std::string> rampHex;
     for (const auto& c : ramp) rampHex.push_back(hex_of(c));
 
     // ---- the layers: one sheet per layer, the same grid, frames, pivot and timing ----
     std::vector<std::string> layerList;  // {""} = one sheet, no layers
     if (a.contains("layers") && !a["layers"].is_null()) {
-        const std::string layerHint = "Example: \"layers\": [\"back\", \"front\", \"light\"]: `back` is drawn behind the character, `front` in front of it and `light` is an additive glow.";
+        const std::string layerHint = "Example: \"layers\": [\"back\", \"front\", \"light\"]: `back` is drawn behind "
+                                      "the character, `front` in front of it and `light` is an additive glow.";
         if (!isModule)
-            arg_error(kCommand, "/layers", "layers need a module (`source`): the module draws each layer, a SMIL SVG has one picture.", "Write a module that reads `layer` and returns the SVG of that layer, or bake the SVG without layers.");
+            arg_error(
+                kCommand, "/layers",
+                "layers need a module (`source`): the module draws each layer, a SMIL SVG has one picture.",
+                "Write a module that reads `layer` and returns the SVG of that layer, or bake the SVG without layers.");
         const Json& list = a["layers"];
-        if (!list.is_array() || list.empty()) arg_error(kCommand, "/layers", "expected a non-empty array of layer names.", layerHint);
+        if (!list.is_array() || list.empty())
+            arg_error(kCommand, "/layers", "expected a non-empty array of layer names.", layerHint);
         for (std::size_t i = 0; i < list.size(); ++i) {
             const std::string ptr = "/layers/" + std::to_string(i);
-            if (!list[i].is_string()) arg_error(kCommand, ptr, "expected a layer name, got " + describe_json_value(list[i]) + ".", layerHint);
+            if (!list[i].is_string())
+                arg_error(kCommand, ptr, "expected a layer name, got " + describe_json_value(list[i]) + ".", layerHint);
             const std::string name = to_lower(list[i].get<std::string>());
             if (std::find(layer_names().begin(), layer_names().end(), name) == layer_names().end())
-                arg_error(kCommand, ptr, "unknown layer '" + list[i].get<std::string>() + "'.", did_you_mean(name, layer_names()) + " Layers: " + join(layer_names(), ", ") + ".");
-            if (std::find(layerList.begin(), layerList.end(), name) != layerList.end()) arg_error(kCommand, ptr, "the layer '" + name + "' is listed twice.", "List each layer once.");
+                arg_error(kCommand, ptr, "unknown layer '" + list[i].get<std::string>() + "'.",
+                          did_you_mean(name, layer_names()) + " Layers: " + join(layer_names(), ", ") + ".");
+            if (std::find(layerList.begin(), layerList.end(), name) != layerList.end())
+                arg_error(kCommand, ptr, "the layer '" + name + "' is listed twice.", "List each layer once.");
             layerList.push_back(name);
         }
         // always stacked back, front, light, whatever the order given
@@ -376,7 +480,9 @@ Json animate(const std::string& projectDir, const Json& a) {
     for (const std::string& layer : layerList) layerRels.push_back(layer.empty() ? rel : layer_path(rel, layer));
 
     std::optional<AnimatePrefabSpec> prefabSpec;
-    if (a.contains("prefab") && !a["prefab"].is_null()) prefabSpec = parse_animate_prefab(kCommand, a["prefab"], layered ? layerList : std::vector<std::string>(), frameW, frameH, warnings);
+    if (a.contains("prefab") && !a["prefab"].is_null())
+        prefabSpec = parse_animate_prefab(kCommand, a["prefab"], layered ? layerList : std::vector<std::string>(),
+                                          frameW, frameH, warnings);
 
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     std::error_code ec;
@@ -384,19 +490,29 @@ Json animate(const std::string& projectDir, const Json& a) {
     for (const std::string& lr : layerRels) (void)project_write_file(projectDir, lr);
     if (prefabSpec) (void)project_write_file(projectDir, prefabSpec->rel);
     if (prefabSpec && !prefabSpec->overwrite && stdfs::exists(project_file(projectDir, prefabSpec->rel), ec))
-        fail("exists", "The prefab '" + prefabSpec->rel + "' already exists, and may hold changes made by hand (`overwrite` is about the sheets, not the prefab).",
-             "Pass \"prefab\": {\"path\": \"" + prefabSpec->rel + "\", \"overwrite\": true} to write it again, or choose another prefab path. Nothing was baked.");
+        fail("exists",
+             "The prefab '" + prefabSpec->rel +
+                 "' already exists, and may hold changes made by hand (`overwrite` is about the sheets, not the "
+                 "prefab).",
+             "Pass \"prefab\": {\"path\": \"" + prefabSpec->rel +
+                 "\", \"overwrite\": true} to write it again, or choose another prefab path. Nothing was baked.");
     for (const std::string& lr : layerRels)
-        if (!overwrite && stdfs::exists(project_file(projectDir, lr), ec)) fail("exists", "'" + lr + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+        if (!overwrite && stdfs::exists(project_file(projectDir, lr), ec))
+            fail("exists", "'" + lr + "' already exists.",
+                 "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
     {
         // every layer holds its frames until its sheet is built, and a layered bake keeps the sheets for the picture of the result
         const double perLayer = double(total) * frameW * frameH * 4.0 + double(sheetW) * double(sheetH) * 4.0;
         if (perLayer * double(layerList.size()) > kMaxBakeBytes)
             fail("invalid_argument",
-                 std::format("Baking {} layer(s) of {} frames of {}x{} px into {}x{} px sheets would need about {} MB of memory; the most is {} MB.", layerList.size(), total, frameW, frameH,
-                             sheetW, sheetH, std::llround(perLayer * double(layerList.size()) / (1024.0 * 1024.0)), std::llround(kMaxBakeBytes / (1024.0 * 1024.0))),
-                 "Bake fewer layers in one call (a layer can be baked on its own with the same `path`), draw fewer or smaller frames, or lower frameWidth/frameHeight.");
+                 std::format("Baking {} layer(s) of {} frames of {}x{} px into {}x{} px sheets would need about {} MB "
+                             "of memory; the most is {} MB.",
+                             layerList.size(), total, frameW, frameH, sheetW, sheetH,
+                             std::llround(perLayer * double(layerList.size()) / (1024.0 * 1024.0)),
+                             std::llround(kMaxBakeBytes / (1024.0 * 1024.0))),
+                 "Bake fewer layers in one call (a layer can be baked on its own with the same `path`), draw fewer or "
+                 "smaller frames, or lower frameWidth/frameHeight.");
     }
 
     // ---- draw every frame of every layer ----
@@ -422,7 +538,8 @@ Json animate(const std::string& projectDir, const Json& a) {
         for (const FrameJob& job : jobs) {
             const ClipSpec& clip = clips[std::size_t(job.clip)];
             const double t = job.frame / clip.fps;
-            std::string where = hasClips ? std::format("frame {} of clip \"{}\"", job.frame, clip.name) : std::format("frame {}", job.frame);
+            std::string where = hasClips ? std::format("frame {} of clip \"{}\"", job.frame, clip.name)
+                                         : std::format("frame {}", job.frame);
             if (!layer.empty()) where += std::format(", layer \"{}\"", layer);
             std::string text;
             if (isModule) {
@@ -435,7 +552,8 @@ Json animate(const std::string& projectDir, const Json& a) {
                 f.sheetFrame = job.sheetFrame;
                 f.fps = clip.fps;
                 f.t = t;
-                f.progress = clip.loop ? double(job.frame) / clip.frames : (clip.frames > 1 ? double(job.frame) / (clip.frames - 1) : 0.0);
+                f.progress = clip.loop ? double(job.frame) / clip.frames
+                                       : (clip.frames > 1 ? double(job.frame) / (clip.frames - 1) : 0.0);
                 f.width = frameW;
                 f.height = frameH;
                 f.params = params;
@@ -455,14 +573,17 @@ Json animate(const std::string& projectDir, const Json& a) {
                 picture = rasterize_svg_text(text, frameW, frameH, style, styleStrength, seed, local).image;
             } catch (const CommandError& e) {
                 if (e.code != "no_shapes") {
-                    fail(e.code.c_str(), (isModule ? sourceRel + ": " : std::string()) + where + " is not a drawable SVG: " + e.what(), e.hint);
+                    fail(e.code.c_str(),
+                         (isModule ? sourceRel + ": " : std::string()) + where + " is not a drawable SVG: " + e.what(),
+                         e.hint);
                 }
                 picture.width = frameW;
                 picture.height = frameH;
                 picture.rgba.assign(std::size_t(frameW) * frameH * 4, 0);
                 // the same complaint comes back for every frame and every layer: say it once, where it first happened
                 const std::string what = e.what();
-                if (what.find("not supported") != std::string::npos && unsupportedSaid.insert(what).second) warn(where + ": " + what);
+                if (what.find("not supported") != std::string::npos && unsupportedSaid.insert(what).second)
+                    warn(where + ": " + what);
             }
             for (const std::string& w : local) warn(w);
             if (rampMap) picture = map_to_ramp(picture, ramp);
@@ -475,10 +596,14 @@ Json animate(const std::string& projectDir, const Json& a) {
             pictures[std::size_t(job.sheetFrame)] = std::move(picture);
         }
         if (!edgeFrames.empty())
-            warn(std::format("{}Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Draw smaller inside the viewBox, or make frameWidth/frameHeight larger, or set `padding` (a transparent gutter around each frame).",
+            warn(std::format("{}Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Draw "
+                             "smaller inside the viewBox, or make frameWidth/frameHeight larger, or set `padding` (a "
+                             "transparent gutter around each frame).",
                              layerLabel, edgeFrames.size(), list_frames(edgeFrames)));
         if (layered && std::all_of(layerEmpty[li].begin(), layerEmpty[li].end(), [](bool e) { return e; }))
-            warn(std::format("{}draws nothing in any frame: the module returned an empty drawing for it (or its shapes sit outside the viewBox). Draw it, or leave it out of `layers`.", layerLabel));
+            warn(std::format("{}draws nothing in any frame: the module returned an empty drawing for it (or its shapes "
+                             "sit outside the viewBox). Draw it, or leave it out of `layers`.",
+                             layerLabel));
     }
     if (smil)
         for (const std::string& w : smil->warnings()) warn(w);
@@ -491,7 +616,9 @@ Json animate(const std::string& projectDir, const Json& a) {
             if (all) emptyFrames.push_back(std::to_string(f));
         }
         if (!emptyFrames.empty())
-            warn(std::format("{} of the {} frames draw nothing (frame {}): the shapes may sit outside the viewBox, or the module returned an empty drawing.", emptyFrames.size(), total, list_frames(emptyFrames)));
+            warn(std::format("{} of the {} frames draw nothing (frame {}): the shapes may sit outside the viewBox, or "
+                             "the module returned an empty drawing.",
+                             emptyFrames.size(), total, list_frames(emptyFrames)));
     }
     for (std::size_t li = 0; li < layerList.size(); ++li) {
         int first = 0;
@@ -499,19 +626,25 @@ Json animate(const std::string& projectDir, const Json& a) {
             if (clip.loop && clip.frames >= 3) {
                 std::vector<const Image*> clipFrames;
                 for (int f = 0; f < clip.frames; ++f) clipFrames.push_back(&layerPictures[li][std::size_t(first + f)]);
-                const std::string label = (hasClips ? " of clip \"" + clip.name + "\"" : std::string()) + (layerList[li].empty() ? std::string() : " in layer \"" + layerList[li] + "\"");
+                const std::string label =
+                    (hasClips ? " of clip \"" + clip.name + "\"" : std::string()) +
+                    (layerList[li].empty() ? std::string() : " in layer \"" + layerList[li] + "\"");
                 if (auto w = loop_seam_warning(clipFrames, label)) warn(*w);
             }
             first += clip.frames;
         }
     }
     if (std::max(sheetW, sheetH) > 4096)
-        warn(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.", sheetW, sheetH));
+        warn(std::format("The sheet is {}x{} px; many mobile GPUs cannot sample a texture over 4096 px.", sheetW,
+                         sheetH));
     if (auto w = block_size_warning(columns, rows, frameW, frameH, padding); w && project_targets_mobile(projectDir)) {
         // a sheet whose import settings turn compression off (or put it in an atlas) ships as it is: nothing to say about it
         ProjectRootGuard root(projectDir);
         const auto compressed = [](const Json& s) {
-            const auto setting = [&](const char* key) { return s.is_object() && s.contains(key) && s[key].is_string() ? s[key].get<std::string>() : std::string(); };
+            const auto setting = [&](const char* key) {
+                return s.is_object() && s.contains(key) && s[key].is_string() ? s[key].get<std::string>()
+                                                                              : std::string();
+            };
             return setting("compression") != "none" && setting("atlas").empty();
         };
         for (const std::string& lr : layerRels)
@@ -524,13 +657,19 @@ Json animate(const std::string& projectDir, const Json& a) {
         // a module that never names `ramp` (or `layer`) ignores it: say so
         const auto module_names = [&](const char* word) {
             for (const std::string& f : module->files())
-                if (auto text = tooling_detail::read_file(project_file(projectDir, f)); text && text->find(word) != std::string::npos) return true;
+                if (auto text = tooling_detail::read_file(project_file(projectDir, f));
+                    text && text->find(word) != std::string::npos)
+                    return true;
             return false;
         };
         if (!ramp.empty() && !rampMap && !module_names("ramp"))
-            warn("`ramp` is given but the module never reads `ramp` or `rampAt`, so the colours did not change. Use rampAt(u) in the module (u from 0 dark to 1 bright), or pass \"rampMap\": true to recolour the frames by brightness.");
+            warn("`ramp` is given but the module never reads `ramp` or `rampAt`, so the colours did not change. Use "
+                 "rampAt(u) in the module (u from 0 dark to 1 bright), or pass \"rampMap\": true to recolour the "
+                 "frames by brightness.");
         if (layered && layerList.size() > 1 && !module_names("layer"))
-            warn("`layers` is given but the module never reads `layer`, so every layer is the same drawing. Return a different SVG for each layer: frame({layer}) { if (layer === 'back') ... } (the argument of frame() has `layer`).");
+            warn("`layers` is given but the module never reads `layer`, so every layer is the same drawing. Return a "
+                 "different SVG for each layer: frame({layer}) { if (layer === 'back') ... } (the argument of frame() "
+                 "has `layer`).");
     }
 
     // ---- the sheets ----
@@ -572,39 +711,60 @@ Json animate(const std::string& projectDir, const Json& a) {
         if (layered) sheetImages.push_back(std::move(sheetImage));
     }
     const int imageW = int(sheetW), imageH = int(sheetH);
-    std::vector<bool> existed;   // whether a layer's file was already there: a file this call made is taken back if a later one fails
+    std::vector<bool>
+        existed;  // whether a layer's file was already there: a file this call made is taken back if a later one fails
     for (const std::string& lr : layerRels) existed.push_back(stdfs::exists(project_file(projectDir, lr), ec));
     std::vector<std::string> written;
     for (std::size_t li = 0; li < layerList.size(); ++li) {
         std::string err;
-        if (tooling_detail::write_file(project_write_file(projectDir, layerRels[li]), std::string_view(reinterpret_cast<const char*>(pngs[li].data()), pngs[li].size()), &err)) {
+        if (tooling_detail::write_file(
+                project_write_file(projectDir, layerRels[li]),
+                std::string_view(reinterpret_cast<const char*>(pngs[li].data()), pngs[li].size()), &err)) {
             written.push_back(layerRels[li]);
             continue;
         }
-        std::vector<std::string> replaced;   // written over an earlier file: that one is gone
+        std::vector<std::string> replaced;  // written over an earlier file: that one is gone
         for (std::size_t k = 0; k < written.size(); ++k) {
             if (existed[k]) {
                 replaced.push_back(written[k]);
                 continue;
             }
             std::error_code rm;
-            if (!fs::remove_file(project_write_file(projectDir, written[k]), rm)) replaced.push_back(written[k]);   // could not be taken back either
+            if (!fs::remove_file(project_write_file(projectDir, written[k]), rm))
+                replaced.push_back(written[k]);  // could not be taken back either
         }
-        fail("failed", err + (replaced.empty() ? " Nothing else was changed: the sheets written before it were removed again, and assets.json was not touched."
-                                               : " assets.json was not touched, but these sheets were already written over the earlier ones: " + join(replaced, ", ") + "."),
-             "Check that the folder is writable and the files are not open in another program, then call again with overwrite: true.");
+        fail("failed",
+             err +
+                 (replaced.empty()
+                      ? " Nothing else was changed: the sheets written before it were removed again, and assets.json "
+                        "was not touched."
+                      : " assets.json was not touched, but these sheets were already written over the earlier ones: " +
+                            join(replaced, ", ") + "."),
+             "Check that the folder is writable and the files are not open in another program, then call again with "
+             "overwrite: true.");
     }
 
     // ---- the record: provenance and recipe ----
     const bool ai = tooling_detail::arg_bool(a, "ai", true);
     const std::string author = tooling_detail::arg_string(a, "author", false, ai ? "" : "factoria");
     const std::string license = tooling_detail::arg_string(a, "license", false, "CC0-1.0");
-    Json recipeArgs = Json::object({{"path", rel}, {"fps", fps}, {"loop", loop}, {"columns", columns}, {"frameWidth", frameW}, {"frameHeight", frameH},
-                                    {"padding", padding}, {"seed", seed}, {"overwrite", true}});
-    if (hasSvg) recipeArgs["svg"] = svgText;
-    else recipeArgs["source"] = sourceRel;
-    if (hasClips) recipeArgs["clips"] = a["clips"];
-    else recipeArgs["frames"] = total;
+    Json recipeArgs = Json::object({{"path", rel},
+                                    {"fps", fps},
+                                    {"loop", loop},
+                                    {"columns", columns},
+                                    {"frameWidth", frameW},
+                                    {"frameHeight", frameH},
+                                    {"padding", padding},
+                                    {"seed", seed},
+                                    {"overwrite", true}});
+    if (hasSvg)
+        recipeArgs["svg"] = svgText;
+    else
+        recipeArgs["source"] = sourceRel;
+    if (hasClips)
+        recipeArgs["clips"] = a["clips"];
+    else
+        recipeArgs["frames"] = total;
     if (a.contains("params") && !a["params"].is_null()) recipeArgs["params"] = params;
     if (pivot) recipeArgs["pivot"] = Json::array({(*pivot)[0], (*pivot)[1]});
     if (a.contains("palette") && !a["palette"].is_null()) recipeArgs["palette"] = a["palette"];
@@ -623,28 +783,39 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (a.contains("author")) recipeArgs["author"] = author;
     if (a.contains("license")) recipeArgs["license"] = license;
     {
-        std::vector<std::string> read;  // the source first (a module, then what it imported), then the palette image and the ramp's document
-        if (module) read = module->files();
-        else if (!sourceRel.empty()) read.push_back(sourceRel);
+        std::vector<std::string>
+            read;  // the source first (a module, then what it imported), then the palette image and the ramp's document
+        if (module)
+            read = module->files();
+        else if (!sourceRel.empty())
+            read.push_back(sourceRel);
         inputs.insert(inputs.begin(), read.begin(), read.end());
     }
     const Json recipe = make_recipe(projectDir, kCommand, recipeArgs, inputs);
 
-    const std::string what = isModule ? "module '" + sourceRel + "'" : (sourceRel.empty() ? std::string("SVG text given to the command") : "SVG '" + sourceRel + "'");
+    const std::string what =
+        isModule ? "module '" + sourceRel + "'"
+                 : (sourceRel.empty() ? std::string("SVG text given to the command") : "SVG '" + sourceRel + "'");
     Json layerInfo = Json::array();
     Json firstProvenance;
     for (std::size_t li = 0; li < layerList.size(); ++li) {
         const std::string& layer = layerList[li];
-        Json provenance = Json::object({{"origin", ai ? "generated" : "original"},
-                                        {"ai", ai},
-                                        {"kind", "image"},
-                                        {"provider", "factoria assets.animate_svg"},
-                                        {"license", license},
-                                        {"notes", std::format("{} frames of {}x{} baked from {}{}{}{}{}.", total, frameW, frameH, what, layer.empty() ? std::string() : ", layer " + layer,
-                                                              style == "none" ? std::string() : std::format(", style {} (strength {})", style, styleStrength),
-                                                              palette ? ", snapped to a palette" : "", ramp.empty() ? std::string() : std::format(", {} colour ramp{}", ramp.size(), rampMap ? " mapped by brightness" : ""))},
-                                        {"date", assets::today()},
-                                        {"recipe", recipe}});
+        Json provenance = Json::object(
+            {{"origin", ai ? "generated" : "original"},
+             {"ai", ai},
+             {"kind", "image"},
+             {"provider", "factoria assets.animate_svg"},
+             {"license", license},
+             {"notes", std::format("{} frames of {}x{} baked from {}{}{}{}{}.", total, frameW, frameH, what,
+                                   layer.empty() ? std::string() : ", layer " + layer,
+                                   style == "none" ? std::string()
+                                                   : std::format(", style {} (strength {})", style, styleStrength),
+                                   palette ? ", snapped to a palette" : "",
+                                   ramp.empty() ? std::string()
+                                                : std::format(", {} colour ramp{}", ramp.size(),
+                                                              rampMap ? " mapped by brightness" : ""))},
+             {"date", assets::today()},
+             {"recipe", recipe}});
         if (!author.empty()) provenance["author"] = author;
         if (!sourceRel.empty()) provenance["source"] = sourceRel;
         if (li == 0) firstProvenance = provenance;
@@ -656,14 +827,19 @@ Json animate(const std::string& projectDir, const Json& a) {
         });
         if (!r.ok()) {
             const std::vector<std::string> recorded(layerRels.begin(), layerRels.begin() + std::ptrdiff_t(li));
-            fail("failed", "The sheet" + std::string(layered ? "s were" : " was") + " written, but assets.json was not updated for " + layerRels[li] + (recorded.empty() ? "" : " (it has the entries of " + join(recorded, ", ") + ")") +
-                               ": " + r.error().message,
+            fail("failed",
+                 "The sheet" + std::string(layered ? "s were" : " was") +
+                     " written, but assets.json was not updated for " + layerRels[li] +
+                     (recorded.empty() ? "" : " (it has the entries of " + join(recorded, ", ") + ")") + ": " +
+                     r.error().message,
                  r.error().hint);
         }
         if (layered) {
-            const char* use = layer == "back"    ? "a Sprite behind the character: a Sprite.layer lower than the character's"
-                              : layer == "front" ? "a Sprite in front of the character: a Sprite.layer higher than the character's"
-                                                 : "a Sprite above everything with \"blend\": \"additive\": its colours add to what is under it";
+            const char* use =
+                layer == "back" ? "a Sprite behind the character: a Sprite.layer lower than the character's"
+                : layer == "front"
+                    ? "a Sprite in front of the character: a Sprite.layer higher than the character's"
+                    : "a Sprite above everything with \"blend\": \"additive\": its colours add to what is under it";
             layerInfo.push_back(Json::object({{"layer", layer}, {"path", layerRels[li]}, {"use", use}}));
         }
     }
@@ -676,20 +852,27 @@ Json animate(const std::string& projectDir, const Json& a) {
         const std::string stale = layer_path(rel, name);
         ProjectRootGuard root(projectDir);
         const Json entry = assets::entry(stale);
-        const auto member = [](const Json& obj, const char* key) { return obj.is_object() && obj.contains(key) ? obj[key] : Json(); };
-        const Json recipe = member(member(entry, "provenance"), "recipe");
-        if (member(recipe, "command") != Json(kCommand) || member(member(recipe, "args"), "path") != Json(rel)) continue;
+        const auto member = [](const Json& obj, const char* key) {
+            return obj.is_object() && obj.contains(key) ? obj[key] : Json();
+        };
+        const Json oldRecipe = member(member(entry, "provenance"), "recipe");
+        if (member(oldRecipe, "command") != Json(kCommand) || member(member(oldRecipe, "args"), "path") != Json(rel))
+            continue;
         std::error_code rm;
         const std::filesystem::path file = project_write_file(projectDir, stale);
         if (stdfs::exists(file, rm) && !fs::remove_file(file, rm)) {
-            warn("The sheet '" + stale + "' is left over from an earlier bake of this effect with the layer \"" + name + "\", and it could not be deleted: " + rm.message() + ". Delete it, or it keeps its recipe.");
+            warn("The sheet '" + stale + "' is left over from an earlier bake of this effect with the layer \"" + name +
+                 "\", and it could not be deleted: " + rm.message() + ". Delete it, or it keeps its recipe.");
             continue;
         }
         if (auto r = assets::update_entry(stale, [](Json& e) { e = Json::object(); }); !r.ok()) {
-            warn("The sheet '" + stale + "' (the layer \"" + name + "\" of an earlier bake) was deleted, but its assets.json entry could not be removed: " + r.error().message);
+            warn("The sheet '" + stale + "' (the layer \"" + name +
+                 "\" of an earlier bake) was deleted, but its assets.json entry could not be removed: " +
+                 r.error().message);
             continue;
         }
-        warn("Removed '" + stale + "': the layer \"" + name + "\" of an earlier bake of this effect, which this bake does not make.");
+        warn("Removed '" + stale + "': the layer \"" + name +
+             "\" of an earlier bake of this effect, which this bake does not make.");
     }
 
     // ---- the prefab that plays the layers together ----
@@ -700,22 +883,44 @@ Json animate(const std::string& projectDir, const Json& a) {
         const Json doc = build_animate_prefab(*prefabSpec, layerList, layerRels, clipName);
         std::string err;
         if (!tooling_detail::write_file(project_write_file(projectDir, prefabSpec->rel), dump_scene_json(doc), &err))
-            fail("failed", "The sheets were baked and recorded, but the prefab '" + prefabSpec->rel + "' could not be written: " + err,
-                 "Check that the folder is writable and the file is not open in another program, then call again with overwrite: true and the prefab's overwrite: true (the sheets above are already in place).");
+            fail("failed",
+                 "The sheets were baked and recorded, but the prefab '" + prefabSpec->rel +
+                     "' could not be written: " + err,
+                 "Check that the folder is writable and the file is not open in another program, then call again with "
+                 "overwrite: true and the prefab's overwrite: true (the sheets above are already in place).");
         Json children = Json::array();
         for (const Json& child : doc["entity"]["children"])
-            children.push_back(Json::object({{"name", child["name"]}, {"texture", child["components"]["Sprite"]["texture"]}, {"layer", child["components"]["Sprite"]["layer"]},
+            children.push_back(Json::object({{"name", child["name"]},
+                                             {"texture", child["components"]["Sprite"]["texture"]},
+                                             {"layer", child["components"]["Sprite"]["layer"]},
                                              {"blend", child["components"]["Sprite"].value("blend", "alpha")}}));
-        prefabInfo = Json::object({{"path", prefabSpec->rel}, {"name", prefabSpec->name}, {"clip", clipName}, {"size", doc["entity"]["children"][0]["components"]["Sprite"]["size"]}, {"children", children}});
+        prefabInfo = Json::object({{"path", prefabSpec->rel},
+                                   {"name", prefabSpec->name},
+                                   {"clip", clipName},
+                                   {"size", doc["entity"]["children"][0]["components"]["Sprite"]["size"]},
+                                   {"children", children}});
         if (clips.size() > 1)
-            warn("The sheet has " + std::to_string(clips.size()) + " clips and the prefab plays the first one, \"" + clipName + "\". Set SpriteAnimator.clip on the children (or call play on each) for another.");
+            warn("The sheet has " + std::to_string(clips.size()) + " clips and the prefab plays the first one, \"" +
+                 clipName + "\". Set SpriteAnimator.clip on the children (or call play on each) for another.");
     }
 
-    Json layout = Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameW}, {"frameHeight", frameH}, {"padding", padding},
-                                {"cellWidth", cellW}, {"cellHeight", cellH}, {"imageWidth", imageW}, {"imageHeight", imageH},
-                                {"frames", total}, {"clips", sheet.value("clips", Json::array())}});
+    Json layout = Json::object({{"columns", columns},
+                                {"rows", rows},
+                                {"frameWidth", frameW},
+                                {"frameHeight", frameH},
+                                {"padding", padding},
+                                {"cellWidth", cellW},
+                                {"cellHeight", cellH},
+                                {"imageWidth", imageW},
+                                {"imageHeight", imageH},
+                                {"frames", total},
+                                {"clips", sheet.value("clips", Json::array())}});
     if (pivot) layout["pivot"] = sheet["pivot"];
-    Json result = Json::object({{"path", layerRels[0]}, {"width", imageW}, {"height", imageH}, {"layout", layout}, {"sheet", sheet},
+    Json result = Json::object({{"path", layerRels[0]},
+                                {"width", imageW},
+                                {"height", imageH},
+                                {"layout", layout},
+                                {"sheet", sheet},
                                 {"provenance", firstProvenance}});
     if (layered) result["layers"] = layerInfo;
     if (prefabInfo) result["prefab"] = *prefabInfo;
@@ -739,30 +944,50 @@ Json animate(const std::string& projectDir, const Json& a) {
             }
             for (std::size_t i = 0; i + 3 < preview.rgba.size(); i += 4)
                 for (std::size_t k = 0; k < 3; ++k)
-                    preview.rgba[i + k] = std::uint8_t(std::min(255, int(preview.rgba[i + k]) + int(sheetImages[li].rgba[i + k]) * int(sheetImages[li].rgba[i + 3]) / 255));
+                    preview.rgba[i + k] = std::uint8_t(
+                        std::min(255, int(preview.rgba[i + k]) +
+                                          int(sheetImages[li].rgba[i + k]) * int(sheetImages[li].rgba[i + 3]) / 255));
         }
         result["$image"] = image_member(write_temporary_picture(projectDir, preview, "layers"), true);
     }
     std::vector<std::string> steps = sheet_next_steps(layerRels[0], sheet, hasClips ? clips[0].fps : fps);
     if (prefabInfo) {
         std::vector<std::string> names;
-        for (const Json& c : (*prefabInfo)["children"]) names.push_back(c["name"].get<std::string>() + " at Sprite.layer " + std::to_string(c["layer"].get<int>()));
-        steps.push_back("The prefab '" + (*prefabInfo)["path"].get<std::string>() + "' plays the layers together: a parent \"" + (*prefabInfo)["name"].get<std::string>() +
-                        "\" with one child per layer (" + join(names, ", ") + "), each a SpriteAnimator on the clip \"" + (*prefabInfo)["clip"].get<std::string>() +
-                        "\". Spawn it where the effect happens: feel.do({action: \"spawn\", prefab: \"" + (*prefabInfo)["path"].get<std::string>() +
-                        "\", offset: [x, y, 0], lifetime: seconds}) from a script, or scene.spawn {\"prefab\": ...}. The character's own Sprite.layer goes between the back and the front one "
-                        "(`prefab.layers` sets them). The picture in this result stacks the layers on a dark ground (the light added).");
+        for (const Json& c : (*prefabInfo)["children"])
+            names.push_back(c["name"].get<std::string>() + " at Sprite.layer " + std::to_string(c["layer"].get<int>()));
+        steps.push_back("The prefab '" + (*prefabInfo)["path"].get<std::string>() +
+                        "' plays the layers together: a parent \"" + (*prefabInfo)["name"].get<std::string>() +
+                        "\" with one child per layer (" + join(names, ", ") +
+                        "), each a SpriteAnimator on the clip \"" + (*prefabInfo)["clip"].get<std::string>() +
+                        "\". Spawn it where the effect happens: feel.do({action: \"spawn\", prefab: \"" +
+                        (*prefabInfo)["path"].get<std::string>() +
+                        "\", offset: [x, y, 0], lifetime: seconds}) from a script, or scene.spawn {\"prefab\": ...}. "
+                        "The character's own Sprite.layer goes between the back and the front one "
+                        "(`prefab.layers` sets them). The picture in this result stacks the layers on a dark ground "
+                        "(the light added).");
     } else if (layered) {
-        steps.push_back("The sheets are one effect: make an entity per layer (children of the same parent, so they move together) with the SAME SpriteAnimator settings, and "
-                        "call play on each at the same moment: the grid, the frames, the fps and the pivot are the same, so they stay in step. The picture in this result stacks the layers on a dark ground (the light added).");
+        steps.push_back(
+            "The sheets are one effect: make an entity per layer (children of the same parent, so they move together) "
+            "with the SAME SpriteAnimator settings, and "
+            "call play on each at the same moment: the grid, the frames, the fps and the pivot are the same, so they "
+            "stay in step. The picture in this result stacks the layers on a dark ground (the light added).");
     }
     if (layered && !prefabInfo) {
-        for (const Json& l : layerInfo) steps.push_back(l["layer"].get<std::string>() + " (" + l["path"].get<std::string>() + "): " + l["use"].get<std::string>() + ".");
-        steps.push_back("To get these entities as a prefab in one call, bake again with \"prefab\": \"prefabs/<name>.prefab.json\" (a parent with one child per layer, the clip and the blend written for you).");
+        for (const Json& l : layerInfo)
+            steps.push_back(l["layer"].get<std::string>() + " (" + l["path"].get<std::string>() +
+                            "): " + l["use"].get<std::string>() + ".");
+        steps.push_back(
+            "To get these entities as a prefab in one call, bake again with \"prefab\": \"prefabs/<name>.prefab.json\" "
+            "(a parent with one child per layer, the clip and the blend written for you).");
     }
-    steps.push_back("Look at the sheet in this result. To change the animation, edit " + (isModule ? sourceRel : std::string("the SVG")) + " and call again with overwrite: true, "
-                    "or run assets.regenerate {\"path\":\"" + layerRels[0] + "\"} (the recipe is in the provenance; {\"stale\":true} makes again every asset whose source changed). "
-                    "To recolour it without touching the code, change `ramp` and call again.");
+    steps.push_back(
+        "Look at the sheet in this result. To change the animation, edit " +
+        (isModule ? sourceRel : std::string("the SVG")) +
+        " and call again with overwrite: true, "
+        "or run assets.regenerate {\"path\":\"" +
+        layerRels[0] +
+        "\"} (the recipe is in the provenance; {\"stale\":true} makes again every asset whose source changed). "
+        "To recolour it without touching the code, change `ramp` and call again.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -774,7 +999,8 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
     info.name = kCommand;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.";
+    info.summary = "Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) "
+                   "and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.";
     info.description =
         "Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` entry in "
         "assets.json in one call, from an animation you write as code. Two ways to draw it. (1) `source`: a "
@@ -787,8 +1013,7 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
         "params are merged over it); rng() is a seeded random number in 0..1 for this frame (also "
         "rng.range(a, b), rng.int(n), rng.pick(list), rng.chance(p), rng.gauss()), different on every frame; "
         "rngFor(key) is a random stream that is the SAME on every frame for one key (a sparkle that stays "
-        "where it is); clip is the clip name with `clips`."
-        FA_COMMAND_DETAILS
+        "where it is); clip is the clip name with `clips`." FA_COMMAND_DETAILS
         "The module runs in a sandboxed QuickJS context: the language only (Math, JSON, Array...), no engine "
         "bindings, no DOM, no timers, no files; it may `import` other project files with a relative path "
         "(\"./shapes.js\"). Math.random is a seeded stream and Date a fixed day moved to the frame's time, "
@@ -848,59 +1073,205 @@ void register_animate_svg_command(CommandRegistry& registry, const std::string& 
         "be made again, byte for byte. Use this for motion that follows rules (spin, bob, pulse, sparkle, "
         "flame, waves, loaders); for an engine-drawn entity use assets.bake_sheet, for painted "
         "frame-by-frame art ask an image provider. Example: "
-        "{\"path\":\"assets/art/coin_spin.png\",\"source\":\"art/coin_spin.anim.js\",\"frames\":8,\"fps\":10,\"frameWidth\":64,\"frameHeight\":64,\"padding\":1} "
+        "{\"path\":\"assets/art/coin_spin.png\",\"source\":\"art/"
+        "coin_spin.anim.js\",\"frames\":8,\"fps\":10,\"frameWidth\":64,\"frameHeight\":64,\"padding\":1} "
         "with art/coin_spin.anim.js = \"export default function frame({progress}) { const w = "
         "Math.abs(Math.cos(progress * Math.PI * 2)) * 40; return `<svg xmlns='http://www.w3.org/2000/svg' "
         "viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w + 4}' ry='42' fill='#e8c66a' "
         "stroke='#8b6a1e' stroke-width='4'/></svg>`; }\"";
-    const Json pivotSchema = Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})}, {"minItems", 2}, {"maxItems", 2}});
+    const Json pivotSchema =
+        Json::object({{"type", "array"},
+                      {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})},
+                      {"minItems", 2},
+                      {"maxItems", 2}});
     info.inputSchema = Json::object(
         {{"type", "object"},
          {"required", Json::array({"path"})},
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"path", Json::object({{"type", "string"}, {"description", "Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png."}})},
-               {"source", Json::object({{"type", "string"}, {"description", "A project-relative JavaScript module whose default export draws one frame (\"art/coin_spin.anim.js\"), or an .svg file with SMIL animation. Give this or `svg`."}})},
-               {"svg", Json::object({{"type", "string"}, {"description", "One SVG with SMIL animation as text, sampled at every frame. Give this or `source`."}})},
-               {"frames", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxFrames}, {"description", "Number of frames. Required with a module; with SMIL the default is one pass of the animation. Not with `clips` (they give their own)."}})},
-               {"fps", Json::object({{"type", "number"}, {"exclusiveMinimum", 0}, {"maximum", 240}, {"default", 12}, {"description", "Frames per second: t = frame / fps, and the fps of the sheet's clip."}})},
-               {"loop", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the clip repeats. Decides `progress` (frame / frames when true, frame / (frames - 1) when false) and the loop-jump warning."}})},
-               {"columns", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "Frames per row of the sheet. Default ceil(sqrt(frames))."}})},
-               {"frameWidth", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxCell}, {"default", 64}, {"description", "Width of one frame in pixels; the SVG is fitted inside, aspect kept, centred."}})},
-               {"frameHeight", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxCell}, {"description", "Height of one frame in pixels. Default: frameWidth."}})},
-               {"params", Json::object({{"type", "object"}, {"description", "Passed to the module as `params` (colours, counts, amplitudes), so one module serves several sheets."}})},
-               {"seed", Json::object({{"type", "integer"}, {"default", 0}, {"description", "Seeds rng, Math.random and rngFor of the module, and the painterly style. The same seed always gives the same sheet."}})},
-               {"clips", Json::object({{"type", "array"}, {"description", "Several named clips from one module, laid out one after another: [{name, frames, fps, loop, params, pivot}]. Module only."},
-                                       {"items", Json::object({{"type", "object"}, {"additionalProperties", false}, {"required", Json::array({"name", "frames"})},
-                                                               {"properties", Json::object({{"name", Json::object({{"type", "string"}, {"description", "The clip's name; the module reads it as `clip`."}})},
-                                                                                            {"frames", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxFrames}, {"description", "Frames of this clip."}})},
-                                                                                            {"fps", Json::object({{"type", "number"}, {"description", "Frames per second of this clip. Default: the top-level fps."}})},
-                                                                                            {"loop", Json::object({{"type", "boolean"}, {"description", "Whether this clip repeats. Default: the top-level loop."}})},
-                                                                                            {"params", Json::object({{"type", "object"}, {"description", "Merged over the top-level params for this clip."}})},
-                                                                                            {"pivot", pivotSchema}})}})}})},
-               {"pivot", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})}, {"minItems", 2}, {"maxItems", 2},
-                                       {"description", "[x, y] in 0..1 from the top-left of the frame: the point that stays still. Recorded in the sheet entry. Default [0.5, 0.5]."}})},
-               {"palette", Json::object({{"description", "Snap every pixel to these colours: a list of \"#rrggbb\" strings, or the project-relative path of an image whose distinct opaque colours are the palette (at most 256). Alpha is kept."}})},
-               {"ramp", Json::object({{"description", "The effect's colours from dark to bright: a list of 2 to 32 \"#rrggbb\" strings, or the project path of an image document (*.image.json) that declares `ramps` (pick one with rampIndex). A module reads them as `ramp` and `rampAt(u)`; with rampMap the frames are recoloured by brightness. Change it and bake again to recolour the effect."}})},
-               {"rampIndex", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Which ramp of the image document named by `ramp` (0 is the first one image.palette lists). Only with a document."}})},
-               {"rampMap", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Recolour the finished frames by brightness with `ramp` (dark pixels take its first colour, bright ones its last; alpha kept). Needed for a SMIL SVG; a module may use rampAt instead."}})},
-               {"layers", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}, {"enum", layer_names()}})}, {"minItems", 1}, {"maxItems", 3},
-                                        {"description", "Bake one sheet per layer (back, front, light), module only: the module receives `layer`. The files are <path>_<layer>.png with the same grid, fps, clips and pivot. back is drawn behind the character, front in front of it, light is an additive glow."}})},
-               {"prefab", Json::object({{"description", "Needs `layers`. Also write the prefab that plays the layers together: the path of a .prefab.json (\"prefabs/coin_sparkle.prefab.json\"), or an object {path, name, tags, size, layers, pixelArt, overwrite}. "
-                                                        "It is a parent entity (name: `name`, default made from the file name; `tags`) with one child per layer (Back, Front, Light), each a Sprite on that layer's sheet "
-                                                        "(`size` [w, h] in world units, default one frame in pixels; `layers` {back, front, light} are the Sprite.layer numbers, default -1, 1 and 2, so put the character's layer between back and front; "
-                                                        "`pixelArt` default false) with a SpriteAnimator on the sheet's first clip; the light child is blend additive. The prefab is written after the sheets. "
-                                                        "An existing prefab is never replaced unless the object has overwrite: true (the call fails before baking anything): it may hold changes made by hand, and the command's `overwrite` is about the sheets. "
-                                                        "The prefab is not part of the recipe: assets.regenerate remakes the sheets and leaves the prefab as it is."}})},
-               {"style", Json::object({{"type", "string"}, {"enum", image_style_names()}, {"description", "Default none. The painterly look of assets.rasterize_svg applied to every frame (watercolor, ink, inkwash, paper). The same seed for all frames, so the texture does not boil."}})},
-               {"styleStrength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "How strong the `style` is, 0 to 1 (default 1). Ignored without a `style`."}})},
-               {"padding", Json::object({{"type", "integer"}, {"minimum", 0}, {"maximum", 64}, {"default", 0}, {"description", "Transparent pixels around every cell: 1 or 2 keeps filtered frames from bleeding into each other. Recorded in the sheet entry."}})},
-               {"timeLimitMs", Json::object({{"type", "integer"}, {"minimum", 10}, {"maximum", 60000}, {"default", 2000}, {"description", "Milliseconds the module may take to load and, separately, to draw each frame; over it the call fails naming the frame."}})},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the sheet (every layer's sheet) when it already exists. It does not cover the prefab: see `prefab`."}})},
-               {"ai", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the code was written by an AI (the default, since the caller is an agent). Set false for art a person made; it then counts as original work in the AI disclosure."}})},
-               {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
-               {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the sheet for the provenance record."}})}})}});
+              {{"path",
+                Json::object(
+                    {{"type", "string"},
+                     {"description",
+                      "Where to write the sheet, project-relative, under assets/ and ending in .png. With `layers` it "
+                      "is the base name: hit.png gives hit_back.png, hit_front.png and hit_light.png."}})},
+               {"source",
+                Json::object(
+                    {{"type", "string"},
+                     {"description",
+                      "A project-relative JavaScript module whose default export draws one frame "
+                      "(\"art/coin_spin.anim.js\"), or an .svg file with SMIL animation. Give this or `svg`."}})},
+               {"svg", Json::object(
+                           {{"type", "string"},
+                            {"description",
+                             "One SVG with SMIL animation as text, sampled at every frame. Give this or `source`."}})},
+               {"frames",
+                Json::object({{"type", "integer"},
+                              {"minimum", 1},
+                              {"maximum", kMaxFrames},
+                              {"description", "Number of frames. Required with a module; with SMIL the default is one "
+                                              "pass of the animation. Not with `clips` (they give their own)."}})},
+               {"fps", Json::object(
+                           {{"type", "number"},
+                            {"exclusiveMinimum", 0},
+                            {"maximum", 240},
+                            {"default", 12},
+                            {"description", "Frames per second: t = frame / fps, and the fps of the sheet's clip."}})},
+               {"loop",
+                Json::object({{"type", "boolean"},
+                              {"default", true},
+                              {"description", "Whether the clip repeats. Decides `progress` (frame / frames when true, "
+                                              "frame / (frames - 1) when false) and the loop-jump warning."}})},
+               {"columns", Json::object({{"type", "integer"},
+                                         {"minimum", 1},
+                                         {"description", "Frames per row of the sheet. Default ceil(sqrt(frames))."}})},
+               {"frameWidth",
+                Json::object({{"type", "integer"},
+                              {"minimum", 1},
+                              {"maximum", kMaxCell},
+                              {"default", 64},
+                              {"description",
+                               "Width of one frame in pixels; the SVG is fitted inside, aspect kept, centred."}})},
+               {"frameHeight", Json::object({{"type", "integer"},
+                                             {"minimum", 1},
+                                             {"maximum", kMaxCell},
+                                             {"description", "Height of one frame in pixels. Default: frameWidth."}})},
+               {"params", Json::object({{"type", "object"},
+                                        {"description", "Passed to the module as `params` (colours, counts, "
+                                                        "amplitudes), so one module serves several sheets."}})},
+               {"seed", Json::object({{"type", "integer"},
+                                      {"default", 0},
+                                      {"description", "Seeds rng, Math.random and rngFor of the module, and the "
+                                                      "painterly style. The same seed always gives the same sheet."}})},
+               {"clips",
+                Json::object(
+                    {{"type", "array"},
+                     {"description", "Several named clips from one module, laid out one after another: [{name, frames, "
+                                     "fps, loop, params, pivot}]. Module only."},
+                     {"items",
+                      Json::object(
+                          {{"type", "object"},
+                           {"additionalProperties", false},
+                           {"required", Json::array({"name", "frames"})},
+                           {"properties",
+                            Json::object(
+                                {{"name",
+                                  Json::object({{"type", "string"},
+                                                {"description", "The clip's name; the module reads it as `clip`."}})},
+                                 {"frames", Json::object({{"type", "integer"},
+                                                          {"minimum", 1},
+                                                          {"maximum", kMaxFrames},
+                                                          {"description", "Frames of this clip."}})},
+                                 {"fps",
+                                  Json::object({{"type", "number"},
+                                                {"description",
+                                                 "Frames per second of this clip. Default: the top-level fps."}})},
+                                 {"loop", Json::object({{"type", "boolean"},
+                                                        {"description",
+                                                         "Whether this clip repeats. Default: the top-level loop."}})},
+                                 {"params",
+                                  Json::object({{"type", "object"},
+                                                {"description", "Merged over the top-level params for this clip."}})},
+                                 {"pivot", pivotSchema}})}})}})},
+               {"pivot",
+                Json::object({{"type", "array"},
+                              {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})},
+                              {"minItems", 2},
+                              {"maxItems", 2},
+                              {"description", "[x, y] in 0..1 from the top-left of the frame: the point that stays "
+                                              "still. Recorded in the sheet entry. Default [0.5, 0.5]."}})},
+               {"palette",
+                Json::object(
+                    {{"description",
+                      "Snap every pixel to these colours: a list of \"#rrggbb\" strings, or the project-relative path "
+                      "of an image whose distinct opaque colours are the palette (at most 256). Alpha is kept."}})},
+               {"ramp", Json::object(
+                            {{"description",
+                              "The effect's colours from dark to bright: a list of 2 to 32 \"#rrggbb\" strings, or the "
+                              "project path of an image document (*.image.json) that declares `ramps` (pick one with "
+                              "rampIndex). A module reads them as `ramp` and `rampAt(u)`; with rampMap the frames are "
+                              "recoloured by brightness. Change it and bake again to recolour the effect."}})},
+               {"rampIndex", Json::object({{"type", "integer"},
+                                           {"minimum", 0},
+                                           {"description", "Which ramp of the image document named by `ramp` (0 is the "
+                                                           "first one image.palette lists). Only with a document."}})},
+               {"rampMap",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description",
+                      "Recolour the finished frames by brightness with `ramp` (dark pixels take its first colour, "
+                      "bright ones its last; alpha kept). Needed for a SMIL SVG; a module may use rampAt instead."}})},
+               {"layers",
+                Json::object(
+                    {{"type", "array"},
+                     {"items", Json::object({{"type", "string"}, {"enum", layer_names()}})},
+                     {"minItems", 1},
+                     {"maxItems", 3},
+                     {"description",
+                      "Bake one sheet per layer (back, front, light), module only: the module receives `layer`. The "
+                      "files are <path>_<layer>.png with the same grid, fps, clips and pivot. back is drawn behind the "
+                      "character, front in front of it, light is an additive glow."}})},
+               {"prefab",
+                Json::object({{"description",
+                               "Needs `layers`. Also write the prefab that plays the layers together: the path of a "
+                               ".prefab.json (\"prefabs/coin_sparkle.prefab.json\"), or an object {path, name, tags, "
+                               "size, layers, pixelArt, overwrite}. "
+                               "It is a parent entity (name: `name`, default made from the file name; `tags`) with one "
+                               "child per layer (Back, Front, Light), each a Sprite on that layer's sheet "
+                               "(`size` [w, h] in world units, default one frame in pixels; `layers` {back, front, "
+                               "light} are the Sprite.layer numbers, default -1, 1 and 2, so put the character's layer "
+                               "between back and front; "
+                               "`pixelArt` default false) with a SpriteAnimator on the sheet's first clip; the light "
+                               "child is blend additive. The prefab is written after the sheets. "
+                               "An existing prefab is never replaced unless the object has overwrite: true (the call "
+                               "fails before baking anything): it may hold changes made by hand, and the command's "
+                               "`overwrite` is about the sheets. "
+                               "The prefab is not part of the recipe: assets.regenerate remakes the sheets and leaves "
+                               "the prefab as it is."}})},
+               {"style",
+                Json::object(
+                    {{"type", "string"},
+                     {"enum", image_style_names()},
+                     {"description",
+                      "Default none. The painterly look of assets.rasterize_svg applied to every frame (watercolor, "
+                      "ink, inkwash, paper). The same seed for all frames, so the texture does not boil."}})},
+               {"styleStrength",
+                Json::object(
+                    {{"type", "number"},
+                     {"minimum", 0},
+                     {"maximum", 1},
+                     {"description", "How strong the `style` is, 0 to 1 (default 1). Ignored without a `style`."}})},
+               {"padding",
+                Json::object({{"type", "integer"},
+                              {"minimum", 0},
+                              {"maximum", 64},
+                              {"default", 0},
+                              {"description", "Transparent pixels around every cell: 1 or 2 keeps filtered frames from "
+                                              "bleeding into each other. Recorded in the sheet entry."}})},
+               {"timeLimitMs",
+                Json::object({{"type", "integer"},
+                              {"minimum", 10},
+                              {"maximum", 60000},
+                              {"default", 2000},
+                              {"description", "Milliseconds the module may take to load and, separately, to draw each "
+                                              "frame; over it the call fails naming the frame."}})},
+               {"overwrite", Json::object({{"type", "boolean"},
+                                           {"default", false},
+                                           {"description", "Replace the sheet (every layer's sheet) when it already "
+                                                           "exists. It does not cover the prefab: see `prefab`."}})},
+               {"ai",
+                Json::object({{"type", "boolean"},
+                              {"default", true},
+                              {"description",
+                               "Whether the code was written by an AI (the default, since the caller is an agent). Set "
+                               "false for art a person made; it then counts as original work in the AI disclosure."}})},
+               {"author",
+                Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
+               {"license", Json::object({{"type", "string"},
+                                         {"default", "CC0-1.0"},
+                                         {"description", "License of the sheet for the provenance record."}})}})}});
     mark_paths(info.inputSchema, "write", {"path"});
     mark_paths(info.inputSchema, "read", {"source"});
     registry.add(info, [projectDir](const Json& args) { return animate(projectDir, args); });

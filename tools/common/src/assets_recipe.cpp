@@ -11,11 +11,14 @@
 
 namespace fa::assets_detail {
 
-Json make_recipe(const std::string& projectDir, const std::string& command, Json args, const std::vector<std::string>& inputs) {
+Json make_recipe(const std::string& projectDir, const std::string& command, Json args,
+                 const std::vector<std::string>& inputs) {
     Json list = Json::array();
     for (const std::string& rel : inputs) {
         auto hash = sha256_file_hex(project_file(projectDir, rel));
-        if (!hash.ok()) fail("failed", "Cannot hash '" + rel + "' for the asset's recipe: " + hash.error().message, hash.error().hint);
+        if (!hash.ok())
+            fail("failed", "Cannot hash '" + rel + "' for the asset's recipe: " + hash.error().message,
+                 hash.error().hint);
         list.push_back(Json::object({{"path", rel}, {"sha256", hash.value()}}));
     }
     Json recipe = Json::object({{"command", command}, {"args", std::move(args)}});
@@ -27,8 +30,10 @@ Json recipe_args(const Json& a, std::initializer_list<std::pair<const char*, Jso
     Json out = a.is_object() ? a : Json::object();
     out.erase("overwrite");
     for (const auto& [key, value] : set) {
-        if (value.is_null()) out.erase(key);
-        else out[key] = value;
+        if (value.is_null())
+            out.erase(key);
+        else
+            out[key] = value;
     }
     return out;
 }
@@ -94,20 +99,25 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
     // null when the style guide set none; a different value now makes the asset stale.
     if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("styleMusicLufs")) {
         const Json& recorded = recipe["context"]["styleMusicLufs"];
-        const std::optional<double> before = recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
+        const std::optional<double> before =
+            recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
         const std::optional<double> now = style_music_loudness(projectDir);
         if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
             check.changed.push_back(std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)");
-        check.compared.push_back(Json::object({{"path", std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)"}, {"value", recorded}}));
+        check.compared.push_back(Json::object(
+            {{"path", std::string(assets::kManifestFile) + " (style.audio.loudnessLufs.music)"}, {"value", recorded}}));
     }
     // The same for the texel density a model document's `uv` section took from the style guide.
-    if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("styleTexelsPerUnit")) {
+    if (recipe.contains("context") && recipe["context"].is_object() &&
+        recipe["context"].contains("styleTexelsPerUnit")) {
         const Json& recorded = recipe["context"]["styleTexelsPerUnit"];
-        const std::optional<double> before = recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
+        const std::optional<double> before =
+            recorded.is_number() ? std::optional<double>(recorded.get<double>()) : std::nullopt;
         const std::optional<double> now = style_texels_per_unit(projectDir);
         if (before.has_value() != now.has_value() || (before && std::abs(*before - *now) > 1e-9))
             check.changed.push_back(std::string(assets::kManifestFile) + " (style.texelsPerUnit)");
-        check.compared.push_back(Json::object({{"path", std::string(assets::kManifestFile) + " (style.texelsPerUnit)"}, {"value", recorded}}));
+        check.compared.push_back(Json::object(
+            {{"path", std::string(assets::kManifestFile) + " (style.texelsPerUnit)"}, {"value", recorded}}));
     }
     // And the palette a model document's `vertexColors` took from the style guide.
     if (recipe.contains("context") && recipe["context"].is_object() && recipe["context"].contains("stylePalette")) {
@@ -124,8 +134,10 @@ RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
             continue;
         }
         auto hash = sha256_file_hex(stdfs::path(projectDir) / *norm);
-        if (!hash.ok()) check.missing.push_back(rel);
-        else if (*hash != input.value("sha256", std::string())) check.changed.push_back(rel);
+        if (!hash.ok())
+            check.missing.push_back(rel);
+        else if (*hash != input.value("sha256", std::string()))
+            check.changed.push_back(rel);
         if (hash.ok()) check.compared.push_back(Json::object({{"path", rel}, {"sha256", *hash}}));
     }
     return check;
@@ -136,7 +148,9 @@ Json recipe_of(const Json& entry) {
     const Json& prov = entry["provenance"];
     if (!prov.contains("recipe") || !prov["recipe"].is_object()) return Json();
     const Json& recipe = prov["recipe"];
-    if (!recipe.contains("command") || !recipe["command"].is_string() || !recipe.contains("args") || !recipe["args"].is_object()) return Json();
+    if (!recipe.contains("command") || !recipe["command"].is_string() || !recipe.contains("args") ||
+        !recipe["args"].is_object())
+        return Json();
     return recipe;
 }
 

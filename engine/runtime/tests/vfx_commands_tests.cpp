@@ -47,15 +47,31 @@ const char* kHit = R"({
     {"type": "command", "at": 0.2, "command": "audio.bus", "args": {"bus": "sfx", "volume": 0.7}}
   ]})";
 
-const char* kTorch = R"({"format": "factoria.vfx/1", "parts": [{"type": "light", "name": "glow", "duration": 5, "light": {"radius": 90}}]})";
+const char* kTorch =
+    R"({"format": "factoria.vfx/1", "parts": [{"type": "light", "name": "glow", "duration": 5, "light": {"radius": 90}}]})";
 
 std::string wav() {  // 0.1 s of silence, 16-bit mono PCM
     const std::uint32_t n = 4410;
     std::string b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-    b += "data"; u32(n * 2);
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        b.push_back(char(v & 0xff));
+        b.push_back(char(v >> 8));
+    };
+    b += "RIFF";
+    u32(36 + n * 2);
+    b += "WAVEfmt ";
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(44100);
+    u32(88200);
+    u16(2);
+    u16(16);
+    b += "data";
+    u32(n * 2);
     b.append(std::size_t(n) * 2, '\0');
     return b;
 }
@@ -174,7 +190,8 @@ TEST_CASE("vfx.play: the same calls at the same frames give the same result twic
         REQUIRE(c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","speed":1.5})")).ok);
         for (int i = 0; i < 30; ++i) {
             e.step(1);
-            trace.push_back(Json::array({e.world().entity_count(), c.call("audio.log", Json::object()).result["count"]}));
+            trace.push_back(
+                Json::array({e.world().entity_count(), c.call("audio.log", Json::object()).result["count"]}));
         }
         e.shutdown();
         return trace;
@@ -196,7 +213,8 @@ TEST_CASE("vfx.play: errors name the problem; a follow target and vfx.stop work"
     CHECK_FALSE(c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","entity":"nobody"})")).ok);
     CHECK_FALSE(c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","speed":0})")).ok);
 
-    auto r = c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","entity":"hero","position":[0,10]})"));
+    auto r =
+        c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","entity":"hero","position":[0,10]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const std::string id = r.result["id"];
     CHECK(e.world().id_of(e.world().parent(e.world().find_by_id(id))) == "hero");
@@ -234,7 +252,8 @@ TEST_CASE("vfx: a command part cannot write files or change settings, through vf
     auto& c = e.commands();
     for (const char* name : {"audio.bake", "audio.create", "feel.settings"}) {
         p.put("assets/vfx/evil.vfx.json", std::string(R"({"format":"factoria.vfx/1","parts":[
-            {"type":"command","command":")") + name + R"(","args":{}}]})");
+            {"type":"command","command":")") + name +
+                                              R"(","args":{}}]})");
         const std::size_t entities = e.world().entity_count();
         auto play = c.call("vfx.play", Json::parse(R"({"effect":"assets/vfx/evil.vfx.json"})"));
         INFO(name);
@@ -252,7 +271,8 @@ TEST_CASE("vfx: a command part cannot write files or change settings, through vf
     e.shutdown();
 }
 
-TEST_CASE("vfx: the host of the engine checks the command name again (a document built in code cannot call audio.bake)") {
+TEST_CASE(
+    "vfx: the host of the engine checks the command name again (a document built in code cannot call audio.bake)") {
     TempProject p;
     Engine e;
     std::string err;
@@ -265,8 +285,9 @@ TEST_CASE("vfx: the host of the engine checks the command name again (a document
         CHECK(why.find("may not call") != std::string::npos);
         CHECK(why.find(name) != std::string::npos);
     }
-    CHECK(host.call("feel.shake", Json::parse(R"({"amount":0.1,"duration":0.1})")).empty());   // an allowed name runs
-    const std::string wrong = host.call("feel.shake", Json::parse(R"({"amount":"strong"})"));   // an allowed name with wrong arguments says why
+    CHECK(host.call("feel.shake", Json::parse(R"({"amount":0.1,"duration":0.1})")).empty());  // an allowed name runs
+    const std::string wrong = host.call(
+        "feel.shake", Json::parse(R"({"amount":"strong"})"));  // an allowed name with wrong arguments says why
     CHECK_FALSE(wrong.empty());
     CHECK(wrong.find("may not call") == std::string::npos);
 
@@ -281,7 +302,7 @@ TEST_CASE("vfx: the host of the engine checks the command name again (a document
     part.args = Json::object();
     doc->parts.push_back(part);
     VfxHost hosted = host;
-    std::vector<std::string> answers;   // what the host of the engine said to each command the system called
+    std::vector<std::string> answers;  // what the host of the engine said to each command the system called
     hosted.call = [&](const std::string& command, const Json& args) {
         answers.push_back(host.call(command, args));
         return answers.back();
@@ -320,7 +341,8 @@ TEST_CASE("vfx.check: lists errors with pointers, warnings, and a missing sound"
     REQUIRE(bad.result["errors"].size() >= 1);
     CHECK(bad.result["errors"][0]["pointer"] == "/parts/1/command");
 
-    p.put("assets/vfx/gone.vfx.json", R"({"format":"factoria.vfx/1","parts":[{"type":"sound","clip":"assets/sfx/absent.wav"}]})");
+    p.put("assets/vfx/gone.vfx.json",
+          R"({"format":"factoria.vfx/1","parts":[{"type":"sound","clip":"assets/sfx/absent.wav"}]})");
     auto gone = c.call("vfx.check", Json::parse(R"({"path":"assets/vfx/gone.vfx.json"})"));
     REQUIRE(gone.ok);
     CHECK(gone.result["ok"] == false);
@@ -344,11 +366,15 @@ TEST_CASE("Vfx component: an effect placed in a scene plays at the start, and sc
     CHECK(e.world().get<Vfx>(torch)->playing);
     CHECK(e.world().children(torch).size() == 1);  // the glow
 
-    auto r = c.call("script.eval", Json::parse(R"j({"code":"const fx = vfx.play('assets/vfx/hit.vfx.json', { position: [10, 20], scale: 2 }); [fx.id, vfx.playing().length]"})j"));
+    auto r = c.call(
+        "script.eval",
+        Json::parse(
+            R"j({"code":"const fx = vfx.play('assets/vfx/hit.vfx.json', { position: [10, 20], scale: 2 }); [fx.id, vfx.playing().length]"})j"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     INFO(r.result.dump());
     CHECK(r.result["value"][0].is_string());
-    CHECK(r.result["value"][1].get<int>() == 2);  // the torch and the new effect: one that vfx.play made counts before its first step
+    CHECK(r.result["value"][1].get<int>() ==
+          2);  // the torch and the new effect: one that vfx.play made counts before its first step
     e.step(2);
     CHECK(c.call("vfx.list", Json::object()).result["count"].get<int>() >= 2);
     auto bad = c.call("script.eval", Json::parse(R"j({"code":"vfx.play('assets/vfx/nope.vfx.json')"})j"));
@@ -367,7 +393,8 @@ TEST_CASE("vfx.budget: the numbers of an effect, repeatable, and findings with a
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
-    const auto playingBefore = c.call("vfx.list", Json::object()).result["count"];  // the torch of the scene, which starts at the first step
+    const auto playingBefore =
+        c.call("vfx.list", Json::object()).result["count"];  // the torch of the scene, which starts at the first step
     auto a = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
     REQUIRE_MESSAGE(a.ok, a.error.dump());
     CHECK(a.result["preset"] == "phone");
@@ -388,7 +415,9 @@ TEST_CASE("vfx.budget: the numbers of an effect, repeatable, and findings with a
     CHECK(f["pointer"] == "/parts/0/emitter/maxParticles");
     CHECK(f["fix"]["command"] == "vfx.edit");
     CHECK(f["fix"]["args"]["path"] == "assets/vfx/heavy.vfx.json");
-    CHECK(c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/heavy.vfx.json","preset":"desktop"})")).result["ok"] == true);
+    CHECK(
+        c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/heavy.vfx.json","preset":"desktop"})")).result["ok"] ==
+        true);
 
     // The game is untouched: the budget started no effect and made no entity.
     CHECK(c.call("vfx.list", Json::object()).result["count"] == playingBefore);
@@ -418,8 +447,8 @@ TEST_CASE("vfx.filmstrip films an effect, steps the game and leaves no effect be
         // No graphics on this machine: the error says what works without them.
         CHECK(r.error.dump().find("vfx.budget") != std::string::npos);
         const auto left = c.call("vfx.list", Json::object());  // kept: the loop must not run over a destroyed temporary
-    REQUIRE(left.ok);
-    for (const Json& fx : left.result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
+        REQUIRE(left.ok);
+        for (const Json& fx : left.result["playing"]) CHECK(fx["effect"] == "assets/vfx/torch.vfx.json");
         e.shutdown();
         return;
     }
@@ -450,11 +479,13 @@ const char* kScene3d = R"({
     { "id": "cam", "components": { "Transform": { "position": [0, 2, 10] }, "Camera": { "projection": "perspective", "fov": 90, "primary": true } } }
   ]
 })";
-const char* kOrb3d = R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
+const char* kOrb3d =
+    R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","name":"orb","emitter":{"is3D":true,"burst":1,"rate":0,"lifetime":0.5,
     "lifetimeVariance":0,"startSize":5,"endSize":5,"speed":0,"speedVariance":0,"maxParticles":4}}]})";
 }  // namespace
 
-TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main camera, and the answer says which camera (or that there is none)") {
+TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main camera, and the answer says which camera "
+          "(or that there is none)") {
     TempProject p;
     p.put("scenes/main.scene.json", kScene3d);
     p.put("assets/vfx/orb.vfx.json", kOrb3d);
@@ -469,7 +500,8 @@ TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main came
     CHECK(r.result["camera"]["distance"] == kVfxDefaultCameraDistance);
     CHECK(r.result["camera"]["fov"] == 90.0);
     // 25 / (10 * 10 * 320 / 180) of the design view (320 x 180): the aspect is the design size's.
-    CHECK(r.result["peakOverdraw"].get<double>() == doctest::Approx(25.0 / (10.0 * 10.0 * 320.0 / 180.0)).epsilon(0.01));
+    CHECK(r.result["peakOverdraw"].get<double>() ==
+          doctest::Approx(25.0 / (10.0 * 10.0 * 320.0 / 180.0)).epsilon(0.01));
     CHECK(r.result["notes"][0].get<std::string>().find("main camera") != std::string::npos);
     // A 2D effect needs no camera.
     auto flat = c.call("vfx.budget", Json::parse(R"({"path":"assets/vfx/hit.vfx.json"})"));
@@ -487,7 +519,8 @@ TEST_CASE("vfx.budget: a 3D emitter's overdraw is measured through the main came
     e.shutdown();
 }
 
-TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the camera and says so; a 2D game films the middle of the view") {
+TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the camera and says so; a 2D game films the "
+          "middle of the view") {
     for (const bool threeD : {true, false}) {
         TempProject p;
         if (threeD) p.put("scenes/main.scene.json", kScene3d);
@@ -496,7 +529,8 @@ TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the c
         REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
         auto& c = e.commands();
         e.step(1);
-        auto r = c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","frames":2,"everyFrames":1})"));
+        auto r =
+            c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","frames":2,"everyFrames":1})"));
         if (!r.ok) {
             // No graphics here: the error is the one of a missing renderer, not of a missing position.
             CHECK(r.error.dump().find("position") == std::string::npos);
@@ -515,7 +549,9 @@ TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the c
             CHECK(note.find("middle of the view") != std::string::npos);
         }
         // With a position the answer says it was given.
-        auto given = c.call("vfx.filmstrip", Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","position":[0,2,4],"frames":2,"everyFrames":1})"));
+        auto given = c.call(
+            "vfx.filmstrip",
+            Json::parse(R"({"effect":"assets/vfx/hit.vfx.json","position":[0,2,4],"frames":2,"everyFrames":1})"));
         REQUIRE_MESSAGE(given.ok, given.error.dump());
         CHECK(given.result["positionDefault"] == false);
         CHECK_FALSE(given.result.contains("positionNote"));
@@ -523,7 +559,8 @@ TEST_CASE("vfx.filmstrip without position: a 3D game films 5 m in front of the c
     }
 }
 
-TEST_CASE("vfx.play: the command parts of an effect run the game feel commands (shake, hit-stop, flash) at their frame") {
+TEST_CASE(
+    "vfx.play: the command parts of an effect run the game feel commands (shake, hit-stop, flash) at their frame") {
     TempProject p;
     p.put("assets/vfx/impact.vfx.json", R"({
       "format": "factoria.vfx/1",

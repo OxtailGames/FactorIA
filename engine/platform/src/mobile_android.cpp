@@ -29,8 +29,9 @@ static_assert(kAndroidKeyBack == AKEYCODE_BACK && kAndroidKey0 == AKEYCODE_0 && 
                   kAndroidKeyA == AKEYCODE_A && kAndroidKeyZ == AKEYCODE_Z,
               "kAndroidKey* must match android/keycodes.h");
 static_assert(AKEYCODE_DEL == 67 && AKEYCODE_ENTER == 66 && AKEYCODE_SPACE == 62 && AKEYCODE_FORWARD_DEL == 112 &&
-                  AKEYCODE_DPAD_LEFT == 21 && AKEYCODE_ESCAPE == 111 && AKEYCODE_TAB == 61 && AKEYCODE_MOVE_HOME == 122 &&
-                  AKEYCODE_NUMPAD_0 == 144 && AKEYCODE_F1 == 131 && AKEYCODE_COMMA == 55 && AKEYCODE_PLUS == 81,
+                  AKEYCODE_DPAD_LEFT == 21 && AKEYCODE_ESCAPE == 111 && AKEYCODE_TAB == 61 &&
+                  AKEYCODE_MOVE_HOME == 122 && AKEYCODE_NUMPAD_0 == 144 && AKEYCODE_F1 == 131 && AKEYCODE_COMMA == 55 &&
+                  AKEYCODE_PLUS == 81,
               "the keycodes of android_keys.cpp must match android/keycodes.h");
 
 std::mutex g_mutex;  // the input callback and the frame callback share a thread today; this keeps it true to the letter
@@ -120,7 +121,8 @@ EdgeInsets query_insets(JNIEnv* env, const ANativeActivity* act, float& scale) {
     jobject activity = act->clazz;
     jobject decor = decor_view(env, activity);
     if (!decor) return {};
-    jobject insets = call_object(env, decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;");  // null until attached
+    jobject insets =
+        call_object(env, decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;");  // null until attached
     if (!insets) return {};
     const int viewWidth = call_int(env, decor, "getWidth");
     scale = viewWidth > 0 && sapp_width() > 0 ? float(sapp_width()) / float(viewWidth) : 1.0f;
@@ -131,7 +133,8 @@ EdgeInsets query_insets(JNIEnv* env, const ANativeActivity* act, float& scale) {
         jmethodID systemBars = typeCls ? env->GetStaticMethodID(typeCls, "systemBars", "()I") : nullptr;
         jmethodID displayCutout = typeCls ? env->GetStaticMethodID(typeCls, "displayCutout", "()I") : nullptr;
         if (android_clear_exception(env) || !systemBars || !displayCutout) return {};
-        const jint mask = env->CallStaticIntMethod(typeCls, systemBars) | env->CallStaticIntMethod(typeCls, displayCutout);
+        const jint mask =
+            env->CallStaticIntMethod(typeCls, systemBars) | env->CallStaticIntMethod(typeCls, displayCutout);
         jclass insetsCls = env->GetObjectClass(insets);
         jmethodID getInsets = env->GetMethodID(insetsCls, "getInsets", "(I)Landroid/graphics/Insets;");
         if (android_clear_exception(env) || !getInsets) return {};
@@ -145,8 +148,10 @@ EdgeInsets query_insets(JNIEnv* env, const ANativeActivity* act, float& scale) {
         };
         px = {side("left"), side("top"), side("right"), side("bottom")};
     } else {
-        px = {float(call_int(env, insets, "getSystemWindowInsetLeft")), float(call_int(env, insets, "getSystemWindowInsetTop")),
-              float(call_int(env, insets, "getSystemWindowInsetRight")), 0.0f};  // the bottom would include the keyboard
+        px = {float(call_int(env, insets, "getSystemWindowInsetLeft")),
+              float(call_int(env, insets, "getSystemWindowInsetTop")),
+              float(call_int(env, insets, "getSystemWindowInsetRight")),
+              0.0f};  // the bottom would include the keyboard
         if (act->sdkVersion >= 28) {
             if (jobject cutout = call_object(env, insets, "getDisplayCutout", "()Landroid/view/DisplayCutout;")) {
                 px.left = std::max(px.left, float(call_int(env, cutout, "getSafeInsetLeft")));
@@ -166,11 +171,13 @@ bool mobile_native_event(const void* nativeEvent) {
     const auto* e = static_cast<const AInputEvent*>(nativeEvent);
     if (AInputEvent_getType(e) != AINPUT_EVENT_TYPE_KEY) return false;
     const int32_t action = AKeyEvent_getAction(e);
-    if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP) return false;  // ACTION_MULTIPLE: see android_keys.h
+    if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP)
+        return false;  // ACTION_MULTIPLE: see android_keys.h
     const int code = AKeyEvent_getKeyCode(e);
     const bool down = action == AKEY_EVENT_ACTION_DOWN;
     const bool repeat = down && AKeyEvent_getRepeatCount(e) > 0;
-    const std::uint32_t unicode = down && AndroidKeys::may_type(code) ? typed_character(code, AKeyEvent_getMetaState(e)) : 0;
+    const std::uint32_t unicode =
+        down && AndroidKeys::may_type(code) ? typed_character(code, AKeyEvent_getMetaState(e)) : 0;
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_keys.on_key(code, down, unicode, repeat);
 }
@@ -200,9 +207,12 @@ void mobile_vibrate(float seconds) {
     bool ok = false;
     if (jobject vibrator = system_service(env, act->clazz, "vibrator")) {
         jclass cls = env->GetObjectClass(vibrator);
-        if (act->sdkVersion >= 26) {  // vibrate(long) is deprecated: VibrationEffect.createOneShot(ms, DEFAULT_AMPLITUDE)
+        if (act->sdkVersion >=
+            26) {  // vibrate(long) is deprecated: VibrationEffect.createOneShot(ms, DEFAULT_AMPLITUDE)
             jclass effectCls = env->FindClass("android/os/VibrationEffect");
-            jmethodID create = effectCls ? env->GetStaticMethodID(effectCls, "createOneShot", "(JI)Landroid/os/VibrationEffect;") : nullptr;
+            jmethodID create =
+                effectCls ? env->GetStaticMethodID(effectCls, "createOneShot", "(JI)Landroid/os/VibrationEffect;")
+                          : nullptr;
             jmethodID vibrate = env->GetMethodID(cls, "vibrate", "(Landroid/os/VibrationEffect;)V");
             if (!android_clear_exception(env) && create && vibrate) {
                 jobject effect = env->CallStaticObjectMethod(effectCls, create, ms, jint(-1));
@@ -222,8 +232,9 @@ void mobile_vibrate(float seconds) {
     env->PopLocalFrame(nullptr);
     if (!ok && !warned) {
         warned = true;
-        FA_WARN("platform", "vibration failed: this device has no vibrator, or the app lacks the android.permission.VIBRATE "
-                            "permission (the FactorIA Android template declares it; a project with its own manifest must too)");
+        FA_WARN("platform",
+                "vibration failed: this device has no vibrator, or the app lacks the android.permission.VIBRATE "
+                "permission (the FactorIA Android template declares it; a project with its own manifest must too)");
     }
 }
 

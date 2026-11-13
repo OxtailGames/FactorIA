@@ -45,13 +45,14 @@ namespace fa {
 class Renderer;
 namespace render {
 class Gpu;
-Gpu* renderer_gpu(Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
+Gpu* renderer_gpu(
+    Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
 }  // namespace render
 
 enum class ScaleMode : std::int32_t {
-    Fit,      // keep aspect, letterbox (default)
-    Stretch,  // fill the window, distort
-    Expand,   // keep aspect, grow the visible area on the long axis (game target resized to match)
+    Fit,          // keep aspect, letterbox (default)
+    Stretch,      // fill the window, distort
+    Expand,       // keep aspect, grow the visible area on the long axis (game target resized to match)
     PixelPerfect  // integer scaling only, letterbox
 };
 
@@ -73,8 +74,8 @@ std::string mesh_template_hash();
 struct RendererDesc {
     int designWidth = 1280;
     int designHeight = 720;
-    int sampleCount = 1;       // MSAA of the game target (1 = off)
-    bool headless = false;     // no swapchain; present() must not be called
+    int sampleCount = 1;    // MSAA of the game target (1 = off)
+    bool headless = false;  // no swapchain; present() must not be called
     // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
     // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
     // Ignored (a normal init) when no context is open.
@@ -90,23 +91,28 @@ struct RenderStats {
     int sprites = 0;
     int shapes = 0;
     int textGlyphs = 0;
-    int glyphAtlasSize = 0;    // side of the glyph atlas in pixels (1024, 2048 or 4096; it grows when full, then clears)
-    int glyphAtlasResets = 0;  // times the glyph atlas was made, grew or cleared (1 at the start); a frame that met one is gathered again
+    int glyphAtlasSize = 0;  // side of the glyph atlas in pixels (1024, 2048 or 4096; it grows when full, then clears)
+    int glyphAtlasResets =
+        0;  // times the glyph atlas was made, grew or cleared (1 at the start); a frame that met one is gathered again
     int particles = 0;
-    int meshes = 0;          // MeshRenderer entities drawn in the main pass (instances)
-    int meshesCulled = 0;    // MeshRenderer entities outside the camera frustum: not drawn in the main pass
-    int meshBatches = 0;     // instanced batches drawn (meshes with the same mesh, textures and material values share one)
+    int meshes = 0;        // MeshRenderer entities drawn in the main pass (instances)
+    int meshesCulled = 0;  // MeshRenderer entities outside the camera frustum: not drawn in the main pass
+    int meshBatches = 0;  // instanced batches drawn (meshes with the same mesh, textures and material values share one)
     int triangles = 0;
-    int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
-    int views = 0;           // CameraViews drawn this frame (each one renders its camera into an image first)
-    int renderTargets = 0;   // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
-    int lights = 0;          // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
-    int lightsDropped = 0;   // 3D lights over the limit that were left out (the least relevant ones)
-    int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 256)
-    int lights2dDropped = 0; // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
-    int lights2dShadowed = 0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
-    int materials = 0;       // distinct custom materials (MeshRenderer.material) drawn with their own shaders
-    std::vector<std::string> materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+    int shadowCasters =
+        0;          // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
+    int views = 0;  // CameraViews drawn this frame (each one renders its camera into an image first)
+    int renderTargets =
+        0;  // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
+    int lights = 0;           // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
+    int lightsDropped = 0;    // 3D lights over the limit that were left out (the least relevant ones)
+    int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
+    int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
+    int lights2dShadowed =
+        0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
+    int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
+    std::vector<std::string>
+        materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
     double cpuMs = 0.0;
     Json to_json() const;
 };
@@ -299,8 +305,10 @@ public:
     // `camera` is a rendering camera entity (active, Camera.primary); null or any other entity = the default camera: for a
     // screen point the topmost camera whose viewport contains it (the highest depth, so an inset wins over the view under
     // it; the lowest-depth camera when none does), for a world point the lowest-depth ("primary") camera.
-    Vec2 world_to_screen(Vec3 worldPos, Entity camera = kNullEntity) const;  // design pixels inside that camera's viewport
-    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f, Entity camera = kNullEntity) const;  // 2D: z = depth; 3D: point on ray at distance depth
+    Vec2 world_to_screen(Vec3 worldPos,
+                         Entity camera = kNullEntity) const;  // design pixels inside that camera's viewport
+    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f,
+                         Entity camera = kNullEntity) const;  // 2D: z = depth; 3D: point on ray at distance depth
     void screen_ray(Vec2 screenPos, Vec3& origin, Vec3& dir, Entity camera = kNullEntity) const;
     // The rendering cameras in draw order (ascending Camera.depth): empty when the world has none (a default camera draws).
     std::vector<Entity> cameras() const;
@@ -333,13 +341,14 @@ public:
     bool hdr_scene() const;
 
     // Asset cache control (textures, meshes, fonts are loaded on first use by path).
-    void reload_asset(std::string_view path);  // hot reload (a .material.json, or a snippet a material uses, rebuilds it)
+    void
+    reload_asset(std::string_view path);  // hot reload (a .material.json, or a snippet a material uses, rebuilds it)
     // Custom materials (MeshRenderer.material): how a material without a twin is compiled. Empty = read twins only.
     void set_shader_compiler(ShaderCompiler compiler);
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
-    Json asset_report() const;  // loaded assets + failures (missing files with hints)
+    Json asset_report() const;            // loaded assets + failures (missing files with hints)
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background

@@ -19,18 +19,17 @@ namespace fa::localization_detail {
 
 namespace {
 
-constexpr std::size_t kListed = 8;         // names in one message before "and N more"
-constexpr std::size_t kExtraKeys = 10;     // stale keys of one table reported one by one
-constexpr std::size_t kGlyphErrors = 25;   // texts with missing glyphs reported one by one per file
+constexpr std::size_t kListed = 8;        // names in one message before "and N more"
+constexpr std::size_t kExtraKeys = 10;    // stale keys of one table reported one by one
+constexpr std::size_t kGlyphErrors = 25;  // texts with missing glyphs reported one by one per file
 
 // The components that show text, and the field the text is in.
 struct TextField {
     const char* component;
     const char* field;
 };
-constexpr TextField kTextFields[] = {
-    {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TextField", "placeholder"},
-    {"TouchButton", "text"}};
+constexpr TextField kTextFields[] = {{"Text", "text"},    {"Button", "text"},           {"Toggle", "label"},
+                                     {"Slider", "label"}, {"TextField", "placeholder"}, {"TouchButton", "text"}};
 
 std::string quote(const std::string& s) { return "'" + s + "'"; }
 
@@ -43,7 +42,9 @@ std::string list_of(const std::vector<T>& items, std::size_t limit, Describe des
     return out;
 }
 
-std::string list_names(const std::vector<std::string>& names, std::size_t limit = kListed) { return list_of(names, limit, quote); }
+std::string list_names(const std::vector<std::string>& names, std::size_t limit = kListed) {
+    return list_of(names, limit, quote);
+}
 
 // "U+65E5 '日', U+672C '本' and 3 more"
 std::string list_code_points(const std::vector<std::uint32_t>& cps, std::size_t limit = kListed) {
@@ -52,7 +53,8 @@ std::string list_code_points(const std::vector<std::uint32_t>& cps, std::size_t 
 
 std::string font_name(const std::string& font) {
     if (font.empty()) return "DejaVu Sans (built-in)";
-    if (const BuiltinFont* b = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr) return b->family + " (built-in)";
+    if (const BuiltinFont* b = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr)
+        return b->family + " (built-in)";
     return font;
 }
 
@@ -81,7 +83,8 @@ public:
             if (i == 0) {
                 result = std::move(lacks);
             } else {
-                std::erase_if(result, [&](std::uint32_t cp) { return std::find(lacks.begin(), lacks.end(), cp) == lacks.end(); });
+                std::erase_if(
+                    result, [&](std::uint32_t cp) { return std::find(lacks.begin(), lacks.end(), cp) == lacks.end(); });
             }
         }
         return result;
@@ -98,31 +101,47 @@ std::string suggest_font(const std::vector<std::uint32_t>& cps, const std::strin
     const std::string base = to_lower(language.substr(0, language.find('-')));
     const bool traditional = language.find("Hant") != std::string::npos || language.find("-TW") != std::string::npos ||
                              language.find("-HK") != std::string::npos || language.find("-MO") != std::string::npos;
-    bool han = false, kana = false, hangul = false, arabic = false, thai = false, devanagari = false, emoji = false, other = false;
+    bool han = false, kana = false, hangul = false, arabic = false, thai = false, devanagari = false, emoji = false,
+         other = false;
     for (std::uint32_t cp : cps) {
-        if (in_range(cp, 0x3040, 0x30FF) || in_range(cp, 0x31F0, 0x31FF)) kana = true;
-        else if (in_range(cp, 0xAC00, 0xD7AF) || in_range(cp, 0x1100, 0x11FF) || in_range(cp, 0x3130, 0x318F)) hangul = true;
-        else if (in_range(cp, 0x4E00, 0x9FFF) || in_range(cp, 0x3400, 0x4DBF) || in_range(cp, 0x3000, 0x303F) || in_range(cp, 0xFF00, 0xFFEF)) han = true;
-        else if (in_range(cp, 0x0600, 0x06FF) || in_range(cp, 0x0750, 0x077F) || in_range(cp, 0xFB50, 0xFDFF) || in_range(cp, 0xFE70, 0xFEFF)) arabic = true;
-        else if (in_range(cp, 0x0E00, 0x0E7F)) thai = true;
-        else if (in_range(cp, 0x0900, 0x097F)) devanagari = true;
-        else if (in_range(cp, 0x1F000, 0x1FAFF) || in_range(cp, 0x2600, 0x27BF)) emoji = true;
-        else other = true;
+        if (in_range(cp, 0x3040, 0x30FF) || in_range(cp, 0x31F0, 0x31FF))
+            kana = true;
+        else if (in_range(cp, 0xAC00, 0xD7AF) || in_range(cp, 0x1100, 0x11FF) || in_range(cp, 0x3130, 0x318F))
+            hangul = true;
+        else if (in_range(cp, 0x4E00, 0x9FFF) || in_range(cp, 0x3400, 0x4DBF) || in_range(cp, 0x3000, 0x303F) ||
+                 in_range(cp, 0xFF00, 0xFFEF))
+            han = true;
+        else if (in_range(cp, 0x0600, 0x06FF) || in_range(cp, 0x0750, 0x077F) || in_range(cp, 0xFB50, 0xFDFF) ||
+                 in_range(cp, 0xFE70, 0xFEFF))
+            arabic = true;
+        else if (in_range(cp, 0x0E00, 0x0E7F))
+            thai = true;
+        else if (in_range(cp, 0x0900, 0x097F))
+            devanagari = true;
+        else if (in_range(cp, 0x1F000, 0x1FAFF) || in_range(cp, 0x2600, 0x27BF))
+            emoji = true;
+        else
+            other = true;
     }
     std::vector<std::string> fonts;
     if (kana) fonts.push_back("Noto Sans JP");
     if (hangul) fonts.push_back("Noto Sans KR");
     if (han && !kana && !hangul) {
-        if (base == "ja") fonts.push_back("Noto Sans JP");
-        else if (base == "ko") fonts.push_back("Noto Sans KR");
-        else if (base == "zh") fonts.push_back(traditional ? "Noto Sans TC" : "Noto Sans SC");
-        else fonts.push_back("Noto Sans SC, TC, JP or KR (the one of your language)");
+        if (base == "ja")
+            fonts.push_back("Noto Sans JP");
+        else if (base == "ko")
+            fonts.push_back("Noto Sans KR");
+        else if (base == "zh")
+            fonts.push_back(traditional ? "Noto Sans TC" : "Noto Sans SC");
+        else
+            fonts.push_back("Noto Sans SC, TC, JP or KR (the one of your language)");
     }
     if (arabic) fonts.push_back("Noto Sans Arabic");
     if (thai) fonts.push_back("Noto Sans Thai");
     if (devanagari) fonts.push_back("Noto Sans Devanagari");
     if (other && fonts.empty()) fonts.push_back("the Noto Sans family for that script");
-    if (fonts.empty() && emoji) return "Colour emoji fonts are not supported (only TrueType outlines): draw emoji as sprites.";
+    if (fonts.empty() && emoji)
+        return "Colour emoji fonts are not supported (only TrueType outlines): draw emoji as sprites.";
     std::string out = "A free font for them: " + join(fonts, " and ") + " (SIL Open Font License).";
     if (emoji) out += " Colour emoji are not supported: draw emoji as sprites.";
     return out;
@@ -144,8 +163,9 @@ public:
     }
 
     // A text with characters that no font of its chain has: names the characters, the text, the file and what to do.
-    void missing_glyphs(const std::string& file, const std::string& pointer, const std::string& what, const std::string& text,
-                        const std::vector<std::uint32_t>& cps, const std::vector<std::string>& chain, Where where, const std::string& language) {
+    void missing_glyphs(const std::string& file, const std::string& pointer, const std::string& what,
+                        const std::string& text, const std::vector<std::uint32_t>& cps,
+                        const std::vector<std::string>& chain, Where where, const std::string& language) {
         PerFile& f = files_[file];
         f.all.insert(cps.begin(), cps.end());
         if (++f.count > kGlyphErrors) return;
@@ -153,9 +173,11 @@ public:
         for (const std::string& font : chain) fonts += (fonts.empty() ? "" : ", ") + font_name(font);
         if (std::find(chain.begin(), chain.end(), std::string()) == chain.end())  // the last resort of every chain
             fonts += std::string(fonts.empty() ? "" : ", ") + "DejaVu Sans (built-in)";
-        error(file, pointer, what + " (\"" + excerpt(text) + "\") has " + (cps.size() == 1 ? "a character" : "characters") +
-                                 " that no font of its chain has a glyph for, so the game would draw " + (cps.size() == 1 ? "it" : "them") +
-                                 " as nothing: " + list_code_points(cps) + ". Fonts checked: " + fonts + ".",
+        error(file, pointer,
+              what + " (\"" + excerpt(text) + "\") has " + (cps.size() == 1 ? "a character" : "characters") +
+                  " that no font of its chain has a glyph for, so the game would draw " +
+                  (cps.size() == 1 ? "it" : "them") + " as nothing: " + list_code_points(cps) +
+                  ". Fonts checked: " + fonts + ".",
               fix(cps, where, language));
     }
 
@@ -164,8 +186,12 @@ public:
         for (const auto& [file, f] : files_) {
             if (f.count <= kGlyphErrors) continue;
             const std::vector<std::uint32_t> all(f.all.begin(), f.all.end());
-            error(file, "", std::to_string(f.count - kGlyphErrors) + " more text(s) have characters no font has a glyph for. All the missing characters of this file: " + list_code_points(all, 30) + ".",
-                  "One font that covers them all, listed in factoria.json, fixes every one of these texts.");
+            error(
+                file, "",
+                std::to_string(f.count - kGlyphErrors) +
+                    " more text(s) have characters no font has a glyph for. All the missing characters of this file: " +
+                    list_code_points(all, 30) + ".",
+                "One font that covers them all, listed in factoria.json, fixes every one of these texts.");
         }
     }
 
@@ -181,15 +207,20 @@ private:
         std::string where_to;
         switch (where) {
             case Where::Table:
-                where_to = "put a .ttf that has them in assets/fonts/ and list it in factoria.json: localization.languageFonts.\"" + language +
-                           "\" (used only while the game runs in " + language + ") or localization.fallbackFonts (every language)";
+                where_to = "put a .ttf that has them in assets/fonts/ and list it in factoria.json: "
+                           "localization.languageFonts.\"" +
+                           language + "\" (used only while the game runs in " + language +
+                           ") or localization.fallbackFonts (every language)";
                 break;
             case Where::Literal:
-                where_to = "put a .ttf that has them in assets/fonts/ and list it in factoria.json: localization.fallbackFonts, or "
-                           "localization.languageFonts.\"" + settings_.defaultLanguage + "\"; or set the component's \"font\" to it";
+                where_to = "put a .ttf that has them in assets/fonts/ and list it in factoria.json: "
+                           "localization.fallbackFonts, or "
+                           "localization.languageFonts.\"" +
+                           settings_.defaultLanguage + "\"; or set the component's \"font\" to it";
                 break;
             case Where::NoSection:
-                where_to = "put a .ttf that has them in assets/fonts/ and set the component's \"font\" to it (or add a \"localization\" section with "
+                where_to = "put a .ttf that has them in assets/fonts/ and set the component's \"font\" to it (or add a "
+                           "\"localization\" section with "
                            "\"fallbackFonts\" to cover every text of the game)";
                 break;
         }
@@ -203,31 +234,36 @@ private:
 
 // ---- the tables ----------------------------------------------------------------------------------------------------------
 
-const char* const kExchangeHint =
-    "`factoria call i18n.export` writes a spreadsheet (CSV) or XLIFF file for translators and `i18n.import` reads it back (docs/LOCALIZATION.md).";
+const char* const kExchangeHint = "`factoria call i18n.export` writes a spreadsheet (CSV) or XLIFF file for "
+                                  "translators and `i18n.import` reads it back (docs/LOCALIZATION.md).";
 
 void check_plural_forms(Reporter& out, const TableFile& t) {
     for (const auto& [key, entry] : t.table->entries) {
         if (!entry.plural()) continue;
         const std::vector<PluralCategory> needed = plural_categories(t.language);
         const std::vector<PluralCategory> allowed = plural_categories(t.language, true);
-        const auto has = [&](const std::vector<PluralCategory>& list, PluralCategory c) { return std::find(list.begin(), list.end(), c) != list.end(); };
+        const auto has = [&](const std::vector<PluralCategory>& list, PluralCategory c) {
+            return std::find(list.begin(), list.end(), c) != list.end();
+        };
         for (PluralCategory c : needed) {
             if (entry.forms.count(c)) continue;
             int sample = 0;
             while (sample < 199 && plural_category(t.language, sample) != c) ++sample;
             out.warn(t.file, entry.pointer,
-                     "The plural entry " + quote(key) + " has no \"" + plural_category_name(c) + "\" form, which '" + t.language +
-                         "' uses for counts like " + std::to_string(sample) + ": those counts show the \"other\" form.",
-                     "Add \"" + std::string(plural_category_name(c)) + "\" next to the other forms (CLDR plural rules: docs/LOCALIZATION.md).");
+                     "The plural entry " + quote(key) + " has no \"" + plural_category_name(c) + "\" form, which '" +
+                         t.language + "' uses for counts like " + std::to_string(sample) +
+                         ": those counts show the \"other\" form.",
+                     "Add \"" + std::string(plural_category_name(c)) +
+                         "\" next to the other forms (CLDR plural rules: docs/LOCALIZATION.md).");
         }
         for (const auto& [category, text] : entry.forms) {
             if (has(allowed, category)) continue;
             std::string used;
             for (PluralCategory c : needed) used += (used.empty() ? "" : ", ") + std::string(plural_category_name(c));
             out.warn(t.file, entry.pointer + "/" + plural_category_name(category),
-                     "The plural entry " + quote(key) + " has a \"" + plural_category_name(category) + "\" form, which no count picks in '" +
-                         t.language + "' (it uses: " + used + "), so it is never shown.",
+                     "The plural entry " + quote(key) + " has a \"" + plural_category_name(category) +
+                         "\" form, which no count picks in '" + t.language + "' (it uses: " + used +
+                         "), so it is never shown.",
                      "Remove it, or move its text to the form the language uses.");
         }
     }
@@ -242,7 +278,10 @@ void check_select_forms(Reporter& out, const TableFile& t) {
             if (entry.selects.count(form)) continue;
             out.warn(t.file, entry.pointer,
                      "The select entry " + quote(key) + " has no \"" + form + "\" form, which '" + t.language +
-                         "' uses for a " + (form == "f" ? "feminine" : form == "m" ? "masculine" : "neuter") +
+                         "' uses for a " +
+                         (form == "f"   ? "feminine"
+                          : form == "m" ? "masculine"
+                                        : "neuter") +
                          " name: those names show the \"other\" form.",
                      "Add \"" + form + "\" next to the other forms (docs/LOCALIZATION.md, \"Gender\").");
         }
@@ -255,9 +294,11 @@ void check_genders(Reporter& out, const TableFile& def, const TableFile& t) {
     for (const auto& [key, original] : def.table->entries) {
         if (!original.gendered()) continue;
         const auto it = t.table->entries.find(key);
-        if (it == t.table->entries.end() || it->second.gendered() || it->second.plural() || it->second.select()) continue;
+        if (it == t.table->entries.end() || it->second.gendered() || it->second.plural() || it->second.select())
+            continue;
         out.warn(t.file, it->second.pointer,
-                 "The key " + quote(key) + " has the gender \"" + original.gender + "\" in " + def.file + " but none here, and '" + t.language +
+                 "The key " + quote(key) + " has the gender \"" + original.gender + "\" in " + def.file +
+                     " but none here, and '" + t.language +
                      "' has grammatical gender: a sentence built with it picks the \"other\" form.",
                  "Write it as {\"text\": \"...\", \"gender\": \"f\"} (or \"m\", \"n\").");
     }
@@ -273,9 +314,9 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
     }
     if (!missing.empty())
         out.warn(t.file, "",
-                 "'" + t.language + "' lacks " + std::to_string(missing.size()) + " of the " + std::to_string(defaults.size()) +
-                     " strings of the default language (" + def.language + "): " + list_names(missing) +
-                     ". The game shows the text of " + def.language + " for them.",
+                 "'" + t.language + "' lacks " + std::to_string(missing.size()) + " of the " +
+                     std::to_string(defaults.size()) + " strings of the default language (" + def.language +
+                     "): " + list_names(missing) + ". The game shows the text of " + def.language + " for them.",
                  std::string("Translate them in ") + t.file + ". " + kExchangeHint);
 
     std::size_t stale = 0;
@@ -284,8 +325,10 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
         if (++stale > kExtraKeys) continue;
         const std::string close = closest_match(key, missing.empty() ? defaultKeys : missing);
         out.warn(t.file, entry.pointer,
-                 "The key " + quote(key) + " is not in " + def.file + ", so the game never asks for it (a typo, or a string that was removed).",
-                 close.empty() ? "Remove it, or add the key to " + def.file + "." : "Did you mean " + quote(close) + "?");
+                 "The key " + quote(key) + " is not in " + def.file +
+                     ", so the game never asks for it (a typo, or a string that was removed).",
+                 close.empty() ? "Remove it, or add the key to " + def.file + "."
+                               : "Did you mean " + quote(close) + "?");
     }
     if (stale > kExtraKeys)
         out.warn(t.file, "", std::to_string(stale - kExtraKeys) + " more keys are not in " + def.file + ".",
@@ -300,22 +343,28 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
         const auto lenient = [](const StringEntry& e) { return e.plural() && e.forms.size() == 1; };
         if (original.plural() != entry.plural() && !lenient(original) && !lenient(entry)) {
             out.warn(t.file, entry.pointer,
-                     entry.plural() ? "The key " + quote(key) + " is one plain string in " + def.file + " but has plural forms here."
-                                    : "The key " + quote(key) + " has plural forms in " + def.file + " but is one plain string here: it shows the same text for every count.",
-                     "Give the key the same shape in every language: either plural forms {\"one\": ..., \"other\": ...} or one string.");
+                     entry.plural() ? "The key " + quote(key) + " is one plain string in " + def.file +
+                                          " but has plural forms here."
+                                    : "The key " + quote(key) + " has plural forms in " + def.file +
+                                          " but is one plain string here: it shows the same text for every count.",
+                     "Give the key the same shape in every language: either plural forms {\"one\": ..., \"other\": "
+                     "...} or one string.");
             continue;
         }
         if (original.select() && !entry.select() && !lenient(entry)) {
             out.warn(t.file, entry.pointer,
-                     "The key " + quote(key) + " has gender forms in " + def.file + " but is " + (entry.plural() ? "a plural entry" : "one plain string") +
+                     "The key " + quote(key) + " has gender forms in " + def.file + " but is " +
+                         (entry.plural() ? "a plural entry" : "one plain string") +
                          " here: it shows the same text for every gender.",
-                     "Give the key the same shape in every language: either gender forms {\"f\": ..., \"m\": ..., \"other\": ...} or one string.");
+                     "Give the key the same shape in every language: either gender forms {\"f\": ..., \"m\": ..., "
+                     "\"other\": ...} or one string.");
             continue;
         }
         const std::set<std::string> want = placeholders_of(original), have = placeholders_of(entry);
         if (want != have)
             out.warn(t.file, entry.pointer,
-                     "The key " + quote(key) + " uses " + describe_names(have) + " here but " + describe_names(want) + " in " + def.file +
+                     "The key " + quote(key) + " uses " + describe_names(have) + " here but " + describe_names(want) +
+                         " in " + def.file +
                          ": the code fills the names of the default language, any other stays as written.",
                      "Keep the {names} of " + def.file + " (translate the text around them, not the names).");
     }
@@ -347,20 +396,26 @@ void check_key_args(Reporter& out, const SceneText& t, const std::vector<TableFi
         const bool count = name == "count";
         const std::string close = closest_match(name, argNames);
         out.warn(t.file, t.argsPointer,
-                 where + " uses the key " + quote(t.key) + ", whose text has {" + name + "}, but its keyArgs has no \"" + name + "\"" +
-                     (count ? ": a plural entry always shows its \"other\" form without a count"
-                                : name == "gender" ? ": a select entry always shows its \"other\" form without a gender" : ": the placeholder would show as written") + ".",
+                 where + " uses the key " + quote(t.key) + ", whose text has {" + name +
+                     "}, but its keyArgs has no \"" + name + "\"" +
+                     (count              ? ": a plural entry always shows its \"other\" form without a count"
+                      : name == "gender" ? ": a select entry always shows its \"other\" form without a gender"
+                                         : ": the placeholder would show as written") +
+                     ".",
                  "Add \"" + name + "\" to the " + t.component + "'s keyArgs (e.g. \"keyArgs\": {\"" + name +
                      "\": 0}); a script can change it later with entity.set or scene.set_component." +
-                     (close.empty() ? std::string() : " Did you mean to rename the arg " + quote(close) + " to " + quote(name) + "?"));
+                     (close.empty() ? std::string()
+                                    : " Did you mean to rename the arg " + quote(close) + " to " + quote(name) + "?"));
     }
     for (const std::string& arg : argNames) {
         if (used.count(arg)) continue;
         const std::string close = closest_match(arg, usedNames);
         out.warn(t.file, t.argsPointer + "/" + arg,
                  where + " has keyArgs \"" + arg + "\", which no translation of the key " + quote(t.key) + " uses" +
-                     (used.empty() ? " (the key has no placeholders)" : " (it uses " + describe_names(used) + ")") + ".",
-                 close.empty() ? "Remove the arg, or add {" + arg + "} to the key's text in locales/." : "Did you mean \"" + close + "\"?");
+                     (used.empty() ? " (the key has no placeholders)" : " (it uses " + describe_names(used) + ")") +
+                     ".",
+                 close.empty() ? "Remove the arg, or add {" + arg + "} to the key's text in locales/."
+                               : "Did you mean \"" + close + "\"?");
     }
 }
 
@@ -394,9 +449,11 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
         if (def->table->entries.count(k.key)) continue;
         const std::string close = closest_match(k.key, known);
         out.error(kProjectFileName, k.pointer,
-                  "The catalog names the key " + quote(k.key) + ", which " + def->file + " does not have: the store text would fall back to the plain text, or to the key itself.",
-                  close.empty() ? "Add the key to " + def->file + " (and to the other languages' tables), or fix the spelling."
-                                : "Did you mean " + quote(close) + "? Otherwise add the key to " + def->file + ".");
+                  "The catalog names the key " + quote(k.key) + ", which " + def->file +
+                      " does not have: the store text would fall back to the plain text, or to the key itself.",
+                  close.empty()
+                      ? "Add the key to " + def->file + " (and to the other languages' tables), or fix the spelling."
+                      : "Did you mean " + quote(close) + "? Otherwise add the key to " + def->file + ".");
     }
     std::set<std::string> reported;
     for (const SceneText& t : texts) {
@@ -405,9 +462,10 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
         if (it == def->table->entries.end()) {
             const std::string close = closest_match(t.key, known);
             out.error(t.file, t.keyPointer,
-                      t.component + " has the key " + quote(t.key) + ", which " + def->file + " does not have: the game would show the text written in the scene" +
-                          " and log a warning.",
-                      close.empty() ? "Add the key to " + def->file + " (and to the other languages' tables), or fix the spelling."
+                      t.component + " has the key " + quote(t.key) + ", which " + def->file +
+                          " does not have: the game would show the text written in the scene" + " and log a warning.",
+                      close.empty() ? "Add the key to " + def->file +
+                                          " (and to the other languages' tables), or fix the spelling."
                                     : "Did you mean " + quote(close) + "? Otherwise add the key to " + def->file + ".");
         } else if (t.argsKnown && reported.insert(t.file + t.keyPointer).second) {
             check_key_args(out, t, tables);
@@ -416,7 +474,8 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
 }
 
 // Opening every font once: a font that is missing or not a font is an error of its own, at the place that names it.
-void check_fonts(Reporter& out, Coverage& coverage, const std::string& dir, const LocalizationSettings& s, const std::vector<SceneText>& texts) {
+void check_fonts(Reporter& out, Coverage& coverage, const std::string& dir, const LocalizationSettings& s,
+                 const std::vector<SceneText>& texts) {
     const auto settle = [&](const std::string& font, const std::string& file, const std::string& pointer, bool exists) {
         if (font.empty() || coverage.get(font)) return;
         if (!exists) return;  // a Text.font that is missing is reported as a missing asset
@@ -427,11 +486,13 @@ void check_fonts(Reporter& out, Coverage& coverage, const std::string& dir, cons
         settle(s.fallbackFonts[i], kProjectFileName, "/localization/fallbackFonts/" + std::to_string(i), true);
     for (const auto& [language, fonts] : s.languageFonts)
         for (std::size_t i = 0; i < fonts.size(); ++i)
-            settle(fonts[i], kProjectFileName, "/localization/languageFonts/" + language + "/" + std::to_string(i), true);
+            settle(fonts[i], kProjectFileName, "/localization/languageFonts/" + language + "/" + std::to_string(i),
+                   true);
     std::set<std::string> seen;
     for (const SceneText& t : texts) {
         if (!t.fontKnown || t.font.empty() || !seen.insert(t.font).second) continue;
-        settle(t.font, t.file, t.pointer.substr(0, t.pointer.rfind('/')) + "/font", fs::exists((std::filesystem::path(dir) / t.font).generic_string()));
+        settle(t.font, t.file, t.pointer.substr(0, t.pointer.rfind('/')) + "/font",
+               fs::exists((std::filesystem::path(dir) / t.font).generic_string()));
     }
 }
 
@@ -453,8 +514,8 @@ void check_glyphs(Reporter& out, Coverage& coverage, const LocalizationSettings&
                     chain.insert(chain.end(), fallback.begin(), fallback.end());
                     const auto lacks = coverage.missing(chain, *e.text);
                     if (!lacks || lacks->empty()) continue;
-                    out.missing_glyphs(t.file, e.pointer, quote(key) + (e.form.empty() ? "" : " (" + e.form + ")"), *e.text, *lacks, chain, Where::Table,
-                                       t.language);
+                    out.missing_glyphs(t.file, e.pointer, quote(key) + (e.form.empty() ? "" : " (" + e.form + ")"),
+                                       *e.text, *lacks, chain, Where::Table, t.language);
                     break;  // one report per text, whichever component font showed it
                 }
             }
@@ -480,33 +541,40 @@ void check_glyphs(Reporter& out, Coverage& coverage, const LocalizationSettings&
         }
         if (languagesLacking.empty()) continue;
         if (!ownChain.empty()) {
-            out.missing_glyphs(t.file, "/$name", "The language name \"$name\"", t.table->name, lostInOwn, ownChain, Where::Table, t.language);
+            out.missing_glyphs(t.file, "/$name", "The language name \"$name\"", t.table->name, lostInOwn, ownChain,
+                               Where::Table, t.language);
         } else {
             out.warn(t.file, "/$name",
-                     "The language name \"" + t.table->name + "\" has no glyph for " + list_code_points(lost) + " while the game runs in " +
-                         list_names(languagesLacking) + ": a language menu would draw it as nothing there.",
-                     "List the font in localization.fallbackFonts (every language) instead of only in languageFonts. " + suggest_font(lost, t.language));
+                     "The language name \"" + t.table->name + "\" has no glyph for " + list_code_points(lost) +
+                         " while the game runs in " + list_names(languagesLacking) +
+                         ": a language menu would draw it as nothing there.",
+                     "List the font in localization.fallbackFonts (every language) instead of only in languageFonts. " +
+                         suggest_font(lost, t.language));
         }
     }
 }
 
-void check_literal_texts(Reporter& out, Coverage& coverage, const LocalizationSettings& s, const std::vector<SceneText>& texts) {
+void check_literal_texts(Reporter& out, Coverage& coverage, const LocalizationSettings& s,
+                         const std::vector<SceneText>& texts) {
     const bool section = s.enabled();
-    const std::vector<std::string> fallback = section ? s.fallback_fonts_for(s.defaultLanguage) : std::vector<std::string>();
+    const std::vector<std::string> fallback =
+        section ? s.fallback_fonts_for(s.defaultLanguage) : std::vector<std::string>();
     for (const SceneText& t : texts) {
-        if (!t.fontKnown || t.text.empty() || (section && !t.key.empty())) continue;  // a keyed text is shown from the table
+        if (!t.fontKnown || t.text.empty() || (section && !t.key.empty()))
+            continue;  // a keyed text is shown from the table
         std::vector<std::string> chain{t.font};
         chain.insert(chain.end(), fallback.begin(), fallback.end());
         const auto lacks = coverage.missing(chain, t.text);
         if (!lacks || lacks->empty()) continue;
-        out.missing_glyphs(t.file, t.pointer, t.component + "." + t.field, t.text, *lacks, chain, section ? Where::Literal : Where::NoSection,
-                           section ? s.defaultLanguage : std::string());
+        out.missing_glyphs(t.file, t.pointer, t.component + "." + t.field, t.text, *lacks, chain,
+                           section ? Where::Literal : Where::NoSection, section ? s.defaultLanguage : std::string());
     }
 }
 
 }  // namespace
 
-void collect_scene_texts(const std::string& file, const std::string& entityPointer, const Json& entity, std::vector<SceneText>& out) {
+void collect_scene_texts(const std::string& file, const std::string& entityPointer, const Json& entity,
+                         std::vector<SceneText>& out) {
     if (!entity.is_object() || !entity.contains("components") || !entity["components"].is_object()) return;
     const Json& components = entity["components"];
     const bool instance = entity.contains("prefab") && entity["prefab"].is_string();
@@ -528,7 +596,9 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
         const auto args = it->find("keyArgs");
         if (args != it->end() && args->is_object()) t.args = *args;
         t.argsKnown = args != it->end() || !instance;
-        t.argsPointer = base + (args != it->end() ? "/keyArgs" : "/key");  // where the problem is: the args, else the key without any
+        t.argsPointer =
+            base +
+            (args != it->end() ? "/keyArgs" : "/key");  // where the problem is: the args, else the key without any
         t.component = f.component;
         t.field = f.field;
         t.text = text.value_or("");
@@ -539,7 +609,8 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
     }
 }
 
-void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings, const std::vector<SceneText>& texts,
+void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings,
+                                const std::vector<SceneText>& texts,
                                 const std::vector<PlatformCatalog::TextKeyRef>& catalogKeys, ValidationReport& report) {
     tooling_detail::ProjectRootScope scope(projectDir);
     Reporter out(report, settings);
@@ -551,12 +622,16 @@ void check_localization_content(const std::string& projectDir, const Localizatio
         if (keys || tables)
             out.warn(kProjectFileName, "",
                      std::string("factoria.json has no \"localization\" section, but ") +
-                         (keys ? "scenes use `key` fields" : "the project has a locales/ folder") + (keys && tables ? " and a locales/ folder" : "") +
+                         (keys ? "scenes use `key` fields" : "the project has a locales/ folder") +
+                         (keys && tables ? " and a locales/ folder" : "") +
                          ": nothing is translated, every text shows what the scene says.",
-                     "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} with a locales/<language>.json per "
+                     "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} with a "
+                     "locales/<language>.json per "
                      "language (docs/LOCALIZATION.md).");
         for (const PlatformCatalog::TextKeyRef& k : catalogKeys)
-            out.warn(kProjectFileName, k.pointer, "The catalog names the key " + quote(k.key) + ", but factoria.json has no \"localization\" section, so it is never translated.",
+            out.warn(kProjectFileName, k.pointer,
+                     "The catalog names the key " + quote(k.key) +
+                         ", but factoria.json has no \"localization\" section, so it is never translated.",
                      "Add the section (docs/LOCALIZATION.md) or write the text itself instead of the key.");
         // Component fonts that cannot be read are reported once; the glyph check skips chains with them.
         check_fonts(out, coverage, projectDir, settings, texts);

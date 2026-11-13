@@ -13,10 +13,11 @@ void CaptionList::translate(CaptionLine& l, const I18n& i18n) {
     if (std::optional<std::string> t = i18n.translate(l.key)) {
         l.text = std::move(*t);
     } else {
-        const std::string hint = i18n.enabled()
-            ? "add the key to locales/" + i18n.default_language() + ".json"
-            : std::string("factoria.json has no \"localization\" section, so nothing is translated: add one (docs/LOCALIZATION.md)");
-        i18n.warn_once("caption|" + l.key, "The caption key '" + l.key + "' is in no string table, so the caption shows its own text \"" +
+        const std::string hint = i18n.enabled() ? "add the key to locales/" + i18n.default_language() + ".json"
+                                                : std::string("factoria.json has no \"localization\" section, so "
+                                                              "nothing is translated: add one (docs/LOCALIZATION.md)");
+        i18n.warn_once("caption|" + l.key, "The caption key '" + l.key +
+                                               "' is in no string table, so the caption shows its own text \"" +
                                                l.text + "\" (hint: " + hint + ")");
     }
 }
@@ -58,7 +59,8 @@ bool CaptionList::update(World& world, const I18n& i18n, const std::function<boo
     if (!any && !lines_.empty() && !hinted_) {
         hinted_ = true;
         FA_INFO("captions",
-                "A caption was shown (\"{}\") but the scene has no Captions entity, so nothing is drawn; game.captions() still lists "
+                "A caption was shown (\"{}\") but the scene has no Captions entity, so nothing is drawn; "
+                "game.captions() still lists "
                 "it. Add the Captions component to a UI entity (docs/TEXT.md, \"Captions\").",
                 lines_.back().text);
     }

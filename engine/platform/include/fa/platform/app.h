@@ -53,12 +53,12 @@ struct AppIconImage {
 
 struct AppDesc {
     std::string title = "FactorIA";
-    int width = 1280;           // initial window size (logical pixels)
+    int width = 1280;  // initial window size (logical pixels)
     int height = 720;
     bool fullscreen = false;
     bool vsync = true;
     bool highDpi = true;
-    int sampleCount = 1;        // MSAA of the window swapchain
+    int sampleCount = 1;  // MSAA of the window swapchain
     // The window icon (the title bar and the taskbar): the same icon in several sizes, the platform picks the closest to
     // what it shows. Used on Windows and Linux; macOS shows the icon of the app bundle (the Dock) and mobile apps have
     // none here. Empty = the platform's default icon. At most 8 images are used. to_sapp_desc keeps the pixels alive in
@@ -78,7 +78,7 @@ struct AppDesc {
     // Converts framebuffer pixel coordinates to design coordinates (letterbox).
     std::function<Vec2(Vec2 framebufferPos)> to_design_coords;
 
-    std::function<void()> init;          // GPU is ready (gfx_environment() valid)
+    std::function<void()> init;            // GPU is ready (gfx_environment() valid)
     std::function<void(double dt)> frame;  // once per display frame, dt in seconds (clamped to 0.25)
     std::function<void(const AppEvent&)> event;
     std::function<void()> cleanup;

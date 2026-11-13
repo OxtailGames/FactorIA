@@ -45,7 +45,7 @@ AndroidLayout android_layout_for(const AndroidAxisCaps& caps) {
     const bool rxry = caps.rx && caps.ry;
     AndroidLayout l;
     if (zrz && rxry) {
-        if (dedicatedTriggers) return l;  // both pairs AND real triggers: no telling which pair is the stick
+        if (dedicatedTriggers) return l;         // both pairs AND real triggers: no telling which pair is the stick
         l.rightStick = AndroidRightStick::RxRy;  // the Xbox-like layout: Z/RZ are the triggers
         l.zrzAreTriggers = true;
     } else if (rxry) {
@@ -91,9 +91,12 @@ bool AndroidGamepads::on_key(int deviceId, int keyCode, bool down) {
     if (!is_gamepad_key(keyCode)) return false;
     Pad& pad = pad_for(deviceId);
     GamepadButton button = GamepadButton::A;
-    if (key_to_button(keyCode, button)) pad.keys[size_t(button)] = down;
-    else if (keyCode == kAndroidKeyButtonL2) pad.l2Key = down;
-    else if (keyCode == kAndroidKeyButtonR2) pad.r2Key = down;
+    if (key_to_button(keyCode, button))
+        pad.keys[size_t(button)] = down;
+    else if (keyCode == kAndroidKeyButtonL2)
+        pad.l2Key = down;
+    else if (keyCode == kAndroidKeyButtonR2)
+        pad.r2Key = down;
     return true;  // C/Z/1..16/DPAD_CENTER: swallowed, not mapped
 }
 
@@ -151,21 +154,33 @@ GamepadState AndroidGamepads::state(int slot) const {
 
     float rx = 0.0f, ry = 0.0f;
     switch (pad.layout.rightStick) {
-        case AndroidRightStick::ZRz: rx = a.z; ry = a.rz; break;
-        case AndroidRightStick::RxRy: rx = a.rx; ry = a.ry; break;
+        case AndroidRightStick::ZRz:
+            rx = a.z;
+            ry = a.rz;
+            break;
+        case AndroidRightStick::RxRy:
+            rx = a.rx;
+            ry = a.ry;
+            break;
         case AndroidRightStick::None: break;
-        case AndroidRightStick::Unknown: rx = larger(a.z, a.rx); ry = larger(a.rz, a.ry); break;
+        case AndroidRightStick::Unknown:
+            rx = larger(a.z, a.rx);
+            ry = larger(a.rz, a.ry);
+            break;
     }
     st.axes[size_t(GamepadAxis::RightX)] = rx;
     st.axes[size_t(GamepadAxis::RightY)] = 0.0f - ry;
 
-    if (pad.layout.zrzAreTriggers && pad.motionSeen) {  // before the first motion event Z/RZ are 0, which would read as half pulled
+    if (pad.layout.zrzAreTriggers &&
+        pad.motionSeen) {  // before the first motion event Z/RZ are 0, which would read as half pulled
         st.axes[size_t(GamepadAxis::LeftTrigger)] = trigger_from_centred(a.z);
         st.axes[size_t(GamepadAxis::RightTrigger)] = trigger_from_centred(a.rz);
     } else {
         // A trigger with an analog axis uses it; one that only has the digital key is all or nothing.
-        st.axes[size_t(GamepadAxis::LeftTrigger)] = pad.analogLeft ? std::max(a.ltrigger, a.brake) : (pad.l2Key ? 1.0f : 0.0f);
-        st.axes[size_t(GamepadAxis::RightTrigger)] = pad.analogRight ? std::max(a.rtrigger, a.gas) : (pad.r2Key ? 1.0f : 0.0f);
+        st.axes[size_t(GamepadAxis::LeftTrigger)] =
+            pad.analogLeft ? std::max(a.ltrigger, a.brake) : (pad.l2Key ? 1.0f : 0.0f);
+        st.axes[size_t(GamepadAxis::RightTrigger)] =
+            pad.analogRight ? std::max(a.rtrigger, a.gas) : (pad.r2Key ? 1.0f : 0.0f);
     }
     return st;
 }

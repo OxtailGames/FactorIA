@@ -56,7 +56,9 @@ struct CommandHooks::State {
     std::chrono::steady_clock::time_point lastRead{};
     bool everRead = false;
     std::string sessionId;
-    std::shared_ptr<const CommandInterceptor> interceptor;
+    // Weak: the interceptor's lambdas own this State, so a shared_ptr here would be a cycle (State -> interceptor -> State)
+    // that nothing frees. Whoever installed the interceptor (the CommandRegistry) owns it.
+    std::weak_ptr<const CommandInterceptor> interceptor;
 
     void read() {
         auto fresh = std::make_shared<CommandHookConfig>();
@@ -85,7 +87,8 @@ struct CommandHooks::State {
         {
             std::lock_guard<std::mutex> lock(mu);
             stale = !everRead || opt.refreshSeconds <= 0 ||
-                    std::chrono::duration<double>(std::chrono::steady_clock::now() - lastRead).count() >= opt.refreshSeconds;
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - lastRead).count() >=
+                        opt.refreshSeconds;
         }
         if (stale) read();
         std::lock_guard<std::mutex> lock(mu);
@@ -120,14 +123,15 @@ std::string CommandHooks::configError() const {
 void CommandHooks::refresh() { state_->read(); }
 
 std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
-    if (state_->interceptor) return state_->interceptor;
+    if (auto existing = state_->interceptor.lock()) return existing;
     auto st = state_;
     auto ic = std::make_shared<CommandInterceptor>();
     ic->wants = [st](std::string_view name) {
         if (tInHook) return false;
         const auto cfg = st->snapshot();
         if (cfg->set.empty()) return false;
-        return !cfg->set.matching(HookEvent::BeforeCommand, name).empty() || !cfg->set.matching(HookEvent::AfterCommand, name).empty();
+        return !cfg->set.matching(HookEvent::BeforeCommand, name).empty() ||
+               !cfg->set.matching(HookEvent::AfterCommand, name).empty();
     };
     ic->before = [st](std::string_view name, Json& args) -> std::optional<CommandResult> {
         const auto cfg = st->snapshot();
@@ -149,9 +153,11 @@ std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
                 r.ok = false;
                 r.error = Json::object(
                     {{"code", "blocked_by_hook"},
-                     {"message", "A beforeCommand hook (" + (out.blockedBy.empty() ? std::string("a hook") : out.blockedBy) + ") blocked '" + std::string(name) +
-                                     "'" + (why.empty() ? std::string(".") : ": " + why)},
-                     {"hint", "The command did not run. The hook is in the \"hooks\" entries of ai.json or .factoria/extensions.json (`ai.hooks` lists them); "
+                     {"message", "A beforeCommand hook (" +
+                                     (out.blockedBy.empty() ? std::string("a hook") : out.blockedBy) + ") blocked '" +
+                                     std::string(name) + "'" + (why.empty() ? std::string(".") : ": " + why)},
+                     {"hint", "The command did not run. The hook is in the \"hooks\" entries of ai.json or "
+                              ".factoria/extensions.json (`ai.hooks` lists them); "
                               "change the call so the hook accepts it, or ask the user to change the hook."}});
                 if (!warnings.empty()) r.error["hookWarnings"] = warnings;
                 return r;
@@ -172,9 +178,14 @@ std::shared_ptr<const CommandInterceptor> CommandHooks::interceptor() {
             HookGuard guard;
             HookRunContext ctx = st->context();
             ctx.inheritEnv = cfg->inheritEnv;
-            Json input = Json::object({{"command", std::string(name)}, {"args", args}, {"ok", result.ok}, {"durationMs", std::round(ms * 10) / 10}});
-            if (result.ok) input["result"] = clipped_result(result.result);
-            else input["error"] = result.error;
+            Json input = Json::object({{"command", std::string(name)},
+                                       {"args", args},
+                                       {"ok", result.ok},
+                                       {"durationMs", std::round(ms * 10) / 10}});
+            if (result.ok)
+                input["result"] = clipped_result(result.result);
+            else
+                input["error"] = result.error;
             HookOutcome out = run_hooks(cfg->set, HookEvent::AfterCommand, name, input, ctx);
             for (const HookRunRecord& r : out.runs)
                 if (r.failed) {
@@ -214,12 +225,16 @@ Json handlers_json(const Json& hooks) {
             if (hs && hs->is_array())
                 for (const Json& h : *hs) {
                     const std::string type = util::str(h, "type");
-                    Json hj = Json::object({{"type", type}, {"target", type == "js" ? util::str(h, "module") : type == "command" ? util::str(h, "command") : util::str(h, "url", type)}});
+                    Json hj = Json::object({{"type", type},
+                                            {"target", type == "js"        ? util::str(h, "module")
+                                                       : type == "command" ? util::str(h, "command")
+                                                                           : util::str(h, "url", type)}});
                     if (h.contains("timeout")) hj["timeout"] = h["timeout"];
                     hj["runsHere"] = type == "command" || type == "js";
                     handlers.push_back(std::move(hj));
                 }
-            groups.push_back(Json::object({{"matcher", util::str(g, "matcher", util::str(g, "match"))}, {"handlers", std::move(handlers)}}));
+            groups.push_back(Json::object(
+                {{"matcher", util::str(g, "matcher", util::str(g, "match"))}, {"handlers", std::move(handlers)}}));
         }
         events[it.key()] = std::move(groups);
     }
@@ -228,7 +243,8 @@ Json handlers_json(const Json& hooks) {
 
 }  // namespace
 
-Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_view roleFilter, std::size_t recentRuns) {
+Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_view roleFilter,
+                  std::size_t recentRuns) {
     const ProjectTrustState state = read_project_trust(ctx, false);
     std::vector<const Extension*> all;
     for (const Extension& e : cfg.extensions.entries)
@@ -240,10 +256,15 @@ Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_
     for (const Extension* e : all) {
         if (!roleFilter.empty() && !e->serves_role(roleFilter)) continue;
         const ExtensionItem item = resolve_extension(*e, ctx, state.trusted);
-        Json j = Json::object({{"name", e->name}, {"source", e->source}, {"enabled", e->enabled}, {"events", handlers_json(e->hooks)},
+        Json j = Json::object({{"name", e->name},
+                               {"source", e->source},
+                               {"enabled", e->enabled},
+                               {"events", handlers_json(e->hooks)},
                                {"runsProgram", e->runs_program()}});
-        j["roles"] = e->roles.empty() ? Json(std::vector<std::string>(std::begin(kDefaultExtensionRoles), std::end(kDefaultExtensionRoles)))
-                                      : Json(e->roles);
+        j["roles"] =
+            e->roles.empty()
+                ? Json(std::vector<std::string>(std::begin(kDefaultExtensionRoles), std::end(kDefaultExtensionRoles)))
+                : Json(e->roles);
         if (e->from_project() && e->runs_program()) j["trusted"] = state.trusted;
         if (!item.problem.empty()) {
             j["problem"] = item.problem;
@@ -264,8 +285,9 @@ Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_
     return out;
 }
 
-Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEvent event, const std::string& matchValue, const Json& input,
-                        const std::string& role, const CancelFlag* cancel) {
+Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEvent event,
+                        const std::string& matchValue, const Json& input, const std::string& role,
+                        const CancelFlag* cancel) {
     HookSet set;
     std::vector<ExtensionItem> skipped;
     if (is_command_hook_event(event)) {
@@ -280,7 +302,8 @@ Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEv
         ProviderConfig synthetic;
         synthetic.name = "hooks-test";
         synthetic.kind = ProviderKind::Anthropic;  // a provider whose loop runs hooks
-        const ExtensionPlan plan = plan_extensions(cfg, synthetic, role, ExtensionContext{ctx.projectDir, ctx.env, ctx.trustPath, false});
+        const ExtensionPlan plan =
+            plan_extensions(cfg, synthetic, role, ExtensionContext{ctx.projectDir, ctx.env, ctx.trustPath, false});
         set = make_hook_set(plan.hookSources);
         skipped = plan.skipped;
     }
@@ -294,11 +317,14 @@ Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEv
     HookOutcome o = run_hooks(set, event, matchValue, input, hc);
     out["outcome"] = hook_outcome_json(o);
     Json skippedJson = Json::array();
-    for (const ExtensionItem& s : skipped) skippedJson.push_back(Json::object({{"name", s.name}, {"source", s.source}, {"reason", s.problem}, {"fix", s.fix}}));
+    for (const ExtensionItem& s : skipped)
+        skippedJson.push_back(
+            Json::object({{"name", s.name}, {"source", s.source}, {"reason", s.problem}, {"fix", s.fix}}));
     out["skipped"] = std::move(skippedJson);
     if (groups.empty()) {
         out["note"] = std::string("No hook is configured for ") + hook_event_name(event) + " with '" + matchValue +
-                      "'. `ai.hooks` lists what is configured; a matcher compares with the tool name, the command name or the source.";
+                      "'. `ai.hooks` lists what is configured; a matcher compares with the tool name, the command name "
+                      "or the source.";
     }
     return out;
 }

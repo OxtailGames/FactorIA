@@ -18,12 +18,14 @@ AccessibilitySettings read_system_accessibility() {
     if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0)) s.reduceMotion = !animations;
     HIGHCONTRASTW hc{};
     hc.cbSize = sizeof(hc);
-    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0)) s.highContrast = (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0))
+        s.highContrast = (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
     BOOL reader = FALSE;
     if (SystemParametersInfoW(SPI_GETSCREENREADER, 0, &reader, 0)) s.screenReader = reader != FALSE;
     DWORD percent = 0, size = sizeof(percent);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Accessibility", L"TextScaleFactor", RRF_RT_REG_DWORD, nullptr,
-                     &percent, &size) == ERROR_SUCCESS && percent > 0)
+    if (RegGetValueW(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Accessibility", L"TextScaleFactor", RRF_RT_REG_DWORD,
+                     nullptr, &percent, &size) == ERROR_SUCCESS &&
+        percent > 0)
         s.textScale = static_cast<float>(percent) / 100.0f;
     return s;
 }

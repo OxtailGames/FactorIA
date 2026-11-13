@@ -10,8 +10,8 @@
 
 namespace fa::rig_skin_detail {
 
-void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones, double locality, std::vector<Infl>& out,
-                 VoxelStats& stats) {
+void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones,
+                 double locality, std::vector<Infl>& out, VoxelStats& stats) {
     const std::size_t nn = weld.nodes();
     out.assign(nn, {});
     if (nn == 0 || bones.empty()) return;
@@ -32,9 +32,12 @@ void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const
         y = std::clamp(int((p.y - lo.y) / h) + 1, 0, ny - 1);
         z = std::clamp(int((p.z - lo.z) / h) + 1, 0, nz - 1);
     };
-    auto index = [&](int x, int y, int z) { return (std::size_t(z) * std::size_t(ny) + std::size_t(y)) * std::size_t(nx) + std::size_t(x); };
+    auto index = [&](int x, int y, int z) {
+        return (std::size_t(z) * std::size_t(ny) + std::size_t(y)) * std::size_t(nx) + std::size_t(x);
+    };
     auto centre = [&](std::size_t i) {
-        const int x = int(i % std::size_t(nx)), y = int((i / std::size_t(nx)) % std::size_t(ny)), z = int(i / (std::size_t(nx) * std::size_t(ny)));
+        const int x = int(i % std::size_t(nx)), y = int((i / std::size_t(nx)) % std::size_t(ny)),
+                  z = int(i / (std::size_t(nx) * std::size_t(ny)));
         return Vec3{lo.x + (float(x) - 0.5f) * h, lo.y + (float(y) - 0.5f) * h, lo.z + (float(z) - 0.5f) * h};
     };
 
@@ -117,7 +120,8 @@ void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const
             const Item it = queue.top();
             queue.pop();
             if (it.d > dist[it.v]) continue;
-            const int x = int(it.v % std::size_t(nx)), y = int((it.v / std::size_t(nx)) % std::size_t(ny)), z = int(it.v / (std::size_t(nx) * std::size_t(ny)));
+            const int x = int(it.v % std::size_t(nx)), y = int((it.v / std::size_t(nx)) % std::size_t(ny)),
+                      z = int(it.v / (std::size_t(nx) * std::size_t(ny)));
             for (int dz = -1; dz <= 1; ++dz)
                 for (int dy = -1; dy <= 1; ++dy)
                     for (int dx = -1; dx <= 1; ++dx) {
@@ -137,7 +141,8 @@ void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const
         }
         for (std::size_t j = 0; j < nn; ++j) {
             const std::uint64_t m = mask[j] ? mask[j] : allBones;
-            if ((m >> bone & 1) && dist[nodeVoxel[j]] < kInf) nodeDist[j].push_back({std::uint16_t(bone), dist[nodeVoxel[j]]});
+            if ((m >> bone & 1) && dist[nodeVoxel[j]] < kInf)
+                nodeDist[j].push_back({std::uint16_t(bone), dist[nodeVoxel[j]]});
         }
     }
     const double loc = std::sqrt(std::max(locality, 0.01));

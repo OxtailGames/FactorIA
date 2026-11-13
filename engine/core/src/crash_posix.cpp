@@ -7,7 +7,8 @@
 #include <TargetConditionals.h>
 #endif
 
-#if defined(__ANDROID__) || defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IPHONE) || !__has_include(<execinfo.h>)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IPHONE) ||                     \
+    !__has_include(<execinfo.h>)
 
 namespace fa::crash_detail {
 bool platform_install(const std::filesystem::path&, std::string& error) {
@@ -18,8 +19,12 @@ bool platform_install(const std::filesystem::path&, std::string& error) {
 
 namespace fa {
 void watch_thread_stack() {}
-std::string watched_thread_stack() { return "no stack: threads' stacks are not read on this platform (Android, iOS, the web)\n"; }
-std::string current_thread_stack() { return "no stack: stacks are not read on this platform (Android, iOS, the web)\n"; }
+std::string watched_thread_stack() {
+    return "no stack: threads' stacks are not read on this platform (Android, iOS, the web)\n";
+}
+std::string current_thread_stack() {
+    return "no stack: stacks are not read on this platform (Android, iOS, the web)\n";
+}
 void report_runtime_checks_without_dialogs() {}
 }  // namespace fa
 
@@ -81,11 +86,17 @@ void flush(int fd, LineBuf& b) {
 void write_report(int fd, int sig, const siginfo_t* info, const Civil& when, void* trampoline) {
     write_all(fd, g_shared.header, std::strlen(g_shared.header));
     LineBuf b;
-    b.str("time: "); b.iso_time(when); b.str("\npid: "); b.dec(std::uint64_t(getpid()));
-    b.str("\nsignal: "); b.str(signal_name(sig));
+    b.str("time: ");
+    b.iso_time(when);
+    b.str("\npid: ");
+    b.dec(std::uint64_t(getpid()));
+    b.str("\nsignal: ");
+    b.str(signal_name(sig));
     if (info && sig == SIGSEGV) {
-        if (info->si_code == SEGV_MAPERR) b.str(", address not mapped");
-        else if (info->si_code == SEGV_ACCERR) b.str(", access not permitted");
+        if (info->si_code == SEGV_MAPERR)
+            b.str(", address not mapped");
+        else if (info->si_code == SEGV_ACCERR)
+            b.str(", access not permitted");
     }
     if (info && (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL || sig == SIGFPE)) {
         b.str("\nfault address: ");
@@ -112,7 +123,9 @@ void write_report(int fd, int sig, const siginfo_t* info, const Civil& when, voi
         void* shown = (first && i == first) ? frames[i] : static_cast<char*>(frames[i]) - 1;
         backtrace_symbols_fd(&shown, 1, fd);
         if (run > 1) {
-            b.str("    (the same frame "); b.dec(std::uint64_t(run - 1)); b.str(" more times)\n");
+            b.str("    (the same frame ");
+            b.dec(std::uint64_t(run - 1));
+            b.str(" more times)\n");
             flush(fd, b);
         }
         i += run;
@@ -136,7 +149,10 @@ void on_signal(int sig, siginfo_t* info, void*) {
 
     const Civil when = civil_from_unix(std::int64_t(time(nullptr)));
     LineBuf path;
-    path.str(g_dir); path.str("/crash-"); path.stamp(when); path.str(".txt");
+    path.str(g_dir);
+    path.str("/crash-");
+    path.stamp(when);
+    path.str(".txt");
     path.data[path.n] = '\0';
     const int fd = open(path.data, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     LineBuf message;
@@ -239,7 +255,7 @@ void watch_thread_stack() {
         struct sigaction action{};
         action.sa_handler = on_probe;
         sigemptyset(&action.sa_mask);
-        action.sa_flags = SA_RESTART;  // the watched thread's blocking calls go on after the handler
+        action.sa_flags = SA_RESTART;               // the watched thread's blocking calls go on after the handler
         sigaction(kProbeSignal, &action, nullptr);  // kept installed: a late answer must never meet the default action
     });
     g_watched = pthread_self();
@@ -256,7 +272,8 @@ std::string watched_thread_stack() {
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (g_probeCount.load(std::memory_order_acquire) < 0) {
         if (std::chrono::steady_clock::now() > until)
-            return "no stack: the watched thread did not answer within 2 s (it blocks SIGUSR2, or is stopped in the kernel)\n";
+            return "no stack: the watched thread did not answer within 2 s (it blocks SIGUSR2, or is stopped in the "
+                   "kernel)\n";
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     const int count = g_probeCount.load(std::memory_order_acquire);

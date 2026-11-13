@@ -54,7 +54,8 @@ export default class Counter extends Behaviour {
 
 // A game folder on disk, packed the way an export does it (scripts compiled), then DELETED: only the pack is left.
 struct PackedGame {
-    stdfs::path dir;       // holds game.pak; the (absent) game/ folder inside it is the project root, like next to the player's exe
+    stdfs::path
+        dir;  // holds game.pak; the (absent) game/ folder inside it is the project root, like next to the player's exe
     stdfs::path projectDir;
 
     explicit PackedGame(const std::string& name, bool bytecode = true, const char* counter = kCounterScript) {
@@ -115,7 +116,8 @@ TEST_CASE("pack: an Engine runs the game from a mounted pack for some frames") {
     for (const bool bytecode : {true, false}) {
         CAPTURE(bytecode);
         PackedGame g(bytecode ? "run_bc" : "run_src", bytecode);
-        REQUIRE_FALSE(stdfs::exists(g.projectDir));  // there is no game/ folder and no loose file: the pack is all there is
+        REQUIRE_FALSE(
+            stdfs::exists(g.projectDir));  // there is no game/ folder and no loose file: the pack is all there is
         REQUIRE(fs::mount_pack(g.dir / "game.pak").ok());
 
         Engine e;

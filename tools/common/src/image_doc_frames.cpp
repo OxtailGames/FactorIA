@@ -34,7 +34,8 @@ ImageCelView image_layer_cel(const ImageLayer& layer, int frame) {
         v.opacity = 1.0f;
         v.origin = 0;
     };
-    if ((layer.kind != ImageLayerKind::Pixels && layer.kind != ImageLayerKind::Indexed) || layer.cels.empty() || frame <= 0) {
+    if ((layer.kind != ImageLayerKind::Pixels && layer.kind != ImageLayerKind::Indexed) || layer.cels.empty() ||
+        frame <= 0) {
         own();
         return v;
     }
@@ -60,7 +61,7 @@ ImageCelView image_layer_cel(const ImageLayer& layer, int frame) {
 
 namespace {
 
-constexpr int kMaxClipCells = 512;   // the cells one tag may spell out
+constexpr int kMaxClipCells = 512;  // the cells one tag may spell out
 constexpr int kMaxSheetSide = 16384;
 
 double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
@@ -88,7 +89,8 @@ Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc) {
 
     std::vector<assets_detail::SheetClip> clips;
     for (const ImageTag& tag : doc.tags) {
-        if (tag.from < 0 || tag.to >= n || tag.from > tag.to) continue;  // the parser rejects these; a document built in memory may not
+        if (tag.from < 0 || tag.to >= n || tag.from > tag.to)
+            continue;  // the parser rejects these; a document built in memory may not
         bool uniform = true;
         for (int f = tag.from; f <= tag.to; ++f) uniform = uniform && duration(f) == duration(tag.from);
         assets_detail::SheetClip clip;
@@ -96,8 +98,9 @@ Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc) {
         clip.loop = tag.repeat == 0;
         // A run that plays the frames in order needs no extra cells: a forward tag, a single frame, or a looping ping-pong of two frames
         // (its turn-around frames are the ends, which the loop supplies).
-        const bool inOrder = tag.direction == ImageTagDirection::Forward || tag.from == tag.to ||
-                             (tag.direction == ImageTagDirection::PingPong && tag.repeat == 0 && tag.to - tag.from <= 1);
+        const bool inOrder =
+            tag.direction == ImageTagDirection::Forward || tag.from == tag.to ||
+            (tag.direction == ImageTagDirection::PingPong && tag.repeat == 0 && tag.to - tag.from <= 1);
         if (inOrder && tag.repeat <= 1 && uniform) {
             clip.firstFrame = tag.from;
             clip.lastFrame = tag.to;
@@ -109,7 +112,8 @@ Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc) {
         std::vector<int> pass = tag_pass(tag), seq;
         const int repeats = std::max(1, tag.repeat);
         for (int r = 0; r < repeats; ++r) seq.insert(seq.end(), pass.begin(), pass.end());
-        if (tag.repeat > 0 && tag.direction == ImageTagDirection::PingPong && tag.to > tag.from) seq.push_back(tag.from);  // comes to rest
+        if (tag.repeat > 0 && tag.direction == ImageTagDirection::PingPong && tag.to > tag.from)
+            seq.push_back(tag.from);  // comes to rest
         int g = 0;
         for (int f : seq) g = std::gcd(g, duration(f));
         long long cells = 0;
@@ -124,7 +128,8 @@ Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc) {
             for (int f : seq) total += duration(f);
             cellMs = double(total) / double(seq.size());
             sequence = seq;
-            plan.warnings.push_back(std::format("Tag '{}': its frames last {} ms in {} steps, too many cells for one clip, so every frame plays for the average of {} ms.",
+            plan.warnings.push_back(std::format("Tag '{}': its frames last {} ms in {} steps, too many cells for one "
+                                                "clip, so every frame plays for the average of {} ms.",
                                                 tag.name, total, seq.size(), round3(cellMs)));
         }
         clip.firstFrame = int(plan.cellFrame.size());
@@ -135,13 +140,19 @@ Result<ImageSheetPlan> plan_image_sheet(const ImageDocument& doc) {
     }
 
     plan.cells = int(plan.cellFrame.size());
-    plan.columns = doc.sheetColumns > 0 ? std::min(doc.sheetColumns, plan.cells) : int(std::ceil(std::sqrt(double(plan.cells))));
+    plan.columns =
+        doc.sheetColumns > 0 ? std::min(doc.sheetColumns, plan.cells) : int(std::ceil(std::sqrt(double(plan.cells))));
     plan.rows = (plan.cells + plan.columns - 1) / plan.columns;
-    if (std::size_t(plan.columns) * std::size_t(doc.width) > std::size_t(kMaxSheetSide) || std::size_t(plan.rows) * std::size_t(doc.height) > std::size_t(kMaxSheetSide))
-        return make_error(std::format("The sprite sheet would be {}x{} px ({} cells of {}x{} in {} columns), more than the {} px a texture can have.", plan.columns * doc.width,
-                                      plan.rows * doc.height, plan.cells, doc.width, doc.height, plan.columns, kMaxSheetSide),
-                          "Set `sheet.columns` so the sheet is closer to square, use fewer frames, or make the canvas smaller.");
-    for (const assets_detail::SheetClip& c : clips) plan.clips.push_back({c.name, c.firstFrame, c.lastFrame, c.fps, c.loop});
+    if (std::size_t(plan.columns) * std::size_t(doc.width) > std::size_t(kMaxSheetSide) ||
+        std::size_t(plan.rows) * std::size_t(doc.height) > std::size_t(kMaxSheetSide))
+        return make_error(
+            std::format("The sprite sheet would be {}x{} px ({} cells of {}x{} in {} columns), more than the {} px a "
+                        "texture can have.",
+                        plan.columns * doc.width, plan.rows * doc.height, plan.cells, doc.width, doc.height,
+                        plan.columns, kMaxSheetSide),
+            "Set `sheet.columns` so the sheet is closer to square, use fewer frames, or make the canvas smaller.");
+    for (const assets_detail::SheetClip& c : clips)
+        plan.clips.push_back({c.name, c.firstFrame, c.lastFrame, c.fps, c.loop});
     plan.sheet = assets_detail::sheet_entry(plan.columns, plan.rows, doc.width, doc.height, plan.cells, clips);
     return plan;
 }

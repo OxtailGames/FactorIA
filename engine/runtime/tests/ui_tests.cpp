@@ -258,13 +258,16 @@ TEST_CASE("ui.set_text_scale is the text size option: ui.textScale and ui.state 
     CHECK(r.result["textScale"] == 1.5);
     CHECK(e.text_scale() == 1.5f);
     CHECK(e.commands().call("ui.state", Json::object()).result["textScale"] == 1.5);
-    CHECK(e.commands().call("script.eval", Json{{"code", "ui.textScale"}}).result["value"] == 1.5);  // a script sees the same option
+    CHECK(e.commands().call("script.eval", Json{{"code", "ui.textScale"}}).result["value"] ==
+          1.5);  // a script sees the same option
     e.commands().call("script.eval", Json{{"code", "ui.textScale = 2"}});
-    CHECK(e.text_scale() == 2.0f);                                                                    // and a script sets it
-    for (auto [bad, what] : {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
+    CHECK(e.text_scale() == 2.0f);  // and a script sets it
+    for (auto [bad, what] :
+         {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
         r = e.commands().call("ui.set_text_scale", Json{{"scale", bad}});
         REQUIRE_FALSE(r.ok);
-        CHECK(r.error["message"].get<std::string>().find(what) != std::string::npos);  // the schema says which end was crossed
+        CHECK(r.error["message"].get<std::string>().find(what) !=
+              std::string::npos);  // the schema says which end was crossed
         CHECK_FALSE(r.error["hint"].get<std::string>().empty());
     }
     CHECK(e.text_scale() == 2.0f);  // a rejected value changes nothing
@@ -296,13 +299,16 @@ TEST_CASE("ui.set_scale is the interface scale: ui.scale, ui.state and the recta
     CHECK(st.result["uiScale"] == 1.5);
     for (const Json& w : st.result["widgets"])
         if (w["id"] == "play") {
-            CHECK(w["rect"][2].get<float>() == doctest::Approx(1.5f * before[2].get<float>()));  // the size of the button on screen
+            CHECK(w["rect"][2].get<float>() ==
+                  doctest::Approx(1.5f * before[2].get<float>()));  // the size of the button on screen
             CHECK(w["rect"][3].get<float>() == doctest::Approx(1.5f * before[3].get<float>()));
         }
-    CHECK(e.commands().call("script.eval", Json{{"code", "ui.scale"}}).result["value"] == 1.5);  // a script sees the same option
+    CHECK(e.commands().call("script.eval", Json{{"code", "ui.scale"}}).result["value"] ==
+          1.5);  // a script sees the same option
     e.commands().call("script.eval", Json{{"code", "ui.scale = 2"}});
-    CHECK(e.ui_scale() == 2.0f);                                                                  // and a script sets it
-    for (auto [bad, what] : {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
+    CHECK(e.ui_scale() == 2.0f);  // and a script sets it
+    for (auto [bad, what] :
+         {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
         r = e.commands().call("ui.set_scale", Json{{"scale", bad}});
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["message"].get<std::string>().find(what) != std::string::npos);
@@ -312,7 +318,8 @@ TEST_CASE("ui.set_scale is the interface scale: ui.scale, ui.state and the recta
     e.shutdown();
 }
 
-TEST_CASE("ui.mirrorRtl: on by default, factoria.json and ui.set_mirror_rtl turn it off, a script reads and sets it, a test file starts from it") {
+TEST_CASE("ui.mirrorRtl: on by default, factoria.json and ui.set_mirror_rtl turn it off, a script reads and sets it, a "
+          "test file starts from it") {
     TempProject p("uimirror", R"({
   "format": "factoria.project/1", "name": "Ui Mirror", "mainScene": "scenes/main.scene.json",
   "display": { "width": 320, "height": 180 }, "ui": { "mirrorRtl": false }
@@ -384,8 +391,8 @@ TEST_CASE("project: ui.scale is the interface scale a run starts with, it valida
     TempProject none("uiscale_project_none");
     CHECK(load_project(none.dir.generic_string())->uiScale == 1.0f);
     int n = 0;
-    for (const char* bad : {R"({"name":"x","ui":{"scale":"big"}})", R"({"name":"x","ui":{"scale":4}})", R"({"name":"x","ui":{"scale":0.2}})",
-                            R"({"name":"x","ui":3})"}) {
+    for (const char* bad : {R"({"name":"x","ui":{"scale":"big"}})", R"({"name":"x","ui":{"scale":4}})",
+                            R"({"name":"x","ui":{"scale":0.2}})", R"({"name":"x","ui":3})"}) {
         TempProject b("uiscale_project_bad" + std::to_string(n++), bad);
         auto e = load_project(b.dir.generic_string());
         REQUIRE_FALSE(e.ok());
@@ -424,15 +431,20 @@ test("a second file starts at the project's value again", () => { expect(ui.scal
     e.commands().call("ui.set_scale", Json{{"scale", 2.0}});
     auto rewrite = [&](const char* text, int seconds) {
         p.write("factoria.json", text);
-        stdfs::last_write_time(p.dir / "factoria.json", stdfs::file_time_type::clock::now() + std::chrono::seconds(seconds));
+        stdfs::last_write_time(p.dir / "factoria.json",
+                               stdfs::file_time_type::clock::now() + std::chrono::seconds(seconds));
         auto reload = e.commands().call("scene.reload", Json::object());
         REQUIRE_MESSAGE(reload.ok, reload.error.dump());
     };
-    rewrite(R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
-               "physics":{"fixedHz":30},"ui":{"scale":1.25}})", 10);
+    rewrite(
+        R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
+               "physics":{"fixedHz":30},"ui":{"scale":1.25}})",
+        10);
     CHECK(e.ui_scale() == 2.0f);
-    rewrite(R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
-               "ui":{"scale":1.5}})", 20);
+    rewrite(
+        R"({"format":"factoria.project/1","name":"Ui Scale","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180},
+               "ui":{"scale":1.5}})",
+        20);
     CHECK(e.ui_scale() == 1.5f);
     e.shutdown();
 }
@@ -559,7 +571,8 @@ test("a slider Interactable: dragging the track and game.setSlider set the value
 });
 )JS";
 
-TEST_CASE("Interactable: a world-space menu of plain entities is played with the pointer, the keyboard and game.click") {
+TEST_CASE(
+    "Interactable: a world-space menu of plain entities is played with the pointer, the keyboard and game.click") {
     TempProject p("worldmenu");
     p.write("scenes/main.scene.json", kWorldMenu);
     p.write("tests/menu.test.js", kWorldMenuTest);
@@ -626,8 +639,9 @@ TEST_CASE("screen.set_safe_area: a notched phone moves the widgets anchored to t
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const float top = r.result["insets"]["top"].get<float>();
     CHECK(top > 0);
-    CHECK(rect_of("safe")[1].get<float>() == doctest::Approx(safeBase[1].get<float>() + top));  // moved down by the notch
-    CHECK(rect_of("raw") == rawBase);  // not anchored to the safe area: stays under the notch
+    CHECK(rect_of("safe")[1].get<float>() ==
+          doctest::Approx(safeBase[1].get<float>() + top));  // moved down by the notch
+    CHECK(rect_of("raw") == rawBase);                        // not anchored to the safe area: stays under the notch
     r = e.commands().call("screen.set_safe_area", Json{{"left", 30}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(rect_of("safe")[0].get<float>() == doctest::Approx(safeBase[0].get<float>() + 30));
@@ -643,7 +657,8 @@ TEST_CASE("screen.set_safe_area: a notched phone moves the widgets anchored to t
 }
 
 TEST_CASE("on-screen gamepad: a JavaScript test plays the pad actions with two fingers") {
-    TempProject p("touchpad", R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180},
+    TempProject p("touchpad",
+                  R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180},
       "input": {"actions": {"left": ["A", "GamepadLeftStickLeft"], "right": ["D", "GamepadLeftStickRight"],
                             "down": ["S", "GamepadLeftStickDown"], "up": ["W", "GamepadLeftStickUp"],
                             "jump": ["Space", "GamepadA"], "tap": ["Touch"]}}})");
@@ -701,8 +716,10 @@ test("move and jump at once; the fingers are the pad's, not touches", () => {
     e.shutdown();
 }
 
-TEST_CASE("ui.force_touch shows the touch controls on a desktop, survives a key press, and game.findByTag is in factoria:test") {
-    TempProject p("forcetouch", R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180}})");
+TEST_CASE("ui.force_touch shows the touch controls on a desktop, survives a key press, and game.findByTag is in "
+          "factoria:test") {
+    TempProject p("forcetouch",
+                  R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180}})");
     p.write("scenes/pad.scene.json", R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -751,7 +768,8 @@ TEST_CASE("game.input back is the Back button: a script handler consumes it") {
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    e.commands().call("script.eval", Json{{"code", "globalThis.backs = 0; input.onBack(() => { globalThis.backs++; return true; })"}});
+    e.commands().call("script.eval",
+                      Json{{"code", "globalThis.backs = 0; input.onBack(() => { globalThis.backs++; return true; })"}});
     auto b = e.commands().call("game.input", Json{{"back", true}});
     REQUIRE_MESSAGE(b.ok, b.error.dump());
     e.step(1);
@@ -801,15 +819,17 @@ TEST_CASE("ui: a focused TextField raises the on-screen keyboard and blur hides 
 
 TEST_CASE("game.input: a mouse button or key that goes up to down between frames is a press for scripts") {
     TempProject p("press_edge");
-    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+    p.write("scenes/main.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
         {"id":"p","components":{"Script":{"path":"p.js"}}}]})");
-    p.write("p.js", "import { Behaviour, input } from 'factoria';\n"
-                    "globalThis.log = [];\n"
-                    "export default class P extends Behaviour {\n"
-                    "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x);\n"
-                    "    if (input.mouse.released('left')) log.push('mr');\n"
-                    "    if (input.keyPressed('Space')) log.push('kp'); if (input.keyReleased('Space')) log.push('kr'); }\n"
-                    "}\n");
+    p.write("p.js",
+            "import { Behaviour, input } from 'factoria';\n"
+            "globalThis.log = [];\n"
+            "export default class P extends Behaviour {\n"
+            "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x);\n"
+            "    if (input.mouse.released('left')) log.push('mr');\n"
+            "    if (input.keyPressed('Space')) log.push('kp'); if (input.keyReleased('Space')) log.push('kr'); }\n"
+            "}\n");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
@@ -817,7 +837,9 @@ TEST_CASE("game.input: a mouse button or key that goes up to down between frames
         auto r = e.commands().call(cmd, Json::parse(args));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
     };
-    auto log = [&] { return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>(); };
+    auto log = [&] {
+        return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>();
+    };
     e.step(2);
     call("game.input", R"({"mouse":{"position":[100,50],"left":true}})");
     call("game.step", R"({"frames":1})");
@@ -836,24 +858,30 @@ TEST_CASE("game.input: a mouse button or key that goes up to down between frames
 
 TEST_CASE("game.click: by position and by widget id, scripts see pressed and released, buttons get the click") {
     TempProject p("click_cmd");
-    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+    p.write("scenes/main.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
         {"id":"p","components":{"Script":{"path":"p.js"}}},
         {"id":"menu","components":{"Transform":{"position":[160,20]},"Panel":{"size":[240,140],"pivot":[0.5,1],"layout":"column","padding":[8,8,8,8]}},
          "children":[{"id":"play","components":{"Button":{"text":"Play","size":[200,30]}}},
                      {"id":"hidden","components":{"Button":{"text":"Hidden","size":[200,30]}}}]}]})");
-    p.write("p.js", "import { Behaviour, input, ui, world } from 'factoria';\n"
-                    "globalThis.log = [];\n"
-                    "ui.on('click', (e) => log.push('click:' + e.id));\n"
-                    "export default class P extends Behaviour {\n"
-                    "  onStart() { world.find('hidden').active = false; }\n"
-                    "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x + ',' + input.mouse.position.y);\n"
-                    "    if (input.mouse.released('left')) log.push('mr'); if (input.mouse.pressed('right')) log.push('rp'); }\n"
-                    "}\n");
+    p.write(
+        "p.js",
+        "import { Behaviour, input, ui, world } from 'factoria';\n"
+        "globalThis.log = [];\n"
+        "ui.on('click', (e) => log.push('click:' + e.id));\n"
+        "export default class P extends Behaviour {\n"
+        "  onStart() { world.find('hidden').active = false; }\n"
+        "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x + ',' + "
+        "input.mouse.position.y);\n"
+        "    if (input.mouse.released('left')) log.push('mr'); if (input.mouse.pressed('right')) log.push('rp'); }\n"
+        "}\n");
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
     e.step(2);
-    auto log = [&] { return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>(); };
+    auto log = [&] {
+        return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>();
+    };
     auto r = e.commands().call("game.click", Json::parse(R"({"position":[10,20]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["frames"] == 2);

@@ -31,7 +31,8 @@ Attr uv_attr(float u, float v) {
 
 void emit_tri(Soup& s, std::uint32_t a, std::uint32_t b, std::uint32_t c, Attr aa, Attr ab, Attr ac) {
     if (a == b || b == c || a == c) return;
-    if (length_sq(cross(s.pos[b] - s.pos[a], s.pos[c] - s.pos[a])) < 1e-22f) return;  // no area (a ring collapsed to a point)
+    if (length_sq(cross(s.pos[b] - s.pos[a], s.pos[c] - s.pos[a])) < 1e-22f)
+        return;  // no area (a ring collapsed to a point)
     s.add_tri(a, b, c, aa, ab, ac, 0);
 }
 
@@ -62,15 +63,16 @@ void cap_polygon(Soup& s, const std::vector<std::uint32_t>& ids, Vec3 outward) {
         std::uint32_t k[3] = {tris[t], tris[t + 1], tris[t + 2]};
         if (flip) std::swap(k[1], k[2]);
         Attr at[3];
-        for (int q = 0; q < 3; ++q) at[q] = uv_attr((pts[k[q]].x - lo.x) / size.x, 1.0f - (pts[k[q]].y - lo.y) / size.y);
+        for (int q = 0; q < 3; ++q)
+            at[q] = uv_attr((pts[k[q]].x - lo.x) / size.x, 1.0f - (pts[k[q]].y - lo.y) / size.y);
         emit_tri(s, ids[k[0]], ids[k[1]], ids[k[2]], at[0], at[1], at[2]);
     }
 }
 
 // Rings of points joined by quads. ring[k][i] is point i of ring k. `flip` reverses the winding of the walls. The walls' uvs are
 // (u[i], v[k]); u and v have one entry more than the points when the profile / path is closed (the last equals 1 and is the seam).
-Soup tube(const std::vector<std::vector<Vec3>>& ring, bool profileClosed, bool pathClosed, bool flip, const std::vector<float>& u,
-          const std::vector<float>& v, bool cap, Vec3 startOut, Vec3 endOut) {
+Soup tube(const std::vector<std::vector<Vec3>>& ring, bool profileClosed, bool pathClosed, bool flip,
+          const std::vector<float>& u, const std::vector<float>& v, bool cap, Vec3 startOut, Vec3 endOut) {
     Soup s;
     const std::size_t K = ring.size(), P = ring[0].size();
     std::vector<std::vector<std::uint32_t>> id(K, std::vector<std::uint32_t>(P));
@@ -82,7 +84,8 @@ Soup tube(const std::vector<std::vector<Vec3>>& ring, bool profileClosed, bool p
         for (std::size_t i = 0; i < segP; ++i) {
             const std::size_t i1 = (i + 1) % P;
             const std::uint32_t a = id[k][i], b = id[k][i1], c = id[k1][i1], d = id[k1][i];
-            const Attr ua = uv_attr(u[i], v[k]), ub = uv_attr(u[i + 1], v[k]), uc = uv_attr(u[i + 1], v[k + 1]), ud = uv_attr(u[i], v[k + 1]);
+            const Attr ua = uv_attr(u[i], v[k]), ub = uv_attr(u[i + 1], v[k]), uc = uv_attr(u[i + 1], v[k + 1]),
+                       ud = uv_attr(u[i], v[k + 1]);
             if (flip) {
                 emit_tri(s, a, c, b, ua, uc, ub);
                 emit_tri(s, a, d, c, ua, ud, uc);
@@ -101,7 +104,9 @@ Soup tube(const std::vector<std::vector<Vec3>>& ring, bool profileClosed, bool p
 
 Vec3 catmull_rom(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, float t) {
     const float t2 = t * t, t3 = t2 * t;
-    return (p1 * 2.0f + (p2 - p0) * t + (p0 * 2.0f - p1 * 5.0f + p2 * 4.0f - p3) * t2 + (p1 * 3.0f - p0 - p2 * 3.0f + p3) * t3) * 0.5f;
+    return (p1 * 2.0f + (p2 - p0) * t + (p0 * 2.0f - p1 * 5.0f + p2 * 4.0f - p3) * t2 +
+            (p1 * 3.0f - p0 - p2 * 3.0f + p3) * t3) *
+           0.5f;
 }
 
 Vec3 rotate_about(Vec3 v, Vec3 axis, float deg) {
@@ -163,7 +168,8 @@ ModelMesh model_lathe(const ModelLatheParams& p) {
                 if (axisId[i] == UINT32_MAX) axisId[i] = s.add_vertex({0, pts[i].y, 0});
                 id[std::size_t(j)][i] = axisId[i];
             } else {
-                id[std::size_t(j)][i] = s.add_vertex({pts[i].x * sins[std::size_t(j)], pts[i].y, pts[i].x * coss[std::size_t(j)]});
+                id[std::size_t(j)][i] =
+                    s.add_vertex({pts[i].x * sins[std::size_t(j)], pts[i].y, pts[i].x * coss[std::size_t(j)]});
             }
         }
     for (std::size_t i = 0; i + (loop ? 0 : 1) < P; ++i) {
@@ -171,7 +177,8 @@ ModelMesh model_lathe(const ModelLatheParams& p) {
         const float v0 = 1.0f - arc[i] / total, v1 = 1.0f - (loop && i1 == 0 ? total : arc[i1]) / total;
         for (int j = 0; j < N; ++j) {
             const float u0 = float(j) / float(N), u1 = float(j + 1) / float(N);
-            const std::uint32_t a = id[std::size_t(j)][i], b = id[std::size_t(j + 1)][i], c = id[std::size_t(j + 1)][i1], d = id[std::size_t(j)][i1];
+            const std::uint32_t a = id[std::size_t(j)][i], b = id[std::size_t(j + 1)][i],
+                                c = id[std::size_t(j + 1)][i1], d = id[std::size_t(j)][i1];
             const Attr aa = uv_attr(u0, v0), ab = uv_attr(u1, v0), ac = uv_attr(u1, v1), ad = uv_attr(u0, v1);
             emit_tri(s, a, b, c, aa, ab, ac);
             emit_tri(s, a, c, d, aa, ac, ad);
@@ -185,7 +192,8 @@ ModelMesh model_lathe(const ModelLatheParams& p) {
             Attr at[3];
             for (int q = 0; q < 3; ++q) at[q] = uv_attr(pts[k[q]].x, 1.0f - pts[k[q]].y);
             emit_tri(s, id[0][k[0]], id[0][k[1]], id[0][k[2]], at[0], at[1], at[2]);
-            emit_tri(s, id[std::size_t(N)][k[0]], id[std::size_t(N)][k[2]], id[std::size_t(N)][k[1]], at[0], at[2], at[1]);
+            emit_tri(s, id[std::size_t(N)][k[0]], id[std::size_t(N)][k[2]], id[std::size_t(N)][k[1]], at[0], at[2],
+                     at[1]);
         }
     }
     return from_soup(s, p.creaseAngle);
@@ -194,8 +202,12 @@ ModelMesh model_lathe(const ModelLatheParams& p) {
 // ---- sweep -----------------------------------------------------------------------------------------------------------------------------
 
 Result<ModelMesh> model_sweep(const ModelSweepParams& p) {
-    if (p.profile.size() < 3) return make_error("a sweep needs a profile of at least 3 points", "Give `profile` a closed shape, e.g. [[-0.1,-0.1],[0.1,-0.1],[0.1,0.1],[-0.1,0.1]].");
-    if (p.path.size() < 2) return make_error("a sweep needs a path of at least 2 points", "Give `path` the points to follow, e.g. [[0,0,0],[0,1,0]].");
+    if (p.profile.size() < 3)
+        return make_error("a sweep needs a profile of at least 3 points",
+                          "Give `profile` a closed shape, e.g. [[-0.1,-0.1],[0.1,-0.1],[0.1,0.1],[-0.1,0.1]].");
+    if (p.path.size() < 2)
+        return make_error("a sweep needs a path of at least 2 points",
+                          "Give `path` the points to follow, e.g. [[0,0,0],[0,1,0]].");
     const bool closed = p.closed && p.path.size() >= 3;
     // the path: control points, or a Catmull-Rom curve through them
     std::vector<Vec3> raw;
@@ -210,7 +222,9 @@ Result<ModelMesh> model_sweep(const ModelSweepParams& p) {
             return p.path[std::size_t(i)];
         };
         for (std::size_t sp = 0; sp < spans; ++sp)
-            for (int k = 0; k < sub; ++k) raw.push_back(catmull_rom(at(long(sp) - 1), at(long(sp)), at(long(sp) + 1), at(long(sp) + 2), float(k) / float(sub)));
+            for (int k = 0; k < sub; ++k)
+                raw.push_back(catmull_rom(at(long(sp) - 1), at(long(sp)), at(long(sp) + 1), at(long(sp) + 2),
+                                          float(k) / float(sub)));
         if (!closed) raw.push_back(p.path[n - 1]);
     } else {
         raw = p.path;
@@ -220,10 +234,12 @@ Result<ModelMesh> model_sweep(const ModelSweepParams& p) {
         if (pt.empty() || length(q - pt.back()) > 1e-6f) pt.push_back(q);
     if (closed && pt.size() > 1 && length(pt.back() - pt.front()) <= 1e-6f) pt.pop_back();
     const std::size_t K = pt.size();
-    if (K < 2) return make_error("the sweep's path points are all in the same place", "Give `path` points that are apart.");
+    if (K < 2)
+        return make_error("the sweep's path points are all in the same place", "Give `path` points that are apart.");
     if (K * p.profile.size() * 2 > kModelMaxTriangles)
-        return make_error(std::format("the sweep would have about {} triangles ({} path samples x {} profile points), more than the {} a node may make", K * p.profile.size() * 2, K,
-                                      p.profile.size(), kModelMaxTriangles),
+        return make_error(std::format("the sweep would have about {} triangles ({} path samples x {} profile points), "
+                                      "more than the {} a node may make",
+                                      K * p.profile.size() * 2, K, p.profile.size(), kModelMaxTriangles),
                           "Lower `pathSegments` or use fewer profile points.");
 
     // tangents at the rings: the bisector of the two neighbouring pieces
@@ -329,17 +345,26 @@ Result<ModelMesh> model_sweep(const ModelSweepParams& p) {
 // ---- loft ------------------------------------------------------------------------------------------------------------------------------
 
 Result<ModelMesh> model_loft(const ModelLoftParams& p) {
-    if (p.sections.size() < 2) return make_error("a loft needs at least 2 sections", "Give `sections` two or more lists of points, e.g. a square and a circle with the same number of points.");
+    if (p.sections.size() < 2)
+        return make_error(
+            "a loft needs at least 2 sections",
+            "Give `sections` two or more lists of points, e.g. a square and a circle with the same number of points.");
     const std::size_t P = p.sections[0].size();
     for (std::size_t k = 0; k < p.sections.size(); ++k)
         if (p.sections[k].size() != P)
-            return make_error(std::format("section {} has {} points but section 0 has {}", k, p.sections[k].size(), P), "Every section of a loft needs the same number of points; the point i of one is joined to the point i of the next.");
-    if (P < (p.closed ? 3u : 2u)) return make_error("the sections have too few points", p.closed ? "A closed section needs at least 3 points." : "An open section needs at least 2 points.");
+            return make_error(std::format("section {} has {} points but section 0 has {}", k, p.sections[k].size(), P),
+                              "Every section of a loft needs the same number of points; the point i of one is joined "
+                              "to the point i of the next.");
+    if (P < (p.closed ? 3u : 2u))
+        return make_error("the sections have too few points", p.closed ? "A closed section needs at least 3 points."
+                                                                       : "An open section needs at least 2 points.");
     const std::size_t S = p.sections.size();
     const int steps = std::clamp(p.steps, 1, 64);
     const std::size_t R = (S - 1) * std::size_t(steps) + 1;
     if (R * P * 2 > kModelMaxTriangles)
-        return make_error(std::format("the loft would have about {} triangles, more than the {} a node may make", R * P * 2, kModelMaxTriangles), "Lower `steps` or use fewer points per section.");
+        return make_error(std::format("the loft would have about {} triangles, more than the {} a node may make",
+                                      R * P * 2, kModelMaxTriangles),
+                          "Lower `steps` or use fewer points per section.");
     std::vector<std::vector<Vec3>> ring(R, std::vector<Vec3>(P));
     const bool curve = p.smooth && S >= 3;
     for (std::size_t sp = 0; sp + 1 < S; ++sp)

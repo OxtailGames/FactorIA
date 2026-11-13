@@ -76,8 +76,11 @@ stdfs::path next_preview_file(const std::string& projectDir) {
 }
 
 Json preview(const std::string& projectDir, const Json& a) {
-    if (!a.is_object()) fail("invalid_argument", "assets.preview_sheet expects an object.", "Pass {\"path\": \"assets/hero.png\"}.");
-    check_arg_keys(kCommand, a, "", {"path", "clip", "onion", "scale", "columns", "rows", "frameWidth", "frameHeight", "padding", "tileColumns"});
+    if (!a.is_object())
+        fail("invalid_argument", "assets.preview_sheet expects an object.", "Pass {\"path\": \"assets/hero.png\"}.");
+    check_arg_keys(
+        kCommand, a, "",
+        {"path", "clip", "onion", "scale", "columns", "rows", "frameWidth", "frameHeight", "padding", "tileColumns"});
     const std::string rel = tooling_detail::arg_string(a, "path", true);
     const stdfs::path imageFile = project_file(projectDir, rel);
     std::error_code ec;
@@ -96,7 +99,8 @@ Json preview(const std::string& projectDir, const Json& a) {
 
     // ---- the grid: the explicit arguments, else the `sheet` entry ----
     auto stated = [&](const char* key) { return int(tooling_detail::arg_int(a, key, 0)); };
-    int columns = stated("columns"), rows = stated("rows"), frameW = stated("frameWidth"), frameH = stated("frameHeight");
+    int columns = stated("columns"), rows = stated("rows"), frameW = stated("frameWidth"),
+        frameH = stated("frameHeight");
     int padding = a.contains("padding") ? stated("padding") : -1;
     if (entry) {
         if (columns == 0) columns = entry->columns;
@@ -108,8 +112,9 @@ Json preview(const std::string& projectDir, const Json& a) {
     padding = std::max(0, padding);
     if (!entry && columns == 0 && rows == 0 && frameW == 0 && frameH == 0)
         fail("no_grid", "'" + rel + "' has no `sheet` entry in assets.json, and the grid was not given.",
-             "Pass columns and rows (or frameWidth and frameHeight), e.g. {\"path\": \"" + rel + "\", \"columns\": 4, \"rows\": 2}; "
-             "or record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet.");
+             "Pass columns and rows (or frameWidth and frameHeight), e.g. {\"path\": \"" + rel +
+                 "\", \"columns\": 4, \"rows\": 2}; "
+                 "or record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet.");
     if (columns <= 0 && frameW > 0) columns = std::max(1, img.width / (frameW + 2 * padding));
     if (rows <= 0 && frameH > 0) rows = std::max(1, img.height / (frameH + 2 * padding));
     columns = std::max(1, columns);
@@ -118,22 +123,29 @@ Json preview(const std::string& projectDir, const Json& a) {
     if (frameW <= 0) frameW = img.width / columns - 2 * padding;
     if (frameH <= 0) frameH = img.height / rows - 2 * padding;
     if (frameW < 1 || frameH < 1)
-        fail("invalid_argument", std::format("The grid {}x{} with padding {} leaves no room for a frame in the {}x{} image.", columns, rows, padding, img.width, img.height),
-             "Use fewer columns/rows or a smaller padding. The image is " + std::to_string(img.width) + "x" + std::to_string(img.height) + " px.");
+        fail("invalid_argument",
+             std::format("The grid {}x{} with padding {} leaves no room for a frame in the {}x{} image.", columns, rows,
+                         padding, img.width, img.height),
+             "Use fewer columns/rows or a smaller padding. The image is " + std::to_string(img.width) + "x" +
+                 std::to_string(img.height) + " px.");
     const int cellW = frameW + 2 * padding, cellH = frameH + 2 * padding;
     if (columns * cellW != img.width || rows * cellH != img.height) {
-        warnings.push_back(std::format(
-            "The grid does not match the image: {} columns x {} rows of {}x{} cells (frame {}x{} + padding {}) is {}x{} px, but the image is {}x{} px. "
-            "The frames shown may be cut at the wrong place. {}",
-            columns, rows, cellW, cellH, frameW, frameH, padding, columns * cellW, rows * cellH, img.width, img.height,
-            entry ? "Fix the `sheet` entry of assets.json (columns, rows, frameWidth, frameHeight, padding) or paint the sheet again."
-                  : "Give columns, rows and padding that fit the image."));
+        warnings.push_back(std::format("The grid does not match the image: {} columns x {} rows of {}x{} cells (frame "
+                                       "{}x{} + padding {}) is {}x{} px, but the image is {}x{} px. "
+                                       "The frames shown may be cut at the wrong place. {}",
+                                       columns, rows, cellW, cellH, frameW, frameH, padding, columns * cellW,
+                                       rows * cellH, img.width, img.height,
+                                       entry ? "Fix the `sheet` entry of assets.json (columns, rows, frameWidth, "
+                                               "frameHeight, padding) or paint the sheet again."
+                                             : "Give columns, rows and padding that fit the image."));
         if (!recordedSize) warnings.back() += " (The frame size was derived from the image: it is not recorded.)";
     }
     const int capacity = columns * rows;
     int frames = entry && entry->frames > 0 ? entry->frames : capacity;
     if (frames > capacity) {
-        warnings.push_back(std::format("The sheet entry says {} frames but a {}x{} grid holds {}: the frames past {} are not drawn.", frames, columns, rows, capacity, capacity - 1));
+        warnings.push_back(
+            std::format("The sheet entry says {} frames but a {}x{} grid holds {}: the frames past {} are not drawn.",
+                        frames, columns, rows, capacity, capacity - 1));
         frames = capacity;
     }
 
@@ -152,9 +164,16 @@ Json preview(const std::string& projectDir, const Json& a) {
         const assets::SheetClip* clip = entry ? entry->find(clipName) : nullptr;
         if (!clip) {
             const std::vector<std::string> names = entry ? entry->clip_names() : std::vector<std::string>{};
-            fail("unknown_clip", std::format("'{}' has no clip \"{}\".", rel, clipName),
-                 names.empty() ? "The sheet has no clips recorded; drop `clip` to see all the frames."
-                               : "Its clips: " + [&] { std::string s; for (const auto& n : names) s += (s.empty() ? "" : ", ") + n; return s; }() + "." + did_you_mean(clipName, names));
+            fail(
+                "unknown_clip", std::format("'{}' has no clip \"{}\".", rel, clipName),
+                names.empty() ? "The sheet has no clips recorded; drop `clip` to see all the frames."
+                              : "Its clips: " +
+                                    [&] {
+                                        std::string s;
+                                        for (const auto& n : names) s += (s.empty() ? "" : ", ") + n;
+                                        return s;
+                                    }() +
+                                    "." + did_you_mean(clipName, names));
         }
         Span s{clip->name, clip->firstFrame, clip->lastFrame, clip->loop, sheetPivot};
         if (clip->pivot) s.pivot = {(*clip->pivot)[0], (*clip->pivot)[1], true};
@@ -174,7 +193,9 @@ Json preview(const std::string& projectDir, const Json& a) {
     for (std::size_t si = 0; si < spans.size(); ++si) {
         Span& s = spans[si];
         if (s.last >= frames || s.first > s.last || s.first < 0) {
-            warnings.push_back(std::format("Clip \"{}\" runs from frame {} to {}, but the sheet has {} frames (0..{}): the part outside is not drawn.", s.name, s.first, s.last, frames, frames - 1));
+            warnings.push_back(std::format("Clip \"{}\" runs from frame {} to {}, but the sheet has {} frames (0..{}): "
+                                           "the part outside is not drawn.",
+                                           s.name, s.first, s.last, frames, frames - 1));
             s.first = std::clamp(s.first, 0, frames - 1);
             s.last = std::clamp(s.last, s.first, frames - 1);
         }
@@ -184,7 +205,9 @@ Json preview(const std::string& projectDir, const Json& a) {
                 owner.push_back(si);
             }
     }
-    if (shown.empty()) fail("invalid_argument", "The sheet has no frames to show.", "Check `frames` and the clips of its `sheet` entry.");
+    if (shown.empty())
+        fail("invalid_argument", "The sheet has no frames to show.",
+             "Check `frames` and the clips of its `sheet` entry.");
 
     auto cell_of = [&](int frame) {
         const int col = frame % columns, row = frame / columns;
@@ -203,18 +226,26 @@ Json preview(const std::string& projectDir, const Json& a) {
         const Image fr = frame_of(f);
         boxes[std::size_t(f)] = ink_box(fr);
         checked[std::size_t(f)] = true;
-        if (picture_is_empty(fr)) emptyFrames.push_back(std::to_string(f));
-        else if (touches_edge(fr)) edgeFrames.push_back(std::to_string(f));
+        if (picture_is_empty(fr))
+            emptyFrames.push_back(std::to_string(f));
+        else if (touches_edge(fr))
+            edgeFrames.push_back(std::to_string(f));
     }
     if (!emptyFrames.empty())
-        warnings.push_back(std::format("{} of the {} frames shown draw nothing (frame {}): an empty cell, or the grid is cut at the wrong place.", emptyFrames.size(), shown.size(), list_frames(emptyFrames)));
+        warnings.push_back(std::format(
+            "{} of the {} frames shown draw nothing (frame {}): an empty cell, or the grid is cut at the wrong place.",
+            emptyFrames.size(), shown.size(), list_frames(emptyFrames)));
     if (!edgeFrames.empty())
-        warnings.push_back(std::format("Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Redraw them smaller inside the cell, make frameWidth/frameHeight larger, or add `padding`.", edgeFrames.size(), list_frames(edgeFrames)));
+        warnings.push_back(
+            std::format("Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Redraw them "
+                        "smaller inside the cell, make frameWidth/frameHeight larger, or add `padding`.",
+                        edgeFrames.size(), list_frames(edgeFrames)));
     for (const Span& s : spans) {
         for (int f = s.first + 1; f <= s.last; ++f) {
             const InkBox &p = boxes[std::size_t(f - 1)], &q = boxes[std::size_t(f)];
             if (!checked[std::size_t(f)] || !checked[std::size_t(f - 1)] || p.empty || q.empty) continue;
-            const double dx = std::abs((p.x0 + p.x1) - (q.x0 + q.x1)) / 2.0, dy = std::abs((p.y0 + p.y1) - (q.y0 + q.y1)) / 2.0;
+            const double dx = std::abs((p.x0 + p.x1) - (q.x0 + q.x1)) / 2.0,
+                         dy = std::abs((p.y0 + p.y1) - (q.y0 + q.y1)) / 2.0;
             if (dx > 0.3 * frameW || dy > 0.3 * frameH) jumpFrames.push_back(std::to_string(f));
         }
         if (s.loop && s.last - s.first + 1 >= 3) {
@@ -222,12 +253,16 @@ Json preview(const std::string& projectDir, const Json& a) {
             for (int f = s.first; f <= s.last; ++f) pics.push_back(frame_of(f));
             std::vector<const Image*> ptrs;
             for (const Image& p : pics) ptrs.push_back(&p);
-            if (auto w = loop_seam_warning(ptrs, s.name.empty() ? std::string() : " of clip \"" + s.name + "\"")) warnings.push_back(*w);
+            if (auto w = loop_seam_warning(ptrs, s.name.empty() ? std::string() : " of clip \"" + s.name + "\""))
+                warnings.push_back(*w);
         }
     }
     if (!jumpFrames.empty())
-        warnings.push_back(std::format("The drawing jumps between frames: its bounding box moves by more than 30% of the frame from the previous one in frame {}. "
-                                       "Keep the subject in place in the cell (move it with the Transform, not inside the sheet), or the frames are not aligned.", list_frames(jumpFrames)));
+        warnings.push_back(std::format("The drawing jumps between frames: its bounding box moves by more than 30% of "
+                                       "the frame from the previous one in frame {}. "
+                                       "Keep the subject in place in the cell (move it with the Transform, not inside "
+                                       "the sheet), or the frames are not aligned.",
+                                       list_frames(jumpFrames)));
 
     // ---- the picture ----
     const bool onion = tooling_detail::arg_bool(a, "onion", false);
@@ -266,8 +301,10 @@ Json preview(const std::string& projectDir, const Json& a) {
         }
         composite(tile, resize_nearest(cell_of(f), tile.width, tile.height), 1.0, nullptr);
         if (padding > 0) rect_outline(tile, 0, 0, tile.width - 1, tile.height - 1, cellEdge);
-        rect_outline(tile, padding * scale, padding * scale, (padding + frameW) * scale - 1, (padding + frameH) * scale - 1, frameEdge);
-        const int px = int((padding + span.pivot.x * frameW) * scale), py = int((padding + span.pivot.y * frameH) * scale);
+        rect_outline(tile, padding * scale, padding * scale, (padding + frameW) * scale - 1,
+                     (padding + frameH) * scale - 1, frameEdge);
+        const int px = int((padding + span.pivot.x * frameW) * scale),
+                  py = int((padding + span.pivot.y * frameH) * scale);
         const int arm = std::max(4, scale * 2);
         hline(tile, px - arm, px + arm, std::clamp(py, 0, tile.height - 1), pivotMark);
         vline(tile, std::clamp(px, 0, tile.width - 1), py - arm, py + arm, pivotMark);
@@ -279,7 +316,8 @@ Json preview(const std::string& projectDir, const Json& a) {
     const stdfs::path out = next_preview_file(projectDir);
     const std::vector<std::uint8_t> png = encode_png(sheetPicture);
     std::string err;
-    if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+    if (!tooling_detail::write_file(out, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+        fail("failed", err);
 
     // ---- the result ----
     Json frameInfo = Json::array();
@@ -296,26 +334,43 @@ Json preview(const std::string& projectDir, const Json& a) {
         c["pivot"] = Json::array({s.pivot.x, s.pivot.y});
         clipsJson.push_back(c);
     }
-    Json result = Json::object(
-        {{"path", rel},
-         {"grid", Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameW}, {"frameHeight", frameH}, {"padding", padding}, {"cellWidth", cellW}, {"cellHeight", cellH},
-                                {"imageWidth", img.width}, {"imageHeight", img.height}, {"frames", frames}, {"fromSheetEntry", bool(entry)}})},
-         {"shownFrames", int(shown.size())},
-         {"pivot", Json::array({sheetPivot.x, sheetPivot.y})},
-         {"frames", frameInfo},
-         {"scale", scale},
-         {"picture", Json::object({{"width", sheetPicture.width}, {"height", sheetPicture.height}, {"tileColumns", layout.columns}})}});
+    Json result = Json::object({{"path", rel},
+                                {"grid", Json::object({{"columns", columns},
+                                                       {"rows", rows},
+                                                       {"frameWidth", frameW},
+                                                       {"frameHeight", frameH},
+                                                       {"padding", padding},
+                                                       {"cellWidth", cellW},
+                                                       {"cellHeight", cellH},
+                                                       {"imageWidth", img.width},
+                                                       {"imageHeight", img.height},
+                                                       {"frames", frames},
+                                                       {"fromSheetEntry", bool(entry)}})},
+                                {"shownFrames", int(shown.size())},
+                                {"pivot", Json::array({sheetPivot.x, sheetPivot.y})},
+                                {"frames", frameInfo},
+                                {"scale", scale},
+                                {"picture", Json::object({{"width", sheetPicture.width},
+                                                          {"height", sheetPicture.height},
+                                                          {"tileColumns", layout.columns}})}});
     if (!clipsJson.empty()) result["clips"] = clipsJson;
     if (!clipName.empty()) result["clip"] = clipName;
     result["warnings"] = warnings;
     std::vector<std::string> steps;
-    steps.push_back("Read the picture: each tile is a frame with its number (f<n>); the cyan rectangle is the frame, a grey one around it is the padding gutter, the magenta cross is the pivot "
+    steps.push_back("Read the picture: each tile is a frame with its number (f<n>); the cyan rectangle is the frame, a "
+                    "grey one around it is the padding gutter, the magenta cross is the pivot "
                     "([x, y] from the top-left; Sprite.pivot is from the bottom-left, so the engine uses [x, 1 - y]).");
-    if (!onion) steps.push_back("Pass onion: true to see each frame over the previous one (red) and the next one (blue): motion that is too big or not aligned shows as a gap.");
-    if (!entry) steps.push_back("The sheet has no `sheet` entry, so a SpriteAnimator would need columns, rows, firstFrame, lastFrame and fps by hand; assets.slice_sheet can record the grid with clips.");
+    if (!onion)
+        steps.push_back("Pass onion: true to see each frame over the previous one (red) and the next one (blue): "
+                        "motion that is too big or not aligned shows as a gap.");
+    if (!entry)
+        steps.push_back("The sheet has no `sheet` entry, so a SpriteAnimator would need columns, rows, firstFrame, "
+                        "lastFrame and fps by hand; assets.slice_sheet can record the grid with clips.");
     else if (entry->clips.empty() == false && clipName.empty())
         steps.push_back("Look at one clip alone with {\"clip\": \"" + entry->clips.front().name + "\"}.");
-    if (!warnings.empty()) steps.push_back("Fix the warnings, then preview again; assets.animate_svg or assets.bake_sheet draw the sheet again with overwrite: true.");
+    if (!warnings.empty())
+        steps.push_back("Fix the warnings, then preview again; assets.animate_svg or assets.bake_sheet draw the sheet "
+                        "again with overwrite: true.");
     result["nextSteps"] = steps;
     result["$image"] = Json::object({{"path", out.string()}, {"mimeType", "image/png"}, {"temporary", true}});
     return result;
@@ -327,14 +382,24 @@ void register_preview_sheet_command(CommandRegistry& registry, const std::string
     CommandInfo info;
     info.name = kCommand;
     info.category = "assets";
-    info.summary = "Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.";
+    info.summary = "Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell "
+                   "edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.";
     info.description =
-        "Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in assets.json (columns, rows, frameWidth, frameHeight, padding, frames; or the grid you pass), and returns a picture: every frame in a tile with its number "
-        "(f<n>), a cyan rectangle for the frame, a grey one for the padding gutter around it and a magenta cross for the pivot (the clip's pivot, else the sheet's, else the centre; [x, y] from the top-left). "
-        "`clip` shows one clip of the sheet; without it all the clips (or all the frames). `onion: true` draws the previous frame in red and the next in blue under the current one. "
-        "It also checks the frames and returns `warnings` for: frames that draw nothing, shapes touching the edge of the cell (cut off), a bounding box that jumps by more than 30% of the frame between consecutive frames, a looping clip whose last frame jumps from the first or repeats it, and a grid that does not match the image size. "
-        "The checks are the same for a sheet from assets.animate_svg, assets.bake_sheet, assets.slice_sheet or an Aseprite import, or one drawn by hand. The picture is a temporary screenshot in .factoria/screenshots. "
-        "A wrong `clip` fails listing the clips of the sheet with a \"did you mean\". Example: {\"path\":\"assets/hero.png\",\"clip\":\"walk\",\"onion\":true}.";
+        "Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in assets.json (columns, rows, "
+        "frameWidth, frameHeight, padding, frames; or the grid you pass), and returns a picture: every frame in a tile "
+        "with its number "
+        "(f<n>), a cyan rectangle for the frame, a grey one for the padding gutter around it and a magenta cross for "
+        "the pivot (the clip's pivot, else the sheet's, else the centre; [x, y] from the top-left). "
+        "`clip` shows one clip of the sheet; without it all the clips (or all the frames). `onion: true` draws the "
+        "previous frame in red and the next in blue under the current one. "
+        "It also checks the frames and returns `warnings` for: frames that draw nothing, shapes touching the edge of "
+        "the cell (cut off), a bounding box that jumps by more than 30% of the frame between consecutive frames, a "
+        "looping clip whose last frame jumps from the first or repeats it, and a grid that does not match the image "
+        "size. "
+        "The checks are the same for a sheet from assets.animate_svg, assets.bake_sheet, assets.slice_sheet or an "
+        "Aseprite import, or one drawn by hand. The picture is a temporary screenshot in .factoria/screenshots. "
+        "A wrong `clip` fails listing the clips of the sheet with a \"did you mean\". Example: "
+        "{\"path\":\"assets/hero.png\",\"clip\":\"walk\",\"onion\":true}.";
     auto integer = [](const char* what, int minimum, int maximum) {
         return Json::object({{"type", "integer"}, {"minimum", minimum}, {"maximum", maximum}, {"description", what}});
     };
@@ -344,16 +409,37 @@ void register_preview_sheet_command(CommandRegistry& registry, const std::string
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"path", Json::object({{"type", "string"}, {"description", "Project-relative path of the sprite sheet image."}})},
-               {"clip", Json::object({{"type", "string"}, {"description", "Show only this clip of the sheet entry (its frames, loop seam and pivot). Default: all the clips, or all the frames."}})},
-               {"onion", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Draw the previous frame in red and the next one in blue under each frame (onion skin)."}})},
-               {"scale", integer("Magnification of each frame (whole numbers, nearest-neighbour). Default: enough for about 160 px per tile.", 1, 16)},
-               {"tileColumns", integer("Tiles per row of the picture. Default: the sheet's columns for the whole sheet, else the closest to a square.", 1, 64)},
-               {"columns", integer("The grid when the sheet has no `sheet` entry (or to override it): frames per row.", 1, 1024)},
+              {{"path", Json::object(
+                            {{"type", "string"}, {"description", "Project-relative path of the sprite sheet image."}})},
+               {"clip", Json::object({{"type", "string"},
+                                      {"description", "Show only this clip of the sheet entry (its frames, loop seam "
+                                                      "and pivot). Default: all the clips, or all the frames."}})},
+               {"onion",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description",
+                      "Draw the previous frame in red and the next one in blue under each frame (onion skin)."}})},
+               {"scale", integer("Magnification of each frame (whole numbers, nearest-neighbour). Default: enough for "
+                                 "about 160 px per tile.",
+                                 1, 16)},
+               {"tileColumns", integer("Tiles per row of the picture. Default: the sheet's columns for the whole "
+                                       "sheet, else the closest to a square.",
+                                       1, 64)},
+               {"columns",
+                integer("The grid when the sheet has no `sheet` entry (or to override it): frames per row.", 1, 1024)},
                {"rows", integer("The grid when the sheet has no `sheet` entry (or to override it): rows.", 1, 1024)},
-               {"frameWidth", integer("Width of one frame in pixels, when it is not recorded. Default: the image divided by the grid.", 1, 8192)},
-               {"frameHeight", integer("Height of one frame in pixels, when it is not recorded. Default: the image divided by the grid.", 1, 8192)},
-               {"padding", integer("Transparent gutter around each cell, in pixels (cell i starts at padding + column * (frameWidth + 2 * padding)). Default: the sheet entry's, else 0.", 0, 64)}})}});
+               {"frameWidth",
+                integer(
+                    "Width of one frame in pixels, when it is not recorded. Default: the image divided by the grid.", 1,
+                    8192)},
+               {"frameHeight",
+                integer(
+                    "Height of one frame in pixels, when it is not recorded. Default: the image divided by the grid.",
+                    1, 8192)},
+               {"padding", integer("Transparent gutter around each cell, in pixels (cell i starts at padding + column "
+                                   "* (frameWidth + 2 * padding)). Default: the sheet entry's, else 0.",
+                                   0, 64)}})}});
     mark_paths(info.inputSchema, "read", {"path"});
     registry.add(info, [projectDir](const Json& args) { return preview(projectDir, args); });
     // Capabilities (capability.h): the picture is a temporary screenshot the engine names in .factoria/screenshots (state); the

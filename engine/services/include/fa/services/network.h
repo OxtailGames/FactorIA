@@ -21,12 +21,15 @@
 namespace fa {
 
 inline constexpr const char* kNetworkKey = "network";  // the section of factoria.json
-inline constexpr const char* kAnalyticsKey = "analytics";        // factoria.json: where analytics.event sends (docs/ANALYTICS.md)
-inline constexpr const char* kRemoteConfigKey = "remoteConfig";  // factoria.json: where remoteConfig.get reads (docs/ANALYTICS.md)
+inline constexpr const char* kAnalyticsKey =
+    "analytics";  // factoria.json: where analytics.event sends (docs/ANALYTICS.md)
+inline constexpr const char* kRemoteConfigKey =
+    "remoteConfig";  // factoria.json: where remoteConfig.get reads (docs/ANALYTICS.md)
 
 struct NetworkPolicy {
-    std::vector<std::string> hosts;  // lower case, as written: "api.example.com", "*.example.com", "localhost", "127.0.0.1", "::1"
-    std::string purpose;             // one sentence for the privacy notice; optional
+    std::vector<std::string>
+        hosts;            // lower case, as written: "api.example.com", "*.example.com", "localhost", "127.0.0.1", "::1"
+    std::string purpose;  // one sentence for the privacy notice; optional
     bool declared() const { return !hosts.empty(); }
     // True when `host` (lower case, no port, IPv6 without brackets) is covered by an entry.
     bool allows(const std::string& host) const;
@@ -54,11 +57,11 @@ Result<NetworkPolicy> load_network(const Json& section);
 // The "analytics" section: analytics.event(name, props) batches events and POSTs them to `endpoint`, after the player consented.
 struct AnalyticsSettings {
     bool configured = false;
-    std::string endpoint;          // https URL; its host must be in "network".hosts
-    int batch = 20;                // events that make a batch go out at once (1 to 100)
-    double flushSeconds = 30;      // the longest an event waits in the queue (1 to 3600)
-    double timeoutSeconds = 10;    // of one request (above 0, at most 120)
-    bool consentFromAds = false;   // until the player answers, the ads consent decides (docs/ANALYTICS.md)
+    std::string endpoint;         // https URL; its host must be in "network".hosts
+    int batch = 20;               // events that make a batch go out at once (1 to 100)
+    double flushSeconds = 30;     // the longest an event waits in the queue (1 to 3600)
+    double timeoutSeconds = 10;   // of one request (above 0, at most 120)
+    bool consentFromAds = false;  // until the player answers, the ads consent decides (docs/ANALYTICS.md)
 };
 struct AnalyticsParse {
     AnalyticsSettings settings;
@@ -71,8 +74,8 @@ AnalyticsParse parse_analytics(const Json& section, const NetworkPolicy& network
 // The "remoteConfig" section: remoteConfig.get(key, default) reads the JSON object served at `url`.
 struct RemoteConfigSettings {
     bool configured = false;
-    std::string url;               // https URL; its host must be in "network".hosts
-    double timeoutSeconds = 5;     // above 0, at most 30
+    std::string url;            // https URL; its host must be in "network".hosts
+    double timeoutSeconds = 5;  // above 0, at most 30
 };
 struct RemoteConfigParse {
     RemoteConfigSettings settings;

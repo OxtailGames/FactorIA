@@ -14,8 +14,8 @@ namespace fa {
 
 namespace render {
 
-Vec2 measure_plain_text(FontSet& fonts, std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space,
-                        TextStyle style, float textScale, float uiScale) {
+Vec2 measure_plain_text(FontSet& fonts, std::string_view text, float fontSize, std::string_view font, float maxWidth,
+                        RenderSpace space, TextStyle style, float textScale, float uiScale) {
     if (text.empty() || fontSize <= 0.0f) return {0, 0};
     Text t;
     t.markup = style.markup;
@@ -35,7 +35,8 @@ Vec2 measure_plain_text(FontSet& fonts, std::string_view text, float fontSize, s
 Vec2 measure_text_component(FontSet& fonts, const Text& text, float textScale, float uiScale) {
     if (text.text.empty() || text.fontSize <= 0.0f) return {0, 0};
     const bool screen = text.space == RenderSpace::Screen;
-    const TextExtent extent = [&fonts, screen, uiScale](const std::string& s, const std::string& font, float px, float wrap, TextStyle style) {
+    const TextExtent extent = [&fonts, screen, uiScale](const std::string& s, const std::string& font, float px,
+                                                        float wrap, TextStyle style) {
         Text t;
         t.text = s;
         t.font = font;
@@ -53,28 +54,37 @@ Vec2 measure_text_component(FontSet& fonts, const Text& text, float textScale, f
 struct TextMeasurer::Impl {
     render::FontSet fonts{[](const std::string& font, const std::string& error, const std::string& hint) {
         const bool hinted = hint.empty() || error.find(hint) != std::string::npos;
-        FA_ERROR("render", "{}{} (font '{}', text measuring without a renderer)", error, hinted ? std::string() : " Hint: " + hint, font);
+        FA_ERROR("render", "{}{} (font '{}', text measuring without a renderer)", error,
+                 hinted ? std::string() : " Hint: " + hint, font);
     }};
 };
 
 TextMeasurer::TextMeasurer() : impl_(std::make_unique<Impl>()) {}
 TextMeasurer::~TextMeasurer() = default;
 
-void TextMeasurer::set_fallback_fonts(std::vector<std::string> fonts) { impl_->fonts.set_fallback_fonts(std::move(fonts)); }
+void TextMeasurer::set_fallback_fonts(std::vector<std::string> fonts) {
+    impl_->fonts.set_fallback_fonts(std::move(fonts));
+}
 void TextMeasurer::set_rich_text_style(RichTextStyle style) { impl_->fonts.set_rich_style(style); }
-void TextMeasurer::set_text_scale(float scale) { textScale_ = std::isfinite(scale) ? std::clamp(scale, kMinTextScale, kMaxTextScale) : 1.0f; }
-void TextMeasurer::set_ui_scale(float scale) { uiScale_ = std::isfinite(scale) ? std::clamp(scale, kMinUiScale, kMaxUiScale) : 1.0f; }
+void TextMeasurer::set_text_scale(float scale) {
+    textScale_ = std::isfinite(scale) ? std::clamp(scale, kMinTextScale, kMaxTextScale) : 1.0f;
+}
+void TextMeasurer::set_ui_scale(float scale) {
+    uiScale_ = std::isfinite(scale) ? std::clamp(scale, kMinUiScale, kMaxUiScale) : 1.0f;
+}
 
-Vec2 TextMeasurer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space,
-                                TextStyle style) const {
+Vec2 TextMeasurer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth,
+                                RenderSpace space, TextStyle style) const {
     if (text.empty() || fontSize <= 0.0f) return {0, 0};
     if (!impl_->fonts.face("")->ok) {  // not even the built-in font loads
         if (!warnedApprox_) {
             warnedApprox_ = true;
-            FA_WARN("render", "text measuring: the built-in font cannot be loaded, so text sizes are an approximation (0.6 em per character). "
+            FA_WARN("render", "text measuring: the built-in font cannot be loaded, so text sizes are an approximation "
+                              "(0.6 em per character). "
                               "Hint: this build is broken; reinstall the engine");
         }
-        return approx_text_size(std::string(text), space == RenderSpace::Screen ? fontSize * textScale_ : fontSize, maxWidth, style.markup);
+        return approx_text_size(std::string(text), space == RenderSpace::Screen ? fontSize * textScale_ : fontSize,
+                                maxWidth, style.markup);
     }
     return render::measure_plain_text(impl_->fonts, text, fontSize, font, maxWidth, space, style, textScale_, uiScale_);
 }
@@ -84,7 +94,8 @@ Vec2 TextMeasurer::measure_text(const Text& text) const {
     if (!impl_->fonts.face("")->ok) {
         if (!warnedApprox_) {
             warnedApprox_ = true;
-            FA_WARN("render", "text measuring: the built-in font cannot be loaded, so text sizes are an approximation (0.6 em per character). "
+            FA_WARN("render", "text measuring: the built-in font cannot be loaded, so text sizes are an approximation "
+                              "(0.6 em per character). "
                               "Hint: this build is broken; reinstall the engine");
         }
         return approx_text_size(text, textScale_);

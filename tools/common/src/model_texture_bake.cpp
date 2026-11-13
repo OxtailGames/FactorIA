@@ -35,7 +35,8 @@ bool write_png_if_changed(const std::string& projectDir, const std::string& rel,
     const stdfs::path file = assets_detail::project_write_file(projectDir, rel);
     if (auto old = tooling_detail::read_file(file); old && *old == bytes) return false;
     std::string err;
-    if (!tooling_detail::write_file(file, bytes, &err)) fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
+    if (!tooling_detail::write_file(file, bytes, &err))
+        fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
     return true;
 }
 
@@ -57,7 +58,8 @@ Json layer_json(const Reserved& r) {
 }
 
 bool is_reserved_name(const std::string& name) {
-    return name == kLayerBase || name == kLayerDecals || name == kLayerWear || name == kLayerOcclusion || name == kLayerUv;
+    return name == kLayerBase || name == kLayerDecals || name == kLayerWear || name == kLayerOcclusion ||
+           name == kLayerUv;
 }
 
 // A layer people made: has it anything drawn on it? (A blank paint layer, the one the first bake adds, has not.)
@@ -91,7 +93,9 @@ std::string layout_fingerprint(const MeshData& mesh) {
 }  // namespace
 
 std::string output_stem(const std::string& output) {
-    return output.size() > 4 && to_lower(output.substr(output.size() - 4)) == ".glb" ? output.substr(0, output.size() - 4) : output;
+    return output.size() > 4 && to_lower(output.substr(output.size() - 4)) == ".glb"
+               ? output.substr(0, output.size() - 4)
+               : output;
 }
 
 std::string document_path(const ModelDoc& doc, const std::string& output) {
@@ -113,7 +117,8 @@ std::vector<std::string> layer_files(const ModelDoc& doc, const std::string& out
     if (t.aoStrength) out.push_back(stem + ".occlusion.png");
     out.push_back(stem + ".uv.png");
     for (const char* map : {"ao", "curvature", "thickness"})
-        if (std::find(t.maps.write.begin(), t.maps.write.end(), map) != t.maps.write.end()) out.push_back(stem + "." + map + ".png");
+        if (std::find(t.maps.write.begin(), t.maps.write.end(), map) != t.maps.write.end())
+            out.push_back(stem + "." + map + ".png");
     return out;
 }
 
@@ -121,18 +126,28 @@ Json report_json(const ModelTextureReport& r) {
     auto stats = [](const std::vector<ModelMapStats>& list) {
         Json a = Json::array();
         for (const ModelMapStats& m : list)
-            a.push_back(Json::object({{"name", m.name}, {"mean", round_to(m.mean, 4)}, {"min", round_to(m.min, 4)}, {"max", round_to(m.max, 4)}, {"coverage", round_to(m.coverage, 4)}}));
+            a.push_back(Json::object({{"name", m.name},
+                                      {"mean", round_to(m.mean, 4)},
+                                      {"min", round_to(m.min, 4)},
+                                      {"max", round_to(m.max, 4)},
+                                      {"coverage", round_to(m.coverage, 4)}}));
         return a;
     };
-    Json out = Json::object({{"size", r.size}, {"bleed", r.bleed}, {"texels", r.texels}, {"utilization", round_to(r.utilization, 4)}, {"overlap", round_to(r.overlap, 4)}});
+    Json out = Json::object({{"size", r.size},
+                             {"bleed", r.bleed},
+                             {"texels", r.texels},
+                             {"utilization", round_to(r.utilization, 4)},
+                             {"overlap", round_to(r.overlap, 4)}});
     out["maps"] = stats(r.maps);
     out["wear"] = stats(r.wear);
     Json decals = Json::array();
-    for (const auto& d : r.decals) decals.push_back(Json::object({{"name", d.name}, {"texels", d.texels}, {"triangles", d.triangles}}));
+    for (const auto& d : r.decals)
+        decals.push_back(Json::object({{"name", d.name}, {"texels", d.texels}, {"triangles", d.triangles}}));
     out["decals"] = decals;
     Json parts = Json::array();
     for (const auto& p : r.parts) {
-        Json one = Json::object({{"part", p.part}, {"material", p.material}, {"mapping", p.mapping}, {"texels", p.texels}});
+        Json one =
+            Json::object({{"part", p.part}, {"material", p.material}, {"mapping", p.mapping}, {"texels", p.texels}});
         if (!p.texture.empty()) one["texture"] = p.texture;
         parts.push_back(one);
     }
@@ -149,8 +164,8 @@ void apply_texture(MeshData& mesh, const ModelDoc& doc, const std::string& png) 
     if (doc.texturing && doc.texturing->vertexColors == "bake") mesh.colors.clear();
 }
 
-Result<TextureBake> bake_model_texture(const std::string& projectDir, const ModelDoc& doc, const ModelBuild& build, const std::string& output,
-                                       const std::string& previousLayout) {
+Result<TextureBake> bake_model_texture(const std::string& projectDir, const ModelDoc& doc, const ModelBuild& build,
+                                       const std::string& output, const std::string& previousLayout) {
     TextureBake out;
     const ModelTexturing& T = *doc.texturing;
     ModelTextureInput in;
@@ -191,14 +206,18 @@ Result<TextureBake> bake_model_texture(const std::string& projectDir, const Mode
     // the files the document says it makes must be the ones made: a mismatch would leave the model "missing" for ever
     {
         std::set<std::string> a(wanted.begin(), wanted.end()), b(out.files.begin(), out.files.end());
-        if (a != b) return make_error("Internal error: the texture bake wrote other pictures than the document asks for.", "Report this as an engine bug.");
+        if (a != b)
+            return make_error("Internal error: the texture bake wrote other pictures than the document asks for.",
+                              "Report this as an engine bug.");
     }
 
     // ---- the image document
     const std::string docPath = document_path(doc, output);
     out.document = docPath;
     if (!starts_with(docPath, "assets/") || !ends_with(docPath, kImageDocSuffix))
-        return make_error("texturing.document '" + docPath + "' must be under assets/ and end in " + kImageDocSuffix + ".", "Example: \"assets/models/door.texture.image.json\".");
+        return make_error("texturing.document '" + docPath + "' must be under assets/ and end in " + kImageDocSuffix +
+                              ".",
+                          "Example: \"assets/models/door.texture.image.json\".");
 
     std::vector<Reserved> reserved;
     reserved.push_back({kLayerBase, file_of("base"), "normal", true, 1.0f});
@@ -215,8 +234,10 @@ Result<TextureBake> bake_model_texture(const std::string& projectDir, const Mode
     if (!existing) {
         out.documentCreated = true;
         json = Json::object({{"format", kImageDocFormat}, {"width", L.size}, {"height", L.size}});
-        json["description"] = "The texture of the model " + output + ". The layers named \"model: ...\" are the model's: every model bake rewrites their pictures. "
-                              "Paint on layers of your own above them; a bake never touches those.";
+        json["description"] =
+            "The texture of the model " + output +
+            ". The layers named \"model: ...\" are the model's: every model bake rewrites their pictures. "
+            "Paint on layers of your own above them; a bake never touches those.";
         Json layers = Json::array();
         for (const Reserved& r : reserved) layers.push_back(layer_json(r));
         // a blank layer to paint on
@@ -229,10 +250,14 @@ Result<TextureBake> bake_model_texture(const std::string& projectDir, const Mode
         changed = true;
     } else {
         auto parsed = parse_json(*existing, docPath);
-        if (!parsed.ok()) return make_error(docPath + ": " + parsed.error().message, "Fix the JSON, or delete the file: the next model bake writes a new texture document (painted layers are lost with it).");
+        if (!parsed.ok())
+            return make_error(docPath + ": " + parsed.error().message,
+                              "Fix the JSON, or delete the file: the next model bake writes a new texture document "
+                              "(painted layers are lost with it).");
         json = std::move(*parsed);
         if (!json.is_object() || !json.contains("layers") || !json["layers"].is_array())
-            return make_error(docPath + ": the texture document is not an image document with a `layers` list.", "Delete the file: the next model bake writes a new one.");
+            return make_error(docPath + ": the texture document is not an image document with a `layers` list.",
+                              "Delete the file: the next model bake writes a new one.");
         const Json before = json;
         const bool layoutMoved = !previousLayout.empty() && previousLayout != out.layout;
         const int oldW = json.value("width", 0), oldH = json.value("height", 0);
@@ -241,14 +266,20 @@ Result<TextureBake> bake_model_texture(const std::string& projectDir, const Mode
         bool painted = false;
         if (layoutMoved || oldW != L.size || oldH != L.size)
             for (const Json& l : layers)
-                if (l.is_object() && !is_reserved_name(l.value("name", std::string())) && layer_has_content(projectDir, l)) painted = true;
+                if (l.is_object() && !is_reserved_name(l.value("name", std::string())) &&
+                    layer_has_content(projectDir, l))
+                    painted = true;
         if (oldW != L.size || oldH != L.size) {
             json["width"] = L.size;
             json["height"] = L.size;
             if (painted)
-                out.warnings.push_back(std::format("The texture is {0}x{0} now (it was {1}x{2}): the layers you painted keep their pixels, which no longer cover the same spots. Paint them again, or change texturing.size / uv.textureSize back.", L.size, oldW, oldH));
+                out.warnings.push_back(std::format(
+                    "The texture is {0}x{0} now (it was {1}x{2}): the layers you painted keep their pixels, which no "
+                    "longer cover the same spots. Paint them again, or change texturing.size / uv.textureSize back.",
+                    L.size, oldW, oldH));
         } else if (layoutMoved && painted) {
-            out.warnings.push_back("The uv layout changed since the last bake: the layers you painted in '" + docPath + "' keep their pixels, which no longer line up with the model. "
+            out.warnings.push_back("The uv layout changed since the last bake: the layers you painted in '" + docPath +
+                                   "' keep their pixels, which no longer line up with the model. "
                                    "Paint them again; keep a uv change for before you start painting.");
         }
         // remove the model's layers that this bake does not make, keep the others where they are

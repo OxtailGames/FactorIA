@@ -15,6 +15,12 @@ target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
 target_link_libraries(fa_tooling PUBLIC fa_ext_harfbuzz_subset fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs fa_ext_nanosvg fa_ext_clipper2)
+if(MSVC)
+    # nanosvg's implementation has unreachable code (nanosvg.h, the end of nsvg__convertToPixels). The optimizer reports
+    # C4702 for it and does not honour #pragma warning around the include, so it is off on the command line for the two
+    # files that compile nanosvg (external/ is not edited).
+    set_source_files_properties(src/assets_svg.cpp src/assets_svg_layers.cpp PROPERTIES COMPILE_OPTIONS /wd4702)
+endif()
 if(WIN32)
     target_link_libraries(fa_tooling PRIVATE ws2_32 iphlpapi bcrypt)  # net.cpp: sockets, the adapters' addresses, random bytes
 endif()
@@ -85,6 +91,7 @@ if(FA_BUILD_TESTS)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder fa_ext_quickjs)  # script_instrument_test.cpp runs the instrumented code in QuickJS; # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
+        fa_allow_duplicate_libraries(fa_test_tooling)
         target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders

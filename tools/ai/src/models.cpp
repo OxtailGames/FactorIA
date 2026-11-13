@@ -19,8 +19,9 @@ Result<Json> get_model_list(std::string_view provider, HttpRequest hr, const Pro
     HttpResponse resp = send_with_retry(rt, hr, 0, nullptr);
     if (!resp.ok()) {
         return make_error(describe_http_error(provider, resp),
-                          resp.status == 404 ? "This server does not list its models at " + hr.url + ": type the model name."
-                                             : http_error_hint(provider, resp.status));
+                          resp.status == 404
+                              ? "This server does not list its models at " + hr.url + ": type the model name."
+                              : http_error_hint(provider, resp.status));
     }
     Json body = parse(resp.body);
     const Json* data = child(body, "data");
@@ -53,15 +54,17 @@ Result<std::vector<ModelInfo>> list_openai(const ProviderConfig& cfg, const Prov
     auto key = resolve_api_key(cfg, rt.env);
     if (!key.found() && !keyEnv.empty()) {
         return make_error("No API key for provider '" + cfg.name + "'",
-                          "Set the " + keyEnv + " environment variable, or \"apiKeyEnv\"/\"apiKey\" for this provider in "
-                          "~/.factoria/ai.json.");
+                          "Set the " + keyEnv +
+                              " environment variable, or \"apiKeyEnv\"/\"apiKey\" for this provider in "
+                              "~/.factoria/ai.json.");
     }
     HttpRequest hr;
     hr.url = trim_slashes(cfg.baseUrl) + "/models";
     if (key.found()) hr.headers.emplace_back("Authorization", "Bearer " + key.key);
     for (const auto& kv : cfg.headers) hr.headers.push_back(kv);
     hr.timeoutSeconds = 30;
-    hr.connectTimeoutSeconds = keyEnv.empty() ? 3 : 10;  // a local server (ollama, lmstudio) that is not running fails fast
+    hr.connectTimeoutSeconds =
+        keyEnv.empty() ? 3 : 10;  // a local server (ollama, lmstudio) that is not running fails fast
     auto data = get_model_list(cfg.name, hr, rt);
     if (!data) return data.error();
     std::vector<ModelInfo> models;
@@ -93,8 +96,9 @@ Result<std::vector<ModelInfo>> list_claude(const ProviderConfig& cfg) {
     };
     auto pr = run_process(*po);
     if (!pr) return make_error(pr.error().message, pr.error().hint.empty() ? cli_install_hint(cfg) : pr.error().hint);
-    const std::string update = "Update Claude Code (npm i -g @anthropic-ai/claude-code): older versions cannot list models. "
-                               "Or type the model name.";
+    const std::string update =
+        "Update Claude Code (npm i -g @anthropic-ai/claude-code): older versions cannot list models. "
+        "Or type the model name.";
     if (reply.is_null()) {
         if (looks_like_auth_failure(pr->stdoutText) || looks_like_auth_failure(pr->stderrText)) {
             return make_error("Provider '" + cfg.name + "' is not logged in or its credentials were rejected",
@@ -103,8 +107,8 @@ Result<std::vector<ModelInfo>> list_claude(const ProviderConfig& cfg) {
         }
         return make_error("Provider '" + cfg.name + "' did not list its models: " +
                               (pr->timedOut ? std::string("no answer in 60 s")
-                                            : "the CLI exited (code " + std::to_string(pr->exitCode) + ") without answering. " +
-                                                  pr->stderrText.substr(0, 300)),
+                                            : "the CLI exited (code " + std::to_string(pr->exitCode) +
+                                                  ") without answering. " + pr->stderrText.substr(0, 300)),
                           update);
     }
     const Json* outer = child(reply, "response");
@@ -119,7 +123,8 @@ Result<std::vector<ModelInfo>> list_claude(const ProviderConfig& cfg) {
     std::vector<ModelInfo> models;
     for (const Json& m : *list) {
         const std::string id = str(m, "value"), resolved = str(m, "resolvedModel");
-        if (!id.empty()) models.push_back({id, str(m, "displayName"), str(m, "description"), resolved == id ? "" : resolved});
+        if (!id.empty())
+            models.push_back({id, str(m, "displayName"), str(m, "description"), resolved == id ? "" : resolved});
     }
     return models;
 }
@@ -135,12 +140,14 @@ Result<std::vector<ModelInfo>> list_models(const ProviderConfig& cfg, ProviderRu
         case ProviderKind::Meshy:
         case ProviderKind::Fake:
         case ProviderKind::AssetCommand:
-            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) +
-                                  ") generates assets, it has no chat models",
-                              "Use it under \"assets\" in ai.json (docs/AI_PROVIDERS.md, Asset providers); its model is "
-                              "assets.<kind>.model.");
+            return make_error(
+                "Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) +
+                    ") generates assets, it has no chat models",
+                "Use it under \"assets\" in ai.json (docs/AI_PROVIDERS.md, Asset providers); its model is "
+                "assets.<kind>.model.");
         default:
-            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) + ") does not list its models",
+            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) +
+                                  ") does not list its models",
                               "Type the model name; the CLI's own documentation lists the ones it accepts.");
     }
 }

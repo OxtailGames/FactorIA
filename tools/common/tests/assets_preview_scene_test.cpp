@@ -34,7 +34,9 @@ bool no_gpu(const CommandResult& r) {
     return true;
 }
 
-std::string message(const CommandResult& r) { return r.error.value("message", std::string()) + " " + r.error.value("hint", std::string()); }
+std::string message(const CommandResult& r) {
+    return r.error.value("message", std::string()) + " " + r.error.value("hint", std::string());
+}
 
 int count_red(const Image& img) {
     int n = 0;
@@ -68,10 +70,14 @@ TEST_CASE("assets.preview_in_scene: argument errors teach (no GPU needed)") {
     CHECK_FALSE(r.ok);
 }
 
-TEST_CASE("assets.preview_in_scene: a sprite at a position shows at phone and desktop, the scene file is untouched, same pixels twice") {
+TEST_CASE("assets.preview_in_scene: a sprite at a position shows at phone and desktop, the scene file is untouched, "
+          "same pixels twice") {
     SceneProject p;
     const std::string before = read_all(p.file("scenes/level.scene.json"));
-    const Json args = Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"at", Json::array({40, 0})}, {"size", Json::array({32, 32})}};
+    const Json args = Json{{"path", "assets/red.png"},
+                           {"scene", "scenes/level.scene.json"},
+                           {"at", Json::array({40, 0})},
+                           {"size", Json::array({32, 32})}};
     CommandResult r = p.reg.call("assets.preview_in_scene", args);
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -88,18 +94,26 @@ TEST_CASE("assets.preview_in_scene: a sprite at a position shows at phone and de
 
     const CommandResult again = p.reg.call("assets.preview_in_scene", args);
     REQUIRE(again.ok);
-    CHECK(read_all(again.result["$image"]["path"].get<std::string>()) == read_all(r.result["$image"]["path"].get<std::string>()));
+    CHECK(read_all(again.result["$image"]["path"].get<std::string>()) ==
+          read_all(r.result["$image"]["path"].get<std::string>()));
 }
 
 TEST_CASE("assets.preview_in_scene: beside and in place of an entity, an unknown entity, an off-screen position") {
     SceneProject p;
-    CommandResult r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "hero"}, {"resolutions", Json::array({"desktop"})}});
+    CommandResult r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"},
+                                                                 {"scene", "scenes/level.scene.json"},
+                                                                 {"entity", "hero"},
+                                                                 {"resolutions", Json::array({"desktop"})}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["screens"].size() == 1);
     // beside: -50 + half the hero (10) + half the sprite (8) + 8 of air
     CHECK(r.result["screens"][0]["position"][0].get<double>() == doctest::Approx(-24.0));
-    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "hero"}, {"placement", "replace"}, {"resolutions", Json::array({"desktop"})}});
+    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"},
+                                                   {"scene", "scenes/level.scene.json"},
+                                                   {"entity", "hero"},
+                                                   {"placement", "replace"},
+                                                   {"resolutions", Json::array({"desktop"})}});
     REQUIRE(r.ok);
     CHECK(r.result["screens"][0]["position"][0].get<double>() == doctest::Approx(-50.0));
     const Image pic = read_png(r.result["$image"]["path"].get<std::string>());
@@ -107,14 +121,22 @@ TEST_CASE("assets.preview_in_scene: beside and in place of an entity, an unknown
     for (std::size_t i = 0; i + 3 < pic.rgba.size(); i += 4)
         if (pic.rgba[i] < 10 && pic.rgba[i + 1] < 10 && pic.rgba[i + 2] > 240) ++blue;
     CHECK(blue == 0);  // the hero is hidden in the picture
-    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "heroo"}});
+    r = p.reg.call("assets.preview_in_scene",
+                   Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "heroo"}});
     CHECK_FALSE(r.ok);
     CHECK(message(r).find("hero") != std::string::npos);
-    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"at", Json::array({5000, 0})}, {"resolutions", Json::array({"desktop"})}});
+    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"},
+                                                   {"scene", "scenes/level.scene.json"},
+                                                   {"at", Json::array({5000, 0})},
+                                                   {"resolutions", Json::array({"desktop"})}});
     REQUIRE(r.ok);
     CHECK(r.result["screens"][0]["onScreen"] == false);
     CHECK(has_warning(r.result, "outside the view"));
-    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"}, {"scene", "scenes/level.scene.json"}, {"at", Json::array({5000, 0})}, {"center", true}, {"resolutions", Json::array({"desktop"})}});
+    r = p.reg.call("assets.preview_in_scene", Json{{"path", "assets/red.png"},
+                                                   {"scene", "scenes/level.scene.json"},
+                                                   {"at", Json::array({5000, 0})},
+                                                   {"center", true},
+                                                   {"resolutions", Json::array({"desktop"})}});
     REQUIRE(r.ok);
     CHECK(r.result["screens"][0]["onScreen"] == true);
 }

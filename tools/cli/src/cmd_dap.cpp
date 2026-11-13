@@ -68,8 +68,8 @@ int run_game(DapServer& server) {
             int code = run_headless(cfg, ho, &report);
             if (report.is_object() && report.contains("error") && report["error"].is_string())
                 server.send_output("stderr", "error: " + report["error"].get<std::string>() + "\n");
-            server.send_output("console", "Ran " + std::to_string(report.value("frames", 0)) + " frames headless (exit code " +
-                                              std::to_string(code) + ").\n");
+            server.send_output("console", "Ran " + std::to_string(report.value("frames", 0)) +
+                                              " frames headless (exit code " + std::to_string(code) + ").\n");
             return code;
         }
         // test
@@ -82,7 +82,8 @@ int run_game(DapServer& server) {
         for (const auto& e : rep.loadErrors) server.send_output("stderr", "ERROR " + e.to_string() + "\n");
         return rep.ok() ? 0 : 1;
     } catch (const CliError& e) {
-        server.send_output("stderr", std::string("error: ") + e.what() + (e.hint.empty() ? "" : "\n  hint: " + e.hint) + "\n");
+        server.send_output("stderr",
+                           std::string("error: ") + e.what() + (e.hint.empty() ? "" : "\n  hint: " + e.hint) + "\n");
         return 2;
     } catch (const std::exception& e) {
         server.send_output("stderr", std::string("error: ") + e.what() + "\n");
@@ -112,7 +113,8 @@ Command make_dap_command() {
         fd_binary(protoOut);
 
         // Intentionally leaked: the reader thread may still be blocked in read() when the process exits.
-        auto* server = new DapServer([protoOut](const Json& m) { write_all(protoOut, dap_encode(m)); }, script_instrumenter());
+        auto* server =
+            new DapServer([protoOut](const Json& m) { write_all(protoOut, dap_encode(m)); }, script_instrumenter());
 
         add_log_sink([server](const LogEntry& e) {
             if (e.level < LogLevel::Warn || e.category == "script") return;  // script output comes through the debugger
@@ -126,8 +128,10 @@ Command make_dap_command() {
                 int n = fd_read(0, buf, sizeof buf);
                 if (n <= 0) break;
                 for (auto& item : frames.feed(std::string_view(buf, static_cast<std::size_t>(n)))) {
-                    if (!item.error.empty()) server->handle_protocol_error(item.error);
-                    else server->handle_message(item.message);
+                    if (!item.error.empty())
+                        server->handle_protocol_error(item.error);
+                    else
+                        server->handle_message(item.message);
                 }
             }
             server->handle_eof();

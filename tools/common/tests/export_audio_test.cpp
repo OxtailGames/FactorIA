@@ -72,7 +72,8 @@ TEST_CASE("export: convert qoa ships WAV files as <path>.qoa and bakes the loudn
     CHECK(mentions(*r, "assets/many.wav"));
 
     const Json shipped = f.shipped_assets();
-    const Json& analysis = shipped["assets"]["assets/hit.wav"]["analysis"];  // keyed by the original path, stamped with the twin
+    const Json& analysis =
+        shipped["assets"]["assets/hit.wav"]["analysis"];  // keyed by the original path, stamped with the twin
     CHECK(analysis["sha256"] == sha256_hex(qoa));
     CHECK(analysis["bytes"] == qoa.size());
     CHECK(analysis["loudnessLufs"].get<double>() == doctest::Approx(-20.0).epsilon(0.5 / 20.0));
@@ -111,14 +112,16 @@ TEST_CASE("export: the shipped game plays the twin, normalized from the baked lo
     REQUIRE(audio.stop_recording(f.tmp.sub("rec.wav"), &err));
     audio.shutdown();
     bool measured = false;
-    for (const LogEntry& line : recent_logs(50, LogLevel::Info)) measured |= line.message.find("measured") != std::string::npos;
+    for (const LogEntry& line : recent_logs(50, LogLevel::Info))
+        measured |= line.message.find("measured") != std::string::npos;
     fs::set_project_root(saved);
 
     const std::string wav = testing::read_all(f.tmp.sub("rec.wav"));
     REQUIRE(wav.size() > 44);
     float peak = 0;  // 16-bit stereo after the header
     for (std::size_t i = 44; i + 1 < wav.size(); i += 2)
-        peak = std::max(peak, std::fabs(float(std::int16_t(std::uint8_t(wav[i]) | (std::uint8_t(wav[i + 1]) << 8))) / 32768.0f));
+        peak = std::max(
+            peak, std::fabs(float(std::int16_t(std::uint8_t(wav[i]) | (std::uint8_t(wav[i + 1]) << 8))) / 32768.0f));
     CHECK(peak == doctest::Approx(0.1f * 1.585f).epsilon(0.08));  // -20 dBFS peak, +4 dB to reach -16 LUFS
     CHECK_FALSE(measured);
 }
@@ -139,7 +142,7 @@ TEST_CASE("export: normalize bakes the loudness of lossy and unconverted sounds 
     const Json shipped = f.shipped_assets();
     CHECK(stdfs::exists(f.game() / "assets/tone.mp3"));  // lossy files are never converted
     CHECK(shipped["assets"]["assets/tone.mp3"]["analysis"]["sha256"] == sha256_hex(mp3));
-    CHECK(mentions(*r, "assets/tone.mp3"));               // it asked for convert, and the export says it was not done
+    CHECK(mentions(*r, "assets/tone.mp3"));  // it asked for convert, and the export says it was not done
     CHECK(shipped["assets"]["assets/plain.wav"]["analysis"]["loudnessLufs"].get<double>() ==
           doctest::Approx(-20.0).epsilon(0.5 / 20.0));
     CHECK(stdfs::exists(f.game() / "assets/plain.wav.qoa"));  // defaults.audio.convert applies to every WAV

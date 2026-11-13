@@ -75,12 +75,13 @@ bool id_compatible(const std::string& prefabId, const std::string& id) {
     if (prefabId == id) return true;
     const auto automatic = [](const std::string& s) { return s.size() > 1 && s[0] == 'e' && all_digits(s, 1); };
     if (automatic(prefabId) && automatic(id)) return true;
-    return id.size() > prefabId.size() + 1 && id.compare(0, prefabId.size(), prefabId) == 0 && id[prefabId.size()] == '_' &&
-           all_digits(id, prefabId.size() + 1);
+    return id.size() > prefabId.size() + 1 && id.compare(0, prefabId.size(), prefabId) == 0 &&
+           id[prefabId.size()] == '_' && all_digits(id, prefabId.size() + 1);
 }
 
 void count_strings(const Json& j, std::unordered_map<std::string, int>& out) {
-    if (j.is_string()) ++out[j.get<std::string>()];
+    if (j.is_string())
+        ++out[j.get<std::string>()];
     else if (j.is_object() || j.is_array())
         for (const Json& v : j) count_strings(v, out);
 }
@@ -109,7 +110,8 @@ class Differ {
 public:
     Differ(const World& cur, PrefabBaseCache::Impl& cache, PrefabBase& base, const PrefabDiffOptions& opt,
            const EntityJsonOptions& childOpts, std::string path)
-        : cw_(cur), cache_(cache), base_(base), bw_(base.world), opt_(opt), childOpts_(childOpts), path_(std::move(path)) {}
+        : cw_(cur), cache_(cache), base_(base), bw_(base.world), opt_(opt), childOpts_(childOpts),
+          path_(std::move(path)) {}
 
     PrefabDiff run(Entity root) {
         PrefabDiff out;
@@ -169,8 +171,10 @@ private:
         // The saved instance does not keep a descendant's id: loading it gives the prefab's id (or the next free one), so a
         // different id would dangle for a string elsewhere in the scene that names it.
         if (!isRoot && bi.id != ci.id && id_referenced(ci.id))
-            return fail("the id '" + ci.id + "' of a part of the prefab ('" + bi.id + "') differs from the prefab's and is named by a string "
-                        "elsewhere in the scene (a value equal to the id; an id inside a longer text or a script's find_by_id is not "
+            return fail("the id '" + ci.id + "' of a part of the prefab ('" + bi.id +
+                        "') differs from the prefab's and is named by a string "
+                        "elsewhere in the scene (a value equal to the id; an id inside a longer text or a script's "
+                        "find_by_id is not "
                         "looked for), which would no longer find it once the instance is loaded again");
         pairs_.push_back({b, c, node, chain});
         map_[b.bits()] = c;
@@ -190,13 +194,15 @@ private:
             if (cw_.info(cch[i]).fromPrefab != (i < nb))
                 return fail("the children of '" + ci.id + "' were reordered, or a child of the prefab was replaced");
         if (!isRoot && cch.size() > nb)
-            return fail("'" + cw_.info(cch[nb]).id + "' was added under '" + ci.id + "', a part of the prefab (an instance can only add children to its root)");
+            return fail("'" + cw_.info(cch[nb]).id + "' was added under '" + ci.id +
+                        "', a part of the prefab (an instance can only add children to its root)");
         if (isRoot) added_.assign(cch.begin() + std::ptrdiff_t(nb), cch.end());
 
         Json* kids = nullptr;
         if (node && !node->contains("prefab") && node->contains("children") && (*node)["children"].is_array() &&
             (*node)["children"].size() == nb &&
-            std::all_of((*node)["children"].begin(), (*node)["children"].end(), [](const Json& k) { return k.is_object(); }))
+            std::all_of((*node)["children"].begin(), (*node)["children"].end(),
+                        [](const Json& k) { return k.is_object(); }))
             kids = &(*node)["children"];
         for (std::size_t i = 0; i < nb; ++i) {
             Json* childNode = kids ? &(*kids)[i] : nullptr;
@@ -238,9 +244,18 @@ private:
     bool diff_node(const Pair& p, Json& node) {
         const EntityInfo& bi = bw_.info(p.b);
         const EntityInfo& ci = cw_.info(p.c);
-        if (ci.name != bi.name) { node["name"] = ci.name; ++changes_; }
-        if (ci.tags != bi.tags) { node["tags"] = tags_json(ci.tags); ++changes_; }
-        if (ci.active != bi.active) { node["active"] = ci.active; ++changes_; }
+        if (ci.name != bi.name) {
+            node["name"] = ci.name;
+            ++changes_;
+        }
+        if (ci.tags != bi.tags) {
+            node["tags"] = tags_json(ci.tags);
+            ++changes_;
+        }
+        if (ci.active != bi.active) {
+            node["active"] = ci.active;
+            ++changes_;
+        }
 
         for (const TypeInfo* t : bw_.components_of(p.b))
             if (t->name != "EntityInfo" && !cw_.get(p.c, *t))
@@ -251,7 +266,7 @@ private:
             if (t->name == "EntityInfo") continue;
             const void* co = cw_.get(p.c, *t);
             const void* bo = bw_.get(p.b, *t);
-            if (!bo) {   // a component the prefab does not have: written whole
+            if (!bo) {  // a component the prefab does not have: written whole
                 Json full = component_to_json(cw_, p.c, *t, false, false);
                 if (opt_.poseRest) detail::apply_pose_rest_values(*opt_.poseRest, p.c, *t, false, full);
                 comps[t->name] = std::move(full);
@@ -276,10 +291,14 @@ private:
                         Json merged = bv;
                         json_merge(merged, *cv);
                         if (merged != *cv)
-                            return fail(t->name + "." + f.name + " of '" + ci.id + "' lost a key of the prefab's value, which an override cannot remove");
+                            return fail(t->name + "." + f.name + " of '" + ci.id +
+                                        "' lost a key of the prefab's value, which an override cannot remove");
                     }
                 }
-                if (!same) { fields[f.name] = *cv; ++changes_; }
+                if (!same) {
+                    fields[f.name] = *cv;
+                    ++changes_;
+                }
             }
             if (!fields.empty()) comps[t->name] = std::move(fields);
         }
@@ -297,18 +316,24 @@ private:
         const auto names = [](const Json& n, const char* k) {
             return n.contains(k) && n[k].is_string() ? n[k].get<std::string>() : std::string();
         };
-        const auto resolves = [&](const std::string& key) { return !key.empty() && detail::find_override_target(base_.authored, key) == p.node; };
+        const auto resolves = [&](const std::string& key) {
+            return !key.empty() && detail::find_override_target(base_.authored, key) == p.node;
+        };
         for (const char* k : {"id", "name"})
             if (const std::string key = names(*p.node, k); resolves(key)) return key;
         std::string path;
         for (const Json* n : p.chain) {
             std::string label = n ? names(*n, "id") : std::string();
             if (label.empty() && n) label = names(*n, "name");
-            if (label.empty()) { path.clear(); break; }
+            if (label.empty()) {
+                path.clear();
+                break;
+            }
             path += (path.empty() ? "" : "/") + label;
         }
         if (resolves(path)) return path;
-        fail("'" + id + "' has neither an id nor a name in the prefab file that identifies it, so no override key can name it");
+        fail("'" + id +
+             "' has neither an id nor a name in the prefab file that identifies it, so no override key can name it");
         return {};
     }
 
@@ -331,14 +356,24 @@ private:
 
 }  // namespace
 
-PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::string_view prefabPath, const PrefabDiffOptions& opts) {
+PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::string_view prefabPath,
+                                   const PrefabDiffOptions& opts) {
     PrefabDiff none;
-    if (!world.alive(entity)) { none.reason = "the entity is not alive"; return none; }
-    if (prefabPath.empty()) { none.reason = "no prefab path"; return none; }
+    if (!world.alive(entity)) {
+        none.reason = "the entity is not alive";
+        return none;
+    }
+    if (prefabPath.empty()) {
+        none.reason = "no prefab path";
+        return none;
+    }
     PrefabBaseCache local;
     PrefabBaseCache::Impl& cache = opts.cache ? opts.cache->impl() : local.impl();
     detail::PrefabBase& base = base_for(cache, std::string(prefabPath));
-    if (!base.error.empty()) { none.reason = base.error; return none; }
+    if (!base.error.empty()) {
+        none.reason = base.error;
+        return none;
+    }
     EntityJsonOptions fallback;
     fallback.poseRest = opts.poseRest;
     Differ differ(world, cache, base, opts, opts.childOptions ? *opts.childOptions : fallback, std::string(prefabPath));

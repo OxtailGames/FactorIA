@@ -52,13 +52,88 @@ namespace fa {
 
 enum class Key : std::uint16_t {
     Unknown = 0,
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
-    Space, Enter, Escape, Tab, Backspace, Insert, Delete,
-    Left, Right, Up, Down, PageUp, PageDown, Home, End,
-    LeftShift, RightShift, LeftControl, RightControl, LeftAlt, RightAlt, LeftSuper, RightSuper,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    Minus, Equal, LeftBracket, RightBracket, Backslash, Semicolon, Apostrophe, Comma, Period, Slash, GraveAccent,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    Space,
+    Enter,
+    Escape,
+    Tab,
+    Backspace,
+    Insert,
+    Delete,
+    Left,
+    Right,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    LeftShift,
+    RightShift,
+    LeftControl,
+    RightControl,
+    LeftAlt,
+    RightAlt,
+    LeftSuper,
+    RightSuper,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Minus,
+    Equal,
+    LeftBracket,
+    RightBracket,
+    Backslash,
+    Semicolon,
+    Apostrophe,
+    Comma,
+    Period,
+    Slash,
+    GraveAccent,
     Count
 };
 const char* key_name(Key k);               // "A", "Num1" is named "1", "Space"...
@@ -72,14 +147,28 @@ inline constexpr std::uint8_t Shift = 1, Ctrl = 2, Alt = 4, Super = 8;
 // modifier. A key name such as "LeftShift" is not one: it names one side.
 std::uint8_t modifier_from_name(std::string_view name);
 const char* modifier_name(std::uint8_t bit);  // "Ctrl"; "" if `bit` is not exactly one modifier
-Key modifier_key(std::uint8_t bit, bool right = false);  // the key of one side (Key::Unknown if `bit` is not one modifier)
+Key modifier_key(std::uint8_t bit,
+                 bool right = false);  // the key of one side (Key::Unknown if `bit` is not one modifier)
 
 enum class MouseButton : std::uint8_t { Left, Right, Middle, Count };
 
 // Gamepads: up to kMaxGamepads pads, indexed from 0, with an Xbox-style layout (A bottom, B right, X left, Y top).
 inline constexpr int kMaxGamepads = 4;
 enum class GamepadButton : std::uint8_t {
-    A, B, X, Y, Start, Back, Guide, DpadLeft, DpadRight, DpadUp, DpadDown, LeftShoulder, RightShoulder, LeftThumb,
+    A,
+    B,
+    X,
+    Y,
+    Start,
+    Back,
+    Guide,
+    DpadLeft,
+    DpadRight,
+    DpadUp,
+    DpadDown,
+    LeftShoulder,
+    RightShoulder,
+    LeftThumb,
     RightThumb,  // the thumbs are the stick clicks
     Count
 };
@@ -107,8 +196,9 @@ GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name)
 // What a pad is, as far as the platform can tell. `id` is stable across plugging: the same physical pad gives the same id
 // every time (see make_gamepad_id), which a game uses to remember who held it; the slot (0..3) is only where it sits now.
 struct GamepadInfo {
-    std::string id;     // "045e:028e:Xbox 360 Controller#<serial>": vendor, product, name and the serial/GUID/path when the OS has one
-    std::string name;   // what the OS calls the pad ("Wireless Controller"); "Gamepad" when it did not say
+    std::string
+        id;  // "045e:028e:Xbox 360 Controller#<serial>": vendor, product, name and the serial/GUID/path when the OS has one
+    std::string name;  // what the OS calls the pad ("Wireless Controller"); "Gamepad" when it did not say
     std::uint16_t vendor = 0, product = 0;  // USB ids, 0 = unknown
     GamepadType type = GamepadType::Generic;
     bool operator==(const GamepadInfo&) const = default;
@@ -116,7 +206,8 @@ struct GamepadInfo {
 // The id of a pad: lower-case hex vendor and product, then the name, then "#" and `unique` (a serial number, GUID, device
 // path or index the platform has; "" for none). Two pads of one model without a `unique` share an id: they then take the
 // slots in plugging order.
-std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name, std::string_view unique);
+std::string make_gamepad_id(std::uint16_t vendor, std::uint16_t product, std::string_view name,
+                            std::string_view unique);
 // A pad that came or went: what game.on("gamepadConnected" / "gamepadDisconnected") hands to scripts.
 struct GamepadEvent {
     bool connected = false;
@@ -139,10 +230,10 @@ const char* input_device_name(InputDevice d);  // "keyboard", "mouse", "gamepad"
 
 struct Touch {
     std::uint64_t id = 0;
-    Vec2 position;  // design-resolution pixels
+    Vec2 position;                  // design-resolution pixels
     bool pressedThisFrame = false;  // landed since the last begin_frame() (what the frame's readers see)
     bool pressedThisStep = false;   // landed since the last fixed step took its input (what a fixed step sees)
-    bool pressedLate = false;       // bookkeeping of the fixed-step view: landed since the open step began (touch_pressed())
+    bool pressedLate = false;  // bookkeeping of the fixed-step view: landed since the open step began (touch_pressed())
 };
 
 // Told about every event the feed below receives, BEFORE it changes the state: what the input recorder (fa/runtime/input_recorder.h)
@@ -315,11 +406,13 @@ public:
     // Whether `t` landed this frame (a frame read) or since the last fixed step (inside a FixedScope).
     bool touch_pressed(const Touch& t) const { return active_ == kFixedLayer ? t.pressedThisStep : t.pressedThisFrame; }
     const std::u32string& text_input() const { return L().text; }  // typed characters this frame
-    std::string text_utf8() const;  // the same, as UTF-8
-    bool paste_pressed() const;  // Ctrl+V / Cmd+V (or a paste event) went down this frame (of the view being read)
-    bool copy_pressed() const;   // Ctrl+C / Cmd+C went down this frame
+    std::string text_utf8() const;                                 // the same, as UTF-8
+    bool paste_pressed() const;       // Ctrl+V / Cmd+V (or a paste event) went down this frame (of the view being read)
+    bool copy_pressed() const;        // Ctrl+C / Cmd+C went down this frame
     bool command_chord_down() const;  // Ctrl or Cmd (either side) is held
-    bool back_pressed() const { return L().back; }  // Back arrived since the last begin_frame() (of the view being read)
+    bool back_pressed() const {
+        return L().back;
+    }  // Back arrived since the last begin_frame() (of the view being read)
 
     // -------- gamepad queries (index outside 0..kMaxGamepads-1: not connected, nothing down, axes 0)
     bool gamepad_connected(int index) const;
@@ -387,15 +480,16 @@ public:
     // does not make last_device() a gamepad (a finger is touch). A finger a control takes stays out of touches(), the
     // "Touch" binding and the mouse until it lifts, so a game's own touch or mouse handling never sees the stick.
     struct TouchControl {
-        std::uint64_t id = 0;  // stable from frame to frame (fa_ui uses the entity), so a held finger stays on its control
-        Rect rect;             // design pixels, top-left origin, +Y down
-        bool stick = false;    // true: a stick, false: a button
+        std::uint64_t id =
+            0;      // stable from frame to frame (fa_ui uses the entity), so a held finger stays on its control
+        Rect rect;  // design pixels, top-left origin, +Y down
+        bool stick = false;                       // true: a stick, false: a button
         bool rightStick = false;                  // stick: drives the right stick instead of the left one
         GamepadButton button = GamepadButton::A;  // button: the pad button it holds down
         // State, written by Input:
-        bool down = false;     // a finger is on it
-        Vec2 value;            // stick: the finger's offset from the centre over the radius (half the shorter side),
-                               // length <= 1, +Y up; the stick axes take it raw, so the deadzone applies like on a pad
+        bool down = false;  // a finger is on it
+        Vec2 value;         // stick: the finger's offset from the centre over the radius (half the shorter side),
+                            // length <= 1, +Y up; the stick axes take it raw, so the deadzone applies like on a pad
         std::uint64_t finger = 0;
     };
     // Replaces the controls; when two overlap, the LATER one takes the finger. A control that keeps its id keeps its finger
@@ -444,7 +538,7 @@ public:
     // have value 0 or 1, so for them this is just "held"; only the analog bindings (sticks, triggers) are in between.
     static constexpr float kActionDownThreshold = 0.5f;
     bool action_down(std::string_view action) const;
-    bool action_pressed(std::string_view action) const;   // became down this frame (analog too)
+    bool action_pressed(std::string_view action) const;  // became down this frame (analog too)
     // A reader handled this frame's press of `action`: from now until the next begin_frame() (of the view being read)
     // the press reads as gone, for that action and for every other action that shares one of its bindings (Escape is
     // "pause" and "ui_cancel": the UI consumes ui_cancel when a widget handles it, so the pause handler that reads
@@ -490,19 +584,21 @@ public:
     // array is {"keys": [...]}. It replaces the project's schemes; call it AFTER set_actions (the actions a scheme names must
     // exist). Returns problems with "did you mean".
     std::vector<std::string> set_key_schemes(const Json& schemes);
-    std::vector<std::string> key_scheme_names() const;                      // built-in ones first, then the project's, sorted
-    std::vector<std::string> key_scheme_keys(std::string_view name) const;  // canonical key names in Key order; empty if unknown
+    std::vector<std::string> key_scheme_names() const;  // built-in ones first, then the project's, sorted
+    std::vector<std::string>
+    key_scheme_keys(std::string_view name) const;  // canonical key names in Key order; empty if unknown
     // Gives a player its device. The pad is a slot (pad >= 0) or the stable id of a pad (padId: the player follows that pad
     // when it comes back in another slot, and reads nothing while it is unplugged); `keys` names a scheme. An empty field is
     // "none". Returns problems (slot out of range, unknown scheme with "did you mean", pad and padId together) and changes
     // nothing when there are any. What the player rebound stays with the player, not with the device.
     std::vector<std::string> use_player_device(int player, const PlayerDevice& device);
     const PlayerDevice& player_device(int player) const;  // an empty device for an out-of-range player
-    int player_pad(int player) const;                     // the slot it reads now; -1: none, or its padId pad is unplugged
+    int player_pad(int player) const;  // the slot it reads now; -1: none, or its padId pad is unplugged
     // The actions every player has: the project's (action_names() without the ones bind() added). For any other name every
     // read below gives false / 0.
     bool has_player_action(std::string_view action) const;
-    float player_action_value(int player, std::string_view action) const;  // like action_value, from the player's device only
+    float player_action_value(int player,
+                              std::string_view action) const;  // like action_value, from the player's device only
     bool player_action_down(int player, std::string_view action) const;
     bool player_action_pressed(int player, std::string_view action) const;
     bool player_action_released(int player, std::string_view action) const;
@@ -518,8 +614,8 @@ public:
     // names (they must all be of one family; an empty list with no family unbinds both). All or nothing: problems for an
     // unknown action or binding (with "did you mean"), a mouse or touch binding, a key outside the player's scheme (outside
     // "all" while the player has no keys device), a name of the other family than `family`.
-    std::vector<std::string> player_rebind(int player, std::string_view action, const std::vector<std::string>& bindings,
-                                           std::string_view family = {});
+    std::vector<std::string> player_rebind(int player, std::string_view action,
+                                           const std::vector<std::string>& bindings, std::string_view family = {});
     // Back to the defaults: one action, or every action when `action` is empty.
     std::vector<std::string> player_reset(int player, std::string_view action = {});
     // Like last_pressed() but only on the player's own device: the keys of its scheme, its pad's buttons and sticks.
@@ -603,11 +699,15 @@ private:
     std::string lone_modifier_release(const View& view) const;
     static bool same_input(const Binding& a, const Binding& b);
     static bool is_key_family(const Binding& b) { return b.kind == Binding::Kind::Key || b.kind == Binding::Kind::Mod; }
-    static bool in_key_set(const Binding& b, const KeySet& set);  // the keys (and modifiers' keys) of `b` are all in `set`
+    static bool in_key_set(const Binding& b,
+                           const KeySet& set);  // the keys (and modifiers' keys) of `b` are all in `set`
     float binding_value_in(const Binding& b, bool previous, const View& view) const;
-    bool was_down_in(const std::vector<Binding>& list, const View& view) const;             // down as of the last advance of the view being read
-    bool edge_in(const std::vector<Binding>& list, const View& view, bool released) const;  // went down (or up) this frame
-    float binding_value(const Binding& b, bool previous) const;  // previous: as of the last advance of the view being read
+    bool was_down_in(const std::vector<Binding>& list,
+                     const View& view) const;  // down as of the last advance of the view being read
+    bool edge_in(const std::vector<Binding>& list, const View& view,
+                 bool released) const;  // went down (or up) this frame
+    float binding_value(const Binding& b,
+                        bool previous) const;  // previous: as of the last advance of the view being read
     float pad_axis(const Pad& pad, GamepadAxis a, bool previous) const;
     void release_pad(int index);     // connected = false, buttons released, axes zeroed; no event
     void mark_connected(int index);  // connected = true; announces the pad when it was not
@@ -632,7 +732,7 @@ private:
     std::vector<Binding> parse_binding_list(const std::string& action, const Json& list,
                                             const std::vector<std::string>& candidates,
                                             std::vector<std::string>& problems) const;
-    static std::string binding_name(const Binding& b);  // canonical spelling, the inverse of parse_binding
+    static std::string binding_name(const Binding& b);     // canonical spelling, the inverse of parse_binding
     TouchControl* touch_control_of(std::uint64_t finger);  // the control holding `finger`, nullptr when none
     void update_touch_pad();                               // the touch pad's buttons and axes from the held controls
 
@@ -652,7 +752,8 @@ private:
         std::u32string text;
         bool back = false, paste = false;
         std::vector<std::string> consumedActions;  // consume_action() since the last advance (one entry per action)
-        std::vector<Binding> consumedBindings;     // their pressed bindings: another action on the same input is consumed too
+        std::vector<Binding>
+            consumedBindings;  // their pressed bindings: another action on the same input is consumed too
     };
     // kLateLayer is never read: while a fixed step is open it collects what arrives AFTER the step began, and
     // end_fixed_step() makes it the fixed-step view (so an event fed during the step reaches the next one).
@@ -661,9 +762,11 @@ private:
     static bool& touch_flag(Touch& t, size_t layer);  // the flag of `t` that says whether `layer` has seen it land
     static bool touch_unseen(const Touch& t);         // some layer has not seen it land yet
     void begin_fixed_step();  // a FixedScope was made: the first of a step starts the late layer from now
-    void forget_fixed_consumption();  // an input was released: the fixed-step view's consumed presses no longer hide a new one
+    void
+    forget_fixed_consumption();  // an input was released: the fixed-step view's consumed presses no longer hide a new one
     bool fixedStepOpen_ = false;
-    int fixedDepth_ = 0;  // live FixedScopes; a nested step (a script stepping the game in a step) leaves the outer one open
+    int fixedDepth_ =
+        0;  // live FixedScopes; a nested step (a script stepping the game in a step) leaves the outer one open
     bool textCapWarned_ = false;
     std::vector<Touch> endedTouches_;  // fingers that landed and lifted before every view saw them (not in touches_)
     const Layer& L() const { return layers_[active_]; }
@@ -696,7 +799,7 @@ private:
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
     bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;
-    Json projectActions_;  // what the last set_actions() was given (reset_bindings)
+    Json projectActions_;                             // what the last set_actions() was given (reset_bindings)
     std::map<std::string, KeyScheme> schemes_;        // the built-in schemes and the project's
     ActionTable padDefaults_;                         // per action: the project's pad bindings
     std::map<std::string, ActionTable> keyDefaults_;  // per scheme, per action: the default key bindings

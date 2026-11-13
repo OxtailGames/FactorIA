@@ -37,23 +37,22 @@ namespace fa::setup_detail {
 
 namespace {
 
-std::string ffmpeg_file(const SetupContext& ctx) { return "ffmpeg" + exe_suffix(ctx.host_os()); }
-
 std::string ffmpeg_url(const FfmpegBinary& b) {
-    return std::string("https://github.com/eugeneware/ffmpeg-static/releases/download/") + kSetupFfmpegRelease + "/ffmpeg-" +
-           b.asset + ".gz";
+    return std::string("https://github.com/eugeneware/ffmpeg-static/releases/download/") + kSetupFfmpegRelease +
+           "/ffmpeg-" + b.asset + ".gz";
 }
 
-const char* const kUnsupportedHint =
-    "Compile on Windows, Linux or macOS (x64 or arm64), or install ffmpeg yourself (https://ffmpeg.org/download.html) and "
-    "set FACTORIA_FFMPEG to it.";
+const char* const kUnsupportedHint = "Compile on Windows, Linux or macOS (x64 or arm64), or install ffmpeg yourself "
+                                     "(https://ffmpeg.org/download.html) and "
+                                     "set FACTORIA_FFMPEG to it.";
 
 // The gunzipped bytes of `gz`, or the reason it does not unpack.
 Result<std::string> gunzip(const std::string& gz) {
     const auto bad = [](const std::string& why) {
-        return make_error("The downloaded ffmpeg is not a valid gzip file: " + why + ".",
-                          "Run the install again; if it keeps failing, install ffmpeg yourself (https://ffmpeg.org/download.html) "
-                          "and set FACTORIA_FFMPEG to it.");
+        return make_error(
+            "The downloaded ffmpeg is not a valid gzip file: " + why + ".",
+            "Run the install again; if it keeps failing, install ffmpeg yourself (https://ffmpeg.org/download.html) "
+            "and set FACTORIA_FFMPEG to it.");
     };
     const auto* d = reinterpret_cast<const unsigned char*>(gz.data());
     const std::size_t n = gz.size();
@@ -73,15 +72,16 @@ Result<std::string> gunzip(const std::string& gz) {
     if (pos + 8 > n) return bad("the header is cut short");
     const std::size_t packedSize = n - 8 - pos;
     const auto read32 = [&](std::size_t at) {
-        return std::uint32_t(d[at]) | (std::uint32_t(d[at + 1]) << 8) | (std::uint32_t(d[at + 2]) << 16) | (std::uint32_t(d[at + 3]) << 24);
+        return std::uint32_t(d[at]) | (std::uint32_t(d[at + 1]) << 8) | (std::uint32_t(d[at + 2]) << 16) |
+               (std::uint32_t(d[at + 3]) << 24);
     };
     std::size_t outSize = 0;
     void* heap = buminiz::tinfl_decompress_mem_to_heap(d + pos, packedSize, &outSize, 0);
     if (!heap) return bad("the data does not inflate");
     std::string out(static_cast<const char*>(heap), outSize);
     std::free(heap);
-    const std::uint32_t crc = static_cast<std::uint32_t>(
-        buminiz::mz_crc32(buminiz::mz_crc32(0, nullptr, 0), reinterpret_cast<const unsigned char*>(out.data()), out.size()));
+    const std::uint32_t crc = static_cast<std::uint32_t>(buminiz::mz_crc32(
+        buminiz::mz_crc32(0, nullptr, 0), reinterpret_cast<const unsigned char*>(out.data()), out.size()));
     if (crc != read32(n - 8) || std::uint32_t(out.size()) != read32(n - 4)) return bad("it does not match its CRC-32");
     return out;
 }
@@ -95,7 +95,8 @@ SetupComponent ffmpeg_status(const SetupContext& ctx) {
     const FfmpegBinary* bin = ffmpeg_binary(ctx);
     if (!bin) {
         c.state = "unsupported";
-        c.details = "There is no ffmpeg build for " + ctx.host_os() + "-" + ctx.host_architecture() + ". " + kUnsupportedHint;
+        c.details =
+            "There is no ffmpeg build for " + ctx.host_os() + "-" + ctx.host_architecture() + ". " + kUnsupportedHint;
         return c;
     }
     c.canInstall = true;
@@ -108,11 +109,13 @@ SetupComponent ffmpeg_status(const SetupContext& ctx) {
     }
     c.state = "missing";
     c.installSizeMb = bin->sizeMb;
-    c.details = std::string("The install downloads the static ffmpeg ") + kSetupFfmpegRelease + " build of github.com/eugeneware/ffmpeg-static (SHA-256 checked) into " +
+    c.details = std::string("The install downloads the static ffmpeg ") + kSetupFfmpegRelease +
+                " build of github.com/eugeneware/ffmpeg-static (SHA-256 checked) into " +
                 std::filesystem::path(ffmpeg_install_path(ctx)).parent_path().string() + ".";
     if (!found.ok() && found.error().message.find("was not found on this computer") == std::string::npos)
         c.problems.push_back(found.error().message);  // a variable or an export.json entry that points at nothing
-    c.problems.push_back("`factoria run --record-video trailer.mp4` needs ffmpeg (an .avi needs nothing): run `factoria setup ffmpeg`.");
+    c.problems.push_back(
+        "`factoria run --record-video trailer.mp4` needs ffmpeg (an .avi needs nothing): run `factoria setup ffmpeg`.");
     return c;
 }
 
@@ -124,14 +127,16 @@ SetupResult ffmpeg_install_binary(const SetupContext& ctx, const SetupInstallOpt
     Installer in(ctx, "ffmpeg");
     if (!bin)
         return in.fail("unsupported",
-                       make_error("There is no ffmpeg build for " + ctx.host_os() + "-" + ctx.host_architecture() + ".", kUnsupportedHint));
+                       make_error("There is no ffmpeg build for " + ctx.host_os() + "-" + ctx.host_architecture() + ".",
+                                  kUnsupportedHint));
     StepTimer timer;
     SetupStep s;
     s.id = "ffmpeg";
     s.title = "ffmpeg";
     const stdfs::path dest = ffmpeg_install_path(ctx);
     const stdfs::path dir = dest.parent_path();
-    if (auto found = find_ffmpeg(ctx.env, ctx.config_path(), ffmpeg_install_path(ctx)); !opt.force && found.ok() && is_file(found->path)) {
+    if (auto found = find_ffmpeg(ctx.env, ctx.config_path(), ffmpeg_install_path(ctx));
+        !opt.force && found.ok() && is_file(found->path)) {
         s.outcome = "skipped";
         s.detail = "already available (" + found->from + "): " + found->path;
         s.path = found->path;

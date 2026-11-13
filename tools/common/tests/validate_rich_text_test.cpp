@@ -37,7 +37,8 @@ struct Project {
     }
 };
 
-std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file, const std::string& pointer) {
+std::vector<const ValidationIssue*> at(const std::vector<ValidationIssue>& list, const std::string& file,
+                                       const std::string& pointer) {
     std::vector<const ValidationIssue*> found;
     for (const auto& i : list)
         if (i.file == file && i.pointer == pointer) found.push_back(&i);
@@ -58,7 +59,8 @@ const char* kRichScene = R"({
 }  // namespace
 
 TEST_CASE("validate: a good text section with files that exist adds nothing") {
-    Project p(R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}},
+    Project p(
+        R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}},
                   "fonts": {"": {"bold": "assets/Bold.ttf"}}})");
     p.write("assets/icons.png", "x");
     p.write("assets/Bold.ttf", "x");
@@ -82,15 +84,20 @@ TEST_CASE("validate: text section mistakes are reported once each at their point
     REQUIRE(typo.size() == 1);
     CHECK(typo[0]->message.find("colors") != std::string::npos);
 
-    Project q(R"({"icons": {"fish": {"texture": "assets/nope.png", "region": [0, 0, 16, 16]}}, "fonts": {"": {"bold": "assets/NoBold.ttf"}}})");
+    Project q(
+        R"({"icons": {"fish": {"texture": "assets/nope.png", "region": [0, 0, 16, 16]}}, "fonts": {"": {"bold": "assets/NoBold.ttf"}}})");
     const ValidationReport r2 = q.validate();
     REQUIRE(at(r2.errors, "factoria.json", "/text/icons/fish/texture").size() == 1);
-    CHECK(at(r2.errors, "factoria.json", "/text/icons/fish/texture")[0]->message.find("assets/nope.png") != std::string::npos);
+    CHECK(at(r2.errors, "factoria.json", "/text/icons/fish/texture")[0]->message.find("assets/nope.png") !=
+          std::string::npos);
     CHECK(at(r2.errors, "factoria.json", "/text/fonts//bold").size() == 1);
 }
 
-TEST_CASE("validate: markup of scene texts is checked against the section, and bold without a bold face gets one suggestion") {
-    Project p(R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}}})", kRichScene);
+TEST_CASE("validate: markup of scene texts is checked against the section, and bold without a bold face gets one "
+          "suggestion") {
+    Project p(
+        R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}}})",
+        kRichScene);
     p.write("assets/icons.png", "x");
     const ValidationReport r = p.validate();
     const std::string scene = "scenes/rich.scene.json";
@@ -115,8 +122,10 @@ TEST_CASE("validate: markup of scene texts is checked against the section, and b
 }
 
 TEST_CASE("validate: a font with a bold face in the section needs no suggestion") {
-    Project p(R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}},
-                  "fonts": {"": {"bold": "assets/Bold.ttf"}}})", kRichScene);
+    Project p(
+        R"({"colors": {"good": "#80dc80"}, "icons": {"fish": {"texture": "assets/icons.png", "region": [0, 0, 16, 16]}},
+                  "fonts": {"": {"bold": "assets/Bold.ttf"}}})",
+        kRichScene);
     p.write("assets/icons.png", "x");
     p.write("assets/Bold.ttf", "x");
     for (const auto& w : p.validate().warnings) CHECK(w.message.find("has no bold face") == std::string::npos);

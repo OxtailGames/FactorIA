@@ -127,7 +127,8 @@ void fit_cubic(const Poly& d, P t1, P t2, double tol2, std::vector<Seg>& out) {
     split = std::clamp<std::size_t>(split, 1, d.size() - 2);
     P center = unit(d[split - 1] - d[split + 1]);
     if (len(center) < 0.5) center = unit(P{-(d[split + 1] - d[split - 1]).y, (d[split + 1] - d[split - 1]).x});
-    const Poly left(d.begin(), d.begin() + std::ptrdiff_t(split) + 1), right(d.begin() + std::ptrdiff_t(split), d.end());
+    const Poly left(d.begin(), d.begin() + std::ptrdiff_t(split) + 1),
+        right(d.begin() + std::ptrdiff_t(split), d.end());
     fit_cubic(left, t1, center, tol2, out);
     fit_cubic(right, center * -1.0, t2, tol2, out);
 }
@@ -264,7 +265,10 @@ SubPath fit_ring(const Ring& ring, const FitOptions& opt) {
     const double lineTol = tol * 0.6, tol2 = tol * tol;
     auto dir_after = [&](std::size_t i) { return unit(at(long(i) + 1) - pts[i]); };
     auto dir_before = [&](std::size_t i) { return unit(pts[i] - at(long(i) - 1)); };
-    auto edge_straight = [&](long i) { return closed ? straight[std::size_t(((i % long(n)) + long(n)) % long(n))] != 0 : (i >= 0 && i < long(edges) && straight[std::size_t(i)] != 0); };
+    auto edge_straight = [&](long i) {
+        return closed ? straight[std::size_t(((i % long(n)) + long(n)) % long(n))] != 0
+                      : (i >= 0 && i < long(edges) && straight[std::size_t(i)] != 0);
+    };
 
     // Emits the segments from cut a to cut b (indices into pts, b may wrap past n for a closed ring).
     auto emit_run = [&](std::size_t a, std::size_t b) {
@@ -280,13 +284,19 @@ SubPath fit_ring(const Ring& ring, const FitOptions& opt) {
         const std::size_t ia = a % n, ib = b % n;
         P t1, t2;
         // start tangent
-        if (corner[ia] || (!closed && ia == 0)) t1 = dir_after(ia);
-        else if (edge_straight(long(ia) - 1)) t1 = dir_before(ia);
-        else t1 = unit(dir_before(ia) + dir_after(ia));
+        if (corner[ia] || (!closed && ia == 0))
+            t1 = dir_after(ia);
+        else if (edge_straight(long(ia) - 1))
+            t1 = dir_before(ia);
+        else
+            t1 = unit(dir_before(ia) + dir_after(ia));
         // end tangent (pointing back into the run)
-        if (corner[ib] || (!closed && ib == n - 1)) t2 = unit(at(long(ib) - 1) - pts[ib]);
-        else if (edge_straight(long(ib))) t2 = dir_after(ib) * -1.0;
-        else t2 = unit(dir_before(ib) + dir_after(ib)) * -1.0;
+        if (corner[ib] || (!closed && ib == n - 1))
+            t2 = unit(at(long(ib) - 1) - pts[ib]);
+        else if (edge_straight(long(ib)))
+            t2 = dir_after(ib) * -1.0;
+        else
+            t2 = unit(dir_before(ib) + dir_after(ib)) * -1.0;
         if (len(t1) < 0.5) t1 = unit(run[1] - run[0]);
         if (len(t2) < 0.5) t2 = unit(run[count - 2] - run[count - 1]);
         fit_cubic(run, t1, t2, tol2, out.segs);
@@ -396,8 +406,12 @@ Path smooth_path(const Path& p, double smoothness, double cornerAngle) {
             continue;
         }
         // The direction a segment arrives at its end and leaves its start.
-        auto dir_in = [&](const E& x) { return unit(x.curve && dist(x.c2, x.to) > 1e-9 ? x.to - x.c2 : x.to - x.from); };
-        auto dir_out = [&](const E& x) { return unit(x.curve && dist(x.c1, x.from) > 1e-9 ? x.c1 - x.from : x.to - x.from); };
+        auto dir_in = [&](const E& x) {
+            return unit(x.curve && dist(x.c2, x.to) > 1e-9 ? x.to - x.c2 : x.to - x.from);
+        };
+        auto dir_out = [&](const E& x) {
+            return unit(x.curve && dist(x.c1, x.from) > 1e-9 ? x.c1 - x.from : x.to - x.from);
+        };
         // node i is the start of segment i; the tangent there, or sharp
         std::vector<P> tan(m);
         std::vector<char> sharp(m, 0);
@@ -411,10 +425,14 @@ Path smooth_path(const Path& p, double smoothness, double cornerAngle) {
             const P d0 = dir_in(in), d1 = dir_out(outE);
             const double turn = std::fabs(std::atan2(cross(d0, d1), dot(d0, d1)));
             P t = unit(d0 + d1);
-            if (in.curve && !outE.curve) t = d0;
-            else if (!in.curve && outE.curve) t = d1;
-            if (turn > cornerRad + 1e-9 || len(t) < 0.5) sharp[i] = 1;
-            else tan[i] = t;
+            if (in.curve && !outE.curve)
+                t = d0;
+            else if (!in.curve && outE.curve)
+                t = d1;
+            if (turn > cornerRad + 1e-9 || len(t) < 0.5)
+                sharp[i] = 1;
+            else
+                tan[i] = t;
         }
         // the end node of an open path is sharp
         const std::size_t last = m;  // node index of the last end (open path)
@@ -430,7 +448,8 @@ Path smooth_path(const Path& p, double smoothness, double cornerAngle) {
             const P c1 = sharp[i] ? x.from : x.from + tan[i] * (l * k);
             const P c2 = endSharp ? x.to : x.to - tan[j] * (l * k);
             if ((sharp[i] && endSharp) || k <= 1e-9) {
-                if (!(implicitClose && i + 1 == m)) o.segs.push_back({false, {}, {}, x.to});  // the closing line is the path's own
+                if (!(implicitClose && i + 1 == m))
+                    o.segs.push_back({false, {}, {}, x.to});  // the closing line is the path's own
             } else {
                 o.segs.push_back({true, c1, c2, x.to});
             }

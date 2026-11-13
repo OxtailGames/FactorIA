@@ -20,9 +20,7 @@ fa::Json command(fa::cli::Session& session, const std::string& json) {
     return fa::cli::run_command_json(session.registry(), fa::Json::parse(json));
 }
 
-void write(const stdfs::path& p, const fa::Json& j) {
-    REQUIRE(fa::fs::write_text(p.generic_string(), j.dump(2)).ok());
-}
+void write(const stdfs::path& p, const fa::Json& j) { REQUIRE(fa::fs::write_text(p.generic_string(), j.dump(2)).ok()); }
 
 fa::Json read(const stdfs::path& p) {
     auto text = fa::fs::read_text(p.generic_string());
@@ -35,7 +33,8 @@ fa::Json read(const stdfs::path& p) {
 TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German, and nothing else") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path dir = fa::fs::make_temp_dir("fa_cli_check_layout").value() / "menus";
-    stdfs::copy(stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "fixtures" / "menus", dir, stdfs::copy_options::recursive);
+    stdfs::copy(stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "fixtures" / "menus", dir,
+                stdfs::copy_options::recursive);
 
     // German = English, except the planted key.
     fa::Json project = read(dir / "factoria.json");
@@ -49,7 +48,8 @@ TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German,
     }
     // One fixed-size button (no autoSize, no autoShrink) in the menu scene, away from the menu column.
     fa::Json scene = read(dir / "scenes" / "menu.scene.json");
-    scene["entities"].push_back(fa::Json::parse(R"({"id":"planted_button","components":{"Button":{"text":"Menu","key":"planted.label","size":[200,120],"anchor":[0.15,0.1]}}})"));
+    scene["entities"].push_back(fa::Json::parse(
+        R"({"id":"planted_button","components":{"Button":{"text":"Menu","key":"planted.label","size":[200,120],"anchor":[0.15,0.1]}}})"));
     write(dir / "scenes" / "menu.scene.json", scene);
 
     fa::cli::SessionOptions so;
@@ -60,7 +60,8 @@ TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German,
     fa::Engine& engine = session->engine();
     engine.step(5);
 
-    const fa::Json r = command(*session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/menu.scene.json"],"pseudo":false}})");
+    const fa::Json r = command(
+        *session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/menu.scene.json"],"pseudo":false}})");
     REQUIRE(r["ok"] == true);
     const fa::Json& res = r["result"];
     CAPTURE(res.dump(2));
@@ -76,7 +77,9 @@ TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German,
     CHECK(issue["cases"][0]["textScale"] == 2.0);
 
     // The pseudo-localized pass lengthens every string: the planted button fails there at 200 % ("Menu" becomes "[Meenuu]").
-    const fa::Json p = command(*session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/menu.scene.json"],"languages":["en"],"textScales":[2],"pseudo":true}})");
+    const fa::Json p = command(
+        *session,
+        R"({"command":"ui.check_layout","args":{"scenes":["scenes/menu.scene.json"],"languages":["en"],"textScales":[2],"pseudo":true}})");
     REQUIRE(p["ok"] == true);
     bool pseudoFound = false;
     for (const fa::Json& i : p["result"]["issues"])
@@ -88,7 +91,8 @@ TEST_CASE("ui.check_layout finds a label that only overflows at 200 % in German,
     CHECK(command(*session, R"({"command":"i18n.state","args":{}})")["result"]["current"] == "en");
     CHECK(command(*session, R"({"command":"ui.state","args":{}})")["result"]["textScale"] == 1.0);
 
-    CHECK(command(*session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/nope.scene.json"]}})")["ok"] == false);
+    CHECK(command(*session, R"({"command":"ui.check_layout","args":{"scenes":["scenes/nope.scene.json"]}})")["ok"] ==
+          false);
     fa::fs::set_project_root(oldRoot);
 }
 
@@ -99,7 +103,9 @@ namespace {
 // popup (inactive, opened by a click on "open") holds a label that does not fit.
 stdfs::path make_check_project(const char* name) {
     const stdfs::path dir = fa::fs::make_temp_dir(name).value() / "proj";
-    write(dir / "factoria.json", fa::Json::parse(R"({"format":"factoria.project/1","name":"Check","id":"com.factoria.tests.check","version":"0.1.0",
+    write(dir / "factoria.json",
+          fa::Json::parse(
+              R"({"format":"factoria.project/1","name":"Check","id":"com.factoria.tests.check","version":"0.1.0",
         "mainScene":"scenes/list.scene.json","display":{"width":1280,"height":720,"scaleMode":"fit","fullscreen":false,"vsync":true},
         "physics":{"fixedHz":60,"pixelsPerMeter":100},"input":{"actions":{"confirm":["Enter"]}}})"));
     write(dir / "scenes" / "list.scene.json", fa::Json::parse(R"({"format":"factoria.scene/1","entities":[
@@ -116,11 +122,13 @@ stdfs::path make_check_project(const char* name) {
         {"id":"open","components":{"Button":{"text":"Open","size":[200,50],"anchor":[0.5,0.2]}}},
         {"id":"popup","active":false,"components":{"Panel":{"size":[300,200],"anchor":[0.5,0.6]}},
          "children":[{"id":"popup_label","components":{"Button":{"text":"A label that is far too long","size":[60,40],"anchor":[0.5,0.6]}}}]}]})"));
-    REQUIRE(fa::fs::write_text((dir / "scripts" / "opener.js").generic_string(),
-                               "import { Behaviour, ui, world } from \"factoria\";\n"
-                               "export default class Opener extends Behaviour {\n"
-                               "  onStart() { ui.on(\"click\", \"open\", () => { world.find(\"popup\").active = true; }); }\n"
-                               "}\n").ok());
+    REQUIRE(fa::fs::write_text(
+                (dir / "scripts" / "opener.js").generic_string(),
+                "import { Behaviour, ui, world } from \"factoria\";\n"
+                "export default class Opener extends Behaviour {\n"
+                "  onStart() { ui.on(\"click\", \"open\", () => { world.find(\"popup\").active = true; }); }\n"
+                "}\n")
+                .ok());
     return dir;
 }
 
@@ -139,7 +147,8 @@ TEST_CASE("ui.check_layout judges a ScrollList row by the part the list shows") 
     so.height = 720;
     auto session = fa::cli::Session::open(dir.string(), so);
     session->engine().step(5);
-    const fa::Json r = check_layout(*session, R"({"scenes":["scenes/list.scene.json"],"pseudo":false,"textScales":[1]})");
+    const fa::Json r =
+        check_layout(*session, R"({"scenes":["scenes/list.scene.json"],"pseudo":false,"textScales":[1]})");
     REQUIRE(r["ok"] == true);
     CAPTURE(r["result"].dump(2));
     // row0 and row2 are half outside the list and row2's whole rectangle reaches the button below: no issue for the clipped part.
@@ -157,11 +166,13 @@ TEST_CASE("ui.check_layout steps open a panel that the scene does not show at th
     auto session = fa::cli::Session::open(dir.string(), so);
     session->engine().step(5);
 
-    const fa::Json without = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1]})");
+    const fa::Json without =
+        check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1]})");
     REQUIRE(without["ok"] == true);
     CHECK(without["result"]["issueCount"] == 0);  // the popup is closed: nothing to find
 
-    const fa::Json with = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1],
+    const fa::Json with =
+        check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"pseudo":false,"textScales":[1],
         "steps":{"scenes/popup.scene.json":[{"click":"open"},{"frames":2}]}})");
     REQUIRE(with["ok"] == true);
     CAPTURE(with["result"].dump(2));
@@ -170,11 +181,14 @@ TEST_CASE("ui.check_layout steps open a panel that the scene does not show at th
     CHECK(with["result"]["issues"][0]["entity"] == "popup_label");
 
     // A step that cannot be done is an error naming it, and the game is put back.
-    const fa::Json bad = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"popup_label"}]}})");
+    const fa::Json bad = check_layout(
+        *session,
+        R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"popup_label"}]}})");
     CHECK(bad["ok"] == false);
     CHECK(bad.dump().find("popup_label") != std::string::npos);
     CHECK(bad.dump().find("not a visible widget") != std::string::npos);
-    const fa::Json typo = check_layout(*session, R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"opne"}]}})");
+    const fa::Json typo = check_layout(
+        *session, R"({"scenes":["scenes/popup.scene.json"],"steps":{"scenes/popup.scene.json":[{"click":"opne"}]}})");
     CHECK(typo["ok"] == false);
     CHECK(typo.dump().find("open") != std::string::npos);
     fa::fs::set_project_root(oldRoot);

@@ -40,9 +40,10 @@ const char* image_tool_name(ImageTool tool) {
 }
 
 const std::vector<ImageTool>& image_tools() {
-    static const std::vector<ImageTool> t = {ImageTool::Move, ImageTool::Brush, ImageTool::Eraser, ImageTool::Fill, ImageTool::Picker,
-                                             ImageTool::SelectRect, ImageTool::SelectEllipse, ImageTool::SelectLasso, ImageTool::SelectPolygon,
-                                             ImageTool::Wand, ImageTool::Transform};
+    static const std::vector<ImageTool> t = {ImageTool::Move,          ImageTool::Brush,       ImageTool::Eraser,
+                                             ImageTool::Fill,          ImageTool::Picker,      ImageTool::SelectRect,
+                                             ImageTool::SelectEllipse, ImageTool::SelectLasso, ImageTool::SelectPolygon,
+                                             ImageTool::Wand,          ImageTool::Transform};
     return t;
 }
 
@@ -138,19 +139,23 @@ Field special(Field::Kind kind, const char* key) {
 
 const std::map<std::string, std::vector<Field>>& adjustment_fields() {
     static const std::vector<std::string> channels = {"rgb", "red", "green", "blue"};
-    static const std::vector<std::string> dithers = {"none", "bayer2", "bayer4", "bayer8", "floydSteinberg", "atkinson"};
+    static const std::vector<std::string> dithers = {"none",   "bayer2",         "bayer4",
+                                                     "bayer8", "floydSteinberg", "atkinson"};
     static const std::map<std::string, std::vector<Field>> m = {
         {"invert", {}},
         {"brightness", {num("amount", -1, 1, 0.2)}},
-        {"levels", {num("inBlack", 0, 1, 0), num("inWhite", 0, 1, 1), num("gamma", 0.1, 10, 1), num("outBlack", 0, 1, 0), num("outWhite", 0, 1, 1),
-                    choice("channel", channels, "rgb")}},
+        {"levels",
+         {num("inBlack", 0, 1, 0), num("inWhite", 0, 1, 1), num("gamma", 0.1, 10, 1), num("outBlack", 0, 1, 0),
+          num("outWhite", 0, 1, 1), choice("channel", channels, "rgb")}},
         {"curves", {special(Field::Kind::Curve, "points"), choice("channel", channels, "rgb")}},
         {"hsv", {num("hue", -180, 180, 0), num("saturation", -1, 1, 0), num("value", -1, 1, 0), flag("colorize")}},
         {"posterize", {integer("levels", 2, 256, 4)}},
-        {"quantize", {choice("palette", {"style"}, "style"), choice("space", {"oklab", "rgb"}, "oklab"), choice("dither", dithers, "none"),
-                      num("strength", 0, 1, 1)}},
-        {"dither", {choice("method", dithers, "bayer4"), integer("levels", 2, 256, 2), choice("palette", {"", "style"}, "", true),
-                    choice("space", {"oklab", "rgb"}, "oklab", true), num("strength", 0, 1, 1)}},
+        {"quantize",
+         {choice("palette", {"style"}, "style"), choice("space", {"oklab", "rgb"}, "oklab"),
+          choice("dither", dithers, "none"), num("strength", 0, 1, 1)}},
+        {"dither",
+         {choice("method", dithers, "bayer4"), integer("levels", 2, 256, 2), choice("palette", {"", "style"}, "", true),
+          choice("space", {"oklab", "rgb"}, "oklab", true), num("strength", 0, 1, 1)}},
         {"gradientMap", {special(Field::Kind::Stops, "stops")}},
         {"colorBalance", {vec3("shadows", -1, 1), vec3("midtones", -1, 1), vec3("highlights", -1, 1)}},
         {"threshold", {num("level", 0, 1, 0.5), colour("above", "#ffffff"), colour("below", "#000000")}},
@@ -162,17 +167,27 @@ const std::map<std::string, std::vector<Field>>& effect_fields() {
     static const std::vector<std::string> positions = {"outside", "inside", "center"};
     static const std::map<std::string, std::vector<Field>> m = {
         {"colorOverlay", {colour("color", "#ff0000"), num("amount", 0, 1, 1)}},
-        {"outline", {colour("color", "#000000"), num("width", 0.5, 64, 1), choice("position", positions, "outside"), flag("smooth")}},
-        {"stroke", {colour("color", "#ffffff"), num("width", 0.5, 64, 2), choice("position", positions, "center"), flag("smooth")}},
-        {"dropShadow", {integer("offsetX", -512, 512, 2), integer("offsetY", -512, 512, 2), num("blur", 0, 64, 2), colour("color", "#000000"),
-                        num("opacity", 0, 1, 0.5)}},
-        {"outerGlow", {colour("color", "#ffffff"), num("size", 0, 64, 4), num("strength", 0, 8, 1), num("opacity", 0, 1, 1)}},
-        {"innerGlow", {colour("color", "#ffffff"), num("size", 0, 64, 4), num("strength", 0, 8, 1), num("opacity", 0, 1, 1)}},
+        {"outline",
+         {colour("color", "#000000"), num("width", 0.5, 64, 1), choice("position", positions, "outside"),
+          flag("smooth")}},
+        {"stroke",
+         {colour("color", "#ffffff"), num("width", 0.5, 64, 2), choice("position", positions, "center"),
+          flag("smooth")}},
+        {"dropShadow",
+         {integer("offsetX", -512, 512, 2), integer("offsetY", -512, 512, 2), num("blur", 0, 64, 2),
+          colour("color", "#000000"), num("opacity", 0, 1, 0.5)}},
+        {"outerGlow",
+         {colour("color", "#ffffff"), num("size", 0, 64, 4), num("strength", 0, 8, 1), num("opacity", 0, 1, 1)}},
+        {"innerGlow",
+         {colour("color", "#ffffff"), num("size", 0, 64, 4), num("strength", 0, 8, 1), num("opacity", 0, 1, 1)}},
         {"blur", {choice("mode", {"gaussian", "box"}, "gaussian"), num("radius", 0, 64, 2)}},
         {"sharpen", {num("radius", 0.1, 32, 1), num("amount", 0, 10, 1), num("threshold", 0, 1, 0, true)}},
-        {"noise", {num("amount", 0, 1, 0.1), integer("seed", 0, 1000000, 0), choice("mode", {"mono", "color"}, "mono")}},
-        {"shade", {text("normalMap"), flag("flipGreen"), num("smooth", 0, 16, 1), num("strength", 0, 32, 3), num("lightDirection", -360, 360, 135, true),
-                   num("elevation", 1, 90, 45), num("intensity", 0, 4, 1), num("amount", 0, 1, 1)}},
+        {"noise",
+         {num("amount", 0, 1, 0.1), integer("seed", 0, 1000000, 0), choice("mode", {"mono", "color"}, "mono")}},
+        {"shade",
+         {text("normalMap"), flag("flipGreen"), num("smooth", 0, 16, 1), num("strength", 0, 32, 3),
+          num("lightDirection", -360, 360, 135, true), num("elevation", 1, 90, 45), num("intensity", 0, 4, 1),
+          num("amount", 0, 1, 1)}},
     };
     return m;
 }
@@ -202,7 +217,8 @@ Json ImageModel::default_operation(const std::string& type, bool effect) {
             case ImageOpField::Kind::Vec3: op[f.key] = Json::array({f.def, f.def, f.def}); break;
             case ImageOpField::Kind::Curve: op[f.key] = Json::array({Json::array({0, 0}), Json::array({1, 1})}); break;
             case ImageOpField::Kind::Stops:
-                op[f.key] = Json::array({Json::object({{"at", 0}, {"color", "#000000"}}), Json::object({{"at", 1}, {"color", "#ffffff"}})});
+                op[f.key] = Json::array(
+                    {Json::object({{"at", 0}, {"color", "#000000"}}), Json::object({{"at", 1}, {"color", "#ffffff"}})});
                 break;
         }
     }
@@ -261,10 +277,13 @@ const Json* json_layer(const Json& doc, const std::vector<int>& path) {
 
 void merge_patch(Json& target, const Json& patch) {
     for (auto it = patch.begin(); it != patch.end(); ++it) {
-        if (it.value().is_null()) target.erase(it.key());
-        else if (it.value().is_object() && target.contains(it.key()) && target[it.key()].is_object() && it.key() != "texture" && it.key() != "provenance")
+        if (it.value().is_null())
+            target.erase(it.key());
+        else if (it.value().is_object() && target.contains(it.key()) && target[it.key()].is_object() &&
+                 it.key() != "texture" && it.key() != "provenance")
             merge_patch(target[it.key()], it.value());
-        else target[it.key()] = it.value();
+        else
+            target[it.key()] = it.value();
     }
 }
 
@@ -287,7 +306,9 @@ bool write_bytes(const stdfs::path& p, const std::string& data) {
 
 std::string stem_of(const std::string& rel) {
     const std::string suffix = kImageDocSuffix;
-    return rel.size() > suffix.size() && rel.compare(rel.size() - suffix.size(), suffix.size(), suffix) == 0 ? rel.substr(0, rel.size() - suffix.size()) : rel;
+    return rel.size() > suffix.size() && rel.compare(rel.size() - suffix.size(), suffix.size(), suffix) == 0
+               ? rel.substr(0, rel.size() - suffix.size())
+               : rel;
 }
 
 std::string layers_dir_of(const std::string& rel) { return stem_of(rel) + ".layers/"; }
@@ -296,20 +317,25 @@ std::string selections_dir_of(const std::string& rel) { return ".factoria/select
 std::string slug_of(const std::string& name) {
     std::string out;
     for (char c : name) {
-        if (std::isalnum(static_cast<unsigned char>(c))) out += char(std::tolower(static_cast<unsigned char>(c)));
-        else if (!out.empty() && out.back() != '-') out += '-';
+        if (std::isalnum(static_cast<unsigned char>(c)))
+            out += char(std::tolower(static_cast<unsigned char>(c)));
+        else if (!out.empty() && out.back() != '-')
+            out += '-';
     }
     while (!out.empty() && out.back() == '-') out.pop_back();
     return out.empty() ? "layer" : out;
 }
 
-std::uint64_t mix(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 }  // namespace
 
 // ---- construction, loading -------------------------------------------------------------------------------------------------
 
-ImageModel::ImageModel(std::string projectDir, ImageCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+ImageModel::ImageModel(std::string projectDir, ImageCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 std::string ImageModel::lock_key(const std::string& path) const {
     const ImageLayer* l = layer(path);
@@ -396,8 +422,10 @@ bool ImageModel::poll_external() {
     const std::string was = error_;
     // the same hash as load_from_disk: the document may not load, then only the document file counts
     std::set<std::string> paths;
-    if (valid_) paths = tracked_paths(json_);
-    else paths.insert(rel_);
+    if (valid_)
+        paths = tracked_paths(json_);
+    else
+        paths.insert(rel_);
     for (const std::string& p : paths) {
         auto abs = resolve_project_path(projectDir_, p);
         std::error_code ec;
@@ -442,7 +470,9 @@ void ImageModel::set_onion_settings(const OnionSettings& s) {
     n.before = std::clamp(n.before, 0, 8);
     n.after = std::clamp(n.after, 0, 8);
     n.opacity = std::clamp(n.opacity, 0.0f, 1.0f);
-    if (n.before == onionSettings_.before && n.after == onionSettings_.after && n.opacity == onionSettings_.opacity && n.loop == onionSettings_.loop) return;
+    if (n.before == onionSettings_.before && n.after == onionSettings_.after && n.opacity == onionSettings_.opacity &&
+        n.loop == onionSettings_.loop)
+        return;
     onionSettings_ = n;
     if (onion_) mark_dirty();
 }
@@ -450,8 +480,10 @@ void ImageModel::set_onion_settings(const OnionSettings& s) {
 ImageEditOutcome ImageModel::add_frame(bool duplicate) {
     const int at = std::clamp(frame_ + 1, 0, std::max(1, frame_count()));
     Json args = Json::object({{"count", 1}, {"at", at}});
-    if (duplicate) args["from"] = frame_;
-    else args["blank"] = true;
+    if (duplicate)
+        args["from"] = frame_;
+    else
+        args["blank"] = true;
     ImageEditOutcome out = run(duplicate ? "Duplicate frame" : "Add frame", {{"image.frame.add", args}});
     if (out.ok) {
         frame_ = std::clamp(at, 0, std::max(0, frame_count() - 1));
@@ -462,7 +494,8 @@ ImageEditOutcome ImageModel::add_frame(bool duplicate) {
 }
 
 ImageEditOutcome ImageModel::resize_canvas(int width, int height, const std::string& anchor, const std::string& fill) {
-    Json args = Json::object({{"width", std::clamp(width, 1, 4096)}, {"height", std::clamp(height, 1, 4096)}, {"anchor", anchor}});
+    Json args = Json::object(
+        {{"width", std::clamp(width, 1, 4096)}, {"height", std::clamp(height, 1, 4096)}, {"anchor", anchor}});
     if (!fill.empty()) args["fill"] = fill;
     ImageEditOutcome out = run("Resize canvas", {{"image.resize", args}});
     if (out.ok) {
@@ -475,7 +508,8 @@ ImageEditOutcome ImageModel::resize_canvas(int width, int height, const std::str
 ImageEditOutcome ImageModel::remove_frame(int frame) {
     ImageEditOutcome out = run("Delete frame", {{"image.frame.remove", Json::object({{"frame", frame}})}});
     if (out.ok) {
-        frame_ = std::clamp(frame_ > frame || frame_ == frame_count() ? frame_ - 1 : frame_, 0, std::max(0, frame_count() - 1));
+        frame_ = std::clamp(frame_ > frame || frame_ == frame_count() ? frame_ - 1 : frame_, 0,
+                            std::max(0, frame_count() - 1));
         refresh_selection();
         mark_dirty();
     }
@@ -493,13 +527,16 @@ ImageEditOutcome ImageModel::move_frame(int frame, int to) {
 }
 
 ImageEditOutcome ImageModel::set_frame_duration(int frame, int milliseconds) {
-    return run("Frame duration", {{"image.frame.set", Json::object({{"frame", frame}, {"duration", std::clamp(milliseconds, 1, 60000)}})}});
+    return run(
+        "Frame duration",
+        {{"image.frame.set", Json::object({{"frame", frame}, {"duration", std::clamp(milliseconds, 1, 60000)}})}});
 }
 
 namespace {
 
 // Puts the picture `source` (pixels) or `rows` (indexed) on the layer's cel of `frame`, at x, y relative to the layer's parent.
-void place_cel(ImageLayer& l, int frame, bool indexed, const std::string& source, const std::vector<std::string>& rows, int x, int y) {
+void place_cel(ImageLayer& l, int frame, bool indexed, const std::string& source, const std::vector<std::string>& rows,
+               int x, int y) {
     if (frame <= 0) {
         if (indexed) {
             l.rows = rows;
@@ -515,12 +552,15 @@ void place_cel(ImageLayer& l, int frame, bool indexed, const std::string& source
     if (it == l.cels.end()) {
         ImageCel c;
         c.frame = frame;
-        it = l.cels.insert(std::find_if(l.cels.begin(), l.cels.end(), [&](const ImageCel& o) { return o.frame > frame; }), c);
+        it = l.cels.insert(
+            std::find_if(l.cels.begin(), l.cels.end(), [&](const ImageCel& o) { return o.frame > frame; }), c);
     }
     it->empty = false;
     it->link = -1;
-    if (indexed) it->rows = rows;
-    else it->source = source;
+    if (indexed)
+        it->rows = rows;
+    else
+        it->source = source;
     it->x = x;
     it->y = y;
 }
@@ -540,7 +580,9 @@ bool ImageModel::apply_preview_json(ImageDocument& out) const {
     if (!cur) return false;
     if (previewOp_) {
         const char* key = previewIsEffect_ ? "effects" : "adjustments";
-        if (!cur->contains(key) || !(*cur)[key].is_array() || previewOpIndex_ < 0 || std::size_t(previewOpIndex_) >= (*cur)[key].size()) return false;
+        if (!cur->contains(key) || !(*cur)[key].is_array() || previewOpIndex_ < 0 ||
+            std::size_t(previewOpIndex_) >= (*cur)[key].size())
+            return false;
         merge_patch((*cur)[key][std::size_t(previewOpIndex_)], previewSet_);
     } else {
         merge_patch(*cur, previewSet_);
@@ -559,7 +601,8 @@ void ImageModel::update_live() {
         if (L.indexed) {
             L.grid = L.gridBase;
             const int value = L.erase ? -1 : L.brush.paletteIndex;
-            for (const PixelPoint& p : indexed_stamp(L.points, L.brush.size)) L.grid.set(p.x - L.gridX, p.y - L.gridY, value);
+            for (const PixelPoint& p : indexed_stamp(L.points, L.brush.size))
+                L.grid.set(p.x - L.gridX, p.y - L.gridY, value);
         } else {
             L.work = L.base.img;
             ImageBrush b;
@@ -577,8 +620,10 @@ void ImageModel::update_live() {
         p.x += L.moveDx;
         p.y += L.moveDy;
         const TileGrid tiles = tile_grid_of(json_);
-        if (tiles.on) image_patch_draw_wrapped(L.work, L.base.ox, L.base.oy, p, L.patch.x, L.patch.y, tiles);
-        else image_patch_draw(L.work, L.base.ox, L.base.oy, p);
+        if (tiles.on)
+            image_patch_draw_wrapped(L.work, L.base.ox, L.base.oy, p, L.patch.x, L.patch.y, tiles);
+        else
+            image_patch_draw(L.work, L.base.ox, L.base.oy, p);
     } else if (L.kind == Live::Kind::Transform) {
         L.work = L.erased;
         ImagePatch p = L.patch;
@@ -594,8 +639,10 @@ void ImageModel::update_live() {
         t.pivotY = L.tf.pivotY + L.tf.dy;
         t.nearest = L.tf.nearest;
         Result<ImagePatch> r = image_patch_transform(p, t);
-        if (r.ok()) image_patch_draw(L.work, L.base.ox, L.base.oy, *r);
-        else status_ = r.error().message;
+        if (r.ok())
+            image_patch_draw(L.work, L.base.ox, L.base.oy, *r);
+        else
+            status_ = r.error().message;
     }
 }
 
@@ -617,8 +664,10 @@ void ImageModel::recomposite() {
     ImageDocument tmp;
     bool haveTmp = false;
     if (preview) {
-        if (apply_preview_json(tmp)) haveTmp = true;
-        else status_ = "That value does not make a valid document; showing the saved one.";
+        if (apply_preview_json(tmp))
+            haveTmp = true;
+        else
+            status_ = "That value does not make a valid document; showing the saved one.";
     }
     if (live && !haveTmp) {
         tmp = doc_;
@@ -631,7 +680,8 @@ void ImageModel::recomposite() {
                 l->x = live_.layerX0 + live_.moveDx;
                 l->y = live_.layerY0 + live_.moveDy;
             } else if (live_.indexed) {
-                place_cel(*l, frame_, true, "", index_grid_rows(live_.grid), live_.gridX - parent.first, live_.gridY - parent.second);
+                place_cel(*l, frame_, true, "", index_grid_rows(live_.grid), live_.gridX - parent.first,
+                          live_.gridY - parent.second);
             } else {
                 place_cel(*l, frame_, false, "$live", {}, live_.base.ox - parent.first, live_.base.oy - parent.second);
             }
@@ -642,7 +692,8 @@ void ImageModel::recomposite() {
     const ImageDocument* src = haveTmp ? &tmp : &doc_;
     ImageDocument withBelow;
     int editedTop = editedPath.empty() ? -1 : editedPath.front();
-    const bool useBelow = editedTop > 0 && !onion_ && std::size_t(editedTop) < src->layers.size() && !src->layers[std::size_t(editedTop)].clip;
+    const bool useBelow = editedTop > 0 && !onion_ && std::size_t(editedTop) < src->layers.size() &&
+                          !src->layers[std::size_t(editedTop)].clip;
     ImageRenderOptions options;
     options.projectDir = projectDir_;
     options.frame = std::min(frame_, std::max(0, image_frame_count(*src) - 1));
@@ -655,7 +706,8 @@ void ImageModel::recomposite() {
         options.onion = skin;
     }
     if (useBelow) {
-        const std::string key = std::to_string(docRev_) + ":" + std::to_string(editedTop) + ":" + std::to_string(frame_);
+        const std::string key =
+            std::to_string(docRev_) + ":" + std::to_string(editedTop) + ":" + std::to_string(frame_);
         if (key != belowKey_) {
             ImageDocument lower = doc_;
             lower.layers.resize(std::size_t(editedTop));
@@ -675,7 +727,7 @@ void ImageModel::recomposite() {
             base.source = "$below";
             withBelow.layers.erase(withBelow.layers.begin(), withBelow.layers.begin() + editedTop);
             withBelow.layers.insert(withBelow.layers.begin(), base);
-            withBelow.background.reset();   // the lower picture already holds it
+            withBelow.background.reset();  // the lower picture already holds it
             src = &withBelow;
             pics_["$below"] = std::move(below_);
         }
@@ -719,13 +771,17 @@ std::pair<int, int> ImageModel::parent_offset(const std::string& path) const {
 
 bool ImageModel::is_locked(const std::string& path) const { return lockedNames_.count(lock_key(path)) != 0; }
 void ImageModel::set_locked(const std::string& path, bool locked) {
-    if (locked) lockedNames_.insert(lock_key(path));
-    else lockedNames_.erase(lock_key(path));
+    if (locked)
+        lockedNames_.insert(lock_key(path));
+    else
+        lockedNames_.erase(lock_key(path));
 }
 bool ImageModel::is_open(const std::string& path) const { return closedNames_.count(lock_key(path)) == 0; }
 void ImageModel::set_open(const std::string& path, bool open) {
-    if (open) closedNames_.erase(lock_key(path));
-    else closedNames_.insert(lock_key(path));
+    if (open)
+        closedNames_.erase(lock_key(path));
+    else
+        closedNames_.insert(lock_key(path));
 }
 
 void ImageModel::select_layer(const std::string& path) {
@@ -735,27 +791,27 @@ void ImageModel::select_layer(const std::string& path) {
 
 std::vector<ImageLayerRow> ImageModel::layer_rows() const {
     std::vector<ImageLayerRow> rows;
-    std::function<void(const std::vector<ImageLayer>&, const std::string&, int)> walk = [&](const std::vector<ImageLayer>& list,
-                                                                                         const std::string& prefix, int depth) {
-        for (int i = int(list.size()) - 1; i >= 0; --i) {
-            const ImageLayer& l = list[std::size_t(i)];
-            ImageLayerRow r;
-            r.path = prefix.empty() ? std::to_string(i) : prefix + "/" + std::to_string(i);
-            r.depth = depth;
-            r.name = l.name.empty() ? std::string(image_layer_kind_name(l.kind)) : l.name;
-            r.kind = l.kind;
-            r.visible = l.visible;
-            r.opacity = l.opacity;
-            r.blend = l.blend;
-            r.isGroup = l.kind == ImageLayerKind::Group;
-            r.clip = l.clip;
-            r.childCount = int(l.children.size());
-            r.locked = is_locked(r.path);
-            r.open = is_open(r.path);
-            rows.push_back(r);
-            if (r.isGroup && r.open) walk(l.children, r.path, depth + 1);
-        }
-    };
+    std::function<void(const std::vector<ImageLayer>&, const std::string&, int)> walk =
+        [&](const std::vector<ImageLayer>& list, const std::string& prefix, int depth) {
+            for (int i = int(list.size()) - 1; i >= 0; --i) {
+                const ImageLayer& l = list[std::size_t(i)];
+                ImageLayerRow r;
+                r.path = prefix.empty() ? std::to_string(i) : prefix + "/" + std::to_string(i);
+                r.depth = depth;
+                r.name = l.name.empty() ? std::string(image_layer_kind_name(l.kind)) : l.name;
+                r.kind = l.kind;
+                r.visible = l.visible;
+                r.opacity = l.opacity;
+                r.blend = l.blend;
+                r.isGroup = l.kind == ImageLayerKind::Group;
+                r.clip = l.clip;
+                r.childCount = int(l.children.size());
+                r.locked = is_locked(r.path);
+                r.open = is_open(r.path);
+                rows.push_back(r);
+                if (r.isGroup && r.open) walk(l.children, r.path, depth + 1);
+            }
+        };
     walk(doc_.layers, "", 0);
     return rows;
 }
@@ -769,9 +825,11 @@ bool ImageModel::paintable(const std::string& path, std::string* why) const {
     const ImageLayer* l = layer(path);
     if (!l) return fail("Select a layer first.");
     if (l->kind != ImageLayerKind::Pixels && l->kind != ImageLayerKind::Indexed)
-        return fail(std::string("A ") + image_layer_kind_name(l->kind) + " layer has no pixels to draw on: select a pixels or indexed layer, or add one.");
+        return fail(std::string("A ") + image_layer_kind_name(l->kind) +
+                    " layer has no pixels to draw on: select a pixels or indexed layer, or add one.");
     if (is_locked(path)) return fail("The layer is locked.");
-    if (l->kind == ImageLayerKind::Indexed && doc_.palette.empty()) return fail("The document has no palette to draw with.");
+    if (l->kind == ImageLayerKind::Indexed && doc_.palette.empty())
+        return fail("The document has no palette to draw with.");
     return true;
 }
 
@@ -793,13 +851,16 @@ std::string ImageModel::unique_layer_name(const std::string& base) const {
 
 std::string ImageModel::find_path_by_name(const std::string& name) const {
     std::string found;
-    std::function<void(const std::vector<ImageLayer>&, const std::string&)> walk = [&](const std::vector<ImageLayer>& list, const std::string& prefix) {
-        for (std::size_t i = 0; i < list.size() && found.empty(); ++i) {
-            const std::string p = prefix.empty() ? std::to_string(i) : prefix + "/" + std::to_string(i);
-            if (list[i].name == name) found = p;
-            else walk(list[i].children, p);
-        }
-    };
+    std::function<void(const std::vector<ImageLayer>&, const std::string&)> walk =
+        [&](const std::vector<ImageLayer>& list, const std::string& prefix) {
+            for (std::size_t i = 0; i < list.size() && found.empty(); ++i) {
+                const std::string p = prefix.empty() ? std::to_string(i) : prefix + "/" + std::to_string(i);
+                if (list[i].name == name)
+                    found = p;
+                else
+                    walk(list[i].children, p);
+            }
+        };
     walk(doc_.layers, "");
     return found;
 }
@@ -810,7 +871,8 @@ std::set<std::string> ImageModel::tracked_paths(const Json& doc) const {
     std::set<std::string> out;
     out.insert(rel_);
     auto add = [&](const Json& v) {
-        if (v.is_string() && !v.get<std::string>().empty() && v.get<std::string>()[0] != '$') out.insert(v.get<std::string>());
+        if (v.is_string() && !v.get<std::string>().empty() && v.get<std::string>()[0] != '$')
+            out.insert(v.get<std::string>());
     };
     std::function<void(const Json&)> walk = [&](const Json& layers) {
         if (!layers.is_array()) return;
@@ -898,18 +960,22 @@ ImageEditOutcome ImageModel::run(const std::string& label, Calls calls, const Pr
         return out;
     }
     live_ = Live{};
-    const std::string keepName = selected_.empty() ? std::string() : (layer(selected_) ? layer(selected_)->name : std::string());
+    const std::string keepName =
+        selected_.empty() ? std::string() : (layer(selected_) ? layer(selected_)->name : std::string());
     const std::string keepPath = selected_;
     const std::set<std::string> paths = tracked_paths(json_);
     ImageFileSet before = capture(paths);
     auto fail = [&](const std::string& message) {
         // put every file back, including files a half-done edit created in the folders we list
         std::set<std::string> now = paths;
-        if (!load_from_disk()) now.insert(rel_);
-        else for (const std::string& p : tracked_paths(json_)) now.insert(p);
+        if (!load_from_disk())
+            now.insert(rel_);
+        else
+            for (const std::string& p : tracked_paths(json_)) now.insert(p);
         ImageFileSet back = before;
         for (const std::string& p : now)
-            if (!back.count(p) && (p.rfind(layers_dir_of(rel_), 0) == 0 || p.rfind(selections_dir_of(rel_), 0) == 0)) back[p] = nullptr;
+            if (!back.count(p) && (p.rfind(layers_dir_of(rel_), 0) == 0 || p.rfind(selections_dir_of(rel_), 0) == 0))
+                back[p] = nullptr;
         restore(back);
         load_from_disk();
         out.ok = false;
@@ -922,7 +988,8 @@ ImageEditOutcome ImageModel::run(const std::string& label, Calls calls, const Pr
         if (!prepare(err, calls)) return fail(err);
     }
     for (const auto& [name, args] : calls) {
-        const bool frameAware = name == "image.edit" || name == "image.paint" || name == "image.pixel" || name == "image.draw" || name == "image.select";
+        const bool frameAware = name == "image.edit" || name == "image.paint" || name == "image.pixel" ||
+                                name == "image.draw" || name == "image.select";
         Json a = args;
         a["path"] = rel_;
         if (name != "image.select") a["bake"] = false;
@@ -948,7 +1015,8 @@ ImageEditOutcome ImageModel::run(const std::string& label, Calls calls, const Pr
     }
     for (auto it = before.begin(); it != before.end();) {
         auto a = after.find(it->first);
-        const bool same = a != after.end() && (a->second == it->second || (a->second && it->second && *a->second == *it->second) );
+        const bool same =
+            a != after.end() && (a->second == it->second || (a->second && it->second && *a->second == *it->second));
         if (same) {
             after.erase(a);
             it = before.erase(it);
@@ -1023,8 +1091,10 @@ void ImageModel::merge_steps(int first, int second) {
 
 void ImageModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 
@@ -1034,20 +1104,23 @@ namespace {
 
 Json default_layer(const std::string& kind) {
     Json l = Json::object({{"kind", kind}});
-    if (kind == "fill") l["color"] = "#ffffff";
+    if (kind == "fill")
+        l["color"] = "#ffffff";
     else if (kind == "gradient")
-        l["gradient"] = Json::object({{"stops", Json::array({Json::object({{"at", 0}, {"color", "#000000"}}), Json::object({{"at", 1}, {"color", "#ffffff"}})})}});
+        l["gradient"] = Json::object({{"stops", Json::array({Json::object({{"at", 0}, {"color", "#000000"}}),
+                                                             Json::object({{"at", 1}, {"color", "#ffffff"}})})}});
     else if (kind == "text") {
         l["text"] = "Text";
         l["size"] = 16;
         l["color"] = "#000000";
-    } else if (kind == "group") l["layers"] = Json::array();
-    else if (kind == "adjustment") l["adjustments"] = Json::array({ImageModel::default_operation("brightness", false)});
+    } else if (kind == "group")
+        l["layers"] = Json::array();
+    else if (kind == "adjustment")
+        l["adjustments"] = Json::array({ImageModel::default_operation("brightness", false)});
     return l;
 }
 
 }  // namespace
-
 
 ImageEditOutcome ImageModel::add_layer(const std::string& kind) {
     std::vector<int> sel = split_path(selected_);
@@ -1081,7 +1154,8 @@ ImageEditOutcome ImageModel::add_layer(const std::string& kind) {
                 if (!stdfs::exists(*abs, ec)) break;
             }
             const auto png = encode_png(blank);
-            if (!write_bytes(*resolve_project_path(projectDir_, rel), std::string(reinterpret_cast<const char*>(png.data()), png.size()))) {
+            if (!write_bytes(*resolve_project_path(projectDir_, rel),
+                             std::string(reinterpret_cast<const char*>(png.data()), png.size()))) {
                 err = "Cannot write " + rel + ".";
                 return false;
             }
@@ -1123,7 +1197,7 @@ ImageEditOutcome ImageModel::duplicate_layer(const std::string& path) {
         }
     };
     collect(doc_.layers);
-    std::vector<std::pair<std::string, std::string>> files;   // source -> copy
+    std::vector<std::pair<std::string, std::string>> files;  // source -> copy
     std::set<std::string> newFiles;
     auto copy_file = [&](Json& holder, const char* key, const std::string& name) {
         if (!holder.contains(key) || !holder[key].is_string() || holder[key].get<std::string>().empty()) return;
@@ -1141,7 +1215,8 @@ ImageEditOutcome ImageModel::duplicate_layer(const std::string& path) {
         holder[key] = to;
     };
     std::function<void(Json&, bool)> dup = [&](Json& l, bool top) {
-        const std::string base = (l.value("name", std::string(l.value("kind", std::string("layer"))))) + (top ? " copy" : "");
+        const std::string base =
+            (l.value("name", std::string(l.value("kind", std::string("layer"))))) + (top ? " copy" : "");
         std::string name = base;
         for (int i = 2; taken.count(name); ++i) name = base + " " + std::to_string(i);
         taken.insert(name);
@@ -1176,7 +1251,9 @@ ImageEditOutcome ImageModel::duplicate_layer(const std::string& path) {
         return true;
     };
     ImageEditOutcome out = run("Duplicate layer", {{"image.layer.add", args}}, prepare);
-    if (out.ok) selected_ = (p.size() > 1 ? join_path(std::vector<int>(p.begin(), p.end() - 1)) + "/" : "") + std::to_string(index);
+    if (out.ok)
+        selected_ =
+            (p.size() > 1 ? join_path(std::vector<int>(p.begin(), p.end() - 1)) + "/" : "") + std::to_string(index);
     return out;
 }
 
@@ -1189,7 +1266,9 @@ ImageEditOutcome ImageModel::remove_layer(const std::string& path) {
         if (!p.empty()) {
             std::vector<int> q = p;
             if (q.back() > 0) --q.back();
-            selected_ = layer(join_path(q)) ? join_path(q) : (p.size() > 1 ? join_path(std::vector<int>(p.begin(), p.end() - 1)) : std::string());
+            selected_ = layer(join_path(q))
+                            ? join_path(q)
+                            : (p.size() > 1 ? join_path(std::vector<int>(p.begin(), p.end() - 1)) : std::string());
             if (!layer(selected_)) selected_.clear();
         }
     }
@@ -1198,10 +1277,12 @@ ImageEditOutcome ImageModel::remove_layer(const std::string& path) {
 
 ImageEditOutcome ImageModel::set_layer(const std::string& path, const Json& set, const std::string& label) {
     const std::string keep = selected_;
-    selected_ = path;   // run() keeps this layer selected
+    selected_ = path;  // run() keeps this layer selected
     ImageEditOutcome out = run(label, {{"image.layer.set", Json::object({{"layer", path}, {"set", set}})}});
-    if (!out.ok) selected_ = keep;
-    else if (keep != path && layer(keep)) selected_ = keep;
+    if (!out.ok)
+        selected_ = keep;
+    else if (keep != path && layer(keep))
+        selected_ = keep;
     return out;
 }
 
@@ -1220,7 +1301,8 @@ ImageEditOutcome ImageModel::rename_layer(const std::string& path, const std::st
 
 ImageEditOutcome ImageModel::move_layer(const std::string& path, const std::string& parent, int index) {
     selected_ = path;
-    return run("Move layer", {{"image.layer.move", Json::object({{"layer", path}, {"parent", parent}, {"index", index}})}});
+    return run("Move layer",
+               {{"image.layer.move", Json::object({{"layer", path}, {"parent", parent}, {"index", index}})}});
 }
 
 // ---- previews (slider drags) -----------------------------------------------------------------------------------------------
@@ -1257,14 +1339,17 @@ const char* op_key(bool effect) { return effect ? "effects" : "adjustments"; }
 
 ImageEditOutcome ImageModel::add_operation(const std::string& path, bool effect, const std::string& type) {
     const Json* l = layer_json(path);
-    Json list = l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
+    Json list =
+        l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
     list.push_back(default_operation(type, effect));
-    return set_layer(path, Json::object({{op_key(effect), list}}), std::string("Add ") + (effect ? "effect " : "adjustment ") + type);
+    return set_layer(path, Json::object({{op_key(effect), list}}),
+                     std::string("Add ") + (effect ? "effect " : "adjustment ") + type);
 }
 
 ImageEditOutcome ImageModel::remove_operation(const std::string& path, bool effect, int index) {
     const Json* l = layer_json(path);
-    Json list = l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
+    Json list =
+        l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
     if (index < 0 || std::size_t(index) >= list.size()) {
         ImageEditOutcome e;
         e.ok = false;
@@ -1277,7 +1362,8 @@ ImageEditOutcome ImageModel::remove_operation(const std::string& path, bool effe
 
 ImageEditOutcome ImageModel::move_operation(const std::string& path, bool effect, int from, int to) {
     const Json* l = layer_json(path);
-    Json list = l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
+    Json list =
+        l && l->contains(op_key(effect)) && (*l)[op_key(effect)].is_array() ? (*l)[op_key(effect)] : Json::array();
     const int n = int(list.size());
     if (from < 0 || from >= n || to < 0 || to >= n || from == to) {
         ImageEditOutcome e;
@@ -1309,7 +1395,9 @@ ImageEditOutcome ImageModel::commit_operation_preview(const std::string& label) 
     const Json fields = previewSet_;
     cancel_preview();
     const Json* l = layer_json(path);
-    if (!l || !l->contains(op_key(effect)) || !(*l)[op_key(effect)].is_array() || index < 0 || std::size_t(index) >= (*l)[op_key(effect)].size()) return ImageEditOutcome{};
+    if (!l || !l->contains(op_key(effect)) || !(*l)[op_key(effect)].is_array() || index < 0 ||
+        std::size_t(index) >= (*l)[op_key(effect)].size())
+        return ImageEditOutcome{};
     Json list = (*l)[op_key(effect)];
     merge_patch(list[std::size_t(index)], fields);
     if (list == (*l)[op_key(effect)]) return ImageEditOutcome{};
@@ -1345,7 +1433,8 @@ ImageEditOutcome ImageModel::add_palette_color(const std::string& hex, const std
     Json list = Json::array();
     for (int i = 0; i < doc_.palette.size(); ++i) {
         const auto& en = doc_.palette.entries[std::size_t(i)];
-        list.push_back(en.name.empty() ? Json(doc_.palette.hex(i)) : Json::object({{"name", en.name}, {"color", doc_.palette.hex(i)}}));
+        list.push_back(en.name.empty() ? Json(doc_.palette.hex(i))
+                                       : Json::object({{"name", en.name}, {"color", doc_.palette.hex(i)}}));
     }
     list.push_back(name.empty() ? Json(hex) : Json::object({{"name", name}, {"color", hex}}));
     return run("Add palette colour", {{"image.palette", Json::object({{"palette", list}})}});
@@ -1403,7 +1492,10 @@ Image ImageModel::terrain_preview(const std::vector<std::string>& pattern) {
     out.width = cols * lay.tileWidth;
     out.height = rows * lay.tileHeight;
     out.rgba.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0);
-    auto terrain = [&](int c, int r) { return r >= 0 && r < rows && c >= 0 && c < int(pattern[std::size_t(r)].size()) && pattern[std::size_t(r)][std::size_t(c)] == '#'; };
+    auto terrain = [&](int c, int r) {
+        return r >= 0 && r < rows && c >= 0 && c < int(pattern[std::size_t(r)].size()) &&
+               pattern[std::size_t(r)][std::size_t(c)] == '#';
+    };
     for (int r = 0; r < rows; ++r)
         for (int c = 0; c < cols; ++c) {
             if (!terrain(c, r)) continue;
@@ -1417,14 +1509,18 @@ Image ImageModel::terrain_preview(const std::vector<std::string>& pattern) {
             if (terrain(c - 1, r)) raw |= kAutoW;
             if (terrain(c - 1, r - 1)) raw |= kAutoNW;
             const int slot = autotile_slot(mode, raw);
-            const int variation = lay.variations > 1 ? int(autotile_hash(spec.seed, c, r) % std::uint32_t(lay.variations)) : 0;
+            const int variation =
+                lay.variations > 1 ? int(autotile_hash(spec.seed, c, r) % std::uint32_t(lay.variations)) : 0;
             const int tile = lay.tile_index(slot, variation);
             const int sx = ox + (tile % lay.columns) * lay.tileWidth, sy = oy + (tile / lay.columns) * lay.tileHeight;
             for (int y = 0; y < lay.tileHeight; ++y)
                 for (int x = 0; x < lay.tileWidth; ++x) {
                     if (sx + x < 0 || sy + y < 0 || sx + x >= sheet.width || sy + y >= sheet.height) continue;
-                    std::copy_n(&sheet.rgba[(std::size_t(sy + y) * std::size_t(sheet.width) + std::size_t(sx + x)) * 4], 4,
-                                &out.rgba[(std::size_t(r * lay.tileHeight + y) * std::size_t(out.width) + std::size_t(c * lay.tileWidth + x)) * 4]);
+                    std::copy_n(&sheet.rgba[(std::size_t(sy + y) * std::size_t(sheet.width) + std::size_t(sx + x)) * 4],
+                                4,
+                                &out.rgba[(std::size_t(r * lay.tileHeight + y) * std::size_t(out.width) +
+                                           std::size_t(c * lay.tileWidth + x)) *
+                                          4]);
                 }
         }
     return out;
@@ -1448,7 +1544,10 @@ ImageEditOutcome ImageModel::save() {
     }
     out.result = r.result;
     load_from_disk();
-    status_ = "Saved " + rel_ + (r.result.contains("output") && r.result["output"].is_string() ? " and baked " + r.result["output"].get<std::string>() : std::string());
+    status_ = "Saved " + rel_ +
+              (r.result.contains("output") && r.result["output"].is_string()
+                   ? " and baked " + r.result["output"].get<std::string>()
+                   : std::string());
     return out;
 }
 

@@ -79,8 +79,9 @@ TEST_CASE("ai.settings.get: resolved shows each value with where it comes from, 
     CHECK(value_row(r.result["values"], "/roles/artist/enabled")["source"] == "default");
 
     // a project file that was saved on this computer applies; every value says where it comes from
-    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"), w.ai,
-                                  fake_env({}), true));
+    REQUIRE(save_project_settings(w.proj.str(),
+                                  Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
+                                  w.ai, fake_env({}), true));
     r = w.get("resolved");
     REQUIRE(r.ok);
     CHECK(value_row(r.result["values"], "/roles/artist/enabled")["source"] == "project");
@@ -109,7 +110,8 @@ TEST_CASE("ai.settings.get: resolved shows each value with where it comes from, 
 
 TEST_CASE("ai.settings.get: a project file nobody accepted is pending, an invalid one is reported and has no effect") {
     World w;
-    write_file(w.settings_file(), R"({"roles":{"artist":{"enabled":false}}})");  // as if it came inside a copied project
+    write_file(w.settings_file(),
+               R"({"roles":{"artist":{"enabled":false}}})");  // as if it came inside a copied project
     auto p = w.get("project");
     REQUIRE(p.ok);
     CHECK(p.result["pendingTrust"] == true);
@@ -187,7 +189,9 @@ TEST_CASE("ai.settings.set project: writes the file but never accepts it (ai-tru
     REQUIRE(reset.ok);
     CHECK(reset.result["removed"] == true);
     CHECK(w.get("project").result["overrides"]["limits"].contains("maxTurns") == false);
-    for (const char* p : {"/roles/artist/enabled", "/limits/maxCostUsd", "/assetSources/images", "/mcpServers/scenario"}) REQUIRE(w.set("project", p, nullptr).ok);
+    for (const char* p :
+         {"/roles/artist/enabled", "/limits/maxCostUsd", "/assetSources/images", "/mcpServers/scenario"})
+        REQUIRE(w.set("project", p, nullptr).ok);
     CHECK_FALSE(fsys::exists(w.settings_file()));
     auto last = w.set("project", "/limits/maxCostUsd", nullptr);  // nothing to remove is not an error
     REQUIRE(last.ok);
@@ -199,7 +203,8 @@ TEST_CASE("ai.settings.set project: unknown pointers and rejected keys are refus
     auto typo = w.set("project", "/roles/artst/enabled", false);
     REQUIRE_FALSE(typo.ok);
     CHECK(typo.error["code"] == "unknown_pointer");
-    CHECK(has(typo.error["message"].get<std::string>() + typo.error["hint"].get<std::string>(), "artist"));  // did you mean
+    CHECK(has(typo.error["message"].get<std::string>() + typo.error["hint"].get<std::string>(),
+              "artist"));  // did you mean
 
     auto limits = w.set("project", "/limits/maxTurnz", 3);
     REQUIRE_FALSE(limits.ok);
@@ -211,7 +216,8 @@ TEST_CASE("ai.settings.set project: unknown pointers and rejected keys are refus
     CHECK(branch.error["code"] == "unknown_pointer");
     CHECK(has(branch.error["hint"], "ai.settings.get"));
 
-    for (const char* p : {"/providers/x/command", "/defaultProvider", "/roles/worker/apiKey", "/mcpServers/scenario/url", "/roles/worker/command"}) {
+    for (const char* p : {"/providers/x/command", "/defaultProvider", "/roles/worker/apiKey",
+                          "/mcpServers/scenario/url", "/roles/worker/command"}) {
         INFO(p);
         auto r = w.set("project", p, "evil");
         REQUIRE_FALSE(r.ok);
@@ -243,8 +249,8 @@ TEST_CASE("ai.settings.set user: writes ai.json, keeps everything else, null rem
     auto file = fa::parse_json(*fa::fs::read_text(w.ai), "f");
     REQUIRE(file);
     CHECK((*file)["roles"]["artist"]["enabled"] == false);
-    CHECK((*file)["roles"]["orchestrator"]["model"] == "opus");                    // kept
-    CHECK((*file)["providers"].contains("openrouter"));                          // kept
+    CHECK((*file)["roles"]["orchestrator"]["model"] == "opus");                        // kept
+    CHECK((*file)["providers"].contains("openrouter"));                                // kept
     CHECK((*file)["mcpServers"]["scenario"]["url"] == "https://mcp.example.com/mcp");  // kept
     CHECK_FALSE(fsys::exists(w.trust_file()));
     // every project starts from it
@@ -289,7 +295,8 @@ TEST_CASE("ai.settings.set user: the result lists what changed, and the callback
     REQUIRE(p.ok);
     bool provider = false, model = false;
     for (const Json& c : p.result["changed"]) {
-        if (c["pointer"] == "/roles/orchestrator/provider") provider = c["from"] == "claude-code" && c["to"] == "openrouter";
+        if (c["pointer"] == "/roles/orchestrator/provider")
+            provider = c["from"] == "claude-code" && c["to"] == "openrouter";
         if (c["pointer"] == "/roles/orchestrator/model") model = c["from"] == "opus" && c["to"] != "opus";
     }
     CHECK(provider);
@@ -325,7 +332,8 @@ TEST_CASE("ai.settings.set user: only the user's own calls may change the user's
         auto refused = w.set("user", "/roles/artist/enabled", false);
         REQUIRE_FALSE(refused.ok);
         CHECK(refused.error["code"] == "user_only");
-        const std::string text = refused.error["message"].get<std::string>() + " " + refused.error["hint"].get<std::string>();
+        const std::string text =
+            refused.error["message"].get<std::string>() + " " + refused.error["hint"].get<std::string>();
         CHECK(has(text, command_caller_name(who)));
         CHECK(has(text, "AI settings window (Your defaults)"));
         CHECK(has(text, "ask the user"));
@@ -348,11 +356,13 @@ TEST_CASE("ai.settings.set user: only the user's own calls may change the user's
     CHECK(w.userChanged == 1);
 }
 
-TEST_CASE("ai.settings.set project: removing a value keeps an accepted file accepted, a file nobody accepted stays pending") {
+TEST_CASE(
+    "ai.settings.set project: removing a value keeps an accepted file accepted, a file nobody accepted stays pending") {
     World w;
     // accepted (as the editor does): two values
-    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"), w.ai,
-                                  fake_env({}), true));
+    REQUIRE(save_project_settings(w.proj.str(),
+                                  Json::parse(R"({"roles":{"artist":{"enabled":false}},"limits":{"maxTurns":5}})"),
+                                  w.ai, fake_env({}), true));
     const std::string hashBefore = read_project_settings_file(w.proj.str()).hash;
     CHECK(w.get("project").result["applied"] == true);
     auto r = w.set("project", "/limits/maxTurns", nullptr);
@@ -415,13 +425,16 @@ TEST_CASE("set_user_setting: a pointer that is not a setting is refused also whe
     CHECK(*fa::fs::read_text(w.ai) == before);
 }
 
-TEST_CASE("roles off in the project: ai.run and agent_delegate refuse and say which project setting turned the role off") {
+TEST_CASE(
+    "roles off in the project: ai.run and agent_delegate refuse and say which project setting turned the role off") {
     World w;
-    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai, fake_env({}), true));
+    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai,
+                                  fake_env({}), true));
     auto refused = w.reg.call("ai.run", Json::object({{"task", "paint"}, {"role", "artist"}}));
     REQUIRE_FALSE(refused.ok);
     CHECK(refused.error["code"] == "role_off");
-    const std::string text = refused.error["message"].get<std::string>() + " " + refused.error["hint"].get<std::string>();
+    const std::string text =
+        refused.error["message"].get<std::string>() + " " + refused.error["hint"].get<std::string>();
     CHECK(has(text, "this project's AI settings"));
     CHECK(has(text, w.settings_file()));
     CHECK(has(text, "/roles/artist/enabled"));
@@ -435,7 +448,8 @@ TEST_CASE("roles off in the project: ai.run and agent_delegate refuse and say wh
     // the in-process delegation of the built-in agent says the same
     AiConfig cfg = *load_resolved_config(w.proj.str(), w.ai, fake_env({}));
     REQUIRE_FALSE(cfg.role_enabled("artist"));
-    cfg.roles["orchestrator"] = default_config().roles["orchestrator"];  // an API provider: the fake one answers (not a CLI agent)
+    cfg.roles["orchestrator"] =
+        default_config().roles["orchestrator"];  // an API provider: the fake one answers (not a CLI agent)
     auto provider = std::make_shared<FakeProvider>();
     ToolCall d;
     d.id = "d1";
@@ -471,7 +485,8 @@ TEST_CASE("roles off in the project: ai.run and agent_delegate refuse and say wh
     CHECK(w.reg.call("ai.run", Json::object({{"task", "paint"}, {"role", "fast"}})).ok);
 }
 
-TEST_CASE("write_private_file: owner-only, a symlinked file is written through, two writers never share a temporary file") {
+TEST_CASE(
+    "write_private_file: owner-only, a symlinked file is written through, two writers never share a temporary file") {
     TempDir t;
     const fsys::path file = t.path / "sub" / "ai.json";
     REQUIRE(write_private_file(file.string(), "one"));
@@ -511,13 +526,16 @@ TEST_CASE("write_private_file: owner-only, a symlinked file is written through, 
     for (int w = 0; w < 4; ++w) {
         writers.emplace_back([&, w] {
             for (int i = 0; i < 25; ++i) {
-                if (!write_private_file(file.string(), "writer " + std::to_string(w) + " round " + std::to_string(i))) ++failed;
+                if (!write_private_file(file.string(), "writer " + std::to_string(w) + " round " + std::to_string(i)))
+                    ++failed;
             }
         });
     }
     for (auto& th : writers) th.join();
 #ifndef _WIN32
-    CHECK(failed == 0);  // on Windows a file another writer has open can refuse the replace: fs::replace_file retries but may give up
+    CHECK(
+        failed ==
+        0);  // on Windows a file another writer has open can refuse the replace: fs::replace_file retries but may give up
 #endif
     CHECK(has(*fa::fs::read_text(file.string()), "writer "));
     CHECK(leftovers(file.parent_path()) == 0);
@@ -539,7 +557,8 @@ TEST_CASE("write_private_file: owner-only, a symlinked file is written through, 
 #endif
 }
 
-TEST_CASE("ai.settings.set: null for a setting the file does not hold says removed false with a hint that nothing changed") {
+TEST_CASE(
+    "ai.settings.set: null for a setting the file does not hold says removed false with a hint that nothing changed") {
     World w;
     // project: the project has no file at all, then a file that holds another value
     auto none = w.set("project", "/limits/maxTurns", nullptr);
@@ -548,7 +567,8 @@ TEST_CASE("ai.settings.set: null for a setting the file does not hold says remov
     CHECK(has(none.result["hint"], "Nothing changed"));
     CHECK(has(none.result["hint"], "/limits/maxTurns"));
     CHECK_FALSE(fsys::exists(w.settings_file()));  // nothing was written
-    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai, fake_env({}), true));
+    REQUIRE(save_project_settings(w.proj.str(), Json::parse(R"({"roles":{"artist":{"enabled":false}}})"), w.ai,
+                                  fake_env({}), true));
     auto other = w.set("project", "/limits/maxTurns", nullptr);
     REQUIRE(other.ok);
     CHECK(other.result["removed"] == false);
@@ -570,12 +590,14 @@ TEST_CASE("ai.settings.set: null for a setting the file does not hold says remov
     CHECK(has(set.result["hint"], "Saved in your ai.json"));
 }
 
-TEST_CASE("ai.settings.set user: removing a tool server or a plugin switch says removed true only when ai.json held its \"enabled\"") {
+TEST_CASE("ai.settings.set user: removing a tool server or a plugin switch says removed true only when ai.json held "
+          "its \"enabled\"") {
     World w;
     write_file(w.ai, R"({
       "mcpServers": {"scenario": {"type": "http", "url": "https://mcp.example.com/mcp", "enabled": false},
                      "plain": {"type": "http", "url": "https://mcp.example.com/plain"}},
-      "extensions": {"plugins": {"notes": {"path": ")" + (w.home.path / "notes").generic_string() + R"(", "note": "keeps notes", "enabled": false}}}
+      "extensions": {"plugins": {"notes": {"path": ")" +
+                         (w.home.path / "notes").generic_string() + R"(", "note": "keeps notes", "enabled": false}}}
     })");
     fsys::create_directories(w.home.path / "notes");
     auto read = [&] {
@@ -616,7 +638,8 @@ TEST_CASE("ai.settings: the permission mode of each CLI agent is listed with wha
     auto got = w.get("user");
     REQUIRE(got.ok);
     Json claude;
-    for (const Json& row : got.result["permissionModes"]) if (row["provider"] == "claude-code") claude = row;
+    for (const Json& row : got.result["permissionModes"])
+        if (row["provider"] == "claude-code") claude = row;
     REQUIRE(claude.is_object());
     CHECK(claude["mode"] == "acceptEdits");
     CHECK(claude["default"] == "acceptEdits");

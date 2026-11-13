@@ -34,8 +34,14 @@ struct FakeWindow final : WindowControl {
         mon = i;
         return {};
     }
-    void size(int& a, int& b) const override { a = w; b = h; }
-    void display_size(int& a, int& b) const override { a = mon == 0 ? 1920 : 1280; b = mon == 0 ? 1080 : 720; }
+    void size(int& a, int& b) const override {
+        a = w;
+        b = h;
+    }
+    void display_size(int& a, int& b) const override {
+        a = mon == 0 ? 1920 : 1280;
+        b = mon == 0 ? 1080 : 720;
+    }
     bool vsync() const override { return sync; }
     int frame_cap() const override { return cap; }
     std::string set_size(int a, int b) override {
@@ -48,7 +54,10 @@ struct FakeWindow final : WindowControl {
         if (on == sync) return {};
         return "vsync cannot be changed here.";
     }
-    std::string set_frame_cap(int fps) override { cap = fps; return {}; }
+    std::string set_frame_cap(int fps) override {
+        cap = fps;
+        return {};
+    }
 };
 
 struct WindowedHost : TestHost {
@@ -231,7 +240,8 @@ test("supports is false and the setters explain", () => {
 }
 
 TEST_CASE("window modes and monitors without a window: one monitor from factoria.json, setters throw") {
-    TestHost h("window_modes_headless", Json::parse(R"({"display": {"width": 800, "height": 600, "fullscreen": true}})"));
+    TestHost h("window_modes_headless",
+               Json::parse(R"({"display": {"width": 800, "height": 600, "fullscreen": true}})"));
     h.file("tests/t.test.js", R"JS(
 import { test, expect } from "factoria:test";
 import { window } from "factoria";
@@ -506,13 +516,14 @@ TEST_CASE("typescript declarations: window, rebinding and button names") {
     TestHost h("dts_window_input");
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
-    for (const char* needle : {"export interface WindowAPI {", "export const window: WindowAPI;", "setFullscreen(on: boolean): void;",
-                               "readonly available: boolean;", "frameCap: number;", "resolutions(): Resolution[];",
-                               "export type GamepadType =", "export type InputDevice =", "readonly lastDevice: InputDevice;",
-                               "rebind(action: string, bindings: string[]): void;", "resetBindings(action?: string): void;",
-                               "lastPressed(): string | null;", "buttonName(bindingOrAction: string, pad?: number): string;",
-                               "readonly text: string;", "showKeyboard(on?: boolean): void;", "readonly type: GamepadType;",
-                               "typeText(text: string): void;", "setType(type: "}) {
+    for (const char* needle :
+         {"export interface WindowAPI {", "export const window: WindowAPI;", "setFullscreen(on: boolean): void;",
+          "readonly available: boolean;", "frameCap: number;", "resolutions(): Resolution[];",
+          "export type GamepadType =", "export type InputDevice =", "readonly lastDevice: InputDevice;",
+          "rebind(action: string, bindings: string[]): void;", "resetBindings(action?: string): void;",
+          "lastPressed(): string | null;", "buttonName(bindingOrAction: string, pad?: number): string;",
+          "readonly text: string;", "showKeyboard(on?: boolean): void;", "readonly type: GamepadType;",
+          "typeText(text: string): void;", "setType(type: "}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }
@@ -591,7 +602,8 @@ test("a desktop window can cap, a pretend phone cannot", () => {
     CHECK(rep.ok());
 }
 
-TEST_CASE("modifier chords: keyDown names either side, a chord wins over its plain key, rebind and lastPressed record chords") {
+TEST_CASE("modifier chords: keyDown names either side, a chord wins over its plain key, rebind and lastPressed record "
+          "chords") {
     TestHost h("input_chords");
     h.file("tests/t.test.js", R"JS(
 import { test, expect, game } from "factoria:test";

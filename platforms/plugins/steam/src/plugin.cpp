@@ -23,7 +23,9 @@ namespace steam_plugin {
 
 namespace {
 
-void on_request(FaRequest* request, const char* method, const char* argsJson, void*) { handle_request(request, method, argsJson); }
+void on_request(FaRequest* request, const char* method, const char* argsJson, void*) {
+    handle_request(request, method, argsJson);
+}
 
 void on_frame(void*) {
     if (backend().started) run_frame();
@@ -38,7 +40,8 @@ void on_exit() {
     Backend& b = backend();
     if (!b.started) return;
     b.started = false;
-    if (b.statsDirty && b.stats == Backend::Stats::Ready) b.steam.SteamAPI_ISteamUserStats_StoreStats(b.steam.userStats);
+    if (b.statsDirty && b.stats == Backend::Stats::Ready)
+        b.steam.SteamAPI_ISteamUserStats_StoreStats(b.steam.userStats);
     b.steam.SteamAPI_Shutdown();
 #endif
 }
@@ -48,10 +51,14 @@ void status(FaCall* call, const char*, void*) {
     Backend& b = backend();
     SteamApi& s = b.steam;
     Json out = Json::object();
-    out.set("plugin", b.api->plugin).set("backend", "steam").set("appId", b.appId).set("appIdFrom", s.appIdSource.empty() ? "Steam" : s.appIdSource);
+    out.set("plugin", b.api->plugin)
+        .set("backend", "steam")
+        .set("appId", b.appId)
+        .set("appIdFrom", s.appIdSource.empty() ? "Steam" : s.appIdSource);
     out.set("player", player_json());
     out.set("library", s.library).set("interfaces", s.accessors);
-    Json newer = Json::array();  // interfaces of an SDK newer than the ones this plugin was checked against (kCheckedSdk)
+    Json newer =
+        Json::array();  // interfaces of an SDK newer than the ones this plugin was checked against (kCheckedSdk)
     for (const std::string& n : s.newerInterfaces) newer.push(n);
     out.set("newerInterfaces", newer).set("checkedSdk", kCheckedSdk);
     out.set("overlayEnabled", s.SteamAPI_ISteamUtils_IsOverlayEnabled(s.utils));
@@ -70,8 +77,10 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     using namespace steam_plugin;
     Backend& b = backend();
     if (api->version < 2 || !api->add_backend) {
-        const std::string old = "This FactorIA is too old for the Steam plugin: platform backends need plugin API version 2, and this "
-                                "engine has version " + std::to_string(api->version) + ". Update FactorIA (`factoria` and the editor).";
+        const std::string old =
+            "This FactorIA is too old for the Steam plugin: platform backends need plugin API version 2, and this "
+            "engine has version " +
+            std::to_string(api->version) + ". Update FactorIA (`factoria` and the editor).";
         api->log(api, 3, old.c_str());
         return 1;
     }
@@ -95,18 +104,23 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     }
 
     const std::string commandName = std::string(api->plugin) + ".status";
-    FaCommandDesc command = {commandName.c_str(),
-                             "Show what the Steam plugin found: app id, player, library, overlay and cloud.",
-                             "Returns {plugin, backend, appId, appIdFrom, player, library, interfaces, newerInterfaces (the "
-                             "ones newer than the SDKs checkedSdk names: used, with a warning), checkedSdk, overlayEnabled, "
-                             "cloudEnabledForAccount, cloudEnabledForApp, statsLoaded, dlc}. Example: {}.",
-                             nullptr, 1, status, nullptr};
+    FaCommandDesc command = {
+        commandName.c_str(),
+        "Show what the Steam plugin found: app id, player, library, overlay and cloud.",
+        "Returns {plugin, backend, appId, appIdFrom, player, library, interfaces, newerInterfaces (the "
+        "ones newer than the SDKs checkedSdk names: used, with a warning), checkedSdk, overlayEnabled, "
+        "cloudEnabledForAccount, cloudEnabledForApp, statsLoaded, dlc}. Example: {}.",
+        nullptr,
+        1,
+        status,
+        nullptr};
     // remotePlay only when the library has ISteamRemotePlay (every SDK from 1.49 does): the service is then declared, and the
     // engine answers "unavailable" to remotePlay.sessions on a library that has not.
-    const std::string services = s.remotePlay ? "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
-                                                "\"presence\",\"remotePlay\"]"
-                                              : "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
-                                                "\"presence\"]";
+    const std::string services =
+        s.remotePlay ? "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
+                       "\"presence\",\"remotePlay\"]"
+                     : "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\","
+                       "\"presence\"]";
     FaBackendDesc desc = {"steam", services.c_str(), on_request, on_frame, nullptr};
     // Plugin API 3: the Steam Deck's own keyboard for a TextField a gamepad player focuses (an older engine has no hook).
     const bool keyboardHook = api->version >= 3 && api->add_text_input && api->submit_text;
@@ -122,8 +136,9 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     std::atexit(on_exit);
     const std::string newer = newer_interfaces_warning(s);
     if (!newer.empty()) api->log(api, 2, newer.c_str());
-    const std::string ready = "Steam is ready: app " + std::to_string(b.appId) + ", player " + std::to_string(b.selfId) + " (" + s.library +
-                              ", " + s.accessors + (s.appIdSource.empty() ? "" : "; app id from " + s.appIdSource) + ")";
+    const std::string ready = "Steam is ready: app " + std::to_string(b.appId) + ", player " +
+                              std::to_string(b.selfId) + " (" + s.library + ", " + s.accessors +
+                              (s.appIdSource.empty() ? "" : "; app id from " + s.appIdSource) + ")";
     api->log(api, 1, ready.c_str());
     return 0;
 }

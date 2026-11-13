@@ -24,7 +24,8 @@ TEST_CASE("utf8: one to four bytes, both ways") {
 }
 
 TEST_CASE("utf8: utf8_next moves past one character") {
-    const std::string_view s = "\xE6\x97\xA5" "b";
+    const std::string_view s = "\xE6\x97\xA5"
+                               "b";
     std::size_t i = 0;
     CHECK(utf8_next(s, i) == 0x65E5);
     CHECK(i == 3);
@@ -34,12 +35,16 @@ TEST_CASE("utf8: utf8_next moves past one character") {
 
 TEST_CASE("utf8: malformed bytes become U+FFFD, one per maximal ill-formed subsequence") {
     CHECK(utf8_decode("\x80") == std::u32string{R});  // a continuation byte alone
-    CHECK(utf8_decode("a\xFF" "b") == std::u32string{U'a', R, U'b'});  // never a UTF-8 byte
-    CHECK(utf8_decode("\xE2\x82") == std::u32string{R});  // cut short: one U+FFFD for both bytes
+    CHECK(utf8_decode("a\xFF"
+                      "b") == std::u32string{U'a', R, U'b'});  // never a UTF-8 byte
+    CHECK(utf8_decode("\xE2\x82") == std::u32string{R});       // cut short: one U+FFFD for both bytes
     CHECK(utf8_decode("\xF0\x9F\x98") == std::u32string{R});
-    CHECK(utf8_decode("\xE2\x82" "A") == std::u32string{R, U'A'});  // the byte that broke the sequence is kept
+    CHECK(utf8_decode("\xE2\x82"
+                      "A") == std::u32string{R, U'A'});  // the byte that broke the sequence is kept
     std::size_t i = 0;
-    CHECK(utf8_next("\xC3" "A", i) == R);
+    CHECK(utf8_next("\xC3"
+                    "A",
+                    i) == R);
     CHECK(i == 1);
     // The example of the Unicode standard, table 3-8.
     CHECK(utf8_decode("\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64") ==
@@ -54,9 +59,9 @@ TEST_CASE("utf8: overlong forms, surrogates and values above U+10FFFF are malfor
     CHECK(utf8_decode("\xE0\x9F\xBF") == std::u32string{R, R, R});  // U+07FF in three bytes
     CHECK(utf8_decode("\xF0\x80\x80\x80") == std::u32string{R, R, R, R});
     CHECK(utf8_decode("\xF0\x8F\xBF\xBF") == std::u32string{R, R, R, R});  // U+FFFF in four bytes
-    CHECK(utf8_decode("\xED\xA0\x80") == std::u32string{R, R, R});  // U+D800
-    CHECK(utf8_decode("\xED\xBF\xBF") == std::u32string{R, R, R});  // U+DFFF
-    CHECK(utf8_decode("\xED\x9F\xBF") == U"\uD7FF");  // the last code point before them
+    CHECK(utf8_decode("\xED\xA0\x80") == std::u32string{R, R, R});         // U+D800
+    CHECK(utf8_decode("\xED\xBF\xBF") == std::u32string{R, R, R});         // U+DFFF
+    CHECK(utf8_decode("\xED\x9F\xBF") == U"\uD7FF");                       // the last code point before them
     CHECK(utf8_decode("\xF4\x90\x80\x80") == std::u32string{R, R, R, R});  // U+110000
     CHECK(utf8_decode("\xF5\x80\x80\x80") == std::u32string{R, R, R, R});
     CHECK(utf8_decode("\xF4\x8F\xBF\xBF") == U"\U0010FFFF");

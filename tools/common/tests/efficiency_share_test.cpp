@@ -29,11 +29,18 @@ std::string builtin_session(int n) {
     for (int i = 1; i <= n; ++i) {
         const std::string id = "tu" + std::to_string(i);
         Json input = Json::object({{"command", "scene.inspect"}, {"arguments", Json::object({{"entity", "player"}})}});
-        Json content = Json::array({Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"}, {"input", input}})});
-        out += Json::object({{"kind", "assistant"}, {"t", at(60 * i - 1)},
-                             {"usage", Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})}, {"costUsd", 0.05}, {"content", content}}).dump() + "\n";
+        Json content =
+            Json::array({Json::object({{"type", "tool_use"}, {"id", id}, {"name", "tool_call"}, {"input", input}})});
+        out += Json::object({{"kind", "assistant"},
+                             {"t", at(60 * i - 1)},
+                             {"usage", Json::object({{"inputTokens", 4500}, {"outputTokens", 500}})},
+                             {"costUsd", 0.05},
+                             {"content", content}})
+                   .dump() +
+               "\n";
         Json result = Json::object({{"toolUseId", id}, {"isError", false}, {"ms", 40}, {"content", "ok"}});
-        out += Json::object({{"kind", "tool_results"}, {"t", at(60 * i)}, {"results", Json::array({result})}}).dump() + "\n";
+        out += Json::object({{"kind", "tool_results"}, {"t", at(60 * i)}, {"results", Json::array({result})}}).dump() +
+               "\n";
     }
     return out;
 }
@@ -49,7 +56,9 @@ struct Game {
     std::int64_t clock = 1'800'000'000;
     Game() {
         const std::string h = home.str();
-        env.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        env.env = [h](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
+        };
         env.now = [this] { return clock; };
         env.sleep = [](double) {};
         env.makeUuid = [] { return std::string("11111111-2222-4333-8444-555555555555"); };
@@ -63,20 +72,34 @@ struct Game {
             out.status = 200;
             Json body = Json::parse(r.body);
             Json results = Json::array();
-            for (const Json& e : body["entries"]) results.push_back(Json::object({{"localId", e["localId"]}, {"status", "accepted"}, {"shareId", "r_1"}}));
+            for (const Json& e : body["entries"])
+                results.push_back(
+                    Json::object({{"localId", e["localId"]}, {"status", "accepted"}, {"shareId", "r_1"}}));
             out.body = Json::object({{"ok", true}, {"results", results}}).dump();
             return out;
         };
-        testing::write_all(dir.path / "factoria.json", R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/crypt.scene.json"})");
-        testing::write_all(dir.path / "scenes" / "crypt.scene.json", R"({"entities":[{"name":"Sir Aldric","components":{"Transform":{}}}]})");
-        testing::write_all(dir.path / ".factoria" / "ai" / "sessions" / (std::string(kSession) + ".jsonl"), builtin_session(80));
+        testing::write_all(
+            dir.path / "factoria.json",
+            R"({"name":"Lantern Keep","id":"com.acme.lanternkeep","version":"0.1.0","mainScene":"scenes/crypt.scene.json"})");
+        testing::write_all(dir.path / "scenes" / "crypt.scene.json",
+                           R"({"entities":[{"name":"Sir Aldric","components":{"Transform":{}}}]})");
+        testing::write_all(dir.path / ".factoria" / "ai" / "sessions" / (std::string(kSession) + ".jsonl"),
+                           builtin_session(80));
     }
-    Json report(int from, int to, const std::string& waste = "Working out the order of the flux calibration calls took forty steps of trial") {
+    Json
+    report(int from, int to,
+           const std::string& waste = "Working out the order of the flux calibration calls took forty steps of trial") {
         Json evidence = Json::array({Json::object({{"session", kSession}, {"fromStep", from}, {"toStep", to}})});
-        return Json::object({{"kind", "efficiency"}, {"category", "scene"}, {"title", "Quantum flux calibration routine"}, {"waste", waste},
-                             {"suggestion", "A topic guide that lists the three calibration calls in order"}, {"fixType", "guide"},
-                             {"appliesTo", "every-game"}, {"evidence", evidence},
-                             {"expectedSaving", Json::object({{"share", 0.5}, {"why", "the guide gives the calls in order"}})}});
+        return Json::object(
+            {{"kind", "efficiency"},
+             {"category", "scene"},
+             {"title", "Quantum flux calibration routine"},
+             {"waste", waste},
+             {"suggestion", "A topic guide that lists the three calibration calls in order"},
+             {"fixType", "guide"},
+             {"appliesTo", "every-game"},
+             {"evidence", evidence},
+             {"expectedSaving", Json::object({{"share", 0.5}, {"why", "the guide gives the calls in order"}})}});
     }
     std::string file() const { return (dir.path / "ENGINE_FEEDBACK.json").string(); }
 };
@@ -91,7 +114,8 @@ EfficiencyMeasure measure(int steps, double minutes, std::uint64_t tokens, doubl
     return m;
 }
 
-EfficiencyVoice voice(const std::string& project, const std::string& trust, const EfficiencyMeasure& saving, int occurrences = 1) {
+EfficiencyVoice voice(const std::string& project, const std::string& trust, const EfficiencyMeasure& saving,
+                      int occurrences = 1) {
     EfficiencyVoice v;
     v.project = project;
     v.id = "FB-0001";
@@ -121,7 +145,9 @@ TEST_CASE("efficiency share: the entry sends numbers and the fix type, never the
     REQUIRE(set_share_mode(g.env, ShareMode::Always).ok());
     CommandRegistry registry;
     register_feedback_commands(registry, g.dir.str());
-    auto r = registry.call("feedback.report", g.report(1, 40, "Sir Aldric in Lantern Keep needed forty steps to order the flux calibration calls of scenes/crypt.scene.json"));
+    auto r = registry.call("feedback.report", g.report(1, 40,
+                                                       "Sir Aldric in Lantern Keep needed forty steps to order the "
+                                                       "flux calibration calls of scenes/crypt.scene.json"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
 
     CHECK(r.result["share"]["status"] == "sent");  // mode "always": the report is sent at once
@@ -158,7 +184,8 @@ TEST_CASE("efficiency share: this-game entries and entries without numbers send 
     CHECK(efficiency_share_block(Json::parse(R"({"kind":"gap","fixType":"doc"})")).is_null());
 }
 
-TEST_CASE("efficiency share: an entry hit again is sent again, and the server's numbers are clamped by the engine on the way back") {
+TEST_CASE("efficiency share: an entry hit again is sent again, and the server's numbers are clamped by the engine on "
+          "the way back") {
     Game g;
     ScopedShareEnv scoped(g.env);
     REQUIRE(set_share_mode(g.env, ShareMode::Always).ok());
@@ -166,7 +193,8 @@ TEST_CASE("efficiency share: an entry hit again is sent again, and the server's 
     register_feedback_commands(registry, g.dir.str());
     REQUIRE(registry.call("feedback.report", g.report(1, 40)).ok);
     REQUIRE(g.requests.size() == 1);
-    REQUIRE(registry.call("feedback.report", g.report(41, 80)).ok);  // other steps of the same waste: merged, 2 occurrences
+    REQUIRE(
+        registry.call("feedback.report", g.report(41, 80)).ok);  // other steps of the same waste: merged, 2 occurrences
     const Json doc = load_feedback(g.file()).value();
     CHECK(doc["entries"][0]["occurrences"] == 2);
     REQUIRE(g.requests.size() == 2);  // the merge sent the entry again with its new numbers
@@ -176,8 +204,11 @@ TEST_CASE("efficiency share: an entry hit again is sent again, and the server's 
     CHECK(second["spans"] == 2);
 
     // A block from a server is read through efficiency_clean_block: unknown values and absurd numbers do not get in.
-    CHECK(efficiency_clean_block(Json::parse(R"({"fixType":"nope","appliesTo":"every-game","measured":{},"saving":{}})")).is_null());
-    const Json odd = efficiency_clean_block(Json::parse(R"({"fixType":"doc","appliesTo":"genre","measured":{"steps":1e30,"minutes":-4,"tokens":1e30},
+    CHECK(
+        efficiency_clean_block(Json::parse(R"({"fixType":"nope","appliesTo":"every-game","measured":{},"saving":{}})"))
+            .is_null());
+    const Json odd = efficiency_clean_block(
+        Json::parse(R"({"fixType":"doc","appliesTo":"genre","measured":{"steps":1e30,"minutes":-4,"tokens":1e30},
         "saving":{"costUsd":1e30},"expectedShare":7,"spans":900,"afterFix":"0.17.0"})"));
     REQUIRE(odd.is_object());
     CHECK(odd["measured"]["steps"].get<double>() <= 4'000'000.0);
@@ -187,13 +218,18 @@ TEST_CASE("efficiency share: an entry hit again is sent again, and the server's 
     CHECK(odd["expectedShare"] == 1);
     CHECK(odd["spans"] == 200);
     CHECK(odd["afterFix"] == "0.17.0");
-    CHECK_FALSE(efficiency_clean_block(Json::parse(R"({"fixType":"doc","appliesTo":"genre","measured":{},"saving":{},"afterFix":"0.1 0; rm"})")).contains("afterFix"));
+    CHECK_FALSE(
+        efficiency_clean_block(
+            Json::parse(R"({"fixType":"doc","appliesTo":"genre","measured":{},"saving":{},"afterFix":"0.1 0; rm"})"))
+            .contains("afterFix"));
 }
 
 TEST_CASE("efficiency rank: ordered by the total saving, each with its verdict and a ready reason") {
     // A doc fix wanted by two installations, a command that saves a lot, and an engine change that saves little.
     const Json ranked = rank_efficiency({
-        group("Flux calibration order", "doc", {voice("install-a", "verified", measure(40, 10.04, 200000, 0.5)), voice("install-b", "anonymous", measure(40, 10, 200000, 0.5))}),
+        group("Flux calibration order", "doc",
+              {voice("install-a", "verified", measure(40, 10.04, 200000, 0.5)),
+               voice("install-b", "anonymous", measure(40, 10, 200000, 0.5))}),
         group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 1000, 3000000, 30))}),
         group("Physics layer lookup", "engineChange", {voice("install-c", "verified", measure(40, 60, 300000, 3))}),
     });
@@ -235,7 +271,9 @@ TEST_CASE("efficiency rank: ordered by the total saving, each with its verdict a
     const Json again = rank_efficiency({
         group("Physics layer lookup", "engineChange", {voice("install-c", "verified", measure(40, 60, 300000, 3))}),
         group("Scene load retries", "newCommand", {voice("install-a", "verified", measure(200, 1000, 3000000, 30))}),
-        group("Flux calibration order", "doc", {voice("install-b", "anonymous", measure(40, 10, 200000, 0.5)), voice("install-a", "verified", measure(40, 10.04, 200000, 0.5))}),
+        group("Flux calibration order", "doc",
+              {voice("install-b", "anonymous", measure(40, 10, 200000, 0.5)),
+               voice("install-a", "verified", measure(40, 10.04, 200000, 0.5))}),
     });
     CHECK(again == ranked);
     const Json tie = rank_efficiency({group("B title", "doc", {voice("x", "verified", measure(1, 5, 1000, 0))}),
@@ -257,7 +295,8 @@ TEST_CASE("efficiency rank: the fix costs are the ones docs/ENGINE_FEEDBACK.md s
 
 TEST_CASE("efficiency rank: a verdict text rounds its hours down, so a short saving never reads as the bar") {
     // 3 hours 57 minutes against the 4 hours of a command option: "3.9", not "4.0".
-    const Json v = rank_efficiency({group("Option", "commandOption", {voice("a", "verified", measure(10, 237.5, 1000, 0))})})[0]["verdict"];
+    const Json v = rank_efficiency(
+        {group("Option", "commandOption", {voice("a", "verified", measure(10, 237.5, 1000, 0))})})[0]["verdict"];
     CHECK(v["code"] == "command-not-yet");
     CHECK(v["text"].get<std::string>().find("3.9 of the 4.0 hours") != std::string::npos);
 }
@@ -281,7 +320,8 @@ TEST_CASE("efficiency share: an efficiency entry that has no block to send is ne
     CHECK_FALSE(entry_is_shareable(noNumbers));
 }
 
-TEST_CASE("feedback file lock: the user's folder first, the project's own when the user's cannot be written, and an error that names both") {
+TEST_CASE("feedback file lock: the user's folder first, the project's own when the user's cannot be written, and an "
+          "error that names both") {
     Game g;
     ShareEnv env = g.env;
     env.lockWaitSec = 0.2;
@@ -307,7 +347,9 @@ TEST_CASE("feedback file lock: the user's folder first, the project's own when t
     CHECK_FALSE(std::filesystem::exists(projectLock));
     CommandRegistry registry;
     register_feedback_commands(registry, g.dir.str());
-    const Json gap = Json::object({{"category", "scene"}, {"severity", "minor"}, {"title", "Zorblax wibble gauge is missing"},
+    const Json gap = Json::object({{"category", "scene"},
+                                   {"severity", "minor"},
+                                   {"title", "Zorblax wibble gauge is missing"},
                                    {"missing", "The engine has no zorblax wibble gauge for the quuxel pipeline"},
                                    {"workaround", "I counted the quuxel frames by hand"}});
     auto done = registry.call("feedback.report", gap);
@@ -331,7 +373,8 @@ TEST_CASE("feedback file lock: the user's folder first, the project's own when t
     CHECK(neither.error().find("project's own folder") != std::string::npos);
 }
 
-TEST_CASE("feedback file lock: a process that can write the user's folder and one that cannot exclude each other through the project's lock") {
+TEST_CASE("feedback file lock: a process that can write the user's folder and one that cannot exclude each other "
+          "through the project's lock") {
     Game g;
     ShareEnv env = g.env;
     env.lockWaitSec = 0.2;
@@ -343,7 +386,9 @@ TEST_CASE("feedback file lock: a process that can write the user's folder and on
     testing::write_all(blocker, "x");
     const std::string blockerText = blocker.string();
     ShareEnv sandboxed = env;
-    sandboxed.env = [blockerText](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? blockerText : ""; };
+    sandboxed.env = [blockerText](const std::string& name) -> std::string {
+        return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? blockerText : "";
+    };
     auto sandbox_tries = [&] {
         bool held = false;
         std::string error;
@@ -384,7 +429,8 @@ TEST_CASE("feedback file lock: a process that can write the user's folder and on
     CHECK_FALSE(std::filesystem::exists(std::filesystem::path(env.config_dir()) / kFeedbackShareLockFile));
 }
 
-TEST_CASE("feedback file lock: one wait for both locks, a message that names only what is true, and no folder made for a path that is not there") {
+TEST_CASE("feedback file lock: one wait for both locks, a message that names only what is true, and no folder made for "
+          "a path that is not there") {
     Game g;
     ShareEnv env = g.env;
     env.lockWaitSec = 1.6;
@@ -411,7 +457,8 @@ TEST_CASE("feedback file lock: one wait for both locks, a message that names onl
         other.join();
         CHECK_FALSE(lock.held());
         CHECK(waited < 2.3);  // 0.8 + 1.6 would be 2.4 or more
-        CHECK(lock.error().find("did not finish in 1.6 s") != std::string::npos);  // the whole wait, not what was left of it
+        CHECK(lock.error().find("did not finish in 1.6 s") !=
+              std::string::npos);  // the whole wait, not what was left of it
         std::filesystem::remove(projectLock, ec);
     }
     SUBCASE("a thread cap shortens the wait of both locks") {
@@ -459,7 +506,8 @@ TEST_CASE("feedback file lock: one wait for both locks, a message that names onl
     }
 }
 
-TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report written at the same time is not undone") {
+TEST_CASE(
+    "record_fix_check: takes the lock of the feedback files, so a report written at the same time is not undone") {
     Game g;
     ShareEnv busy = g.env;
     busy.lockWaitSec = 0.2;
@@ -473,7 +521,8 @@ TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report w
     REQUIRE_FALSE(blocked.ok());
     CHECK(blocked.error().message.find("Another FactorIA process") != std::string::npos);
     std::filesystem::remove(lockPath, ec);
-    auto free = record_fix_check(g.file(), "FB-0001", Json::object());  // no such file: the lock was taken, the entry is what is missing
+    auto free = record_fix_check(g.file(), "FB-0001",
+                                 Json::object());  // no such file: the lock was taken, the entry is what is missing
     REQUIRE_FALSE(free.ok());
     CHECK(free.error().message.find("No feedback entry") != std::string::npos);
     CHECK_FALSE(std::filesystem::exists(lockPath));  // released
@@ -482,7 +531,8 @@ TEST_CASE("record_fix_check: takes the lock of the feedback files, so a report w
 TEST_CASE("efficiency rank: a command is worth it when its total saving covers its cost, and not before") {
     // 4 hours is what a command option costs: 3.9 hours is not enough, 4.1 is.
     auto verdict = [](double minutes) {
-        return rank_efficiency({group("Option", "commandOption", {voice("a", "verified", measure(10, minutes, 1000, 0))})})[0]["verdict"];
+        return rank_efficiency(
+            {group("Option", "commandOption", {voice("a", "verified", measure(10, minutes, 1000, 0))})})[0]["verdict"];
     };
     CHECK(verdict(234)["code"] == "command-not-yet");
     CHECK(verdict(246)["code"] == "command-worth-it");
@@ -497,7 +547,8 @@ TEST_CASE("efficiency rank: a fix that was shipped and did not help is named in 
     CHECK(ranked[0]["afterFix"] == Json::array({"0.17.0"}));
 }
 
-TEST_CASE("feedback update: a fix records the version and the day, and an efficiency entry what one occurrence cost before") {
+TEST_CASE(
+    "feedback update: a fix records the version and the day, and an efficiency entry what one occurrence cost before") {
     Game g;
     ScopedShareEnv scoped(g.env);
     CommandRegistry registry;
@@ -520,10 +571,12 @@ TEST_CASE("feedback update: a fix records the version and the day, and an effici
     // Reopening takes it all back.
     auto reopened = update_feedback_entry(doc, "FB-0001", "open", "", "", "user");
     REQUIRE(reopened.ok());
-    for (const char* key : {"fixedIn", "fixedAt", "fixBaseline", "fixCheck"}) CHECK_FALSE(reopened.value().contains(key));
+    for (const char* key : {"fixedIn", "fixedAt", "fixBaseline", "fixCheck"})
+        CHECK_FALSE(reopened.value().contains(key));
 }
 
-TEST_CASE("feedback update: a gap fixed in the engine records the version but no baseline; a text without a version records nothing") {
+TEST_CASE("feedback update: a gap fixed in the engine records the version but no baseline; a text without a version "
+          "records nothing") {
     Json doc = create_empty_feedback("game", "9.9.9");
     FeedbackInput in;
     in.category = "physics";
@@ -570,17 +623,25 @@ TEST_CASE("feedback collect: efficiency entries are ranked apart from the gaps, 
         REQUIRE(save_feedback((dir.path / project / "ENGINE_FEEDBACK.json").string(), doc).ok());
     };
     auto eff = [](const std::string& id, const std::string& fixType, const std::string& trust, double minutes) {
-        return Json::parse(R"({"id":")" + id + R"(","date":"2027-01-15","category":"scene","severity":"minor","title":"Quantum flux calibration routine",
+        return Json::parse(
+            R"({"id":")" + id +
+            R"(","date":"2027-01-15","category":"scene","severity":"minor","title":"Quantum flux calibration routine",
             "missing":"Working out the order of the flux calibration calls took many steps","workaround":"none: the work went on with it",
             "occurrences":1,"status":"open","kind":"efficiency","waste":"Working out the order of the flux calibration calls took many steps",
-            "fixType":")" + fixType + R"(","appliesTo":"every-game","measured":{"steps":40,"minutes":)" + std::to_string(minutes * 2) + R"(,"tokens":200000},
-            "saving":{"steps":20,"minutes":)" + std::to_string(minutes) + R"(,"tokens":100000},"expectedSaving":{"share":0.5,"why":"x"},
-            "remote":{"shareId":"r_)" + id + R"(","installKey":"k","trust":")" + trust + R"("}})");
+            "fixType":")" +
+            fixType + R"(","appliesTo":"every-game","measured":{"steps":40,"minutes":)" + std::to_string(minutes * 2) +
+            R"(,"tokens":200000},
+            "saving":{"steps":20,"minutes":)" +
+            std::to_string(minutes) + R"(,"tokens":100000},"expectedSaving":{"share":0.5,"why":"x"},
+            "remote":{"shareId":"r_)" +
+            id + R"(","installKey":"k","trust":")" + trust + R"("}})");
     };
-    Json gap = Json::parse(R"({"id":"FB-0002","date":"2027-01-15","category":"scene","severity":"major","title":"Quantum flux calibration routine",
+    Json gap = Json::parse(
+        R"({"id":"FB-0002","date":"2027-01-15","category":"scene","severity":"major","title":"Quantum flux calibration routine",
         "missing":"The flux calibration is missing","workaround":"a script","occurrences":1,"status":"open"})");
     write("install-a", Json::array({eff("FB-0001", "doc", "verified", 30), gap}));
-    write("install-b", Json::array({eff("FB-0001", "doc", "anonymous", 30), eff("FB-0003", "newCommand", "verified", 5)}));
+    write("install-b",
+          Json::array({eff("FB-0001", "doc", "anonymous", 30), eff("FB-0003", "newCommand", "verified", 5)}));
     auto rep = collect_feedback({dir.str()});
     REQUIRE(rep.ok());
     CHECK(rep->json["totalEntries"] == 4);
@@ -599,7 +660,8 @@ TEST_CASE("feedback collect: efficiency entries are ranked apart from the gaps, 
     CHECK(md.find("feedback reject") != std::string::npos);
 }
 
-TEST_CASE("feedback file lock: the project's lock lands next to a feedback file whose folder is not ASCII (the same path conversion as load_feedback)") {
+TEST_CASE("feedback file lock: the project's lock lands next to a feedback file whose folder is not ASCII (the same "
+          "path conversion as load_feedback)") {
     Game g;
     ShareEnv env = g.env;
     env.lockWaitSec = 0.3;
@@ -621,7 +683,8 @@ TEST_CASE("feedback file lock: the project's lock lands next to a feedback file 
     {
         FeedbackFileLock lock(env, file);
         REQUIRE_MESSAGE(lock.held(), lock.error());
-        CHECK(std::filesystem::exists(projectLock));  // in the folder of the file it protects, not in a folder of another name
+        CHECK(std::filesystem::exists(
+            projectLock));  // in the folder of the file it protects, not in a folder of another name
     }
     CHECK_FALSE(std::filesystem::exists(projectLock));
     // A second spelling of the same folder (a `.` and a `..` in it) is the same lock for one thread: it does not wait for itself.

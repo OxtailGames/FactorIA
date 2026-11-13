@@ -29,7 +29,8 @@ struct XNode {
     std::vector<XItem> kids;
     XNode* parent = nullptr;
     bool selfClosed = false;  // written <x/> while it has no children
-    std::string rawOpen;      // the start tag as written; emptied when an attribute changes, so an untouched tag is written back as it was
+    std::string
+        rawOpen;  // the start tag as written; emptied when an attribute changes, so an untouched tag is written back as it was
     int line = 1;
 
     std::string local() const;  // the name without a prefix
@@ -77,7 +78,8 @@ std::unique_ptr<XNode> make_element(const std::string& name);
 
 bool is_shape_element(const XNode& n);  // path, rect, circle, ellipse, line, polyline, polygon
 bool is_group_element(const XNode& n);  // g, svg, a, switch
-bool in_inert_subtree(const XNode& n);  // inside defs, clipPath, mask, pattern, symbol, marker...: not drawn where it stands
+bool in_inert_subtree(
+    const XNode& n);  // inside defs, clipPath, mask, pattern, symbol, marker...: not drawn where it stands
 
 // A presentation property of the element itself: from its style attribute, else the attribute of that name. Empty when it has none.
 std::string own_prop(const XNode& n, const std::string& name);
@@ -112,7 +114,8 @@ void shapes_under(XNode& n, std::vector<XNode*>& out);
 // `:nth-child(n)`, compounds (`path.ring`), descendants (`g path`), children (`g > path`) and lists (`a, b`). A word with none of
 // those characters is an id; when no element has it and it names an element (`circle`), it is the tag.
 // Returns the matches in document order. Throws CommandError (with "did you mean" over the ids) when nothing matches.
-std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& ref, const char* command, const std::string& pointer);
+std::vector<XNode*> select_elements(const SvgDoc& doc, const std::string& ref, const char* command,
+                                    const std::string& pointer);
 
 // A selector that picks exactly this element: "svg > g:nth-child(2) > path:nth-child(3)". For elements that have no id.
 std::string element_selector(const XNode& n);

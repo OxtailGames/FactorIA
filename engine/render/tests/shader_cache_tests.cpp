@@ -24,8 +24,9 @@ struct TempDir {
     stdfs::path dir;
     TempDir() {
         static std::atomic<int> counter{0};
-        dir = stdfs::temp_directory_path() / (std::string("fa_test_shadercache_") + std::to_string(counter++) + "_" +
-                                              std::to_string(std::uintmax_t(reinterpret_cast<std::uintptr_t>(this) & 0xffffff)));
+        dir = stdfs::temp_directory_path() /
+              (std::string("fa_test_shadercache_") + std::to_string(counter++) + "_" +
+               std::to_string(std::uintmax_t(reinterpret_cast<std::uintptr_t>(this) & 0xffffff)));
         std::error_code ec;
         stdfs::remove_all(dir, ec);
         stdfs::create_directories(dir);
@@ -102,16 +103,19 @@ TEST_CASE("shader cache: another source, engine version or flags makes its own f
     std::vector<std::uint8_t> out;
     REQUIRE(cached_stage_bytecode(t.dir, "d3d11|1|flags", "quad", "vs", func("A"), c.fn(), out, stats));
     ShaderBuildStats s1;
-    REQUIRE(cached_stage_bytecode(t.dir, "d3d11|1|flags", "quad", "vs", func("B"), c.fn(), out, s1));  // the shader changed
+    REQUIRE(
+        cached_stage_bytecode(t.dir, "d3d11|1|flags", "quad", "vs", func("B"), c.fn(), out, s1));  // the shader changed
     CHECK(s1.cacheMisses == 1);
     CHECK(s1.cacheHits == 0);
     CHECK(c.calls == 2);
     CHECK(std::string(out.begin(), out.end()) == "DXBC:B");
     ShaderBuildStats s2;
-    REQUIRE(cached_stage_bytecode(t.dir, "d3d11|2|flags", "quad", "vs", func("B"), c.fn(), out, s2));  // another engine version
+    REQUIRE(cached_stage_bytecode(t.dir, "d3d11|2|flags", "quad", "vs", func("B"), c.fn(), out,
+                                  s2));  // another engine version
     CHECK(s2.cacheMisses == 1);
     CHECK(c.calls == 3);
-    CHECK(cache_files(t.dir).size() == 3);  // three entries side by side: two versions or two games never replace each other's
+    CHECK(cache_files(t.dir).size() ==
+          3);  // three entries side by side: two versions or two games never replace each other's
     // Each is a hit now, whichever ran last: nothing is compiled again.
     for (const char* key : {"d3d11|1|flags", "d3d11|2|flags"}) {
         ShaderBuildStats s;
@@ -171,7 +175,8 @@ TEST_CASE("shader cache: a damaged or cut-short file is recompiled and stored ag
     CHECK(s2.cacheHits == 1);
 }
 
-TEST_CASE("shader cache: without a cache folder it only compiles; a failing compiler returns false and stores nothing") {
+TEST_CASE(
+    "shader cache: without a cache folder it only compiles; a failing compiler returns false and stores nothing") {
     FakeCompiler c;
     std::vector<std::uint8_t> out;
     ShaderBuildStats s;
@@ -199,9 +204,13 @@ TEST_CASE("shader cache: file names are safe, bounded and differ per label and s
     const std::string c = shader_cache_file_name("quad/plain", "fs");
     CHECK(a != b);  // the label hash tells apart labels that sanitise to the same text
     CHECK(a != c);
-    CHECK(shader_cache_file_name("quad", "vs", "0123456789abcdef") != shader_cache_file_name("quad", "vs", "fedcba9876543210"));
-    CHECK(shader_cache_file_name("quad", "vs", "0123456789abcdef").ends_with("-01234567"));  // a few characters of the key hash
-    for (const std::string& n : {a, b, c, shader_cache_file_name("quad", "vs", "0123456789abcdef"), shader_cache_file_name(std::string(500, 'x') + "\xc3\xa9 ?*", "vs", "0123456789abcdef")}) {
+    CHECK(shader_cache_file_name("quad", "vs", "0123456789abcdef") !=
+          shader_cache_file_name("quad", "vs", "fedcba9876543210"));
+    CHECK(shader_cache_file_name("quad", "vs", "0123456789abcdef")
+              .ends_with("-01234567"));  // a few characters of the key hash
+    for (const std::string& n :
+         {a, b, c, shader_cache_file_name("quad", "vs", "0123456789abcdef"),
+          shader_cache_file_name(std::string(500, 'x') + "\xc3\xa9 ?*", "vs", "0123456789abcdef")}) {
         CHECK(n.size() <= 120);
         for (char ch : n) CHECK((std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_' || ch == '.'));
     }

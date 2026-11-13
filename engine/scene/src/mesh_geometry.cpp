@@ -47,14 +47,16 @@ void disc(MeshGeometry& g, int seg, float radius, float y) {
         g.positions.push_back({radius * det::cos(a), y, radius * det::sin(a)});
     }
     for (int s = 0; s < seg; ++s)
-        g.indices.insert(g.indices.end(), {centre, centre + 1 + std::uint32_t(s), centre + 1 + std::uint32_t((s + 1) % seg)});
+        g.indices.insert(g.indices.end(),
+                         {centre, centre + 1 + std::uint32_t(s), centre + 1 + std::uint32_t((s + 1) % seg)});
 }
 
 bool build_primitive_geometry(const std::string& name, MeshGeometry& g) {
     const float h = 0.5f;
     if (name == "cube") {
         for (int i = 0; i < 8; ++i) g.positions.push_back({(i & 1) ? h : -h, (i & 2) ? h : -h, (i & 4) ? h : -h});
-        const std::uint32_t quads[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 2, 6, 4}, {1, 5, 7, 3}, {0, 4, 5, 1}, {2, 3, 7, 6}};
+        const std::uint32_t quads[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 2, 6, 4},
+                                           {1, 5, 7, 3}, {0, 4, 5, 1}, {2, 3, 7, 6}};
         for (auto& q : quads) g.indices.insert(g.indices.end(), {q[0], q[1], q[2], q[0], q[2], q[3]});
     } else if (name == "plane") {
         g.positions = {{-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {-h, 0, h}};
@@ -107,8 +109,9 @@ Result<std::shared_ptr<const MeshGeometry>> load_gltf_geometry(const std::string
     if (!bytes)
         return make_error(std::format("mesh '{}' is not a built-in primitive and cannot be read as a model: {}", path,
                                       bytes.error().message),
-                          std::string("Use a primitive name (") + kPrimitiveHint + ") or a "
-                          "project-relative path to a .gltf/.glb file, e.g. \"assets/models/ramp.glb\".");
+                          std::string("Use a primitive name (") + kPrimitiveHint +
+                              ") or a "
+                              "project-relative path to a .gltf/.glb file, e.g. \"assets/models/ramp.glb\".");
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
@@ -124,6 +127,7 @@ Result<std::shared_ptr<const MeshGeometry>> load_gltf_geometry(const std::string
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
                           "External .bin files must sit next to the .gltf and be inside the project.");
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
     auto g = std::make_shared<MeshGeometry>();
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
         const cgltf_node& node = data->nodes[ni];
@@ -176,13 +180,15 @@ std::string mesh_key(const std::string& mesh) { return is_primitive_mesh(mesh) ?
 
 Result<std::vector<std::string>> gltf_material_names(const std::string& path) {
     auto bytes = fs::read_bytes(path);
-    if (!bytes) return make_error(std::format("cannot read model '{}': {}", path, bytes.error().message),
-                                  "Use a project-relative .gltf/.glb path.");
+    if (!bytes)
+        return make_error(std::format("cannot read model '{}': {}", path, bytes.error().message),
+                          "Use a project-relative .gltf/.glb path.");
     cgltf_options opts{};
     gltf_use_fs(opts);
     cgltf_data* data = nullptr;
     if (cgltf_parse(&opts, bytes->data(), bytes->size(), &data) != cgltf_result_success)
-        return make_error(std::format("cgltf could not parse '{}'", path), "The file must be a valid glTF 2.0 (.gltf or .glb) file.");
+        return make_error(std::format("cgltf could not parse '{}'", path),
+                          "The file must be a valid glTF 2.0 (.gltf or .glb) file.");
     struct Guard {
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
@@ -193,7 +199,8 @@ Result<std::vector<std::string>> gltf_material_names(const std::string& path) {
         const cgltf_mesh& mesh = *data->nodes[ni].mesh;
         for (cgltf_size pi = 0; pi < mesh.primitives_count; ++pi) {
             const cgltf_material* m = mesh.primitives[pi].material;
-            if (m && m->name && *m->name && std::find(names.begin(), names.end(), m->name) == names.end()) names.push_back(m->name);
+            if (m && m->name && *m->name && std::find(names.begin(), names.end(), m->name) == names.end())
+                names.push_back(m->name);
         }
     }
     return names;
@@ -218,8 +225,10 @@ Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string
         if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
             std::vector<std::string> names(std::begin(kPrimitiveNames), std::end(kPrimitiveNames));
             return make_error(std::format("unknown collider mesh '{}'", mesh),
-                              std::string("Use a primitive name (") + kPrimitiveHint + ") or a "
-                              "project-relative .gltf/.glb path. " + did_you_mean(mesh, names));
+                              std::string("Use a primitive name (") + kPrimitiveHint +
+                                  ") or a "
+                                  "project-relative .gltf/.glb path. " +
+                                  did_you_mean(mesh, names));
         }
         out = load_gltf_geometry(mesh);
     }

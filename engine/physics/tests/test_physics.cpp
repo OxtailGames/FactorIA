@@ -29,7 +29,8 @@ struct Sim {
     }
     int count(CollisionEvent::Phase ph, bool trigger) const {
         int n = 0;
-        for (const auto& e : events) if (e.phase == ph && e.trigger == trigger) ++n;
+        for (const auto& e : events)
+            if (e.phase == ph && e.trigger == trigger) ++n;
         return n;
     }
 };
@@ -244,7 +245,7 @@ TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list wi
         s.world.get<Transform>(map)->position = {-80, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        tm.width = 2;   // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
+        tm.width = 2;  // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
         tm.height = 5;
         Json row = Json::array();
         for (int c = 0; c < 10; ++c) row.push_back(1);
@@ -253,7 +254,8 @@ TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list wi
         CHECK_FALSE(check_tilemap(tm).empty());
         Entity box = add_box(s.world, "box", {70, 100}, {16, 16}, BodyType::Dynamic);  // over column 9, outside width 2
         s.run(180);
-        CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // row 0 spans y in [-16, 0]: rests on y = 0
+        CHECK(pos_of(s.world, box).y ==
+              doctest::Approx(8.0f).epsilon(0.03));  // row 0 spans y in [-16, 0]: rests on y = 0
     }
     {
         Sim s;
@@ -263,7 +265,8 @@ TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list wi
         tm.tileSize = {16, 16};
         tm.tiles = Json::array({-1, -1, 1, 1, -1});  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
         tm.solidTiles = Json::array({1});
-        Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
+        Entity box =
+            add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
         s.run(180);
         CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // rests on the top edge y = 0
     }
@@ -374,8 +377,8 @@ TEST_CASE("2d: determinism - two identical runs produce identical positions") {
         add_ground(s.world);
         std::vector<Entity> bodies;
         for (int i = 0; i < 12; ++i) {
-            Entity e = add_box(s.world, ("b" + std::to_string(i)).c_str(), {float(i % 3) * 7.0f - 7.0f, 40.0f + float(i) * 40.0f},
-                               {30, 30}, BodyType::Dynamic);
+            Entity e = add_box(s.world, ("b" + std::to_string(i)).c_str(),
+                               {float(i % 3) * 7.0f - 7.0f, 40.0f + float(i) * 40.0f}, {30, 30}, BodyType::Dynamic);
             if (i % 2) {
                 s.world.get<Collider2D>(e)->shape = ColliderShape::Circle;
                 s.world.get<Collider2D>(e)->radius = 14;
@@ -519,7 +522,8 @@ TEST_CASE("3d: determinism") {
         add_box3(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
         std::vector<Entity> bodies;
         for (int i = 0; i < 8; ++i)
-            bodies.push_back(add_sphere3(s.world, ("s" + std::to_string(i)).c_str(), {float(i % 2) * 0.3f, 1.0f + float(i), 0}, 0.5f));
+            bodies.push_back(add_sphere3(s.world, ("s" + std::to_string(i)).c_str(),
+                                         {float(i % 2) * 0.3f, 1.0f + float(i), 0}, 0.5f));
         s.run(300);
         std::vector<float> out;
         for (Entity e : bodies) {
@@ -585,7 +589,7 @@ CastShape box_cast(float w, float h) {
 
 TEST_CASE("2d: shape cast of a circle and a box lands on the surface, with the hit normal") {
     Sim s;
-    Entity ground = add_ground(s.world);  // top at y = -180
+    Entity ground = add_ground(s.world);                                                   // top at y = -180
     Entity wall = add_box(s.world, "wall", {100, 0}, {20, 100}, BodyType::Static, false);  // left face at x = 90
     Entity ball = add_box(s.world, "ball", {100, 200}, {1, 1}, BodyType::Static, false);
     Collider2D& bc = *s.world.get<Collider2D>(ball);
@@ -650,7 +654,8 @@ TEST_CASE("2d: shape cast of a circle and a box lands on the surface, with the h
     // null when the path is clear, and for a zero-length cast
     CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(40, 40), {-100, 120}, {300, 120}).has_value());
     CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, 100}).has_value());
-    CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, -100}).has_value());  // stops short of the ground
+    CHECK_FALSE(
+        s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, -100}).has_value());  // stops short of the ground
 }
 
 TEST_CASE("2d: shape cast against tilemap tiles reports the Tilemap entity") {
@@ -762,8 +767,10 @@ TEST_CASE("2d: shape cast skips colliders it overlaps at the start, but not ones
     CHECK(hit->entity == ground);
     CHECK(std::fabs(hit->distance) < 0.5f);
     CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
-    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {500, -100}).has_value());  // moving away
-    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {800, -170}).has_value());  // sliding along
+    CHECK_FALSE(
+        s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {500, -100}).has_value());  // moving away
+    CHECK_FALSE(
+        s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {800, -170}).has_value());  // sliding along
     hit = s.physics.shape_cast2d(s.world, circle_cast(10), {500, -170}, {500, -270});
     REQUIRE(hit.has_value());
     CHECK(std::fabs(hit->distance) < 0.5f);
@@ -910,7 +917,8 @@ TEST_CASE("2d: dynamic body rides a moving kinematic platform") {
     CHECK(s.physics.is_grounded(s.world, box));
 }
 
-TEST_CASE("2d: a rider that sets velocity.x = 0 every frame stays put on a swinging platform, and is not carried in the air") {
+TEST_CASE("2d: a rider that sets velocity.x = 0 every frame stays put on a swinging platform, and is not carried in "
+          "the air") {
     Sim s;
     Entity plat = add_box(s.world, "plat", {0, -20}, {400, 40}, BodyType::Kinematic);
     Entity box = add_box(s.world, "box", {0, 16}, {32, 32}, BodyType::Dynamic);
@@ -1018,7 +1026,10 @@ TEST_CASE("2d: is_touching2d walls, ground, ceiling") {
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {-1, 0}));
     // a character holding a direction re-applies its velocity every step
     auto push = [&](Vec2 v, int steps) {
-        for (int i = 0; i < steps; ++i) { s.world.get<RigidBody2D>(box)->velocity = v; s.run(1); }
+        for (int i = 0; i < steps; ++i) {
+            s.world.get<RigidBody2D>(box)->velocity = v;
+            s.run(1);
+        }
     };
     push({300, 0}, 60);
     CHECK(s.physics.is_touching2d(s.world, box, {1, 0}));
@@ -1044,7 +1055,10 @@ TEST_CASE("2d: one-way platform lands from above and lets bodies jump through fr
     Entity b = add_box(s.world, "b", {60, -100}, {32, 32}, BodyType::Dynamic);
     s.world.get<RigidBody2D>(b)->velocity = {0, 600};
     float maxY = -1e9f;
-    for (int i = 0; i < 20; ++i) { s.run(1); maxY = std::max(maxY, pos_of(s.world, b).y); }
+    for (int i = 0; i < 20; ++i) {
+        s.run(1);
+        maxY = std::max(maxY, pos_of(s.world, b).y);
+    }
     s.run(200);
     CHECK(maxY > 20.0f);  // went through
     CHECK(pos_of(s.world, b).y > 8.0f);
@@ -1262,8 +1276,10 @@ TEST_CASE("2d: sleeping bodies wake when their entity or their ground is enabled
         Entity ground = add_ground(s.world);
         Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
         REQUIRE(run_until_asleep(s, "box"));
-        if (mode == 0) s.world.set_active(ground, false);
-        else s.world.destroy(ground);
+        if (mode == 0)
+            s.world.set_active(ground, false);
+        else
+            s.world.destroy(ground);
         s.run(30);
         CHECK(body_awake(s, "box"));
         CHECK(pos_of(s.world, box).y < kRestY - 100.0f);  // nothing holds it any more
@@ -1334,7 +1350,10 @@ Entity add_static_sphere3(World& w, const char* id, Vec3 pos, float radius) {
 }
 void no_gravity(Sim& s) { s.world.settings().gravity3D = {0, 0, 0}; }
 // Deterministic pseudo-random value in [0, 1) (golden-ratio style sequence): i-th term of the sequence for step k.
-float frac(int i, float k) { float x = float(i) * k; return x - std::floor(x); }
+float frac(int i, float k) {
+    float x = float(i) * k;
+    return x - std::floor(x);
+}
 float deg_apart(Vec3 a, Vec3 b) { return std::max({std::fabs(a.x - b.x), std::fabs(a.y - b.y), std::fabs(a.z - b.z)}); }
 }  // namespace
 
@@ -1412,7 +1431,8 @@ TEST_CASE("3d: raycast against a rotated box hits the rotated face with its norm
     CHECK_FALSE(s.physics.raycast3d(s.world, {-8, 0, 3.2f}, {1, 0, 0}, 100.0f).has_value());
 }
 
-TEST_CASE("3d: oriented box vs box: resting on a rotated slab, pushed out along a shared face, stopped by a rotated wall") {
+TEST_CASE(
+    "3d: oriented box vs box: resting on a rotated slab, pushed out along a shared face, stopped by a rotated wall") {
     // (a) a cube lands on a slab turned 45 degrees about Y and rests on its top face
     Sim a;
     add_turned_box3(a.world, "slab", {0, -0.5f, 0}, {10, 1, 10}, {0, 45, 0}, BodyType::Static, false);
@@ -1463,7 +1483,8 @@ TEST_CASE("3d: the collider offset turns with the entity; a dynamic body with an
     hit = s.physics.raycast3d(s.world, {0, 0, 10}, {0, 0, -1}, 100.0f);  // from the other side: the far face, z = -1.5
     REQUIRE(hit.has_value());
     CHECK(hit->distance == doctest::Approx(11.5f).epsilon(0.002));
-    CHECK_FALSE(s.physics.raycast3d(s.world, {10, 0, 0}, {-1, 0, 0}, 100.0f).has_value());  // nothing at +x (unrotated offset)
+    CHECK_FALSE(
+        s.physics.raycast3d(s.world, {10, 0, 0}, {-1, 0, 0}, 100.0f).has_value());  // nothing at +x (unrotated offset)
 
     // a dynamic sphere whose collider is offset keeps its entity where gameplay put it and lands on the ground
     Sim d;
@@ -1544,13 +1565,13 @@ TEST_CASE("3d: continuous collision: a 60 m/s sphere never passes a 0.2 m wall i
                 const Vec3 normal = toWorld.transform_dir({1, 0, 0});
                 const float yaw = (frac(i, 0.754877f) - 0.5f) * 80.0f;    // +-40 degrees off the normal
                 const float pitch = (frac(i, 0.569840f) - 0.5f) * 40.0f;  // +-20 degrees
-                const Vec3 dir = toWorld.transform_dir({std::cos(radians(yaw)) * std::cos(radians(pitch)),
-                                                        std::sin(radians(pitch)),
-                                                        std::sin(radians(yaw)) * std::cos(radians(pitch))});
+                const Vec3 dir =
+                    toWorld.transform_dir({std::cos(radians(yaw)) * std::cos(radians(pitch)), std::sin(radians(pitch)),
+                                           std::sin(radians(yaw)) * std::cos(radians(pitch))});
                 // start 5..5.25 m in front of the wall plane (a different phase against the 0.25 m sub-step each time)
-                const Vec3 start = toWorld.transform_dir({-(5.0f + 0.25f * frac(i, 0.618034f)),
-                                                          3.0f * (frac(i, 0.324717f) - 0.5f),
-                                                          3.0f * (frac(i, 0.465571f) - 0.5f)});
+                const Vec3 start =
+                    toWorld.transform_dir({-(5.0f + 0.25f * frac(i, 0.618034f)), 3.0f * (frac(i, 0.324717f) - 0.5f),
+                                           3.0f * (frac(i, 0.465571f) - 0.5f)});
                 Entity ball = add_sphere3(s.world, "ball", start, radius);
                 s.world.get<RigidBody3D>(ball)->velocity = dir * 60.0f;
                 float front = -1e9f;  // how far the sphere's leading surface got along the wall normal
@@ -1566,7 +1587,8 @@ TEST_CASE("3d: continuous collision: a 60 m/s sphere never passes a 0.2 m wall i
                 }
                 // the wall's front face is at -0.1; a sphere that got through would have its surface beyond +0.1
                 if (front > -0.1f + 0.02f) {
-                    FAIL("tunnelled: variant " << variant << " radius " << radius << " trial " << i << " front " << front);
+                    FAIL("tunnelled: variant " << variant << " radius " << radius << " trial " << i << " front "
+                                               << front);
                 }
             }
         }
@@ -1580,8 +1602,9 @@ TEST_CASE("3d: continuous collision also stops a fast thin dynamic box, and leav
         Sim s;
         no_gravity(s);
         add_box3(s.world, "wall", {0, 0, 0}, {0.1f, 40, 40}, BodyType::Static, false);
-        Entity cube = add_turned_box3(s.world, "cube", {-4.0f - 0.33f * frac(i, 0.618034f), 3.0f * frac(i, 0.41f) - 1.5f, 0},
-                                      {0.2f, 0.2f, 0.2f}, {0, float(i % 5) * 17.0f, 0}, BodyType::Dynamic, true);
+        Entity cube =
+            add_turned_box3(s.world, "cube", {-4.0f - 0.33f * frac(i, 0.618034f), 3.0f * frac(i, 0.41f) - 1.5f, 0},
+                            {0.2f, 0.2f, 0.2f}, {0, float(i % 5) * 17.0f, 0}, BodyType::Dynamic, true);
         s.world.get<RigidBody3D>(cube)->velocity = {80, 0, 0};
         float maxX = -1e9f;
         for (int f = 0; f < 12; ++f) {
@@ -1658,8 +1681,8 @@ TEST_CASE("3d: a rolling sphere keeps rolling (rolling resistance); a sliding on
 
 TEST_CASE("3d: shape_cast3d sweeps spheres and boxes against boxes, a rotated box and a sphere") {
     Sim s;
-    Entity wall = add_box3(s.world, "wall", {5, 0, 0}, {1, 4, 4}, BodyType::Static, false);            // near face x = 4.5
-    Entity behind = add_box3(s.world, "behind", {8, 0, 0}, {1, 4, 4}, BodyType::Static, false);        // near face x = 7.5
+    Entity wall = add_box3(s.world, "wall", {5, 0, 0}, {1, 4, 4}, BodyType::Static, false);      // near face x = 4.5
+    Entity behind = add_box3(s.world, "behind", {8, 0, 0}, {1, 4, 4}, BodyType::Static, false);  // near face x = 7.5
     Entity diamond = add_turned_box3(s.world, "diamond", {5, 0, 10}, {2, 2, 2}, {0, 45, 0}, BodyType::Static, false);
     Entity orb = add_static_sphere3(s.world, "orb", {5, 0, -10}, 1.0f);
     s.physics.sync(s.world);
@@ -1779,12 +1802,14 @@ TEST_CASE("3d: determinism with rotated boxes and fast bodies") {
         add_turned_box3(s.world, "wall", {6, 2, 0}, {0.2f, 6, 10}, {0, 20, 0}, BodyType::Static, false);
         std::vector<Entity> bodies;
         for (int i = 0; i < 4; ++i) {
-            bodies.push_back(add_turned_box3(s.world, ("c" + std::to_string(i)).c_str(), {float(i) * 0.7f, 1.0f + 1.5f * float(i), 0},
-                                             {1, 1, 1}, {10.0f * float(i), 15.0f * float(i), 5.0f * float(i)}, BodyType::Dynamic, true));
+            bodies.push_back(add_turned_box3(
+                s.world, ("c" + std::to_string(i)).c_str(), {float(i) * 0.7f, 1.0f + 1.5f * float(i), 0}, {1, 1, 1},
+                {10.0f * float(i), 15.0f * float(i), 5.0f * float(i)}, BodyType::Dynamic, true));
             s.world.get<RigidBody3D>(bodies.back())->angularVelocity = {0, 30.0f * float(i), 0};
         }
         for (int i = 0; i < 3; ++i) {
-            bodies.push_back(add_sphere3(s.world, ("s" + std::to_string(i)).c_str(), {-4, 1.0f + 0.4f * float(i), float(i)}, 0.2f));
+            bodies.push_back(
+                add_sphere3(s.world, ("s" + std::to_string(i)).c_str(), {-4, 1.0f + 0.4f * float(i), float(i)}, 0.2f));
             s.world.get<RigidBody3D>(bodies.back())->velocity = {60, 3, 0};
         }
         s.run(200);
@@ -1878,11 +1903,12 @@ TEST_CASE("3d rotation: a box dropped at a 20 degree tilt settles face down, com
     s.run(60);
     for (int f = 60; f < 240; ++f) {  // up to 4 s
         s.run(1);
-        if (firstRest < 0.0f && f > 70 && spin_of(s.world, box) < 1.0f && length(s.world.get<RigidBody3D>(box)->velocity) < 0.05f)
+        if (firstRest < 0.0f && f > 70 && spin_of(s.world, box) < 1.0f &&
+            length(s.world.get<RigidBody3D>(box)->velocity) < 0.05f)
             firstRest = float(f) * kDt;
     }
     MESSAGE("first at rest after " << firstRest << " s, off flat " << off_flat(s.world, box) << " deg, spin "
-            << spin_of(s.world, box) << " deg/s, y " << pos_of(s.world, box).y);
+                                   << spin_of(s.world, box) << " deg/s, y " << pos_of(s.world, box).y);
     CHECK(off_flat(s.world, box) < 2.0f);
     CHECK(pos_of(s.world, box).y == doctest::Approx(0.5f).epsilon(0.02));
     CHECK(spin_of(s.world, box) < 1.0f);
@@ -1958,7 +1984,7 @@ TEST_CASE("3d rotation: a sphere hitting a resting box off-centre spins it; with
             spun[lock] = std::max(spun[lock], spin_of(s.world, box));
         }
         CHECK(s.count(CollisionEvent::Phase::Begin, false) >= 2);  // the box landed (floor) and the ball hit it
-        CHECK(pos_of(s.world, box).x > 0.5f);                     // pushed by the hit either way
+        CHECK(pos_of(s.world, box).x > 0.5f);                      // pushed by the hit either way
     }
     MESSAGE("max spin of the box: free " << spun[0] << " deg/s, locked " << spun[1] << " deg/s");
     CHECK(spun[0] > 200.0f);
@@ -1986,7 +2012,8 @@ TEST_CASE("3d rotation: lockRotation keeps a box upright over a ledge, angularDa
     t.world.get<RigidBody3D>(spinner)->angularDamping = 2.0f;
     t.run(60);
     // divided by (1 + dt * damping) every sub-step: e^-2 = 0.135
-    CHECK(t.world.get<RigidBody3D>(spinner)->angularVelocity.y == doctest::Approx(100.0f * std::exp(-2.0f)).epsilon(0.03));
+    CHECK(t.world.get<RigidBody3D>(spinner)->angularVelocity.y ==
+          doctest::Approx(100.0f * std::exp(-2.0f)).epsilon(0.03));
     CHECK(t.world.get<RigidBody3D>(spinner)->angularVelocity.x == 0.0f);
 }
 
@@ -2011,12 +2038,15 @@ TEST_CASE("3d rotation: a box slides down a 30 degree ramp flat on it (friction 
     // the ramp rises towards +x: its top face has the normal (-sin, cos, 0)
     const Vec3 normal{-sq, cq, 0}, down{-cq, -sq, 0};
     add_turned_box3(s.world, "ramp", normal * -0.5f, {40, 1, 10}, {0, 0, 30}, BodyType::Static, false);
-    Entity box = add_turned_box3(s.world, "box", normal * 0.5f + Vec3{6.0f * cq, 6.0f * sq, 0}, {1, 1, 1}, {0, 0, 30}, BodyType::Dynamic, true);
+    Entity box = add_turned_box3(s.world, "box", normal * 0.5f + Vec3{6.0f * cq, 6.0f * sq, 0}, {1, 1, 1}, {0, 0, 30},
+                                 BodyType::Dynamic, true);
     const Vec3 start = pos_of(s.world, box);
-    s.run(60);  // 1 s: a = g (sin - mu cos) = 9.81 * (0.5 - 0.4 * 0.866) = 1.5 m/s^2 after the first sub-steps settle in
+    s.run(
+        60);  // 1 s: a = g (sin - mu cos) = 9.81 * (0.5 - 0.4 * 0.866) = 1.5 m/s^2 after the first sub-steps settle in
     const float slid = dot(pos_of(s.world, box) - start, down);
     MESSAGE("slid " << slid << " m down the ramp in 1 s (0.75 expected), off the face by "
-                    << dot(pos_of(s.world, box) - start, normal) << ", turned " << deg_apart(s.world.get<Transform>(box)->rotation, {0, 0, 30}));
+                    << dot(pos_of(s.world, box) - start, normal) << ", turned "
+                    << deg_apart(s.world.get<Transform>(box)->rotation, {0, 0, 30}));
     CHECK(slid == doctest::Approx(0.5f * 9.81f * (sq - 0.4f * cq)).epsilon(0.1));
     CHECK(deg_apart(s.world.get<Transform>(box)->rotation, {0, 0, 30}) < 1.0f);
     CHECK(std::fabs(dot(pos_of(s.world, box) - start, normal)) < 0.01f);
@@ -2039,7 +2069,8 @@ TEST_CASE("3d rotation: a thrown, spinning box tumbles and ends at rest on a fac
     s.world.get<Collider3D>(box)->restitution = 0.3f;
     s.run(60 * 8);
     const Vec3 p = pos_of(s.world, box);
-    MESSAGE("came to rest at " << p.x << " " << p.y << " " << p.z << ", off flat " << off_flat(s.world, box) << " deg, spin " << spin_of(s.world, box));
+    MESSAGE("came to rest at " << p.x << " " << p.y << " " << p.z << ", off flat " << off_flat(s.world, box)
+                               << " deg, spin " << spin_of(s.world, box));
     CHECK(std::isfinite(p.x + p.y + p.z));
     CHECK(off_flat(s.world, box) < 1.0f);
     CHECK(spin_of(s.world, box) < 1.0f);
@@ -2061,9 +2092,10 @@ TEST_CASE("3d rotation: a pile of boxes and spheres dropped into a bin settles; 
         if (i % 3 == 2) {
             bodies.push_back(add_sphere3(s.world, ("s" + std::to_string(i)).c_str(), pos, 0.3f + 0.2f * frac(i, 0.3f)));
         } else {
-            bodies.push_back(add_turned_box3(s.world, ("b" + std::to_string(i)).c_str(), pos,
-                                             {0.6f + 0.8f * frac(i, 0.41f), 0.5f + 0.6f * frac(i, 0.73f), 0.6f + 0.8f * frac(i, 0.19f)},
-                                             {40.0f * frac(i, 0.3f), 360.0f * frac(i, 0.61f), 40.0f * frac(i, 0.77f)}, BodyType::Dynamic, true));
+            bodies.push_back(add_turned_box3(
+                s.world, ("b" + std::to_string(i)).c_str(), pos,
+                {0.6f + 0.8f * frac(i, 0.41f), 0.5f + 0.6f * frac(i, 0.73f), 0.6f + 0.8f * frac(i, 0.19f)},
+                {40.0f * frac(i, 0.3f), 360.0f * frac(i, 0.61f), 40.0f * frac(i, 0.77f)}, BodyType::Dynamic, true));
         }
     }
     s.run(60 * 10);
@@ -2078,9 +2110,9 @@ TEST_CASE("3d rotation: a pile of boxes and spheres dropped into a bin settles; 
         fastest = std::max(fastest, length(s.world.get<RigidBody3D>(e)->velocity));
     }
     MESSAGE("pile: lowest " << lowest << " highest " << highest << " fastest " << fastest);
-    CHECK(lowest > 0.05f);   // nothing fell through the floor
-    CHECK(highest < 5.0f);   // the pile is lower than the walls' tops (5 m)
-    CHECK(fastest < 0.5f);   // and has settled
+    CHECK(lowest > 0.05f);  // nothing fell through the floor
+    CHECK(highest < 5.0f);  // the pile is lower than the walls' tops (5 m)
+    CHECK(fastest < 0.5f);  // and has settled
 }
 
 TEST_CASE("3d rotation: gameplay writing Transform.rotation re-orients a rotating box") {
@@ -2107,8 +2139,8 @@ TEST_CASE("3d rotation: tipping scene is deterministic") {
         std::vector<Entity> boxes;
         for (int i = 0; i < 3; ++i)
             boxes.push_back(add_turned_box3(s.world, ("b" + std::to_string(i)).c_str(),
-                                            {0.1f + 0.3f * float(i), 0.5f + 1.1f * float(i), 0.1f * float(i)}, {1, 1, 1},
-                                            {0, 7.0f * float(i), 3.0f * float(i)}, BodyType::Dynamic, true));
+                                            {0.1f + 0.3f * float(i), 0.5f + 1.1f * float(i), 0.1f * float(i)},
+                                            {1, 1, 1}, {0, 7.0f * float(i), 3.0f * float(i)}, BodyType::Dynamic, true));
         Entity ball = add_sphere3(s.world, "ball", {-5, 0.4f, 0.2f}, 0.2f);
         s.world.get<RigidBody3D>(ball)->velocity = {4, 0, 0};
         s.run(300);
@@ -2144,7 +2176,8 @@ TEST_CASE("3d continuous collision: two spheres at 60 m/s head-on never pass thr
             const float lateral = std::sqrt(d.y * d.y + d.z * d.z);
             // either b is still on its side, or the two went past each other touching (sliding around one another)
             if (d.x <= 0.0f && lateral < sum - 0.03f)
-                FAIL("passed through: trial " << i << " frame " << f << " d " << d.x << " " << d.y << " " << d.z << " sum " << sum);
+                FAIL("passed through: trial " << i << " frame " << f << " d " << d.x << " " << d.y << " " << d.z
+                                              << " sum " << sum);
         }
         // the hit happened: a glancing one lets them fly apart again (no contact left at a frame end), but a was deflected
         if (length(s.world.get<RigidBody3D>(a)->velocity - Vec3{60, 0, 0}) < 1.0f) FAIL("never touched: trial " << i);
@@ -2158,7 +2191,8 @@ TEST_CASE("3d continuous collision: a kinematic wall at 40 m/s pushes a resting 
         const float wallX = -3.0f - 0.2f * frac(i, 0.618034f);
         Entity wall = add_box3(s.world, "wall", {wallX, 0, 0}, {0.02f, 8, 8}, BodyType::Kinematic, true);
         s.world.get<RigidBody3D>(wall)->velocity = {40, 0, 0};
-        Entity ball = add_sphere3(s.world, "ball", {0, 2.0f * (frac(i, 0.754877f) - 0.5f), 2.0f * (frac(i, 0.569840f) - 0.5f)}, 0.05f);
+        Entity ball = add_sphere3(s.world, "ball",
+                                  {0, 2.0f * (frac(i, 0.754877f) - 0.5f), 2.0f * (frac(i, 0.569840f) - 0.5f)}, 0.05f);
         for (int f = 0; f < 30; ++f) {
             s.run(1);
             // in front of the wall's front face (half thickness 0.01) by about the radius, never behind it
@@ -2178,7 +2212,8 @@ TEST_CASE("3d continuous collision: a 60 m/s sphere hitting a 45 degree ramp kee
     s.world.get<Collider3D>(ramp)->friction = 0.0f;
     const float r = 0.2f, y0 = 3.0f;
     const float xHit = y0 - r / sq;  // the ball's centre touches the face (its distance to the face plane = r) here
-    Entity ball = add_sphere3(s.world, "ball", {xHit - 0.1f, y0, 0}, r);  // 0.1 m before the face, i.e. early in sub-step 1
+    Entity ball =
+        add_sphere3(s.world, "ball", {xHit - 0.1f, y0, 0}, r);  // 0.1 m before the face, i.e. early in sub-step 1
     s.world.get<Collider3D>(ball)->friction = 0.0f;
     s.world.get<RigidBody3D>(ball)->rollWithMotion = false;
     s.world.get<RigidBody3D>(ball)->velocity = {60, 0, 0};
@@ -2187,7 +2222,8 @@ TEST_CASE("3d continuous collision: a 60 m/s sphere hitting a 45 degree ramp kee
     const Vec3 moved = pos_of(s.world, ball) - hit;
     // 0.1 m take 1/600 s; the remaining 15 ms are spent sliding at 60 * cos 45 = 42.4 m/s along the face
     const float expected = 42.426f * (kDt - 0.1f / 60.0f);
-    MESSAGE("slid " << dot(moved, tangent) << " m along the ramp (expected " << expected << "), off the face by " << dot(moved, normal));
+    MESSAGE("slid " << dot(moved, tangent) << " m along the ramp (expected " << expected << "), off the face by "
+                    << dot(moved, normal));
     CHECK(dot(moved, tangent) == doctest::Approx(expected).epsilon(0.03));
     CHECK(std::fabs(dot(moved, normal)) < 0.01f);
     const Vec3 v = s.world.get<RigidBody3D>(ball)->velocity;
@@ -2201,7 +2237,10 @@ TEST_CASE("3d continuous collision: a 60 m/s sphere hitting a 45 degree ramp kee
 TEST_CASE("3d sphere: without rollWithMotion a sphere on a 30 degree slope rolls without slipping; locked it slides") {
     const float sq = 0.5f, cq = std::sqrt(0.75f), r = 0.5f, g = 9.81f;
     const Vec3 normal{-sq, cq, 0}, down{-cq, -sq, 0};  // the ramp rises towards +x; its top face has this normal
-    struct Run { float dist = 0, speed = 0; Vec3 spin, rotation; };
+    struct Run {
+        float dist = 0, speed = 0;
+        Vec3 spin, rotation;
+    };
     auto slope = [&](bool rollWithMotion, bool lockRotation) {
         Sim s;
         add_turned_box3(s.world, "ramp", normal * -0.5f, {40, 1, 10}, {0, 0, 30}, BodyType::Static, false);
@@ -2219,8 +2258,8 @@ TEST_CASE("3d sphere: without rollWithMotion a sphere on a 30 degree slope rolls
         return out;
     };
     const Run rigid = slope(false, false), locked = slope(false, true);
-    MESSAGE("rigid: slid " << rigid.dist << " m at " << rigid.speed << " m/s, spin " << length(rigid.spin) << " rad/s (v / r = "
-                           << rigid.speed / r << ")");
+    MESSAGE("rigid: slid " << rigid.dist << " m at " << rigid.speed << " m/s, spin " << length(rigid.spin)
+                           << " rad/s (v / r = " << rigid.speed / r << ")");
     // a solid sphere rolling down a slope: a = 5/7 g sin(theta) (0.5 * 3.5 * 1.5^2 = 3.9 m in 1.5 s), spin = v / r about
     // the axis normal x velocity
     CHECK(rigid.dist == doctest::Approx(0.5f * (5.0f / 7.0f) * g * sq * 1.5f * 1.5f).epsilon(0.05));
@@ -2233,7 +2272,8 @@ TEST_CASE("3d sphere: without rollWithMotion a sphere on a 30 degree slope rolls
     CHECK(rigid.dist > locked.dist * 1.8f);
 }
 
-TEST_CASE("3d sphere: an off-centre hit spins both rigid spheres and conserves angular momentum; arcade spheres stay unspun") {
+TEST_CASE("3d sphere: an off-centre hit spins both rigid spheres and conserves angular momentum; arcade spheres stay "
+          "unspun") {
     for (int rigid = 0; rigid < 2; ++rigid) {
         Sim s;
         no_gravity(s);
@@ -2244,7 +2284,8 @@ TEST_CASE("3d sphere: an off-centre hit spins both rigid spheres and conserves a
         s.run(60);
         const RigidBody3D* ra = s.world.get<RigidBody3D>(a);
         const RigidBody3D* rb = s.world.get<RigidBody3D>(b);
-        MESSAGE(std::string(rigid ? "rigid" : "arcade") << ": spin a " << ra->angularVelocity.y << " b " << rb->angularVelocity.y << " deg/s");
+        MESSAGE(std::string(rigid ? "rigid" : "arcade")
+                << ": spin a " << ra->angularVelocity.y << " b " << rb->angularVelocity.y << " deg/s");
         CHECK(s.count(CollisionEvent::Phase::Begin, false) == 1);
         if (!rigid) {
             CHECK(ra->angularVelocity == Vec3{});
@@ -2280,11 +2321,13 @@ std::vector<Entity> add_stack(Sim& s, int count) {
     add_box3(s.world, "floor", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
     std::vector<Entity> boxes;
     for (int i = 0; i < count; ++i)
-        boxes.push_back(add_box3(s.world, stack_id(i).c_str(), {0, 0.5f + 1.02f * float(i), 0}, {1, 1, 1}, BodyType::Dynamic, true));
+        boxes.push_back(add_box3(s.world, stack_id(i).c_str(), {0, 0.5f + 1.02f * float(i), 0}, {1, 1, 1},
+                                 BodyType::Dynamic, true));
     return boxes;
 }
 bool all_awake(const Sim& s, int count, bool awake) {
-    for (int i = 0; i < count; ++i) if (body_awake(s, stack_id(i).c_str()) != awake) return false;
+    for (int i = 0; i < count; ++i)
+        if (body_awake(s, stack_id(i).c_str()) != awake) return false;
     return true;
 }
 }  // namespace
@@ -2334,14 +2377,15 @@ TEST_CASE("3d sleep: a moving sphere wakes the pile it hits, which then settles 
         woke = body_awake(s, "b0");
     }
     CHECK(woke);
-    CHECK(all_awake(s, 3, true));  // the group wakes as one
+    CHECK(all_awake(s, 3, true));                 // the group wakes as one
     CHECK(pos_of(s.world, boxes[0]).x > -0.45f);  // the hit pushed the bottom box
     s.run(1200);
     CHECK_FALSE(body_awake(s, "b0"));
     CHECK_FALSE(body_awake(s, "ball"));
 }
 
-TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity, or applying an impulse or force, wakes the pile") {
+TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity, or applying an impulse or force, "
+          "wakes the pile") {
     for (int how = 0; how < 5; ++how) {
         Sim s;
         const auto boxes = add_stack(s, 3);
@@ -2414,7 +2458,11 @@ TEST_CASE("3d sleep: a rider on a moving kinematic platform never sleeps; once t
 
 namespace {
 // At file scope: MinGW GCC 13 leaves std::vector<Vec3>'s operator== undefined (a link error) for a local class's defaulted ==.
-struct SleepResult { int sleptAt = -1; std::vector<Vec3> pos; bool operator==(const SleepResult&) const = default; };
+struct SleepResult {
+    int sleptAt = -1;
+    std::vector<Vec3> pos;
+    bool operator==(const SleepResult&) const = default;
+};
 }  // namespace
 
 TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is deterministic") {
@@ -2444,7 +2492,11 @@ TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is 
 namespace {
 // Angular momentum (world frame, kg m^2/s), kinetic energy (J) and body-frame angular velocity (rad/s) of a free box from
 // its public state.
-struct SpinState { Vec3 L; float energy; Vec3 wb; };
+struct SpinState {
+    Vec3 L;
+    float energy;
+    Vec3 wb;
+};
 SpinState spin_state(const World& w, Entity e, Vec3 inertia) {
     const Quat q = Quat::from_euler_deg(w.get<Transform>(e)->rotation);
     const Vec3 wb = q.conjugate().rotate(w.get<RigidBody3D>(e)->angularVelocity * (kPi / 180.0f));
@@ -2456,7 +2508,10 @@ TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energ
     // A 2 x 1 x 0.5 box (moments of inertia 1.25 < 4.25 < 5 over 12, so y is the intermediate axis) spins for 600 steps.
     // Without a gyroscopic term its angular velocity would stay constant and its angular momentum would turn with it.
     const Vec3 inertia{(1 + 0.25f) / 12, (4 + 0.25f) / 12, (4 + 1) / 12.0f};
-    struct Drift { float maxL = 0, maxE = 0, maxOmega = 0; bool flipped = false; };
+    struct Drift {
+        float maxL = 0, maxE = 0, maxOmega = 0;
+        bool flipped = false;
+    };
     auto run = [&](Vec3 spinDeg) {
         Sim s;
         no_gravity(s);
@@ -2505,7 +2560,8 @@ TEST_CASE("3d ccd: a long thin box flying and spinning fast never swings through
         s.world.get<Transform>(rod)->rotation = {360 * frac(i, 0.618f), 360 * frac(i, 0.414f), 360 * frac(i, 0.732f)};
         RigidBody3D& rb = *s.world.get<RigidBody3D>(rod);
         rb.velocity = {100 + 50 * frac(i, 0.271f), 0, 0};
-        rb.angularVelocity = normalize(Vec3{frac(i, 0.357f) - 0.5f, frac(i, 0.853f) - 0.5f, frac(i, 0.129f) - 0.5f}) * 2292.0f;
+        rb.angularVelocity =
+            normalize(Vec3{frac(i, 0.357f) - 0.5f, frac(i, 0.853f) - 0.5f, frac(i, 0.129f) - 0.5f}) * 2292.0f;
         bool through = false;
         for (int step = 0; step < 60; ++step) {
             s.run(1);
@@ -2557,7 +2613,8 @@ TEST_CASE("3d ccd: a sphere bouncing between close walls survives more impacts t
 
 // ------------------------------------------- 3D rigid bodies: checked, not gaps ----
 
-TEST_CASE("3d rigid: a cube standing on one edge rests on a two-point contact line, so it topples about that edge only") {
+TEST_CASE(
+    "3d rigid: a cube standing on one edge rests on a two-point contact line, so it topples about that edge only") {
     // A 1 m cube turned 40 degrees about z stands on its lowest edge, which runs along z. Face clipping gives that edge
     // two contact points (its ends), so the cube cannot pitch about x or yaw: it only rolls over the edge onto a face.
     // A single contact point in the middle of the edge would let it pitch freely (33 degrees within these 40 steps).

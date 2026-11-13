@@ -30,8 +30,10 @@ LocalizationSettings load_localization(const std::string& projectDir) {
     auto project = load_project(projectDir);
     if (!project.ok()) throw CommandError("failed", project.error().message, project.error().hint);
     if (!project->localization.enabled())
-        throw CommandError("failed", "factoria.json has no \"localization\" section, so there are no string tables to exchange.",
-                           "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} and a locales/<language>.json per "
+        throw CommandError("failed",
+                           "factoria.json has no \"localization\" section, so there are no string tables to exchange.",
+                           "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} and a "
+                           "locales/<language>.json per "
                            "language (docs/LOCALIZATION.md).");
     return project->localization;
 }
@@ -41,14 +43,18 @@ std::string located(const ld::TableFile& t) {
 }
 
 // `requested` as languages of the game, written as in factoria.json or close to it; an unknown one is an error with "did you mean".
-std::vector<std::string> resolve_languages(const LocalizationSettings& loc, const Json& requested, const char* argument) {
+std::vector<std::string> resolve_languages(const LocalizationSettings& loc, const Json& requested,
+                                           const char* argument) {
     I18n resolver;
     resolver.configure(loc.defaultLanguage, loc.languages);
     std::vector<std::string> out;
     if (!requested.is_array()) return out;
     for (const Json& item : requested) {
-        if (!item.is_string()) throw CommandError("invalid_argument", std::string("'") + argument + "' holds " + describe_json_value(item) + ", not a language tag.",
-                                                  "Use tags of localization.languages, e.g. [\"es\", \"pt-BR\"].");
+        if (!item.is_string())
+            throw CommandError("invalid_argument",
+                               std::string("'") + argument + "' holds " + describe_json_value(item) +
+                                   ", not a language tag.",
+                               "Use tags of localization.languages, e.g. [\"es\", \"pt-BR\"].");
         auto language = resolver.resolve_language(item.get<std::string>());
         if (!language.ok()) throw CommandError("invalid_argument", language.error().message, language.error().hint);
         if (std::find(out.begin(), out.end(), language.value()) == out.end()) out.push_back(language.value());
@@ -93,7 +99,8 @@ const char* const kSelectOrder[] = {"f", "m", "n", "other"};
 Json export_translations(const std::string& projectDir, const Json& args) {
     const std::string format = tooling_detail::arg_string(args, "format", false, "csv");
     if (format != "csv" && format != "xliff")
-        throw CommandError("invalid_argument", "Unknown format '" + format + "'.", "Use \"csv\" (a spreadsheet) or \"xliff\" (XLIFF 1.2 for translation tools).");
+        throw CommandError("invalid_argument", "Unknown format '" + format + "'.",
+                           "Use \"csv\" (a spreadsheet) or \"xliff\" (XLIFF 1.2 for translation tools).");
     const std::string delimiterText = tooling_detail::arg_string(args, "delimiter", false, ",");
     if (delimiterText != "," && delimiterText != ";" && delimiterText != "\t")
         throw CommandError("invalid_argument", "The delimiter must be \",\", \";\" or a tab.",
@@ -111,25 +118,34 @@ Json export_translations(const std::string& projectDir, const Json& args) {
     }
     if (targets.empty())
         throw CommandError("failed",
-                           loc.languages.size() < 2 ? "The game has one language (" + loc.defaultLanguage + "): there is nothing to translate."
-                                                    : "No language to translate into: only the default language (" + loc.defaultLanguage + ") was asked for.",
-                           "Add a language to localization.languages in factoria.json (and a locales/<language>.json), or name one in `languages`.");
+                           loc.languages.size() < 2 ? "The game has one language (" + loc.defaultLanguage +
+                                                          "): there is nothing to translate."
+                                                    : "No language to translate into: only the default language (" +
+                                                          loc.defaultLanguage + ") was asked for.",
+                           "Add a language to localization.languages in factoria.json (and a locales/<language>.json), "
+                           "or name one in `languages`.");
 
     const ld::TableFile def = ld::read_table(loc.defaultLanguage);
     if (!def.table)
-        throw CommandError("failed", located(def), def.hint.empty() ? "Fix the default language's table first: it is the text translators read." : def.hint);
+        throw CommandError("failed", located(def),
+                           def.hint.empty() ? "Fix the default language's table first: it is the text translators read."
+                                            : def.hint);
     std::vector<ld::TableFile> tables;
     for (const std::string& language : targets) {
         tables.push_back(ld::read_table(language));
         if (tables.back().exists && !tables.back().table)
-            throw CommandError("failed", located(tables.back()), "Fix " + tables.back().file + " first (`factoria validate` lists the problems).");
+            throw CommandError("failed", located(tables.back()),
+                               "Fix " + tables.back().file + " first (`factoria validate` lists the problems).");
     }
 
     TranslationSheet sheet;
     sheet.sourceLanguage = loc.defaultLanguage;
     sheet.languages = targets;
     {
-        TranslationSheet::Row name{"$name", def.table->name, {}, "The name of the language in that language, for language menus (e.g. Español)."};
+        TranslationSheet::Row name{"$name",
+                                   def.table->name,
+                                   {},
+                                   "The name of the language in that language, for language menus (e.g. Español)."};
         for (const ld::TableFile& t : tables) name.texts.push_back(t.table ? t.table->name : std::string());
         sheet.rows.push_back(std::move(name));
     }
@@ -137,9 +153,12 @@ Json export_translations(const std::string& projectDir, const Json& args) {
         const auto add = [&](const std::string& rowKey, const std::string& source, const std::string* form) {
             TranslationSheet::Row row{rowKey, source, {}, {}};
             for (const ld::TableFile& t : tables) row.texts.push_back(text_in(t, key, form));
-            const std::set<std::string> names = form && *form == "gender" ? std::set<std::string>() : ld::placeholders_of(source);
+            const std::set<std::string> names =
+                form && *form == "gender" ? std::set<std::string>() : ld::placeholders_of(source);
             if (!names.empty()) row.note = "Keep the placeholders as they are: " + ld::describe_names(names) + ".";
-            if (form && *form == "gender") row.note = "The grammatical gender of the text above in this language: f (feminine), m (masculine) or n (neuter). Sentences pick their article by it.";
+            if (form && *form == "gender")
+                row.note = "The grammatical gender of the text above in this language: f (feminine), m (masculine) or "
+                           "n (neuter). Sentences pick their article by it.";
             sheet.rows.push_back(std::move(row));
         };
         if (entry.select()) {
@@ -166,7 +185,9 @@ Json export_translations(const std::string& projectDir, const Json& args) {
             bool anyGender = entry.gendered();
             for (const ld::TableFile& t : tables)
                 if (t.table)
-                    if (const auto it = t.table->entries.find(key); it != t.table->entries.end() && it->second.gendered()) anyGender = true;
+                    if (const auto it = t.table->entries.find(key);
+                        it != t.table->entries.end() && it->second.gendered())
+                        anyGender = true;
             if (anyGender) {
                 const std::string form = "gender";
                 add(key + "#gender", entry.gender, &form);
@@ -185,21 +206,25 @@ Json export_translations(const std::string& projectDir, const Json& args) {
         for (PluralCategory c : forms) {
             const auto own = entry.forms.find(c);
             const std::string form = plural_category_name(c);
-            add(key + "#" + form, own != entry.forms.end() ? own->second : entry.forms.at(PluralCategory::Other), &form);
+            add(key + "#" + form, own != entry.forms.end() ? own->second : entry.forms.at(PluralCategory::Other),
+                &form);
         }
     }
 
     const stdfs::path root = stdfs::absolute(stdfs::path(projectDir)).lexically_normal();
     // The folder this command writes: inside the project (the command-line user may name any folder); canonical.
     auto resolvedOut = resolve_write_path(projectDir, tooling_detail::arg_string(args, "out", false, kDefaultOut));
-    if (!resolvedOut.ok()) throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
+    if (!resolvedOut.ok())
+        throw CommandError("invalid_argument", resolvedOut.error().message, resolvedOut.error().hint);
     const stdfs::path out = resolvedOut.value();
     std::error_code canonEc;
-    const stdfs::path shownRoot = stdfs::weakly_canonical(root, canonEc);  // the files are shown relative to the canonical project folder
+    const stdfs::path shownRoot =
+        stdfs::weakly_canonical(root, canonEc);  // the files are shown relative to the canonical project folder
     const std::string outLower = lower_path(out), localesLower = lower_path(root / "locales");
     if (outLower == localesLower || starts_with(outLower, localesLower + "/"))
-        throw CommandError("invalid_argument", "The export would be written inside locales/, next to the tables the game reads.",
-                           std::string("Write it to ") + kDefaultOut + "/ (the default) or any folder outside locales/.");
+        throw CommandError(
+            "invalid_argument", "The export would be written inside locales/, next to the tables the game reads.",
+            std::string("Write it to ") + kDefaultOut + "/ (the default) or any folder outside locales/.");
 
     Json files = Json::array();
     const auto write = [&](const stdfs::path& path, const std::string& content) {
@@ -210,16 +235,23 @@ Json export_translations(const std::string& projectDir, const Json& args) {
     if (format == "csv") {
         write(out / "translations.csv", write_csv(sheet, delimiterText[0]));
     } else {
-        for (std::size_t i = 0; i < targets.size(); ++i) write(out / ("translations." + targets[i] + ".xlf"), write_xliff(sheet, i, def.file));
+        for (std::size_t i = 0; i < targets.size(); ++i)
+            write(out / ("translations." + targets[i] + ".xlf"), write_xliff(sheet, i, def.file));
     }
-    return Json::object({{"format", format}, {"files", files}, {"rows", sheet.rows.size()}, {"sourceLanguage", loc.defaultLanguage}, {"languages", targets}});
+    return Json::object({{"format", format},
+                         {"files", files},
+                         {"rows", sheet.rows.size()},
+                         {"sourceLanguage", loc.defaultLanguage},
+                         {"languages", targets}});
 }
 
 // ---- import ----------------------------------------------------------------------------------------------------------------
 
 enum class Kind { Plain, Plural, Select };
 
-const char* kind_name(Kind k) { return k == Kind::Plural ? "a plural entry" : k == Kind::Select ? "a gender (select) entry" : "one plain string"; }
+const char* kind_name(Kind k) {
+    return k == Kind::Plural ? "a plural entry" : k == Kind::Select ? "a gender (select) entry" : "one plain string";
+}
 
 Kind kind_of(const StringEntry& e) { return e.plural() ? Kind::Plural : e.select() ? Kind::Select : Kind::Plain; }
 
@@ -249,17 +281,20 @@ RowKey split_row_key(const std::string& raw) {
     if (hash != std::string::npos && hash > 0) {
         const std::string form = raw.substr(hash + 1);
         PluralCategory category{};
-        if (parse_plural_category(form, category) || is_gender_code(form) || form == "gender") return {raw.substr(0, hash), form};
+        if (parse_plural_category(form, category) || is_gender_code(form) || form == "gender")
+            return {raw.substr(0, hash), form};
     }
     return {raw, std::string()};
 }
 
-std::string child_pointer(const std::string& parent, const std::string& token) { return (Json::json_pointer(parent) / token).to_string(); }
+std::string child_pointer(const std::string& parent, const std::string& token) {
+    return (Json::json_pointer(parent) / token).to_string();
+}
 
 // Puts `value` at the dotted `key`: nested objects when the file is written that way, else a flat key. Returns the JSON pointer of
 // the new entry, "" (with *why) when the file's layout has no place for it.
-std::string insert_entry(Json& document, const std::string& key, const Json& value, bool nested, const std::map<std::string, Location>& known,
-                         std::string* why) {
+std::string insert_entry(Json& document, const std::string& key, const Json& value, bool nested,
+                         const std::map<std::string, Location>& known, std::string* why) {
     if (!nested || key.find('.') == std::string::npos) {
         document[key] = value;
         return child_pointer("", key);
@@ -274,8 +309,10 @@ std::string insert_entry(Json& document, const std::string& key, const Json& val
         if (it == node->end()) {
             (*node)[segments[i]] = Json::object();
             it = node->find(segments[i]);
-        } else if (!it->is_object() || (known.count(prefix) && (known.at(prefix).kind != Kind::Plain || known.at(prefix).gendered))) {
-            *why = "'" + prefix + "' is " + (it->is_object() ? "an entry with forms" : "a string") + " in the file, so '" + key + "' cannot sit under it";
+        } else if (!it->is_object() ||
+                   (known.count(prefix) && (known.at(prefix).kind != Kind::Plain || known.at(prefix).gendered))) {
+            *why = "'" + prefix + "' is " + (it->is_object() ? "an entry with forms" : "a string") +
+                   " in the file, so '" + key + "' cannot sit under it";
             return {};
         }
         node = &*it;
@@ -288,7 +325,8 @@ std::string insert_entry(Json& document, const std::string& key, const Json& val
     return child_pointer(pointer, segments.back());
 }
 
-LanguageResult import_language(const std::string& language, const std::vector<TranslationRow>& rows, const ld::TableFile& def) {
+LanguageResult import_language(const std::string& language, const std::vector<TranslationRow>& rows,
+                               const ld::TableFile& def) {
     LanguageResult r;
     ld::TableFile current = ld::read_table(language);
     r.file = current.file;
@@ -299,13 +337,16 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
     r.document = current.table ? current.document : Json::object();
     std::map<std::string, Location> known;
     if (current.table)
-        for (const auto& [key, entry] : current.table->entries) known[key] = {entry.pointer, kind_of(entry), entry.gendered()};
+        for (const auto& [key, entry] : current.table->entries)
+            known[key] = {entry.pointer, kind_of(entry), entry.gendered()};
     // Is the file written as nested groups ("menu": {"play": ...})? A language with no file yet copies the default table's shape.
     const auto is_nested = [](const Json& document, const StringTable& table) {
         for (auto it = document.begin(); it != document.end(); ++it) {
             if (it.key().empty() || it.key()[0] == '$') continue;
             const auto entry = table.entries.find(it.key());
-            if (it->is_object() && !(entry != table.entries.end() && (entry->second.plural() || entry->second.select() || entry->second.gendered()))) return true;
+            if (it->is_object() && !(entry != table.entries.end() &&
+                                     (entry->second.plural() || entry->second.select() || entry->second.gendered())))
+                return true;
         }
         return false;
     };
@@ -354,8 +395,9 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
         if (original == defaults.end()) {
             if (unknownReported.insert(id.key).second) {
                 const std::string close = closest_match(id.key, defaultKeys);
-                r.warnings.push_back("'" + row.key + "' is not a key of " + def.file + ", so it was not imported" + where + "." +
-                                     (close.empty() ? " (A key that was removed, or a typo.)" : " Did you mean '" + close + "'?"));
+                r.warnings.push_back(
+                    "'" + row.key + "' is not a key of " + def.file + ", so it was not imported" + where + "." +
+                    (close.empty() ? " (A key that was removed, or a typo.)" : " Did you mean '" + close + "'?"));
             }
             continue;
         }
@@ -363,46 +405,57 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
         const Kind sourceKind = kind_of(source);
         if (id.form == "gender") {
             if (sourceKind != Kind::Plain) {
-                r.warnings.push_back("'" + row.key + "' gives a gender, but '" + id.key + "' is " + kind_name(sourceKind) + " in " + def.file + ": not imported" + where + ".");
+                r.warnings.push_back("'" + row.key + "' gives a gender, but '" + id.key + "' is " +
+                                     kind_name(sourceKind) + " in " + def.file + ": not imported" + where + ".");
                 continue;
             }
             if (!is_gender_code(trim(row.text))) {
-                r.warnings.push_back("'" + row.key + "' has the gender '" + row.text + "', which is not f, m or n: not imported" + where + ".");
+                r.warnings.push_back("'" + row.key + "' has the gender '" + row.text +
+                                     "', which is not f, m or n: not imported" + where + ".");
                 continue;
             }
             genderRows.push_back({id, &row});
             continue;
         }
         if (!id.form.empty() && sourceKind == Kind::Plain) {
-            r.warnings.push_back("'" + row.key + "' names a form, but '" + id.key + "' is one plain string in " + def.file + ": not imported" + where + ".");
+            r.warnings.push_back("'" + row.key + "' names a form, but '" + id.key + "' is one plain string in " +
+                                 def.file + ": not imported" + where + ".");
             continue;
         }
         if (id.form.empty() && sourceKind != Kind::Plain) {
-            r.warnings.push_back("'" + id.key + "' is " + kind_name(sourceKind) + " in " + def.file + ": write one row per form ('" + id.key +
-                                 (sourceKind == Kind::Plural ? "#one', '" + id.key + "#other'" : "#f', '" + id.key + "#m', '" + id.key + "#other'") +
+            r.warnings.push_back("'" + id.key + "' is " + kind_name(sourceKind) + " in " + def.file +
+                                 ": write one row per form ('" + id.key +
+                                 (sourceKind == Kind::Plural ? "#one', '" + id.key + "#other'"
+                                                             : "#f', '" + id.key + "#m', '" + id.key + "#other'") +
                                  "...); not imported" + where + ".");
             continue;
         }
         if (!id.form.empty()) {
             PluralCategory category{};
-            const bool valid = sourceKind == Kind::Plural ? parse_plural_category(id.form, category) : (is_gender_code(id.form) || id.form == "other");
+            const bool valid = sourceKind == Kind::Plural ? parse_plural_category(id.form, category)
+                                                          : (is_gender_code(id.form) || id.form == "other");
             if (!valid) {
-                r.warnings.push_back("'" + row.key + "' names the form '" + id.form + "', which '" + id.key + "' (" + kind_name(sourceKind) + ") does not have: not imported" + where + ".");
+                r.warnings.push_back("'" + row.key + "' names the form '" + id.form + "', which '" + id.key + "' (" +
+                                     kind_name(sourceKind) + ") does not have: not imported" + where + ".");
                 continue;
             }
         }
         // The {names} must be the default language's: the code fills those and nothing else.
         const std::set<std::string> want = ld::placeholders_of(source), have = ld::placeholders_of(row.text);
-        const bool bad = !id.form.empty() ? !std::includes(want.begin(), want.end(), have.begin(), have.end()) : want != have;
+        const bool bad =
+            !id.form.empty() ? !std::includes(want.begin(), want.end(), have.begin(), have.end()) : want != have;
         if (bad)
-            r.warnings.push_back("'" + row.key + "' uses " + ld::describe_names(have) + " but " + def.file + " has " + ld::describe_names(want) +
-                                 ": the game fills the names of the default language" + where + ".");
+            r.warnings.push_back("'" + row.key + "' uses " + ld::describe_names(have) + " but " + def.file + " has " +
+                                 ld::describe_names(want) + ": the game fills the names of the default language" +
+                                 where + ".");
 
         const auto place = known.find(id.key);
         if (place != known.end()) {
             if (place->second.kind != sourceKind) {
-                r.warnings.push_back("'" + id.key + "' is " + kind_name(place->second.kind) + " in " + r.file + " but the row is " +
-                                     (sourceKind == Kind::Plain ? "a single text" : "a form of " + std::string(kind_name(sourceKind))) + ": not imported" + where + ".");
+                r.warnings.push_back(
+                    "'" + id.key + "' is " + kind_name(place->second.kind) + " in " + r.file + " but the row is " +
+                    (sourceKind == Kind::Plain ? "a single text" : "a form of " + std::string(kind_name(sourceKind))) +
+                    ": not imported" + where + ".");
                 continue;
             }
             set_text(place->second.pointer + (id.form.empty() ? std::string() : "/" + id.form), row.text);
@@ -427,8 +480,9 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
         const auto& forms = object.forms;
         if (!forms.count("other")) {
             r.added -= int(forms.size());
-            r.warnings.push_back(std::string("The ") + (object.kind == Kind::Plural ? "plural" : "select") + " entry '" + key +
-                                 "' was not added: it has no text for \"other\", which every such entry needs ('" + key + "#other').");
+            r.warnings.push_back(
+                std::string("The ") + (object.kind == Kind::Plural ? "plural" : "select") + " entry '" + key +
+                "' was not added: it has no text for \"other\", which every such entry needs ('" + key + "#other').");
             continue;
         }
         Json json = Json::object();
@@ -448,7 +502,8 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
         const std::string gender(trim(row->text));
         const auto place = known.find(id.key);
         if (place == known.end() || place->second.kind != Kind::Plain) {
-            r.warnings.push_back("'" + row->key + "' gives a gender, but " + r.file + " has no plain text for '" + id.key + "' (translate the text row too): not imported" + where + ".");
+            r.warnings.push_back("'" + row->key + "' gives a gender, but " + r.file + " has no plain text for '" +
+                                 id.key + "' (translate the text row too): not imported" + where + ".");
             continue;
         }
         if (place->second.gendered) {
@@ -465,7 +520,8 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
     }
     if (r.changed) {  // never write a table the game could not read
         auto check = parse_string_table(r.document, language, r.file);
-        if (!check.ok()) r.error = "the updated table would be invalid, so nothing was written: " + check.error().message;
+        if (!check.ok())
+            r.error = "the updated table would be invalid, so nothing was written: " + check.error().message;
     }
     return r;
 }
@@ -479,20 +535,24 @@ Json import_translations(const std::string& projectDir, const Json& args) {
 
     stdfs::path path(fileArg);
     std::error_code ec;
-    if (path.is_relative() && !stdfs::exists(root / path, ec) && stdfs::exists(stdfs::absolute(path), ec)) path = stdfs::absolute(path);  // as typed in the shell
+    if (path.is_relative() && !stdfs::exists(root / path, ec) && stdfs::exists(stdfs::absolute(path), ec))
+        path = stdfs::absolute(path);  // as typed in the shell
     if (path.is_relative()) path = root / path;
     if (!stdfs::is_regular_file(path, ec)) {
         std::vector<std::string> candidates;
         for (stdfs::recursive_directory_iterator it(root / kDefaultOut, ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file(ec)) candidates.push_back(shown(root, it->path()));
         throw CommandError("not_found", "The file '" + fileArg + "' does not exist.",
-                           candidates.empty() ? "Pass the CSV or XLIFF file a translator sent back (project-relative or absolute)."
-                                              : did_you_mean(fileArg, candidates));
+                           candidates.empty()
+                               ? "Pass the CSV or XLIFF file a translator sent back (project-relative or absolute)."
+                               : did_you_mean(fileArg, candidates));
     }
     auto bytes = fs::read_bytes(path.generic_string());
     if (!bytes.ok()) throw CommandError("failed", bytes.error().message, bytes.error().hint);
-    auto parsed = read_translation_file(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()), path.filename().string());
-    if (!parsed.ok()) throw CommandError("invalid_argument", fileArg + ": " + parsed.error().message, parsed.error().hint);
+    auto parsed = read_translation_file(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size()),
+                                        path.filename().string());
+    if (!parsed.ok())
+        throw CommandError("invalid_argument", fileArg + ": " + parsed.error().message, parsed.error().hint);
 
     // The columns (or target languages) of the file are languages of the game.
     I18n resolver;
@@ -506,16 +566,20 @@ Json import_translations(const std::string& projectDir, const Json& args) {
             continue;
         }
         if (byLanguage.count(language.value()))
-            throw CommandError("invalid_argument", fileArg + " has two columns for the language '" + language.value() + "' ('" + column + "' is one).",
+            throw CommandError("invalid_argument",
+                               fileArg + " has two columns for the language '" + language.value() + "' ('" + column +
+                                   "' is one).",
                                "Keep one column per language.");
         byLanguage[language.value()] = parsed->rows.at(column);
         order.push_back(language.value());
     }
     if (!unknown.empty())
         throw CommandError("invalid_argument",
-                           fileArg + " has " + std::string(unknown.size() == 1 ? "a language that is" : "languages that are") + " not in localization.languages of factoria.json: " +
-                               join(unknown, "; "),
-                           "Rename the column header to a tag of localization.languages (en, es, pt-BR...), or add the language to factoria.json first.");
+                           fileArg + " has " +
+                               std::string(unknown.size() == 1 ? "a language that is" : "languages that are") +
+                               " not in localization.languages of factoria.json: " + join(unknown, "; "),
+                           "Rename the column header to a tag of localization.languages (en, es, pt-BR...), or add the "
+                           "language to factoria.json first.");
 
     std::vector<std::string> wanted;
     Json ignored = Json::array();
@@ -527,16 +591,23 @@ Json import_translations(const std::string& projectDir, const Json& args) {
                                    "It has: " + join(order, ", ") + ".");
     } else {
         for (const std::string& l : order) {
-            if (l == loc.defaultLanguage) ignored.push_back(l + ": the default language is the source of the file, not a translation (name it in `languages` to import it)");
-            else wanted.push_back(l);
+            if (l == loc.defaultLanguage)
+                ignored.push_back(l + ": the default language is the source of the file, not a translation (name it in "
+                                      "`languages` to import it)");
+            else
+                wanted.push_back(l);
         }
     }
     if (wanted.empty())
-        throw CommandError("invalid_argument", fileArg + " has no language to import: its only column is the default language (" + loc.defaultLanguage + ").",
+        throw CommandError("invalid_argument",
+                           fileArg + " has no language to import: its only column is the default language (" +
+                               loc.defaultLanguage + ").",
                            "Translators fill the other language columns.");
 
     const ld::TableFile def = ld::read_table(loc.defaultLanguage);
-    if (!def.table) throw CommandError("failed", located(def), "Fix the default language's table first: keys are checked against it.");
+    if (!def.table)
+        throw CommandError("failed", located(def),
+                           "Fix the default language's table first: keys are checked against it.");
 
     std::map<std::string, LanguageResult> results;
     std::vector<std::string> failed;
@@ -559,8 +630,13 @@ Json import_translations(const std::string& projectDir, const Json& args) {
                 throw CommandError("failed", w.error().message, w.error().hint);
             written = true;
         }
-        languages[language] = Json::object({{"file", r.file}, {"updated", r.updated}, {"added", r.added}, {"unchanged", r.unchanged},
-                                            {"skippedEmpty", r.skipped}, {"written", written}, {"warnings", r.warnings}});
+        languages[language] = Json::object({{"file", r.file},
+                                            {"updated", r.updated},
+                                            {"added", r.added},
+                                            {"unchanged", r.unchanged},
+                                            {"skippedEmpty", r.skipped},
+                                            {"written", written},
+                                            {"warnings", r.warnings}});
     }
     out["languages"] = languages;
     if (!ignored.empty()) out["ignored"] = ignored;
@@ -576,16 +652,25 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
     exporter.readOnly = false;
     exporter.summary = "Write the game's string tables as a spreadsheet (CSV) or XLIFF files for translators.";
     exporter.description =
-        "Reads locales/<language>.json of every language and writes what a translator needs into `out` (default build/translations/, "
-        "never inside locales/): format \"csv\" is ONE file, translations.csv (UTF-8 with a byte order mark so Excel opens it right; "
-        "columns `key`, the default language, then one column per language to translate; fields with a comma, quote or line break "
-        "are quoted), format \"xliff\" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf (source = the "
-        "default language's text, target = the translation, state \"needs-translation\" when missing; trans-unit id and resname = the "
-        "key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language needs "
+        "Reads locales/<language>.json of every language and writes what a translator needs into `out` (default "
+        "build/translations/, "
+        "never inside locales/): format \"csv\" is ONE file, translations.csv (UTF-8 with a byte order mark so Excel "
+        "opens it right; "
+        "columns `key`, the default language, then one column per language to translate; fields with a comma, quote or "
+        "line break "
+        "are quoted), format \"xliff\" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf "
+        "(source = the "
+        "default language's text, target = the translation, state \"needs-translation\" when missing; trans-unit id "
+        "and resname = the "
+        "key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language "
+        "needs "
         "(CLDR) plus any the tables have. A gender (select) entry is one row per form too (`ship.the#f`, `ship.the#m`, "
-        "`ship.the#other`), and a string that has a gender in any language gets a row `ship.light#gender` whose cell is f, m or n. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. "
-        "Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every language except "
-        "the default). With `delimiter` \";\" the CSV opens in Excel set to a language that writes decimals with a comma. Read the "
+        "`ship.the#other`), and a string that has a gender in any language gets a row `ship.light#gender` whose cell "
+        "is f, m or n. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. "
+        "Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every "
+        "language except "
+        "the default). With `delimiter` \";\" the CSV opens in Excel set to a language that writes decimals with a "
+        "comma. Read the "
         "result back with i18n.import. Example: {\"format\": \"csv\", \"languages\": [\"es\", \"ja\"]}";
     exporter.inputSchema = Json::parse(R"({
         "type": "object",
@@ -606,17 +691,25 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
     importer.category = "i18n";
     importer.readOnly = false;
     importer.summary = "Read a translator's CSV or XLIFF file back into locales/<language>.json.";
-    importer.description =
-        "Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and updates the tables of the "
-        "languages in it: existing keys are changed in place (nested objects stay nested, flat keys stay flat, key order is kept), "
-        "keys the language lacks are added (nested by their dots when the file is nested), and an empty cell never deletes a "
-        "translation. Rows `items#one` fill the forms of a plural entry, `ship.the#f` those of a gender entry, and `ship.light#gender` sets the gender of a string (f, m or n; the text becomes an object of text and gender). A column or target language that is not in "
-        "localization.languages is an error with \"did you mean\"; a key the default language does not have, a {placeholder} that "
-        "differs from the default language's, or a plural/plain mismatch is a warning and that row is not imported (placeholders: "
-        "imported with the warning). The default language's own column is the source and is skipped unless named in `languages`. "
-        "Tables are rewritten with 2-space indentation. Returns {file, format, dryRun, languages: {<tag>: {file, updated, added, "
-        "unchanged, skippedEmpty, written, warnings}}}. With `dryRun` nothing is written. Example: "
-        "{\"file\": \"build/translations/translations.csv\", \"dryRun\": true}";
+    importer.description = "Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and "
+                           "updates the tables of the "
+                           "languages in it: existing keys are changed in place (nested objects stay nested, flat keys "
+                           "stay flat, key order is kept), "
+                           "keys the language lacks are added (nested by their dots when the file is nested), and an "
+                           "empty cell never deletes a "
+                           "translation. Rows `items#one` fill the forms of a plural entry, `ship.the#f` those of a "
+                           "gender entry, and `ship.light#gender` sets the gender of a string (f, m or n; the text "
+                           "becomes an object of text and gender). A column or target language that is not in "
+                           "localization.languages is an error with \"did you mean\"; a key the default language does "
+                           "not have, a {placeholder} that "
+                           "differs from the default language's, or a plural/plain mismatch is a warning and that row "
+                           "is not imported (placeholders: "
+                           "imported with the warning). The default language's own column is the source and is skipped "
+                           "unless named in `languages`. "
+                           "Tables are rewritten with 2-space indentation. Returns {file, format, dryRun, languages: "
+                           "{<tag>: {file, updated, added, "
+                           "unchanged, skippedEmpty, written, warnings}}}. With `dryRun` nothing is written. Example: "
+                           "{\"file\": \"build/translations/translations.csv\", \"dryRun\": true}";
     importer.inputSchema = Json::parse(R"({
         "type": "object", "required": ["file"],
         "properties": {
@@ -626,9 +719,8 @@ void register_translation_commands(CommandRegistry& registry, const std::string&
             "dryRun": {"type": "boolean", "default": false, "description": "Report what would change without writing anything."}
         }})");
     registry.add(importer, [projectDir](const Json& args) { return import_translations(projectDir, args); });
-    declare_command_capabilities(registry, {
-        {"i18n.export", capability_sets::writes_project()},
-        {"i18n.import", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"i18n.export", capability_sets::writes_project()},
+                                            {"i18n.import", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

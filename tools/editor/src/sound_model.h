@@ -38,35 +38,35 @@ using SoundFileSet = ImageFileSet;
 
 struct SoundStep {
     int id = 0;
-    std::string rel;     // the file the panel had open
+    std::string rel;  // the file the panel had open
     std::string label;
     SoundFileSet before, after;
 };
 
 struct SoundEditOutcome {
     bool ok = true;
-    std::string error;   // what went wrong, with the command's hint
-    int step = 0;        // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;         // the last command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the last command's result
 };
 
 // A rendered sound with everything the panel draws and measures. Immutable once built (shared between the worker and the UI).
 struct SoundRender {
     int rate = 44100;
     int channels = 1;
-    std::vector<float> samples;                 // interleaved
+    std::vector<float> samples;  // interleaved
     double seconds = 0.0;
     double lufs = -70.0, peakDb = -200.0;
     double centroidHz = 0.0, riseSeconds = 0.0;
-    AudioViewMetrics view;                      // true peak, clipped samples, loop seam
-    std::optional<AudioLoop> loop;              // frames
+    AudioViewMetrics view;          // true peak, clipped samples, loop seam
+    std::optional<AudioLoop> loop;  // frames
     std::vector<AudioStepReport> steps;
     bool truncated = false;
-    int peakBlock = 64;                         // frames per entry of peakMin / peakMax (the mid channel)
+    int peakBlock = 64;  // frames per entry of peakMin / peakMax (the mid channel)
     std::vector<float> peakMin, peakMax;
     AudioSpectrogram spectrogram;
-    std::vector<std::string> inputs;            // documents: the project files the render read
-    std::uint64_t id = 0;                       // unique per render
+    std::vector<std::string> inputs;  // documents: the project files the render read
+    std::uint64_t id = 0;             // unique per render
     std::size_t frames() const { return channels > 0 ? samples.size() / std::size_t(channels) : 0; }
     // The mid sample of frame `i`.
     float mid(std::size_t i) const;
@@ -80,8 +80,10 @@ SoundRenderPtr make_sound_render(const RenderedSound& sound);
 enum class SoundSlotKind { Current, Variant, Before, Baked };
 struct SoundSlot {
     SoundSlotKind kind = SoundSlotKind::Current;
-    int variant = 0;     // 1-based, for Variant
-    bool operator==(const SoundSlot& o) const { return kind == o.kind && (kind != SoundSlotKind::Variant || variant == o.variant); }
+    int variant = 0;  // 1-based, for Variant
+    bool operator==(const SoundSlot& o) const {
+        return kind == o.kind && (kind != SoundSlotKind::Variant || variant == o.variant);
+    }
 };
 std::string sound_slot_label(const SoundSlot& s);
 
@@ -92,8 +94,8 @@ std::pair<double, double> sound_level_match(double lufsA, double lufsB);
 struct SoundMacro {
     std::string name;
     std::string what;
-    double value = 0.0;   // as saved
-    double shown = 0.0;   // with a drag in progress
+    double value = 0.0;  // as saved
+    double shown = 0.0;  // with a drag in progress
     bool builtin = true;
 };
 
@@ -110,8 +112,8 @@ struct SoundChainStep {
     int index = 0;
     std::string type;
     bool enabled = true;
-    Json params;          // the step as written (type, enabled and the fields)
-    double seconds = 0, peakDb = -200;   // after the step, from the last render
+    Json params;                        // the step as written (type, enabled and the fields)
+    double seconds = 0, peakDb = -200;  // after the step, from the last render
     bool reported = false;
 };
 
@@ -123,12 +125,12 @@ public:
     SoundModel& operator=(const SoundModel&) = delete;
 
     // ---- the document ---------------------------------------------------------------------------------------------
-    bool open(const std::string& rel);   // *.sfx.json, *.audio.json, .wav, .ogg; false: error() says why
+    bool open(const std::string& rel);  // *.sfx.json, *.audio.json, .wav, .ogg; false: error() says why
     void close();
     bool is_open() const { return kind_ != SoundKind::None; }
     SoundKind kind() const { return kind_; }
     bool editable() const { return kind_ == SoundKind::Patch || kind_ == SoundKind::Document; }
-    bool valid() const { return valid_; }            // the file parses (it may be open and broken: error() has the reason)
+    bool valid() const { return valid_; }  // the file parses (it may be open and broken: error() has the reason)
     const std::string& path() const { return rel_; }
     std::string title() const;
     const std::string& error() const { return error_; }
@@ -148,12 +150,13 @@ public:
     void set_debounce_ticks(int n) { debounce_ = n; }
     // Renders what is wanted, blocking, until nothing is pending (tests, and the autotest's "wait for the render").
     void settle();
-    bool busy() const;                        // a render is running or about to start
-    void request_render();                    // after a change: the next tick (after the debounce) starts it
-    SoundRenderPtr current() const;           // what the main view shows (the last finished render of this sound; null before the first)
-    bool current_is_fresh() const;            // it was rendered from the file as it is now
+    bool busy() const;      // a render is running or about to start
+    void request_render();  // after a change: the next tick (after the debounce) starts it
+    SoundRenderPtr
+    current() const;  // what the main view shows (the last finished render of this sound; null before the first)
+    bool current_is_fresh() const;  // it was rendered from the file as it is now
     const std::string& render_error() const { return renderError_; }
-    int render_count() const { return renders_; }   // finished main renders, for tests
+    int render_count() const { return renders_; }  // finished main renders, for tests
     double last_render_ms() const { return renderMs_; }
     void set_render_seed(std::uint64_t seed);
     std::uint64_t render_seed() const { return seed_; }
@@ -183,7 +186,8 @@ public:
     // Field edits by JSON pointer (sfx.edit): one undo step each.
     SoundEditOutcome set_field(const std::string& pointer, const Json& value, const std::string& label = "");
     SoundEditOutcome remove_field(const std::string& pointer, const std::string& label = "");
-    SoundEditOutcome add_item(const std::string& pointer, const Json& value, int index = -1, const std::string& label = "");
+    SoundEditOutcome add_item(const std::string& pointer, const Json& value, int index = -1,
+                              const std::string& label = "");
     SoundEditOutcome move_item(const std::string& pointer, int from, int to, const std::string& label = "");
     // Slider drags of a field: show the patch with the value in memory; commit_field makes it one edit.
     void preview_field(const std::string& pointer, const Json& value);
@@ -204,14 +208,14 @@ public:
     SoundEditOutcome move_step(int index, int to);
     SoundEditOutcome set_step(int index, const Json& values, const std::string& label = "");
     SoundEditOutcome set_step_enabled(int index, bool enabled);
-    void preview_step(int index, const Json& values);   // the same, in memory only (a slider drag)
+    void preview_step(int index, const Json& values);  // the same, in memory only (a slider drag)
     SoundEditOutcome commit_step(const std::string& label = "");
     void cancel_step_preview();
     SoundEditOutcome set_document(const Json& values);  // source / seed / output (audio.edit document)
     // ---- documents: loop points -------------------------------------------------------------------------------------
     // The loop of the rendered sound in seconds (the drag preview when there is one); nothing when the sound does not loop.
     std::optional<std::pair<double, double>> loop_seconds() const;
-    int loop_step() const;                               // index of the `loop` step, -1 when there is none
+    int loop_step() const;  // index of the `loop` step, -1 when there is none
     double loop_crossfade() const;
     // Drags: the markers move on the waveform at once; commit_loop writes the loop step's start / end (output end + crossfade).
     void preview_loop(double startSeconds, double endSeconds);
@@ -227,7 +231,7 @@ public:
     SoundEditOutcome make_document();
     // Bakes the sound next to the patch (sfx.render, with the variants when it declares some) or the document (audio.bake).
     SoundEditOutcome save();
-    void set_overwrite_on_save(bool on) { overwriteOnSave_ = on; }   // replace a baked file that nothing of ours made
+    void set_overwrite_on_save(bool on) { overwriteOnSave_ = on; }  // replace a baked file that nothing of ours made
 
     // ---- undo -------------------------------------------------------------------------------------------------------
     const SoundStep* step(int id) const;
@@ -245,7 +249,8 @@ private:
     void collect();
     bool want_more();
     // Runs a command body as ONE undo step: the files it changed (the open file, assets.json when `manifest`, everything under `scanDir`).
-    SoundEditOutcome run(const std::string& label, const std::function<CommandResult()>& body, const std::string& scanDir = "", bool manifest = false);
+    SoundEditOutcome run(const std::string& label, const std::function<CommandResult()>& body,
+                         const std::string& scanDir = "", bool manifest = false);
     SoundBlob blob_of(const std::string& rel);
     SoundFileSet capture(const std::set<std::string>& paths);
     bool restore(const SoundFileSet& files);
@@ -282,9 +287,9 @@ private:
         SoundRenderPtr render;
         std::string error;
     };
-    std::map<std::string, Entry> results_;    // by key_of(spec)
-    std::string mainKey_;                     // the key of what the main view should show
-    std::map<std::string, SoundSpec> extras_; // the other renders asked for (variants, the sound before the loop step)
+    std::map<std::string, Entry> results_;     // by key_of(spec)
+    std::string mainKey_;                      // the key of what the main view should show
+    std::map<std::string, SoundSpec> extras_;  // the other renders asked for (variants, the sound before the loop step)
     SoundRenderPtr current_, before_;
     std::optional<SfxPatch> patch_;
     std::optional<AudioDoc> doc_;

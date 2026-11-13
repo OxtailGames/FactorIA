@@ -44,7 +44,8 @@ std::vector<float> mixture(double seconds, int rate, double a) {
     for (std::size_t i = 0; i < n; ++i) {
         noise = noise * 1664525u + 1013904223u;
         const double t = static_cast<double>(i) / rate;
-        s.push_back(static_cast<float>(a * (0.5 * std::sin(2 * std::numbers::pi * 440 * t) + 0.25 * std::sin(2 * std::numbers::pi * 1250 * t) +
+        s.push_back(static_cast<float>(a * (0.5 * std::sin(2 * std::numbers::pi * 440 * t) +
+                                            0.25 * std::sin(2 * std::numbers::pi * 1250 * t) +
                                             0.05 * ((noise >> 8) / 8388608.0 - 1.0))));
     }
     return s;
@@ -75,7 +76,8 @@ TEST_CASE("encode_vorbis: a mono clip decodes to the same length and the same so
     CHECK(snr > 20.0);
 }
 
-TEST_CASE("encode_vorbis: stereo keeps the channels apart, the same input gives the same bytes, quality changes the size") {
+TEST_CASE(
+    "encode_vorbis: stereo keeps the channels apart, the same input gives the same bytes, quality changes the size") {
     const int rate = 16000;
     std::vector<float> st;
     const std::vector<float> l = mixture(0.8, rate, 0.7);

@@ -135,8 +135,9 @@ std::string gamepad_guid(const GamepadIdentity& id);
 // wins); a better match in a lower list never beats a worse match in a higher one: the user's word is final.
 // A built-in line that does not parse (see the cuts above) is skipped for the next candidate and its message is added to
 // `problems`, when given.
-GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines, std::span<const GamepadMapping> fileLines,
-                                      const GamepadIdentity& id, std::vector<std::string>* problems = nullptr);
+GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines,
+                                      std::span<const GamepadMapping> fileLines, const GamepadIdentity& id,
+                                      std::vector<std::string>* problems = nullptr);
 
 // The user's mapping file, project-relative (fa::fs): <project>/gamecontrollerdb.txt, in the SDL GameControllerDB
 // format. A game author ships it for the pads the players report; a player can drop one next to the game.

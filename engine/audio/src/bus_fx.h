@@ -105,7 +105,8 @@ public:
         const float scale = rate / 44100.0f;
         for (int c = 0; c < 2; ++c) {
             const int spread = c * 23;
-            for (int i = 0; i < 8; ++i) comb_[c][i].buf.assign(std::size_t(std::max(1, int(float(combs[i] + spread) * scale))), 0.0f);
+            for (int i = 0; i < 8; ++i)
+                comb_[c][i].buf.assign(std::size_t(std::max(1, int(float(combs[i] + spread) * scale))), 0.0f);
             for (int i = 0; i < 4; ++i)
                 allpass_[c][i].buf.assign(std::size_t(std::max(1, int(float(allpasses[i] + spread) * scale))), 0.0f);
         }

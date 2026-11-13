@@ -44,57 +44,67 @@
 namespace fa {
 
 struct SignMacosOptions {
-    std::string projectDir;            // folder containing factoria.json
-    std::string app;                   // the .app to sign ("" = <out>/<game-slug>-macos/<Name>.app of the project)
-    std::string outDir;                // parent folder of the exports ("" = <projectDir>/build/export)
-    std::string identity;              // "Developer ID Application: ..." (or its SHA-1), "-" = ad hoc; "" = the environment, export.json
-    std::string distribution;          // "developerId" (default, "" too) | "appStore": see above
-    std::string installerIdentity;     // appStore: "3rd Party Mac Developer Installer: ..." / "Mac Installer Distribution: ..." signing the .pkg; "" = the environment, export.json
-    std::string pkg;                   // appStore: where the .pkg goes ("" = <export folder>.pkg, next to it)
-    std::string keychain;              // a keychain file for codesign and notarytool ("" = $FACTORIA_MACOS_KEYCHAIN, else the default ones)
-    std::string provisioningProfile;   // a .provisionprofile to embed (restricted entitlements: Game Center, iCloud)
-    std::string entitlements;          // an entitlements file ("" = the export's <slug>.entitlements, when a profile is given)
-    std::optional<bool> notarize;      // unset = when there are credentials and a Developer ID identity; true = or an error; false = never
-    std::string keychainProfile;       // notarytool --keychain-profile
+    std::string projectDir;  // folder containing factoria.json
+    std::string app;         // the .app to sign ("" = <out>/<game-slug>-macos/<Name>.app of the project)
+    std::string outDir;      // parent folder of the exports ("" = <projectDir>/build/export)
+    std::string
+        identity;  // "Developer ID Application: ..." (or its SHA-1), "-" = ad hoc; "" = the environment, export.json
+    std::string distribution;  // "developerId" (default, "" too) | "appStore": see above
+    std::string
+        installerIdentity;  // appStore: "3rd Party Mac Developer Installer: ..." / "Mac Installer Distribution: ..." signing the .pkg; "" = the environment, export.json
+    std::string pkg;        // appStore: where the .pkg goes ("" = <export folder>.pkg, next to it)
+    std::string
+        keychain;  // a keychain file for codesign and notarytool ("" = $FACTORIA_MACOS_KEYCHAIN, else the default ones)
+    std::string provisioningProfile;  // a .provisionprofile to embed (restricted entitlements: Game Center, iCloud)
+    std::string entitlements;  // an entitlements file ("" = the export's <slug>.entitlements, when a profile is given)
+    std::optional<bool>
+        notarize;  // unset = when there are credentials and a Developer ID identity; true = or an error; false = never
+    std::string keychainProfile;              // notarytool --keychain-profile
     std::string apiKey, apiKeyId, apiIssuer;  // notarytool --key (an AuthKey_<id>.p8 file), --key-id, --issuer
-    std::string appleId, teamId;       // notarytool --apple-id, --team-id (the password comes from the environment only)
-    std::string zip;                   // where the distributable zip goes ("" = <export folder>.zip, next to it)
-    bool dryRun = false;               // check everything, return the command lines, run nothing and change nothing
-    std::function<void(const std::string& line)> progress;  // optional: each line of codesign / notarytool (secrets scrubbed)
+    std::string appleId, teamId;  // notarytool --apple-id, --team-id (the password comes from the environment only)
+    std::string zip;              // where the distributable zip goes ("" = <export folder>.zip, next to it)
+    bool dryRun = false;          // check everything, return the command lines, run nothing and change nothing
+    std::function<void(const std::string& line)>
+        progress;  // optional: each line of codesign / notarytool (secrets scrubbed)
     const CancelFlag* cancel = nullptr;
     ExportEnvLookup env = system_export_env();  // environment variables; only tests change it
-    std::string toolConfigPath;        // "" = machine_export_config_path(env); only tests change it
-    std::string host;                  // "" = this computer ("macos" | "windows" | "linux"); only tests change it
-    ProcessRunner run;                 // empty = fa::run_process; only tests change it
+    std::string toolConfigPath;                 // "" = machine_export_config_path(env); only tests change it
+    std::string host;   // "" = this computer ("macos" | "windows" | "linux"); only tests change it
+    ProcessRunner run;  // empty = fa::run_process; only tests change it
 };
 
 struct SignStep {
     std::string title;
     std::vector<std::string> command;  // the command line; a secret is never in it (it travels in `env` or on stdin)
-    std::vector<std::string> env;      // NAMES of the environment variables the step sets for the program (a secret's value is never listed)
-    bool stdinSecret = false;          // the program reads a secret (a password) on its standard input
+    std::vector<std::string>
+        env;  // NAMES of the environment variables the step sets for the program (a secret's value is never listed)
+    bool stdinSecret = false;  // the program reads a secret (a password) on its standard input
     bool ran = false;
     int exitCode = -1;
 };
 
 struct SignReport {
-    std::string app;                   // absolute path of the .app
-    std::string identity;              // what signed it ("-" = ad hoc)
-    std::string identityFrom;          // "argument" | "FACTORIA_MACOS_SIGN_IDENTITY" | "FACTORIA_MACOS_APPSTORE_IDENTITY" | "export.json"
-    std::string credentials;           // how notarytool logs in, without any secret ("keychain profile 'x'", ...); empty = none used
-    std::string zip;                   // absolute path of the distributable zip; empty when none was made (appStore: the .pkg is the deliverable)
-    std::string distribution;          // "developerId" | "appStore"
-    std::string pkg;                   // appStore: absolute path of the .pkg; empty when none was made
-    std::string installerIdentity;     // appStore: what signed the .pkg; empty = unsigned
-    bool pkgSigned = false;            // pkgutil --check-signature accepted the .pkg's signature
-    Json entitlements = Json::object();  // appStore: the entitlements the signature of the app carries (read back with codesign -d)
-    std::string profile;               // appStore: "<profile name> (<application identifier>)" of the embedded provisioning profile
-    std::string notarizationId;        // Apple's submission id, once notarized
+    std::string app;       // absolute path of the .app
+    std::string identity;  // what signed it ("-" = ad hoc)
+    std::string
+        identityFrom;  // "argument" | "FACTORIA_MACOS_SIGN_IDENTITY" | "FACTORIA_MACOS_APPSTORE_IDENTITY" | "export.json"
+    std::string
+        credentials;  // how notarytool logs in, without any secret ("keychain profile 'x'", ...); empty = none used
+    std::string
+        zip;  // absolute path of the distributable zip; empty when none was made (appStore: the .pkg is the deliverable)
+    std::string distribution;       // "developerId" | "appStore"
+    std::string pkg;                // appStore: absolute path of the .pkg; empty when none was made
+    std::string installerIdentity;  // appStore: what signed the .pkg; empty = unsigned
+    bool pkgSigned = false;         // pkgutil --check-signature accepted the .pkg's signature
+    Json entitlements =
+        Json::object();   // appStore: the entitlements the signature of the app carries (read back with codesign -d)
+    std::string profile;  // appStore: "<profile name> (<application identifier>)" of the embedded provisioning profile
+    std::string notarizationId;  // Apple's submission id, once notarized
     bool dryRun = false;
-    bool signedApp = false;            // the app and its nested code carry the signature
-    bool verified = false;             // codesign --verify --deep --strict accepted it
-    bool notarized = false;            // Apple accepted it
-    bool stapled = false;              // the ticket is in the app (it opens offline)
+    bool signedApp = false;  // the app and its nested code carry the signature
+    bool verified = false;   // codesign --verify --deep --strict accepted it
+    bool notarized = false;  // Apple accepted it
+    bool stapled = false;    // the ticket is in the app (it opens offline)
     std::vector<SignStep> steps;
     std::vector<std::string> warnings;
     std::vector<std::string> nextSteps;
@@ -120,32 +130,34 @@ void register_sign_commands(CommandRegistry& registry, const std::string& projec
 //   * the tool: signtool.exe on Windows ($FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode elsewhere
 //     ($FACTORIA_OSSLSIGNCODE, else PATH; version 2.9 or newer: APPX signing arrived in 2.7 and its zip order was fixed in 2.9).
 struct SignWindowsOptions {
-    std::string projectDir;            // folder containing factoria.json
-    std::string msix;                  // the .msix to sign ("" = <out>/<game-slug>-windows.msix of the project)
-    std::string outDir;                // parent folder of the exports ("" = <projectDir>/build/export)
-    bool exe = false;                  // also sign the game's .exe in <out>/<game-slug>-windows/ (before the package is built, sign it and export again)
-    std::string pfx;                   // the certificate file ("" = $FACTORIA_WINDOWS_PFX, else export.json)
-    bool testCertificate = false;      // create a self-signed certificate for the manifest's Publisher (Windows only) and sign with it
-    std::string timestampUrl;          // RFC 3161 time-stamp server ("" = http://timestamp.digicert.com)
-    bool dryRun = false;               // check everything, return the command lines, run nothing and change nothing
+    std::string projectDir;  // folder containing factoria.json
+    std::string msix;        // the .msix to sign ("" = <out>/<game-slug>-windows.msix of the project)
+    std::string outDir;      // parent folder of the exports ("" = <projectDir>/build/export)
+    bool exe =
+        false;  // also sign the game's .exe in <out>/<game-slug>-windows/ (before the package is built, sign it and export again)
+    std::string pfx;  // the certificate file ("" = $FACTORIA_WINDOWS_PFX, else export.json)
+    bool testCertificate =
+        false;  // create a self-signed certificate for the manifest's Publisher (Windows only) and sign with it
+    std::string timestampUrl;  // RFC 3161 time-stamp server ("" = http://timestamp.digicert.com)
+    bool dryRun = false;       // check everything, return the command lines, run nothing and change nothing
     std::function<void(const std::string& line)> progress;  // optional: each line the tools print (secrets scrubbed)
     const CancelFlag* cancel = nullptr;
     ExportEnvLookup env = system_export_env();  // environment variables; only tests change it
-    std::string toolConfigPath;        // "" = machine_export_config_path(env); only tests change it
-    std::string host;                  // "" = this computer ("macos" | "windows" | "linux"); only tests change it
-    ProcessRunner run;                 // empty = fa::run_process; only tests change it
+    std::string toolConfigPath;                 // "" = machine_export_config_path(env); only tests change it
+    std::string host;   // "" = this computer ("macos" | "windows" | "linux"); only tests change it
+    ProcessRunner run;  // empty = fa::run_process; only tests change it
 };
 
 struct SignWindowsReport {
-    std::string msix;                  // absolute path of the signed package ("" when only the exe was signed)
-    std::string exe;                   // absolute path of the signed exe ("" when not asked)
-    std::string publisher;             // the Publisher of the package manifest ("" when there is no package)
-    std::string certificate;           // what signs: "pfx C:/x/cert.pfx" or "test certificate"; never the password
-    std::string certificateFrom;       // "argument" | "FACTORIA_WINDOWS_PFX" | "export.json" | "testCertificate"
-    std::string tool;                  // "signtool" | "osslsigncode"
+    std::string msix;             // absolute path of the signed package ("" when only the exe was signed)
+    std::string exe;              // absolute path of the signed exe ("" when not asked)
+    std::string publisher;        // the Publisher of the package manifest ("" when there is no package)
+    std::string certificate;      // what signs: "pfx C:/x/cert.pfx" or "test certificate"; never the password
+    std::string certificateFrom;  // "argument" | "FACTORIA_WINDOWS_PFX" | "export.json" | "testCertificate"
+    std::string tool;             // "signtool" | "osslsigncode"
     std::string toolPath;
     std::string timestampUrl;
-    std::string testCertificateFile;   // the .cer to trust on the PC that installs the package (testCertificate only)
+    std::string testCertificateFile;  // the .cer to trust on the PC that installs the package (testCertificate only)
     bool dryRun = false;
     bool signedMsix = false;
     bool signedExe = false;

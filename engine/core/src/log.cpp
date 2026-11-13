@@ -73,18 +73,22 @@ void write_stderr(const LogEntry& e, LogFormat format) {
     }
 #ifdef __EMSCRIPTEN__
     // The browser console, by level (stderr would show every line as an error there).
-    if (e.level == LogLevel::Error) emscripten_console_error(line.c_str());
-    else if (e.level == LogLevel::Warn) emscripten_console_warn(line.c_str());
-    else emscripten_console_log(line.c_str());
+    if (e.level == LogLevel::Error)
+        emscripten_console_error(line.c_str());
+    else if (e.level == LogLevel::Warn)
+        emscripten_console_warn(line.c_str());
+    else
+        emscripten_console_log(line.c_str());
     return;
 #endif
     line += '\n';
     std::fwrite(line.data(), 1, line.size(), stderr);
     std::fflush(stderr);
 #ifdef __ANDROID__
-    int prio = e.level == LogLevel::Error ? ANDROID_LOG_ERROR
-             : e.level == LogLevel::Warn ? ANDROID_LOG_WARN
-             : e.level == LogLevel::Info ? ANDROID_LOG_INFO : ANDROID_LOG_DEBUG;
+    int prio = e.level == LogLevel::Error  ? ANDROID_LOG_ERROR
+               : e.level == LogLevel::Warn ? ANDROID_LOG_WARN
+               : e.level == LogLevel::Info ? ANDROID_LOG_INFO
+                                           : ANDROID_LOG_DEBUG;
     __android_log_print(prio, "factoria", "%s: %s", e.category.c_str(), e.message.c_str());
 #endif
 }
@@ -133,8 +137,8 @@ std::string log_wall_iso(std::int64_t wallMs) {
 
 std::string format_log_line(const LogEntry& e) {
     char head[128];
-    std::snprintf(head, sizeof head, "%s [%7.3f] %s %s: ", log_wall_time(e.wallMs).c_str(), e.time, padded_level(e.level),
-                  e.category.c_str());
+    std::snprintf(head, sizeof head, "%s [%7.3f] %s %s: ", log_wall_time(e.wallMs).c_str(), e.time,
+                  padded_level(e.level), e.category.c_str());
     return head + e.message;
 }
 
@@ -152,9 +156,15 @@ const char* log_level_name(LogLevel level) {
 bool parse_log_level(std::string_view name, LogLevel& out) {
     std::string n = to_lower(trim(name));
     for (LogLevel l : {LogLevel::Trace, LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
-        if (n == log_level_name(l)) { out = l; return true; }
+        if (n == log_level_name(l)) {
+            out = l;
+            return true;
+        }
     }
-    if (n == "warning") { out = LogLevel::Warn; return true; }
+    if (n == "warning") {
+        out = LogLevel::Warn;
+        return true;
+    }
     return false;
 }
 
@@ -178,7 +188,8 @@ void log(LogLevel level, std::string_view category, std::string message) {
         if (s.ring.size() > kRingSize) s.ring.pop_front();
         for (auto& [id, sink] : s.sinks) sinks.push_back(sink);
         format = s.format;
-        if (!s.stderrFilter || s.stderrFilter(entry)) write_stderr(entry, format);  // under the lock so lines never interleave
+        if (!s.stderrFilter || s.stderrFilter(entry))
+            write_stderr(entry, format);  // under the lock so lines never interleave
     }
     // Sinks run outside the lock so they may call log() themselves.
     for (auto& sink : sinks) sink(entry);

@@ -39,10 +39,14 @@ std::string valid_utf8(const std::string& s) {
         bool ok = length != 0 && i + length <= s.size();
         for (std::size_t k = 1; ok && k < length; ++k) {
             const unsigned char cc = static_cast<unsigned char>(s[i + k]);
-            if ((cc & 0xC0) != 0x80) ok = false;
-            else cp = (cp << 6) | (cc & 0x3F);
+            if ((cc & 0xC0) != 0x80)
+                ok = false;
+            else
+                cp = (cp << 6) | (cc & 0x3F);
         }
-        if (ok && ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) || (length == 4 && (cp < 0x10000 || cp > 0x10FFFF)))) ok = false;
+        if (ok && ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
+                   (length == 4 && (cp < 0x10000 || cp > 0x10FFFF))))
+            ok = false;
         if (ok) {
             out.append(s, i, length);
             i += length;
@@ -56,7 +60,8 @@ std::string valid_utf8(const std::string& s) {
 
 class HttpBackend final : public PlatformBackend {
 public:
-    explicit HttpBackend(std::unique_ptr<HttpClient> client) : client_(std::move(client)), inFlight_(std::make_shared<std::atomic<int>>(0)) {}
+    explicit HttpBackend(std::unique_ptr<HttpClient> client)
+        : client_(std::move(client)), inFlight_(std::make_shared<std::atomic<int>>(0)) {}
 
     std::string name() const override { return client_->name(); }
     std::vector<std::string> services() const override {
@@ -69,7 +74,8 @@ public:
             return;
         }
         if (!client_->available()) {
-            sink.fail(id, {"unavailable", "http.fetch is not available: " + client_->unavailable_reason(), "Let the game carry on offline."});
+            sink.fail(id, {"unavailable", "http.fetch is not available: " + client_->unavailable_reason(),
+                           "Let the game carry on offline."});
             return;
         }
         if (inFlight_->load() >= kMaxInFlight) {
@@ -89,16 +95,21 @@ public:
         client_->send(std::move(request), [sink, id, counter = inFlight_](HttpResponse response) {
             --*counter;
             if (!response.ok) {
-                sink.fail(id, {"network", response.error.empty() ? "the request failed" : response.error, response.hint});
+                sink.fail(id,
+                          {"network", response.error.empty() ? "the request failed" : response.error, response.hint});
                 return;
             }
             Json headers = Json::object();
             for (const auto& [name, value] : response.headers) {  // repeated headers are joined, as fetch does
                 const std::string text = valid_utf8(value);
-                if (auto it = headers.find(name); it != headers.end()) it->get_ref<std::string&>() += ", " + text;
-                else headers[name] = text;
+                if (auto it = headers.find(name); it != headers.end())
+                    it->get_ref<std::string&>() += ", " + text;
+                else
+                    headers[name] = text;
             }
-            sink.complete(id, Json::object({{"status", response.status}, {"headers", std::move(headers)}, {"text", valid_utf8(response.body)}}));
+            sink.complete(id, Json::object({{"status", response.status},
+                                            {"headers", std::move(headers)},
+                                            {"text", valid_utf8(response.body)}}));
         });
     }
 

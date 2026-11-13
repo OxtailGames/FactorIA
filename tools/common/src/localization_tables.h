@@ -17,11 +17,12 @@ namespace fa::localization_detail {
 // The string table of one language as the game reads it, or why it cannot be read.
 struct TableFile {
     std::string language;
-    std::string file;                  // "locales/es.json"
+    std::string file;  // "locales/es.json"
     bool exists = false;
     Json document;                     // the file as written (an object when `table` is set)
     std::optional<StringTable> table;  // nullopt: missing, not JSON, or not a string table
-    std::string pointer, message, hint;  // what is wrong when `table` is empty; the JSON pointer is "" for the file as a whole
+    std::string pointer, message,
+        hint;  // what is wrong when `table` is empty; the JSON pointer is "" for the file as a whole
 };
 TableFile read_table(const std::string& language);
 

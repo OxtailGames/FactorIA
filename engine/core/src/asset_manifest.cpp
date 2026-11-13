@@ -20,15 +20,18 @@ namespace {
 
 struct Cache {
     std::mutex mutex;
-    std::string root;           // project root the cached manifest belongs to
-    std::int64_t modified = -2; // modified_time of the file when read (-1 = missing, -2 = never read)
-    std::int64_t size = -1;     // and its size: two writes within the clock's step (~16 ms on Windows) share a time
-    std::string text;           // the text of that read, while time and size alone cannot tell a second write (see settled)
-    bool settled = false;       // the read came well after the file's time: a later write moves the time, so text is not kept
+    std::string root;            // project root the cached manifest belongs to
+    std::int64_t modified = -2;  // modified_time of the file when read (-1 = missing, -2 = never read)
+    std::int64_t size = -1;      // and its size: two writes within the clock's step (~16 ms on Windows) share a time
+    std::string text;  // the text of that read, while time and size alone cannot tell a second write (see settled)
+    bool settled =
+        false;  // the read came well after the file's time: a later write moves the time, so text is not kept
     Json doc;
-    std::uint64_t version = 0;  // grows every time the document above is replaced by another read (see manifest_version)
-    std::unordered_map<std::string, std::shared_ptr<const Sheet>> sheets;  // parsed sheet entries of this read of the file
-    std::string warnedFor;      // "root|mtime" of the last warning, so a broken file warns once
+    std::uint64_t version =
+        0;  // grows every time the document above is replaced by another read (see manifest_version)
+    std::unordered_map<std::string, std::shared_ptr<const Sheet>>
+        sheets;             // parsed sheet entries of this read of the file
+    std::string warnedFor;  // "root|mtime" of the last warning, so a broken file warns once
 };
 
 Cache& cache() {
@@ -101,11 +104,14 @@ Result<void> update_manifest(const std::function<void(Json& doc)>& edit) {
     Json doc = empty_manifest();
     if (fs::exists(kManifestFile)) {
         auto text = fs::read_text(kManifestFile);
-        if (!text) return make_error(std::format("cannot read {}: {}", kManifestFile, text.error().message), text.error().hint);
+        if (!text)
+            return make_error(std::format("cannot read {}: {}", kManifestFile, text.error().message),
+                              text.error().hint);
         auto parsed = parse_manifest(*text);
         if (!parsed)
-            return make_error(std::format("{} is not valid, so it was not changed: {}", kManifestFile, parsed.error().message),
-                              "Fix the file (factoria validate shows where) and try again.");
+            return make_error(
+                std::format("{} is not valid, so it was not changed: {}", kManifestFile, parsed.error().message),
+                "Fix the file (factoria validate shows where) and try again.");
         doc = std::move(*parsed);
     }
     // A file whose entries are sorted stays sorted (new entries go to their place); one somebody ordered by hand keeps its
@@ -114,8 +120,10 @@ Result<void> update_manifest(const std::function<void(Json& doc)>& edit) {
     edit(doc);
     if (!doc.contains("format")) doc["format"] = kManifestFormat;
     if (doc.contains("assets") && doc["assets"].is_object()) {
-        if (doc["assets"].empty()) doc.erase("assets");
-        else if (sorted) doc["assets"] = sorted_object(doc["assets"]);
+        if (doc["assets"].empty())
+            doc.erase("assets");
+        else if (sorted)
+            doc["assets"] = sorted_object(doc["assets"]);
     }
     auto r = save_json_file(kManifestFile, doc);
     invalidate();
@@ -157,7 +165,8 @@ namespace {
 constexpr std::int64_t kSettleNs = 2'000'000'000;
 
 std::int64_t now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 // Re-reads the file when it changed (c.mutex held by the caller).
@@ -201,7 +210,8 @@ void refresh_locked(Cache& c) {
         const std::string tag = root + "|" + std::to_string(modified);
         if (c.warnedFor != tag) {
             c.warnedFor = tag;
-            FA_WARN("assets", "{} is ignored: {} Run `factoria validate` to see the problem.", kManifestFile, parsed.error().message);
+            FA_WARN("assets", "{} is ignored: {} Run `factoria validate` to see the problem.", kManifestFile,
+                    parsed.error().message);
         }
     }
 }
@@ -254,7 +264,8 @@ std::vector<std::string> Sheet::clip_names() const {
 namespace {
 std::optional<std::array<float, 2>> read_pivot(const Json& j) {
     auto it = j.find("pivot");
-    if (it == j.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) return std::nullopt;
+    if (it == j.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number())
+        return std::nullopt;
     return std::array<float, 2>{(*it)[0].get<float>(), (*it)[1].get<float>()};
 }
 int read_int(const Json& j, const char* key, int fallback) {
@@ -308,10 +319,12 @@ PackedTexture packed_texture(std::string_view path) {
     const auto p = e.find("packed");
     if (p == e.end() || !p->is_object()) return {};
     const auto atlas = p->find("atlas"), rect = p->find("rect");
-    if (atlas == p->end() || !atlas->is_string() || rect == p->end() || !rect->is_array() || rect->size() != 4) return {};
+    if (atlas == p->end() || !atlas->is_string() || rect == p->end() || !rect->is_array() || rect->size() != 4)
+        return {};
     for (const Json& v : *rect)
         if (!v.is_number_integer()) return {};
-    return {atlas->get<std::string>(), (*rect)[0].get<int>(), (*rect)[1].get<int>(), (*rect)[2].get<int>(), (*rect)[3].get<int>()};
+    return {atlas->get<std::string>(), (*rect)[0].get<int>(), (*rect)[1].get<int>(), (*rect)[2].get<int>(),
+            (*rect)[3].get<int>()};
 }
 
 Json import_settings(const Json& m, std::string_view path) {
@@ -320,7 +333,8 @@ Json import_settings(const Json& m, std::string_view path) {
     if (auto d = m.find("defaults"); d != m.end() && d->is_object())
         if (auto k = d->find(kind_name(kind)); k != d->end()) merge_into(out, *k);
     if (auto a = m.find("assets"); a != m.end() && a->is_object())
-        if (auto e = a->find(key_of(path)); e != a->end() && e->is_object()) merge_into(out, e->value("import", Json::object()));
+        if (auto e = a->find(key_of(path)); e != a->end() && e->is_object())
+            merge_into(out, e->value("import", Json::object()));
     return out;
 }
 
@@ -333,8 +347,10 @@ Result<void> update_entry(std::string_view path, const std::function<void(Json& 
         Json& assets = doc["assets"];
         Json e = assets.contains(key) && assets[key].is_object() ? assets[key] : Json::object();
         edit(e);
-        if (e.is_object() && !e.empty()) assets[key] = std::move(e);
-        else assets.erase(key);
+        if (e.is_object() && !e.empty())
+            assets[key] = std::move(e);
+        else
+            assets.erase(key);
     });
 }
 

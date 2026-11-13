@@ -39,7 +39,7 @@ public:
     bool has(const std::string& flag) const { return flags_.count(flag) != 0; }
     std::string str(const std::string& flag, const std::string& def = {}) const;
     std::vector<std::string> all(const std::string& flag) const;
-    int integer(const std::string& flag, int def) const;      // UsageError when not a number
+    int integer(const std::string& flag, int def) const;  // UsageError when not a number
     u64 uinteger(const std::string& flag, u64 def) const;
     double number(const std::string& flag, double def) const;
     const std::vector<std::string>& positional() const { return positional_; }
@@ -55,14 +55,14 @@ struct Context;
 
 struct Command {
     std::string name;
-    std::string summary;                  // one line
-    std::string usage;                    // e.g. "[project] [options]" (after "factoria <name> ")
-    std::string details;                  // optional paragraphs
+    std::string summary;  // one line
+    std::string usage;    // e.g. "[project] [options]" (after "factoria <name> ")
+    std::string details;  // optional paragraphs
     std::vector<FlagSpec> flags;
-    std::vector<std::string> examples;    // full command lines
-    std::function<int(Context&)> run;     // null for groups (commands with `subs`)
+    std::vector<std::string> examples;  // full command lines
+    std::function<int(Context&)> run;   // null for groups (commands with `subs`)
     std::vector<Command> subs;
-    int maxPositional = 0;                // -1 = unlimited
+    int maxPositional = 0;  // -1 = unlimited
     bool hidden = false;
 };
 

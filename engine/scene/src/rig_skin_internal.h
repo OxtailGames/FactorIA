@@ -44,14 +44,15 @@ Weld build_weld(const MeshData& mesh, const std::vector<char>& triOn, float eps)
 
 struct HeatStats {
     std::uint32_t componentsSolved = 0;
-    std::uint32_t componentsFailed = 0;  // the solver did not converge: those nodes are left unsolved for the caller to bind another way
+    std::uint32_t componentsFailed =
+        0;  // the solver did not converge: those nodes are left unsolved for the caller to bind another way
     std::uint32_t maxIterations = 0;
     double worstResidual = 0;
 };
 // Bone heat on the welded mesh. `mask[node]` is the bones the node may follow (bit i = bone i, at most 64 bones). `out` gets the weights (normalised) of
 // each node; a node of a component that failed is left empty. `locality` scales the heat: higher = weights hug their bone.
-void solve_heat(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones, double locality, std::vector<Infl>& out,
-                HeatStats& stats);
+void solve_heat(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones,
+                double locality, std::vector<Infl>& out, HeatStats& stats);
 
 struct VoxelStats {
     std::uint32_t voxels = 0;
@@ -59,8 +60,8 @@ struct VoxelStats {
 };
 // Voxel (geodesic) binding of the nodes: the surface is rasterised into a grid, the distance along it from each bone is measured, and a node follows
 // the bones that are about as close as the closest. A node that no bone reaches is left empty.
-void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones, double locality, std::vector<Infl>& out,
-                 VoxelStats& stats);
+void solve_voxel(const Weld& weld, const std::vector<std::uint64_t>& mask, const std::vector<Seg>& bones,
+                 double locality, std::vector<Infl>& out, VoxelStats& stats);
 
 // ---- helpers on sparse weights ------------------------------------------------------------------------------------------------
 
@@ -80,9 +81,9 @@ namespace fa::rig_skin_detail {
 
 // What the pipeline knows about the model: its triangles by part.
 struct SkinModel {
-    std::vector<std::string> partNames;       // per submesh
-    std::vector<std::uint32_t> triSub;        // per triangle: the submesh it is in, kNone when no submesh draws it
-    std::vector<std::uint32_t> vertSub;       // per vertex: the submesh of the first triangle that uses it, kNone when none
+    std::vector<std::string> partNames;  // per submesh
+    std::vector<std::uint32_t> triSub;   // per triangle: the submesh it is in, kNone when no submesh draws it
+    std::vector<std::uint32_t> vertSub;  // per vertex: the submesh of the first triangle that uses it, kNone when none
 };
 SkinModel make_skin_model(const MeshData& mesh);
 
@@ -90,7 +91,7 @@ SkinModel make_skin_model(const MeshData& mesh);
 std::vector<std::uint8_t> bone_hops(const RigFit& fit);
 
 // Applies the document's edits, in order, to the per-vertex weights. Fails with a teaching error when a bone or a part is unknown.
-Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit, const MeshData& mesh, const SkinModel& model, std::vector<Infl>& weights,
-                              RigSkinReport& report);
+Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit, const MeshData& mesh,
+                              const SkinModel& model, std::vector<Infl>& weights, RigSkinReport& report);
 
 }  // namespace fa::rig_skin_detail

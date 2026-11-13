@@ -23,7 +23,8 @@ void write_png(const std::filesystem::path& p, int w, int h, std::uint8_t r) {
     std::ofstream(p, std::ios::binary).write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
 }
 
-const char* kGood = R"({"verdict":"fix","summary":"The outline is thicker than the references.","fixes":[{"what":"Thin the outline to 1 px","where":"assets/knight.png, the whole silhouette","command":"assets.generate_image {\"path\":\"assets/knight.png\",\"overwrite\":true}"},{"what":"Use the palette","where":"assets/knight.png","command":"style.palette in assets.json"},{"what":"Do magic","where":"x","command":"assets.make_it_pretty {}"}]})";
+const char* kGood =
+    R"({"verdict":"fix","summary":"The outline is thicker than the references.","fixes":[{"what":"Thin the outline to 1 px","where":"assets/knight.png, the whole silhouette","command":"assets.generate_image {\"path\":\"assets/knight.png\",\"overwrite\":true}"},{"what":"Use the palette","where":"assets/knight.png","command":"style.palette in assets.json"},{"what":"Do magic","where":"x","command":"assets.make_it_pretty {}"}]})";
 
 struct Fixture {
     TempDir dir;
@@ -39,7 +40,8 @@ struct Fixture {
         write_png(dir.path / "assets/orc.png", 16, 16, 90);
         write_png(dir.path / "art/ref.png", 16, 16, 200);
         write_png(dir.path / ".factoria/screenshots/check.png", 32, 32, 10);
-        std::ofstream(dir.path / "assets.json") << R"({"style":{"prompt":"chunky pixel knights","references":["art/ref.png","art/missing.png"],"outline":{"color":"#000000","width":1}}})";
+        std::ofstream(dir.path / "assets.json")
+            << R"({"style":{"prompt":"chunky pixel knights","references":["art/ref.png","art/missing.png"],"outline":{"color":"#000000","width":1}}})";
         CommandInfo check;
         check.name = "assets.check_art";
         check.category = "assets";
@@ -48,12 +50,19 @@ struct Fixture {
         registry.add(check, [this](const Json& args) {
             ++checkCalls;
             checkArgs = args;
-            return Json::object({{"verdict", checkVerdict},
-                                 {"counts", Json::object({{"ok", 3}, {"warn", 1}, {"fail", checkVerdict == "fail" ? 1 : 0}})},
-                                 {"assets", Json::array({Json::object({{"path", "assets/knight.png"}, {"verdict", checkVerdict},
-                                     {"rules", Json::array({Json::object({{"rule", "outline.width"}, {"value", 2.4}, {"threshold", 1.0}, {"verdict", "warn"},
-                                                                          {"hint", "Set the outline to 1 px"}})})}})})},
-                                 {"$image", Json::object({{"path", (dir.path / ".factoria/screenshots/check.png").string()}, {"mimeType", "image/png"}})}});
+            return Json::object(
+                {{"verdict", checkVerdict},
+                 {"counts", Json::object({{"ok", 3}, {"warn", 1}, {"fail", checkVerdict == "fail" ? 1 : 0}})},
+                 {"assets", Json::array({Json::object(
+                                {{"path", "assets/knight.png"},
+                                 {"verdict", checkVerdict},
+                                 {"rules", Json::array({Json::object({{"rule", "outline.width"},
+                                                                      {"value", 2.4},
+                                                                      {"threshold", 1.0},
+                                                                      {"verdict", "warn"},
+                                                                      {"hint", "Set the outline to 1 px"}})})}})})},
+                 {"$image", Json::object({{"path", (dir.path / ".factoria/screenshots/check.png").string()},
+                                          {"mimeType", "image/png"}})}});
         });
         AiCommandOptions opt;
         opt.loadConfig = [this] { return Result<AiConfig>(cfg); };
@@ -70,7 +79,8 @@ struct Fixture {
 TEST_CASE("assets.review: the model gets the check's numbers, the style rules and the pictures; the reply is parsed") {
     Fixture f;
     f.provider->script = {text_response(std::string("Here you go:\n```json\n") + kGood + "\n```")};
-    auto r = f.registry.call("assets.review", Json::object({{"path", "assets/knight.png"}, {"focus", "does the outline match?"}}));
+    auto r = f.registry.call("assets.review",
+                             Json::object({{"path", "assets/knight.png"}, {"focus", "does the outline match?"}}));
     INFO(r.error.dump());
     REQUIRE(r.ok);
     CHECK(f.checkCalls == 1);
@@ -117,7 +127,8 @@ TEST_CASE("assets.review: several pictures, and a `good` verdict is not accepted
     Fixture f;
     f.checkVerdict = "fail";
     f.provider->script = {text_response(R"({"verdict":"good","summary":"Fine.","fixes":[]})")};
-    auto r = f.registry.call("assets.review", Json::object({{"paths", Json::array({"assets/knight.png", "assets/orc.png"})}}));
+    auto r = f.registry.call("assets.review",
+                             Json::object({{"paths", Json::array({"assets/knight.png", "assets/orc.png"})}}));
     REQUIRE(r.ok);
     CHECK(f.provider->requests[0].messages[0].images.size() == 4);  // reference, two pictures, annotated
     CHECK(r.result["verdict"] == "fix");
@@ -140,7 +151,8 @@ TEST_CASE("assets.review: a malformed reply gives a teaching error") {
     CHECK(r2.error["code"] == "review_failed");
 }
 
-TEST_CASE("assets.review: no provider or no key is a teaching error before the check runs; no picture, too many pictures") {
+TEST_CASE(
+    "assets.review: no provider or no key is a teaching error before the check runs; no picture, too many pictures") {
     {
         Fixture f;
         f.cfg.roles["fast"].provider = "nobody";
@@ -148,7 +160,8 @@ TEST_CASE("assets.review: no provider or no key is a teaching error before the c
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "no_model");
         CHECK(r.error["message"].get<std::string>().find("nobody") != std::string::npos);
-        CHECK(r.error["hint"].get<std::string>().find("assets.check_art") != std::string::npos);  // carry on with the numbers
+        CHECK(r.error["hint"].get<std::string>().find("assets.check_art") !=
+              std::string::npos);  // carry on with the numbers
         CHECK(f.checkCalls == 0);
     }
     {
@@ -158,7 +171,9 @@ TEST_CASE("assets.review: no provider or no key is a teaching error before the c
         opt.loadConfig = [&] { return Result<AiConfig>(f.cfg); };
         opt.projectDir = [&] { return f.dir.str(); };
         opt.runtime.env = [](const std::string&) { return std::string(); };
-        opt.runtime.antToken = [] { return std::string(); };  // an `ant` on the PATH (Apache Ant on CI runners) gives no token
+        opt.runtime.antToken = [] {
+            return std::string();
+        };  // an `ant` on the PATH (Apache Ant on CI runners) gives no token
         CommandRegistry reg = make_registry();
         register_ai_commands(reg, opt);
         f.cfg.roles["fast"].provider = "anthropic";
@@ -169,7 +184,8 @@ TEST_CASE("assets.review: no provider or no key is a teaching error before the c
     }
     Fixture f;
     CHECK_FALSE(f.registry.call("assets.review", Json::object()).ok);
-    auto many = f.registry.call("assets.review", Json::object({{"paths", Json::array({"a.png", "b.png", "c.png", "d.png", "e.png"})}}));
+    auto many = f.registry.call("assets.review",
+                                Json::object({{"paths", Json::array({"a.png", "b.png", "c.png", "d.png", "e.png"})}}));
     REQUIRE_FALSE(many.ok);
     CHECK(many.error["code"] == "invalid_arguments");
     auto gone = f.registry.call("assets.review", Json::object({{"path", "assets/nope.png"}}));
@@ -181,7 +197,9 @@ TEST_CASE("make_vision_model: the pictures reach the provider on the user messag
     auto provider = std::make_shared<FakeProvider>();
     provider->script = {text_response("ok")};
     TextModelOptions mo;
-    mo.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::static_pointer_cast<ChatProvider>(provider); };
+    mo.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(provider);
+    };
     auto model = make_vision_model(cfg, mo);
     REQUIRE(model.ok());
     auto a = (*model)("sys", "look", {{"image/png", "QUJD"}});
@@ -209,7 +227,9 @@ TEST_CASE("make_vision_model: the pictures reach the provider on the user messag
             return make_error("HTTP 400: this model does not support image input");
         }
     };
-    mo.providerFactory = [](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> { return std::shared_ptr<ChatProvider>(std::make_shared<Rejecting>()); };
+    mo.providerFactory = [](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::shared_ptr<ChatProvider>(std::make_shared<Rejecting>());
+    };
     auto rej = make_vision_model(cfg, mo);
     REQUIRE(rej.ok());
     auto err = (*rej)("s", "u", {{"image/png", "QUJD"}});
@@ -227,6 +247,4 @@ TEST_CASE("make_vision_model: the pictures reach the provider on the user messag
     CHECK(refused.error().message.find("only makes assets") != std::string::npos);
 }
 
-TEST_CASE("assets.review is a tool of the agent") {
-    CHECK_FALSE(is_agent_tool_excluded("assets.review"));
-}
+TEST_CASE("assets.review is a tool of the agent") { CHECK_FALSE(is_agent_tool_excluded("assets.review")); }

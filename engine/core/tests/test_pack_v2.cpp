@@ -65,8 +65,10 @@ void set_env(const char* name, const char* value) {
 #ifdef _WIN32
     _putenv_s(name, value ? value : "");
 #else
-    if (value) ::setenv(name, value, 1);
-    else ::unsetenv(name);
+    if (value)
+        ::setenv(name, value, 1);
+    else
+        ::unsetenv(name);
 #endif
 }
 
@@ -74,7 +76,9 @@ std::string read_file(const stdfs::path& p) {
     std::ifstream in(p, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(in), {});
 }
-void write_file(const stdfs::path& p, const std::string& data) { std::ofstream(p, std::ios::binary | std::ios::trunc) << data; }
+void write_file(const stdfs::path& p, const std::string& data) {
+    std::ofstream(p, std::ios::binary | std::ios::trunc) << data;
+}
 std::vector<std::uint8_t> bytes_of(const std::string& s) { return {s.begin(), s.end()}; }
 
 // Bytes that compress (repeating words) and bytes that do not (an LCG: deterministic, no rand()).
@@ -113,7 +117,8 @@ void check_ranges(const PackReader& p, const std::string& path, const std::vecto
             auto r = p.read_range(path, from, len);
             REQUIRE(r.ok());
             const std::uint64_t f = std::min(from, n), l = std::min(len, n - f);
-            CHECK_MESSAGE(r.value() == std::vector<std::uint8_t>(want.begin() + std::ptrdiff_t(f), want.begin() + std::ptrdiff_t(f + l)),
+            CHECK_MESSAGE(r.value() == std::vector<std::uint8_t>(want.begin() + std::ptrdiff_t(f),
+                                                                 want.begin() + std::ptrdiff_t(f + l)),
                           path << " from " << from << " len " << len);
         }
     }
@@ -124,9 +129,11 @@ void check_ranges(const PackReader& p, const std::string& path, const std::vecto
 TEST_CASE("pack v2: XXH32 checksum matches the reference vectors") {
     CHECK(pack_checksum({}) == 0x02CC5D05u);
     const std::string abc = "abc";
-    CHECK(pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(abc.data()), abc.size())) == 0x32D153FFu);
+    CHECK(pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(abc.data()), abc.size())) ==
+          0x32D153FFu);
     const std::string fox = "The quick brown fox jumps over the lazy dog";
-    CHECK(pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(fox.data()), fox.size())) == 0xE85EA4DEu);
+    CHECK(pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(fox.data()), fox.size())) ==
+          0xE85EA4DEu);
 }
 
 TEST_CASE("pack v2: default codecs by file type") {
@@ -172,7 +179,7 @@ TEST_CASE("pack v2: store round trip across block boundaries, mapped and read") 
         const PackReader& p = *opened.value();
         CHECK(p.format_version() == 2);
 #if !defined(__EMSCRIPTEN__)
-        if (sizeof(void*) == 8) CHECK(p.mapped() == map);
+        if constexpr (sizeof(void*) == 8) CHECK(p.mapped() == map);
 #endif
         for (std::size_t i = 0; i < kSizes.size(); ++i) {
             const std::string path = "data/f" + std::to_string(i) + ".bin";
@@ -191,7 +198,8 @@ TEST_CASE("pack v2: lz4 and zstd round trip across block boundaries") {
     std::vector<std::pair<std::string, std::vector<std::uint8_t>>> files;
     for (Codec c : {Codec::Lz4, Codec::Zstd})
         for (std::size_t i = 0; i < kSizes.size(); ++i) {
-            files.emplace_back(std::string(codec_name(c)) + "/f" + std::to_string(i) + ".json", text_bytes(std::size_t(kSizes[i]), int(i)));
+            files.emplace_back(std::string(codec_name(c)) + "/f" + std::to_string(i) + ".json",
+                               text_bytes(std::size_t(kSizes[i]), int(i)));
             REQUIRE(w.add_bytes(files.back().first, files.back().second, c).ok());
         }
     // Noise does not compress: the blocks stay as they are and the file is recorded as stored.
@@ -201,7 +209,8 @@ TEST_CASE("pack v2: lz4 and zstd round trip across block boundaries") {
     REQUIRE(stats.ok());
     CHECK(stats.value().compressErrors == 0);
     CHECK(stats.value().storedBytes < stats.value().bytes);
-    CHECK(stats.value().codecs[std::size_t(Codec::Lz4)].storedBytes < stats.value().codecs[std::size_t(Codec::Lz4)].bytes);
+    CHECK(stats.value().codecs[std::size_t(Codec::Lz4)].storedBytes <
+          stats.value().codecs[std::size_t(Codec::Lz4)].bytes);
 
     for (bool map : {true, false}) {
         CAPTURE(map);
@@ -237,8 +246,9 @@ TEST_CASE("pack v2: a format 1 pack is still read") {
     const std::uint64_t indexOffset = pak.size();
     std::string index;
     le(index, 2, 4);
-    for (auto [path, off, size] : {std::tuple<std::string, std::uint64_t, std::uint64_t>{"factoria.json", offA, a.size()},
-                                   {"notes/b.txt", offB, b.size()}}) {
+    for (auto [path, off, size] :
+         {std::tuple<std::string, std::uint64_t, std::uint64_t>{"factoria.json", offA, a.size()},
+          {"notes/b.txt", offB, b.size()}}) {
         le(index, path.size(), 2);
         index += path;
         le(index, off, 8);
@@ -295,7 +305,8 @@ TEST_CASE("pack v2: a damaged pack is an error that names the file and the block
             REQUIRE(opened.ok());  // the index is fine
             auto r = opened.value()->read("a.bin");
             REQUIRE(!r.ok());
-            CHECK(r.error().message.find("damaged: block 2 of 3 of 'a.bin' does not match its checksum") != std::string::npos);
+            CHECK(r.error().message.find("damaged: block 2 of 3 of 'a.bin' does not match its checksum") !=
+                  std::string::npos);
             CHECK(r.error().hint.find("Export the game again") != std::string::npos);
             CHECK(opened.value()->read_range("a.bin", 0, 100).ok());  // block 1 is intact and the only one read
             CHECK(!opened.value()->view("a.bin").ok());
@@ -317,7 +328,8 @@ TEST_CASE("pack v2: a damaged pack is an error that names the file and the block
             for (int i = 0; i < 8; ++i) v |= std::uint64_t(std::uint8_t(wrong[at + std::size_t(i)])) << (8 * i);
             return v;
         };
-        const std::size_t indexOffset = std::size_t(u64(wrong.size() - 24)), indexSize = std::size_t(u64(wrong.size() - 16));
+        const std::size_t indexOffset = std::size_t(u64(wrong.size() - 24)),
+                          indexSize = std::size_t(u64(wrong.size() - 16));
         const std::size_t firstChecksum = indexOffset + 12 + 36 + 4;
         wrong[firstChecksum] ^= 0x10;
         const std::uint32_t sum = pack_checksum(std::span<const std::uint8_t>(
@@ -358,10 +370,12 @@ TEST_CASE("pack v2: an index that claims more than a block can decode to is refu
         CHECK(opened.value()->stored_size_of("a.bin") < B / 64);
     }
     const std::uint64_t claimed = 64ull << 20;
-    put(indexOffset + 4, claimed, 4);                // block size
+    put(indexOffset + 4, claimed, 4);               // block size
     put(indexOffset + 12 + 2 + 5 + 1, claimed, 8);  // the size of a.bin (after u16 length, "a.bin", u8 codec)
     put(indexOffset + indexSize - 4,
-        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset, indexSize - 4)), 4);
+        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset,
+                                                    indexSize - 4)),
+        4);
     const stdfs::path bad = s.dir / "bad.pak";
     write_file(bad, pak);
     auto r = PackReader::open(bad);
@@ -375,11 +389,14 @@ TEST_CASE("pack v2: an index that claims more than a block can decode to is refu
     CHECK(pack_max_file_size(~std::uint64_t(0)) == ~std::uint64_t(0));
     put(indexOffset + 12 + 2 + 5 + 1, kPackMinFileCap * 2, 8);
     put(indexOffset + indexSize - 4,
-        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset, indexSize - 4)), 4);
+        pack_checksum(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(pak.data()) + indexOffset,
+                                                    indexSize - 4)),
+        4);
     write_file(bad, pak);
     auto huge = PackReader::open(bad);
     REQUIRE(!huge.ok());
-    CHECK(huge.error().message.find("is damaged ('a.bin' claims 536870912 bytes, more than a pack of") != std::string::npos);
+    CHECK(huge.error().message.find("is damaged ('a.bin' claims 536870912 bytes, more than a pack of") !=
+          std::string::npos);
     CHECK(huge.error().hint.find("Export the game again") != std::string::npos);
 }
 
@@ -415,7 +432,8 @@ TEST_CASE("pack v2: many threads read one pack at once, mapped and read") {
                             const std::uint64_t from = (B - 2500 + std::uint64_t(round * 997 + t * 131)) % want.size();
                             auto r = pack.value()->read_range(path, from, 5000);
                             const std::size_t l = std::min<std::size_t>(5000, want.size() - std::size_t(from));
-                            if (!r.ok() || !std::equal(r.value().begin(), r.value().end(), want.begin() + std::ptrdiff_t(from)) ||
+                            if (!r.ok() ||
+                                !std::equal(r.value().begin(), r.value().end(), want.begin() + std::ptrdiff_t(from)) ||
                                 r.value().size() != l)
                                 ++wrong;
                         }
@@ -441,8 +459,40 @@ TEST_CASE("pack v2: FA_PACK_MAP=0 makes every pack read without a mapping") {
     auto on = PackReader::open(s.pak());
     REQUIRE(on.ok());
 #if !defined(__EMSCRIPTEN__)
-    if (sizeof(void*) == 8) CHECK(on.value()->mapped());
+    if constexpr (sizeof(void*) == 8) CHECK(on.value()->mapped());
 #endif
+}
+
+TEST_CASE("pack v2: open_memory reads a pack from bytes and refuses damaged ones without crashing") {
+    Scratch s;
+    PackWriter w;
+    const auto big = text_bytes(std::size_t(2 * B + 10), 1);
+    REQUIRE(w.add_bytes("a.json", big, Codec::Lz4).ok());
+    REQUIRE(w.add_bytes("dir/b.bin", noise_bytes(300, 2), Codec::Store).ok());
+    REQUIRE(w.write(s.pak()).ok());
+    const std::string good = read_file(s.pak());
+    const std::vector<std::uint8_t> bytes(good.begin(), good.end());
+
+    auto opened = PackReader::open_memory(bytes, "download.pak");
+    REQUIRE(opened.ok());
+    const PackReader& p = *opened.value();
+    CHECK(p.file_count() == 2);
+    CHECK(p.read("a.json").value() == big);
+    CHECK(p.read("dir/b.bin").value() == noise_bytes(300, 2));
+    CHECK(p.view("dir/b.bin").ok());
+    CHECK(p.read("nope.txt").error().hint.find("download.pak") != std::string::npos);
+
+    // Every prefix and every single flipped byte is an error or a pack whose reads return a result: never a crash.
+    CHECK(!PackReader::open_memory({}).ok());
+    for (std::size_t n = 0; n < bytes.size(); n += 7)
+        CHECK(
+            !PackReader::open_memory(std::vector<std::uint8_t>(bytes.begin(), bytes.begin() + std::ptrdiff_t(n))).ok());
+    for (std::size_t i = 0; i < bytes.size(); i += 5) {
+        auto flipped = bytes;
+        flipped[i] ^= 0x5A;
+        if (auto r = PackReader::open_memory(std::move(flipped)); r.ok())
+            for (const std::string& f : r.value()->list("", true)) (void)r.value()->read(f);
+    }
 }
 
 TEST_CASE("pack v2: views share the mapping and outlive the reader and the mount") {
@@ -457,7 +507,7 @@ TEST_CASE("pack v2: views share the mapping and outlive the reader and the mount
     auto v = fs::read_view("assets/big.png");
     REQUIRE(v.ok());
 #if !defined(__EMSCRIPTEN__)
-    if (sizeof(void*) == 8) CHECK(v.value().mapped());
+    if constexpr (sizeof(void*) == 8) CHECK(v.value().mapped());
 #endif
     fs::unmount_pack();  // the view keeps the pack mapped
     CHECK(v.value().size() == big.size());
@@ -500,7 +550,8 @@ TEST_CASE("pack v2: the data follows set_order, the index stays sorted, and the 
         PackWriter w;
         std::vector<std::string> names = {"a.json", "b/c.json", "b/d.png", "e.txt", "z.js"};
         if (reversed) std::reverse(names.begin(), names.end());
-        for (const std::string& n : names) REQUIRE(w.add_bytes(n, text_bytes(1000 + n.size() * 100, int(n.size()))).ok());
+        for (const std::string& n : names)
+            REQUIRE(w.add_bytes(n, text_bytes(1000 + n.size() * 100, int(n.size()))).ok());
         w.set_order({"z.js", "missing.json", "b/d.png", "z.js"});
         auto stats = w.write(out);
         REQUIRE(stats.ok());
@@ -549,14 +600,15 @@ TEST_CASE("pack v2: under the Windows rules an open pack cannot be replaced, map
 TEST_CASE("load trace: reads by scene in first-read order, scene load times, slowest assets") {
     Scratch s;
     fs::set_project_root(s.dir);
-    for (const char* f : {"a.json", "b.json", "c.json", "d.json"}) std::ofstream(s.dir / f, std::ios::binary) << "{\"n\":1}";
+    for (const char* f : {"a.json", "b.json", "c.json", "d.json"})
+        std::ofstream(s.dir / f, std::ios::binary) << "{\"n\":1}";
     CHECK(!LoadTrace::any());
     REQUIRE(fs::read_text("a.json").ok());  // before any trace: not recorded
     {
         LoadTrace trace;
         CHECK(LoadTrace::any());
         REQUIRE(fs::read_text("factoria-free.json").ok() == false);  // a failed read is not recorded
-        REQUIRE(fs::read_text("b.json").ok());                      // before the first scene: the start-up group
+        REQUIRE(fs::read_text("b.json").ok());                       // before the first scene: the start-up group
         trace.scene_started("scenes/one.scene.json");
         REQUIRE(fs::read_text("a.json").ok());
         REQUIRE(fs::read_text("b.json").ok());  // already listed
@@ -567,7 +619,8 @@ TEST_CASE("load trace: reads by scene in first-read order, scene load times, slo
         trace.frame_ended();
         trace.scene_started("scenes/two.scene.json");
         REQUIRE(fs::read_bytes("d.json").ok());
-        REQUIRE(fs::read_bytes(fs::path_to_utf8(s.dir / "a.json")).ok());  // an absolute path is a tool's file, not the game's
+        REQUIRE(fs::read_bytes(fs::path_to_utf8(s.dir / "a.json"))
+                    .ok());                            // an absolute path is a tool's file, not the game's
         trace.scene_started("scenes/one.scene.json");  // loaded again: keeps its place
         REQUIRE(fs::read_bytes("a.json").ok());
 

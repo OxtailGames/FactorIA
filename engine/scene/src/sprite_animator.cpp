@@ -53,7 +53,8 @@ TexDims cpu_texture_dims(const std::string& texture) {
     const std::string key = fs::normalize(texture);
     auto read = [&]() -> TexDims {
         auto r = texture_size(key);
-        return r ? TexDims{true, r->width, r->height} : TexDims{true, 32, 32};  // the renderer's missing-texture checker
+        return r ? TexDims{true, r->width, r->height}
+                 : TexDims{true, 32, 32};  // the renderer's missing-texture checker
     };
     SizeCache& c = size_cache();
     std::lock_guard<std::mutex> lock(c.mutex);
@@ -89,19 +90,22 @@ void next_size_epoch() {
 
 }  // namespace
 
-std::string sprite_clip_error(std::string_view texture, std::string_view clip, const std::shared_ptr<const assets::Sheet>& sheet) {
+std::string sprite_clip_error(std::string_view texture, std::string_view clip,
+                              const std::shared_ptr<const assets::Sheet>& sheet) {
     if (!sheet)
-        return std::format("SpriteAnimator.clip \"{}\": '{}' has no `sheet` entry in assets.json, so it has no clips.", clip, texture);
+        return std::format("SpriteAnimator.clip \"{}\": '{}' has no `sheet` entry in assets.json, so it has no clips.",
+                           clip, texture);
     const std::vector<std::string> names = sheet->clip_names();
     if (names.empty())
         return std::format("SpriteAnimator.clip \"{}\": the sheet entry of '{}' has no clips.", clip, texture);
     std::string list;
     for (const std::string& n : names) list += (list.empty() ? "" : ", ") + n;
-    return std::format("SpriteAnimator.clip \"{}\": '{}' has no clip of that name. Its clips: {}. {}", clip, texture, list,
-                       did_you_mean(clip, names));
+    return std::format("SpriteAnimator.clip \"{}\": '{}' has no clip of that name. Its clips: {}. {}", clip, texture,
+                       list, did_you_mean(clip, names));
 }
 
-SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view texture, const std::shared_ptr<const assets::Sheet>& sheet) {
+SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view texture,
+                                       const std::shared_ptr<const assets::Sheet>& sheet) {
     SpriteAnimPlan p;
     p.columns = std::max(1, a.columns);
     p.rows = std::max(1, a.rows);
@@ -126,8 +130,10 @@ SpriteAnimPlan resolve_sprite_animator(const SpriteAnimator& a, std::string_view
         p.loop = !a.loop ? false : clip->loop;
     }
     // loopMode wins over both the clip and the `loop` alias.
-    if (a.loopMode == SpriteLoopMode::Loop) p.loop = true;
-    else if (a.loopMode == SpriteLoopMode::Once) p.loop = false;
+    if (a.loopMode == SpriteLoopMode::Loop)
+        p.loop = true;
+    else if (a.loopMode == SpriteLoopMode::Once)
+        p.loop = false;
     // The picture of a sheet: its gutter and pivot apply when the animator's grid is the sheet's.
     if (sheet && p.columns == sheet->columns && p.rows == sheet->rows) {
         p.padding = sheet->padding;
@@ -152,8 +158,11 @@ int sprite_anim_frame(const SpriteAnimPlan& plan, int step) {
     const int count = std::max(1, plan.lastFrame - plan.firstFrame + 1);
     const int period = sprite_anim_steps(plan);
     int s = std::max(0, step);
-    s = plan.loop ? s % period : std::min(s, period);  // a pass that does not loop ends one step after the last (pingpong: back at the start)
-    int index;  // 0..count-1 along the clip
+    s = plan.loop
+            ? s % period
+            : std::min(s,
+                       period);  // a pass that does not loop ends one step after the last (pingpong: back at the start)
+    int index;                   // 0..count-1 along the clip
     switch (plan.mode) {
         case SpriteAnimMode::Reverse: index = count - 1 - std::min(s, count - 1); break;
         case SpriteAnimMode::PingPong: index = s < count ? s : 2 * count - 2 - s; break;
@@ -172,8 +181,10 @@ bool sprite_animator_step(SpriteAnimator& a, const SpriteAnimPlan& plan, float d
         a.frame = sprite_anim_frame(plan, 0);
     }
     if (a.ended && a.playing) {  // somebody resumed a finished animation: it runs again only if its time was rewound
-        if (plan.loop || int(std::floor(a.time * std::max(0.0f, plan.fps))) < sprite_anim_steps(plan)) a.ended = false;
-        else a.playing = false;
+        if (plan.loop || int(std::floor(a.time * std::max(0.0f, plan.fps))) < sprite_anim_steps(plan))
+            a.ended = false;
+        else
+            a.playing = false;
     }
     if (a.playing && dt > 0.0f && !a.ended) {
         a.time += dt;
@@ -223,18 +234,21 @@ void sprite_animator_fire_events(World& world, Entity e, SpriteAnimator& a, cons
                 world.events().game.push_back(GameEvent{name, std::move(data), e});
             }
             if (ev.contains("feel"))
-                feel_run_clip_actions(world, e, feel_event_actions(ev),
-                                      std::format("SpriteAnimator '{}' clip '{}' frame {}", world.id_of(e), a.clip, frame));
+                feel_run_clip_actions(
+                    world, e, feel_event_actions(ev),
+                    std::format("SpriteAnimator '{}' clip '{}' frame {}", world.id_of(e), a.clip, frame));
         }
     }
     a.eventStep = last;
 }
 
-std::vector<ClipIssue> check_sprite_event(const Json& ev, const std::string& ep, const std::shared_ptr<const assets::Sheet>& sheet) {
+std::vector<ClipIssue> check_sprite_event(const Json& ev, const std::string& ep,
+                                          const std::shared_ptr<const assets::Sheet>& sheet) {
     std::vector<ClipIssue> issues;
     if (!ev.is_object()) {
-        issues.push_back({ep, "a frame event is an object, got " + describe_json_value(ev),
-                          "Write {\"frame\": 9, \"name\": \"hit\"} or {\"frame\": 9, \"feel\": {\"action\": \"shake\"}}."});
+        issues.push_back(
+            {ep, "a frame event is an object, got " + describe_json_value(ev),
+             "Write {\"frame\": 9, \"name\": \"hit\"} or {\"frame\": 9, \"feel\": {\"action\": \"shake\"}}."});
         return issues;
     }
     const std::vector<std::string> allowed = {"frame", "clip", "name", "data", "feel"};
@@ -243,27 +257,37 @@ std::vector<ClipIssue> check_sprite_event(const Json& ev, const std::string& ep,
             issues.push_back({ep + "/" + it.key(), "unknown key '" + it.key() + "'", did_you_mean(it.key(), allowed)});
     const auto fit = ev.find("frame");
     if (fit == ev.end() || !fit->is_number_integer() || fit->get<std::int64_t>() < 0)
-        issues.push_back({ep + "/frame", fit == ev.end() ? "a frame event needs `frame`" : "frame must be a whole number from 0, got " + describe_json_value(*fit),
-                          "The grid frame that triggers it, numbered row-major from the top-left like firstFrame and lastFrame."});
+        issues.push_back(
+            {ep + "/frame",
+             fit == ev.end() ? "a frame event needs `frame`"
+                             : "frame must be a whole number from 0, got " + describe_json_value(*fit),
+             "The grid frame that triggers it, numbered row-major from the top-left like firstFrame and lastFrame."});
     if (const auto cit = ev.find("clip"); cit != ev.end()) {
         if (!cit->is_string() || cit->get<std::string>().empty()) {
-            issues.push_back({ep + "/clip", "clip must be the name of a clip of the sheet, got " + describe_json_value(*cit), "Leave `clip` out to fire in every clip."});
+            issues.push_back({ep + "/clip",
+                              "clip must be the name of a clip of the sheet, got " + describe_json_value(*cit),
+                              "Leave `clip` out to fire in every clip."});
         } else if (sheet && !sheet->find(cit->get<std::string>())) {
-            issues.push_back({ep + "/clip", "the sheet has no clip '" + cit->get<std::string>() + "'", did_you_mean(cit->get<std::string>(), sheet->clip_names())});
+            issues.push_back({ep + "/clip", "the sheet has no clip '" + cit->get<std::string>() + "'",
+                              did_you_mean(cit->get<std::string>(), sheet->clip_names())});
         }
     }
     if (const auto nit = ev.find("name"); nit != ev.end() && (!nit->is_string() || nit->get<std::string>().empty()))
-        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*nit), "The game event world.on(name, fn) listens to."});
+        issues.push_back({ep + "/name", "name must be a non-empty string, got " + describe_json_value(*nit),
+                          "The game event world.on(name, fn) listens to."});
     if (const auto dit = ev.find("data"); dit != ev.end() && !dit->is_object())
-        issues.push_back({ep + "/data", "data must be an object, got " + describe_json_value(*dit), "Write {\"hand\": \"left\"}."});
+        issues.push_back(
+            {ep + "/data", "data must be an object, got " + describe_json_value(*dit), "Write {\"hand\": \"left\"}."});
     std::vector<Json> feel;
     read_event_feel(ev, ep, feel, issues);
     if (!ev.contains("name") && !ev.contains("feel"))
-        issues.push_back({ep, "a frame event needs `name` or `feel`", "`name` sends a game event; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
+        issues.push_back({ep, "a frame event needs `name` or `feel`",
+                          "`name` sends a game event; `feel` runs game feel actions (docs/GAME_FEEL.md)."});
     return issues;
 }
 
-std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer, const std::shared_ptr<const assets::Sheet>& sheet) {
+std::vector<ClipIssue> check_sprite_events(const Json& events, const std::string& pointer,
+                                           const std::shared_ptr<const assets::Sheet>& sheet) {
     std::vector<ClipIssue> issues;
     if (!events.is_array()) {
         issues.push_back({pointer, "events must be an array, got " + describe_json_value(events),
@@ -282,7 +306,8 @@ Rect sprite_frame_rect(const SpriteAnimPlan& plan, int frame, int texW, int texH
     const int fr = std::max(0, frame);
     const float cw = float(texW) / float(cols), ch = float(texH) / float(rows);
     const float pad = float(plan.padding);
-    return Rect{float(fr % cols) * cw + pad, float((fr / cols) % rows) * ch + pad, std::max(1.0f, cw - 2 * pad), std::max(1.0f, ch - 2 * pad)};
+    return Rect{float(fr % cols) * cw + pad, float((fr / cols) % rows) * ch + pad, std::max(1.0f, cw - 2 * pad),
+                std::max(1.0f, ch - 2 * pad)};
 }
 
 Vec2 sprite_effective_pivot(const Sprite& s, const SpriteAnimator& a, const SpriteAnimPlan& plan) {
@@ -320,7 +345,9 @@ void update_sprite_animators(World& world, float dt) {
         // this loop walks it (a `spawn` instantiates its prefab in feel_update). Time that does not move (a paused game, the
         // editor's edit mode) fires none: nothing would drain what they queue.
         if (dt > 0.0f) sprite_animator_fire_events(world, e, a, plan);
-        if (ended) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
+        if (ended)
+            world.events().game.push_back(
+                GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
         auto dit = dims.find(s.texture);
         if (dit == dims.end()) dit = dims.emplace(s.texture, cpu_texture_dims(s.texture)).first;
         if (dit->second.known) s.region = sprite_frame_rect(plan, a.frame, dit->second.w, dit->second.h);
@@ -334,8 +361,11 @@ Result<void> sprite_animator_play(World& world, Entity e, std::string_view name,
         return make_error(std::format("entity '{}' has no {}", world.id_of(e), a ? "Sprite" : "SpriteAnimator"),
                           "Add both: entity.add(\"Sprite\", {texture}) and entity.add(\"SpriteAnimator\", {clip}).");
     const auto sheet = s->texture.empty() ? nullptr : assets::sheet(s->texture);
-    if (!sheet || !sheet->find(name)) return make_error(sprite_clip_error(s->texture, name, sheet), "Clip names are in the `sheet.clips` of assets.json (assets.preview_sheet lists them).");
-    if (!restart && a->clip == name && a->playing && !a->ended) return {};  // already playing it: calling play every frame does not restart
+    if (!sheet || !sheet->find(name))
+        return make_error(sprite_clip_error(s->texture, name, sheet),
+                          "Clip names are in the `sheet.clips` of assets.json (assets.preview_sheet lists them).");
+    if (!restart && a->clip == name && a->playing && !a->ended)
+        return {};  // already playing it: calling play every frame does not restart
     a->clip = std::string(name);
     a->playedClip.clear();  // the next step starts the clip over
     a->time = 0.0f;
@@ -346,15 +376,22 @@ Result<void> sprite_animator_play(World& world, Entity e, std::string_view name,
 
 Result<Json> sprite_animator_clips(World& world, Entity e) {
     const Sprite* s = world.get<Sprite>(e);
-    if (!s) return make_error(std::format("entity '{}' has no Sprite", world.id_of(e)), "Add a Sprite with the sheet as its texture.");
+    if (!s)
+        return make_error(std::format("entity '{}' has no Sprite", world.id_of(e)),
+                          "Add a Sprite with the sheet as its texture.");
     const auto sheet = s->texture.empty() ? nullptr : assets::sheet(s->texture);
     if (!sheet)
-        return make_error(std::format("'{}' has no `sheet` entry in assets.json, so it has no clips.", s->texture),
-                          "assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write one.");
+        return make_error(
+            std::format("'{}' has no `sheet` entry in assets.json, so it has no clips.", s->texture),
+            "assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write one.");
     Json out = Json::array();
     for (const assets::SheetClip& c : sheet->clips) {
-        Json j = Json::object({{"name", c.name}, {"firstFrame", c.firstFrame}, {"lastFrame", c.lastFrame},
-                               {"frames", c.lastFrame - c.firstFrame + 1}, {"fps", c.fps}, {"loop", c.loop}});
+        Json j = Json::object({{"name", c.name},
+                               {"firstFrame", c.firstFrame},
+                               {"lastFrame", c.lastFrame},
+                               {"frames", c.lastFrame - c.firstFrame + 1},
+                               {"fps", c.fps},
+                               {"loop", c.loop}});
         const auto piv = c.pivot ? c.pivot : sheet->pivot;
         if (piv) j["pivot"] = Json::array({(*piv)[0], (*piv)[1]});
         out.push_back(std::move(j));

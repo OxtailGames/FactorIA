@@ -55,6 +55,8 @@ tools/             developer tools (desktop only)
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
   vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
+  bench/           fa_bench    the engine's microbenchmarks (ECS queries, hierarchy, physics, render gather, command dispatch, script bridge, audio mix) with a baseline per machine kind (docs/PERFORMANCE.md, "Microbenchmarks")
+  fuzz/            fuzz targets of the loaders and decoders (libFuzzer with `FA_FUZZ`, a corpus replay ctest otherwise; docs/BUILDING.md, "Fuzzing")
   shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc
   feedback-server/ the Cloudflare Worker behind feedback sharing (JavaScript, its own npm tooling; docs/design/FEEDBACK_SHARING.md)
   ci/              docker/: the image of the local Linux CI job (scripts/ci-local.sh)

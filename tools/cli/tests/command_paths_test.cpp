@@ -52,7 +52,8 @@ struct EnvironmentGuard {
 struct Sandbox {
     ScratchFolder scratch;
     stdfs::path root = scratch.path;
-    EnvironmentGuard environment;  // after `scratch`: it goes first, so the folder is no longer the working directory when removed
+    EnvironmentGuard
+        environment;  // after `scratch`: it goes first, so the folder is no longer the working directory when removed
     std::string dir;
     Sandbox() {
         ScaffoldOptions opt;
@@ -71,9 +72,11 @@ struct Sandbox {
         REQUIRE(fs::write_text(dir + "/locales/en.json", R"({"menu":{"play":"Play"}})").ok());
         REQUIRE(fs::write_text(dir + "/locales/es.json", R"({"menu":{"play":"Jugar"}})").ok());
         // vector.to_rig reads the groups of a drawing.
-        REQUIRE(fs::write_text(dir + "/assets/art/hero.svg",
-                               R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><g id="body"><rect width="10" height="10" fill="#f00"/></g></svg>)")
-                    .ok());
+        REQUIRE(
+            fs::write_text(
+                dir + "/assets/art/hero.svg",
+                R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><g id="body"><rect width="10" height="10" fill="#f00"/></g></svg>)")
+                .ok());
     }
     // The names inside `root` other than the project.
     std::set<std::string> strangers() const {
@@ -128,11 +131,14 @@ Json sample_value(const Json& schema, int depth) {
     if (schema.contains("const")) return schema["const"];
     if (auto e = schema.find("enum"); e != schema.end() && e->is_array() && !e->empty()) return (*e)[0];
     for (const char* key : {"oneOf", "anyOf"})
-        if (auto alt = schema.find(key); alt != schema.end() && alt->is_array() && !alt->empty()) return sample_value((*alt)[0], depth + 1);
+        if (auto alt = schema.find(key); alt != schema.end() && alt->is_array() && !alt->empty())
+            return sample_value((*alt)[0], depth + 1);
     std::string type = "string";
     if (auto t = schema.find("type"); t != schema.end()) {
-        if (t->is_string()) type = t->get<std::string>();
-        else if (t->is_array() && !t->empty() && (*t)[0].is_string()) type = (*t)[0].get<std::string>();
+        if (t->is_string())
+            type = t->get<std::string>();
+        else if (t->is_array() && !t->empty() && (*t)[0].is_string())
+            type = (*t)[0].get<std::string>();
     }
     if (type == "boolean") return Json(false);
     if (type == "integer") return Json(static_cast<long long>(std::max(1.0, schema.value("minimum", 1.0))));
@@ -140,7 +146,8 @@ Json sample_value(const Json& schema, int depth) {
     if (type == "array") {
         Json arr = Json::array();
         const std::size_t n = static_cast<std::size_t>(schema.value("minItems", 0));
-        for (std::size_t i = 0; i < n; ++i) arr.push_back(schema.contains("items") ? sample_value(schema["items"], depth + 1) : Json("x"));
+        for (std::size_t i = 0; i < n; ++i)
+            arr.push_back(schema.contains("items") ? sample_value(schema["items"], depth + 1) : Json("x"));
         return arr;
     }
     if (type == "object") {
@@ -177,8 +184,10 @@ std::string way_text(const Way& way) {
 // schema's `required` says belongs here only when no sample can reach its path check.
 const std::map<std::string, std::string>& skipped_commands() {
     static const std::map<std::string, std::string> skip = {
-        {"input.record", "`path` is only judged by `stop`, which needs a recording started first: command_capabilities_tests calls it."},
-        {"music.drums /pictureOut", "only used when `path` names a song, which the project here has none of; add_piano_roll judges it as music.info does."},
+        {"input.record", "`path` is only judged by `stop`, which needs a recording started first: "
+                         "command_capabilities_tests calls it."},
+        {"music.drums /pictureOut", "only used when `path` names a song, which the project here has none of; "
+                                    "add_piano_roll judges it as music.info does."},
         {"music.arpeggio /pictureOut", "as music.drums /pictureOut."},
         {"music.bassline /pictureOut", "as music.drums /pictureOut."},
     };
@@ -194,7 +203,8 @@ Json extra_arguments(const std::string& name) {
         {"image.pixel.dither", Json::parse(R"({"gradient":null,"level":0.5,"colors":["#000000","#ffffff"]})")},
         {"image.pixel.scale", Json::parse(R"({"size":null,"factor":2})")},
         {"image.pixel.shade", Json::parse(R"({"light":45})")},
-        {"model.preview", Json::parse(R"({"document":{"format":"factoria.model/1","nodes":[{"op":"box","size":[1,1,1]}]}})")},
+        {"model.preview",
+         Json::parse(R"({"document":{"format":"factoria.model/1","nodes":[{"op":"box","size":[1,1,1]}]}})")},
         {"music.drums", Json::parse(R"({"style":"rock","picture":true})")},
         {"music.instrument", Json::parse(R"({"name":"pluck"})")},
         {"prefab.save", Json::parse(R"({"id":"camera"})")},
@@ -202,14 +212,16 @@ Json extra_arguments(const std::string& name) {
         {"sfx.preset", Json::parse(R"({"name":"coin"})")},
         {"vector.to_rig", Json::parse(R"({"source":"assets/art/hero.svg"})")},
     };
-    if (name.rfind("vector.", 0) == 0 && name != "vector.to_rig")  // the SVG comes from `svg`: `source`, `document` and `out` are free
+    if (name.rfind("vector.", 0) == 0 &&
+        name != "vector.to_rig")  // the SVG comes from `svg`: `source`, `document` and `out` are free
         return Json::parse(R"({"svg":"<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'/>"})");
     const auto it = extra.find(name);
     return it == extra.end() ? Json::object() : it->second;
 }
 
 bool refused_by_path_rules(const std::string& code) {
-    return code == "path_outside_root" || code == "absolute_path_denied" || code == "invalid_path" || code == "managed_path_denied";
+    return code == "path_outside_root" || code == "absolute_path_denied" || code == "invalid_path" ||
+           code == "managed_path_denied";
 }
 
 std::vector<const CommandInfo*> all_commands(CommandRegistry& session, CommandRegistry& bootstrap) {
@@ -237,13 +249,17 @@ TEST_CASE("every registered command declares its capabilities (M92)") {
         if (!c->capabilitiesDeclared) undeclared += (undeclared.empty() ? "" : ", ") + c->name;
     }
     CHECK(count > 150);
-    CHECK_MESSAGE(undeclared.empty(),
-                  "commands without a capability declaration (declare them with declare_command_capabilities in their module): " << undeclared);
+    CHECK_MESSAGE(
+        undeclared.empty(),
+        "commands without a capability declaration (declare them with declare_command_capabilities in their module): "
+            << undeclared);
 }
 
 namespace {
 
-bool contains(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool contains(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 // What a call that was given a bad path came to.
 struct Outcome {
@@ -255,22 +271,28 @@ struct Outcome {
 // Calls `info` with the sample arguments, `extra` on top and `bad` where `target` leads. With `others` (the other path arguments),
 // `bad` also goes into those the sample or `extra` already gave: a command that reads one file and writes another may judge the
 // first before it gets to the second.
-Outcome call_with(CommandRegistry& reg, const CommandInfo& info, const Way& target, const std::vector<Way>& others, const std::string& bad,
-                  const Json& extra) {
+Outcome call_with(CommandRegistry& reg, const CommandInfo& info, const Way& target, const std::vector<Way>& others,
+                  const std::string& bad, const Json& extra) {
     std::string argument;  // the name of the tested argument: the last property on the way to it
     for (const std::string& w : target)
         if (w.rfind("p:", 0) == 0) argument = w.substr(2);
     Json args = sample_value(info.inputSchema);
     if (!args.is_object()) args = Json::object();
     for (auto it = extra.begin(); it != extra.end(); ++it) {
-        if (it.value().is_null()) args.erase(it.key());
-        else args[it.key()] = it.value();
+        if (it.value().is_null())
+            args.erase(it.key());
+        else
+            args[it.key()] = it.value();
     }
     // `svg` is an input of the vector commands only where their schema has it (vector.to_rig has not).
-    if (args.contains("svg") && !(info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("svg"))) args.erase("svg");
-    if (target.size() == 1 && target[0] != "i" && (target[0] == "p:source" || target[0] == "p:document")) args.erase("svg");
+    if (args.contains("svg") &&
+        !(info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("svg")))
+        args.erase("svg");
+    if (target.size() == 1 && target[0] != "i" && (target[0] == "p:source" || target[0] == "p:document"))
+        args.erase("svg");
     for (const Way& way : others)
-        if (!way.empty() && way[0].rfind("p:", 0) == 0 && args.contains(way[0].substr(2))) set_way(args, way, 0, Json(bad));
+        if (!way.empty() && way[0].rfind("p:", 0) == 0 && args.contains(way[0].substr(2)))
+            set_way(args, way, 0, Json(bad));
     set_way(args, target, 0, Json(bad));
     const CommandResult r = reg.call(info.name, args);
     Outcome o;
@@ -336,8 +358,10 @@ TEST_CASE("every schema property marked x-fa-path write is confined for an MCP c
                         std::error_code ec;
                         for (const std::string& n : outside) stdfs::remove_all(box.root / fs::path_from_utf8(n), ec);
                     }
-                    if (!o.refused) notRefused += label + " succeeded";
-                    else if (!o.aboutPath) unreached += label + " -> " + o.code + ": " + o.message.substr(0, 110);
+                    if (!o.refused)
+                        notRefused += label + " succeeded";
+                    else if (!o.aboutPath)
+                        unreached += label + " -> " + o.code + ": " + o.message.substr(0, 110);
                 }
             }
         }
@@ -345,13 +369,14 @@ TEST_CASE("every schema property marked x-fa-path write is confined for an MCP c
     CHECK(targets > 40);
     CHECK_MESSAGE(created.empty(), "writers that created something outside the project:" << created);
     CHECK_MESSAGE(notRefused.empty(), "writers that accepted a path outside the project:" << notRefused);
-    CHECK_MESSAGE(unreached.empty(),
-                  "writers whose bad path was never judged (another argument failed first: give the sample the arguments it needs in "
-                  "extra_arguments(), or list the command in skipped_commands() with the reason):" << unreached);
+    CHECK_MESSAGE(unreached.empty(), "writers whose bad path was never judged (another argument failed first: give the "
+                                     "sample the arguments it needs in "
+                                     "extra_arguments(), or list the command in skipped_commands() with the reason):"
+                                         << unreached);
     for (const auto& [name, why] : skipped_commands()) {
         CAPTURE(name);
         CHECK_FALSE(why.empty());
-        CHECK(commandsWithTargets.count(name));  // a skipped command that is gone or has no writing path is removed from the table
+        CHECK(commandsWithTargets.count(
+            name));  // a skipped command that is gone or has no writing path is removed from the table
     }
 }
-

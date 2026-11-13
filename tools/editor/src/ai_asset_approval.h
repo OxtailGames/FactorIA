@@ -25,7 +25,7 @@ namespace fa::editor {
 struct AssetCard {
     u64 id = 0;
     std::string chatId;  // the chat whose run asked (AssetApprovalRequest::runKey)
-    Json plan;           // {command, what, kind, provider, model, count, estimatedCostUsd, basis, prompt, priceChecked...}
+    Json plan;  // {command, what, kind, provider, model, count, estimatedCostUsd, basis, prompt, priceChecked...}
 };
 
 class AssetApprovals {

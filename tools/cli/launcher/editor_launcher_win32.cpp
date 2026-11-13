@@ -13,7 +13,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR args, int) {
     STARTUPINFOW si{};
     si.cb = sizeof si;
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+    if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &pi)) {
         std::wstring msg = L"Cannot start " + exe + L" (error " + std::to_wstring(GetLastError()) +
                            L").\n\nFactorIA-Editor.exe must be in the same folder as factoria.exe.";
         MessageBoxW(nullptr, msg.c_str(), L"FactorIA", MB_ICONERROR);

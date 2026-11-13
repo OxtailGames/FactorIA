@@ -11,6 +11,7 @@
 #include <transcoder/basisu_transcoder.h>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/render/ktx2.h"
 #include "fa/scene/bounds.h"
 
 using namespace fa;
@@ -86,9 +87,7 @@ void install_fixture(const char* name, const std::string& projectPath) {
     put_file(projectPath, std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()));
 }
 
-void put_png(const std::string& projectPath, const Image& img) {
-    REQUIRE(save_png(img, projectPath).ok());
-}
+void put_png(const std::string& projectPath, const Image& img) { REQUIRE(save_png(img, projectPath).ok()); }
 
 void remove_file(const std::string& projectPath) {
     std::error_code ec;
@@ -112,8 +111,10 @@ struct ScopedEnv {
 #if defined(_WIN32)
         _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -181,7 +182,8 @@ TEST_CASE("textures: a KTX2 twin is drawn in place of the texture it replaces, w
     MESSAGE("GPU format picked for a KTX2 texture: " << format);
     CHECK((format == "ASTC_4x4" || format == "BC7" || format == "ETC2_RGBA8" || format == "RGBA8"));
     CHECK(entry["bytes"] == expected_bytes(format, 12, 8));
-    CHECK(texture_entry(g, "assets/kt_ref.png")["bytes"] == expected_bytes("RGBA8", 12, 8));  // uncompressed: 3 times more
+    CHECK(texture_entry(g, "assets/kt_ref.png")["bytes"] ==
+          expected_bytes("RGBA8", 12, 8));  // uncompressed: 3 times more
     CHECK_FALSE(has_failure(g, "assets/kt_twin.png"));
 
     // Lossy, so not identical to the PNG; but the same picture. The pattern is the worst case for a block codec (a
@@ -191,7 +193,15 @@ TEST_CASE("textures: a KTX2 twin is drawn in place of the texture it replaces, w
     CHECK(d.sameSize);
     CHECK(d.meanError < 0.01);
     // Not just the clear colour.
-    CHECK(diff_images(a, [&] { World w; single_sprite(w, ""); return g.render(w); }(), 0.02f).meanError > 0.02);
+    CHECK(diff_images(
+              a,
+              [&] {
+                  World w;
+                  single_sprite(w, "");
+                  return g.render(w);
+              }(),
+              0.02f)
+              .meanError > 0.02);
 }
 
 TEST_CASE("textures: FA_TEXTURE_FORMAT picks the format, and every choice draws the same picture") {
@@ -230,7 +240,8 @@ TEST_CASE("textures: FA_TEXTURE_FORMAT picks the format, and every choice draws 
         INFO("meanError=" << d.meanError);
         CHECK(d.meanError < bound);
     }
-    if (!anyCompressed) MESSAGE("this GPU samples none of ASTC 4x4, BC7 and ETC2: KTX2 textures were transcoded to RGBA8");
+    if (!anyCompressed)
+        MESSAGE("this GPU samples none of ASTC 4x4, BC7 and ETC2: KTX2 textures were transcoded to RGBA8");
 }
 
 TEST_CASE("textures: a size that is not a whole number of 4x4 blocks is transcoded to RGBA8, without a GPU error") {
@@ -251,7 +262,8 @@ TEST_CASE("textures: a size that is not a whole number of 4x4 blocks is transcod
     CHECK(entry["format"] == "RGBA8");  // D3D11 and WebGPU would refuse BC7 here
     CHECK(entry["bytes"] == expected_bytes("RGBA8", 10, 6));
     CHECK(diff_images(a, b, 8.0f / 255.0f).meanError < 0.01);
-    for (const auto& l : recent_logs(100, LogLevel::Error)) CHECK_MESSAGE(l.message.find("ko_twin") == std::string::npos, l.message);
+    for (const auto& l : recent_logs(100, LogLevel::Error))
+        CHECK_MESSAGE(l.message.find("ko_twin") == std::string::npos, l.message);
 }
 
 TEST_CASE("textures: ETC1S files load too") {
@@ -273,7 +285,8 @@ TEST_CASE("textures: ETC1S files load too") {
     CHECK(d.meanError < 0.02);  // ETC1S trades quality for size: looser than UASTC, still the same gradient
 }
 
-TEST_CASE("textures: a damaged twin falls back to the placeholder with one error, and a fixed file loads on hot reload") {
+TEST_CASE(
+    "textures: a damaged twin falls back to the placeholder with one error, and a fixed file loads on hot reload") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     clear_recent_logs();
@@ -336,7 +349,8 @@ struct AtlasFixture {
     AtlasFixture() {
         // Frame 2 of the sheet is another picture, so a wrong frame shows.
         for (int y = 0; y < 8; ++y)
-            for (int x = 8; x < 16; ++x) sheet.set_pixel(x, y, Color{1.0f - float(x - 8) / 8.0f, 0.2f, float(y) / 8.0f, 1});
+            for (int x = 8; x < 16; ++x)
+                sheet.set_pixel(x, y, Color{1.0f - float(x - 8) / 8.0f, 0.2f, float(y) / 8.0f, 1});
         Image atlas;
         atlas.width = 64;
         atlas.height = 32;
@@ -353,8 +367,9 @@ struct AtlasFixture {
     }
     static std::string manifest() {
         auto entry = [](const char* path, int x, int y, int w, int h) {
-            return std::string("\"") + path + "\": {\"packed\": {\"atlas\": \"assets/atlases/g.png\", \"rect\": [" + std::to_string(x) + ", " +
-                   std::to_string(y) + ", " + std::to_string(w) + ", " + std::to_string(h) + "]}}";
+            return std::string("\"") + path + "\": {\"packed\": {\"atlas\": \"assets/atlases/g.png\", \"rect\": [" +
+                   std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(w) + ", " + std::to_string(h) +
+                   "]}}";
         };
         return "{\"format\": \"factoria.assets/1\", \"assets\": {" + entry("assets/pk_a.png", 2, 2, 8, 8) + ", " +
                entry("assets/pk_b.png", 16, 2, 12, 6) + ", " + entry("assets/pk_sheet.png", 2, 18, 16, 8) + ", " +
@@ -521,13 +536,15 @@ TEST_CASE("textures: a texture packed into an atlas that cannot be loaded is one
 // The GPU on a development machine samples one or two of these formats, so the others are checked on the data itself:
 // every format the engine asks the transcoder for must come out for every mip of every codec, and ASTC (what phones
 // sample) must decode to the same picture as the RGBA32 transcoding. UASTC is a subset of ASTC, so for it that is exact.
-TEST_CASE("textures: every format the engine transcodes to works for every mip of both codecs, and ASTC decodes to the picture") {
+TEST_CASE("textures: every format the engine transcodes to works for every mip of both codecs, and ASTC decodes to the "
+          "picture") {
     basist::basisu_transcoder_init();
     struct Fixture {
         const char* file;
         bool uastc;
     };
-    for (const Fixture& fx : {Fixture{"uastc_12x8.ktx2", true}, Fixture{"uastc_10x6.ktx2", true}, Fixture{"etc1s_16x16.ktx2", false}}) {
+    for (const Fixture& fx :
+         {Fixture{"uastc_12x8.ktx2", true}, Fixture{"uastc_10x6.ktx2", true}, Fixture{"etc1s_16x16.ktx2", false}}) {
         CAPTURE(fx.file);
         std::ifstream in(stdfs::path(FA_RENDER_DATA_DIR) / fx.file, std::ios::binary);
         REQUIRE(in.good());
@@ -539,7 +556,8 @@ TEST_CASE("textures: every format the engine transcodes to works for every mip o
         REQUIRE(ktx.get_levels() >= 2);  // the export wrote the whole mip chain
 
         using Format = basist::transcoder_texture_format;
-        for (const Format format : {Format::cTFASTC_4x4_RGBA, Format::cTFBC7_RGBA, Format::cTFETC2_RGBA, Format::cTFRGBA32}) {
+        for (const Format format :
+             {Format::cTFASTC_4x4_RGBA, Format::cTFBC7_RGBA, Format::cTFETC2_RGBA, Format::cTFRGBA32}) {
             CAPTURE(int(format));
             for (std::uint32_t level = 0; level < ktx.get_levels(); ++level) {
                 basist::ktx2_image_level_info info{};
@@ -554,9 +572,11 @@ TEST_CASE("textures: every format the engine transcodes to works for every mip o
         // Level 0: ASTC blocks decoded in software against the RGBA32 transcoding.
         basist::ktx2_image_level_info info{};
         REQUIRE(ktx.get_image_level_info(info, 0, 0, 0));
-        std::vector<std::uint8_t> astc(std::size_t(info.m_total_blocks) * 16), rgba(std::size_t(info.m_orig_width) * info.m_orig_height * 4);
+        std::vector<std::uint8_t> astc(std::size_t(info.m_total_blocks) * 16),
+            rgba(std::size_t(info.m_orig_width) * info.m_orig_height * 4);
         REQUIRE(ktx.transcode_image_level(0, 0, 0, astc.data(), info.m_total_blocks, Format::cTFASTC_4x4_RGBA));
-        REQUIRE(ktx.transcode_image_level(0, 0, 0, rgba.data(), info.m_orig_width * info.m_orig_height, Format::cTFRGBA32));
+        REQUIRE(
+            ktx.transcode_image_level(0, 0, 0, rgba.data(), info.m_orig_width * info.m_orig_height, Format::cTFRGBA32));
         double sum = 0;
         int worst = 0;
         for (std::uint32_t y = 0; y < info.m_orig_height; ++y) {
@@ -567,7 +587,8 @@ TEST_CASE("textures: every format the engine transcodes to works for every mip o
                 REQUIRE(astc_helpers::unpack_block(blockData, logical, 4, 4));
                 REQUIRE(astc_helpers::decode_block(logical, pixels, 4, 4, astc_helpers::cDecodeModeLDR8));
                 for (int c = 0; c < 4; ++c) {
-                    const int diff = std::abs(int(pixels[((y % 4) * 4 + x % 4) * 4 + c]) - int(rgba[(std::size_t(y) * info.m_orig_width + x) * 4 + c]));
+                    const int diff = std::abs(int(pixels[((y % 4) * 4 + x % 4) * 4 + c]) -
+                                              int(rgba[(std::size_t(y) * info.m_orig_width + x) * 4 + c]));
                     sum += diff;
                     worst = std::max(worst, diff);
                 }
@@ -578,4 +599,72 @@ TEST_CASE("textures: every format the engine transcodes to works for every mip o
         CHECK(mean < (fx.uastc ? 0.5 : 6.0));
         if (fx.uastc) CHECK(worst <= 2);
     }
+}
+
+namespace {
+std::vector<std::uint8_t> read_fixture(const char* name) {
+    std::ifstream in(stdfs::path(FA_RENDER_DATA_DIR) / name, std::ios::binary);
+    REQUIRE_MESSAGE(in.good(), "missing fixture " << name);
+    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+}  // namespace
+
+TEST_CASE("decode_ktx2: UASTC and ETC1S files decode on the CPU to the picture they were made from") {
+    const std::vector<std::uint8_t> uastc = read_fixture("uastc_12x8.ktx2");
+    auto img = decode_ktx2(uastc.data(), uastc.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 12);
+    CHECK(img->height == 8);
+    REQUIRE(img->rgba.size() == 12 * 8 * 4);
+    {  // exactly what the transcoder itself makes of the base level (the picture it encodes is lossy, the transcoding is not)
+        basist::basisu_transcoder_init();
+        basist::ktx2_transcoder ktx;
+        REQUIRE(ktx.init(uastc.data(), std::uint32_t(uastc.size())));
+        REQUIRE(ktx.start_transcoding());
+        std::vector<std::uint8_t> ref(12 * 8 * 4);
+        REQUIRE(ktx.transcode_image_level(0, 0, 0, ref.data(), 12 * 8, basist::transcoder_texture_format::cTFRGBA32));
+        CHECK(img->rgba == ref);
+    }
+
+    const std::vector<std::uint8_t> odd = read_fixture("uastc_10x6.ktx2");  // not a whole number of 4x4 blocks
+    img = decode_ktx2(odd.data(), odd.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 10);
+    CHECK(img->height == 6);
+
+    const std::vector<std::uint8_t> etc1s = read_fixture("etc1s_16x16.ktx2");
+    img = decode_ktx2(etc1s.data(), etc1s.size());
+    REQUIRE(img.ok());
+    CHECK(img->width == 16);
+    CHECK(img->rgba.size() == 16 * 16 * 4);
+}
+
+TEST_CASE("decode_ktx2: a damaged, truncated or lying file is an error, never a crash or a huge allocation") {
+    CHECK_FALSE(decode_ktx2(nullptr, 0).ok());
+    const std::uint8_t junk[] = {1, 2, 3};
+    CHECK_FALSE(decode_ktx2(junk, sizeof(junk)).ok());
+
+    const std::vector<std::uint8_t> good = read_fixture("uastc_12x8.ktx2");
+    // Every cut of the file: the header, the level index, the supercompression data, the pixel blocks.
+    for (std::size_t cut = 0; cut < good.size(); cut += 7) (void)decode_ktx2(good.data(), cut);
+    CHECK_FALSE(decode_ktx2(good.data(), 60).ok());
+
+    // The header says 16000 x 16000 pixels (1 GB of RGBA): refused before the transcoder asks for the memory.
+    std::vector<std::uint8_t> lie = good;
+    for (int i = 0; i < 4; ++i) {
+        lie[20 + i] = std::uint8_t(16000u >> (8 * i));  // pixelWidth
+        lie[24 + i] = std::uint8_t(16000u >> (8 * i));  // pixelHeight
+    }
+    const auto refused = decode_ktx2(lie.data(), lie.size());
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().message.find("16000 x 16000") != std::string::npos);
+    CHECK_FALSE(refused.error().hint.empty());
+
+    // Without supercompression a level's stored length and unpacked length are one number; the transcoder only asserts it.
+    std::vector<std::uint8_t> uneven = good;
+    REQUIRE(uneven[44] == 0);  // supercompressionScheme: none
+    uneven[80 + 16] ^= 0x10;   // level 0's uncompressedByteLength no longer equals its byteLength
+    const auto unequal = decode_ktx2(uneven.data(), uneven.size());
+    REQUIRE_FALSE(unequal.ok());
+    CHECK(unequal.error().message.find("mip level 0") != std::string::npos);
 }

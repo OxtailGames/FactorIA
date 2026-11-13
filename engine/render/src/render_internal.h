@@ -32,7 +32,15 @@ namespace fa::render {
 // one 48-byte vertex (static_assert below); `mode` selects the fragment path (see shaders/quad.glsl).
 // kModeLit (+1 for a left-handed normal-map frame) is a textured quad shaded by the 2D lights; `aux` is then the angle of
 // the picture's right axis in the world (radians). See set_lit() and shaders/quad.glsl.
-enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5, kModeShape = 7 };
+enum QuadMode : int {
+    kModeTextured = 0,
+    kModeCircle = 1,
+    kModeRing = 2,
+    kModeSoft = 3,
+    kModeGlyph = 4,
+    kModeLit = 5,
+    kModeShape = 7
+};
 
 // kModeShape (Shape2D rounded rectangle / circle with a soft edge or a gradient) uses the fields after `aux`; every other
 // mode leaves them zero. The `aux` encoding is documented in shaders/quad.glsl.
@@ -41,9 +49,10 @@ struct Vertex2D {
     float u, v;
     std::uint32_t color;  // 0xAABBGGRR
     float mode, aux;
-    std::uint32_t color2 = 0;           // kModeShape: gradient end colour
-    float halfW = 0, halfH = 0;         // kModeShape: half size of the shape's box in local units
-    std::uint16_t radius = 0, softness = 0;  // kModeShape: corner radius and soft edge width in local units, as IEEE half floats
+    std::uint32_t color2 = 0;    // kModeShape: gradient end colour
+    float halfW = 0, halfH = 0;  // kModeShape: half size of the shape's box in local units
+    std::uint16_t radius = 0,
+                  softness = 0;  // kModeShape: corner radius and soft edge width in local units, as IEEE half floats
 };
 static_assert(sizeof(Vertex2D) == 48, "Vertex2D must be 48 bytes");
 
@@ -64,8 +73,10 @@ struct MeshVertex {
     float px, py, pz;
     float nx, ny, nz;
     float u, v;
-    float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
-    std::uint32_t color = 0xFFFFFFFFu;     // vertex color, rgba as four normalized bytes (r in the lowest byte): white = no tint
+    float tx = 0, ty = 0, tz = 0,
+          tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
+    std::uint32_t color =
+        0xFFFFFFFFu;  // vertex color, rgba as four normalized bytes (r in the lowest byte): white = no tint
 };
 static_assert(sizeof(MeshVertex) == 52, "MeshVertex must be 52 bytes");
 
@@ -76,7 +87,8 @@ inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
 }
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
-constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
+constexpr int kMaxLights =
+    32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
@@ -135,7 +147,7 @@ struct TextureAsset {
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
     sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
-    std::size_t bytes = 0;                           // GPU memory of all mip levels
+    std::size_t bytes = 0;                          // GPU memory of all mip levels
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
     TextureAsset* atlas = nullptr;
     int atlasX = 0, atlasY = 0;
@@ -189,16 +201,16 @@ const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC
 
 struct SubMesh {
     sg_buffer vb{};
-    sg_buffer skinVb{};               // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
-    int skin = -1;                    // index of the glTF skin that deforms it (-1 = not skinned)
+    sg_buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
+    int skin = -1;       // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
-    int ibOffset = 0;                 // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
+    int ibOffset = 0;  // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
     int indexCount = 0;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
-    std::string materialName;         // glTF material name ("" = none): the key of MeshRenderer.materialColors
+    std::string materialName;  // glTF material name ("" = none): the key of MeshRenderer.materialColors
     Color baseColor{1, 1, 1, 1};
-    TextureAsset* texture = nullptr;  // glTF base color texture (owned by Assets)
+    TextureAsset* texture = nullptr;       // glTF base color texture (owned by Assets)
     TextureAsset* normalTex = nullptr;     // glTF normalTexture
     TextureAsset* mrTex = nullptr;         // glTF metallicRoughnessTexture (g = roughness, b = metallic)
     TextureAsset* occlusionTex = nullptr;  // glTF occlusionTexture (r)
@@ -225,18 +237,18 @@ struct MeshAsset {
 // but the GPU upload, which Assets::adopt_texture / adopt_mesh do on the main thread. Made by the same code a load on first
 // use runs, so both give the same asset.
 struct PreparedTexture {
-    std::string key;    // the cache key it is for: the texture's path, or the atlas an export packed it into
-    std::string file;   // the file read (a KTX2 twin when the export made one)
+    std::string key;   // the cache key it is for: the texture's path, or the atlas an export packed it into
+    std::string file;  // the file read (a KTX2 twin when the export made one)
     bool ktx2 = false;
-    Image image;        // !ktx2: the picture
-    std::vector<Image> chain;  // !ktx2: its mip chain (chain[0] unused, as mip_chain gives it)
+    Image image;                   // !ktx2: the picture
+    std::vector<Image> chain;      // !ktx2: its mip chain (chain[0] unused, as mip_chain gives it)
     TranscodedTexture transcoded;  // ktx2
 };
 struct PreparedTextureRef {  // one texture slot of a glTF material
     enum class Kind { None, Path, Image, Missing } kind = Kind::None;
-    std::string path;   // Path: the project path of the image file
-    std::string name;   // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
-    Image image;        // Image
+    std::string path;         // Path: the project path of the image file
+    std::string name;         // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
+    Image image;              // Image
     std::string error, hint;  // Missing
 };
 struct PreparedPart {
@@ -253,7 +265,8 @@ struct PreparedMesh {
     std::vector<std::string> warnings;  // logged when it is uploaded, on the main thread
 };
 // glTF bytes -> a prepared mesh (any thread; reads the model's buffers through fa::fs). False + `error` when unusable.
-bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t size, PreparedMesh& out, std::string& error);
+bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t size, PreparedMesh& out,
+                 std::string& error);
 // A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread.
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
                                             std::size_t size, sg_pixel_format ktx2Format);
@@ -262,20 +275,21 @@ Result<PreparedTexture> decode_texture_file(const std::string& key, const std::s
 struct GlyphInfo {
     float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // pixel offsets from the pen position on the baseline, y DOWN
-    bool empty = false;           // whitespace or a missing character: no bitmap
+    bool empty = false;                    // whitespace or a missing character: no bitmap
 };
 
 struct TextQuad {
     float x0, y0, x1, y1;  // local units, y UP, relative to the entity origin after pivot
     float u0, v0, u1, v1;
     std::uint16_t color = 0;  // rich text: 0 = the Text's colour, k = palette[k - 1] of the layout
-    std::int32_t grapheme = 0;  // the grapheme cluster of the text (markup tags not counted) this glyph belongs to: Text.visibleCharacters
+    std::int32_t grapheme =
+        0;  // the grapheme cluster of the text (markup tags not counted) this glyph belongs to: Text.visibleCharacters
 };
 
 // A picture of a rich text ([icon:name]): the rectangle it fills, in the units of TextQuad.
 struct IconQuad {
     float x0, y0, x1, y1;
-    int def;  // index into TextLayout::iconDefs
+    int def;                    // index into TextLayout::iconDefs
     std::int32_t grapheme = 0;  // as TextQuad::grapheme
 };
 
@@ -301,15 +315,17 @@ struct PipelineKey {
 // Custom materials (MeshRenderer.material, docs/design/CUSTOM_SHADERS.md)
 // ---------------------------------------------------------------------------
 class Assets;
-constexpr int kMaxMaterialParams = 16, kMaxMaterialTextures = 4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
+constexpr int kMaxMaterialParams = 16,
+              kMaxMaterialTextures =
+                  4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
 struct MaterialProgram {
-    sg_shader shader{};                  // id 0 = the material has no such program
+    sg_shader shader{};                                       // id 0 = the material has no such program
     std::uint32_t ubMask = 0, viewMask = 0, samplerMask = 0;  // bit n = slot n is declared
-    std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};   // bytes of each declared uniform block
+    std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};    // bytes of each declared uniform block
     bool has_ub(int slot) const { return (ubMask >> slot) & 1u; }
 };
 enum MaterialProgramId : int { kProgMesh, kProgMeshSkin, kProgShadow, kProgShadowSkin, kProgCount };
@@ -333,9 +349,9 @@ struct MaterialAsset {
     std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
     MaterialProgram programs[kProgCount];
-    bool ok = false;      // false = drawn with the error material
-    std::string error;    // the last build error (kept while an older good build still draws)
-    int generation = 0;   // counts successful builds
+    bool ok = false;                         // false = drawn with the error material
+    std::string error;                       // the last build error (kept while an older good build still draws)
+    int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
 };
 
@@ -366,12 +382,13 @@ struct QuadItem {
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
-    Rect clip{};  // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
-    bool lit = false;                 // shaded by the 2D lights (kModeLit quads)
-    TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
-    bool plain = true;                // every quad is kModeTextured (QuadList::quad clears it)
-    bool opaque = false;              // QuadList::set_opaque(): the quads hide what is under them
-    std::uint32_t flash = 0;          // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
+    Rect clip{};       // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
+    bool lit = false;  // shaded by the 2D lights (kModeLit quads)
+    TextureAsset* normal = nullptr;  // lit: the normal map laid out like `tex`; null = a flat surface
+    bool plain = true;               // every quad is kModeTextured (QuadList::quad clears it)
+    bool opaque = false;             // QuadList::set_opaque(): the quads hide what is under them
+    std::uint32_t flash =
+        0;  // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
 };
 
 struct QuadBatch {
@@ -380,8 +397,8 @@ struct QuadBatch {
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
-    Rect clip{};  // batches only merge with an equal clip
-    bool lit = false;                // lit batches only merge with the same texture and normal map
+    Rect clip{};       // batches only merge with an equal clip
+    bool lit = false;  // lit batches only merge with the same texture and normal map
     TextureAsset* normal = nullptr;
     // Only plain textured quads (kModeTextured, not lit, not BlendMode::Multiply): drawn with the lean quad_plain shader.
     // Merging never waits on it: a batch that takes in one other quad is drawn with the full shader.
@@ -399,9 +416,13 @@ public:
 
     void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,
                     const Rect& clip = Rect{});
-    void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
+    void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c,
+              const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
     // Marks the item opened by begin_item() as lit: its quads are kModeLit and `normal` (may be null) is the normal map.
-    void set_lit(TextureAsset* normal) { cur_.lit = true; cur_.normal = normal; }
+    void set_lit(TextureAsset* normal) {
+        cur_.lit = true;
+        cur_.normal = normal;
+    }
     // Marks the item opened by begin_item() as opaque: every pixel its quads cover is replaced, at full alpha (an opaque
     // picture with an opaque tint, such as a Video's). It is drawn without blending when its blend mode is Alpha.
     void set_opaque() { cur_.opaque = true; }
@@ -419,7 +440,11 @@ public:
     // relative to out's start + `baseQuad`).
     // As jobs when the list is big (render_jobs.h): the sort, then the copy of the vertices; the same result either way.
     void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches);
-    void clear() { raw.clear(); items.clear(); open_ = false; }
+    void clear() {
+        raw.clear();
+        items.clear();
+        open_ = false;
+    }
     // Moves the items of `part` (a list a job filled, with no item open) after the items of this one, in their order:
     // the result is what this list would hold had the same items been added to it directly. `part` is left empty.
     void append(QuadList& part);
@@ -456,10 +481,12 @@ struct BloomSettings {
 struct CameraInfo : CameraGeometry {
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
-    bool studio = false;          // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
-    float studioIntensity = 1.0f; // Camera.studioIntensity after clamping
-    BloomSettings bloom;  // Camera.bloom* after clamping to the supported ranges
-    int colorFilter = 0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
+    bool studio =
+        false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
+    float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
+    BloomSettings bloom;           // Camera.bloom* after clamping to the supported ranges
+    int colorFilter =
+        0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
 };
 
 // Texture/mesh/font caches keyed by project-relative path.
@@ -467,8 +494,8 @@ class Assets {
 public:
     explicit Assets(Gpu& gpu);
     ~Assets();
-    TextureAsset* texture(const std::string& path);       // never null (placeholder on failure)
-    TextureAsset* white();                                 // 1x1 white
+    TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
+    TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
     // Answers the render-target ids ("target:<name>", Camera.renderTarget): the resolver returns the live texture of the target or
     // null when no camera renders into that name (texture() then answers the checker and logs why, once per name).
@@ -478,7 +505,7 @@ public:
     // before the first frame, such as an entity's bounds, only gets the checker).
     void set_drawing(bool on) { drawing_ = on; }
     static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
-    MeshAsset* mesh(const std::string& name);             // never null (cube placeholder on failure)
+    MeshAsset* mesh(const std::string& name);  // never null (cube placeholder on failure)
     // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
     // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
     // or its scene unloaded) and all of them when `store` is another one than last time. mesh("mesh:N") uploads the mesh on first use
@@ -497,7 +524,8 @@ public:
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
     // Used by fonts for font-file failures.
-    void note_failure(const std::string& kind, const std::string& path, const std::string& message, const std::string& hint);
+    void note_failure(const std::string& kind, const std::string& path, const std::string& message,
+                      const std::string& hint);
     bool failure_logged(const std::string& kind, const std::string& path) const;
     int texture_count() const { return int(textures_.size()); }
 
@@ -528,7 +556,9 @@ public:
 
 private:
     friend class MeshLoader;
-    struct Failure { std::string kind, path, message, hint; };
+    struct Failure {
+        std::string kind, path, message, hint;
+    };
     TextureAsset* load_texture(const std::string& path);
     void destroy_texture(TextureAsset& t);
     void upload_texture(TextureAsset& t, const Image& img, bool mips);
@@ -542,12 +572,14 @@ private:
     void destroy_mesh(MeshAsset& m);
     struct ProceduralMesh {
         std::unique_ptr<MeshAsset> asset;
-        std::uint64_t version = 0;       // MeshStore::Entry::version the GPU copy was made from
-        sg_buffer vb{}, ib{};            // shared by every part
-        sg_buffer vbStage{}, ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
+        std::uint64_t version = 0;  // MeshStore::Entry::version the GPU copy was made from
+        sg_buffer vb{}, ib{};       // shared by every part
+        sg_buffer vbStage{},
+            ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
         std::size_t vbCap = 0, ibCap = 0;  // bytes the buffers hold
-        std::uint64_t stagedFrame = 0;   // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
-        std::vector<std::string> partTextures;  // base color texture of each part ("" = none), resolved again on every use
+        std::uint64_t stagedFrame = 0;     // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
+        std::vector<std::string>
+            partTextures;  // base color texture of each part ("" = none), resolved again on every use
     };
     MeshAsset* procedural_mesh(const std::string& id);
     void upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e);
@@ -630,7 +662,6 @@ private:
     GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
 
     struct Impl;
-    Gpu& gpu_;
     std::unique_ptr<Impl> impl_;
     TextureAsset atlasTex_;
 };
@@ -722,18 +753,19 @@ public:
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{}, blitKeepShader_{};
+    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
+        blitKeepShader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
     sg_shader light_shader_{};
 
 private:
-        sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
+    sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
 
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
-    int bloomState_ = 0;  // 0 = shaders not created yet, 1 = ready, -1 = creation failed
+    int bloomState_ = 0;        // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     int colorfilterState_ = 0;  // same meaning as bloomState_
     int lightState_ = 0;        // same meaning as bloomState_
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
@@ -741,7 +773,10 @@ private:
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;
-    struct Transient { sg_buffer buf{}; std::size_t capacity = 0; };
+    struct Transient {
+        sg_buffer buf{};
+        std::size_t capacity = 0;
+    };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
     bool committed_ = true;
@@ -762,10 +797,10 @@ public:
     ~GpuTimer();
     GpuTimer(const GpuTimer&) = delete;
     GpuTimer& operator=(const GpuTimer&) = delete;
-    bool supported() const;         // false once it is known that this backend/device cannot time
-    std::string reason() const;     // why not, when !supported()
-    void begin();                   // before the first pass of the frame
-    void end();                     // after the last pass
+    bool supported() const;               // false once it is known that this backend/device cannot time
+    std::string reason() const;           // why not, when !supported()
+    void begin();                         // before the first pass of the frame
+    void end();                           // after the last pass
     void poll(std::vector<double>& out);  // appends the milliseconds of every frame whose result is ready
 private:
     struct State;
@@ -776,10 +811,28 @@ private:
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
 
 // Debug draw storage.
-struct DebugLine { Vec3 a, b; Color c; float thickness; };
-struct DebugRect { Rect r; Color c; bool filled; };
-struct DebugCircle { Vec2 center; float radius; Color c; bool filled; };
-struct DebugText { Vec2 pos; std::string text; Color c; float size; };
+struct DebugLine {
+    Vec3 a, b;
+    Color c;
+    float thickness;
+};
+struct DebugRect {
+    Rect r;
+    Color c;
+    bool filled;
+};
+struct DebugCircle {
+    Vec2 center;
+    float radius;
+    Color c;
+    bool filled;
+};
+struct DebugText {
+    Vec2 pos;
+    std::string text;
+    Color c;
+    float size;
+};
 struct DebugDrawData {
     std::vector<DebugLine> lines;
     std::vector<DebugRect> rects;
@@ -794,4 +847,4 @@ inline std::uint32_t pack_color(const Color& c) { return c.to_rgba8(); }
 
 namespace fa {
 struct DebugDraw::Impl : render::DebugDrawData {};
-}
+}  // namespace fa

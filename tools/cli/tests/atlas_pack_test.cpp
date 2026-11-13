@@ -45,17 +45,21 @@ TEST_CASE("A Sprite with a region from the packed table draws that frame") {
     write_solid(tmp / "game" / "art" / "blue.png", 16, 16, 0, 0, 255);
     fa::CommandRegistry registry;
     fa::register_asset_commands(registry, project);
-    const fa::CommandResult packed = registry.call("assets.pack_atlas", {{"folder", "art"}, {"out", "assets/atlas.png"}, {"table", "data/atlas.json"}});
+    const fa::CommandResult packed = registry.call(
+        "assets.pack_atlas", {{"folder", "art"}, {"out", "assets/atlas.png"}, {"table", "data/atlas.json"}});
     REQUIRE_MESSAGE(packed.ok, packed.error.dump());
     auto text = fa::fs::read_text((tmp / "game" / "data" / "atlas.json").generic_string());
     REQUIRE(text.ok());
     const fa::Json table = fa::Json::parse(*text);
     const fa::Json rect = table["frames"]["green"]["rect"];
 
-    fa::Json scene = fa::Json::parse(*fa::fs::read_text((tmp / "game" / "scenes" / "main.scene.json").generic_string()));
-    scene["entities"].push_back({{"id", "frame"},
-                                 {"components", {{"Transform", {{"position", {0, 0, 0}}}},
-                                                 {"Sprite", {{"texture", table["texture"]}, {"region", rect}, {"size", {40, 40}}, {"pixelArt", true}}}}}});
+    fa::Json scene =
+        fa::Json::parse(*fa::fs::read_text((tmp / "game" / "scenes" / "main.scene.json").generic_string()));
+    scene["entities"].push_back(
+        {{"id", "frame"},
+         {"components",
+          {{"Transform", {{"position", {0, 0, 0}}}},
+           {"Sprite", {{"texture", table["texture"]}, {"region", rect}, {"size", {40, 40}}, {"pixelArt", true}}}}}});
     REQUIRE(fa::fs::write_text((tmp / "game" / "scenes" / "main.scene.json").generic_string(), scene.dump(1)).ok());
 
     fa::cli::SessionOptions so;

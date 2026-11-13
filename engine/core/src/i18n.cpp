@@ -17,7 +17,8 @@ namespace fa {
 namespace {
 
 bool all_alpha(std::string_view s) {
-    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); });
+    return !s.empty() &&
+           std::all_of(s.begin(), s.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); });
 }
 bool all_digit(std::string_view s) {
     return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; });
@@ -33,8 +34,10 @@ TagParts parts_of(std::string_view tag) {
     if (sub.empty()) return p;
     p.language = sub[0];
     for (std::size_t i = 1; i < sub.size(); ++i) {
-        if (sub[i].size() == 4 && all_alpha(sub[i])) p.script = sub[i];
-        else p.region = sub[i];
+        if (sub[i].size() == 4 && all_alpha(sub[i]))
+            p.script = sub[i];
+        else
+            p.region = sub[i];
     }
     return p;
 }
@@ -96,7 +99,8 @@ std::string base_language(std::string_view tag) {
     return dash == std::string_view::npos ? std::string() : std::string(tag.substr(0, dash));
 }
 
-std::string best_language_match(const std::vector<std::string>& systemLanguages, const std::vector<std::string>& projectLanguages) {
+std::string best_language_match(const std::vector<std::string>& systemLanguages,
+                                const std::vector<std::string>& projectLanguages) {
     const auto find_exact = [&](const std::string& tag) -> std::string {
         for (const std::string& p : projectLanguages)
             if (iequals(p, tag)) return p;
@@ -111,10 +115,13 @@ std::string best_language_match(const std::vector<std::string>& systemLanguages,
         if (!wantScript.empty())
             if (std::string m = find_exact(want.language + "-" + wantScript); !m.empty()) return m;
         if (std::string m = find_exact(want.language); !m.empty()) return m;
-        for (const std::string& p : projectLanguages) {  // another variant of the language, unless it is in another script
+        for (const std::string& p :
+             projectLanguages) {  // another variant of the language, unless it is in another script
             const TagParts have = parts_of(p);
             const std::string haveScript = script_of(have);
-            if (have.language == want.language && (haveScript.empty() || wantScript.empty() || haveScript == wantScript)) return p;
+            if (have.language == want.language &&
+                (haveScript.empty() || wantScript.empty() || haveScript == wantScript))
+                return p;
         }
     }
     return {};
@@ -134,8 +141,8 @@ const char* plural_category_name(PluralCategory category) {
 }
 
 bool parse_plural_category(std::string_view name, PluralCategory& out) {
-    for (PluralCategory c : {PluralCategory::Zero, PluralCategory::One, PluralCategory::Two, PluralCategory::Few, PluralCategory::Many,
-                             PluralCategory::Other})
+    for (PluralCategory c : {PluralCategory::Zero, PluralCategory::One, PluralCategory::Two, PluralCategory::Few,
+                             PluralCategory::Many, PluralCategory::Other})
         if (name == plural_category_name(c)) {
             out = c;
             return true;
@@ -196,7 +203,8 @@ PluralCategory plural_category(std::string_view language, double count) {
         return million ? PC::Many : PC::Other;
     }
     if (lang == "pt") {
-        const bool portugal = sub.size() > 1 && iequals(sub.back(), "PT");  // pt-PT counts like English; pt and pt-BR: 0 and 1
+        const bool portugal =
+            sub.size() > 1 && iequals(sub.back(), "PT");  // pt-PT counts like English; pt and pt-BR: 0 and 1
         if (portugal ? (whole && i == 1) : (i == 0 || i == 1)) return PC::One;
         return million ? PC::Many : PC::Other;
     }
@@ -226,7 +234,8 @@ std::vector<std::string> gender_forms(std::string_view language) {
     const std::string lang = sub.empty() ? std::string() : to_lower(sub[0]);
     for (const char* three : {"de", "ru", "uk", "pl", "cs", "sk", "sl", "hr", "sr", "bg", "el", "ro", "lt", "lv"})
         if (lang == three) return {"f", "m", "n"};
-    for (const char* two : {"es", "fr", "pt", "it", "ca", "ar", "he", "iw", "hi", "ur", "nl", "sv", "da", "nb", "nn", "no"})
+    for (const char* two :
+         {"es", "fr", "pt", "it", "ca", "ar", "he", "iw", "hi", "ur", "nl", "sv", "da", "nb", "nn", "no"})
         if (lang == two) return {"f", "m"};
     return {};
 }
@@ -237,14 +246,18 @@ namespace {
 std::string escape_pointer(std::string_view key) {
     std::string out;
     for (char c : key) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
+        if (c == '~')
+            out += "~0";
+        else if (c == '/')
+            out += "~1";
+        else
+            out += c;
     }
     return out;
 }
 
-Error table_error(std::string_view file, const std::string& pointer, const std::string& message, const std::string& hint) {
+Error table_error(std::string_view file, const std::string& pointer, const std::string& message,
+                  const std::string& hint) {
     return make_error(std::string(file) + (pointer.empty() ? "" : "#" + pointer) + ": " + message, hint);
 }
 
@@ -286,7 +299,8 @@ struct Flattener {
 
     std::optional<Error> add(const std::string& key, StringEntry entry, const std::string& pointer) {
         if (table.entries.count(key))
-            return table_error(file, pointer, "the key '" + key + "' is written twice (as \"a.b\" and as nested objects)",
+            return table_error(file, pointer,
+                               "the key '" + key + "' is written twice (as \"a.b\" and as nested objects)",
                                "Keep one spelling of each key.");
         entry.pointer = pointer;
         table.entries.emplace(key, std::move(entry));
@@ -302,16 +316,18 @@ struct Flattener {
                 parse_plural_category(it.key(), c);
                 if (!it->is_string())
                     return table_error(file, pointer + "/" + escape_pointer(it.key()),
-                                       "expected a string for the plural form '" + it.key() + "' of '" + prefix + "', got " +
-                                           describe_json_value(*it),
+                                       "expected a string for the plural form '" + it.key() + "' of '" + prefix +
+                                           "', got " + describe_json_value(*it),
                                        "Every form is a string, e.g. \"one\": \"{count} coin\".");
                 entry.forms[c] = it->get<std::string>();
             }
             if (!entry.forms.count(PluralCategory::Other))
-                return table_error(file, pointer, "the plural entry '" + prefix + "' has no \"other\" form",
-                                   "Every plural entry needs \"other\", the form used when no other applies, e.g. {\"one\": "
-                                   "\"{count} coin\", \"other\": \"{count} coins\"}. (An object whose keys are all of zero, one, two, few, many, "
-                                   "other is a plural entry: give a group another key name.)");
+                return table_error(
+                    file, pointer, "the plural entry '" + prefix + "' has no \"other\" form",
+                    "Every plural entry needs \"other\", the form used when no other applies, e.g. {\"one\": "
+                    "\"{count} coin\", \"other\": \"{count} coins\"}. (An object whose keys are all of zero, one, two, "
+                    "few, many, "
+                    "other is a plural entry: give a group another key name.)");
             return add(prefix, std::move(entry), pointer);
         }
         if (!prefix.empty() && is_select_object(obj)) {
@@ -320,16 +336,18 @@ struct Flattener {
                 if (!it.key().empty() && it.key()[0] == '$') continue;
                 if (!it->is_string())
                     return table_error(file, pointer + "/" + escape_pointer(it.key()),
-                                       "expected a string for the form '" + it.key() + "' of the select entry '" + prefix + "', got " +
-                                           describe_json_value(*it),
+                                       "expected a string for the form '" + it.key() + "' of the select entry '" +
+                                           prefix + "', got " + describe_json_value(*it),
                                        "Every form is a string, e.g. \"f\": \"la {name}\".");
                 entry.selects[it.key()] = it->get<std::string>();
             }
             if (!entry.selects.count("other"))
-                return table_error(file, pointer, "the select entry '" + prefix + "' has no \"other\" form",
-                                   "Every select entry needs \"other\", the form used for a name without a known gender, e.g. {\"f\": "
-                                   "\"la {name}\", \"m\": \"el {name}\", \"other\": \"{name}\"}. (An object whose keys are all of f, m, n, other "
-                                   "is a select entry: give a group another key name.)");
+                return table_error(
+                    file, pointer, "the select entry '" + prefix + "' has no \"other\" form",
+                    "Every select entry needs \"other\", the form used for a name without a known gender, e.g. {\"f\": "
+                    "\"la {name}\", \"m\": \"el {name}\", \"other\": \"{name}\"}. (An object whose keys are all of f, "
+                    "m, n, other "
+                    "is a select entry: give a group another key name.)");
             return add(prefix, std::move(entry), pointer);
         }
         if (!prefix.empty() && is_gendered_object(obj)) {
@@ -339,8 +357,11 @@ struct Flattener {
                 return table_error(file, pointer + "/text", "expected a string, got " + describe_json_value(text),
                                    "A gendered string is {\"text\": \"Ligera\", \"gender\": \"f\"}.");
             if (!gender.is_string() || !is_gender_code(gender.get<std::string>()))
-                return table_error(file, pointer + "/gender", "'" + prefix + "' has the gender " + describe_json_value(gender) + ", which is not f, m or n",
-                                   "Use \"f\" (feminine), \"m\" (masculine) or \"n\" (neuter). (An object with exactly the keys text and gender is a "
+                return table_error(file, pointer + "/gender",
+                                   "'" + prefix + "' has the gender " + describe_json_value(gender) +
+                                       ", which is not f, m or n",
+                                   "Use \"f\" (feminine), \"m\" (masculine) or \"n\" (neuter). (An object with exactly "
+                                   "the keys text and gender is a "
                                    "gendered string: give a group other key names.)");
             StringEntry entry;
             entry.text = text.get<std::string>();
@@ -351,7 +372,8 @@ struct Flattener {
             const std::string& k = it.key();
             if (!k.empty() && k[0] == '$') continue;  // metadata
             const std::string childPointer = pointer + "/" + escape_pointer(k);
-            if (k.empty()) return table_error(file, childPointer, "empty key", "Name every string, e.g. \"menu.play\".");
+            if (k.empty())
+                return table_error(file, childPointer, "empty key", "Name every string, e.g. \"menu.play\".");
             const std::string key = prefix.empty() ? k : prefix + "." + k;
             if (it->is_string()) {
                 StringEntry entry;
@@ -361,8 +383,10 @@ struct Flattener {
                 if (auto err = walk(*it, key, childPointer)) return err;
             } else {
                 return table_error(file, childPointer, "expected a string, got " + describe_json_value(*it),
-                                   "Every value of a string table is a string, or an object of nested keys, plural forms or gender forms; "
-                                   "numbers belong in {placeholders} (i18n.t(\"" + key + "\", {count: 3})).");
+                                   "Every value of a string table is a string, or an object of nested keys, plural "
+                                   "forms or gender forms; "
+                                   "numbers belong in {placeholders} (i18n.t(\"" +
+                                       key + "\", {count: 3})).");
             }
         }
         return std::nullopt;
@@ -380,7 +404,8 @@ Result<StringTable> parse_string_table(const Json& document, std::string_view la
     table.file = std::string(file);
     if (auto it = document.find("$name"); it != document.end()) {
         if (!it->is_string())
-            return table_error(file, "/$name", "expected a string (the language's own name), got " + describe_json_value(*it),
+            return table_error(file, "/$name",
+                               "expected a string (the language's own name), got " + describe_json_value(*it),
                                "Write the name as the speakers write it: \"$name\": \"Español\".");
         table.name = it->get<std::string>();
     }
@@ -389,13 +414,13 @@ Result<StringTable> parse_string_table(const Json& document, std::string_view la
     return table;
 }
 
-std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing, std::string_view language,
-                           std::vector<std::string>* problems) {
+std::string format_message(std::string_view text, const Json& args, std::vector<std::string>* missing,
+                           std::string_view language, std::vector<std::string>* problems) {
     if (text.find_first_of("{}") == std::string_view::npos) return std::string(text);
     const auto valid_name = [](std::string_view s) {
         return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) {
-                   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-               });
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        });
     };
     const auto value_text = [](const Json& v) -> std::string {
         if (v.is_string()) return v.get<std::string>();
@@ -422,7 +447,8 @@ std::string format_message(std::string_view text, const Json& args, std::vector<
             ++i;
         } else if (c == '{') {
             const std::size_t close = text.find('}', i + 1);
-            std::string_view inner = close == std::string_view::npos ? std::string_view() : text.substr(i + 1, close - i - 1);
+            std::string_view inner =
+                close == std::string_view::npos ? std::string_view() : text.substr(i + 1, close - i - 1);
             // {name}, {name:number}, {name:number:2}, {name:duration}, {name:duration:0}
             std::string_view name = inner, type, param;
             if (const std::size_t c1 = inner.find(':'); c1 != std::string_view::npos) {
@@ -446,17 +472,18 @@ std::string format_message(std::string_view text, const Json& args, std::vector<
                     if (!isNumber && !isDuration) {
                         if (problems)
                             problems->push_back("{" + std::string(inner) + "}: unknown format '" + std::string(type) +
-                                                "' (use {" + std::string(name) + ":number}, {" + std::string(name) + ":number:1} or {" +
-                                                std::string(name) + ":duration})");
+                                                "' (use {" + std::string(name) + ":number}, {" + std::string(name) +
+                                                ":number:1} or {" + std::string(name) + ":duration})");
                     } else if (!param.empty() && !digits) {
                         if (problems)
                             problems->push_back("{" + std::string(inner) + "}: '" + std::string(param) +
-                                                "' is not a number of decimals (one digit 0-9, e.g. {" + std::string(name) + ":" +
-                                                std::string(type) + ":1})");
+                                                "' is not a number of decimals (one digit 0-9, e.g. {" +
+                                                std::string(name) + ":" + std::string(type) + ":1})");
                     } else if (!found->is_number()) {
                         if (problems)
-                            problems->push_back("{" + std::string(inner) + "}: the argument '" + std::string(name) + "' is " +
-                                                (found->is_string() ? "a string" : "not a number") + ", so it is shown as it is (pass a number)");
+                            problems->push_back("{" + std::string(inner) + "}: the argument '" + std::string(name) +
+                                                "' is " + (found->is_string() ? "a string" : "not a number") +
+                                                ", so it is shown as it is (pass a number)");
                     } else {
                         const double v = found->get<double>();
                         const int d = param.empty() ? -1 : param[0] - '0';
@@ -496,7 +523,8 @@ void I18n::rebuild_chain() {
     wanted.push_back(default_);
     for (const std::string& l : wanted) {
         const auto it = tables_.find(l);
-        if (it != tables_.end() && std::find(chain_.begin(), chain_.end(), &it->second) == chain_.end()) chain_.push_back(&it->second);
+        if (it != tables_.end() && std::find(chain_.begin(), chain_.end(), &it->second) == chain_.end())
+            chain_.push_back(&it->second);
     }
 }
 
@@ -506,10 +534,12 @@ std::vector<I18n::Problem> I18n::load_tables() {
     for (const std::string& lang : languages_) {
         const std::string file = "locales/" + lang + ".json";
         if (!fs::exists(file)) {
-            problems.push_back({LogLevel::Warn, file + " does not exist, although '" + lang +
-                                                    "' is one of localization.languages in factoria.json: its strings come from the "
-                                                    "fallback languages (hint: create the file, e.g. {\"menu\": {\"play\": \"...\"}}, or "
-                                                    "remove the language)"});
+            problems.push_back(
+                {LogLevel::Warn,
+                 file + " does not exist, although '" + lang +
+                     "' is one of localization.languages in factoria.json: its strings come from the "
+                     "fallback languages (hint: create the file, e.g. {\"menu\": {\"play\": \"...\"}}, or "
+                     "remove the language)"});
             continue;
         }
         auto doc = load_json_file(file);
@@ -541,18 +571,22 @@ Result<void> I18n::add_table(StringTable table) {
 
 Result<std::string> I18n::resolve_language(std::string_view requested) const {
     if (!enabled())
-        return make_error("Localization is off: factoria.json has no \"localization\" section, so there is no language '" +
-                              std::string(requested) + "' to switch to.",
-                          "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} and a locales/<language>.json "
-                          "per language (docs/LOCALIZATION.md).");
+        return make_error(
+            "Localization is off: factoria.json has no \"localization\" section, so there is no language '" +
+                std::string(requested) + "' to switch to.",
+            "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} and a "
+            "locales/<language>.json "
+            "per language (docs/LOCALIZATION.md).");
     const std::string tag = normalize_language_tag(requested);
     if (!tag.empty()) {
         for (const std::string& l : languages_)
             if (iequals(l, tag)) return l;
         if (std::string m = best_language_match({tag}, languages_); !m.empty()) return m;
     }
-    return make_error("Unknown language '" + std::string(requested) + "'. " + did_you_mean(tag.empty() ? requested : std::string_view(tag), languages_),
-                      "Use one of localization.languages of factoria.json (BCP 47 tags such as \"en\", \"pt-BR\", \"zh-Hans\").");
+    return make_error(
+        "Unknown language '" + std::string(requested) + "'. " +
+            did_you_mean(tag.empty() ? requested : std::string_view(tag), languages_),
+        "Use one of localization.languages of factoria.json (BCP 47 tags such as \"en\", \"pt-BR\", \"zh-Hans\").");
 }
 
 Result<std::string> I18n::set_language(std::string_view requested) {
@@ -575,24 +609,35 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
         if (e.plural()) {
             PluralCategory category = PluralCategory::Other;
             const auto count = args.is_object() ? args.find("count") : Json::const_iterator();
-            if (args.is_object() && count != args.end() && count->is_number()) category = plural_category(table->language, count->get<double>());
-            else if (e.forms.size() > 1)  // {"other": ...} alone needs no count (it is how a select entry looks in English)
-                warn_once("plural|" + k, "'" + k + "' is a plural entry but was asked for without a numeric args.count: using the \"other\" "
-                                         "form (hint: i18n.t(\"" + k + "\", {count: n}))");
+            if (args.is_object() && count != args.end() && count->is_number())
+                category = plural_category(table->language, count->get<double>());
+            else if (e.forms.size() >
+                     1)  // {"other": ...} alone needs no count (it is how a select entry looks in English)
+                warn_once("plural|" + k,
+                          "'" + k +
+                              "' is a plural entry but was asked for without a numeric args.count: using the \"other\" "
+                              "form (hint: i18n.t(\"" +
+                              k + "\", {count: n}))");
             const auto form = e.forms.find(category);
             text = &(form != e.forms.end() ? form : e.forms.find(PluralCategory::Other))->second;
         } else if (e.select()) {
             std::string gender;
             const auto given = args.is_object() ? args.find("gender") : Json::const_iterator();
-            if (args.is_object() && given != args.end() && given->is_string()) gender = given->get<std::string>();
+            if (args.is_object() && given != args.end() && given->is_string())
+                gender = given->get<std::string>();
             else
-                warn_once("select|" + k, "'" + k + "' is a select entry but was asked for without a string args.gender: using the \"other\" "
-                                         "form (hint: i18n.t(\"" + k + "\", {gender: i18n.gender(\"the.noun.key\")}))");
+                warn_once("select|" + k,
+                          "'" + k +
+                              "' is a select entry but was asked for without a string args.gender: using the \"other\" "
+                              "form (hint: i18n.t(\"" +
+                              k + "\", {gender: i18n.gender(\"the.noun.key\")}))");
             auto form = gender.empty() ? e.selects.end() : e.selects.find(gender);
             if (form == e.selects.end()) {
                 if (!gender.empty())
-                    warn_once("selectform|" + k + "|" + gender, "'" + k + "' (" + table->file + ") has no \"" + gender + "\" form: using \"other\" "
-                                                                "(hint: add \"" + gender + "\" next to the other forms)");
+                    warn_once("selectform|" + k + "|" + gender, "'" + k + "' (" + table->file + ") has no \"" + gender +
+                                                                    "\" form: using \"other\" "
+                                                                    "(hint: add \"" +
+                                                                    gender + "\" next to the other forms)");
                 form = e.selects.find("other");
             }
             text = &form->second;
@@ -603,8 +648,10 @@ std::optional<std::string> I18n::translate(std::string_view key, const Json& arg
         for (const std::string& problem : problems)
             warn_once("fmt|" + k + "|" + problem, "'" + k + "' (" + table->file + ") " + problem);
         for (const std::string& name : missing)
-            warn_once("arg|" + k + "|" + name, "'" + k + "' (" + table->file + ") uses {" + name + "} but no argument '" + name +
-                                                    "' was given: the placeholder stays in the text (hint: i18n.t(\"" + k + "\", {" + name + ": ...}))");
+            warn_once("arg|" + k + "|" + name, "'" + k + "' (" + table->file + ") uses {" + name +
+                                                   "} but no argument '" + name +
+                                                   "' was given: the placeholder stays in the text (hint: i18n.t(\"" +
+                                                   k + "\", {" + name + ": ...}))");
         return pseudo_ ? pseudo_localize(out) : out;
     }
     return std::nullopt;
@@ -639,8 +686,8 @@ std::string I18n::t(std::string_view key, const Json& args) const {
         for (const StringTable* table : chain_)
             for (const auto& entry : table->entries) known.push_back(entry.first);
         const std::string close = closest_match(key, known);
-        warn_once(id, "no string table has the key '" + std::string(key) + "' (language " + current_ + "): showing the key" +
-                          (close.empty() ? "" : " (did you mean '" + close + "'?)") +
+        warn_once(id, "no string table has the key '" + std::string(key) + "' (language " + current_ +
+                          "): showing the key" + (close.empty() ? "" : " (did you mean '" + close + "'?)") +
                           (enabled() ? "" : " (localization is off: factoria.json has no \"localization\" section)"));
     }
     return std::string(key);

@@ -130,7 +130,8 @@ private:
     std::vector<Held> held_;
     std::map<std::string, Achievement> achievements_;
     std::map<std::string, double> stats_;
-    std::map<std::string, long long> bests_;  // by board: the id, then "@" and the period's key for a daily or weekly board
+    std::map<std::string, long long>
+        bests_;  // by board: the id, then "@" and the period's key for a daily or weekly board
     std::string adOutcome_ = "watched", gdpr_ = "granted", tracking_ = "authorized", privacyOptions_ = "notRequired";
     long long adsShown_ = 0, adsRewarded_ = 0, adsPrivacyShown_ = 0;
     std::map<std::string, std::string> cloud_;

@@ -21,7 +21,8 @@ namespace {
 // Puts every file's mtime well in the past so the stat cache trusts it (a file changed in the last 2 s is rehashed).
 void age_files(const TempDir& dir) {
     std::error_code ec;
-    static const auto when = stdfs::file_time_type::clock::now() - std::chrono::hours(1);  // the same instant every call
+    static const auto when =
+        stdfs::file_time_type::clock::now() - std::chrono::hours(1);  // the same instant every call
     for (stdfs::recursive_directory_iterator it(dir.path, ec), end; !ec && it != end; it.increment(ec))
         if (it->is_regular_file(ec)) stdfs::last_write_time(it->path(), when, ec);
 }
@@ -29,7 +30,8 @@ void age_files(const TempDir& dir) {
 std::size_t count_objects(const TempDir& dir) {
     std::size_t n = 0;
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(dir.path / ".factoria/checkpoints/objects", ec), end; !ec && it != end; it.increment(ec))
+    for (stdfs::recursive_directory_iterator it(dir.path / ".factoria/checkpoints/objects", ec), end; !ec && it != end;
+         it.increment(ec))
         if (it->is_regular_file(ec)) ++n;
     return n;
 }
@@ -122,8 +124,9 @@ TEST_CASE("checkpoint: restore with `only` touches just those files") {
     write_all(p.dir.path / "scripts/b_new.js", "b\n");
     stdfs::remove(p.dir.path / "assets/hero.png");
 
-    auto r = checkpoint_restore(p.dir.str(), cp.value().info.id,
-                                std::vector<std::string>{"scripts/player.js", "scripts/a_new.js", "does/not/differ.js"});
+    auto r =
+        checkpoint_restore(p.dir.str(), cp.value().info.id,
+                           std::vector<std::string>{"scripts/player.js", "scripts/a_new.js", "does/not/differ.js"});
     REQUIRE(r.ok());
     CHECK(r.value().changes.modified == std::vector<std::string>{"scripts/player.js"});
     CHECK(r.value().changes.added == std::vector<std::string>{"scripts/a_new.js"});
@@ -198,7 +201,7 @@ TEST_CASE("checkpoint: hidden folders, node_modules and a top-level build are sk
     write_all(p.dir.path / "node_modules/pkg/index.js", "x");
     write_all(p.dir.path / "build/out.bin", "x");
     write_all(p.dir.path / "scripts/build/keep.js", "x");  // only the top-level build/ is skipped
-    write_all(p.dir.path / ".gitignore", ".factoria/\n");   // a hidden FILE is part of the project
+    write_all(p.dir.path / ".gitignore", ".factoria/\n");  // a hidden FILE is part of the project
     auto cp = p.make();
     REQUIRE(cp.ok());
     CHECK(cp.value().info.files == 5);
@@ -237,7 +240,8 @@ TEST_CASE("checkpoint: the commands") {
     Project p;
     CommandRegistry reg;
     register_tooling_commands(reg, p.dir.str());
-    for (const char* name : {"checkpoint.create", "checkpoint.list", "checkpoint.diff", "checkpoint.read", "checkpoint.restore"}) {
+    for (const char* name :
+         {"checkpoint.create", "checkpoint.list", "checkpoint.diff", "checkpoint.read", "checkpoint.restore"}) {
         REQUIRE(reg.has(name));
         CHECK(reg.info(name)->description.size() > 40);
     }
@@ -279,12 +283,14 @@ TEST_CASE("checkpoint.read: text inline, binary as base64 or into a file, errors
     CHECK(b.result["base64"] == "iVBORwABAg==");
     CHECK_FALSE(stdfs::exists(p.dir.path / "assets/hero.png"));
 
-    auto o = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "assets/hero.png"}, {"out", "old/hero.png"}}));
+    auto o =
+        reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "assets/hero.png"}, {"out", "old/hero.png"}}));
     REQUIRE(o.ok);
     CHECK_FALSE(o.result.contains("base64"));
     CHECK(read_all(p.dir.path / "old/hero.png") == std::string("\x89PNG\0\1\2", 7));
 
-    auto badOut = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/player.js"}, {"out", "../x"}}));
+    auto badOut =
+        reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/player.js"}, {"out", "../x"}}));
     CHECK_FALSE(badOut.ok);
     auto badPath = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/playr.js"}}));
     REQUIRE_FALSE(badPath.ok);
@@ -317,7 +323,8 @@ TEST_CASE("checkpoint.restore with paths touches only the listed files") {
     CHECK(reg.call("checkpoint.list").result["checkpoints"].size() == 1);
     CHECK_FALSE(reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array()}})).ok);
 
-    auto r = reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"scripts/player.js", "scripts/new.js"})}}));
+    auto r = reg.call("checkpoint.restore",
+                      Json::object({{"id", id}, {"paths", Json::array({"scripts/player.js", "scripts/new.js"})}}));
     REQUIRE(r.ok);
     CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 1;\n");
     CHECK_FALSE(stdfs::exists(p.dir.path / "scripts/new.js"));

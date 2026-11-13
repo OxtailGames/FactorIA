@@ -63,16 +63,22 @@ struct DetResult {
 DetResult deterministic_work() {
     DetResult r;
     r.values.assign(1000, 0.0f);
-    auto ok = jobs::parallel_for("test.det", r.values.size(), 37, [&](const jobs::Chunk& c) {
-        Rng rng = c.rng();
-        for (std::size_t i = c.begin; i < c.end; ++i) r.values[i] = rng.range(-1.0f, 1.0f) * float(i);
-    }, 1234);
+    auto ok = jobs::parallel_for(
+        "test.det", r.values.size(), 37,
+        [&](const jobs::Chunk& c) {
+            Rng rng = c.rng();
+            for (std::size_t i = c.begin; i < c.end; ++i) r.values[i] = rng.range(-1.0f, 1.0f) * float(i);
+        },
+        1234);
     REQUIRE(ok.ok());
-    auto sum = jobs::parallel_reduce<float>("test.sum", r.values.size(), 64, 0.0f, [&](const jobs::Chunk& c) {
-        float s = 0;
-        for (std::size_t i = c.begin; i < c.end; ++i) s += r.values[i] * 0.001f;
-        return s;
-    }, [](float a, float b) { return a + b; });
+    auto sum = jobs::parallel_reduce<float>(
+        "test.sum", r.values.size(), 64, 0.0f,
+        [&](const jobs::Chunk& c) {
+            float s = 0;
+            for (std::size_t i = c.begin; i < c.end; ++i) s += r.values[i] * 0.001f;
+            return s;
+        },
+        [](float a, float b) { return a + b; });
     REQUIRE(sum.ok());
     r.sumBits = float_bits(sum.value());
     return r;
@@ -332,7 +338,7 @@ TEST_CASE("jobs: a throw is caught, named and returned; dependents are skipped")
             if (c.index == 7 || c.index == 3) throw std::runtime_error("chunk " + std::to_string(c.index));
         });
         REQUIRE(!pf.ok());
-        CHECK(chunksRun.load() == 10);  // every chunk ran
+        CHECK(chunksRun.load() == 10);                                                  // every chunk ran
         CHECK(pf.error().message.find("chunk 3 (items 30..39)") != std::string::npos);  // the lowest index failing
         CHECK(pf.error().message.find("2 chunks failed") != std::string::npos);
     }
@@ -400,12 +406,12 @@ TEST_CASE("jobs: the main-thread queue runs in post order at the call, from any 
     CHECK(!jobs::is_worker_thread());
     std::vector<int> order;
     REQUIRE(jobs::wait(jobs::submit("test.post", [&] {
-        for (int i = 0; i < 5; ++i) jobs::post_main("test.task", [&order, i] { order.push_back(i); });
-        jobs::post_main("test.throws", [] { throw std::runtime_error("task failed"); });
-        jobs::post_main("test.reposts", [&order] {
-            jobs::post_main("test.next", [&order] { order.push_back(100); });  // runs at the next call
-        });
-    })).ok());
+                for (int i = 0; i < 5; ++i) jobs::post_main("test.task", [&order, i] { order.push_back(i); });
+                jobs::post_main("test.throws", [] { throw std::runtime_error("task failed"); });
+                jobs::post_main("test.reposts", [&order] {
+                    jobs::post_main("test.next", [&order] { order.push_back(100); });  // runs at the next call
+                });
+            })).ok());
     CHECK(order.empty());  // nothing runs before the frame point
     CHECK(jobs::main_tasks_queued() == 7);
     CHECK(jobs::run_main_thread_tasks() == 7);
@@ -476,9 +482,9 @@ TEST_CASE("jobs: the profiler gets one lane per thread with the jobs' names") {
     p.set_enabled(true);
     p.begin_frame();
     REQUIRE(jobs::parallel_for("test.lanes", 32, 1, [](const jobs::Chunk&) {
-        volatile int x = 0;
-        for (int k = 0; k < 1000; ++k) x = x + k;
-    }).ok());
+                volatile int x = 0;
+                for (int k = 0; k < 1000; ++k) x = x + k;
+            }).ok());
     p.end_frame();
     const ProfFrame f = p.last();
     ProfileSummary sum;
@@ -516,8 +522,8 @@ TEST_CASE("jobs: stress: many small jobs with dependencies, far below the test t
         REQUIRE(jobs::wait_all(hs).ok());
         std::vector<std::uint64_t> squares(5000);
         REQUIRE(jobs::parallel_for("test.stress.for", squares.size(), 64, [&](const jobs::Chunk& c) {
-            for (std::size_t k = c.begin; k < c.end; ++k) squares[k] = std::uint64_t(k) * k;
-        }).ok());
+                    for (std::size_t k = c.begin; k < c.end; ++k) squares[k] = std::uint64_t(k) * k;
+                }).ok());
         CHECK(squares[4999] == 4999ull * 4999ull);
         jobs::end_frame();
     }
@@ -641,7 +647,7 @@ TEST_CASE("jobs: an owner counts its jobs, the jobs they submit too, and waits f
                 (void)jobs::submit("test.owned", [&] {
                     spin_until([&] { return release.load(); });
                     if (jobs::current_owner_name() == "engine A") asOwner.fetch_add(1);  // a job runs as its owner
-                    (void)jobs::submit("test.child", [&] { ran.fetch_add(1); });  // engine A's too
+                    (void)jobs::submit("test.child", [&] { ran.fetch_add(1); });         // engine A's too
                     ran.fetch_add(1);
                 });
         }
@@ -664,9 +670,9 @@ TEST_CASE("jobs: an owner counts its jobs, the jobs they submit too, and waits f
         {
             jobs::OwnerScope scope(&engineA);
             REQUIRE(jobs::wait(jobs::submit("test.inner", [&] {
-                auto r = engineA.wait();
-                inner = r.ok() ? "" : r.error().message;
-            })).ok());
+                        auto r = engineA.wait();
+                        inner = r.ok() ? "" : r.error().message;
+                    })).ok());
         }
         CHECK(inner.find("inside a job") != std::string::npos);
     }
@@ -680,8 +686,8 @@ TEST_CASE("jobs: main-thread tasks go to their owner's queue; with the pool stop
         {
             jobs::OwnerScope scope(&engineA);
             REQUIRE(jobs::wait(jobs::submit("test.posts", [&] {
-                jobs::post_main("test.a", [&] { order.push_back("a"); });  // the job's owner: engine A
-            })).ok());
+                        jobs::post_main("test.a", [&] { order.push_back("a"); });  // the job's owner: engine A
+                    })).ok());
         }
         {
             jobs::OwnerScope scope(&engineB);
@@ -756,7 +762,7 @@ TEST_CASE("jobs: a start from another thread during a stop finds either the old 
                 otherWorkers = jobs::worker_count();
                 std::atomic<int> ran{0};
                 const bool waited = jobs::wait(jobs::submit("test.new", [&] { ran = 1; })).ok();  // no CHECK here:
-                other = waited && ran.load() == 1;                                                  // not thread-safe
+                other = waited && ran.load() == 1;                                                // not thread-safe
                 jobs::stop();
             }
         });
@@ -865,7 +871,8 @@ TEST_CASE("jobs: the frame statistics go to another owner after kFrameOwnerHandO
     if (std::chrono::steady_clock::now() - editorLast < std::chrono::milliseconds(jobs::kFrameOwnerHandOverMs / 2))
         CHECK(jobs::info().submittedLastFrame == 0);  // still the editor's frame
     sleep_until_elapsed(editorLast, jobs::kFrameOwnerHandOverMs + 50);
-    jobs::end_frame(&preview);  // the editor was silent for the whole interval: the preview takes over, closes this frame
+    jobs::end_frame(
+        &preview);  // the editor was silent for the whole interval: the preview takes over, closes this frame
     CHECK(jobs::info().submittedLastFrame == 1);
     REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());
     REQUIRE(jobs::wait(jobs::submit("test.frame", [] {})).ok());

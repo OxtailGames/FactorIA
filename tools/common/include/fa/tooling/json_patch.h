@@ -23,7 +23,8 @@ struct JsonPatchOp {
 
 // The text with the changes applied in order. `file` names the file in error messages. Fails (and says how to fix it) when the
 // text is not a JSON object, when a path goes through a value that is not an object, or when the result would not parse.
-Result<std::string> patch_json_text(const std::string& text, const std::vector<JsonPatchOp>& ops, const std::string& file = "JSON");
+Result<std::string> patch_json_text(const std::string& text, const std::vector<JsonPatchOp>& ops,
+                                    const std::string& file = "JSON");
 
 // Reads `path`, patches it, writes it back only when the text changed. Returns the new text.
 Result<std::string> patch_json_file(const std::string& path, const std::vector<JsonPatchOp>& ops);

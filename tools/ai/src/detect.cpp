@@ -10,8 +10,15 @@
 namespace fa::ai {
 
 Json ProviderStatus::to_json() const {
-    Json out = Json::object({{"name", name}, {"kind", kind}, {"cli", isCli}, {"available", available}, {"detail", detail},
-                             {"version", version}, {"path", path}, {"keySource", keySource}, {"hint", hint},
+    Json out = Json::object({{"name", name},
+                             {"kind", kind},
+                             {"cli", isCli},
+                             {"available", available},
+                             {"detail", detail},
+                             {"version", version},
+                             {"path", path},
+                             {"keySource", keySource},
+                             {"hint", hint},
                              {"makes", makes}});
     if (!assetPricing.is_null()) out["assetPricing"] = assetPricing;
     return out;
@@ -64,7 +71,9 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
         } else {
             auto key = resolve_api_key(p, opt.env);
             s.keySource = key.source;
-            const bool local = p.preset == "ollama" || p.preset == "lmstudio" || (p.preset.empty() && p.kind == ProviderKind::OpenAICompatible && default_key_env(p).empty());
+            const bool local =
+                p.preset == "ollama" || p.preset == "lmstudio" ||
+                (p.preset.empty() && p.kind == ProviderKind::OpenAICompatible && default_key_env(p).empty());
             if (key.found()) {
                 s.available = true;
                 s.detail = "API key found (" + key.source + ")";
@@ -79,9 +88,10 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
             } else {
                 std::string env = default_key_env(p);
                 s.detail = "no API key";
-                s.hint = "Set " + (env.empty() ? std::string("the key variable") : env) +
-                         " or \"apiKeyEnv\"/\"apiKey\" in ~/.factoria/ai.json" +
-                         (p.kind == ProviderKind::Anthropic ? "; or install the `ant` CLI and run `ant auth login`." : ".");
+                s.hint =
+                    "Set " + (env.empty() ? std::string("the key variable") : env) +
+                    " or \"apiKeyEnv\"/\"apiKey\" in ~/.factoria/ai.json" +
+                    (p.kind == ProviderKind::Anthropic ? "; or install the `ant` CLI and run `ant auth login`." : ".");
             }
         }
         if (is_asset_only_kind(p.kind) || p.preset == "openai") {
@@ -95,8 +105,14 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
 }
 
 Json ToolServerStatus::to_json() const {
-    return Json::object({{"name", name}, {"type", type}, {"target", target}, {"enabled", enabled}, {"roles", roles},
-                         {"usesKey", usesKey}, {"keySource", keySource}, {"problem", problem},
+    return Json::object({{"name", name},
+                         {"type", type},
+                         {"target", target},
+                         {"enabled", enabled},
+                         {"roles", roles},
+                         {"usesKey", usesKey},
+                         {"keySource", keySource},
+                         {"problem", problem},
                          {"ready", enabled && problem.empty()}});
 }
 
@@ -131,12 +147,15 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
     for (const auto& s : status) {
         out += std::string(s.available ? "  [ok]   " : "  [--]   ") + s.name + " (" + s.kind + "): " + s.detail +
                (s.makes.empty() ? "" : " [makes " + fa::join(s.makes, ", ") + "]") + "\n";
-        if (!s.available && !s.hint.empty()) out += "         -> " + s.hint + "\n";
-        else if (!s.hint.empty()) out += "         note: " + s.hint + "\n";
+        if (!s.available && !s.hint.empty())
+            out += "         -> " + s.hint + "\n";
+        else if (!s.hint.empty())
+            out += "         note: " + s.hint + "\n";
     }
     out += "Roles:\n";
     for (const auto& [role, r] : cfg.roles) {
-        out += "  " + role + ": " + r.provider + " / " + r.model + (r.effort.empty() ? "" : " (effort " + r.effort + ")") + "\n";
+        out += "  " + role + ": " + r.provider + " / " + r.model +
+               (r.effort.empty() ? "" : " (effort " + r.effort + ")") + "\n";
     }
     out += "Asset providers:\n";
     for (MediaKind k : kMediaKinds) {
@@ -145,21 +164,27 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
         out += std::string("  ") + media_kind_name(k) + ": " + r->second.provider +
                (r->second.model.empty() ? "" : " / " + r->second.model) + "\n";
     }
-    if (cfg.assets.empty()) out += "  none configured: add \"assets\" to ai.json (docs/AI_PROVIDERS.md, Asset providers)\n";
+    if (cfg.assets.empty())
+        out += "  none configured: add \"assets\" to ai.json (docs/AI_PROVIDERS.md, Asset providers)\n";
     out += "External tool servers (mcpServers):\n";
     for (const auto& t : tool_server_statuses(cfg, env)) {
-        out += std::string(!t.enabled ? "  [off]  " : t.problem.empty() ? "  [ok]   " : "  [--]   ") + t.name + " (" + t.type +
-               "): " + t.target;
-        if (t.usesKey && t.problem.empty()) out += t.keySource.empty() ? " [no key needed]" : " [key from " + t.keySource + "]";
+        out += std::string(!t.enabled          ? "  [off]  "
+                           : t.problem.empty() ? "  [ok]   "
+                                               : "  [--]   ") +
+               t.name + " (" + t.type + "): " + t.target;
+        if (t.usesKey && t.problem.empty())
+            out += t.keySource.empty() ? " [no key needed]" : " [key from " + t.keySource + "]";
         out += " [roles " + fa::join(t.roles, ", ") + "]\n";
         if (t.enabled && !t.problem.empty()) out += "         -> " + t.problem + "\n";
     }
-    if (cfg.toolServers.empty()) out += "  none configured: add \"mcpServers\" to ai.json (docs/AI_PROVIDERS.md, External tools)\n";
+    if (cfg.toolServers.empty())
+        out += "  none configured: add \"mcpServers\" to ai.json (docs/AI_PROVIDERS.md, External tools)\n";
     out += "Extensions (plugins, skills, hooks):\n";
     {
         const auto lines = extension_doctor_lines(cfg, make_extension_context(cfg, projectDir, env));
         for (const std::string& line : lines) out += "  " + line + "\n";
-        if (lines.empty()) out += "  none configured: add \"extensions\" to ai.json (docs/AI_PROVIDERS.md, Extensions)\n";
+        if (lines.empty())
+            out += "  none configured: add \"extensions\" to ai.json (docs/AI_PROVIDERS.md, Extensions)\n";
     }
     for (const auto& w : cfg.warnings) out += "WARNING: " + w + "\n";
     return out;

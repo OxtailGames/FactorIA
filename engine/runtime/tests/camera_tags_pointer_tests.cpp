@@ -73,7 +73,8 @@ struct Rig {
     // The screen point where the quad shows page pixel (px, py): the quad maps u to x and v down to y.
     Vec2 page(float px, float py) {
         const float u = px / 200.0f, v = py / 100.0f;
-        return e.renderer()->world_to_screen(e.world().world_matrix(id("screen")).transform_point({u - 0.5f, 0.5f - v, 0.0f}));
+        return e.renderer()->world_to_screen(
+            e.world().world_matrix(id("screen")).transform_point({u - 0.5f, 0.5f - v, 0.0f}));
     }
     void mouse(Vec2 p, bool down) {
         e.commands().call("game.input", Json{{"mouse", Json{{"position", Json::array({p.x, p.y})}, {"left", down}}}});

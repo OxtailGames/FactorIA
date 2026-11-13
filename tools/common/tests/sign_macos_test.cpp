@@ -23,15 +23,21 @@ namespace {
 constexpr const char* kDeveloperId = "Developer ID Application: Ada Lovelace (ABCDE12345)";
 constexpr const char* kPassword = "abcd-efgh-ijkl-mnop";  // an app-specific password, as the environment would hold it
 
-bool has_text(const std::string& haystack, const std::string& needle) { return haystack.find(needle) != std::string::npos; }
+bool has_text(const std::string& haystack, const std::string& needle) {
+    return haystack.find(needle) != std::string::npos;
+}
 
 bool any_has(const std::vector<std::string>& v, const std::string& needle) {
     return std::any_of(v.begin(), v.end(), [&](const std::string& s) { return has_text(s, needle); });
 }
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
-void write_macho(const stdfs::path& p) { testing::write_all(p, std::string("\xcf\xfa\xed\xfe", 4) + std::string(60, '\0')); }
+void write_macho(const stdfs::path& p) {
+    testing::write_all(p, std::string("\xcf\xfa\xed\xfe", 4) + std::string(60, '\0'));
+}
 
 // A computer with these environment variables.
 ExportEnvLookup env_of(std::map<std::string, std::string> vars) {
@@ -84,7 +90,8 @@ struct Game {
         SignMacosOptions o;
         o.projectDir = proj;
         o.outDir = out;
-        o.app = app.string();  // exactly where the export put it (the temporary folder may be reached through a short name)
+        o.app =
+            app.string();  // exactly where the export put it (the temporary folder may be reached through a short name)
         o.host = host;
         o.env = env_of({});
         o.toolConfigPath = tmp.sub("no-export.json");
@@ -112,8 +119,11 @@ struct FakeMac {
     std::string notaryId = "11111111-2222-3333-4444-555555555555";
     int codesignExit = 0;
     std::string codesignError;
-    std::string logText = "{\"issues\":[{\"path\":\"Space Dodge.app/Contents/Frameworks/libplugin.dylib\",\"message\":\"The signature does not include a secure timestamp.\"}]}";
-    std::vector<std::string> echoed;  // lines it prints to stdout and stderr as it goes (a tool that repeats a password)
+    std::string logText =
+        "{\"issues\":[{\"path\":\"Space Dodge.app/Contents/Frameworks/libplugin.dylib\",\"message\":\"The signature "
+        "does not include a secure timestamp.\"}]}";
+    std::vector<std::string>
+        echoed;  // lines it prints to stdout and stderr as it goes (a tool that repeats a password)
 
     ProcessRunner runner() {
         return [this](const ProcessOptions& o) -> Result<ProcessResult> {
@@ -130,7 +140,8 @@ struct FakeMac {
                 r.exitCode = codesignExit;
                 r.stderrText = codesignError;
             } else if (exe == "xcrun" && argv.size() > 2 && argv[1] == "notarytool" && argv[2] == "submit") {
-                r.stdoutText = "Conducting pre-submission checks...\n{\"id\":\"" + notaryId + "\",\"status\":\"" + notaryStatus + "\",\"message\":\"Processing complete\"}\n";
+                r.stdoutText = "Conducting pre-submission checks...\n{\"id\":\"" + notaryId + "\",\"status\":\"" +
+                               notaryStatus + "\",\"message\":\"Processing complete\"}\n";
                 r.exitCode = notaryStatus == "Accepted" ? 0 : 1;
             } else if (exe == "xcrun" && argv.size() > 2 && argv[1] == "notarytool" && argv[2] == "log") {
                 r.stdoutText = logText;
@@ -206,18 +217,27 @@ TEST_CASE("sign.macos dry run: the command lines, in order, on a computer that i
         // Then, in this order, what Apple asks for.
         std::vector<std::string> after;
         for (std::size_t i = sign; i < r->steps.size(); ++i) after.push_back(r->steps[i].title);
-        CHECK(after == std::vector<std::string>{"Sign Space Dodge.app", "Verify the signature", "Zip the app for notarization",
-                                                "Notarize (upload to Apple and wait for the verdict)", "Staple the ticket to the app",
-                                                "Check the stapled ticket", "Ask Gatekeeper (spctl)", "Zip the app to share"});
-        CHECK(r->steps[sign + 1].command == std::vector<std::string>{"/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", g.app_str()});
-        const std::string submitZip = (stdfs::path(g.zip_str()).parent_path() / "space-dodge-macos-notarize.zip").generic_string();
-        CHECK(r->steps[sign + 2].command == std::vector<std::string>{"/usr/bin/ditto", "-c", "-k", "--keepParent", g.app_str(), submitZip});
+        CHECK(after == std::vector<std::string>{
+                           "Sign Space Dodge.app", "Verify the signature", "Zip the app for notarization",
+                           "Notarize (upload to Apple and wait for the verdict)", "Staple the ticket to the app",
+                           "Check the stapled ticket", "Ask Gatekeeper (spctl)", "Zip the app to share"});
+        CHECK(r->steps[sign + 1].command == std::vector<std::string>{"/usr/bin/codesign", "--verify", "--deep",
+                                                                     "--strict", "--verbose=2", g.app_str()});
+        const std::string submitZip =
+            (stdfs::path(g.zip_str()).parent_path() / "space-dodge-macos-notarize.zip").generic_string();
+        CHECK(r->steps[sign + 2].command ==
+              std::vector<std::string>{"/usr/bin/ditto", "-c", "-k", "--keepParent", g.app_str(), submitZip});
         CHECK(r->steps[sign + 3].command ==
-              std::vector<std::string>{"/usr/bin/xcrun", "notarytool", "submit", submitZip, "--keychain-profile", "factoria-notary", "--wait", "--timeout", "40m", "--output-format", "json"});
-        CHECK(r->steps[sign + 4].command == std::vector<std::string>{"/usr/bin/xcrun", "stapler", "staple", g.app_str()});
-        CHECK(r->steps[sign + 5].command == std::vector<std::string>{"/usr/bin/xcrun", "stapler", "validate", g.app_str()});
-        CHECK(r->steps[sign + 6].command == std::vector<std::string>{"/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=4", g.app_str()});
-        CHECK(r->steps[sign + 7].command == std::vector<std::string>{"/usr/bin/ditto", "-c", "-k", "--keepParent", g.app_str(), g.zip_str()});
+              std::vector<std::string>{"/usr/bin/xcrun", "notarytool", "submit", submitZip, "--keychain-profile",
+                                       "factoria-notary", "--wait", "--timeout", "40m", "--output-format", "json"});
+        CHECK(r->steps[sign + 4].command ==
+              std::vector<std::string>{"/usr/bin/xcrun", "stapler", "staple", g.app_str()});
+        CHECK(r->steps[sign + 5].command ==
+              std::vector<std::string>{"/usr/bin/xcrun", "stapler", "validate", g.app_str()});
+        CHECK(r->steps[sign + 6].command ==
+              std::vector<std::string>{"/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=4", g.app_str()});
+        CHECK(r->steps[sign + 7].command ==
+              std::vector<std::string>{"/usr/bin/ditto", "-c", "-k", "--keepParent", g.app_str(), g.zip_str()});
 
         // The dry run changed nothing.
         CHECK_FALSE(stdfs::exists(g.zip_str()));
@@ -227,7 +247,9 @@ TEST_CASE("sign.macos dry run: the command lines, in order, on a computer that i
         const Json j = r->to_json();
         CHECK(j["dryRun"] == true);
         CHECK(j["steps"].size() == r->steps.size());
-        CHECK(has_text(j["steps"][sign]["commandLine"].get<std::string>(), "/usr/bin/codesign --force --options runtime --timestamp --sign 'Developer ID Application: Ada Lovelace (ABCDE12345)' "));
+        CHECK(has_text(j["steps"][sign]["commandLine"].get<std::string>(),
+                       "/usr/bin/codesign --force --options runtime --timestamp --sign 'Developer ID Application: Ada "
+                       "Lovelace (ABCDE12345)' "));
         CHECK(j["steps"][sign]["ran"] == false);
         CHECK_FALSE(j["steps"][sign].contains("exitCode"));
     }
@@ -328,7 +350,9 @@ TEST_CASE("sign.macos: where the identity comes from") {
         CHECK(has_text(r.error().hint, "\"-\""));
     }
     SUBCASE("the machine settings, then the environment, then the argument") {
-        testing::write_all(config, R"json({"sign": {"macos": {"identity": "Developer ID Application: From File (FILE123456)", "keychain": "/Users/me/ci.keychain-db"}}})json");
+        testing::write_all(
+            config,
+            R"json({"sign": {"macos": {"identity": "Developer ID Application: From File (FILE123456)", "keychain": "/Users/me/ci.keychain-db"}}})json");
         o.identity.clear();
         auto fromFile = sign_macos(o);
         REQUIRE_MESSAGE(fromFile.ok(), (fromFile.ok() ? "" : fromFile.error().to_string()));
@@ -405,7 +429,8 @@ TEST_CASE("sign.macos: notarytool credentials, in order, and nothing secret in t
         auto r = sign_macos(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const auto argv = submit_of(*r);
-        const std::vector<std::string> want = {"--key", o.apiKey, "--key-id", "ABC123", "--issuer", "69a6de70-aaaa-bbbb-cccc-dddddddddddd"};
+        const std::vector<std::string> want = {"--key",  o.apiKey,   "--key-id",
+                                               "ABC123", "--issuer", "69a6de70-aaaa-bbbb-cccc-dddddddddddd"};
         CHECK(std::search(argv.begin(), argv.end(), want.begin(), want.end()) != argv.end());
         CHECK(r->credentials == "App Store Connect API key ABC123");
 
@@ -442,7 +467,8 @@ TEST_CASE("sign.macos: notarytool credentials, in order, and nothing secret in t
         CHECK(r->credentials == "Apple ID ada@example.com (team ABCDE12345)");
         CHECK_FALSE(has_text(r->to_json().dump(), kPassword));
 
-        o.env = env_of({{"FACTORIA_APPLE_ID", "ada@example.com"}, {"FACTORIA_APPLE_TEAM_ID", "ABCDE12345"}});  // no password
+        o.env = env_of(
+            {{"FACTORIA_APPLE_ID", "ada@example.com"}, {"FACTORIA_APPLE_TEAM_ID", "ABCDE12345"}});  // no password
         o.appleId.clear();
         o.teamId.clear();
         auto noPassword = sign_macos(o);
@@ -472,7 +498,8 @@ TEST_CASE("sign.macos: notarytool credentials, in order, and nothing secret in t
         CHECK(quiet->warnings.size() == 1);  // only "this is not a Mac"
     }
     SUBCASE("a certificate that cannot be notarized") {
-        for (const char* wrong : {"Apple Development: Ada (ABCDE12345)", "Apple Distribution: Ada (ABCDE12345)", "Mac Developer: Ada (ABCDE12345)", "Developer ID Installer: Ada (ABCDE12345)"}) {
+        for (const char* wrong : {"Apple Development: Ada (ABCDE12345)", "Apple Distribution: Ada (ABCDE12345)",
+                                  "Mac Developer: Ada (ABCDE12345)", "Developer ID Installer: Ada (ABCDE12345)"}) {
             INFO(wrong);
             o.identity = wrong;
             o.keychainProfile = "p";
@@ -500,7 +527,8 @@ TEST_CASE("sign.macos: ad hoc signing is for this Mac only") {
     const SignStep* sign = step_named(*r, "Sign Space Dodge.app");
     REQUIRE(sign != nullptr);
     CHECK(*sign->command.rbegin() == g.app_str());
-    CHECK(contains(sign->command, "--timestamp=none"));  // an ad hoc signature has no timestamp, and no hardened runtime
+    CHECK(
+        contains(sign->command, "--timestamp=none"));  // an ad hoc signature has no timestamp, and no hardened runtime
     CHECK_FALSE(contains(sign->command, "runtime"));
     CHECK(step_named(*r, "Notarize") == nullptr);
     CHECK(any_has(r->warnings, "Signed ad hoc"));
@@ -515,7 +543,9 @@ TEST_CASE("sign.macos: ad hoc signing is for this Mac only") {
 TEST_CASE("sign.macos: entitlements and the provisioning profile") {
     Game g;
     const stdfs::path entitlements = g.app.parent_path() / "space-dodge.entitlements";
-    testing::write_all(entitlements, "<plist><dict><key>com.apple.developer.team-identifier</key><string>ABCDE12345</string></dict></plist>");
+    testing::write_all(
+        entitlements,
+        "<plist><dict><key>com.apple.developer.team-identifier</key><string>ABCDE12345</string></dict></plist>");
     testing::write_all(g.tmp.sub("Game.provisionprofile"), "profile");
     SignMacosOptions o = g.options();
     o.dryRun = true;
@@ -538,7 +568,9 @@ TEST_CASE("sign.macos: entitlements and the provisioning profile") {
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const SignStep* embed = step_named(*r, "Embed the provisioning profile");
         REQUIRE(embed != nullptr);
-        CHECK(embed->command == std::vector<std::string>{"cp", stdfs::path(o.provisioningProfile).generic_string(), (g.app / "Contents" / "embedded.provisionprofile").generic_string()});
+        CHECK(embed->command ==
+              std::vector<std::string>{"cp", stdfs::path(o.provisioningProfile).generic_string(),
+                                       (g.app / "Contents" / "embedded.provisionprofile").generic_string()});
         CHECK(index_of(*r, embed->title) < index_of(*r, "Sign Space Dodge.app"));
         const SignStep* sign = step_named(*r, "Sign Space Dodge.app");
         REQUIRE(sign != nullptr);
@@ -565,7 +597,8 @@ TEST_CASE("sign.macos: entitlements and the provisioning profile") {
         CHECK(has_text(missing.error().message, "does not exist"));
     }
     SUBCASE("the TEAMID placeholder of the export must be replaced first") {
-        testing::write_all(entitlements, "<plist><dict><key>application-identifier</key><string>TEAMID.com.example.spacedodge</string></dict></plist>");
+        testing::write_all(entitlements, "<plist><dict><key>application-identifier</"
+                                         "key><string>TEAMID.com.example.spacedodge</string></dict></plist>");
         o.provisioningProfile = g.tmp.sub("Game.provisionprofile");
         auto r = sign_macos(o);
         REQUIRE_FALSE(r.ok());
@@ -649,7 +682,9 @@ TEST_CASE("sign.macos on a Mac (faked): when Apple says no, the log says why") {
     CHECK(has_text(r.error().hint, "hardened runtime"));
     // The log was fetched with the same login, and nothing was stapled or zipped for sharing.
     bool fetched = false;
-    for (const std::string& l : mac.command_lines()) fetched = fetched || (has_text(l, "notarytool log " + mac.notaryId) && has_text(l, "--keychain-profile factoria-notary"));
+    for (const std::string& l : mac.command_lines())
+        fetched = fetched ||
+                  (has_text(l, "notarytool log " + mac.notaryId) && has_text(l, "--keychain-profile factoria-notary"));
     CHECK(fetched);
     CHECK_FALSE(any_has(mac.command_lines(), "stapler"));
     CHECK(mac.command_lines().back().find("notarytool log") != std::string::npos);
@@ -702,7 +737,8 @@ TEST_CASE("sign.macos: a program that cannot start, and a cancelled run") {
 TEST_CASE("sign.macos: the app-specific password is passed to notarytool on stdin and appears nowhere else") {
     Game g;
     FakeMac mac;
-    mac.echoed = {std::string("notarytool: logging in with password ") + kPassword};  // a tool that repeats what it was given
+    mac.echoed = {std::string("notarytool: logging in with password ") +
+                  kPassword};  // a tool that repeats what it was given
     mac.notaryStatus = "Invalid";
     SignMacosOptions o = g.options("macos");
     o.appleId = "ada@example.com";
@@ -736,22 +772,24 @@ TEST_CASE("sign.macos: the command") {
     const CommandInfo* info = registry.info("sign.macos");
     REQUIRE(info != nullptr);
     CHECK_FALSE(info->readOnly);
-    for (const char* key : {"app", "out", "identity", "keychain", "provisioningProfile", "entitlements", "notarize", "keychainProfile", "apiKey", "apiKeyId", "apiIssuer", "appleId",
-                            "teamId", "zip", "dryRun"})
+    for (const char* key : {"app", "out", "identity", "keychain", "provisioningProfile", "entitlements", "notarize",
+                            "keychainProfile", "apiKey", "apiKeyId", "apiIssuer", "appleId", "teamId", "zip", "dryRun"})
         CHECK_MESSAGE(info->inputSchema["properties"].contains(key), key);
     CHECK_FALSE(info->inputSchema["properties"].contains("password"));  // a password is never an argument
     CHECK_FALSE(info->inputSchema["properties"].contains("appPassword"));
     CHECK(has_text(info->full_description(), "FACTORIA_APPLE_APP_PASSWORD"));
     CHECK(has_text(info->full_description(), "dryRun"));
 
-    auto r = registry.call("sign.macos", Json::object({{"identity", kDeveloperId}, {"out", "../out"}, {"dryRun", true}}));
+    auto r =
+        registry.call("sign.macos", Json::object({{"identity", kDeveloperId}, {"out", "../out"}, {"dryRun", true}}));
     CHECK_FALSE(r.ok);  // outside the project
     CHECK(r.error["code"] == "invalid_argument");
 
     const stdfs::path inProject = stdfs::path(g.proj) / "build" / "export";
     stdfs::create_directories(inProject);
     stdfs::copy(g.app.parent_path(), inProject / "space-dodge-macos", stdfs::copy_options::recursive);
-    auto ok = registry.call("sign.macos", Json::object({{"identity", kDeveloperId}, {"notarize", false}, {"dryRun", true}}));
+    auto ok =
+        registry.call("sign.macos", Json::object({{"identity", kDeveloperId}, {"notarize", false}, {"dryRun", true}}));
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     CHECK(ok.result["dryRun"] == true);
     CHECK(ok.result["identity"] == kDeveloperId);
@@ -760,7 +798,8 @@ TEST_CASE("sign.macos: the command") {
     CHECK(ok.result["steps"].size() >= 3);
     CHECK(has_text(ok.result["steps"][0]["commandLine"].get<std::string>(), "/usr/bin/codesign"));
 
-    auto none = registry.call("sign.macos", Json::object({{"identity", ""}, {"dryRun", true}, {"app", "build/export/missing.app"}}));
+    auto none = registry.call("sign.macos",
+                              Json::object({{"identity", ""}, {"dryRun", true}, {"app", "build/export/missing.app"}}));
     CHECK_FALSE(none.ok);
     CHECK(none.error["code"] == "failed");
     CHECK_FALSE(none.error["hint"].get<std::string>().empty());
@@ -772,12 +811,13 @@ TEST_CASE("sign.macos: the command") {
 TEST_CASE("sign.macos on a Mac: an ad hoc signature passes codesign --verify --strict") {
     testing::TempDir tmp;
     const stdfs::path app = tmp.path / "out" / "demo-macos" / "Demo.app";
-    testing::write_all(app / "Contents" / "Info.plist",
-                       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                       "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-                       "<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>demo</string>"
-                       "<key>CFBundleIdentifier</key><string>com.example.demo</string><key>CFBundleName</key><string>Demo</string>"
-                       "<key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n");
+    testing::write_all(
+        app / "Contents" / "Info.plist",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        "<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>demo</string>"
+        "<key>CFBundleIdentifier</key><string>com.example.demo</string><key>CFBundleName</key><string>Demo</string>"
+        "<key>CFBundlePackageType</key><string>APPL</string></dict></plist>\n");
     std::error_code ec;
     stdfs::create_directories(app / "Contents" / "MacOS");
     stdfs::copy_file("/usr/bin/true", app / "Contents" / "MacOS" / "demo", stdfs::copy_options::overwrite_existing, ec);
@@ -804,13 +844,15 @@ TEST_CASE("sign.macos on a Mac: an ad hoc signature passes codesign --verify --s
     CHECK_MESSAGE(v->exitCode == 0, v->stderrText);
     stdfs::path unpacked = tmp.path / "unzipped";
     ProcessOptions unzip;
-    unzip.argv = {"/usr/bin/ditto", "-x", "-k", (app.parent_path().parent_path() / "demo-macos.zip").string(), unpacked.string()};
+    unzip.argv = {"/usr/bin/ditto", "-x", "-k", (app.parent_path().parent_path() / "demo-macos.zip").string(),
+                  unpacked.string()};
     REQUIRE(run_process(unzip).ok());
     CHECK(stdfs::exists(unpacked / "Demo.app" / "Contents" / "_CodeSignature" / "CodeResources"));
 }
 #endif
 
-TEST_CASE("sign.macos dry run: no step has the app-specific password in its arguments; the Apple ID form feeds it on stdin") {
+TEST_CASE(
+    "sign.macos dry run: no step has the app-specific password in its arguments; the Apple ID form feeds it on stdin") {
     Game g;
     SignMacosOptions o = g.options("linux");
     o.appleId = "ada@example.com";

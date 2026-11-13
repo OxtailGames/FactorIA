@@ -44,16 +44,20 @@ std::string make_game(const testing::TempDir& tmp, const char* platform = kCatal
 void add_plugin(const std::string& dir, const char* platform = "android") {
     CommandRegistry reg;
     register_plugin_commands(reg, dir);
-    auto r = reg.call("project.new_plugin", Json::parse(std::string(R"({"name": "admob", "template": "admob", "platforms": [")") + platform + R"("]})"));
+    auto r = reg.call(
+        "project.new_plugin",
+        Json::parse(std::string(R"({"name": "admob", "template": "admob", "platforms": [")") + platform + R"("]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
 }
 
 // A stand-in for Google's SDK download: the two XCFrameworks with one file each, under the folder name of the real zip.
-std::vector<std::pair<std::string, std::string>> fake_sdk_files(const std::string& root = "GoogleMobileAdsSdkiOS-13.11.0/") {
+std::vector<std::pair<std::string, std::string>>
+fake_sdk_files(const std::string& root = "GoogleMobileAdsSdkiOS-13.11.0/") {
     return {{root + "GoogleMobileAds.xcframework/Info.plist", "<plist/>"},
             {root + "GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/GoogleMobileAds", "binary"},
             {root + "UserMessagingPlatform.xcframework/Info.plist", "<plist/>"},
-            {root + "UserMessagingPlatform.xcframework/ios-arm64/UserMessagingPlatform.framework/UserMessagingPlatform", "binary"}};
+            {root + "UserMessagingPlatform.xcframework/ios-arm64/UserMessagingPlatform.framework/UserMessagingPlatform",
+             "binary"}};
 }
 
 void write_fake_sdk_folder(const stdfs::path& folder) {
@@ -97,7 +101,9 @@ TEST_CASE("admob template: every placeholder is replaced and the backend offers 
 
     for (const auto& entry : stdfs::recursive_directory_iterator(plugin)) {
         CHECK_MESSAGE(entry.path().generic_string().find("{{") == std::string::npos, entry.path().generic_string());
-        if (entry.is_regular_file()) CHECK_MESSAGE(testing::read_all(entry.path()).find("{{NAME}}") == std::string::npos, entry.path().generic_string());
+        if (entry.is_regular_file())
+            CHECK_MESSAGE(testing::read_all(entry.path()).find("{{NAME}}") == std::string::npos,
+                          entry.path().generic_string());
     }
 
     const std::string cmake = testing::read_all(plugin / "CMakeLists.txt");
@@ -127,7 +133,8 @@ TEST_CASE("admob template: every placeholder is replaced and the backend offers 
     // The Java: only "ads" is offered, and the sample ids are Google's own.
     const std::string backend = testing::read_all(module / "src/main/java/factoria/plugin/admob/Backend.java");
     CHECK(has(backend, "\"ads\""));
-    for (const char* other : {"\"purchases\"", "\"achievements\"", "\"stats\"", "\"leaderboards\"", "\"integrity\""}) CHECK_FALSE(has(backend, other));
+    for (const char* other : {"\"purchases\"", "\"achievements\"", "\"stats\"", "\"leaderboards\"", "\"integrity\""})
+        CHECK_FALSE(has(backend, other));
     const std::string ads = testing::read_all(module / "src/main/java/factoria/plugin/admob/Ads.java");
     CHECK(has(ads, kAdmobSampleRewardedUnit));
 }
@@ -145,12 +152,14 @@ TEST_CASE("admob template: the iOS side is Swift over Google's XCFrameworks, whi
     CHECK((*manifest)["xcframeworks"][0] == "frameworks/GoogleMobileAds.xcframework");
     CHECK((*manifest)["xcframeworks"][1] == "frameworks/UserMessagingPlatform.xcframework");
     CHECK((*manifest)["infoPlist"]["SKAdNetworkItems"].size() > 20);  // Google's list of ad networks
-    CHECK_FALSE((*manifest)["infoPlist"].contains("GADApplicationIdentifier"));  // the export writes it from the catalog
+    CHECK_FALSE(
+        (*manifest)["infoPlist"].contains("GADApplicationIdentifier"));  // the export writes it from the catalog
     const auto reread = parse_plugin_manifest(testing::read_all(plugin / "ios/plugin.json"), "ios/plugin.json");
     REQUIRE_MESSAGE(reread.ok(), (reread.ok() ? "" : reread.error().to_string()));
     CHECK(reread->xcframeworks.size() == 2);
 
-    for (const char* swift : {"src/Plugin.swift", "src/Ads.swift", "src/Common.swift", "src/Errors.swift", "src/entry.c", "include/module.modulemap"})
+    for (const char* swift : {"src/Plugin.swift", "src/Ads.swift", "src/Common.swift", "src/Errors.swift",
+                              "src/entry.c", "include/module.modulemap"})
         CHECK_MESSAGE(stdfs::exists(plugin / swift), swift);
     const std::string cmake = testing::read_all(plugin / "CMakeLists.txt");
     CHECK(has(cmake, "project(admob NONE)"));  // the Apple build; Android's CMake stays in the same file
@@ -163,7 +172,8 @@ TEST_CASE("admob template: the iOS side is Swift over Google's XCFrameworks, whi
     CHECK(has(swift, kAdmobSampleRewardedUnitIos));
     const std::string plugin_swift = testing::read_all(plugin / "src/Plugin.swift");
     CHECK(has(plugin_swift, "adsServices = \"[\\\"ads\\\"]\""));
-    for (const char* other : {"purchases", "achievements", "leaderboards"}) CHECK_FALSE(has(plugin_swift, std::string("\\\"") + other + "\\\""));
+    for (const char* other : {"purchases", "achievements", "leaderboards"})
+        CHECK_FALSE(has(plugin_swift, std::string("\\\"") + other + "\\\""));
 
     // The Google SDK never goes in git.
     const std::string ignore = testing::read_all(plugin / ".gitignore");
@@ -189,7 +199,8 @@ TEST_CASE("platform.add_backend admob: is listed with the arguments it reads") {
     CHECK(has(props["sdk"].value("description", std::string()), "GoogleMobileAds.xcframework"));
 }
 
-TEST_CASE("platform.add_backend admob: writes the plugin for Android and lists the AdMob console steps with the game's own placements") {
+TEST_CASE("platform.add_backend admob: writes the plugin for Android and lists the AdMob console steps with the game's "
+          "own placements") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     const AndroidToolchainSearch none = nothing_found();
@@ -219,15 +230,18 @@ TEST_CASE("platform.add_backend admob: writes the plugin for Android and lists t
         CHECK(has(done, "did not build"));
 
         const std::string steps = joined(r.result["nextSteps"]);
-        CHECK(has(steps, "test app id"));                             // a development export needs nothing
-        CHECK(has(steps, "com.example.spacedodge"));                  // the app to add in AdMob
+        CHECK(has(steps, "test app id"));             // a development export needs nothing
+        CHECK(has(steps, "com.example.spacedodge"));  // the app to add in AdMob
         CHECK(has(steps, "\"appIds\""));
         CHECK(has(steps, "not set yet"));
-        CHECK(has(steps, "\"more_time\""));                           // a placement without a unit
+        CHECK(has(steps, "\"more_time\""));  // a placement without a unit
         CHECK(has(steps, "The placements \"more_time\" have no ids.admob yet"));
         CHECK(has(steps, "\"more_time\", \"double_coins\""));  // both are listed
-        CHECK_FALSE(has(steps, "\"more_time\", \"double_coins\" have no ids.admob yet"));  // only the one without a unit is flagged
-        CHECK(has(steps, "The placements \"more_time\", \"double_coins\" have no ids.admob_ios yet"));  // iOS has its own units: neither has one
+        CHECK_FALSE(has(
+            steps, "\"more_time\", \"double_coins\" have no ids.admob yet"));  // only the one without a unit is flagged
+        CHECK(has(
+            steps,
+            "The placements \"more_time\", \"double_coins\" have no ids.admob_ios yet"));  // iOS has its own units: neither has one
         CHECK(has(steps, "Privacy & messaging"));
         CHECK(has(steps, "Children and consent"));
         CHECK(has(steps, "admob.status"));
@@ -240,7 +254,8 @@ TEST_CASE("platform.add_backend admob: writes the plugin for Android and lists t
     }
 
     SUBCASE("the app id and the audience of the catalog are quoted") {
-        set_platform(dir.c_str(), R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890"}, "audience": "mixed",
+        set_platform(dir.c_str(),
+                     R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890"}, "audience": "mixed",
                                       "placements": [{"id": "more_time", "ids": {"admob": "ca-app-pub-1234567890123456/1234567890"}}]}})");
         auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "admob", "admobBuild": false})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -289,7 +304,8 @@ if [ "$1" = "--build" ]; then
   : > "$folder/android/src/main/jniLibs/$abi/libadmob.so"
 fi
 )");
-    stdfs::permissions(cmake, stdfs::perms::owner_exec | stdfs::perms::owner_read | stdfs::perms::owner_write, stdfs::perm_options::add);
+    stdfs::permissions(cmake, stdfs::perms::owner_exec | stdfs::perms::owner_read | stdfs::perms::owner_write,
+                       stdfs::perm_options::add);
 
     AndroidToolchainSearch search = nothing_found();
     search.env = [&](const std::string& name) { return name == "ANDROID_HOME" ? sdk.string() : std::string(); };
@@ -304,12 +320,14 @@ fi
     const std::string calls = testing::read_all(log);
     CHECK(has(calls, "-DANDROID_ABI=arm64-v8a"));
     CHECK(has(calls, "-DANDROID_ABI=x86_64"));
-    CHECK(has(calls, "-DCMAKE_TOOLCHAIN_FILE=" + sdk.generic_string() + "/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"));
+    CHECK(has(calls, "-DCMAKE_TOOLCHAIN_FILE=" + sdk.generic_string() +
+                         "/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"));
 }
 #endif
 
 // ------------------------------------------------------------------------------------------------------------------ iOS --
-TEST_CASE("platform.add_backend admob: iOS copies Google's XCFrameworks from a folder or a zip and keeps them out of git") {
+TEST_CASE(
+    "platform.add_backend admob: iOS copies Google's XCFrameworks from a folder or a zip and keeps them out of git") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
     const stdfs::path frameworks = stdfs::path(dir) / "plugins/admob/ios/frameworks";
@@ -319,10 +337,14 @@ TEST_CASE("platform.add_backend admob: iOS copies Google's XCFrameworks from a f
 
     SUBCASE("an unpacked folder") {
         write_fake_sdk_folder(tmp.sub("download"));
-        const Json args = Json::object({{"backend", "admob"}, {"admobPlatforms", Json::array({"ios"})}, {"admobBuild", false}, {"sdk", tmp.sub("download")}});
+        const Json args = Json::object({{"backend", "admob"},
+                                        {"admobPlatforms", Json::array({"ios"})},
+                                        {"admobBuild", false},
+                                        {"sdk", tmp.sub("download")}});
         auto r = reg.call("platform.add_backend", args);
         REQUIRE_MESSAGE(r.ok, r.error.dump());
-        CHECK(stdfs::exists(frameworks / "GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/GoogleMobileAds"));
+        CHECK(stdfs::exists(frameworks /
+                            "GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/GoogleMobileAds"));
         CHECK(stdfs::exists(frameworks / "UserMessagingPlatform.xcframework/Info.plist"));
         CHECK(r.result["libraries"].empty());
         CHECK(r.result["platforms"] == Json::parse(R"(["ios"])"));
@@ -347,7 +369,8 @@ TEST_CASE("platform.add_backend admob: iOS copies Google's XCFrameworks from a f
         CHECK(has(steps, "App Tracking Transparency"));
         CHECK(has(steps, "trackingPrompt"));
         CHECK(has(steps, "GADApplicationIdentifier"));
-        CHECK_FALSE(has(steps, "AdMob console (admob.google.com), Android"));  // nothing about Android when it is not asked for
+        CHECK_FALSE(
+            has(steps, "AdMob console (admob.google.com), Android"));  // nothing about Android when it is not asked for
 
         // Running it again replaces the frameworks.
         testing::write_all(frameworks / "GoogleMobileAds.xcframework/stale.txt", "old");
@@ -358,33 +381,45 @@ TEST_CASE("platform.add_backend admob: iOS copies Google's XCFrameworks from a f
 
     SUBCASE("a .zip, whose frameworks sit in a folder inside") {
         testing::write_stored_zip(tmp.sub("GoogleMobileAdsSdkiOS-13.11.0.zip"), fake_sdk_files());
-        auto r = reg.call("platform.add_backend", Json::object({{"backend", "admob"}, {"admobPlatforms", Json::array({"ios"})}, {"admobBuild", false},
-                                                                {"sdk", tmp.sub("GoogleMobileAdsSdkiOS-13.11.0.zip")}}));
+        auto r =
+            reg.call("platform.add_backend", Json::object({{"backend", "admob"},
+                                                           {"admobPlatforms", Json::array({"ios"})},
+                                                           {"admobBuild", false},
+                                                           {"sdk", tmp.sub("GoogleMobileAdsSdkiOS-13.11.0.zip")}}));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(stdfs::exists(frameworks / "GoogleMobileAds.xcframework/Info.plist"));
-        CHECK(stdfs::exists(frameworks / "UserMessagingPlatform.xcframework/ios-arm64/UserMessagingPlatform.framework/UserMessagingPlatform"));
+        CHECK(stdfs::exists(
+            frameworks /
+            "UserMessagingPlatform.xcframework/ios-arm64/UserMessagingPlatform.framework/UserMessagingPlatform"));
     }
 
     SUBCASE("a relative path starts in the project folder") {
         write_fake_sdk_folder(stdfs::path(dir) / "vendor");
-        auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "admob", "admobPlatforms": ["ios"], "admobBuild": false, "sdk": "vendor"})"));
+        auto r = reg.call(
+            "platform.add_backend",
+            Json::parse(R"({"backend": "admob", "admobPlatforms": ["ios"], "admobBuild": false, "sdk": "vendor"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(stdfs::exists(frameworks / "GoogleMobileAds.xcframework/Info.plist"));
     }
 
     SUBCASE("dryRun lists the copy and writes nothing") {
         write_fake_sdk_folder(tmp.sub("download"));
-        auto r = reg.call("platform.add_backend", Json::object({{"backend", "admob"}, {"admobPlatforms", Json::array({"ios"})}, {"admobBuild", false},
-                                                                {"sdk", tmp.sub("download")}, {"dryRun", true}}));
+        auto r = reg.call("platform.add_backend", Json::object({{"backend", "admob"},
+                                                                {"admobPlatforms", Json::array({"ios"})},
+                                                                {"admobBuild", false},
+                                                                {"sdk", tmp.sub("download")},
+                                                                {"dryRun", true}}));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
-        CHECK(has(joined(r.result["wouldDo"]), "would copy GoogleMobileAds.xcframework and UserMessagingPlatform.xcframework"));
+        CHECK(has(joined(r.result["wouldDo"]),
+                  "would copy GoogleMobileAds.xcframework and UserMessagingPlatform.xcframework"));
         CHECK(has(r.result["files"].dump(), "plugins/admob/ios/frameworks/GoogleMobileAds.xcframework"));
         CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "plugins"));
         CHECK_FALSE(load_json_file(dir + "/factoria.json")->contains("plugins"));
     }
 
     SUBCASE("without sdk and without Xcode work, the next steps say where to get it") {
-        auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "admob", "admobPlatforms": ["ios"], "admobBuild": false})"));
+        auto r = reg.call("platform.add_backend",
+                          Json::parse(R"({"backend": "admob", "admobPlatforms": ["ios"], "admobBuild": false})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK_FALSE(stdfs::exists(frameworks));
         const std::string steps = joined(r.result["nextSteps"]);
@@ -414,7 +449,8 @@ TEST_CASE("platform.add_backend admob: a wrong sdk or platform is refused before
     register_plugin_commands(reg, dir);
     register_platform_setup_commands(reg, dir);
     const auto refused = [&](const Json& extra, const char* code, const char* message) {
-        Json args = Json::object({{"backend", "admob"}, {"admobPlatforms", Json::array({"ios"})}, {"admobBuild", false}});
+        Json args =
+            Json::object({{"backend", "admob"}, {"admobPlatforms", Json::array({"ios"})}, {"admobBuild", false}});
         for (auto it = extra.begin(); it != extra.end(); ++it) args[it.key()] = it.value();
         auto r = reg.call("platform.add_backend", args);
         REQUIRE_FALSE(r.ok);
@@ -436,15 +472,18 @@ TEST_CASE("platform.add_backend admob: a wrong sdk or platform is refused before
     }
     SUBCASE("a folder that is not Google's SDK") {
         testing::write_all(tmp.sub("other/GoogleMobileAds.xcframework/Info.plist"), "<plist/>");  // only one of the two
-        refused(Json::object({{"sdk", tmp.sub("other")}}), "invalid_argument", "is not the Google Mobile Ads SDK for iOS");
+        refused(Json::object({{"sdk", tmp.sub("other")}}), "invalid_argument",
+                "is not the Google Mobile Ads SDK for iOS");
     }
     SUBCASE("a zip without the frameworks") {
         testing::write_stored_zip(tmp.sub("empty.zip"), {{"readme.txt", "nothing"}});
-        refused(Json::object({{"sdk", tmp.sub("empty.zip")}}), "invalid_argument", "is not the Google Mobile Ads SDK for iOS");
+        refused(Json::object({{"sdk", tmp.sub("empty.zip")}}), "invalid_argument",
+                "is not the Google Mobile Ads SDK for iOS");
     }
     SUBCASE("sdk for an Android-only plugin") {
         write_fake_sdk_folder(tmp.sub("download"));
-        auto r = refused(Json::object({{"admobPlatforms", Json::array({"android"})}, {"sdk", tmp.sub("download")}}), "invalid_argument", "admobPlatforms has no ios");
+        auto r = refused(Json::object({{"admobPlatforms", Json::array({"android"})}, {"sdk", tmp.sub("download")}}),
+                         "invalid_argument", "admobPlatforms has no ios");
         CHECK(has(r.error["hint"].get<std::string>(), "Add \"ios\""));
     }
     SUBCASE("a platform AdMob has no SDK for") {
@@ -471,9 +510,11 @@ TEST_CASE("platform.add_backend admob: the plugin is never declared for macOS, w
 }
 
 // ------------------------------------------------------------------------------------------- ids, export and validate --
-TEST_CASE("ads_export_settings: a development export always carries Google's sample app id; a release export the catalog's") {
+TEST_CASE(
+    "ads_export_settings: a development export always carries Google's sample app id; a release export the catalog's") {
     testing::TempDir tmp;
-    const std::string dir = make_game(tmp, R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890"}, "audience": "children",
+    const std::string dir = make_game(
+        tmp, R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890"}, "audience": "children",
                                               "placements": [{"id": "p"}]}})");
     const AdsExportSettings dev = ads_export_settings(dir, false);
     CHECK(dev.appId == kAdmobSampleAppId);
@@ -490,19 +531,20 @@ TEST_CASE("ads_export_settings: a development export always carries Google's sam
     CHECK_FALSE(ads_export_settings(dir, true).test);
 }
 
-TEST_CASE("check_ads: a game with the admob plugin and no app id, the sample ids or a placement without a unit gets a warning") {
+TEST_CASE("check_ads: a game with the admob plugin and no app id, the sample ids or a placement without a unit gets a "
+          "warning") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp);
 
-    SUBCASE("without the plugin there is nothing to say about ids") {
-        CHECK(check_ads(dir).empty());
-    }
+    SUBCASE("without the plugin there is nothing to say about ids") { CHECK(check_ads(dir).empty()); }
     SUBCASE("with the plugin: no app id, a placement without a unit") {
         add_plugin(dir);
         const auto issues = check_ads(dir);
         const std::string text = all_text(issues);
-        CHECK(has(text, "/platform/ads/appIds/android: the game has the admob plugin for Android but platform.ads.appIds.android is not set"));
-        CHECK(has(text, "/platform/ads/placements/0/ids: the placement \"more_time\" has no \"ids\": {\"admob\": ...}"));
+        CHECK(has(text, "/platform/ads/appIds/android: the game has the admob plugin for Android but "
+                        "platform.ads.appIds.android is not set"));
+        CHECK(
+            has(text, "/platform/ads/placements/0/ids: the placement \"more_time\" has no \"ids\": {\"admob\": ...}"));
         CHECK_FALSE(has(text, "double_coins"));  // that one has a good unit
         CHECK(issues.size() == 2);
     }
@@ -526,16 +568,20 @@ TEST_CASE("check_ads: a game with the admob plugin and no app id, the sample ids
     SUBCASE("a mixed audience needs a script that asks the age") {
         set_platform(dir.c_str(), R"({"ads": {"audience": "mixed", "placements": [{"id": "a"}]}})");
         const std::string text = all_text(check_ads(dir));
-        CHECK(has(text, "/platform/ads/audience: the audience is \"mixed\" but no script calls platform.ads.setUnderAge()"));
+        CHECK(has(text,
+                  "/platform/ads/audience: the audience is \"mixed\" but no script calls platform.ads.setUnderAge()"));
         CHECK(has(text, "ageGate"));
-        testing::write_all(stdfs::path(dir) / "scripts" / "age.js", "export function ask() { platform.ads.setUnderAge(false); }\n");
+        testing::write_all(stdfs::path(dir) / "scripts" / "age.js",
+                           "export function ask() { platform.ads.setUnderAge(false); }\n");
         CHECK(check_ads(dir).empty());
     }
 }
 
 TEST_CASE("ads_ios_settings: a development export carries Google's iOS sample app id; a release export the catalog's") {
     testing::TempDir tmp;
-    const std::string dir = make_game(tmp, R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890", "ios": "ca-app-pub-1234567890123456~0987654321"},
+    const std::string dir = make_game(
+        tmp,
+        R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456~1234567890", "ios": "ca-app-pub-1234567890123456~0987654321"},
                                               "audience": "mixed", "placements": [{"id": "p"}]}})");
     CHECK_FALSE(ads_ios_settings(dir, false).present);  // no plugin yet
     add_plugin(dir, "ios");
@@ -554,7 +600,8 @@ TEST_CASE("ads_ios_settings: a development export carries Google's iOS sample ap
     CHECK(ads_ios_settings(dir, true).audience == "general");
 }
 
-TEST_CASE("ads_ios_settings: the tracking sentence is the catalog's, the default, or one per language from the locale key") {
+TEST_CASE(
+    "ads_ios_settings: the tracking sentence is the catalog's, the default, or one per language from the locale key") {
     testing::TempDir tmp;
     const std::string dir = make_game(tmp, R"({"ads": {"trackingPrompt": true, "placements": [{"id": "p"}]}})");
     add_plugin(dir, "ios");
@@ -563,11 +610,15 @@ TEST_CASE("ads_ios_settings: the tracking sentence is the catalog's, the default
     CHECK(s.trackingDescription == kDefaultTrackingDescription);
     CHECK(s.trackingDescriptions.empty());
 
-    set_platform(dir, R"({"ads": {"trackingPrompt": true, "trackingDescription": "Plain \"text\".", "placements": [{"id": "p"}]}})");
+    set_platform(
+        dir,
+        R"({"ads": {"trackingPrompt": true, "trackingDescription": "Plain \"text\".", "placements": [{"id": "p"}]}})");
     CHECK(ads_ios_settings(dir, false).trackingDescription == "Plain \"text\".");
 
     // A locale key wins, and each language of the game gets its own sentence (a language that lacks the key falls back to the default's).
-    set_platform(dir, R"({"ads": {"trackingPrompt": true, "trackingDescription": "Plain.", "trackingDescriptionKey": "ads.tracking", "placements": [{"id": "p"}]}})");
+    set_platform(
+        dir,
+        R"({"ads": {"trackingPrompt": true, "trackingDescription": "Plain.", "trackingDescriptionKey": "ads.tracking", "placements": [{"id": "p"}]}})");
     auto project = load_json_file(dir + "/factoria.json");
     REQUIRE(project.ok());
     (*project)["localization"] = Json::parse(R"({"defaultLanguage": "en", "languages": ["en", "es", "ja"]})");
@@ -590,9 +641,13 @@ TEST_CASE("check_ads for iOS: its own app id, its own ad units and the tracking 
 
     SUBCASE("no app id and a placement without an iOS unit") {
         const std::string text = all_text(check_ads(dir));
-        CHECK(has(text, "/platform/ads/appIds/ios: the game has the admob plugin for iOS but platform.ads.appIds.ios is not set"));
-        CHECK(has(text, "/platform/ads/placements/0/ids: the placement \"more_time\" has no \"ids\": {\"admob_ios\": ...}"));
-        CHECK(has(text, "/platform/ads/placements/1/ids: the placement \"double_coins\" has no \"ids\": {\"admob_ios\": ...}"));  // its unit is Android's
+        CHECK(has(
+            text,
+            "/platform/ads/appIds/ios: the game has the admob plugin for iOS but platform.ads.appIds.ios is not set"));
+        CHECK(has(text,
+                  "/platform/ads/placements/0/ids: the placement \"more_time\" has no \"ids\": {\"admob_ios\": ...}"));
+        CHECK(has(text, "/platform/ads/placements/1/ids: the placement \"double_coins\" has no \"ids\": "
+                        "{\"admob_ios\": ...}"));  // its unit is Android's
         CHECK(has(text, "the Android unit (ids.admob) does not work on iOS"));
         CHECK_FALSE(has(text, "Android but"));
         CHECK(check_ads(dir, "android").empty());  // an Android export has nothing to say about an iOS-only plugin
@@ -635,7 +690,8 @@ TEST_CASE("check_ads for iOS: its own app id, its own ad units and the tracking 
         REQUIRE(save_json_file(dir + "/factoria.json", *project).ok());
         set_platform(dir.c_str(), R"({"ads": {"trackingPrompt": true, "placements": [{"id": "a"}]}})");
         const std::string text = all_text(check_ads(dir));
-        CHECK(has(text, "/platform/ads/trackingPrompt: platform.ads.trackingPrompt is true but the game has no ads plugin for iOS"));
+        CHECK(has(text, "/platform/ads/trackingPrompt: platform.ads.trackingPrompt is true but the game has no ads "
+                        "plugin for iOS"));
         CHECK(check_ads(dir, "android").empty());
         // With the plugin for iOS the warning goes away.
         add_plugin(dir, "ios");
@@ -657,11 +713,15 @@ TEST_CASE("validate: the ads setup warns, and an app id that is an ad unit is an
     CHECK(unit);
     CHECK(r.ok);  // warnings only: a development export works without ids
 
-    set_platform(dir.c_str(), R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456/1234567890"}, "placements": [{"id": "a"}]}})");
+    set_platform(
+        dir.c_str(),
+        R"({"ads": {"appIds": {"android": "ca-app-pub-1234567890123456/1234567890"}, "placements": [{"id": "a"}]}})");
     const ValidationReport bad = validate_project(dir);
     CHECK_FALSE(bad.ok);
     bool taught = false;
     for (const ValidationIssue& e : bad.errors)
-        if (e.pointer == "/platform/ads/appIds/android" && has(e.message, "is not an AdMob app id") && has(e.hint, "ad unit")) taught = true;
+        if (e.pointer == "/platform/ads/appIds/android" && has(e.message, "is not an AdMob app id") &&
+            has(e.hint, "ad unit"))
+            taught = true;
     CHECK(taught);
 }

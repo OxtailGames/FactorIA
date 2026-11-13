@@ -30,7 +30,8 @@ std::string camera_tags_problem(const Json& value, const char* field);
 class CameraMask {
 public:
     CameraMask() = default;
-    CameraMask(std::vector<std::string> show, std::vector<std::string> hide) : show_(std::move(show)), hide_(std::move(hide)) {}
+    CameraMask(std::vector<std::string> show, std::vector<std::string> hide)
+        : show_(std::move(show)), hide_(std::move(hide)) {}
     explicit CameraMask(const Camera& camera);
     // The mask of the Camera on `camera` (empty when that is not a Camera, so everything is drawn).
     static CameraMask of(const World& world, Entity camera);

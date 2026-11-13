@@ -94,8 +94,10 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
                 const Vec3 flat{rest.x, 0.0f, rest.z};
                 rest = flat - Vec3{0, 1, 0} * (dot(flat, n) / n.y);
             } else {
-                if (n.y < -0.05f) out.hitCeiling = true;
-                else out.hitWall = true;
+                if (n.y < -0.05f)
+                    out.hitCeiling = true;
+                else
+                    out.hitWall = true;
                 if (canStep && b.stepOffset > 1e-4f && n.y >= -0.05f) {
                     // Step up: lift, go forward, drop back; keep it only if it lands on walkable ground.
                     const Vec3 flat{rest.x, 0.0f, rest.z};
@@ -146,7 +148,8 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
     if (length(flat) > kMinMove) {
         // On a slope the walk follows the surface, so it keeps its horizontal speed up and down the ramp.
         Vec3 move = flat;
-        if (wasGrounded && ground.normal.y < 0.999f) move = flat - Vec3{0, 1, 0} * (dot(flat, ground.normal) / ground.normal.y);
+        if (wasGrounded && ground.normal.y < 0.999f)
+            move = flat - Vec3{0, 1, 0} * (dot(flat, ground.normal) / ground.normal.y);
         slide(move, true);
     }
     if (delta.y > kMinMove) {

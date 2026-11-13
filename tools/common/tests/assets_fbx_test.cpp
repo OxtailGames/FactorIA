@@ -61,14 +61,20 @@ TEST_CASE("assets.import: FBX is converted to glb with Blender") {
     const auto art = p.tmp.path / "art";
     std::filesystem::create_directories(art);
     const std::string fbx = (art / "cube.fbx").string();
-    write_all(art / "make_cube.py",
-              "import bpy\n"
-              "for o in list(bpy.data.objects):\n"
-              "    bpy.data.objects.remove(o, do_unlink=True)\n"
-              "bpy.ops.mesh.primitive_cube_add(size=2)\n"
-              "bpy.ops.export_scene.fbx(filepath=r'" + fbx + "')\n");
+    write_all(art / "make_cube.py", "import bpy\n"
+                                    "for o in list(bpy.data.objects):\n"
+                                    "    bpy.data.objects.remove(o, do_unlink=True)\n"
+                                    "bpy.ops.mesh.primitive_cube_add(size=2)\n"
+                                    "bpy.ops.export_scene.fbx(filepath=r'" +
+                                        fbx + "')\n");
     ProcessOptions make;
-    make.argv = {found.blender, "-b", "--factory-startup", "--python-exit-code", "1", "--python", (art / "make_cube.py").string()};
+    make.argv = {found.blender,
+                 "-b",
+                 "--factory-startup",
+                 "--python-exit-code",
+                 "1",
+                 "--python",
+                 (art / "make_cube.py").string()};
     make.timeoutSeconds = 120;
     auto made = run_process(make);
     if (!made.ok() || made->exitCode != 0 || !std::filesystem::exists(fbx)) {

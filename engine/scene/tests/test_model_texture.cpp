@@ -33,7 +33,9 @@ std::vector<ModelIssue> issues_of(const char* text) {
 
 bool has_issue(const std::vector<ModelIssue>& issues, const std::string& pointer, const std::string& contains) {
     for (const ModelIssue& i : issues)
-        if (i.pointer == pointer && (i.message.find(contains) != std::string::npos || i.hint.find(contains) != std::string::npos)) return true;
+        if (i.pointer == pointer &&
+            (i.message.find(contains) != std::string::npos || i.hint.find(contains) != std::string::npos))
+            return true;
     return false;
 }
 
@@ -111,18 +113,22 @@ long locate(const MeshData& m, const std::string& part, Vec3 p, int size) {
             const Vec3 n = cross(v[1] - v[0], v[2] - v[0]);
             const float nl = length(n);
             if (nl < 1e-9f || std::fabs(dot(n / nl, p - v[0])) > 1e-4f) continue;
-            const float a0 = dot(cross(v[1] - p, v[2] - p), n), a1 = dot(cross(v[2] - p, v[0] - p), n), a2 = dot(cross(v[0] - p, v[1] - p), n);
+            const float a0 = dot(cross(v[1] - p, v[2] - p), n), a1 = dot(cross(v[2] - p, v[0] - p), n),
+                        a2 = dot(cross(v[0] - p, v[1] - p), n);
             const float sum = a0 + a1 + a2;
             if (a0 < -1e-6f * sum || a1 < -1e-6f * sum || a2 < -1e-6f * sum) continue;
             const Vec2 q = uv[0] * (a0 / sum) + uv[1] * (a1 / sum) + uv[2] * (a2 / sum);
-            const int x = std::clamp(int(std::floor(q.x * float(size))), 0, size - 1), y = std::clamp(int(std::floor(q.y * float(size))), 0, size - 1);
+            const int x = std::clamp(int(std::floor(q.x * float(size))), 0, size - 1),
+                      y = std::clamp(int(std::floor(q.y * float(size))), 0, size - 1);
             return long(y) * size + x;
         }
     }
     return -1;
 }
 
-std::uint8_t px(const Image& img, long texel, int channel) { return img.rgba[std::size_t(texel) * 4 + std::size_t(channel)]; }
+std::uint8_t px(const Image& img, long texel, int channel) {
+    return img.rgba[std::size_t(texel) * 4 + std::size_t(channel)];
+}
 
 std::uint64_t hash_image(const Image& img) {
     std::uint64_t h = 1469598103934665603ull;
@@ -177,36 +183,43 @@ TEST_CASE("texturing: problems are listed with the pointer and the fix") {
         CHECK(has_issue(i, "/texturing", "no `uv` section"));
     }
     {
-        auto i = issues_of(R"({"format":"factoria.model/1","uv":{"layout":"tile"},"nodes":[{"op":"box"}],"texturing":{}})");
+        auto i =
+            issues_of(R"({"format":"factoria.model/1","uv":{"layout":"tile"},"nodes":[{"op":"box"}],"texturing":{}})");
         CHECK(has_issue(i, "/texturing", "tile"));
     }
     {
-        auto i = issues_of(R"({"format":"factoria.model/1","uv":{},"nodes":[{"op":"box"}],"texturing":{"wear":[{"mask":"edgs"}],"decals":[{"position":[0,0,0]}],"sise":3}})");
+        auto i = issues_of(
+            R"({"format":"factoria.model/1","uv":{},"nodes":[{"op":"box"}],"texturing":{"wear":[{"mask":"edgs"}],"decals":[{"position":[0,0,0]}],"sise":3}})");
         CHECK(has_issue(i, "/texturing/wear/0/mask", "edges"));  // did you mean
         CHECK(has_issue(i, "/texturing/decals/0/image", "needs an \"image\""));
         CHECK(has_issue(i, "/texturing/decals/0/size", "needs a \"size\""));
         CHECK(has_issue(i, "/texturing/sise", "size"));
     }
     {
-        auto i = issues_of(R"({"format":"factoria.model/1","uv":{},"nodes":[{"op":"box"}],"texturing":{"size":1000000,"maps":{"samples":1,"write":["aoo"]}}})");
+        auto i = issues_of(
+            R"({"format":"factoria.model/1","uv":{},"nodes":[{"op":"box"}],"texturing":{"size":1000000,"maps":{"samples":1,"write":["aoo"]}}})");
         CHECK(has_issue(i, "/texturing/size", "size must be"));
         CHECK(has_issue(i, "/texturing/maps/samples", "samples must be"));
         CHECK(has_issue(i, "/texturing/maps/write/0", "ao"));
     }
     {
-        auto i = issues_of(R"({"format":"factoria.model/1","uv":{},"materials":{"m":{"texture":"a.png","mapping":"uv"}},"nodes":[{"op":"box","material":"m"}],"texturing":{}})");
+        auto i = issues_of(
+            R"({"format":"factoria.model/1","uv":{},"materials":{"m":{"texture":"a.png","mapping":"uv"}},"nodes":[{"op":"box","material":"m"}],"texturing":{}})");
         CHECK(has_issue(i, "/materials/m/mapping", "triplanar"));
     }
     {
-        auto i = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["nope"]}})");
+        auto i =
+            issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["nope"]}})");
         CHECK(has_issue(i, "/vertexColors/palette/0", "colour"));
-        auto k = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["#ffffff","#ff0000"],"parts":{"a":{"color":1,"gradient":{"from":0,"to":1}}}}})");
+        auto k = issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["#ffffff","#ff0000"],"parts":{"a":{"color":1,"gradient":{"from":0,"to":1}}}}})");
         CHECK(has_issue(k, "/vertexColors/parts/a", "both"));
     }
     {
         auto i = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"color":3}})");
         CHECK(has_issue(i, "/vertexColors/color", "needs a palette"));
-        auto k = issues_of(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["#ffffff"],"color":3}})");
+        auto k = issues_of(
+            R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"vertexColors":{"palette":["#ffffff"],"color":3}})");
         CHECK(has_issue(k, "/vertexColors/color", "outside the palette"));
     }
 }
@@ -231,7 +244,8 @@ TEST_CASE("texturing: the schema lists the new sections and material fields") {
     CHECK(s["properties"].contains("texturing"));
     CHECK(s["properties"].contains("vertexColors"));
     CHECK(s["properties"]["texturing"]["properties"].contains("wear"));
-    CHECK(s["properties"]["texturing"]["properties"]["decals"]["items"]["properties"]["faces"]["$ref"] == "#/$defs/face_selection");
+    CHECK(s["properties"]["texturing"]["properties"]["decals"]["items"]["properties"]["faces"]["$ref"] ==
+          "#/$defs/face_selection");
     const Json& mat = s["properties"]["materials"]["additionalProperties"]["properties"];
     for (const char* k : {"mapping", "textureScale", "textureOffset", "sharpness", "tint"}) CHECK(mat.contains(k));
 }
@@ -249,7 +263,9 @@ TEST_CASE("vertexColors: part colours snap to the palette and the glb keeps one 
     CHECK(b.data.colors.size() == b.data.vertex_count() * 4);
     // every wall vertex is the palette colour #c0a060
     for (const MeshSubmesh& sm : b.data.submeshes) {
-        const float expect[3] = {sm.part == "wall" ? 0xc0 / 255.0f : 0xa0 / 255.0f, sm.part == "wall" ? 0xa0 / 255.0f : 0x30 / 255.0f, sm.part == "wall" ? 0x60 / 255.0f : 0x30 / 255.0f};
+        const float expect[3] = {sm.part == "wall" ? 0xc0 / 255.0f : 0xa0 / 255.0f,
+                                 sm.part == "wall" ? 0xa0 / 255.0f : 0x30 / 255.0f,
+                                 sm.part == "wall" ? 0x60 / 255.0f : 0x30 / 255.0f};
         for (std::uint32_t k = sm.start; k < sm.start + sm.count; ++k) {
             const std::uint32_t v = b.data.indices[k];
             REQUIRE(b.data.colors[v * 4] == doctest::Approx(expect[0]).epsilon(0.002));
@@ -260,11 +276,13 @@ TEST_CASE("vertexColors: part colours snap to the palette and the glb keeps one 
 }
 
 TEST_CASE("vertexColors: the style palette comes from the project and a missing one is a warning") {
-    const char* text = R"({"format":"factoria.model/1","vertexColors":{"palette":"style","color":"#ff0000"},"nodes":[{"op":"box"}]})";
+    const char* text =
+        R"({"format":"factoria.model/1","vertexColors":{"palette":"style","color":"#ff0000"},"nodes":[{"op":"box"}]})";
     const ModelDoc doc = parse_ok(text);
     const ModelBuild with = build_ok(doc, {Vec4{0, 1, 0, 1}, Vec4{0, 0, 1, 1}});
     CHECK(with.data.colors[0] == doctest::Approx(0));
-    CHECK(with.data.colors[1] == doctest::Approx(1));  // red is as far from green as from blue: the first palette colour wins
+    CHECK(with.data.colors[1] ==
+          doctest::Approx(1));  // red is as far from green as from blue: the first palette colour wins
     const ModelBuild without = build_ok(doc);
     CHECK(without.data.colors[0] == doctest::Approx(1));  // used as written
     bool warned = false;
@@ -273,7 +291,8 @@ TEST_CASE("vertexColors: the style palette comes from the project and a missing 
 }
 
 TEST_CASE("vertexColors: flat gives each triangle its own vertices and a gradient follows the axis") {
-    const ModelDoc flat = parse_ok(R"({"format":"factoria.model/1","vertexColors":{"flat":true,"variation":0.2,"seed":3,"color":"#808080"},"nodes":[{"op":"box"}]})");
+    const ModelDoc flat = parse_ok(
+        R"({"format":"factoria.model/1","vertexColors":{"flat":true,"variation":0.2,"seed":3,"color":"#808080"},"nodes":[{"op":"box"}]})");
     const ModelBuild b = build_ok(flat);
     CHECK(b.stats.triangles == 12);
     CHECK(b.data.vertex_count() == 36);
@@ -297,7 +316,8 @@ TEST_CASE("vertexColors: flat gives each triangle its own vertices and a gradien
     other.vertexColors->seed = 4;
     CHECK(build_ok(other).data.colors != b.data.colors);
 
-    const ModelDoc grad = parse_ok(R"({"format":"factoria.model/1","vertexColors":{"parts":{"":{"gradient":{"axis":"y","from":"#000000","to":"#ffffff"}}}},"nodes":[{"op":"box","size":[1,2,1]}]})");
+    const ModelDoc grad = parse_ok(
+        R"({"format":"factoria.model/1","vertexColors":{"parts":{"":{"gradient":{"axis":"y","from":"#000000","to":"#ffffff"}}}},"nodes":[{"op":"box","size":[1,2,1]}]})");
     const ModelBuild g = build_ok(grad);
     for (std::size_t v = 0; v < g.data.vertex_count(); ++v) {
         const float y = g.data.positions[v * 3 + 1];
@@ -306,10 +326,12 @@ TEST_CASE("vertexColors: flat gives each triangle its own vertices and a gradien
 }
 
 TEST_CASE("vertexColors: a part the nodes do not make is a warning with a suggestion") {
-    const ModelDoc doc = parse_ok(R"({"format":"factoria.model/1","vertexColors":{"parts":{"rof":{"color":"#ff0000"}}},"nodes":[{"op":"box","part":"roof"}]})");
+    const ModelDoc doc = parse_ok(
+        R"({"format":"factoria.model/1","vertexColors":{"parts":{"rof":{"color":"#ff0000"}}},"nodes":[{"op":"box","part":"roof"}]})");
     const ModelBuild b = build_ok(doc);
     bool warned = false;
-    for (const std::string& w : b.warnings) warned = warned || (w.find("rof") != std::string::npos && w.find("roof") != std::string::npos);
+    for (const std::string& w : b.warnings)
+        warned = warned || (w.find("rof") != std::string::npos && w.find("roof") != std::string::npos);
     CHECK(warned);
 }
 
@@ -324,7 +346,8 @@ TEST_CASE("maps: occlusion darkens the corner between a floor and a wall and not
     REQUIRE(size == 512);
     const long near = locate(b.build.data, "floor", Vec3{0, 0.05f, -0.8f}, size);
     const long far = locate(b.build.data, "floor", Vec3{0, 0.05f, 0.8f}, size);
-    const long wall = locate(b.build.data, "wall", Vec3{0, 0.2f, -0.9f}, size);  // the wall's face towards the room, just above the floor
+    const long wall = locate(b.build.data, "wall", Vec3{0, 0.2f, -0.9f},
+                             size);  // the wall's face towards the room, just above the floor
     REQUIRE(near >= 0);
     REQUIRE(far >= 0);
     REQUIRE(wall >= 0);
@@ -368,8 +391,8 @@ TEST_CASE("maps: a thin plate is thin and a cube is thick") {
     REQUIRE(plate >= 0);
     REQUIRE(cube >= 0);
     // the diagonal is about 4.1 m; the thickness is measured up to half of it
-    CHECK(px(b.layers.thickness, plate, 0) < 20);   // 0.05..0.07 m of 2 m
-    CHECK(px(b.layers.thickness, cube, 0) > 100);   // the cube is 1 m deep: half of the range
+    CHECK(px(b.layers.thickness, plate, 0) < 20);  // 0.05..0.07 m of 2 m
+    CHECK(px(b.layers.thickness, cube, 0) > 100);  // the cube is 1 m deep: half of the range
     CHECK(px(b.layers.thickness, cube, 0) < 160);
 }
 
@@ -381,9 +404,10 @@ TEST_CASE("maps: curvature is high along convex edges and low in concave corners
     REQUIRE_FALSE(b.layers.curvature.empty());
     const int size = b.layers.size;
     const long flat = locate(b.build.data, "*", Vec3{0, 0.05f, 0.5f}, size);
-    const long rim = locate(b.build.data, "*", Vec3{0, 0.05f, 0.97f}, size);     // 3 cm from the floor's front edge (convex)
+    const long rim =
+        locate(b.build.data, "*", Vec3{0, 0.05f, 0.97f}, size);  // 3 cm from the floor's front edge (convex)
     const long corner = locate(b.build.data, "*", Vec3{0, 0.05f, -0.85f}, size);  // 5 cm from the wall (concave)
-    const long top = locate(b.build.data, "*", Vec3{0, 1.0f, -0.93f}, size);       // the wall's top edge (convex)
+    const long top = locate(b.build.data, "*", Vec3{0, 1.0f, -0.93f}, size);      // the wall's top edge (convex)
     REQUIRE(flat >= 0);
     REQUIRE(rim >= 0);
     REQUIRE(corner >= 0);
@@ -395,7 +419,8 @@ TEST_CASE("maps: curvature is high along convex edges and low in concave corners
 }
 
 TEST_CASE("maps: bake_model_maps writes the requested maps and the same input gives the same bytes") {
-    const ModelDoc doc = parse_ok(R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":64},"nodes":[{"op":"rounded_box","size":[1,1,1],"radius":0.2}]})");
+    const ModelDoc doc = parse_ok(
+        R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":64},"nodes":[{"op":"rounded_box","size":[1,1,1],"radius":0.2}]})");
     const ModelBuild built = build_ok(doc);
     ModelMapSettings ms;
     ms.samples = 8;
@@ -424,7 +449,8 @@ TEST_CASE("maps: bake_model_maps writes the requested maps and the same input gi
 
 TEST_CASE("texturing: a triplanar texture is projected at the texture scale") {
     // one quad facing up: the projection along y, u = x / scale, v = z / scale; the texture is red on its left half, blue on its right half
-    const char* text = R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":256,"texelsPerUnit":128},"texturing":{"bleed":2},
+    const char* text =
+        R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":256,"texelsPerUnit":128},"texturing":{"bleed":2},
       "materials":{"m":{"texture":"halves.png","textureScale":2,"color":"#ffffff"}},
       "nodes":[{"op":"grid","width":1,"depth":1,"material":"m","part":"p"}]})";
     int loads = 0;
@@ -462,14 +488,17 @@ TEST_CASE("texturing: a triplanar texture is projected at the texture scale") {
     ModelTextureInput in;
     in.mesh = &b.build.data;
     in.settings = &*b.doc.texturing;
-    in.images = [](const std::string& path) -> Result<Image> { return make_error("cannot read " + path, "Check the path."); };
+    in.images = [](const std::string& path) -> Result<Image> {
+        return make_error("cannot read " + path, "Check the path.");
+    };
     auto r = bake_model_textures(in);
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("material \"m\"") != std::string::npos);
 }
 
 TEST_CASE("texturing: vertex colours are baked into the base layer") {
-    const Baked baked = bake(R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":100},"texturing":{},
+    const Baked baked = bake(
+        R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":100},"texturing":{},
       "vertexColors":{"color":"#ff0000"},"nodes":[{"op":"box","part":"cube","color":"#808080"}]})");
     const int size = baked.layers.size;
     const long top = locate(baked.build.data, "cube", Vec3{0, 0.5f, 0}, size);
@@ -478,7 +507,8 @@ TEST_CASE("texturing: vertex colours are baked into the base layer") {
     CHECK(px(baked.layers.base, top, 1) == 0);
     CHECK(px(baked.layers.base, top, 3) == 255);
     // "keep" leaves the colours to the mesh: the base layer is the material colour only
-    const Baked kept = bake(R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":100},"texturing":{"vertexColors":"keep"},
+    const Baked kept = bake(
+        R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":100},"texturing":{"vertexColors":"keep"},
       "vertexColors":{"color":"#ff0000"},"nodes":[{"op":"box","part":"cube"}]})");
     const long t2 = locate(kept.build.data, "cube", Vec3{0, 0.5f, 0}, kept.layers.size);
     REQUIRE(t2 >= 0);
@@ -488,11 +518,13 @@ TEST_CASE("texturing: vertex colours are baked into the base layer") {
 TEST_CASE("texturing: bleed spreads the colours past the pieces and the background fills the rest") {
     auto count_background = [](const Image& img) {
         std::size_t n = 0;
-        for (std::size_t i = 0; i < img.rgba.size(); i += 4) n += (img.rgba[i] == 255 && img.rgba[i + 1] == 0 && img.rgba[i + 2] == 255) ? 1 : 0;
+        for (std::size_t i = 0; i < img.rgba.size(); i += 4)
+            n += (img.rgba[i] == 255 && img.rgba[i + 1] == 0 && img.rgba[i + 2] == 255) ? 1 : 0;
         return n;
     };
     auto text = [](int bleed) {
-        return std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":60},"texturing":{"background":"#ff00ff","bleed":)") +
+        return std::string(
+                   R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":128,"texelsPerUnit":60},"texturing":{"background":"#ff00ff","bleed":)") +
                std::to_string(bleed) + R"(},"nodes":[{"op":"box","color":"#00ff00"}]})";
     };
     const Baked none = bake(text(0).c_str());
@@ -538,13 +570,18 @@ TEST_CASE("texturing: a decal paints the texels it reaches and no others") {
 
 TEST_CASE("texturing: a decal keeps to the part, the faces and the direction it is asked for") {
     auto make = [](const char* decal) {
-        return std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":256,"texelsPerUnit":96},"texturing":{"decals":[)") + decal +
+        return std::string(
+                   R"({"format":"factoria.model/1","uv":{"method":"unwrap","textureSize":256,"texelsPerUnit":96},"texturing":{"decals":[)") +
+               decal +
                R"(]},"nodes":[{"op":"box","size":[2,1,2],"part":"a"},{"op":"box","size":[2,1,2],"position":[4,0,0],"part":"b"}]})";
     };
     auto images = [](const std::string&) -> Result<Image> { return solid(2, 2, 0, 0, 255); };
     // the same decal on the top of both boxes, then only the part "b", then only the faces that look up, then the direction turned away
     const std::string base = R"("image":"d.png","size":1.2,"depth":2,"normal":"top")";
-    const Baked both = bake(make((R"({"position":[0,0.5,0],"parts":[],)" + base + "},{\"position\":[4,0.5,0]," + base + "}").c_str()).c_str(), images);
+    const Baked both =
+        bake(make((R"({"position":[0,0.5,0],"parts":[],)" + base + "},{\"position\":[4,0.5,0]," + base + "}").c_str())
+                 .c_str(),
+             images);
     const Baked onlyB = bake(make((R"({"position":[0,0.5,0],"parts":["b"],)" + base + "}").c_str()).c_str(), images);
     CHECK(both.layers.report.decals[0].texels > 0);
     CHECK(onlyB.layers.report.decals[0].texels == 0);  // b is 4 m away from the projection
@@ -555,9 +592,16 @@ TEST_CASE("texturing: a decal keeps to the part, the faces and the direction it 
         CHECK(double(partB.layers.report.decals[0].texels) == doctest::Approx(1.44 * used * used).epsilon(0.1));
     }
     CHECK(partA.layers.report.decals[0].texels == 0);
-    const Baked turned = bake(make((R"({"position":[0,0.5,0],"normal":"bottom","image":"d.png","size":1.2,"depth":2,"maxAngle":30})")).c_str(), images);
+    const Baked turned =
+        bake(make((R"({"position":[0,0.5,0],"normal":"bottom","image":"d.png","size":1.2,"depth":2,"maxAngle":30})"))
+                 .c_str(),
+             images);
     CHECK(turned.layers.report.decals[0].texels > 0);  // the bottom face is the one it sits on
-    const Baked sideways = bake(make((R"({"position":[0,0.5,0],"normal":"top","image":"d.png","size":1.2,"depth":2,"maxAngle":10,"faces":{"by":"normal","direction":"right"}})")).c_str(), images);
+    const Baked sideways = bake(
+        make(
+            (R"({"position":[0,0.5,0],"normal":"top","image":"d.png","size":1.2,"depth":2,"maxAngle":10,"faces":{"by":"normal","direction":"right"}})"))
+            .c_str(),
+        images);
     CHECK(sideways.layers.report.decals[0].texels == 0);  // the faces it may land on do not look up
 }
 
@@ -585,7 +629,7 @@ TEST_CASE("texturing: wear marks the edges and the cavities and is the same on e
     REQUIRE(crease >= 0);
     CHECK(px(a.layers.wear, mid, 3) == 0);
     CHECK(px(a.layers.wear, rim, 3) > 200);
-    CHECK(px(a.layers.wear, rim, 0) > 200);   // light chips
+    CHECK(px(a.layers.wear, rim, 0) > 200);  // light chips
     CHECK(px(a.layers.wear, crease, 3) > 100);
     CHECK(px(a.layers.wear, crease, 0) < 60);  // dark dirt
     CHECK(hash_image(a.layers.wear) == hash_image(b.layers.wear));

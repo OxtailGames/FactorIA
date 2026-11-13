@@ -10,8 +10,8 @@ using namespace fa::render;
 
 namespace {
 
-void add_item(QuadList& l, TextureAsset* tex, int layer, QuadMode mode, BlendMode blend = BlendMode::Alpha, bool lit = false,
-              bool opaque = false) {
+void add_item(QuadList& l, TextureAsset* tex, int layer, QuadMode mode, BlendMode blend = BlendMode::Alpha,
+              bool lit = false, bool opaque = false) {
     l.begin_item(layer, 0, tex, SamplerKind::Nearest, blend);
     if (lit) l.set_lit(nullptr);
     if (opaque) l.set_opaque();
@@ -114,7 +114,7 @@ TEST_CASE("float_to_half_bits: IEEE binary16 for the sizes a shape can have") {
     CHECK(float_to_half_bits(0.5f) == 0x3800);
     CHECK(float_to_half_bits(20.0f) == 0x4D00);
     CHECK(float_to_half_bits(1000.0f) == 0x63D0);
-    CHECK(float_to_half_bits(1e9f) == 0x7BFF);  // saturates instead of becoming infinity
+    CHECK(float_to_half_bits(1e9f) == 0x7BFF);     // saturates instead of becoming infinity
     CHECK(float_to_half_bits(1.9999f) == 0x4000);  // the mantissa carries into the exponent
 }
 

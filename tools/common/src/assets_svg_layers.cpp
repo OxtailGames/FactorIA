@@ -10,8 +10,15 @@
 #include <memory>
 #include <set>
 
+// MSVC: no warnings from the vendored nanosvg headers (C4702 from the optimizer is off in tools/common/CMakeLists.txt).
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
 #include "nanosvg.h"
 #include "nanosvgrast.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include "fa/core/strings.h"
 
@@ -146,7 +153,8 @@ std::string prop_of(const Node& n, const char* name) {
             if (semi == std::string::npos) semi = st->size();
             const std::string decl = st->substr(pos, semi - pos);
             const std::size_t colon = decl.find(':');
-            if (colon != std::string::npos && trims(decl.substr(0, colon)) == name) found = trims(decl.substr(colon + 1));
+            if (colon != std::string::npos && trims(decl.substr(0, colon)) == name)
+                found = trims(decl.substr(colon + 1));
             pos = semi + 1;
         }
         if (!found.empty()) return found;
@@ -167,12 +175,16 @@ std::string url_id(const std::string& v) {
     return id;
 }
 
-bool is_shape(const std::string& n) { return n == "path" || n == "rect" || n == "circle" || n == "ellipse" || n == "line" || n == "polyline" || n == "polygon"; }
+bool is_shape(const std::string& n) {
+    return n == "path" || n == "rect" || n == "circle" || n == "ellipse" || n == "line" || n == "polyline" ||
+           n == "polygon";
+}
 
 // Elements whose children are definitions or other content that is not drawn where it stands.
 bool is_inert(const std::string& n) {
-    static const char* const kNames[] = {"defs", "clipPath", "mask", "pattern", "symbol", "marker", "linearGradient", "radialGradient", "style", "title", "desc",
-                                         "metadata", "filter", "text", "image", "foreignObject", "script"};
+    static const char* const kNames[] = {
+        "defs",  "clipPath", "mask",     "pattern", "symbol", "marker", "linearGradient", "radialGradient", "style",
+        "title", "desc",     "metadata", "filter",  "text",   "image",  "foreignObject",  "script"};
     for (const char* k : kNames)
         if (n == k) return true;
     return false;
@@ -185,7 +197,8 @@ struct Mat {
 };
 
 Mat mul(const Mat& p, const Mat& q) {  // apply q first, then p
-    return {p.a * q.a + p.c * q.b, p.b * q.a + p.d * q.b, p.a * q.c + p.c * q.d, p.b * q.c + p.d * q.d, p.a * q.e + p.c * q.f + p.e, p.b * q.e + p.d * q.f + p.f};
+    return {p.a * q.a + p.c * q.b, p.b * q.a + p.d * q.b,       p.a * q.c + p.c * q.d,
+            p.b * q.c + p.d * q.d, p.a * q.e + p.c * q.f + p.e, p.b * q.e + p.d * q.f + p.f};
 }
 
 void apply(const Mat& m, double x, double y, double& ox, double& oy) {
@@ -233,15 +246,20 @@ Mat parse_transform(const std::string& s) {
         const std::vector<double> v = numbers_of(s.substr(open + 1, close - open - 1));
         Mat t;
         const double pi = 3.14159265358979323846;
-        if (name.find("matrix") != std::string::npos && v.size() >= 6) t = {v[0], v[1], v[2], v[3], v[4], v[5]};
-        else if (name.find("translate") != std::string::npos && !v.empty()) t.e = v[0], t.f = v.size() > 1 ? v[1] : 0;
-        else if (name.find("scale") != std::string::npos && !v.empty()) t.a = v[0], t.d = v.size() > 1 ? v[1] : v[0];
+        if (name.find("matrix") != std::string::npos && v.size() >= 6)
+            t = {v[0], v[1], v[2], v[3], v[4], v[5]};
+        else if (name.find("translate") != std::string::npos && !v.empty())
+            t.e = v[0], t.f = v.size() > 1 ? v[1] : 0;
+        else if (name.find("scale") != std::string::npos && !v.empty())
+            t.a = v[0], t.d = v.size() > 1 ? v[1] : v[0];
         else if (name.find("rotate") != std::string::npos && !v.empty()) {
             const double r = v[0] * pi / 180.0, cs = std::cos(r), sn = std::sin(r);
             t = {cs, sn, -sn, cs, 0, 0};
             if (v.size() >= 3) t = mul(mul(Mat{1, 0, 0, 1, v[1], v[2]}, t), Mat{1, 0, 0, 1, -v[1], -v[2]});
-        } else if (name.find("skewX") != std::string::npos && !v.empty()) t.c = std::tan(v[0] * pi / 180.0);
-        else if (name.find("skewY") != std::string::npos && !v.empty()) t.b = std::tan(v[0] * pi / 180.0);
+        } else if (name.find("skewX") != std::string::npos && !v.empty())
+            t.c = std::tan(v[0] * pi / 180.0);
+        else if (name.find("skewY") != std::string::npos && !v.empty())
+            t.b = std::tan(v[0] * pi / 180.0);
         m = mul(m, t);
         i = close + 1;
     }
@@ -289,7 +307,6 @@ std::string closes(std::size_t count) {
     for (std::size_t i = 0; i < count; ++i) out += "</g>";
     return out;
 }
-
 
 // ---- the layered renderer ----
 
@@ -379,7 +396,8 @@ struct Renderer {
         return out;
     }
 
-    void emit_selected(const Node& parent, const std::set<const Node*>& keep, const std::map<const Node*, std::string>& extra, std::string& out) {
+    void emit_selected(const Node& parent, const std::set<const Node*>& keep,
+                       const std::map<const Node*, std::string>& extra, std::string& out) {
         for (const auto& k : parent.kids) {
             if (k->name.empty() || !keep.count(k.get())) continue;
             auto it = extra.find(k.get());
@@ -401,7 +419,8 @@ struct Renderer {
     };
 
     void add_unit(Unit u) {
-        if (!units.empty() && !u.pattern && !units.back().pattern && units.back().clips == u.clips && units.back().masks == u.masks) {
+        if (!units.empty() && !u.pattern && !units.back().pattern && units.back().clips == u.clips &&
+            units.back().masks == u.masks) {
             for (Leaf& l : u.leaves) units.back().leaves.push_back(std::move(l));
             return;
         }
@@ -416,16 +435,19 @@ struct Renderer {
         return {};
     }
 
-    void add_refs(const Node& n, const Walk& w, Walk& next) {
-        next = w;
+    void add_refs(const Node& n, const Walk& parentWalk, Walk& next) {
+        next = parentWalk;
         const std::string cp = prop_of(n, "clip-path");
         if (!cp.empty() && cp != "none") {
             const std::string id = url_id(cp);
             auto it = ids.find(id);
             if (id.empty() || it == ids.end() || it->second->name != "clipPath") {
-                warn("clip-path \"" + cp + "\" does not point to a <clipPath> of this SVG; the element is drawn unclipped.");
+                warn("clip-path \"" + cp +
+                     "\" does not point to a <clipPath> of this SVG; the element is drawn unclipped.");
             } else if (prop_of(*it->second, "clipPathUnits") == "objectBoundingBox") {
-                warn("clipPath \"" + id + "\" uses clipPathUnits=\"objectBoundingBox\", which is not supported; use userSpaceOnUse (real coordinates). The element is drawn unclipped.");
+                warn("clipPath \"" + id +
+                     "\" uses clipPathUnits=\"objectBoundingBox\", which is not supported; use userSpaceOnUse (real "
+                     "coordinates). The element is drawn unclipped.");
             } else {
                 used = true;
                 next.clips.push_back({&n, it->second, next.path});
@@ -435,7 +457,8 @@ struct Renderer {
         if (!mk.empty() && mk != "none") {
             const std::string id = url_id(mk);
             auto it = ids.find(id);
-            if (id.empty() || it == ids.end() || it->second->name != "mask") warn("mask \"" + mk + "\" does not point to a <mask> of this SVG; the element is drawn unmasked.");
+            if (id.empty() || it == ids.end() || it->second->name != "mask")
+                warn("mask \"" + mk + "\" does not point to a <mask> of this SVG; the element is drawn unmasked.");
             else {
                 used = true;
                 next.masks.push_back({&n, it->second, next.path});
@@ -443,15 +466,15 @@ struct Renderer {
         }
     }
 
-    void walk(const Node& parent, const Walk& w) {
+    void walk(const Node& parent, const Walk& outer) {
         for (const auto& k : parent.kids) {
             const Node& n = *k;
             if (n.name.empty() || is_inert(n.name)) continue;
             Walk next;
-            next.path = w.path;
+            next.path = outer.path;
             next.path.push_back(&n);
-            next.clips = w.clips;
-            next.masks = w.masks;
+            next.clips = outer.clips;
+            next.masks = outer.masks;
             Walk withRefs;
             withRefs.path = next.path;
             add_refs(n, next, withRefs);
@@ -474,7 +497,8 @@ struct Renderer {
                     const std::string stroke = inherited(withRefs.path, "stroke");
                     if (!stroke.empty() && stroke != "none") {
                         const std::string sid = url_id(stroke);
-                        if (!sid.empty() && ids.count(sid) && ids[sid]->name == "pattern") warn("A pattern as `stroke` is not supported; the stroke of that shape is not drawn.");
+                        if (!sid.empty() && ids.count(sid) && ids[sid]->name == "pattern")
+                            warn("A pattern as `stroke` is not supported; the stroke of that shape is not drawn.");
                         else {
                             Unit s = u;
                             s.pattern = nullptr;
@@ -485,7 +509,8 @@ struct Renderer {
                 } else {
                     const std::string stroke = inherited(withRefs.path, "stroke");
                     const std::string sid = url_id(stroke);
-                    if (!sid.empty() && ids.count(sid) && ids[sid]->name == "pattern") warn("A pattern as `stroke` is not supported; the stroke of that shape is not drawn.");
+                    if (!sid.empty() && ids.count(sid) && ids[sid]->name == "pattern")
+                        warn("A pattern as `stroke` is not supported; the stroke of that shape is not drawn.");
                     add_unit(std::move(u));
                 }
             } else {
@@ -511,7 +536,8 @@ struct Renderer {
     // ---- compositing ----
 
     static void multiply_alpha(std::vector<std::uint8_t>& layer, const std::vector<std::uint8_t>& mask) {
-        for (std::size_t i = 0; i < layer.size(); i += 4) layer[i + 3] = std::uint8_t((int(layer[i + 3]) * int(mask[i + 3]) + 127) / 255);
+        for (std::size_t i = 0; i < layer.size(); i += 4)
+            layer[i + 3] = std::uint8_t((int(layer[i + 3]) * int(mask[i + 3]) + 127) / 255);
     }
 
     // The coverage of a <clipPath> as the alpha channel of an RGBA buffer.
@@ -523,12 +549,15 @@ struct Renderer {
         for (const auto& k : r.def->kids) {
             if (k->name.empty()) continue;
             if (!is_shape(k->name)) {
-                warn("<" + k->name + "> inside a <clipPath> is not supported (use path, rect, circle, ellipse, polygon); it does not clip.");
+                warn("<" + k->name +
+                     "> inside a <clipPath> is not supported (use path, rect, circle, ellipse, polygon); it does not "
+                     "clip.");
                 continue;
             }
             std::string extra = " fill=\"#000000\" fill-opacity=\"1\" opacity=\"1\" stroke=\"none\"";
             const std::string rule = prop_of(*k, "clip-rule");
-            if (!rule.empty()) extra += " fill-rule=\"" + rule + "\"";
+            if (!rule.empty())
+                extra += " fill-rule=\"" + rule + "\"";
             else {
                 const std::string prule = prop_of(*r.def, "clip-rule");
                 if (!prule.empty()) extra += " fill-rule=\"" + prule + "\"";
@@ -565,14 +594,16 @@ struct Renderer {
         const Leaf& leaf = u.leaves[0];
         const Node& pat = *u.pattern;
         std::vector<std::uint8_t> empty(std::size_t(w) * h * 4, 0);
-        if (attr_of(pat, "viewBox")) warn("A <pattern> viewBox is ignored; write the pattern's content in the pattern tile's own units.");
+        if (attr_of(pat, "viewBox"))
+            warn("A <pattern> viewBox is ignored; write the pattern's content in the pattern tile's own units.");
         const bool boxUnits = prop_of(pat, "patternUnits") != "userSpaceOnUse";
         const bool contentBox = prop_of(pat, "patternContentUnits") == "objectBoundingBox";
         double bb[4] = {0, 0, 1, 1};
         if ((boxUnits || contentBox) && !user_bounds(*leaf.node, bb)) return empty;
         const double bw = bb[2] - bb[0], bh = bb[3] - bb[1];
         double x = pattern_number(prop_of(pat, "x"), bw, boxUnits), y = pattern_number(prop_of(pat, "y"), bh, boxUnits);
-        double pw = pattern_number(prop_of(pat, "width"), bw, boxUnits), ph = pattern_number(prop_of(pat, "height"), bh, boxUnits);
+        double pw = pattern_number(prop_of(pat, "width"), bw, boxUnits),
+               ph = pattern_number(prop_of(pat, "height"), bh, boxUnits);
         if (boxUnits) {
             x = bb[0] + x * bw;
             y = bb[1] + y * bh;
@@ -604,7 +635,7 @@ struct Renderer {
         const double cx[2] = {double(minPx), double(maxPx + 1)}, cy[2] = {double(minPy), double(maxPy + 1)};
         for (double ox : cx)
             for (double oy : cy) {
-                const double ix = (ox - tx) / scale, iy = (oy - ty) / scale;      // nanosvg image px
+                const double ix = (ox - tx) / scale, iy = (oy - ty) / scale;        // nanosvg image px
                 const double ux = (ix - mapTx) / mapSx, uy = (iy - mapTy) / mapSy;  // root user units
                 double qx, qy;
                 apply(inv, ux, uy, qx, qy);
@@ -617,7 +648,9 @@ struct Renderer {
         const long j0 = long(std::floor((pyMin - y) / ph)), j1 = long(std::floor((pyMax - y) / ph));
         const double tiles = double(i1 - i0 + 1) * double(j1 - j0 + 1);
         if (tiles > 60000.0) {
-            warn(std::format("A <pattern> would need {} tiles on this shape (the tiles are too small for the picture); make its width and height larger. The shape is not drawn.", std::llround(tiles)));
+            warn(std::format("A <pattern> would need {} tiles on this shape (the tiles are too small for the picture); "
+                             "make its width and height larger. The shape is not drawn.",
+                             std::llround(tiles)));
             return empty;
         }
         std::vector<const Node*> ctxPath = leaf.path;
@@ -643,7 +676,8 @@ struct Renderer {
             std::uint8_t* d = &out.rgba[i];
             const int da = d[3];
             const double s = sa / 255.0, dd = da / 255.0, oa = s + dd * (1.0 - s);
-            for (int c = 0; c < 3; ++c) d[c] = std::uint8_t(std::clamp(std::lround((layer[i + c] * s + d[c] * dd * (1.0 - s)) / oa), 0L, 255L));
+            for (int c = 0; c < 3; ++c)
+                d[c] = std::uint8_t(std::clamp(std::lround((layer[i + c] * s + d[c] * dd * (1.0 - s)) / oa), 0L, 255L));
             d[3] = std::uint8_t(std::clamp(std::lround(oa * 255.0), 0L, 255L));
         }
     }
@@ -652,7 +686,8 @@ struct Renderer {
         for (const Unit& u : units) {
             std::vector<std::uint8_t> layer;
             if (u.pattern) {
-                const std::vector<std::uint8_t> coverage = render(selection_markup_with(u, " fill=\"#ffffff\" stroke=\"none\""));
+                const std::vector<std::uint8_t> coverage =
+                    render(selection_markup_with(u, " fill=\"#ffffff\" stroke=\"none\""));
                 layer = pattern_layer(u, coverage);
                 multiply_alpha(layer, coverage);
             } else {
@@ -673,9 +708,12 @@ struct Renderer {
 
 }  // namespace
 
-bool render_svg_layers(const std::string& text, const NSVGimage* image, Image& out, float tx, float ty, float scale, std::vector<std::string>& warnings) {
+bool render_svg_layers(const std::string& text, const NSVGimage* image, Image& out, float tx, float ty, float scale,
+                       std::vector<std::string>& warnings) {
     // a cheap look at the text first: nothing to do for the common SVG
-    if (text.find("clip-path") == std::string::npos && text.find("mask") == std::string::npos && text.find("<pattern") == std::string::npos) return false;
+    if (text.find("clip-path") == std::string::npos && text.find("mask") == std::string::npos &&
+        text.find("<pattern") == std::string::npos)
+        return false;
     std::unique_ptr<Node> doc = parse_xml(text);
     const Node* svg = nullptr;
     for (const auto& k : doc->kids)

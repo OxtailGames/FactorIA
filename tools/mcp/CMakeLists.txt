@@ -20,5 +20,6 @@ if(FA_BUILD_TESTS)
         target_link_libraries(fa_test_mcp PRIVATE fa_mcp fa_ai fa_ext_doctest fa_warnings)
         target_include_directories(fa_test_mcp PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_AI_FIXTURES...
         add_test(NAME mcp COMMAND fa_test_mcp WORKING_DIRECTORY ${FA_ROOT})
+        fa_label_tsan(mcp)  # the server threads: part of the CI job linux-tsan (docs/BUILDING.md, "Sanitizers")
     endif()
 endif()

@@ -26,14 +26,14 @@ struct AudioPlay {
 };
 
 struct AudioLogState {
-    std::vector<AudioPlay> plays;   // oldest first, capped at kMax
-    std::uint64_t after = 0;        // seq of the newest play seen or cleared: the next poll asks for newer ones
-    std::uint64_t dropped = 0;      // plays the engine's own log (4096) forgot
-    std::string filter;             // keep plays whose path contains this (case-insensitive)
-    bool onlyFailed = false;        // keep only plays whose clip failed to load
+    std::vector<AudioPlay> plays;  // oldest first, capped at kMax
+    std::uint64_t after = 0;       // seq of the newest play seen or cleared: the next poll asks for newer ones
+    std::uint64_t dropped = 0;     // plays the engine's own log (4096) forgot
+    std::string filter;            // keep plays whose path contains this (case-insensitive)
+    bool onlyFailed = false;       // keep only plays whose clip failed to load
     bool autoScroll = true;
-    std::uint64_t scrolledTo = 0;   // seq of the newest play the panel already scrolled to
-    std::string error;              // last poll error ("" = fine)
+    std::uint64_t scrolledTo = 0;  // seq of the newest play the panel already scrolled to
+    std::string error;             // last poll error ("" = fine)
     static constexpr std::size_t kMax = 2000;
 };
 // audio.log {after}: appends the plays newer than state.after. Returns the number of new plays.
@@ -53,10 +53,10 @@ struct ProfilerView {
         std::string className, path;
         double ms = 0, calls = 0;  // smoothed per frame
     };
-    std::vector<float> frameMs;                      // oldest first, at most kHistory
+    std::vector<float> frameMs;  // oldest first, at most kHistory
     double smoothFrameMs = 0;
     std::array<double, kProfSystemCount> systemMs{};  // smoothed
-    std::vector<Row> rows;                           // sorted by ms, slowest first
+    std::vector<Row> rows;                            // sorted by ms, slowest first
     // One row per thread of the job pool (fa/core/jobs.h): main first, then worker 1.., then "other" when a thread outside
     // the pool ran jobs. Smoothed like the rows; a lane the frame no longer has fades out.
     struct JobRow {
@@ -69,10 +69,10 @@ struct ProfilerView {
         std::vector<JobRow> top;     // the lane's jobs by name, slowest first
     };
     std::vector<LaneRow> lanes;
-    std::uint64_t frames = 0;                        // frames added since reset
+    std::uint64_t frames = 0;  // frames added since reset
     bool gpuSupported = false;
     std::string gpuReason = "no GPU time yet";
-    double gpuMs = 0;                                // smoothed; valid when haveGpu
+    double gpuMs = 0;  // smoothed; valid when haveGpu
     bool haveGpu = false;
     ProfMemory memory;
     bool haveMemory = false;

@@ -62,18 +62,19 @@ std::shared_ptr<ShapeData> make_shape_data(std::shared_ptr<const MeshGeometry> g
 
 // First hit of the ray origin + dir * t (t in [0, maxT], dir unit, in MODEL space) with the triangles. Returns false for
 // a miss. `tri` is the hit triangle; the normal is the triangle's, facing the ray origin.
-bool ray_triangles(const ShapeData& data, Vec3 origin, Vec3 dir, float maxT, float& t, std::uint32_t& tri, Vec3& normal);
+bool ray_triangles(const ShapeData& data, Vec3 origin, Vec3 dir, float maxT, float& t, std::uint32_t& tri,
+                   Vec3& normal);
 
 // A convex core in world space.
 struct Core {
     enum Kind { Point, Segment, Box, Hull, Triangle } kind = Point;
-    Vec3 a, b, c;                    // Point: a. Segment: a-b. Triangle: a, b, c. Box/Hull: a = centre / model origin
-    Vec3 half{};                     // Box: half extents along ax
+    Vec3 a, b, c;  // Point: a. Segment: a-b. Triangle: a, b, c. Box/Hull: a = centre / model origin
+    Vec3 half{};   // Box: half extents along ax
     Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // Box/Hull frame
-    const Vec3* verts = nullptr;     // Hull: model-space vertices
+    const Vec3* verts = nullptr;                     // Hull: model-space vertices
     int count = 0;
-    Vec3 scale{1, 1, 1};             // Hull: per-axis scale applied before the frame
-    float radius = 0.0f;             // rounding radius (sphere, capsule)
+    Vec3 scale{1, 1, 1};  // Hull: per-axis scale applied before the frame
+    float radius = 0.0f;  // rounding radius (sphere, capsule)
 };
 Vec3 core_support(const Core& c, Vec3 dir);
 
@@ -81,8 +82,10 @@ struct GjkResult {
     bool overlap = false;  // the cores intersect (distance 0)
     float dist = 0.0f;     // between the cores
     Vec3 pa, pb;           // closest points on A and B (when !overlap)
-    struct Vertex { Vec3 w, a, b; } v[4];
-    int n = 0;             // simplex size (used by EPA when overlap)
+    struct Vertex {
+        Vec3 w, a, b;
+    } v[4];
+    int n = 0;  // simplex size (used by EPA when overlap)
 };
 GjkResult gjk(const Core& A, const Core& B);
 

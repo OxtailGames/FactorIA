@@ -45,8 +45,10 @@ TEST_CASE("accessibility: gsettings output is parsed") {
 }
 
 TEST_CASE("accessibility: what this system says is in range") {
-    const AccessibilitySettings s = system_accessibility();  // the values depend on the machine: only the range is checked
-    MESSAGE("this system: textScale ", s.textScale, " reduceMotion ", s.reduceMotion, " highContrast ", s.highContrast, " screenReader ", s.screenReader);
+    const AccessibilitySettings s =
+        system_accessibility();  // the values depend on the machine: only the range is checked
+    MESSAGE("this system: textScale ", s.textScale, " reduceMotion ", s.reduceMotion, " highContrast ", s.highContrast,
+            " screenReader ", s.screenReader);
     CHECK(s.textScale >= kMinSystemTextScale);
     CHECK(s.textScale <= kMaxSystemTextScale);
     refresh_system_accessibility();

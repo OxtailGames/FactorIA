@@ -31,10 +31,11 @@ struct RichIcon {
 
 // The "text" section of factoria.json (docs/TEXT.md "Rich text").
 struct RichTextStyle {
-    std::map<std::string, Color> colors;              // [c:name]
-    std::map<std::string, RichIcon> icons;            // [icon:name]
-    std::map<std::string, std::string> boldFonts;     // a font as a Text names it ("" = the built-in font) -> its bold face
-    std::map<std::string, std::string> italicFonts;   // the same -> its italic face ([i])
+    std::map<std::string, Color> colors;    // [c:name]
+    std::map<std::string, RichIcon> icons;  // [icon:name]
+    std::map<std::string, std::string>
+        boldFonts;  // a font as a Text names it ("" = the built-in font) -> its bold face
+    std::map<std::string, std::string> italicFonts;  // the same -> its italic face ([i])
     bool empty() const { return colors.empty() && icons.empty() && boldFonts.empty() && italicFonts.empty(); }
     bool operator==(const RichTextStyle&) const = default;
 };
@@ -65,18 +66,18 @@ inline constexpr char32_t kIconChar = 0xFFFC;
 struct MarkupAttr {
     bool bold = false;
     bool italic = false;
-    int color = 0;   // 0 = the Text's colour, k = colors[k - 1] of the MarkupText
-    int icon = -1;   // >= 0: this character (kIconChar) is the picture icons[icon]
+    int color = 0;  // 0 = the Text's colour, k = colors[k - 1] of the MarkupText
+    int icon = -1;  // >= 0: this character (kIconChar) is the picture icons[icon]
 };
 struct MarkupProblem {
     std::size_t position = 0;  // code point index in the source
     std::string message;
 };
 struct MarkupText {
-    std::u32string text;             // without tags; every icon is one kIconChar
-    std::vector<MarkupAttr> attrs;   // one per character of `text`
-    std::vector<std::string> colors; // the colour names the text uses, in order of appearance (not yet resolved)
-    std::vector<std::string> icons;  // the icon names the text uses, in order of appearance
+    std::u32string text;              // without tags; every icon is one kIconChar
+    std::vector<MarkupAttr> attrs;    // one per character of `text`
+    std::vector<std::string> colors;  // the colour names the text uses, in order of appearance (not yet resolved)
+    std::vector<std::string> icons;   // the icon names the text uses, in order of appearance
     std::vector<MarkupProblem> problems;
 };
 // Reads `source` (code points as the text layout decodes them). Never fails.

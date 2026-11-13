@@ -21,7 +21,7 @@ public:
     struct Hooks {
         std::function<void()> present_clear;  // present one cleared frame (Renderer::present_clear)
         std::function<bool()> init;           // read the game (Engine::init); false = it could not start
-        std::function<int()> warm;            // one slice of GPU warm-up (several groups); returns the groups left (0 = done)
+        std::function<int()> warm;  // one slice of GPU warm-up (several groups); returns the groups left (0 = done)
     };
     enum class State { FirstFrame, Init, Warm, Running, Failed };
 

@@ -43,7 +43,9 @@ std::vector<std::string> strings_of(const Json& j, const char* key) {
 
 Result<std::vector<Part>> load_parts() {
     auto text = bundled_read(std::string(kKitRoot) + "kit.json");
-    if (!text) return err("The menu kit is missing from this build of factoria (templates/menus/kit.json).", "Reinstall FactorIA; this is a packaging bug.");
+    if (!text)
+        return err("The menu kit is missing from this build of factoria (templates/menus/kit.json).",
+                   "Reinstall FactorIA; this is a packaging bug.");
     auto doc = parse_json(*text, "templates/menus/kit.json");
     if (!doc.ok()) return err(doc.error().message, doc.error().hint);
     std::vector<Part> parts;
@@ -56,7 +58,8 @@ Result<std::vector<Part>> load_parts() {
             part.files = strings_of(p, "files");
             part.localeKeys = strings_of(p, "localeKeys");
             if (auto pr = p.find("prunes"); pr != p.end() && pr->is_object())
-                for (auto it = pr->begin(); it != pr->end(); ++it) part.prunes[it.key()] = strings_of(*pr, it.key().c_str());
+                for (auto pi = pr->begin(); pi != pr->end(); ++pi)
+                    part.prunes[pi.key()] = strings_of(*pr, pi.key().c_str());
             parts.push_back(std::move(part));
         }
     }
@@ -73,8 +76,10 @@ std::string without_cr(std::string s) {
 void leaves(const Json& node, const std::string& prefix, std::vector<std::pair<std::string, Json>>& out) {
     for (auto it = node.begin(); it != node.end(); ++it) {
         const std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
-        if (it->is_object() && !it->empty()) leaves(*it, key, out);
-        else out.emplace_back(key, *it);
+        if (it->is_object() && !it->empty())
+            leaves(*it, key, out);
+        else
+            out.emplace_back(key, *it);
     }
 }
 
@@ -89,7 +94,8 @@ std::string merge_leaf(Json& doc, const std::string& dotted, const Json& value) 
             (*node)[path[i]] = Json::object();
             it = node->find(path[i]);
         } else if (!it->is_object()) {
-            return "the game's \"" + join(std::vector<std::string>(path.begin(), path.begin() + long(i) + 1), ".") + "\" is not an object";
+            return "the game's \"" + join(std::vector<std::string>(path.begin(), path.begin() + long(i) + 1), ".") +
+                   "\" is not an object";
         }
         node = &*it;
     }
@@ -100,13 +106,15 @@ std::string merge_leaf(Json& doc, const std::string& dotted, const Json& value) 
 
 // Removes every entity whose "id" is in `ids`, at any depth of "entities" / "children".
 void prune_entities(Json& node, const std::set<std::string>& ids) {
-    if (auto root = node.find("entity"); root != node.end() && root->is_object()) prune_entities(*root, ids);  // a prefab's root
+    if (auto root = node.find("entity"); root != node.end() && root->is_object())
+        prune_entities(*root, ids);  // a prefab's root
     for (const char* key : {"entities", "children"}) {
         auto it = node.find(key);
         if (it == node.end() || !it->is_array()) continue;
         Json kept = Json::array();
         for (Json& e : *it) {
-            if (e.is_object() && e.contains("id") && e["id"].is_string() && ids.count(e["id"].get<std::string>())) continue;
+            if (e.is_object() && e.contains("id") && e["id"].is_string() && ids.count(e["id"].get<std::string>()))
+                continue;
             prune_entities(e, ids);
             kept.push_back(std::move(e));
         }
@@ -152,14 +160,17 @@ std::vector<std::string> menu_kit_parts() {
 
 Result<Json> add_menu_kit(const MenuKitOptions& o) {
     const std::string who = "project.add_menu_kit: ";
-    if (o.projectDir.empty()) return err(who + "no project directory given", "pass the folder that contains factoria.json");
+    if (o.projectDir.empty())
+        return err(who + "no project directory given", "pass the folder that contains factoria.json");
     const stdfs::path dir = stdfs::path(o.projectDir);
     std::error_code ec;
     if (!stdfs::exists(dir / "factoria.json", ec))
-        return err(who + (dir / "factoria.json").generic_string() + " not found", "Run it on a game folder (the one with factoria.json); create a game with `factoria new <dir>`.");
+        return err(who + (dir / "factoria.json").generic_string() + " not found",
+                   "Run it on a game folder (the one with factoria.json); create a game with `factoria new <dir>`.");
     auto project = parse_json(tooling_detail::read_file(dir / "factoria.json").value_or(""), "factoria.json");
     if (!project.ok() || !project->is_object())
-        return err(who + "factoria.json is not a JSON object: " + (project.ok() ? "" : project.error().message), "Fix factoria.json first (`factoria validate` shows where).");
+        return err(who + "factoria.json is not a JSON object: " + (project.ok() ? "" : project.error().message),
+                   "Fix factoria.json first (`factoria validate` shows where).");
 
     auto kit = load_parts();
     if (!kit.ok()) return err(who + kit.error().message, kit.error().hint);
@@ -175,7 +186,8 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
     std::set<std::string> wanted;
     for (const std::string& n : o.parts) {
         if (!find_part(n))
-            return err(who + "unknown part '" + n + "'. " + did_you_mean(n, names), "The parts are: " + join(names, ", ") + ". Leave `parts` out to add them all.");
+            return err(who + "unknown part '" + n + "'. " + did_you_mean(n, names),
+                       "The parts are: " + join(names, ", ") + ". Leave `parts` out to add them all.");
         wanted.insert(n);
     }
     if (o.parts.empty()) wanted.insert(names.begin(), names.end());
@@ -190,7 +202,8 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
                     grew = true;
                 }
                 if (!requiredBy.contains(need)) requiredBy[need] = Json::array();
-                if (std::find(requiredBy[need].begin(), requiredBy[need].end(), p.name) == requiredBy[need].end()) requiredBy[need].push_back(p.name);
+                if (std::find(requiredBy[need].begin(), requiredBy[need].end(), p.name) == requiredBy[need].end())
+                    requiredBy[need].push_back(p.name);
             }
         }
     }
@@ -199,20 +212,25 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
         if (wanted.count(p.name)) selected.push_back(&p);
     Json requiredOut = Json::object();  // only the parts the caller did not name
     for (auto it = requiredBy.begin(); it != requiredBy.end(); ++it)
-        if (std::find(o.parts.begin(), o.parts.end(), it.key()) == o.parts.end() && !o.parts.empty()) requiredOut[it.key()] = *it;
+        if (std::find(o.parts.begin(), o.parts.end(), it.key()) == o.parts.end() && !o.parts.empty())
+            requiredOut[it.key()] = *it;
 
     Json result = Json::object();
-    Json partNames = Json::array(), added = Json::array(), unchanged = Json::array(), overwritten = Json::array(), skipped = Json::array();
+    Json partNames = Json::array(), added = Json::array(), unchanged = Json::array(), overwritten = Json::array(),
+         skipped = Json::array();
     for (const Part* p : selected) partNames.push_back(p->name);
 
     // ---- files
     for (const Part* p : selected) {
         for (const std::string& rel : p->files) {
             auto source = bundled_read(std::string(kKitRoot) + rel);
-            if (!source) return err(who + "the kit file " + rel + " is missing from this build of factoria", "This is a packaging bug.");
+            if (!source)
+                return err(who + "the kit file " + rel + " is missing from this build of factoria",
+                           "This is a packaging bug.");
             std::string text = *source;
             const bool scene = is_scene_or_prefab_file(rel);
-            if (!scene && rel.size() > 3 && rel.compare(rel.size() - 3, 3, ".js") == 0) text = apply_kit_markers(text, wanted);
+            if (!scene && rel.size() > 3 && rel.compare(rel.size() - 3, 3, ".js") == 0)
+                text = apply_kit_markers(text, wanted);
             Json sourceDoc;
             if (scene) {
                 auto doc = parse_json(*source, rel);
@@ -238,7 +256,9 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
                     continue;
                 }
                 if (!o.overwrite) {
-                    skipped.push_back(Json::object({{"file", rel}, {"reason", "the game's file differs from the kit's; it was not touched (pass overwrite: true to replace it)"}}));
+                    skipped.push_back(Json::object({{"file", rel},
+                                                    {"reason", "the game's file differs from the kit's; it was not "
+                                                               "touched (pass overwrite: true to replace it)"}}));
                     continue;
                 }
             }
@@ -259,11 +279,14 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
         const Json* loc = project->contains("localization") ? &(*project)["localization"] : nullptr;
         if (loc && loc->is_object()) {
             languages = strings_of(*loc, "languages");
-            if (loc->contains("defaultLanguage") && (*loc)["defaultLanguage"].is_string()) defaultLanguage = (*loc)["defaultLanguage"].get<std::string>();
+            if (loc->contains("defaultLanguage") && (*loc)["defaultLanguage"].is_string())
+                defaultLanguage = (*loc)["defaultLanguage"].get<std::string>();
         }
         if (languages.empty()) {
-            if (loc && loc->is_object() && loc->contains("defaultLanguage")) languages = {defaultLanguage};
-            else languages = {"en"};
+            if (loc && loc->is_object() && loc->contains("defaultLanguage"))
+                languages = {defaultLanguage};
+            else
+                languages = {"en"};
         }
         if (!loc || !loc->is_object() || strings_of(*loc, "languages").empty()) {
             Json section = loc && loc->is_object() ? *loc : Json::object();
@@ -271,10 +294,11 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
             section["languages"] = languages;
             auto patched = patch_json_file((dir / "factoria.json").string(), {{{"localization"}, section}});
             if (!patched.ok()) return err(who + patched.error().message, patched.error().hint);
-            settings.push_back("factoria.json: \"localization\" added with the languages " + join(languages, ", ") + " (the kit's texts need a string table).");
+            settings.push_back("factoria.json: \"localization\" added with the languages " + join(languages, ", ") +
+                               " (the kit's texts need a string table).");
         }
         std::map<std::string, Json> kitTables;
-        for (const std::string& tag : {"en", "es", "ar"}) {
+        for (const std::string tag : {"en", "es", "ar"}) {  // a copy: the braces make temporaries
             auto text = bundled_read(std::string(kKitRoot) + "locales/" + tag + ".json");
             if (!text) continue;
             auto doc = parse_json(*text, "templates/menus/locales/" + tag + ".json");
@@ -286,26 +310,35 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
             // reads better than a key name until a translator replaces it (docs/LOCALIZATION.md).
             const Json* table = nullptr;
             bool translated = true;
-            if (kitTables.count(language)) table = &kitTables[language];
-            else if (kitTables.count(base_language(language))) table = &kitTables[base_language(language)];
+            if (kitTables.count(language))
+                table = &kitTables[language];
+            else if (kitTables.count(base_language(language)))
+                table = &kitTables[base_language(language)];
             else {
                 table = &kitTables["en"];
                 translated = language == "en" || base_language(language) == "en";
             }
             const stdfs::path target = dir / rel;
-            Json entry = Json::object({{"file", rel}, {"created", false}, {"merged", Json::array()}, {"skipped", Json::array()}});
+            Json entry = Json::object(
+                {{"file", rel}, {"created", false}, {"merged", Json::array()}, {"skipped", Json::array()}});
             Json doc = Json::object();
             const bool existed = stdfs::exists(target, ec);
             if (existed) {
                 auto parsed = parse_json(tooling_detail::read_file(target).value_or(""), rel);
                 if (!parsed.ok() || !parsed->is_object()) {
-                    entry["skipped"].push_back(Json::object({{"key", "*"}, {"reason", "the file is not a JSON object (" + (parsed.ok() ? std::string("it is not an object") : parsed.error().message) + "); fix it, then run the command again"}}));
+                    entry["skipped"].push_back(Json::object(
+                        {{"key", "*"},
+                         {"reason", "the file is not a JSON object (" +
+                                        (parsed.ok() ? std::string("it is not an object") : parsed.error().message) +
+                                        "); fix it, then run the command again"}}));
                     locales.push_back(entry);
                     continue;
                 }
                 doc = *parsed;
             }
-            if (!translated) entry["note"] = "the kit has no " + language + " texts yet: the English ones were added, ready to translate";
+            if (!translated)
+                entry["note"] =
+                    "the kit has no " + language + " texts yet: the English ones were added, ready to translate";
             bool changed = !existed;
             entry["created"] = !existed;
             if (translated && table->contains("$name") && !doc.contains("$name")) {
@@ -315,8 +348,10 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
             std::vector<std::pair<std::string, Json>> all;
             for (const std::string& root : keyRoots)
                 if (table && table->contains(root)) {
-                    if ((*table)[root].is_object()) leaves((*table)[root], root, all);
-                    else all.emplace_back(root, (*table)[root]);
+                    if ((*table)[root].is_object())
+                        leaves((*table)[root], root, all);
+                    else
+                        all.emplace_back(root, (*table)[root]);
                 }
             for (const auto& [key, value] : all) {
                 const std::string why = merge_leaf(doc, key, value);
@@ -337,7 +372,12 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
     }
 
     // ---- the input actions a part reads (only the ones the game does not have; a game's own binding is never replaced)
-    struct KitAction { const char* part; const char* name; const char* bindings; const char* who; };
+    struct KitAction {
+        const char* part;
+        const char* name;
+        const char* bindings;
+        const char* who;
+    };
     static const KitAction kitActions[] = {
         {"pause", "pause", R"(["Escape", "P", "GamepadStart"])", "scripts/pause_menu.js"},
         {"cameraRig", "camera_drag", R"(["MouseMiddle"])", "scripts/camera_rig.js"},
@@ -350,28 +390,50 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
     };
     for (const KitAction& a : kitActions) {
         if (!wanted.count(a.part)) continue;
-        const Json* actions = project->contains("input") && (*project)["input"].is_object() && (*project)["input"].contains("actions")
-                                  ? &(*project)["input"]["actions"] : nullptr;
+        const Json* actions =
+            project->contains("input") && (*project)["input"].is_object() && (*project)["input"].contains("actions")
+                ? &(*project)["input"]["actions"]
+                : nullptr;
         if (actions && actions->is_object() && actions->contains(a.name)) continue;
-        auto patched = patch_json_file((dir / "factoria.json").string(), {{{"input", "actions", a.name}, Json::parse(a.bindings)}});
+        auto patched = patch_json_file((dir / "factoria.json").string(),
+                                       {{{"input", "actions", a.name}, Json::parse(a.bindings)}});
         if (!patched.ok()) return err(who + patched.error().message, patched.error().hint);
-        settings.push_back(std::string("factoria.json: input action \"") + a.name + "\" added (" + Json::parse(a.bindings).dump() + "); " + a.who + " reads it.");
+        settings.push_back(std::string("factoria.json: input action \"") + a.name + "\" added (" +
+                           Json::parse(a.bindings).dump() + "); " + a.who + " reads it.");
     }
 
     Json next = Json::array();
     if (wanted.count("main-menu"))
-        next.push_back("Set \"mainScene\" in factoria.json to \"scenes/menu.scene.json\" and put the game's first level in MainMenu.firstScene (scripts/main_menu.js); put the game's name in the menu.title string.");
+        next.push_back(
+            "Set \"mainScene\" in factoria.json to \"scenes/menu.scene.json\" and put the game's first level in "
+            "MainMenu.firstScene (scripts/main_menu.js); put the game's name in the menu.title string.");
     if (wanted.count("pause"))
-        next.push_back("Add one entity with the script scripts/pause_menu.js to every level scene: { \"id\": \"pause_menu\", \"components\": { \"Script\": { \"path\": \"scripts/pause_menu.js\" } } }.");
+        next.push_back("Add one entity with the script scripts/pause_menu.js to every level scene: { \"id\": "
+                       "\"pause_menu\", \"components\": { \"Script\": { \"path\": \"scripts/pause_menu.js\" } } }.");
     if (wanted.count("options"))
-        next.push_back("The Controls tab of the options lists every input action of the game except the ui_* ones, labelled with the action's name. Add a string options.action.<action> to every locales/<language>.json for a readable label, and to choose and order the actions set the \"actions\" property of the Script in prefabs/ui/options.prefab.json: \"props\": { \"actions\": [\"move\", \"jump\"] }.");
+        next.push_back(
+            "The Controls tab of the options lists every input action of the game except the ui_* ones, labelled with "
+            "the action's name. Add a string options.action.<action> to every locales/<language>.json for a readable "
+            "label, and to choose and order the actions set the \"actions\" property of the Script in "
+            "prefabs/ui/options.prefab.json: \"props\": { \"actions\": [\"move\", \"jump\"] }.");
     if (wanted.count("ageGate"))
-        next.push_back("Set platform.ads.audience to \"mixed\" in factoria.json when children and adults play: the main menu (when it is added too) then opens the age gate once, before any ad, and gives the answer to platform.ads.setUnderAge() (a game with another audience never shows it). A game without the main-menu part calls openAgeGate() of scripts/ui/age_gate.js from its first scene.");
+        next.push_back(
+            "Set platform.ads.audience to \"mixed\" in factoria.json when children and adults play: the main menu "
+            "(when it is added too) then opens the age gate once, before any ad, and gives the answer to "
+            "platform.ads.setUnderAge() (a game with another audience never shows it). A game without the main-menu "
+            "part calls openAgeGate() of scripts/ui/age_gate.js from its first scene.");
     if (wanted.count("analyticsConsent"))
-        next.push_back("Add an \"analytics\" section with the endpoint (and its host in \"network\".hosts) to factoria.json (docs/ANALYTICS.md): the main menu (when it is added too) then asks once whether the game may count usage, and the Options tab gets a switch. Edit analyticsConsent.what in locales/*.json to say what your game really sends, and list it in your privacy policy (docs/LEGAL.md). A game without the main-menu part calls openAnalyticsConsent() of scripts/ui/analytics_consent.js from its first scene.");
+        next.push_back(
+            "Add an \"analytics\" section with the endpoint (and its host in \"network\".hosts) to factoria.json "
+            "(docs/ANALYTICS.md): the main menu (when it is added too) then asks once whether the game may count "
+            "usage, and the Options tab gets a switch. Edit analyticsConsent.what in locales/*.json to say what your "
+            "game really sends, and list it in your privacy policy (docs/LEGAL.md). A game without the main-menu part "
+            "calls openAnalyticsConsent() of scripts/ui/analytics_consent.js from its first scene.");
     if (wanted.count("keyboard"))
         next.push_back("Add one entity with scripts/ui/keyboard.js to every scene that has a TextField.");
-    next.push_back("Run `factoria validate`, then `factoria test`" + std::string(wanted.count("main-menu") ? " (tests/recipe.test.js drives the main menu with a gamepad)." : "."));
+    next.push_back(
+        "Run `factoria validate`, then `factoria test`" +
+        std::string(wanted.count("main-menu") ? " (tests/recipe.test.js drives the main menu with a gamepad)." : "."));
 
     result["parts"] = partNames;
     result["requiredBy"] = requiredOut;
@@ -390,7 +452,8 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
     info.name = "project.add_menu_kit";
     info.category = "project";
     info.readOnly = false;
-    info.summary = "Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.";
+    info.summary = "Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its "
+                   "strings into the locales.";
     info.description =
         "The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts` picks what to "
         "copy, the files go to the same paths in the game (scripts/, scenes/, prefabs/ui/, "
@@ -404,8 +467,7 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
         "listed in `skipped`; a file that is the same is listed in `unchanged`, so running the command twice "
         "changes nothing. String keys the game already has are never replaced, with or without `overwrite`; "
         "only missing ones are added. Examples: {} (all parts), {\"parts\":[\"pause\"]}, "
-        "{\"parts\":[\"main-menu\",\"loading\"],\"overwrite\":true}."
-        FA_COMMAND_DETAILS
+        "{\"parts\":[\"main-menu\",\"loading\"],\"overwrite\":true}." FA_COMMAND_DETAILS
         "A language the kit has no texts for gets the English ones. The \"pause\" part also adds the input "
         "action \"pause\" to factoria.json when it is missing. Returns {parts[], requiredBy{}, added[], "
         "unchanged[], overwritten[], skipped[{file,reason}], locales[{file,created,merged[],skipped[]}], "
@@ -413,24 +475,39 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
     std::string partList;
     if (auto parts = load_parts(); parts.ok())
         for (const Part& p : *parts) partList += (partList.empty() ? "" : "; ") + p.name + ": " + p.description;
-    Json parts = Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})},
-                               {"description", "Which parts to add; default all. Parts and what they copy: " + partList}});
-    info.inputSchema = Json::object({{"type", "object"},
-        {"properties", Json::object({
-            {"parts", parts},
-            {"overwrite", Json::object({{"type", "boolean"}, {"default", false},
-                {"description", "Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced."}})}})}});
+    Json parts =
+        Json::object({{"type", "array"},
+                      {"items", Json::object({{"type", "string"}})},
+                      {"description", "Which parts to add; default all. Parts and what they copy: " + partList}});
+    info.inputSchema = Json::object(
+        {{"type", "object"},
+         {"properties",
+          Json::object(
+              {{"parts", parts},
+               {"overwrite",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description", "Replace a kit file the game has changed (a file that is the same is "
+                                              "left alone). Without it that file is left as it is and listed in "
+                                              "`skipped`. String keys the game has are never replaced."}})}})}});
     registry.add(info, [projectDir](const Json& args) {
         MenuKitOptions o;
         o.projectDir = projectDir;
         for (auto it = args.begin(); it != args.end(); ++it)
             if (it.key() != "parts" && it.key() != "overwrite")
-                throw CommandError("invalid_argument", "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), std::vector<std::string>{"parts", "overwrite"}),
-                                   "project.add_menu_kit takes `parts` (array of part names) and `overwrite` (boolean).");
+                throw CommandError(
+                    "invalid_argument",
+                    "Unknown argument '" + it.key() + "'. " +
+                        did_you_mean(it.key(), std::vector<std::string>{"parts", "overwrite"}),
+                    "project.add_menu_kit takes `parts` (array of part names) and `overwrite` (boolean).");
         if (auto it = args.find("parts"); it != args.end()) {
-            if (!it->is_array()) throw CommandError("invalid_argument", "`parts` must be an array of part names.", "Example: {\"parts\":[\"pause\",\"loading\"]}");
+            if (!it->is_array())
+                throw CommandError("invalid_argument", "`parts` must be an array of part names.",
+                                   "Example: {\"parts\":[\"pause\",\"loading\"]}");
             for (const Json& p : *it) {
-                if (!p.is_string()) throw CommandError("invalid_argument", "`parts` must hold strings.", "Example: {\"parts\":[\"pause\"]}");
+                if (!p.is_string())
+                    throw CommandError("invalid_argument", "`parts` must hold strings.",
+                                       "Example: {\"parts\":[\"pause\"]}");
                 o.parts.push_back(p.get<std::string>());
             }
         }
@@ -439,8 +516,7 @@ void register_menu_kit_commands(CommandRegistry& registry, const std::string& pr
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return *r;
     });
-    declare_command_capabilities(registry, {
-        {"project.add_menu_kit", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"project.add_menu_kit", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

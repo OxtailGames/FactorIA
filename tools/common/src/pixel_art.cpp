@@ -19,7 +19,8 @@ std::array<double, 3> oklab(std::uint8_t r8, std::uint8_t g8, std::uint8_t b8) {
     const double l = std::cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
     const double m = std::cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
     const double s = std::cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-    return {0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    return {0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
             0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s};
 }
 
@@ -28,7 +29,9 @@ double dist2(const std::array<double, 3>& a, const std::array<double, 3>& b) {
     return dl * dl + da * da + db * db;
 }
 
-std::string hex_of(const std::array<std::uint8_t, 3>& c) { return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]); }
+std::string hex_of(const std::array<std::uint8_t, 3>& c) {
+    return std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+}
 
 void sort_unique(std::vector<PixelPoint>& v) {
     std::sort(v.begin(), v.end());
@@ -50,7 +53,9 @@ int pixel_char_index(char c) {
 
 // ---- palette -----------------------------------------------------------------------------------------------------------------
 
-std::string PixelPalette::hex(int index) const { return index >= 0 && index < size() ? hex_of(entries[std::size_t(index)].rgb) : std::string(); }
+std::string PixelPalette::hex(int index) const {
+    return index >= 0 && index < size() ? hex_of(entries[std::size_t(index)].rgb) : std::string();
+}
 
 std::string PixelPalette::label(int index) const {
     if (index < 0 || index >= size()) return "transparent";
@@ -124,8 +129,9 @@ Result<int> pixel_palette_find(const PixelPalette& palette, const Json& ref, boo
     const int n = palette.size();
     std::vector<std::string> labels;
     for (int i = 0; i < n; ++i) labels.push_back(palette.label(i));
-    const std::string forms = "A palette colour is its index (3), its name (\"skin\") or its colour (\"#e0a070\"); "
-                              + std::string(allowTransparent ? "null or \".\" is transparent. " : "") + "Palette: " + join(labels, ", ") + ".";
+    const std::string forms = "A palette colour is its index (3), its name (\"skin\") or its colour (\"#e0a070\"); " +
+                              std::string(allowTransparent ? "null or \".\" is transparent. " : "") +
+                              "Palette: " + join(labels, ", ") + ".";
     if (ref.is_null()) {
         if (allowTransparent) return -1;
         return make_error("A colour is required here, got null.", forms);
@@ -133,17 +139,22 @@ Result<int> pixel_palette_find(const PixelPalette& palette, const Json& ref, boo
     if (ref.is_number_integer()) {
         const long long i = ref.get<long long>();
         if (i < 0 || i >= n)
-            return make_error(std::format("Palette index {} is outside the palette of {} colours (0 to {}).", i, n, n - 1), forms);
+            return make_error(
+                std::format("Palette index {} is outside the palette of {} colours (0 to {}).", i, n, n - 1), forms);
         return int(i);
     }
-    if (!ref.is_string()) return make_error("A colour is an index, a name or a palette colour, got " + describe_json_value(ref) + ".", forms);
+    if (!ref.is_string())
+        return make_error("A colour is an index, a name or a palette colour, got " + describe_json_value(ref) + ".",
+                          forms);
     const std::string s = ref.get<std::string>();
     if (allowTransparent && (s == "." || s == "transparent" || s == "none" || s.empty())) return -1;
     if (auto byName = palette.find_name(s)) return *byName;
     if (s.size() == 1) {
         const int idx = pixel_char_index(s[0]);
         if (idx >= 0) {
-            if (idx >= n) return make_error(std::format("Palette index '{}' ({}) is outside the palette of {} colours.", s, idx, n), forms);
+            if (idx >= n)
+                return make_error(
+                    std::format("Palette index '{}' ({}) is outside the palette of {} colours.", s, idx, n), forms);
             return idx;
         }
     }
@@ -154,9 +165,13 @@ Result<int> pixel_palette_find(const PixelPalette& palette, const Json& ref, boo
         const std::uint8_t r = b(c.r), g = b(c.g), bl = b(c.b);
         if (auto found = palette.find_rgb(r, g, bl)) return *found;
         const int near = palette.nearest(r, g, bl);
-        const std::string nearLabel = palette.entries[std::size_t(near)].name.empty() ? palette.hex(near) : palette.entries[std::size_t(near)].name + " " + palette.hex(near);
-        return make_error(std::format("The colour {} is not in the palette. The nearest palette colour is {} (index {}).", hex_of({r, g, bl}), nearLabel, near),
-                          "Use that colour, or add the new colour to the document's palette (image.palette).");
+        const std::string nearLabel = palette.entries[std::size_t(near)].name.empty()
+                                          ? palette.hex(near)
+                                          : palette.entries[std::size_t(near)].name + " " + palette.hex(near);
+        return make_error(
+            std::format("The colour {} is not in the palette. The nearest palette colour is {} (index {}).",
+                        hex_of({r, g, bl}), nearLabel, near),
+            "Use that colour, or add the new colour to the document's palette (image.palette).");
     }
     return make_error("'" + s + "' is not a palette colour.", did_you_mean(s, labels) + " " + forms);
 }
@@ -175,21 +190,29 @@ std::vector<std::string> index_grid_rows(const IndexGrid& g) {
 }
 
 Result<IndexGrid> index_grid_from_rows(const std::vector<std::string>& rows, int paletteSize) {
-    if (rows.empty()) return make_error("An indexed picture needs at least one row.", "Rows are strings of palette characters, '.' for transparent: [\"..11..\", \".1221.\"].");
+    if (rows.empty())
+        return make_error("An indexed picture needs at least one row.",
+                          "Rows are strings of palette characters, '.' for transparent: [\"..11..\", \".1221.\"].");
     const std::size_t w = rows[0].size();
     if (w == 0) return make_error("Row 0 is empty.", "Every row has one character per pixel.");
     IndexGrid g(int(w), int(rows.size()));
     for (std::size_t y = 0; y < rows.size(); ++y) {
         if (rows[y].size() != w)
-            return make_error(std::format("Row {} has {} characters but row 0 has {}.", y, rows[y].size(), w), "Every row has the same width.");
+            return make_error(std::format("Row {} has {} characters but row 0 has {}.", y, rows[y].size(), w),
+                              "Every row has the same width.");
         for (std::size_t x = 0; x < w; ++x) {
             const int idx = pixel_char_index(rows[y][x]);
             if (idx == -2)
                 return make_error(std::format("Row {}, column {}: '{}' is not a palette character.", y, x, rows[y][x]),
-                                  "Use '.' for transparent and " + std::string(kPixelIndexChars.substr(0, 12)) + "... for palette indices 0, 1, 2, ...");
+                                  "Use '.' for transparent and " + std::string(kPixelIndexChars.substr(0, 12)) +
+                                      "... for palette indices 0, 1, 2, ...");
             if (paletteSize >= 0 && idx >= paletteSize)
-                return make_error(std::format("Row {}, column {}: '{}' is palette index {}, but the palette has {} colours.", y, x, rows[y][x], idx, paletteSize),
-                                  paletteSize > 0 ? std::format("The palette characters are {}.", std::string(kPixelIndexChars.substr(0, std::size_t(paletteSize)))) : "Give the document a palette first.");
+                return make_error(
+                    std::format("Row {}, column {}: '{}' is palette index {}, but the palette has {} colours.", y, x,
+                                rows[y][x], idx, paletteSize),
+                    paletteSize > 0 ? std::format("The palette characters are {}.",
+                                                  std::string(kPixelIndexChars.substr(0, std::size_t(paletteSize))))
+                                    : "Give the document a palette first.");
             g.v[y * w + x] = idx;
         }
     }
@@ -225,8 +248,14 @@ std::vector<PixelPoint> pixel_line(PixelPoint a, PixelPoint b) {
         out.push_back({x, y});
         if (x == b.x && y == b.y) break;
         const int e2 = 2 * err;
-        if (e2 >= dy) { err += dy; x += sx; }
-        if (e2 <= dx) { err += dx; y += sy; }
+        if (e2 >= dy) {
+            err += dy;
+            x += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y += sy;
+        }
     }
     return out;
 }
@@ -286,8 +315,16 @@ std::vector<PixelPoint> pixel_ellipse(int x, int y, int width, int height, bool 
         plot(x0, y1);
         plot(x1, y1);
         e2 = 2 * err;
-        if (e2 <= dy) { y0++; y1--; err += dy += a; }
-        if (e2 >= dx || 2 * err > dy) { x0++; x1--; err += dx += b1; }
+        if (e2 <= dy) {
+            y0++;
+            y1--;
+            err += dy += a;
+        }
+        if (e2 >= dx || 2 * err > dy) {
+            x0++;
+            x1--;
+            err += dx += b1;
+        }
     } while (x0 <= x1);
     while (y0 - y1 < b) {  // a flat ellipse: finish the tips
         plot(x0 - 1, y0);
@@ -448,19 +485,19 @@ int pixel_outline(IndexGrid& g, const PixelPalette& pal, const PixelOutline& o, 
             const int own = src.at(x, y);
             if (o.inner ? own < 0 : own >= 0) continue;
             Votes votes;
-            double sx = 0, sy = 0;   // the sum of the directions towards the neighbours that count
+            double sx = 0, sy = 0;  // the sum of the directions towards the neighbours that count
             for (int dy = -1; dy <= 1; ++dy)
                 for (int dx = -1; dx <= 1; ++dx) {
                     if ((dx == 0 && dy == 0) || (!o.eightConnected && dx != 0 && dy != 0)) continue;
                     const int n = src.at(x + dx, y + dy);
-                    if (o.inner ? n != -1 : n < 0) continue;   // inner: next to transparency; outer: next to the shape
+                    if (o.inner ? n != -1 : n < 0) continue;  // inner: next to transparency; outer: next to the shape
                     votes.add(n);
                     sx += dx;
                     sy += dy;
                 }
             if (votes.empty()) continue;
             const int fill = o.inner ? own : votes.best();
-            const double ox = o.inner ? sx : -sx, oy = o.inner ? sy : -sy;   // outwards, from the shape
+            const double ox = o.inner ? sx : -sx, oy = o.inner ? sy : -sy;  // outwards, from the shape
             int colour = o.color;
             if (o.colour == PixelOutline::Colour::RampDarkest) {
                 colour = darkest_of(pal, fill);
@@ -515,9 +552,11 @@ int pixel_shade(IndexGrid& g, const PixelPalette& pal, const PixelShade& o, cons
             const int cx = x + o.origin.x, cy = y + o.origin.y;
             int amount = 0;
             if (shadowLimit > 0)
-                amount = -band_amount(reach(x, y, -light.x, -light.y, shadowLimit), o.shadowWidth, o.shadowLevels, o.dither, cx, cy);
+                amount = -band_amount(reach(x, y, -light.x, -light.y, shadowLimit), o.shadowWidth, o.shadowLevels,
+                                      o.dither, cx, cy);
             if (amount == 0 && lightLimit > 0)
-                amount = band_amount(reach(x, y, light.x, light.y, lightLimit), o.highlightWidth, o.highlightLevels, o.dither, cx, cy);
+                amount = band_amount(reach(x, y, light.x, light.y, lightLimit), o.highlightWidth, o.highlightLevels,
+                                     o.dither, cx, cy);
             if (amount != 0) changed += put(g, x, y, pal.step(src.at(x, y), amount));
         }
     return changed;
@@ -542,7 +581,8 @@ bool dither_pick_b(double level, DitherPattern pattern, int x, int y) {
 
 }  // namespace
 
-int pixel_dither_blend(IndexGrid& g, int a, int b, double level, DitherPattern pattern, const PixelMask& mask, bool onlyFilled, PixelPoint origin) {
+int pixel_dither_blend(IndexGrid& g, int a, int b, double level, DitherPattern pattern, const PixelMask& mask,
+                       bool onlyFilled, PixelPoint origin) {
     int changed = 0;
     for (int y = 0; y < g.h; ++y)
         for (int x = 0; x < g.w; ++x) {
@@ -552,8 +592,8 @@ int pixel_dither_blend(IndexGrid& g, int a, int b, double level, DitherPattern p
     return changed;
 }
 
-int pixel_dither_gradient(IndexGrid& g, const std::vector<int>& colors, PixelPoint from, PixelPoint to, DitherPattern pattern, const PixelMask& mask, bool onlyFilled,
-                          PixelPoint origin) {
+int pixel_dither_gradient(IndexGrid& g, const std::vector<int>& colors, PixelPoint from, PixelPoint to,
+                          DitherPattern pattern, const PixelMask& mask, bool onlyFilled, PixelPoint origin) {
     if (colors.size() < 2) return 0;
     const double dx = to.x - from.x, dy = to.y - from.y, len2 = dx * dx + dy * dy;
     const int segments = int(colors.size()) - 1;
@@ -598,7 +638,7 @@ PixelCleanupReport pixel_cleanup(IndexGrid& g, const PixelCleanup& o, const Pixe
                         const int n = src.at(x + dx, y + dy);
                         const bool diagonal = dx != 0 && dy != 0;
                         if (n == -2) {
-                            if (v < 0) same = true;   // a hole at the edge of the picture is not enclosed
+                            if (v < 0) same = true;  // a hole at the edge of the picture is not enclosed
                             continue;
                         }
                         if (n == v && (!diagonal || o.eightConnected)) {
@@ -625,10 +665,13 @@ PixelCleanupReport pixel_cleanup(IndexGrid& g, const PixelCleanup& o, const Pixe
                         for (int dx = -1; dx <= 1; ++dx)
                             if ((dx || dy) && g.at(x + dx, y + dy) == v) ++count;
                     if (count != 2) continue;
-                    const bool l = g.at(x - 1, y) == v, r = g.at(x + 1, y) == v, u = g.at(x, y - 1) == v, d = g.at(x, y + 1) == v;
-                    if (!((l != r) && (u != d) && (l || r) && (u || d))) continue;   // one horizontal and one vertical neighbour, nothing else
+                    const bool l = g.at(x - 1, y) == v, r = g.at(x + 1, y) == v, u = g.at(x, y - 1) == v,
+                               d = g.at(x, y + 1) == v;
+                    if (!((l != r) && (u != d) && (l || r) && (u || d)))
+                        continue;  // one horizontal and one vertical neighbour, nothing else
                     const int hx = l ? -1 : 1, vy = u ? -1 : 1;
-                    if (g.at(x + 2 * hx, y) == v && g.at(x, y + 2 * vy) == v) continue;   // a right angle of a shape, not a bend of a line
+                    if (g.at(x + 2 * hx, y) == v && g.at(x, y + 2 * vy) == v)
+                        continue;  // a right angle of a shape, not a bend of a line
                     Votes votes;
                     votes.add(g.at(x - hx, y));
                     votes.add(g.at(x, y - vy));
@@ -658,7 +701,7 @@ PixelCleanupReport pixel_cleanup(IndexGrid& g, const PixelCleanup& o, const Pixe
             for (int x = 0; x < src.w; ++x) {
                 const int v = src.at(x, y);
                 if (v < 0 || visited[std::size_t(y) * src.w + x] || kept(o.keep, v)) continue;
-                if (same_neighbours(x, y).size() != 1) continue;   // a chain starts at an end
+                if (same_neighbours(x, y).size() != 1) continue;  // a chain starts at an end
                 std::vector<PixelPoint> chain{{x, y}};
                 visited[std::size_t(y) * src.w + x] = 1;
                 bool valid = true;
@@ -689,7 +732,8 @@ PixelCleanupReport pixel_cleanup(IndexGrid& g, const PixelCleanup& o, const Pixe
                 const double ex = e1.x - e0.x, ey = e1.y - e0.y, len = std::sqrt(ex * ex + ey * ey);
                 if (len < 1) continue;
                 double stray = 0;
-                for (const PixelPoint& p : chain) stray = std::max(stray, std::abs((p.x - e0.x) * ey - (p.y - e0.y) * ex) / len);
+                for (const PixelPoint& p : chain)
+                    stray = std::max(stray, std::abs((p.x - e0.x) * ey - (p.y - e0.y) * ex) / len);
                 if (stray > o.tolerance + 1e-9) continue;
                 // the steps: groups of pixels sharing the minor coordinate, along the major axis
                 const bool xMajor = std::abs(ex) >= std::abs(ey);
@@ -701,13 +745,17 @@ PixelCleanupReport pixel_cleanup(IndexGrid& g, const PixelCleanup& o, const Pixe
                         runs.push_back(1);
                         continue;
                     }
-                    const int pmajor = xMajor ? chain[i - 1].x : chain[i - 1].y, pminor = xMajor ? chain[i - 1].y : chain[i - 1].x;
+                    const int pmajor = xMajor ? chain[i - 1].x : chain[i - 1].y,
+                              pminor = xMajor ? chain[i - 1].y : chain[i - 1].x;
                     if (std::abs(major - pmajor) > 1 || (xMajor ? ex : ey) * (major - pmajor) < 0) monotonic = false;
-                    if (minor == pminor) ++runs.back();
-                    else runs.push_back(1);
+                    if (minor == pminor)
+                        ++runs.back();
+                    else
+                        runs.push_back(1);
                 }
                 if (!monotonic || runs.size() < 4) continue;
-                const int lo = *std::min_element(runs.begin() + 1, runs.end() - 1), hi = *std::max_element(runs.begin() + 1, runs.end() - 1);
+                const int lo = *std::min_element(runs.begin() + 1, runs.end() - 1),
+                          hi = *std::max_element(runs.begin() + 1, runs.end() - 1);
                 if (hi - lo <= 1) continue;
                 std::vector<PixelPoint> ideal = pixel_line(e0, e1);
                 std::set<PixelPoint> have(chain.begin(), chain.end()), want(ideal.begin(), ideal.end());
@@ -757,8 +805,8 @@ IndexGrid pixel_scale3x(const IndexGrid& g) {
     auto at = [&](int x, int y) { return g.at(std::clamp(x, 0, g.w - 1), std::clamp(y, 0, g.h - 1)); };
     for (int y = 0; y < g.h; ++y)
         for (int x = 0; x < g.w; ++x) {
-            const int A = at(x - 1, y - 1), B = at(x, y - 1), C = at(x + 1, y - 1), D = at(x - 1, y), E = at(x, y), F = at(x + 1, y), G = at(x - 1, y + 1),
-                      H = at(x, y + 1), I = at(x + 1, y + 1);
+            const int A = at(x - 1, y - 1), B = at(x, y - 1), C = at(x + 1, y - 1), D = at(x - 1, y), E = at(x, y),
+                      F = at(x + 1, y), G = at(x - 1, y + 1), H = at(x, y + 1), I = at(x + 1, y + 1);
             const int e[9] = {
                 (D == B && D != H && B != F) ? D : E,
                 ((D == B && D != H && B != F && E != C) || (B == F && B != D && F != H && E != A)) ? B : E,
@@ -782,7 +830,7 @@ int box_mode(const IndexGrid& g, int x0, int y0, int x1, int y1, std::vector<int
     for (int y = y0; y < y1; ++y)
         for (int x = x0; x < x1; ++x) ++counts[std::size_t(g.at(x, y) + 1)];
     int best = -1, bestCount = 0;
-    for (std::size_t i = 1; i < counts.size(); ++i)   // opaque first, so a tie keeps the lower opaque index
+    for (std::size_t i = 1; i < counts.size(); ++i)  // opaque first, so a tie keeps the lower opaque index
         if (counts[i] > bestCount) bestCount = counts[i], best = int(i) - 1;
     if (counts[0] > bestCount) best = -1;
     return best;
@@ -804,10 +852,12 @@ IndexGrid pixel_resample(const IndexGrid& g, int nw, int nh, PixelResample metho
         for (int x = 0; x < out.w; ++x) {
             const int x0 = int(std::int64_t(x) * g.w / out.w), y0 = int(std::int64_t(y) * g.h / out.h);
             if (method == PixelResample::Nearest) {
-                const int sx = int((std::int64_t(2 * x + 1) * g.w) / (2 * std::int64_t(out.w))), sy = int((std::int64_t(2 * y + 1) * g.h) / (2 * std::int64_t(out.h)));
+                const int sx = int((std::int64_t(2 * x + 1) * g.w) / (2 * std::int64_t(out.w))),
+                          sy = int((std::int64_t(2 * y + 1) * g.h) / (2 * std::int64_t(out.h)));
                 out.set(x, y, g.at(std::min(sx, g.w - 1), std::min(sy, g.h - 1)));
             } else {
-                const int x1 = std::max(x0 + 1, int((std::int64_t(x + 1) * g.w + out.w - 1) / out.w)), y1 = std::max(y0 + 1, int((std::int64_t(y + 1) * g.h + out.h - 1) / out.h));
+                const int x1 = std::max(x0 + 1, int((std::int64_t(x + 1) * g.w + out.w - 1) / out.w)),
+                          y1 = std::max(y0 + 1, int((std::int64_t(y + 1) * g.h + out.h - 1) / out.h));
                 out.set(x, y, box_mode(g, x0, y0, std::min(x1, g.w), std::min(y1, g.h), counts));
             }
         }
@@ -842,9 +892,12 @@ IndexGrid pixel_rotate(const IndexGrid& g, double degrees, PixelRotateMethod met
         IndexGrid out(quarter == 2 ? g.w : g.h, quarter == 2 ? g.h : g.w);
         for (int y = 0; y < g.h; ++y)
             for (int x = 0; x < g.w; ++x) {
-                if (quarter == 1) out.set(g.h - 1 - y, x, g.at(x, y));
-                else if (quarter == 2) out.set(g.w - 1 - x, g.h - 1 - y, g.at(x, y));
-                else out.set(y, g.w - 1 - x, g.at(x, y));
+                if (quarter == 1)
+                    out.set(g.h - 1 - y, x, g.at(x, y));
+                else if (quarter == 2)
+                    out.set(g.w - 1 - x, g.h - 1 - y, g.at(x, y));
+                else
+                    out.set(y, g.w - 1 - x, g.at(x, y));
             }
         return out;
     }
@@ -914,8 +967,10 @@ IndexGrid pixel_dominant_downscale(const Image& src, const PixelPalette& pal, in
     for (int y = 0; y < out.h; ++y)
         for (int x = 0; x < out.w; ++x) {
             const int x0 = int(std::int64_t(x) * src.width / out.w), y0 = int(std::int64_t(y) * src.height / out.h);
-            const int x1 = std::min(src.width, std::max(x0 + 1, int((std::int64_t(x + 1) * src.width + out.w - 1) / out.w)));
-            const int y1 = std::min(src.height, std::max(y0 + 1, int((std::int64_t(y + 1) * src.height + out.h - 1) / out.h)));
+            const int x1 =
+                std::min(src.width, std::max(x0 + 1, int((std::int64_t(x + 1) * src.width + out.w - 1) / out.w)));
+            const int y1 =
+                std::min(src.height, std::max(y0 + 1, int((std::int64_t(y + 1) * src.height + out.h - 1) / out.h)));
             const int cells = (x1 - x0) * (y1 - y0);
             int opaque = 0;
             for (int py = y0; py < y1; ++py)

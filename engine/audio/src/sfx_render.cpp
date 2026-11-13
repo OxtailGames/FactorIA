@@ -13,7 +13,7 @@
 
 namespace fa {
 
-using sfx_math::SfxRng;
+using sfx_math::cos_turns;
 using sfx_math::db_to_gain;
 using sfx_math::exp2;
 using sfx_math::gain_to_db;
@@ -23,9 +23,9 @@ using sfx_math::kTwoPi;
 using sfx_math::log2;
 using sfx_math::pow10;
 using sfx_math::semitones_to_ratio;
+using sfx_math::SfxRng;
 using sfx_math::sin_turns;
 using sfx_math::tan_pi;
-using sfx_math::cos_turns;
 
 double SfxEnvelope::level(double t, double gate) const {
     if (t < 0.0) return 0.0;
@@ -105,16 +105,15 @@ struct NoiseSource {
                 b1 = 0.96300 * b1 + w * 0.2965164;
                 b2 = 0.57000 * b2 + w * 1.0526913;
                 return (b0 + b1 + b2 + w * 0.1848) * 0.338;
-            case SfxNoise::Brown:
-                brown = (brown + 0.02 * w) / 1.02;
-                return brown * 10.0;
+            case SfxNoise::Brown: brown = (brown + 0.02 * w) / 1.02; return brown * 10.0;
         }
         return w;
     }
 };
 
 SfxRng stream(std::uint64_t seed, std::size_t layer, std::size_t osc) {
-    SfxRng r{seed * 0x2545F4914F6CDD1Dull + 0x1234567ull + (std::uint64_t(layer) * 16 + std::uint64_t(osc) + 1) * 0xD1B54A32D192ED03ull};
+    SfxRng r{seed * 0x2545F4914F6CDD1Dull + 0x1234567ull +
+             (std::uint64_t(layer) * 16 + std::uint64_t(osc) + 1) * 0xD1B54A32D192ED03ull};
     r.next();
     return r;
 }
@@ -173,7 +172,9 @@ void fx_distortion(std::vector<double>& buf, const SfxEffect& e) {
         switch (e.shape) {
             case SfxDistortion::Soft: w = sfx_math::tanh(y); break;
             case SfxDistortion::Hard: w = std::clamp(y, -1.0, 1.0); break;
-            default: w = 1.0 - 4.0 * std::fabs(frac((y + 1.0) * 0.25) - 0.5); break;  // fold: a triangle wave of period 4
+            default:
+                w = 1.0 - 4.0 * std::fabs(frac((y + 1.0) * 0.25) - 0.5);
+                break;  // fold: a triangle wave of period 4
         }
         s = s * (1.0 - e.mix) + w * e.level * e.mix;
     }
@@ -215,7 +216,11 @@ void fx_reverb(std::vector<double>& buf, const SfxEffect& e, int rate) {
     constexpr std::array<int, 4> allpasses = {556, 441, 341, 225};
     const double scale = e.size * double(rate) / 44100.0;
     const double damp = e.damping * 0.85;
-    struct Comb { std::vector<double> line; std::size_t pos = 0; double feedback = 0, store = 0; };
+    struct Comb {
+        std::vector<double> line;
+        std::size_t pos = 0;
+        double feedback = 0, store = 0;
+    };
     std::vector<Comb> cs(combs.size());
     double power = 0.0;
     for (std::size_t c = 0; c < combs.size(); ++c) {
@@ -225,9 +230,13 @@ void fx_reverb(std::vector<double>& buf, const SfxEffect& e, int rate) {
         power += 1.0 / (1.0 - cs[c].feedback * cs[c].feedback);
     }
     const double wetGain = 1.0 / std::sqrt(power);  // the wet signal has about the level of the input for noise
-    struct Allpass { std::vector<double> line; std::size_t pos = 0; };
+    struct Allpass {
+        std::vector<double> line;
+        std::size_t pos = 0;
+    };
     std::vector<Allpass> aps(allpasses.size());
-    for (std::size_t a = 0; a < allpasses.size(); ++a) aps[a].line.assign(std::max<std::size_t>(4, std::size_t(std::lround(double(allpasses[a]) * scale))), 0.0);
+    for (std::size_t a = 0; a < allpasses.size(); ++a)
+        aps[a].line.assign(std::max<std::size_t>(4, std::size_t(std::lround(double(allpasses[a]) * scale))), 0.0);
     const std::size_t preLength = std::size_t(std::lround(e.preDelay * double(rate)));
     std::vector<double> pre(preLength, 0.0);
     std::size_t prePos = 0;
@@ -279,15 +288,16 @@ struct OscState {
 // One layer rendered on its own into a buffer of `total - startSample` samples (empty when it starts after the end); the caller adds
 // it to the mix at startSample. A layer reads only the patch and draws its noise from streams keyed by (seed, layer, oscillator),
 // so layers can be rendered in any order or at the same time.
-std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t index, std::uint64_t seed, double transpose,
-                                 std::size_t startSample, double length, std::size_t total) {
+std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, std::size_t index, std::uint64_t seed,
+                                 double transpose, std::size_t startSample, double length, std::size_t total) {
     const int rate = patch.sampleRate;
     const double dtBase = 1.0 / double(rate);
     const double gate = layer.length > 0.0 ? layer.length : std::max(0.001, length - layer.start);
     if (startSample >= total) return {};
     const std::size_t room = total - startSample;
     std::vector<double> buf(room, 0.0);
-    const std::size_t active = std::min(room, std::size_t(std::lround((gate + layer.amp.release + 0.002) * double(rate))));
+    const std::size_t active =
+        std::min(room, std::size_t(std::lround((gate + layer.amp.release + 0.002) * double(rate))));
 
     std::vector<OscState> osc(layer.oscillators.size());
     for (std::size_t o = 0; o < osc.size(); ++o) {
@@ -296,7 +306,8 @@ std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, s
         osc[o].phase = layer.oscillators[o].phase;
     }
     const SfxPitch& p = layer.pitch;
-    const bool pitchMoves = p.sweep || p.env.enabled || (p.vibratoRate > 0.0 && p.vibratoDepth > 0.0) || !p.arpSteps.empty();
+    const bool pitchMoves =
+        p.sweep || p.env.enabled || (p.vibratoRate > 0.0 && p.vibratoDepth > 0.0) || !p.arpSteps.empty();
     const double sweepTime = p.sweepTime > 0.0 ? p.sweepTime : gate;
     std::vector<double> detune(layer.oscillators.size());
     for (std::size_t o = 0; o < detune.size(); ++o) detune[o] = exp2(layer.oscillators[o].detune / 1200.0);
@@ -305,7 +316,9 @@ std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, s
     Svf filter;
     const bool filterMoves = layer.filter.enabled && layer.filter.env.enabled;
     // The cutoff of a transposed note follows the pitch by `keytrack` (1: the whole ratio).
-    const double keyCutoff = layer.filter.cutoff * (layer.filter.keytrack > 0.0 && transpose > 0.0 ? exp2(layer.filter.keytrack * log2(transpose)) : 1.0);
+    const double keyCutoff =
+        layer.filter.cutoff *
+        (layer.filter.keytrack > 0.0 && transpose > 0.0 ? exp2(layer.filter.keytrack * log2(transpose)) : 1.0);
     if (layer.filter.enabled) filter.set(layer.filter.mode, keyCutoff, layer.filter.resonance, rate);
 
     for (std::size_t n = 0; n < active; ++n) {
@@ -333,14 +346,15 @@ std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, s
             if (def.wave == SfxWave::Noise) {
                 v = st.noise.next();
             } else {
-                const double f = std::min(def.freq > 0.0 ? def.freq : p.freq * ratio * def.ratio * detune[o], 0.49 * double(rate));
+                const double f =
+                    std::min(def.freq > 0.0 ? def.freq : p.freq * ratio * def.ratio * detune[o], 0.49 * double(rate));
                 const double dt = f * dtBase;
                 if (def.fm.enabled) {
                     const double mf = def.fm.hz > 0.0 ? def.fm.hz : f * def.fm.ratio;
                     st.modPhase = frac(st.modPhase + mf * dtBase);
-                    const double index = def.fm.index * (def.fm.hasIndexEnv ? def.fm.indexEnv.level(t, gate) : 1.0);
+                    const double fmIndex = def.fm.index * (def.fm.hasIndexEnv ? def.fm.indexEnv.level(t, gate) : 1.0);
                     const double m = tone(def.fm.wave, st.modPhase, 0.0, 0.5, nullptr);
-                    v = tone(def.wave, st.phase + index * m / kTwoPi, 0.0, def.duty, &def.table);
+                    v = tone(def.wave, st.phase + fmIndex * m / kTwoPi, 0.0, def.duty, &def.table);
                 } else {
                     v = tone(def.wave, st.phase, dt, def.duty, &def.table);
                 }
@@ -361,7 +375,8 @@ std::vector<double> render_layer(const SfxPatch& patch, const SfxLayer& layer, s
             x = filter.process(x);
         }
         double g = amp * layer.gain;
-        if (layer.tremoloRate > 0.0 && layer.tremoloDepth > 0.0) g *= 1.0 - layer.tremoloDepth * (0.5 - 0.5 * sin_turns(layer.tremoloRate * t));
+        if (layer.tremoloRate > 0.0 && layer.tremoloDepth > 0.0)
+            g *= 1.0 - layer.tremoloDepth * (0.5 - 0.5 * sin_turns(layer.tremoloRate * t));
         buf[n] = x * g;
     }
     apply_effects(buf, layer.effects, rate);
@@ -439,19 +454,27 @@ void measure_channels(const std::vector<const std::vector<double>*>& channels, i
         if (lufs_of(z) > -70.0) audible.push_back(z);
     lufs = -70.0;
     if (audible.empty()) return;
-    const double relativeGate = lufs_of(std::accumulate(audible.begin(), audible.end(), 0.0) / double(audible.size())) - 10.0;
+    const double relativeGate =
+        lufs_of(std::accumulate(audible.begin(), audible.end(), 0.0) / double(audible.size())) - 10.0;
     double sum = 0.0;
     std::size_t count = 0;
     for (double z : audible)
-        if (lufs_of(z) > relativeGate) { sum += z; ++count; }
+        if (lufs_of(z) > relativeGate) {
+            sum += z;
+            ++count;
+        }
     if (count > 0) lufs = lufs_of(sum / double(count));
 }
 
-void measure(const std::vector<double>& samples, int rate, double& lufs, double& peak) { measure_channels({&samples}, rate, lufs, peak); }
+void measure(const std::vector<double>& samples, int rate, double& lufs, double& peak) {
+    measure_channels({&samples}, rate, lufs, peak);
+}
 
 }  // namespace
 
-void sfx_run_effects(std::vector<double>& buf, const std::vector<SfxEffect>& effects, int rate) { apply_effects(buf, effects, rate); }
+void sfx_run_effects(std::vector<double>& buf, const std::vector<SfxEffect>& effects, int rate) {
+    apply_effects(buf, effects, rate);
+}
 
 void sfx_measure_loudness(const std::vector<std::vector<double>>& channels, int rate, double& lufs, double& peak) {
     std::vector<const std::vector<double>*> list;
@@ -473,9 +496,12 @@ Result<double> sfx_shared_gain_db(const SfxPatch& patch, const SfxRenderOptions&
         if (!a) return a.error();
         if (norm.mode == SfxNormalizeMode::None || a->peakDb <= -150.0) continue;
         double g;
-        if (norm.mode == SfxNormalizeMode::Peak) g = std::clamp(norm.target - a->peakDb, -60.0, 60.0);
-        else if (a->lufs > -70.0) g = std::min(std::clamp(norm.target - a->lufs, -24.0, 24.0), norm.ceilingDb - a->peakDb);
-        else continue;
+        if (norm.mode == SfxNormalizeMode::Peak)
+            g = std::clamp(norm.target - a->peakDb, -60.0, 60.0);
+        else if (a->lufs > -70.0)
+            g = std::min(std::clamp(norm.target - a->lufs, -24.0, 24.0), norm.ceilingDb - a->peakDb);
+        else
+            continue;
         best = std::min(best, g);
     }
     return best > 1e8 ? 0.0 : best;
@@ -486,7 +512,9 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
     const sfx_detail::MacroValues macros = sfx_detail::effective_macros(base, options.macros);
     const bool hasVariant = options.variant >= 0;
     if (hasVariant && (base.variations.count <= 0 || options.variant >= base.variations.count))
-        return make_error(base.variations.count <= 0 ? "the patch declares no variations" : std::format("variant {} does not exist: the patch has {}", options.variant + 1, base.variations.count),
+        return make_error(base.variations.count <= 0 ? "the patch declares no variations"
+                                                     : std::format("variant {} does not exist: the patch has {}",
+                                                                   options.variant + 1, base.variations.count),
                           "Declare \"variations\": {\"count\": 6} in the patch; variants are numbered from 1.");
     if (hasVariant && (options.normalize ? options.normalize->shared : base.normalize.shared)) {
         // One gain for all the variants: found on the loudest, applied to this one with the level stage off.
@@ -529,8 +557,11 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
     const double length = (options.length >= 0.0 ? options.length : patch.length) * lengthScale;
     const double tail = options.tail >= 0.0 ? options.tail : patch.tail;
     if (!(length + tail > 0.0) || length + tail > kSfxMaxSeconds)
-        return make_error("a sound of " + std::to_string(length + tail) + " seconds cannot be rendered", "A sound patch is 0.001 to 30 seconds long (length + tail).");
-    if (patch.layers.empty()) return make_error("the patch has no layers", "Add at least one layer with an oscillator; sfx.preset gives a full example.");
+        return make_error("a sound of " + std::to_string(length + tail) + " seconds cannot be rendered",
+                          "A sound patch is 0.001 to 30 seconds long (length + tail).");
+    if (patch.layers.empty())
+        return make_error("the patch has no layers",
+                          "Add at least one layer with an oscillator; sfx.preset gives a full example.");
     const int rate = patch.sampleRate;
     const std::size_t total = std::max<std::size_t>(1, std::size_t(std::lround((length + tail) * double(rate))));
     const std::uint64_t seed = patch.seed + options.seed + variantSeed;
@@ -550,7 +581,8 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
         std::vector<std::vector<double>> bufs(layerCount);
         auto r = jobs::parallel_for("audio.sfx_layers", layerCount, 1, [&](const jobs::Chunk& c) {
             for (std::size_t i = c.begin; i < c.end; ++i)
-                bufs[i] = render_layer(patch, patch.layers[i], i, seed, transpose, start_of(patch.layers[i]), length, total);
+                bufs[i] =
+                    render_layer(patch, patch.layers[i], i, seed, transpose, start_of(patch.layers[i]), length, total);
         });
         if (r.ok()) {
             for (std::size_t i = 0; i < layerCount; ++i) add_layer(bufs[i], start_of(patch.layers[i]), mix);
@@ -561,7 +593,8 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
         std::fill(mix.begin(), mix.end(), 0.0);
         for (std::size_t i = 0; i < layerCount; ++i) {
             const SfxLayer& layer = patch.layers[i];
-            add_layer(render_layer(patch, layer, i, seed, transpose, start_of(layer), length, total), start_of(layer), mix);
+            add_layer(render_layer(patch, layer, i, seed, transpose, start_of(layer), length, total), start_of(layer),
+                      mix);
         }
     }
     if (patch.gain != 1.0)
@@ -579,8 +612,10 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
     double gainDb = 0.0;
     if (norm.mode != SfxNormalizeMode::None && peak > 1e-9 && (norm.mode == SfxNormalizeMode::Peak || lufs > -70.0)) {
         const double peakDb = gain_to_db(peak);
-        if (norm.mode == SfxNormalizeMode::Peak) gainDb = std::clamp(norm.target - peakDb, -60.0, 60.0);
-        else gainDb = std::min(std::clamp(norm.target - lufs, -24.0, 24.0), norm.ceilingDb - peakDb);
+        if (norm.mode == SfxNormalizeMode::Peak)
+            gainDb = std::clamp(norm.target - peakDb, -60.0, 60.0);
+        else
+            gainDb = std::min(std::clamp(norm.target - lufs, -24.0, 24.0), norm.ceilingDb - peakDb);
     }
     gainDb += gain_to_db(std::max(velocity, 1e-6)) * (velocity == 1.0 ? 0.0 : 1.0);
     const double gain = db_to_gain(gainDb);
@@ -596,7 +631,11 @@ Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& option
 
 void stretch_sfx(SfxPatch& patch, double factor) {
     if (!(factor > 0.0)) return;
-    auto env = [&](SfxEnvelope& e) { e.attack *= factor; e.decay *= factor; e.release *= factor; };
+    auto env = [&](SfxEnvelope& e) {
+        e.attack *= factor;
+        e.decay *= factor;
+        e.release *= factor;
+    };
     auto mod = [&](SfxModulation& m) { env(m.env); };
     auto fx = [&](std::vector<SfxEffect>& list) {
         for (SfxEffect& e : list) {
@@ -627,12 +666,28 @@ std::vector<std::uint8_t> sfx_wav_bytes(const SfxAudio& audio) {
     std::vector<std::uint8_t> out;
     const std::uint32_t dataBytes = std::uint32_t(audio.samples.size() * 2);
     out.reserve(44 + dataBytes);
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t((v >> (8 * i)) & 255)); };
-    auto u16 = [&](std::uint16_t v) { for (int i = 0; i < 2; ++i) out.push_back(std::uint8_t((v >> (8 * i)) & 255)); };
-    auto tag = [&](const char* s) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(s[i])); };
-    tag("RIFF"); u32(36 + dataBytes); tag("WAVE"); tag("fmt "); u32(16); u16(1); u16(1);
-    u32(std::uint32_t(audio.sampleRate)); u32(std::uint32_t(audio.sampleRate) * 2); u16(2); u16(16);
-    tag("data"); u32(dataBytes);
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t((v >> (8 * i)) & 255));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        for (int i = 0; i < 2; ++i) out.push_back(std::uint8_t((v >> (8 * i)) & 255));
+    };
+    auto tag = [&](const char* s) {
+        for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(s[i]));
+    };
+    tag("RIFF");
+    u32(36 + dataBytes);
+    tag("WAVE");
+    tag("fmt ");
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(std::uint32_t(audio.sampleRate));
+    u32(std::uint32_t(audio.sampleRate) * 2);
+    u16(2);
+    u16(16);
+    tag("data");
+    u32(dataBytes);
     for (float s : audio.samples) u16(std::uint16_t(std::int16_t(std::lround(std::clamp(s, -1.0f, 1.0f) * 32767.0f))));
     return out;
 }

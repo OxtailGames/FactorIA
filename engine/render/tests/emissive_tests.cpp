@@ -91,8 +91,10 @@ TEST_CASE("emissiveStrength above 1 makes a bigger, brighter bloom halo when the
     // Margin: the strong halo carries 4x the light of the weak one into the blur (4.0 against 1.0), but the sum counts the pixels
     // outside the disc after the screen clamps them at white, so the ratio measured is well below 4. 1.5 is a loose floor that a
     // different blur or MSAA kernel will not cross; a clamped (8-bit) target gives a ratio of 1.
-    if (g.renderer.hdr_scene()) CHECK(strong > weak * 1.5);
-    else CHECK(strong == doctest::Approx(weak).epsilon(0.05));  // an 8-bit target clamps both to white
+    if (g.renderer.hdr_scene())
+        CHECK(strong > weak * 1.5);
+    else
+        CHECK(strong == doctest::Approx(weak).epsilon(0.05));  // an 8-bit target clamps both to white
 
     // Below the threshold nothing glows: 0.5 * 1 = 0.5 < 0.6.
     s.mesh().emissiveStrength = 1.0f;
@@ -139,15 +141,18 @@ struct EnvGuard {
 #if defined(_WIN32)
         _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
 
 }  // namespace
 
-TEST_CASE("the game target falls back to RGBA8 when the GPU cannot make the float images, and the picture does not change") {
+TEST_CASE(
+    "the game target falls back to RGBA8 when the GPU cannot make the float images, and the picture does not change") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     GlowScene s(Color{0.25f, 0.5f, 0.75f, 1}, 1.0f);
@@ -165,7 +170,7 @@ TEST_CASE("the game target falls back to RGBA8 when the GPU cannot make the floa
     d.adoptContext = true;
     std::string error;
     REQUIRE_MESSAGE(fallback.init(d, g.gpu.environment(), &error), error);
-    CHECK_FALSE(fallback.hdr_scene());  // reports the format really used
+    CHECK_FALSE(fallback.hdr_scene());   // reports the format really used
     fallback.set_target_size(200, 100);  // rebuilding the targets keeps working in the fallback format
     fallback.set_target_size(320, 180);
     fallback.begin_frame();
@@ -181,7 +186,8 @@ TEST_CASE("the game target falls back to RGBA8 when the GPU cannot make the floa
     for (int y = 0; y < img.height; y += 3)
         for (int x = 0; x < img.width; x += 3) {
             const Color a = img.pixel(x, y), b = reference.pixel(x, y);
-            worst = std::max({worst, double(std::fabs(a.r - b.r)), double(std::fabs(a.g - b.g)), double(std::fabs(a.b - b.b))});
+            worst = std::max(
+                {worst, double(std::fabs(a.r - b.r)), double(std::fabs(a.g - b.g)), double(std::fabs(a.b - b.b))});
         }
     CHECK(worst < 0.03);
     fallback.shutdown();
@@ -224,8 +230,9 @@ TEST_CASE("bloom does not spread a NaN or infinite source over the glow of its n
     const bool msaa = std::getenv("FA_TEST_SAMPLES") && std::atoi(std::getenv("FA_TEST_SAMPLES")) > 1;
     const auto inf = left_half(Color{INFINITY, 0.5f, 0.5f, 1});
     const auto one = left_half(Color{1.0f, 0.5f, 0.5f, 1});
-    INFO("hdr_scene=" << g.renderer.hdr_scene() << " clean=" << clean[0] << "," << clean[1] << "," << clean[2] << " dirty=" << dirty[0]
-                      << "," << dirty[1] << "," << dirty[2] << " inf=" << inf[0] << " one=" << one[0]);
+    INFO("hdr_scene=" << g.renderer.hdr_scene() << " clean=" << clean[0] << "," << clean[1] << "," << clean[2]
+                      << " dirty=" << dirty[0] << "," << dirty[1] << "," << dirty[2] << " inf=" << inf[0]
+                      << " one=" << one[0]);
     CHECK(clean[0] > 100.0);  // the left lamp does glow
     for (int c = 0; c < 3; ++c) {
         CHECK(dirty[c] == doctest::Approx(clean[c]).epsilon(0.01));

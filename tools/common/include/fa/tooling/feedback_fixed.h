@@ -19,7 +19,8 @@
 namespace fa {
 
 inline constexpr const char* kFeedbackFixedFormat = "factoria.feedback-fixed/1";
-inline constexpr const char* kFeedbackFixedPath = "feedback/fixed.json";  // in the repository and, embedded, in the binary
+inline constexpr const char* kFeedbackFixedPath =
+    "feedback/fixed.json";  // in the repository and, embedded, in the binary
 
 struct FeedbackFix {
     std::string category;

@@ -21,8 +21,8 @@ namespace fa::assets_detail {
 namespace {
 
 constexpr std::uint64_t kMiB = std::uint64_t(1) << 20;
-constexpr int kMaxTextureSide = 4096;        // a texture over this cannot be sampled by many mobile GPUs
-constexpr int kMobileTextureSide = 2048;     // what low-end phones handle comfortably
+constexpr int kMaxTextureSide = 4096;     // a texture over this cannot be sampled by many mobile GPUs
+constexpr int kMobileTextureSide = 2048;  // what low-end phones handle comfortably
 constexpr std::uint64_t kBigFile = 20 * kMiB;
 
 // The store limits in one place. The numbers were checked on 2026-10-16:
@@ -50,7 +50,8 @@ bool image_size(const stdfs::path& file, int& width, int& height) {
     std::vector<char> head(256 * 1024);
     in.read(head.data(), std::streamsize(head.size()));
     int components = 0;
-    return in.gcount() > 0 && stbi_info_from_memory(reinterpret_cast<const stbi_uc*>(head.data()), int(in.gcount()), &width, &height, &components);
+    return in.gcount() > 0 && stbi_info_from_memory(reinterpret_cast<const stbi_uc*>(head.data()), int(in.gcount()),
+                                                    &width, &height, &components);
 }
 
 }  // namespace
@@ -61,13 +62,16 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
     if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / "factoria.json")) {
         auto parsed = parse_json(*text, "factoria.json");
         if (parsed.ok() && parsed->is_object()) {
-            if (parsed->contains("feedbackFile") && (*parsed)["feedbackFile"].is_string()) feedbackFile = (*parsed)["feedbackFile"].get<std::string>();
+            if (parsed->contains("feedbackFile") && (*parsed)["feedbackFile"].is_string())
+                feedbackFile = (*parsed)["feedbackFile"].get<std::string>();
             if (parsed->contains("platforms") && (*parsed)["platforms"].is_array())
                 for (const Json& p : (*parsed)["platforms"])
                     if (p.is_string()) platforms.push_back(to_lower(p.get<std::string>()));
         }
     }
-    const auto targets = [&](const char* platform) { return std::find(platforms.begin(), platforms.end(), platform) != platforms.end(); };
+    const auto targets = [&](const char* platform) {
+        return std::find(platforms.begin(), platforms.end(), platform) != platforms.end();
+    };
     const bool mobile = targets("android") || targets("ios");
 
     Json manifest = Json::object();
@@ -84,36 +88,51 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
         if (bytes > kBigFile) {
             const bool audio = kind == assets::AssetKind::Audio, texture = kind == assets::AssetKind::Texture;
             warnings.push_back({rel, "", std::format("This file is {} and ships in the game.", megabytes(bytes)),
-                                audio     ? "Convert it to OGG (or QOA, import setting \"convert\"), or stream it if it is music; docs/ASSETS.md, \"Import settings\"."
-                                : texture ? "Scale it down, and compress it (import setting \"compression\"); docs/ASSETS.md, \"Import settings\"."
-                                          : "Leave it out of the game, or make it smaller; every shipped file adds to the download (docs/ASSETS.md)."});
+                                audio ? "Convert it to OGG (or QOA, import setting \"convert\"), or stream it if it is "
+                                        "music; docs/ASSETS.md, \"Import settings\"."
+                                : texture ? "Scale it down, and compress it (import setting \"compression\"); "
+                                            "docs/ASSETS.md, \"Import settings\"."
+                                          : "Leave it out of the game, or make it smaller; every shipped file adds to "
+                                            "the download (docs/ASSETS.md)."});
         }
         int width = 0, height = 0;
         if (kind != assets::AssetKind::Texture || !image_size(stdfs::path(projectDir) / rel, width, height)) continue;
         if (mobile && !export_detail::texture_block_compressed(manifest, rel, width, height))
-            warnings.push_back({rel, "", std::format("{}x{} px: ", width, height) + export_detail::not_block_sized_message({rel}),
-                                "factoria.json lists a mobile platform, where textures are GPU-compressed on export."});
+            warnings.push_back(
+                {rel, "", std::format("{}x{} px: ", width, height) + export_detail::not_block_sized_message({rel}),
+                 "factoria.json lists a mobile platform, where textures are GPU-compressed on export."});
         const int side = std::max(width, height);
         if (side > kMaxTextureSide)
-            warnings.push_back({rel, "", std::format("This texture is {}x{} px: many mobile GPUs cannot sample a texture over {} px on a side.", width, height, kMaxTextureSide),
-                                "Scale it down, or cut it into tiles of 2048 px or less (a 4096x4096 RGBA texture also takes 64 MB of GPU memory)."});
+            warnings.push_back(
+                {rel, "",
+                 std::format("This texture is {}x{} px: many mobile GPUs cannot sample a texture over {} px on a side.",
+                             width, height, kMaxTextureSide),
+                 "Scale it down, or cut it into tiles of 2048 px or less (a 4096x4096 RGBA texture also takes 64 MB of "
+                 "GPU memory)."});
         else if (mobile && side > kMobileTextureSide)
-            warnings.push_back({rel, "", std::format("This texture is {}x{} px, over {} px, and factoria.json lists a mobile platform: low-end phones struggle with it.", width, height, kMobileTextureSide),
+            warnings.push_back({rel, "",
+                                std::format("This texture is {}x{} px, over {} px, and factoria.json lists a mobile "
+                                            "platform: low-end phones struggle with it.",
+                                            width, height, kMobileTextureSide),
                                 "Scale it down to 2048 px or less, or cut it into tiles."});
     }
     for (const StoreLimit& limit : kStoreLimits)
         if (targets(limit.platform) && total > limit.bytes)
-            warnings.push_back({"factoria.json", "/platforms",
-                                std::format("The files that ship add up to {} for {}, over {}.", megabytes(total), limit.platform, limit.what),
-                                "This is before the export's texture compression and audio conversion (`factoria export` reports the real size). Compress textures, "
-                                "convert audio to OGG or QOA, stream music and remove files the game does not use; docs/ASSETS.md."});
+            warnings.push_back(
+                {"factoria.json", "/platforms",
+                 std::format("The files that ship add up to {} for {}, over {}.", megabytes(total), limit.platform,
+                             limit.what),
+                 "This is before the export's texture compression and audio conversion (`factoria export` reports the "
+                 "real size). Compress textures, "
+                 "convert audio to OGG or QOA, stream music and remove files the game does not use; docs/ASSETS.md."});
 }
 
 void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings) {
     auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
     if (!text) return;
     auto manifest = parse_json(*text, assets::kManifestFile);
-    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object()) return;
+    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object())
+        return;
     for (const auto& [rel, entry] : (*manifest)["assets"].items()) {
         const Json recipe = recipe_of(entry);
         if (recipe.is_null()) continue;
@@ -125,22 +144,27 @@ void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& 
         for (const std::string& input : check.missing) {
             const std::string command = recipe["command"].get<std::string>();
             warnings.push_back({assets::kManifestFile, where,
-                                "'" + rel + "' was made by " + command + " from '" + input + "', which no longer exists (or is not readable), so it cannot be made again.",
-                                "Restore '" + input + "', or point the recipe at its new place by running " + command + " again with the new path; "
-                                "or remove provenance.recipe from the entry if you will edit '" + rel + "' by hand."});
+                                "'" + rel + "' was made by " + command + " from '" + input +
+                                    "', which no longer exists (or is not readable), so it cannot be made again.",
+                                "Restore '" + input + "', or point the recipe at its new place by running " + command +
+                                    " again with the new path; "
+                                    "or remove provenance.recipe from the entry if you will edit '" +
+                                    rel + "' by hand."});
         }
         if (check.stale()) {
             std::string list;
             for (const std::string& input : check.changed) list += (list.empty() ? "'" : ", '") + input + "'";
             warnings.push_back({assets::kManifestFile, where,
-                                "'" + rel + "' is stale: " + list + (check.changed.size() == 1 ? " has" : " have") + " changed since it was made by " +
-                                    recipe["command"].get<std::string>() + ".",
-                                "Make it again with: " + regenerate + " (all stale assets: factoria call assets.regenerate '{\"stale\":true}')."});
+                                "'" + rel + "' is stale: " + list + (check.changed.size() == 1 ? " has" : " have") +
+                                    " changed since it was made by " + recipe["command"].get<std::string>() + ".",
+                                "Make it again with: " + regenerate +
+                                    " (all stale assets: factoria call assets.regenerate '{\"stale\":true}')."});
         }
     }
 }
 
-void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings) {
+void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures,
+                           std::vector<ValidationIssue>& warnings) {
     for (const std::string& rel : textures) {
         const stdfs::path file = stdfs::path(projectDir) / rel;
         std::error_code ec;
@@ -154,18 +178,25 @@ void check_sprite_textures(const std::string& projectDir, const std::set<std::st
             varied = varied || std::memcmp(&px[i], &px[0], 4) != 0;
         }
         if (!visible) {
-            warnings.push_back({rel, "", "A Sprite draws this texture, and every pixel of it is fully transparent: nothing will show.",
-                                "Regenerate or re-export the image, or point the Sprite at another texture."});
+            warnings.push_back(
+                {rel, "", "A Sprite draws this texture, and every pixel of it is fully transparent: nothing will show.",
+                 "Regenerate or re-export the image, or point the Sprite at another texture."});
             continue;
         }
         const auto color = opaque_corner_color(*image);
         if (color && varied)
-            warnings.push_back({rel, "", std::format("A Sprite draws this texture, and its four corners are the same opaque color (#{:02x}{:02x}{:02x}): probably a background that should be transparent.",
-                                                     (*color)[0], (*color)[1], (*color)[2]),
-                                "Make the background transparent with assets.slice_sheet {\"path\":\"" + rel + "\",\"background\":\"auto\"} (it writes " +
-                                    (stdfs::path(rel).parent_path() / (stdfs::path(rel).stem().string() + "_sheet.png")).generic_string() +
-                                    "; point the Sprite at it), or regenerate the image with transparent: true. Ignore this if the opaque edge is intended "
-                                    "(a backdrop, a panel)."});
+            warnings.push_back(
+                {rel, "",
+                 std::format("A Sprite draws this texture, and its four corners are the same opaque color "
+                             "(#{:02x}{:02x}{:02x}): probably a background that should be transparent.",
+                             (*color)[0], (*color)[1], (*color)[2]),
+                 "Make the background transparent with assets.slice_sheet {\"path\":\"" + rel +
+                     "\",\"background\":\"auto\"} (it writes " +
+                     (stdfs::path(rel).parent_path() / (stdfs::path(rel).stem().string() + "_sheet.png"))
+                         .generic_string() +
+                     "; point the Sprite at it), or regenerate the image with transparent: true. Ignore this if the "
+                     "opaque edge is intended "
+                     "(a backdrop, a panel)."});
     }
 }
 
@@ -178,7 +209,8 @@ std::vector<AssetRecipeStatus> asset_recipe_statuses(const std::string& projectD
     auto text = tooling_detail::read_file(assets_detail::stdfs::path(projectDir) / assets::kManifestFile);
     if (!text) return out;
     auto manifest = parse_json(*text, assets::kManifestFile);
-    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object()) return out;
+    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object())
+        return out;
     for (const auto& [rel, entry] : (*manifest)["assets"].items()) {
         const Json recipe = assets_detail::recipe_of(entry);
         if (recipe.is_null()) continue;
@@ -188,7 +220,8 @@ std::vector<AssetRecipeStatus> asset_recipe_statuses(const std::string& projectD
         std::vector<std::string> inputs;
         if (recipe.contains("inputs") && recipe["inputs"].is_array())
             for (const Json& in : recipe["inputs"])
-                if (in.is_object() && in.contains("path") && in["path"].is_string()) inputs.push_back(in["path"].get<std::string>());
+                if (in.is_object() && in.contains("path") && in["path"].is_string())
+                    inputs.push_back(in["path"].get<std::string>());
         out.push_back({rel, recipe["command"].get<std::string>(), std::move(inputs), check.changed, check.missing});
     }
     std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.path < b.path; });

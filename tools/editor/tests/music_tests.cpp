@@ -29,7 +29,8 @@ struct MusicProject {
     MusicProject() {
         dir = fs::make_temp_dir("fa_music_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<MusicModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<MusicModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         model->set_async(false);
         model->set_debounce_ticks(0);
     }
@@ -113,7 +114,7 @@ TEST_CASE("a refused edit leaves the file as it was and says what is wrong") {
     SongRollNote bad;
     bad.tick = 0;
     bad.duration = 480;
-    bad.pitch = 200;   // outside 0..127
+    bad.pitch = 200;  // outside 0..127
     bad.velocity = 90;
     const MusicEditOutcome out = p.model->set_notes(t, pat, {bad}, 0, "Bad note");
     CHECK(!out.ok);
@@ -181,7 +182,7 @@ TEST_CASE("the render Play listens to follows the edits and a layered song is la
     REQUIRE(first);
     const int renders = p.model->render_count();
     REQUIRE(p.model->set_song(Json::object({{"tempo", 90}})).ok);
-    CHECK(!p.model->source_is_fresh());   // the render in hand is of the old document
+    CHECK(!p.model->source_is_fresh());  // the render in hand is of the old document
     p.model->settle();
     CHECK(p.model->source_is_fresh());
     CHECK(p.model->render_count() > renders);
@@ -190,7 +191,11 @@ TEST_CASE("the render Play listens to follows the edits and a layered song is la
     CHECK(!p.model->source()->layered);
     const auto names = p.model->doc()->tracks;
     REQUIRE(names.size() >= 2);
-    REQUIRE(p.model->set_layers(Json::object({{"base", Json::array({names[0].name})}, {"top", Json::object({{"tracks", Json::array({names[1].name})}, {"intensity", 0.8}})}})).ok);
+    REQUIRE(p.model
+                ->set_layers(Json::object(
+                    {{"base", Json::array({names[0].name})},
+                     {"top", Json::object({{"tracks", Json::array({names[1].name})}, {"intensity", 0.8}})}}))
+                .ok);
     p.model->settle();
     REQUIRE(p.model->source());
     CHECK(p.model->source()->layered);
@@ -229,13 +234,14 @@ TEST_CASE("chord_pitches spells a chord and refuses a name that is not one") {
     REQUIRE_MESSAGE(!am7.empty(), why);
     CHECK(am7.size() == 4);
     CHECK(std::is_sorted(am7.begin(), am7.end()));
-    CHECK(am7.front() % 12 == 9);   // A
+    CHECK(am7.front() % 12 == 9);  // A
     why.clear();
     CHECK(p.model->chord_pitches("Hxyz", 3, &why).empty());
     CHECK(!why.empty());
 }
 
-TEST_CASE("Save bakes the mix and, for a layered song, one stem per layer; a file nothing of ours made is not replaced") {
+TEST_CASE(
+    "Save bakes the mix and, for a layered song, one stem per layer; a file nothing of ours made is not replaced") {
     MusicProject p;
     p.open();
     const MusicEditOutcome out = p.model->save();
@@ -253,7 +259,7 @@ TEST_CASE("the file changed behind the panel's back is read again") {
     j["tempo"] = 77.0;
     {
         std::ofstream out(p.dir / kSong, std::ios::binary | std::ios::trunc);
-        const std::string text = j.dump(2) + "\n   ";   // a different size, so the stamp differs whatever the clock says
+        const std::string text = j.dump(2) + "\n   ";  // a different size, so the stamp differs whatever the clock says
         out << text;
     }
     CHECK(p.model->poll_external());
@@ -273,7 +279,11 @@ TEST_CASE("the preview plays on the null device: the playhead moves, a layer fad
     p.open();
     const auto names = p.model->doc()->tracks;
     REQUIRE(names.size() >= 2);
-    REQUIRE(p.model->set_layers(Json::object({{"base", Json::array({names[0].name})}, {"top", Json::object({{"tracks", Json::array({names[1].name})}, {"intensity", 0.8}})}})).ok);
+    REQUIRE(p.model
+                ->set_layers(Json::object(
+                    {{"base", Json::array({names[0].name})},
+                     {"top", Json::object({{"tracks", Json::array({names[1].name})}, {"intensity", 0.8}})}}))
+                .ok);
     p.model->settle();
     REQUIRE(p.model->source());
     Audio audio;
@@ -290,7 +300,7 @@ TEST_CASE("the preview plays on the null device: the playhead moves, a layer fad
         CHECK(pos >= last);
         last = pos;
     }
-    CHECK(last > 0.25 * kMusicRate);   // half a second of frames went by
+    CHECK(last > 0.25 * kMusicRate);  // half a second of frames went by
     const MusicPreview::Where w = pre.where();
     CHECK(w.bar >= 1);
     CHECK(w.section >= 0);

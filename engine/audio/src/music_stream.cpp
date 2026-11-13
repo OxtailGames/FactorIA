@@ -7,7 +7,8 @@
 
 namespace fa::audio_detail {
 
-std::shared_ptr<MusicStemStream> MusicStemStream::open(std::shared_ptr<const Bytes> bytes, std::string_view ext, std::string* why) {
+std::shared_ptr<MusicStemStream> MusicStemStream::open(std::shared_ptr<const Bytes> bytes, std::string_view ext,
+                                                       std::string* why) {
     auto fail = [&](const char* text) {
         if (why) *why = text;
         return std::shared_ptr<MusicStemStream>();
@@ -27,7 +28,8 @@ std::shared_ptr<MusicStemStream> MusicStemStream::open(std::shared_ptr<const Byt
     s->dec_ = std::move(dec);
     s->scratch_.resize(std::size_t(kMusicChunkFrames) * std::size_t(s->channels_));
     for (Slot& slot : s->slots_) slot.data.assign(std::size_t(kMusicChunkFrames) * 2, 0.0f);
-    s->resident_ = s->bytes_->size() + kMusicSlots * std::size_t(kMusicChunkFrames) * 2 * sizeof(float) + s->scratch_.size() * sizeof(float);
+    s->resident_ = s->bytes_->size() + kMusicSlots * std::size_t(kMusicChunkFrames) * 2 * sizeof(float) +
+                   s->scratch_.size() * sizeof(float);
     s->decodePos_ = 0;
     // The last chunk proves the length (the decoder gives as many frames as the header says) and that seeking lands.
     if (!s->claim()) return fail("internal error");
@@ -117,7 +119,8 @@ int MusicStemStream::take_slot(std::int64_t forChunk, bool respectWanted) {
         if (best < 0) return -1;
         std::uint64_t expected = bestWord;
         // Acquire: the mixer's reads of the old chunk (it unpinned with release) are finished before we overwrite it.
-        if (slots_[std::size_t(best)].state.compare_exchange_strong(expected, mine, std::memory_order_acquire, std::memory_order_relaxed))
+        if (slots_[std::size_t(best)].state.compare_exchange_strong(expected, mine, std::memory_order_acquire,
+                                                                    std::memory_order_relaxed))
             return best;
         skip[best] = true;  // a reader pinned it in between: try another
     }
@@ -167,7 +170,8 @@ std::size_t MusicStemStream::fill_wanted(std::size_t most, std::size_t upTo) {
     std::size_t made = 0;
     const std::int64_t count = chunk_count();
     for (std::size_t i = 0; i < wantedCount_ && i < upTo && made < most; ++i) {
-        if (waiters_.load(std::memory_order_relaxed) > 0) break;  // the game primes a jump: it gets the claim after this chunk
+        if (waiters_.load(std::memory_order_relaxed) > 0)
+            break;  // the game primes a jump: it gets the claim after this chunk
         const std::int64_t c = wanted_[i];
         if (c < 0 || c >= count || resident(c)) continue;
         if (!ensure(c, true)) break;  // the window is full of chunks that are wanted
@@ -193,7 +197,8 @@ bool MusicStemStream::claim_wait() {
     if (claim()) return true;
     waiters_.fetch_add(1, std::memory_order_relaxed);
     // A safety net: the wait is a chunk's decode.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(claimWaitMs_.load(std::memory_order_relaxed));
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(claimWaitMs_.load(std::memory_order_relaxed));
     bool got = false;
     while (!(got = claim()) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
     waiters_.fetch_sub(1, std::memory_order_relaxed);
@@ -202,15 +207,17 @@ bool MusicStemStream::claim_wait() {
 
 namespace {
 constexpr std::uint64_t kChunkMask = (std::uint64_t(1) << 21) - 1;
-std::uint64_t chunk_bits(std::int64_t c) { return std::uint64_t(std::clamp<std::int64_t>(c, 0, std::int64_t(kChunkMask))); }
+std::uint64_t chunk_bits(std::int64_t c) {
+    return std::uint64_t(std::clamp<std::int64_t>(c, 0, std::int64_t(kChunkMask)));
+}
 }  // namespace
 
 void MusicStemStream::publish_head(std::uint64_t seq, double pos, double end, double wrapStart, bool wrapsAround) {
     auto chunk_of = [](double p) { return std::int64_t(std::clamp(p, 0.0, 4.0e12)) >> kMusicChunkShift; };
     const std::int64_t count = chunk_count();
     const std::int64_t last = end > 0.0 ? std::min(chunk_of(end - 1.0), count - 1) : count - 1;
-    const std::uint64_t packed = chunk_bits(chunk_of(pos)) | (chunk_bits(last) << 21) | (chunk_bits(chunk_of(wrapStart)) << 42) |
-                                 (wrapsAround ? std::uint64_t(1) << 63 : 0);
+    const std::uint64_t packed = chunk_bits(chunk_of(pos)) | (chunk_bits(last) << 21) |
+                                 (chunk_bits(chunk_of(wrapStart)) << 42) | (wrapsAround ? std::uint64_t(1) << 63 : 0);
     if (pubSeq_ != seq) {
         pubSeq_ = seq;
         pubCount_ = 0;

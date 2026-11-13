@@ -42,7 +42,8 @@ TEST_CASE("ai.providers and ai.run commands") {
     CHECK(run.result["finalText"] == "Task finished.");
     CHECK(provider->requests[0].model == "claude-sonnet-5-5");
     bool warned = false;
-    for (auto& w : run.result["warnings"]) warned = warned || w.get<std::string>().find("leak.js:1") != std::string::npos;
+    for (auto& w : run.result["warnings"])
+        warned = warned || w.get<std::string>().find("leak.js:1") != std::string::npos;
     CHECK(warned);
     for (auto& t : provider->requests[0].tools) CHECK(t.name != "ai_run");  // no recursion
 
@@ -95,7 +96,8 @@ TEST_CASE("ai.models lists the models of every available provider; one failure s
     const Json& providers = all.result["providers"];
     REQUIRE(providers.size() == 3);  // anthropic, lmstudio, ollama (codex is not available)
     CHECK(providers[0]["name"] == "anthropic");
-    CHECK(providers[0]["models"][0] == Json::parse(R"({"id":"claude-opus-5-5","name":"Claude Opus 5.5","description":"","resolved":""})"));
+    CHECK(providers[0]["models"][0] ==
+          Json::parse(R"({"id":"claude-opus-5-5","name":"Claude Opus 5.5","description":"","resolved":""})"));
     CHECK_FALSE(providers[0].contains("error"));
     CHECK(providers[1]["name"] == "lmstudio");
     CHECK(providers[1]["models"].empty());
@@ -131,7 +133,9 @@ TEST_CASE("ai.run reports what the sub-agent does: MCP progress for the caller, 
         return std::static_pointer_cast<ChatProvider>(provider);
     };
     opt.onRunStart = [&](const AiRunInfo& i) { log.push_back("start " + i.id + " " + i.role + " " + i.task); };
-    opt.onRunEvent = [&](const AiRunInfo&, const AgentEvent& e) { log.push_back(std::string("event ") + event_type_name(e.type)); };
+    opt.onRunEvent = [&](const AiRunInfo&, const AgentEvent& e) {
+        log.push_back(std::string("event ") + event_type_name(e.type));
+    };
     opt.onRunEnd = [&](const AiRunInfo& i, bool ok, const std::string& report, const std::string& error) {
         log.push_back(std::string("end ") + i.role + (ok ? " ok " : " failed ") + report + error);
     };
@@ -153,7 +157,8 @@ TEST_CASE("ai.run reports what the sub-agent does: MCP progress for the caller, 
     CHECK(std::count(log.begin(), log.end(), "event done") == 1);
     REQUIRE_FALSE(progress.empty());
     CHECK(progress.front() == "worker: starting");
-    CHECK(std::all_of(progress.begin(), progress.end(), [](const std::string& m) { return m.rfind("worker", 0) == 0; }));
+    CHECK(
+        std::all_of(progress.begin(), progress.end(), [](const std::string& m) { return m.rfind("worker", 0) == 0; }));
 
     // A failure ends the run with ok=false and the error.
     log.clear();

@@ -15,14 +15,14 @@ Path build_arrow(const VecArrowSpec& s);
 Path build_bubble(const VecBubbleSpec& s);
 
 struct TextMetrics {
-    double advance = 0;    // the widest line
+    double advance = 0;  // the widest line
     double lineHeight = 0;
     int lines = 1, glyphs = 0;
     std::vector<char32_t> missing;
 };
 // The outline of `text` in the engine's fonts as one path, in the em units of `size`, baseline origin at `at`. `anchor`: start, middle, end.
-Result<Path> build_text(const std::string& text, const std::string& font, double size, P at, const std::string& anchor, double letterSpacing,
-                        double lineSpacing, TextMetrics* metrics);
+Result<Path> build_text(const std::string& text, const std::string& font, double size, P at, const std::string& anchor,
+                        double letterSpacing, double lineSpacing, TextMetrics* metrics);
 
 // A closed polygon with its corners rounded. `fillet(i, turn, shortest)` is the distance from vertex i, along both of its sides,
 // where the curve leaves them; `turn` is the direction change at the vertex (radians), `shortest` its shorter side. The distance is

@@ -28,23 +28,25 @@ namespace fa {
 
 // ---- settings (the "gameReady" object of a model document) -------------------------------------------------------------------
 
-inline constexpr std::size_t kGameReadyMaxLods = 4;     // LOD1..LOD4 besides the full mesh
-inline constexpr int kGameReadyMaxHullVertices = 256;   // Collider3D's convex hull takes at most this many points
+inline constexpr std::size_t kGameReadyMaxLods = 4;    // LOD1..LOD4 besides the full mesh
+inline constexpr int kGameReadyMaxHullVertices = 256;  // Collider3D's convex hull takes at most this many points
 
 struct ModelLodSpec {
-    double ratio = 0;            // keep this fraction of the full mesh's triangles (0 = not given)
-    std::size_t triangles = 0;   // or at most this many (0 = not given); both given: the smaller
-    double error = 0;            // the most any collapse may move the surface, metres (0 = no limit); with no target it alone decides
-    double distance = 0;         // camera distance in metres from which the game draws this LOD (0 = automatic, see model_lod_distance)
+    double ratio = 0;           // keep this fraction of the full mesh's triangles (0 = not given)
+    std::size_t triangles = 0;  // or at most this many (0 = not given); both given: the smaller
+    double error =
+        0;  // the most any collapse may move the surface, metres (0 = no limit); with no target it alone decides
+    double distance =
+        0;  // camera distance in metres from which the game draws this LOD (0 = automatic, see model_lod_distance)
 };
 struct ModelColliderSpec {
     std::string shape = "none";  // none, box, sphere, capsule, convex, decomposed
     int maxHulls = 8;            // decomposed: at most this many convex pieces
     int maxVertices = 32;        // convex, decomposed: at most this many points per hull (4..256)
     int resolution = 100000;     // decomposed: voxels V-HACD splits the volume into (more = finer pieces, slower)
-    std::string part;            // fit to the submeshes of this part only (a pine's trunk, not its canopy); "" = the whole model
-    double radius = 0;           // sphere, capsule: use this radius in metres instead of the fitted one (0 = fitted)
-    double height = 0;           // capsule: use this total height in metres instead of the fitted one (0 = fitted)
+    std::string part;   // fit to the submeshes of this part only (a pine's trunk, not its canopy); "" = the whole model
+    double radius = 0;  // sphere, capsule: use this radius in metres instead of the fitted one (0 = fitted)
+    double height = 0;  // capsule: use this total height in metres instead of the fitted one (0 = fitted)
 };
 struct ModelGameReady {
     std::string origin = "keep";  // keep, center, bottom, bottom_center
@@ -52,12 +54,13 @@ struct ModelGameReady {
     std::vector<ModelLodSpec> lods;
     ModelColliderSpec collider;
     std::vector<std::string> platforms = {"desktop", "mobile", "web"};  // the budgets the report checks
-    bool is_default() const;      // nothing asked for: no files besides the .glb
+    bool is_default() const;                                            // nothing asked for: no files besides the .glb
 };
 
 // The settings of a document's `gameReady` object, every field checked (problems listed with their JSON pointer under `at`, e.g.
 // "/gameReady", with the fix and "did you mean") and the defaults filled in. `issues` gets every problem; the first is also the error.
-Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at, std::vector<ModelIssue>* issues = nullptr);
+Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
+                                        std::vector<ModelIssue>* issues = nullptr);
 Json game_ready_to_json(const ModelGameReady& settings);  // the whole object, defaults included
 // The JSON schema of the object (model_doc_schema() embeds it).
 Json game_ready_schema();
@@ -65,9 +68,9 @@ Json game_ready_schema();
 // ---- budgets --------------------------------------------------------------------------------------------------------------
 
 struct ModelPlatformBudget {
-    std::string platform;         // desktop, mobile, web
-    std::size_t triangles = 0;    // for one model on screen at its highest detail
-    std::size_t submeshes = 0;    // draw calls of one model
+    std::string platform;       // desktop, mobile, web
+    std::size_t triangles = 0;  // for one model on screen at its highest detail
+    std::size_t submeshes = 0;  // draw calls of one model
     std::string doc;
 };
 const std::vector<ModelPlatformBudget>& model_platform_budgets();
@@ -90,8 +93,8 @@ Result<MeshData> model_merge_by_material(const MeshData& mesh, ModelMergeInfo* i
 
 struct ModelLodInfo {
     std::size_t triangles = 0, vertices = 0, submeshes = 0;
-    double error = 0;       // metres: the largest deviation from the full mesh the simplifier measured (an upper bound)
-    double distance = 0;    // metres from which the game draws it (0 for the full mesh)
+    double error = 0;     // metres: the largest deviation from the full mesh the simplifier measured (an upper bound)
+    double distance = 0;  // metres from which the game draws it (0 for the full mesh)
     bool reachedTarget = true;
 };
 // A copy of `mesh` with fewer triangles per `spec`. Each submesh is simplified on its own and keeps its material and part; a submesh that
@@ -107,14 +110,15 @@ struct ModelHull {
 };
 struct ModelCollider {
     std::string shape = "none";
-    Vec3 center{};              // box, sphere, capsule: the shape's centre in the mesh's space
-    Vec3 size{};                // box: full extents
-    float radius = 0;           // sphere, capsule
-    float height = 0;           // capsule: tip to tip along Y
+    Vec3 center{};                 // box, sphere, capsule: the shape's centre in the mesh's space
+    Vec3 size{};                   // box: full extents
+    float radius = 0;              // sphere, capsule
+    float height = 0;              // capsule: tip to tip along Y
     std::vector<ModelHull> hulls;  // convex: one; decomposed: the pieces
-    double volume = 0;          // of the collider
-    double meshVolume = 0;      // of the mesh (absolute value of its signed volume; 0 for an open surface)
-    double volumeRatio = 0;     // volume / meshVolume: 1 = a perfect fit, higher = the collider is looser than the mesh (0 when the mesh has no volume)
+    double volume = 0;             // of the collider
+    double meshVolume = 0;         // of the mesh (absolute value of its signed volume; 0 for an open surface)
+    double volumeRatio =
+        0;  // volume / meshVolume: 1 = a perfect fit, higher = the collider is looser than the mesh (0 when the mesh has no volume)
     std::vector<std::string> warnings;
 };
 // Fits the collider of `spec.shape` to the mesh. Never fails for a mesh with triangles (a failed decomposition falls back to the convex hull and
@@ -130,17 +134,17 @@ ModelHull model_convex_hull(const std::vector<Vec3>& points, int maxVertices);
 struct ModelBudgetRow {
     std::string platform;
     std::size_t budgetTriangles = 0, budgetSubmeshes = 0;
-    int firstFittingLod = -1;   // the lowest-numbered LOD within the triangle budget; -1 = none fits
+    int firstFittingLod = -1;  // the lowest-numbered LOD within the triangle budget; -1 = none fits
     bool fullMeshFits = false;
     bool submeshesFit = false;
 };
 struct ModelGameReadyResult {
-    MeshData mesh;                       // the full mesh after origin and merge
-    Vec3 offset{};                       // what the origin setting added to every position
+    MeshData mesh;  // the full mesh after origin and merge
+    Vec3 offset{};  // what the origin setting added to every position
     ModelMergeInfo merge;
-    std::vector<MeshData> lods;          // LOD1..; each with the origin applied
-    std::vector<ModelLodInfo> lodInfo;   // index 0 = the full mesh, then one per entry of `lods`
-    ModelCollider collider;              // shape "none" when not asked for
+    std::vector<MeshData> lods;         // LOD1..; each with the origin applied
+    std::vector<ModelLodInfo> lodInfo;  // index 0 = the full mesh, then one per entry of `lods`
+    ModelCollider collider;             // shape "none" when not asked for
     std::vector<ModelBudgetRow> budget;
     std::vector<std::string> warnings;
 };

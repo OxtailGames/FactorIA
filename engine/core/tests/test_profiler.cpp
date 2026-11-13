@@ -111,7 +111,7 @@ TEST_CASE("ProfileSummary: gpu is null with the reason, or a number; memory star
     CHECK(j["memory"]["peak"]["entities"] == 50);
     CHECK(j["memory"]["start"]["jsHeapMB"].get<double>() == doctest::Approx(2.0));
     CHECK(j["memory"]["start"]["audioDecodedMB"].get<double>() == doctest::Approx(30.0));
-    CHECK(j["memory"]["start"]["musicMB"].get<double>() == doctest::Approx(12.0));   // part of audioDecodedMB
+    CHECK(j["memory"]["start"]["musicMB"].get<double>() == doctest::Approx(12.0));  // part of audioDecodedMB
     CHECK(j["memory"]["peak"]["musicMB"].get<double>() == doctest::Approx(12.0));
 
     s.set_gpu_status(true, "");

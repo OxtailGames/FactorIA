@@ -42,7 +42,8 @@ Key map_key(sapp_keycode k) {
     if (k >= SAPP_KEYCODE_F1 && k <= SAPP_KEYCODE_F12) return Key(int(Key::F1) + (k - SAPP_KEYCODE_F1));
     switch (k) {
         case SAPP_KEYCODE_SPACE: return Key::Space;
-        case SAPP_KEYCODE_ENTER: case SAPP_KEYCODE_KP_ENTER: return Key::Enter;
+        case SAPP_KEYCODE_ENTER:
+        case SAPP_KEYCODE_KP_ENTER: return Key::Enter;
         case SAPP_KEYCODE_ESCAPE: return Key::Escape;
         case SAPP_KEYCODE_TAB: return Key::Tab;
         case SAPP_KEYCODE_BACKSPACE: return Key::Backspace;
@@ -82,14 +83,22 @@ Key map_key(sapp_keycode k) {
 // window taking focus makes ImGui drop the keys and characters typed in that frame.
 bool autotest_ignores(const sapp_event* e) {
     switch (e->type) {
-        case SAPP_EVENTTYPE_KEY_DOWN: case SAPP_EVENTTYPE_KEY_UP: case SAPP_EVENTTYPE_CHAR:
-        case SAPP_EVENTTYPE_MOUSE_DOWN: case SAPP_EVENTTYPE_MOUSE_UP: case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        case SAPP_EVENTTYPE_MOUSE_MOVE: case SAPP_EVENTTYPE_MOUSE_ENTER: case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        case SAPP_EVENTTYPE_TOUCHES_BEGAN: case SAPP_EVENTTYPE_TOUCHES_MOVED: case SAPP_EVENTTYPE_TOUCHES_ENDED:
-        case SAPP_EVENTTYPE_TOUCHES_CANCELLED: case SAPP_EVENTTYPE_FOCUSED: case SAPP_EVENTTYPE_UNFOCUSED:
-            return true;
-        default:
-            return false;
+        case SAPP_EVENTTYPE_KEY_DOWN:
+        case SAPP_EVENTTYPE_KEY_UP:
+        case SAPP_EVENTTYPE_CHAR:
+        case SAPP_EVENTTYPE_MOUSE_DOWN:
+        case SAPP_EVENTTYPE_MOUSE_UP:
+        case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        case SAPP_EVENTTYPE_MOUSE_MOVE:
+        case SAPP_EVENTTYPE_MOUSE_ENTER:
+        case SAPP_EVENTTYPE_MOUSE_LEAVE:
+        case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+        case SAPP_EVENTTYPE_TOUCHES_MOVED:
+        case SAPP_EVENTTYPE_TOUCHES_ENDED:
+        case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
+        case SAPP_EVENTTYPE_FOCUSED:
+        case SAPP_EVENTTYPE_UNFOCUSED: return true;
+        default: return false;
     }
 }
 
@@ -140,7 +149,8 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
         abandoned->store(true);  // the main thread skips the job if it has not started it
         CommandResult r;
         r.ok = false;
-        r.error = Json::object({{"code", "unavailable"}, {"message", why},
+        r.error = Json::object({{"code", "unavailable"},
+                                {"message", why},
                                 {"hint", "The editor is closing or the run was stopped; retry later."}});
         return r;
     };
@@ -177,12 +187,14 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
     while (!local.empty()) {
         Job j = std::move(local.front());
         local.pop_front();
-        if (j.abandoned && j.abandoned->load()) continue;  // its run was stopped while it waited: nobody wants the answer
+        if (j.abandoned && j.abandoned->load())
+            continue;  // its run was stopped while it waited: nobody wants the answer
         current_ = j.promise;
         currentTag_ = j.tag;
         std::optional<CommandResult> r;
         {
-            CommandContextScope context(j.context);  // a command an AI queued is still an AI's, with its set, on the main thread
+            CommandContextScope context(
+                j.context);  // a command an AI queued is still an AI's, with its set, on the main thread
             r = run(j.name, j.args);
         }
         const bool taken = !current_;
@@ -228,7 +240,8 @@ void MainThreadQueue::reopen() {
 
 // ------------------------------------------------------------------------------------------
 Editor::Editor(EditorOptions options) : options_(std::move(options)) {
-    set_serve_web_blocking(false);  // project.serve_web runs on the UI thread here: it starts the server on a helper thread and answers "starting"
+    set_serve_web_blocking(
+        false);  // project.serve_web runs on the UI thread here: it starts the server on a helper thread and answers "starting"
 }
 
 Editor::~Editor() {
@@ -246,26 +259,30 @@ Editor::~Editor() {
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
-    phone_.wait();       // the Play on Phone window's start or stop...
+    phone_.wait();      // the Play on Phone window's start or stop...
     // A Review pick still moving files is given time to finish (killing it could leave a sheet half answered; it takes about a second);
     // one that hangs is killed after kReviewPickShutdownSeconds, so closing never waits minutes.
     review_end_pick_for_shutdown(false);
     serve_web_shutdown();  // ...the helper thread of project.serve_web, and the server itself: no thread of it outlives the editor
-    set_serve_web_blocking(true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
+    set_serve_web_blocking(
+        true);  // the process-wide setting goes back to the default (a later Editor in the same process sets it again)
 }
 
 int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
-    if (autotest_) set_ui_lock_wait_sec(2.0);  // a scripted click must not fail because a loaded machine held a lock past 0.3 s
-    load_recent_projects();  // before any project opens, so opening one never overwrites the history
+    if (autotest_)
+        set_ui_lock_wait_sec(2.0);  // a scripted click must not fail because a loaded machine held a lock past 0.3 s
+    load_recent_projects();         // before any project opens, so opening one never overwrites the history
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
-    if (autotest_ && !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
+    if (autotest_ &&
+        !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
         if (const char* sections = std::getenv("FA_EDITOR_AUTOTEST_SECTIONS"); sections && *sections) {
             auto picked = parse_autotest_sections(sections);
             if (!picked) {
-                std::fprintf(stderr, "error: %s\nhint: %s\n", picked.error().message.c_str(), picked.error().hint.c_str());
+                std::fprintf(stderr, "error: %s\nhint: %s\n", picked.error().message.c_str(),
+                             picked.error().hint.c_str());
                 return 2;
             }
             atSections_ = std::move(*picked);
@@ -281,7 +298,10 @@ int Editor::run() {
     if (autotest_)  // FA_EDITOR_AUTOTEST_SIZE=1024x642: try the autotest on a small display (the macOS CI runner)
         if (const char* size = std::getenv("FA_EDITOR_AUTOTEST_SIZE")) {
             int w = 0, h = 0;
-            if (std::sscanf(size, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) { d.width = w; d.height = h; }
+            if (std::sscanf(size, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+                d.width = w;
+                d.height = h;
+            }
         }
     d.vsync = !autotest_;
     d.highDpi = true;
@@ -324,8 +344,10 @@ void Editor::on_init() {
                     last = now;
                     changed = std::chrono::steady_clock::now();
                 } else if (std::chrono::steady_clock::now() - changed > std::chrono::seconds(60)) {
-                    std::fprintf(stderr, "autotest watchdog: the editor drew no frame for 60 s (a UI or GPU call is stuck): ending the process "
-                                         "so the window does not stay frozen\nthe UI thread's stack (innermost first):\n%s",
+                    std::fprintf(stderr,
+                                 "autotest watchdog: the editor drew no frame for 60 s (a UI or GPU call is stuck): "
+                                 "ending the process "
+                                 "so the window does not stay frozen\nthe UI thread's stack (innermost first):\n%s",
                                  watched_thread_stack().c_str());
                     std::fflush(stderr);
                     std::_Exit(86);
@@ -379,11 +401,19 @@ void Editor::on_init() {
                 rs.status = 200;
                 Json body = Json::object();
                 if (rq.url == "https://github.com/login/device/code") {
-                    body = Json::object({{"device_code", "autotest-device-code"}, {"user_code", "ABCD-1234"},
-                                         {"verification_uri", "https://github.com/login/device"}, {"expires_in", 900}, {"interval", 5}});
+                    body = Json::object(
+                        {{"device_code", "autotest-device-code"},
+                         {"user_code", "ABCD-1234"},
+                         {"verification_uri", "https://github.com/login/device"},
+                         // The poll naps 10 ms per `interval` (env.sleep above) and gives up after expires_in
+                         // seconds of naps: with the real 900 s the code ran out after ~2 s of wall time, before
+                         // the autotest (slow under a sanitizer) approved it. About 200 s of wall time at least.
+                         {"expires_in", 100000},
+                         {"interval", 5}});
                 } else if (rq.url == "https://github.com/login/oauth/access_token") {
-                    body = net->authorize ? Json::object({{"access_token", "autotest-github-token"}, {"token_type", "bearer"}})
-                                          : Json::object({{"error", "authorization_pending"}});
+                    body = net->authorize
+                               ? Json::object({{"access_token", "autotest-github-token"}, {"token_type", "bearer"}})
+                               : Json::object({{"error", "authorization_pending"}});
                 } else if (rq.url.ends_with("/v1/auth/github")) {
                     body = Json::object({{"ok", true}, {"credential", "autotest.credential"}, {"login", "octocat"}});
                 } else if (rq.url.ends_with("/v1/verdicts")) {
@@ -396,7 +426,8 @@ void Editor::on_init() {
                             const std::string shareId = id.is_string() ? id.get<std::string>() : std::string();
                             const auto found = net->verdicts.find(shareId);
                             if (found != net->verdicts.end())
-                                verdicts.push_back(Json::object({{"shareId", shareId}, {"status", "rejected"}, {"reason", found->second}}));
+                                verdicts.push_back(Json::object(
+                                    {{"shareId", shareId}, {"status", "rejected"}, {"reason", found->second}}));
                             else
                                 verdicts.push_back(Json::object({{"shareId", shareId}, {"status", "received"}}));
                         }
@@ -407,20 +438,24 @@ void Editor::on_init() {
                     int n = 0;
                     if (sent.is_object() && sent.contains("entries"))
                         for (const Json& e : sent["entries"])
-                            results.push_back(Json::object({{"localId", e.value("localId", std::string())}, {"status", "accepted"},
+                            results.push_back(Json::object({{"localId", e.value("localId", std::string())},
+                                                            {"status", "accepted"},
                                                             {"shareId", "r_" + std::to_string(++n)}}));
                     body = Json::object({{"ok", true}, {"results", results}});
                 } else {
                     rs.ok = false;
                     rs.status = 0;
-                    rs.error = rq.url.ends_with("/v1/reports") ? "the autotest's feedback server is down" : "the autotest reaches no address (" + rq.url + ")";
+                    rs.error = rq.url.ends_with("/v1/reports") ? "the autotest's feedback server is down"
+                                                               : "the autotest reaches no address (" + rq.url + ")";
                     return rs;
                 }
                 rs.body = body.dump();
                 return rs;
             };
             atShareEnv_ = std::make_unique<ScopedShareEnv>(env);
-            (void)set_share_mode(share_env(), ShareMode::Never);  // the test harness, not a command: only a click sets the mode in the product
+            (void)set_share_mode(
+                share_env(),
+                ShareMode::Never);  // the test harness, not a command: only a click sets the mode in the product
         }
         // Set Up This Computer installs into FACTORIA_HOME: a folder of the autotest's own, never the user's ~/.factoria. And the
         // editor's setup context cannot download or run anything, so no click of the autotest can install a thing (the one
@@ -448,7 +483,8 @@ void Editor::on_init() {
                     return r;
                 };
                 world.run = [](const ProcessOptions& o) -> Result<ProcessResult> {
-                    return make_error("The editor autotest never runs programs (" + (o.argv.empty() ? std::string() : o.argv[0]) + ").");
+                    return make_error("The editor autotest never runs programs (" +
+                                      (o.argv.empty() ? std::string() : o.argv[0]) + ").");
                 };
                 // What the checks see does not depend on the computer they run on: no JDK, SDK, mobile libraries or Xcode of its own.
                 world.executableDir = (base / "no-exe").string();
@@ -466,7 +502,8 @@ void Editor::on_init() {
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
         stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_autotest_project_" + std::to_string(stamp));
         fs::remove_tree(proj, ec);
-        auto r = atWelcome_ ? Result<ScaffoldResult>(Error{"welcome mode"}) : create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
+        auto r = atWelcome_ ? Result<ScaffoldResult>(Error{"welcome mode"})
+                            : create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
         if (atWelcome_) {
         } else if (!r) {
             atFailures_.push_back("create_project: " + r.error().to_string());
@@ -479,14 +516,16 @@ void Editor::on_init() {
         // layout2: a new name, so everyone starts on the AI layout once
         if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor_layout2.ini").string();
         maximize_window();  // the game view and the AI chat use the whole screen
-        launcherThread_ = std::thread([] {  // after an update the Dock/menu launcher still carries the old icon and version
-            if (refresh_launcher()) FA_INFO("editor", "updated the FactorIA app launcher to this version");
-        });
+        launcherThread_ =
+            std::thread([] {  // after an update the Dock/menu launcher still carries the old icon and version
+                if (refresh_launcher()) FA_INFO("editor", "updated the FactorIA app launcher to this version");
+            });
         if (!update_repo().empty()) {  // a downloaded package: offer newer releases (draw_update_popup)
             remove_update_leftovers(executable_dir());
             updateThread_ = std::thread([this] {
                 auto r = check_for_update();
-                if (!r) FA_WARN("editor", "update check: {}", r.error().to_string());
+                if (!r)
+                    FA_WARN("editor", "update check: {}", r.error().to_string());
                 else if (r->available()) {
                     update_ = std::move(*r);
                     updateStage_ = UpdateStage::Offer;
@@ -500,9 +539,8 @@ void Editor::on_init() {
     }
     set_update_status_extra("editor", [this] {  // engine.update_status: what the editor's notice says
         const std::string blocker = disk_restart_blocker();
-        return Json::object({{"noticeShown", disk_update_due()},
-                             {"restartAllowed", blocker.empty()},
-                             {"restartBlockedBy", blocker}});
+        return Json::object(
+            {{"noticeShown", disk_update_due()}, {"restartAllowed", blocker.empty()}, {"restartBlockedBy", blocker}});
     });
     boot(dir);
     if (!bootError_.empty()) {
@@ -540,7 +578,8 @@ void Editor::on_cleanup() {
         fs::remove_tree(atTempProject_, ec);
     }
     if (restartAfterQuit_)
-        if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());
+        if (auto r = start_editor_process(projectDir_); !r)
+            FA_WARN("editor", "restart after the update: {}", r.error().to_string());
 }
 
 std::string Editor::recent_projects_file() const {
@@ -574,9 +613,9 @@ bool Editor::open_project(const std::string& dir) {
 bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop("project_closed");
-    reset_export_state();  // an export of the previous project finishes first
-    reset_phone_state();   // and the phone server of the previous project stops
-    reset_auto_play_state();  // a bot still playing the previous project is stopped
+    reset_export_state();             // an export of the previous project finishes first
+    reset_phone_state();              // and the phone server of the previous project stops
+    reset_auto_play_state();          // a bot still playing the previous project is stopped
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
@@ -649,7 +688,9 @@ bool Editor::boot(const std::string& dirIn) {
         // What a Play reads first, per scene, goes into .factoria/cache/load-order.json for the release export's pack order,
         // written on a background thread: Stop never waits for the project's lock or the disk (fa/tooling/load_order.h).
         // `dir` is native, as cfg.projectDir is (never UTF-8 on Windows).
-        cfg.loadOrderSink = [dir](const LoadOrder& order) { record_load_order_async(std::filesystem::path(dir), order); };
+        cfg.loadOrderSink = [dir](const LoadOrder& order) {
+            record_load_order_async(std::filesystem::path(dir), order);
+        };
         cfg.editorMode = true;
         cfg.hotReload = false;       // the editor reloads scenes and scripts itself
         cfg.hotReloadAssets = true;  // but materials, snippets and textures edited on disk show right away
@@ -686,20 +727,27 @@ bool Editor::boot(const std::string& dirIn) {
 
     if (engine_) {
         projectDir_ = std::filesystem::absolute(dir).lexically_normal().string();
-        while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\')) projectDir_.pop_back();
+        while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\'))
+            projectDir_.pop_back();
         fs::set_project_root(projectDir_);
         projectName_ = engine_->project().name;
         ai_project_invalidate();  // the next message and the AI windows use this project's AI settings, not the last project's
         aiRolesOpen_ = true;
         ai_settings_discard();
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
-        if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
+        if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile);
+            fs::exists(engine_->project().feedbackFile)) {
             // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
-            const ShareWaitCap shortWait(ui_lock_wait_sec());  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
-            if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
-            else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
-            if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
-            else if (r->moved > 0) FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
+            const ShareWaitCap shortWait(
+                ui_lock_wait_sec());  // both rewrite the file under a lock another program may hold: the UI thread does not wait seconds
+            if (auto c = check_fixed_feedback_file(fbPath); !c)
+                FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
+            else if (!c->closed.empty())
+                FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
+            if (auto r = archive_closed_feedback_file(fbPath); !r)
+                FA_WARN("editor", "feedback archive: {}", r.error().to_string());
+            else if (r->moved > 0)
+                FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
         }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
@@ -726,7 +774,9 @@ void Editor::install_command_overrides() {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
             const std::string requested = a.value("path", scenePath_);
-            if (requested.empty()) throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+            if (requested.empty())
+                throw CommandError("invalid_argument", "No current scene path.",
+                                   "Pass {\"path\":\"scenes/name.scene.json\"}.");
             // The same rules as the engine's scene.save: writeProject, inside the project (an absolute path only for a caller that
             // may write anywhere), not in the managed folders (.git, .factoria/ except .factoria/tmp); the error codes are those of
             // fs::resolve_for_write. `path` is the project-relative spelling.
@@ -742,11 +792,15 @@ void Editor::install_command_overrides() {
             if (!expanded.empty()) {
                 Json list = Json::array();
                 for (std::size_t i = 0; i < expanded.size() && i < 10; ++i)
-                    list.push_back(Json::object({{"id", expanded[i].id}, {"prefab", expanded[i].prefab}, {"reason", expanded[i].reason}}));
+                    list.push_back(Json::object(
+                        {{"id", expanded[i].id}, {"prefab", expanded[i].prefab}, {"reason", expanded[i].reason}}));
                 out["expandedPrefabs"] = Json::object({{"count", expanded.size()}, {"first", list}});
-                out["prefabHint"] = "Wrote " + std::to_string(expanded.size()) + " prefab instance(s) as inline entities because a scene entry "
-                                    "{\"prefab\", differences} cannot say how they differ (see `reason`); they no longer follow later changes of "
-                                    "their prefab file. Undo that difference in the world (do not remove parts of the prefab from an instance) "
+                out["prefabHint"] = "Wrote " + std::to_string(expanded.size()) +
+                                    " prefab instance(s) as inline entities because a scene entry "
+                                    "{\"prefab\", differences} cannot say how they differ (see `reason`); they no "
+                                    "longer follow later changes of "
+                                    "their prefab file. Undo that difference in the world (do not remove parts of the "
+                                    "prefab from an instance) "
                                     "and save again to keep them as instances.";
             }
             return out;
@@ -761,7 +815,8 @@ void Editor::install_command_overrides() {
             undo_.clear();
             redo_.clear();
             dirty_ = false;
-            return Json::object({{"ok", ok}, {"scene", scenePath_}, {"messages", err.empty() ? Json::array() : Json::array({err})}});
+            return Json::object(
+                {{"ok", ok}, {"scene", scenePath_}, {"messages", err.empty() ? Json::array() : Json::array({err})}});
         });
     }
 }
@@ -779,7 +834,8 @@ void Editor::on_event(const sapp_event* e) {
         }
         return;
     }
-    if (e->type == SAPP_EVENTTYPE_FOCUSED) diskPollNow_ = true;  // back to the window: was the program replaced meanwhile?
+    if (e->type == SAPP_EVENTTYPE_FOCUSED)
+        diskPollNow_ = true;  // back to the window: was the program replaced meanwhile?
     if (!uiUp_) return;
     ui::handle_event(e);
     if (!engine_) return;
@@ -796,7 +852,8 @@ void Editor::on_event(const sapp_event* e) {
     switch (e->type) {
         case SAPP_EVENTTYPE_KEY_DOWN:
         case SAPP_EVENTTYPE_KEY_UP:
-            if (gameActive && vpFocused_ && !io.WantTextInput && !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat) &&
+            if (gameActive && vpFocused_ && !io.WantTextInput &&
+                !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat) &&
                 e->key_code != SAPP_KEYCODE_F9) {  // F9 marks a problem (build_ui): the game does not see it
                 engine_->input().on_key(map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
             }
@@ -812,7 +869,10 @@ void Editor::on_event(const sapp_event* e) {
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
         case SAPP_EVENTTYPE_MOUSE_UP: {
-            int b = e->mouse_button == SAPP_MOUSEBUTTON_LEFT ? 0 : e->mouse_button == SAPP_MOUSEBUTTON_RIGHT ? 1 : e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE ? 2 : -1;
+            int b = e->mouse_button == SAPP_MOUSEBUTTON_LEFT     ? 0
+                    : e->mouse_button == SAPP_MOUSEBUTTON_RIGHT  ? 1
+                    : e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE ? 2
+                                                                 : -1;
             if (b < 0) break;
             const MouseButton mb = b == 0 ? MouseButton::Left : b == 1 ? MouseButton::Right : MouseButton::Middle;
             if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN) {
@@ -831,21 +891,20 @@ void Editor::on_event(const sapp_event* e) {
             if (gameActive && vpHovered_) engine_->input().on_mouse_wheel(e->scroll_y);
             break;
         case SAPP_EVENTTYPE_UNFOCUSED:
-        case SAPP_EVENTTYPE_ICONIFIED:
-            engine_->input().release_all();
-            break;
+        case SAPP_EVENTTYPE_ICONIFIED: engine_->input().release_all(); break;
         case SAPP_EVENTTYPE_FILES_DROPPED:
             ai_on_files_dropped();  // pictures dropped on the window go to the AI Assistant's message (ai_panel.cpp)
             break;
-        default:
-            break;
+        default: break;
     }
 }
 
 // ------------------------------------------------------------------------------------------
 std::optional<CommandResult> Editor::run_queued(const std::string& name, const Json& args) {
     const auto t0 = std::chrono::steady_clock::now();
-    auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); };
+    auto elapsed = [&] {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    };
     auto finish = [this, name, args](const std::shared_ptr<std::promise<CommandResult>>& promise, CommandResult r) {
         after_command(name, args, r);
         promise->set_value(std::move(r));
@@ -856,8 +915,9 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     // with the new-error/warning counters measured from before the first slice.
     // game.input with `frames` slices the same way (its result is the input snapshot with frames and frame).
     const bool inputFrames = name == "game.input";
-    if ((name == "game.step" || inputFrames) && args.is_object() && args.contains("frames") && args["frames"].is_number_integer() &&
-        args["frames"].get<long long>() > 30 && args["frames"].get<long long>() <= 100000) {
+    if ((name == "game.step" || inputFrames) && args.is_object() && args.contains("frames") &&
+        args["frames"].is_number_integer() && args["frames"].get<long long>() > 30 &&
+        args["frames"].get<long long>() <= 100000) {
         Json first = args;
         first["frames"] = 0;
         CommandResult r = engine_->commands().call(name, first);
@@ -872,7 +932,8 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
             while (*left > 0) {
                 engine_->step(1);
                 --*left;
-                if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count() > 8.0) break;
+                if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count() > 8.0)
+                    break;
             }
             if (*left > 0) return false;
             if (inputFrames) {
@@ -890,7 +951,8 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
                 r.result.erase("newWarnings");
                 Json logs = Json::array();
                 for (const LogEntry& l : recent_logs(10, LogLevel::Warn, seq0))
-                    logs.push_back(Json::object({{"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
+                    logs.push_back(Json::object(
+                        {{"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
                 if (!logs.empty()) r.result["newWarnings"] = logs;
             }
             finish(promise, std::move(r));
@@ -905,7 +967,8 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     if (name == "project.test") {
         std::vector<std::string> files;
         if (args.is_object() && args.contains("files") && args["files"].is_array()) {
-            for (const Json& f : args["files"]) if (f.is_string()) files.push_back(f.get<std::string>());
+            for (const Json& f : args["files"])
+                if (f.is_string()) files.push_back(f.get<std::string>());
         } else {
             for (const auto& f : fs::list("tests", true, ".js"))
                 if (f.size() >= 8 && f.compare(f.size() - 8, 8, ".test.js") == 0) files.push_back(f);
@@ -913,8 +976,11 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
         if (files.size() > 1) {
             auto promise = queue_.take_current();
             const std::string filter = args.is_object() ? args.value("filter", std::string()) : std::string();
-            auto merged = std::make_shared<Json>(Json::object({{"passed", 0}, {"failed", 0}, {"cases", Json::array()},
-                                                               {"loadErrors", Json::array()}, {"logs", Json::array()}}));
+            auto merged = std::make_shared<Json>(Json::object({{"passed", 0},
+                                                               {"failed", 0},
+                                                               {"cases", Json::array()},
+                                                               {"loadErrors", Json::array()},
+                                                               {"logs", Json::array()}}));
             auto summary = std::make_shared<std::string>();
             auto next = std::make_shared<std::size_t>(0);
             slicedJob_ = [this, promise, files, filter, merged, summary, next, finish]() {
@@ -931,15 +997,18 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
                 m["passed"] = m["passed"].get<int>() + j.value("passed", 0);
                 m["failed"] = m["failed"].get<int>() + j.value("failed", 0);
                 for (const char* k : {"cases", "loadErrors", "logs"})
-                    if (j.contains(k) && j[k].is_array()) for (const Json& e : j[k]) m[k].push_back(e);
+                    if (j.contains(k) && j[k].is_array())
+                        for (const Json& e : j[k]) m[k].push_back(e);
                 const std::string s = j.value("summary", std::string());
                 const auto nl = s.rfind('\n');
                 if (nl != std::string::npos) *summary += s.substr(0, nl + 1);  // drop the per-file totals line
                 if (*next < files.size()) return false;
                 if (m["logs"].empty()) m.erase("logs");
                 const bool ok = m["failed"].get<int>() == 0 && m["loadErrors"].empty();
-                *summary += std::to_string(m["passed"].get<int>()) + " passed, " + std::to_string(m["failed"].get<int>()) + " failed";
-                if (!m["loadErrors"].empty()) *summary += ", " + std::to_string(m["loadErrors"].size()) + " file(s) failed to load";
+                *summary += std::to_string(m["passed"].get<int>()) + " passed, " +
+                            std::to_string(m["failed"].get<int>()) + " failed";
+                if (!m["loadErrors"].empty())
+                    *summary += ", " + std::to_string(m["loadErrors"].size()) + " file(s) failed to load";
                 m["ok"] = ok;
                 m["summary"] = *summary;
                 m["files"] = files;
@@ -959,13 +1028,15 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     CommandResult r = engine_->commands().call(name, args);
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
-    if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
+    if (!queue_.current_tag().empty())
+        ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
     // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus. Any command that
     // changes the project and answers with a review sheet id (review.sheet; assets.generate_image with a count: a sheet of candidates
     // for a slot); never a pick, which answers a sheet instead of making one.
     if (r.ok && r.result.is_object() && info && !info->readOnly && name != "review.pick" && name != "assets.pick") {
         const ReviewAnnounce a = review_announce_from(r.result, args);
-        if (!a.sheet.empty()) review_announce_sheet(a.sheet, a.label, a.slot, queue_.current_tag().empty() ? "A tool" : "The AI");
+        if (!a.sheet.empty())
+            review_announce_sheet(a.sheet, a.label, a.slot, queue_.current_tag().empty() ? "A tool" : "The AI");
     }
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;
@@ -1065,12 +1136,17 @@ void Editor::reset_feel_choices() {
 }
 
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
-    if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
-    if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
-    if (name.rfind("image.", 0) == 0) return false;  // image documents are files; the Image panel keeps its own undo steps
+    if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete")
+        return false;  // files only
+    if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip")
+        return false;  // clip files only
+    if (name.rfind("image.", 0) == 0)
+        return false;  // image documents are files; the Image panel keeps its own undo steps
     if (name.rfind("vector.", 0) == 0) return false;  // drawings are files; the Vector panel keeps its own undo steps
-    if (name.rfind("feel.", 0) == 0) return false;  // game feel effects are a moment of the running game, not part of the scene
-    if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
+    if (name.rfind("feel.", 0) == 0)
+        return false;  // game feel effects are a moment of the running game, not part of the scene
+    if (name == "scene.import_ascii" && args.is_object() && args.contains("path"))
+        return false;  // file mode: the world is not touched
     return true;
 }
 
@@ -1084,13 +1160,20 @@ void Editor::after_command(const std::string& name, const Json& args, const Comm
     // The Level generator window reads its sample's Tilemap again (it never does it on a timer).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) levelGenSampleStale_ = true;
     // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
-    if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
+    if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" &&
+        name != "anim.filmstrip")
+        anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     // vfx.play and vfx.stop change the running game only (they write no file), and a game plays many of them: no rescan for those.
-    if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly && name != "vfx.play" && name != "vfx.stop")
-        for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "review.pick", "scene.save", "scene.format", "scene.import_ascii",
-                                   "scene.ascii_edit"})
-            if (name.rfind(prefix, 0) == 0) { project_files_changed(); break; }
+    if (const CommandInfo* ci = engine_->commands().info(name);
+        ci && !ci->readOnly && name != "vfx.play" && name != "vfx.stop")
+        for (const char* prefix :
+             {"fs.", "assets.", "prefab.", "material.", "image.", "vector.", "sfx.", "vfx.", "audio.", "review.pick",
+              "scene.save", "scene.format", "scene.import_ascii", "scene.ascii_edit"})
+            if (name.rfind(prefix, 0) == 0) {
+                project_files_changed();
+                break;
+            }
     // A file-mode import (scene.import_ascii with `path`, or scene.ascii_edit rebuilding its level) returns `path` and, unless
     // it was a dry run, `saved`: the scene file it wrote.
     const Json& res = r.result;
@@ -1155,8 +1238,9 @@ bool Editor::save_scene_now() {
         std::string ids;
         for (std::size_t i = 0; i < expanded.size() && i < 3; ++i) ids += (i ? ", " : "") + expanded[i].id;
         if (expanded.size() > 3) ids += ", ...";
-        notify(std::to_string(expanded.size()) + " prefab instance(s) were saved as inline entities (" + ids + "; " + expanded.front().id +
-                   ": " + expanded.front().reason + "); they no longer follow their prefab file.", 1);
+        notify(std::to_string(expanded.size()) + " prefab instance(s) were saved as inline entities (" + ids + "; " +
+                   expanded.front().id + ": " + expanded.front().reason + "); they no longer follow their prefab file.",
+               1);
     }
     return true;
 }
@@ -1197,7 +1281,8 @@ void Editor::play() {
         engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
         reset_feel_choices();
-        engine_->input().discard_pending_edges();  // nothing advanced the views while editing: old taps are not the first step's
+        engine_->input()
+            .discard_pending_edges();  // nothing advanced the views while editing: old taps are not the first step's
         session_begin();
     }
     run_.skipNext = true;
@@ -1255,9 +1340,7 @@ Entity Editor::selected() {
     return e;
 }
 
-void Editor::select(Entity e) {
-    selectedId_ = (e.is_null() || !engine_) ? std::string() : world().id_of(e);
-}
+void Editor::select(Entity e) { selectedId_ = (e.is_null() || !engine_) ? std::string() : world().id_of(e); }
 
 void Editor::begin_edit(const std::string& key) {
     if (play_ != PlayState::Edit || !engine_) return;
@@ -1273,7 +1356,7 @@ void Editor::begin_edit(const std::string& key) {
 
 void Editor::undo() {
     if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
-    levelGenSampleStale_ = true;   // the Level generator window reads its sample again
+    levelGenSampleStale_ = true;  // the Level generator window reads its sample again
     if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
         Json entry = std::move(undo_.back());
         undo_.pop_back();
@@ -1309,7 +1392,8 @@ void Editor::undo() {
         sound_apply_undo(entry, false);
         return;
     }
-    if (undo_.back().is_object() && undo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
+    if (undo_.back().is_object() &&
+        undo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
         Json entry = std::move(undo_.back());
         undo_.pop_back();
         lastEditKey_.clear();
@@ -1340,7 +1424,7 @@ void Editor::undo() {
 
 void Editor::redo() {
     if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
-    levelGenSampleStale_ = true;   // the Level generator window reads its sample again
+    levelGenSampleStale_ = true;  // the Level generator window reads its sample again
     if (redo_.back().is_object() && redo_.back().contains("$clip")) {
         Json entry = std::move(redo_.back());
         redo_.pop_back();
@@ -1376,7 +1460,8 @@ void Editor::redo() {
         sound_apply_undo(entry, true);
         return;
     }
-    if (redo_.back().is_object() && redo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
+    if (redo_.back().is_object() &&
+        redo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
         Json entry = std::move(redo_.back());
         redo_.pop_back();
         lastEditKey_.clear();
@@ -1413,12 +1498,16 @@ void Editor::set_window_title(const std::string& title) {
 void Editor::notify(const std::string& text, int level) {
     toasts_.push_back(Toast{text, level, time_ + (level >= 2 ? 6.0 : 3.5)});
     if (toasts_.size() > 6) toasts_.erase(toasts_.begin());
-    if (level >= 2) FA_ERROR("editor", "{}", text);
-    else if (level == 1) FA_WARN("editor", "{}", text);
-    else FA_INFO("editor", "{}", text);
+    if (level >= 2)
+        FA_ERROR("editor", "{}", text);
+    else if (level == 1)
+        FA_WARN("editor", "{}", text);
+    else
+        FA_INFO("editor", "{}", text);
 }
 
-void Editor::notify_action(const std::string& text, const std::string& label, std::function<void()> action, const std::string& id) {
+void Editor::notify_action(const std::string& text, const std::string& label, std::function<void()> action,
+                           const std::string& id) {
     Toast t{text, 0, time_ + 8.0};
     t.actionLabel = label;
     t.action = std::move(action);
@@ -1439,8 +1528,9 @@ void Editor::open_screenshots_folder() {
 // Layout and top-level UI
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
-    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_, showVector_, showSound_, showMusic_, showModeler_, showParticle_, showLevelGen_};
+    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,   showProject_,   showAi_,
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_,
+                          showVector_,   showSound_,     showMusic_,     showModeler_,   showParticle_,  showLevelGen_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1448,8 +1538,10 @@ int Editor::panels_mask() const {
 }
 
 void Editor::set_panels_mask(int mask) {
-    bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
-                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_, &showImage_, &showVector_, &showSound_, &showMusic_, &showModeler_, &showParticle_, &showLevelGen_};
+    bool* flags[] = {&showViewport_,  &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
+                     &showAi_,        &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
+                     &showBoneTools_, &showImage_,     &showVector_,    &showSound_,    &showMusic_,
+                     &showModeler_,   &showParticle_,  &showLevelGen_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1467,12 +1559,15 @@ void Editor::register_layout_settings() {
         Editor* ed = static_cast<Editor*>(handler->UserData);
         int mask = 0;
         float h = 0;
-        if (std::sscanf(line, "Open=%d", &mask) == 1) ed->set_panels_mask(mask);
-        else if (std::sscanf(line, "AiInputHeight=%f", &h) == 1) ed->aiInputH_ = std::max(0.0f, h);
+        if (std::sscanf(line, "Open=%d", &mask) == 1)
+            ed->set_panels_mask(mask);
+        else if (std::sscanf(line, "AiInputHeight=%f", &h) == 1)
+            ed->aiInputH_ = std::max(0.0f, h);
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* out) {
         const Editor* ed = static_cast<const Editor*>(handler->UserData);
-        out->appendf("[%s][Panels]\nOpen=%d\nAiInputHeight=%.0f\n\n", handler->TypeName, ed->panels_mask(), ed->aiInputH_);
+        out->appendf("[%s][Panels]\nOpen=%d\nAiInputHeight=%.0f\n\n", handler->TypeName, ed->panels_mask(),
+                     ed->aiInputH_);
     };
     ImGui::AddSettingsHandler(&h);
 }
@@ -1522,17 +1617,35 @@ void Editor::build_ui() {
         // the key, and handling it here too would act twice.
         const bool ctrl = io.KeyCtrl && !nativeMenu_;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
-            if (showImage_ && image_.focused) image_save();   // the Image panel has the keyboard: it saves its document, not the scene
-            else if (showVector_ && vector_.focused) vector_save();
-            else if (showSound_ && sound_.focused) sound_save();
-            else if (showMusic_ && music_.focused) music_save();
-            else if (showModeler_ && modeler_.focused) modeler_save();
-            else save_scene_now();
+            if (showImage_ && image_.focused)
+                image_save();  // the Image panel has the keyboard: it saves its document, not the scene
+            else if (showVector_ && vector_.focused)
+                vector_save();
+            else if (showSound_ && sound_.focused)
+                sound_save();
+            else if (showMusic_ && music_.focused)
+                music_save();
+            else if (showModeler_ && modeler_.focused)
+                modeler_save();
+            else
+                save_scene_now();
         }
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
-        if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) || (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))) redo();
-        if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { if (play_ == PlayState::Edit) play(); else stop(); }
-        if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) { if (play_ == PlayState::Playing) pause(); else play(); }
+        if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) ||
+            (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)))
+            redo();
+        if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
+            if (play_ == PlayState::Edit)
+                play();
+            else
+                stop();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) {
+            if (play_ == PlayState::Playing)
+                pause();
+            else
+                play();
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) step_once();
         if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) mark_problem();
     }
@@ -1545,7 +1658,8 @@ void Editor::build_ui() {
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.105f, 0.110f, 0.125f, 1));
     ImGui::Begin("##toolbar", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar);
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                     ImGuiWindowFlags_NoScrollbar);
     draw_toolbar();
     ImGui::End();
     ImGui::PopStyleColor();
@@ -1568,7 +1682,8 @@ void Editor::build_ui() {
         if (resetLayout_ || oldLayout || ImGui::DockBuilderGetNode(dockId) == nullptr)
             build_default_layout(dockId, ImGui::GetContentRegionAvail());
         layoutBuilt_ = true;
-        if (resetLayout_) set_panels_mask(0x7F);  // the default panels: Audio, Profiler, Animation and Bone tools stay closed
+        if (resetLayout_)
+            set_panels_mask(0x7F);  // the default panels: Audio, Profiler, Animation and Bone tools stay closed
         resetLayout_ = false;
     }
     {  // a panel opened or closed (its X, the Window menu): the ini file is written soon, with the layout
@@ -1594,21 +1709,31 @@ void Editor::build_ui() {
         }
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
-        if (showLevelGen_) draw_level_gen_panel();
-        else if (levelGen_.running()) levelGen_.cancel(level_gen_caller());   // closing the window stops a running generation
-        if (showAnimation_) draw_animation_panel();
-        else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
+        if (showLevelGen_)
+            draw_level_gen_panel();
+        else if (levelGen_.running())
+            levelGen_.cancel(level_gen_caller());  // closing the window stops a running generation
+        if (showAnimation_)
+            draw_animation_panel();
+        else if (anim_.posed)
+            anim_unpose();  // the panel was closed: the entity goes back to its rest values
         if (showAnimation_ && anim3d_.mode3d && anim3d_.showSheets) draw_anim3d_sheets();
         if (showImage_) draw_image_panel();
         if (showVector_) draw_vector_panel();
-        if (showSound_) draw_sound_panel();
-        else if (sound_.player && sound_.player->playing()) sound_.player->stop();
+        if (showSound_)
+            draw_sound_panel();
+        else if (sound_.player && sound_.player->playing())
+            sound_.player->stop();
         if (showParticle_) draw_particle_panel();
-        if (showMusic_) draw_music_panel();
-        else if (music_.preview && music_.preview->playing()) music_.preview->stop();
+        if (showMusic_)
+            draw_music_panel();
+        else if (music_.preview && music_.preview->playing())
+            music_.preview->stop();
         if (showModeler_) draw_modeler_panel();
-        if (showBoneTools_) draw_bone_tools_panel();
-        else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
+        if (showBoneTools_)
+            draw_bone_tools_panel();
+        else if (bone_.tool != BoneTool::Off)
+            bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
@@ -1655,7 +1780,8 @@ void Editor::build_ui() {
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             showQuitDialog_ = false;
-            restartAfterQuit_ = false;  // the update stays installed; the next start uses it (the disk notice offers Restart again)
+            restartAfterQuit_ =
+                false;  // the update stays installed; the next start uses it (the disk notice offers Restart again)
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1663,10 +1789,22 @@ void Editor::build_ui() {
     if (!pendingScene_.empty()) ImGui::OpenPopup("Unsaved changes##open");
     if (ImGui::BeginPopupModal("Unsaved changes##open", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Scene '%s' has unsaved changes.", scenePath_.c_str());
-        auto close = [&] { pendingScene_.clear(); ImGui::CloseCurrentPopup(); };
-        if (ImGui::Button("Save, then open")) { std::string p = pendingScene_; if (save_scene_now()) open_scene(p); close(); }
+        auto close = [&] {
+            pendingScene_.clear();
+            ImGui::CloseCurrentPopup();
+        };
+        if (ImGui::Button("Save, then open")) {
+            std::string p = pendingScene_;
+            if (save_scene_now()) open_scene(p);
+            close();
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Discard changes")) { std::string p = pendingScene_; dirty_ = false; open_scene(p); close(); }
+        if (ImGui::Button("Discard changes")) {
+            std::string p = pendingScene_;
+            dirty_ = false;
+            open_scene(p);
+            close();
+        }
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) close();
         ImGui::EndPopup();
@@ -1675,9 +1813,16 @@ void Editor::build_ui() {
     if (showReloadConfirm_) ImGui::OpenPopup("Reload scene##confirm");
     if (ImGui::BeginPopupModal("Reload scene##confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Discard unsaved changes and reload the scene from disk?");
-        if (ImGui::Button("Reload")) { reload_scene_from_disk(); showReloadConfirm_ = false; ImGui::CloseCurrentPopup(); }
+        if (ImGui::Button("Reload")) {
+            reload_scene_from_disk();
+            showReloadConfirm_ = false;
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel")) { showReloadConfirm_ = false; ImGui::CloseCurrentPopup(); }
+        if (ImGui::Button("Cancel")) {
+            showReloadConfirm_ = false;
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 }
@@ -1686,7 +1831,8 @@ void Editor::draw_toolbar() {
     const bool have = engine_ != nullptr;
     auto colored = [](ImVec4 c) {
         ImGui::PushStyleColor(ImGuiCol_Button, c);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(std::min(1.f, c.x + 0.1f), std::min(1.f, c.y + 0.1f), std::min(1.f, c.z + 0.1f), 1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(std::min(1.f, c.x + 0.1f), std::min(1.f, c.y + 0.1f),
+                                                             std::min(1.f, c.z + 0.1f), 1));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(c.x * 0.8f, c.y * 0.8f, c.z * 0.8f, 1));
     };
     ImGui::BeginDisabled(!have);
@@ -1696,7 +1842,8 @@ void Editor::draw_toolbar() {
     if (ImGui::Button(" Play ")) play();
     ImGui::PopStyleColor(3);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str() : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
+    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str()
+                                          : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Playing);
     if (ImGui::Button(" Pause ")) pause();
@@ -1722,15 +1869,22 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Save")) save_scene_now();
     at_track("toolbar:save");
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Save the scene to %s (%s)", scenePath_.c_str(), menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
+    ImGui::SetItemTooltip("Save the scene to %s (%s)", scenePath_.c_str(),
+                          menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
     ImGui::SameLine();
-    if (ImGui::Button("Reload")) { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }
+    if (ImGui::Button("Reload")) {
+        if (dirty_)
+            showReloadConfirm_ = true;
+        else
+            reload_scene_from_disk();
+    }
     ImGui::SetItemTooltip("Reload the scene from disk");
     ImGui::SameLine();
     if (ImGui::Button("Validate")) {
         validation_ = validate_project(projectDir_);
         showValidation_ = true;
-        FA_INFO("editor", "validate: {} error(s), {} warning(s)", validation_.errors.size(), validation_.warnings.size());
+        FA_INFO("editor", "validate: {} error(s), {} warning(s)", validation_.errors.size(),
+                validation_.warnings.size());
     }
     ImGui::SetItemTooltip("Run factoria validate on the whole project");
     ImGui::SameLine();
@@ -1739,14 +1893,19 @@ void Editor::draw_toolbar() {
         std::string err;
         if (engine_->screenshot(path, &err)) {
             const std::string full = projectDir_ + "/" + path;
-            notify_action("Screenshot saved: " + path, std::string("Show in ") + file_manager_name(),
-                          [this, full] { if (std::string why = reveal_in_file_manager(full); !why.empty()) notify(why, 1); },
-                          "toast:screenshot-reveal");
-        }
-        else notify("Screenshot failed: " + err, 2);
+            notify_action(
+                "Screenshot saved: " + path, std::string("Show in ") + file_manager_name(),
+                [this, full] {
+                    if (std::string why = reveal_in_file_manager(full); !why.empty()) notify(why, 1);
+                },
+                "toast:screenshot-reveal");
+        } else
+            notify("Screenshot failed: " + err, 2);
     }
     at_track("toolbar:screenshot");
-    ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots (a hidden folder:\nthe toast has a Show in %s button, and File > Open Screenshots Folder opens it)", file_manager_name());
+    ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots (a hidden folder:\nthe toast has a "
+                          "Show in %s button, and File > Open Screenshots Folder opens it)",
+                          file_manager_name());
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
@@ -1767,7 +1926,9 @@ void Editor::draw_toolbar() {
     ImGui::EndDisabled();
 
     const char* label = play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED";
-    ImVec4 col = play_ == PlayState::Edit ? ImVec4(0.6f, 0.65f, 0.75f, 1) : play_ == PlayState::Playing ? ImVec4(0.4f, 0.9f, 0.5f, 1) : ImVec4(1, 0.8f, 0.3f, 1);
+    ImVec4 col = play_ == PlayState::Edit      ? ImVec4(0.6f, 0.65f, 0.75f, 1)
+                 : play_ == PlayState::Playing ? ImVec4(0.4f, 0.9f, 0.5f, 1)
+                                               : ImVec4(1, 0.8f, 0.3f, 1);
     const float labelX = ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - 20;
     const float usedX = ImGui::GetCursorPosX();
     if (usedX < labelX) {  // a narrow window: the Viewport title shows the mode too, so the label gives way
@@ -1779,7 +1940,8 @@ void Editor::draw_toolbar() {
     if (play_ == PlayState::Playing && usedX < hintX) {  // the hint lives in the toolbar, never over the game picture
         ImGui::SameLine(hintX);
         ImGui::TextDisabled("%s", hint);
-        ImGui::SetItemTooltip("Pauses the game, takes a screenshot and asks for a one-line note.\nThe AI reads the notes of your last play session (AI panel: Attach last play session).");
+        ImGui::SetItemTooltip("Pauses the game, takes a screenshot and asks for a one-line note.\nThe AI reads the "
+                              "notes of your last play session (AI panel: Attach last play session).");
     }
 }
 
@@ -1799,7 +1961,8 @@ void Editor::draw_status_bar() {
             scriptErrorsPolled_ = time_;
             CommandResult r = engine_->commands().call("script.errors");
             if (r.ok) {
-                if (r.result.is_array()) scriptErrors_ = int(r.result.size());
+                if (r.result.is_array())
+                    scriptErrors_ = int(r.result.size());
                 else if (r.result.is_object() && r.result.contains("errors") && r.result["errors"].is_array())
                     scriptErrors_ = int(r.result["errors"].size());
                 else if (r.result.is_object() && r.result.contains("count") && r.result["count"].is_number())
@@ -1807,13 +1970,21 @@ void Editor::draw_status_bar() {
             }
         }
         ImGui::Text("%s", projectName_.c_str());
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
         ImGui::Text("%s%s", scenePath_.c_str(), dirty_ ? " *" : "");
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
         ImGui::Text("%.0f FPS", fps_);
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
         ImGui::Text("%zu entities", world().entity_count());
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
         char buf[64];
         std::snprintf(buf, sizeof buf, "%d script error%s", scriptErrors_, scriptErrors_ == 1 ? "" : "s");
         ImGui::PushStyleColor(ImGuiCol_Text, scriptErrors_ > 0 ? ImVec4(1, 0.75f, 0.7f, 1) : ImVec4(0.9f, 0.95f, 1, 1));

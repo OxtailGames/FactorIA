@@ -43,8 +43,8 @@ struct TranslationRow {
     std::size_t line = 0;  // where it is in the file (CSV row, XLIFF line), for messages
 };
 struct TranslationFile {
-    std::string format;                      // "csv" | "xliff"
-    std::vector<std::string> languages;      // in file order
+    std::string format;                  // "csv" | "xliff"
+    std::vector<std::string> languages;  // in file order
     std::map<std::string, std::vector<TranslationRow>> rows;
 };
 

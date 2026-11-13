@@ -54,7 +54,8 @@ ImageSize ktx2_file_size(const stdfs::path& path) {
 }
 
 bool has_warning(const ExportReport& r, const std::string& part) {
-    return std::any_of(r.warnings.begin(), r.warnings.end(), [&](const std::string& w) { return w.find(part) != std::string::npos; });
+    return std::any_of(r.warnings.begin(), r.warnings.end(),
+                       [&](const std::string& w) { return w.find(part) != std::string::npos; });
 }
 // The warnings of the texture steps (the export has others, such as the missing icon).
 bool texture_warnings(const ExportReport& r) { return has_warning(r, "Texture ") || has_warning(r, "Atlas "); }
@@ -87,7 +88,8 @@ struct TextureFixture {
     }
     // The folder of the game inside the export.
     stdfs::path game(const std::string& platform) const {
-        return stdfs::path(tmp.sub("out")) / ("proj-" + platform) / (platform == "android" ? "app/src/main/assets" : "game");
+        return stdfs::path(tmp.sub("out")) / ("proj-" + platform) /
+               (platform == "android" ? "app/src/main/assets" : "game");
     }
     std::vector<stdfs::path> cache_files(const std::string& platform, const std::string& prefix) const {
         std::vector<stdfs::path> out;
@@ -113,7 +115,8 @@ TEST_CASE("export textures: a desktop export ships PNGs unless the import settin
     CHECK(f.cache_files("linux", "tex-").empty());  // nothing was decoded, nothing encoded
     CHECK_FALSE(texture_warnings(*plain));
 
-    f.manifest(R"({"format": "factoria.assets/1", "assets": {"assets/tileset.png": {"import": {"compression": "uastc"}}}})");
+    f.manifest(
+        R"({"format": "factoria.assets/1", "assets": {"assets/tileset.png": {"import": {"compression": "uastc"}}}})");
     auto r = f.export_to("linux");
     CHECK_FALSE(stdfs::exists(f.game("linux") / "assets/tileset.png"));
     REQUIRE(stdfs::exists(f.game("linux") / "assets/tileset.png.ktx2"));
@@ -163,7 +166,8 @@ TEST_CASE("export textures: a compressed file is cached by content and reused, s
 TEST_CASE("export textures: mobile exports compress by default, and none keeps the PNG") {
     TextureFixture f;
     write_png(stdfs::path(f.proj) / "assets/keep.png", gradient(32, 32, 1));
-    f.manifest(R"({"format": "factoria.assets/1", "assets": {"assets/keep.png": {"import": {"compression": "none"}}}})");
+    f.manifest(
+        R"({"format": "factoria.assets/1", "assets": {"assets/keep.png": {"import": {"compression": "none"}}}})");
     auto r = f.export_to("android");
     const stdfs::path game = f.game("android");
     CHECK(stdfs::exists(game / "assets/tileset.png.ktx2"));
@@ -204,13 +208,15 @@ TEST_CASE("export textures: what cannot be compressed ships as it is, with a war
 
 TEST_CASE("export textures: an unknown compression value falls back to auto with a warning") {
     TextureFixture f;
-    f.manifest(R"({"format": "factoria.assets/1", "assets": {"assets/tileset.png": {"import": {"compression": "astc"}}}})");
+    f.manifest(
+        R"({"format": "factoria.assets/1", "assets": {"assets/tileset.png": {"import": {"compression": "astc"}}}})");
     auto r = f.export_to("linux");
     CHECK(has_warning(*r, "compression \"astc\" is not one of"));
     CHECK(stdfs::exists(f.game("linux") / "assets/tileset.png"));  // auto on desktop
 }
 
-TEST_CASE("export textures: atlas groups are packed with padding, the originals leave the export and the manifest says where") {
+TEST_CASE("export textures: atlas groups are packed with padding, the originals leave the export and the manifest says "
+          "where") {
     TextureFixture f;
     const Image a = gradient(10, 12, 1), b = gradient(7, 5, 2), c = gradient(20, 9, 3);
     write_png(stdfs::path(f.proj) / "assets/ui/a.png", a);
@@ -224,7 +230,8 @@ TEST_CASE("export textures: atlas groups are packed with padding, the originals 
     const stdfs::path game = f.game("linux");
     CHECK_FALSE(texture_warnings(*r));
 
-    for (const char* gone : {"a", "b", "c"}) CHECK_FALSE(stdfs::exists(game / "assets/ui" / (std::string(gone) + ".png")));
+    for (const char* gone : {"a", "b", "c"})
+        CHECK_FALSE(stdfs::exists(game / "assets/ui" / (std::string(gone) + ".png")));
     CHECK(stdfs::exists(game / "assets/tileset.png"));  // not in a group
     REQUIRE(stdfs::exists(game / "assets/atlases/ui.png"));
     const Image atlas = read_png(game / "assets/atlases/ui.png");
@@ -236,7 +243,8 @@ TEST_CASE("export textures: atlas groups are packed with padding, the originals 
         const Image* image;
     };
     std::vector<std::array<int, 4>> rects;
-    for (const Source& s : {Source{"assets/ui/a.png", &a}, Source{"assets/ui/b.png", &b}, Source{"assets/ui/c.png", &c}}) {
+    for (const Source& s :
+         {Source{"assets/ui/a.png", &a}, Source{"assets/ui/b.png", &b}, Source{"assets/ui/c.png", &c}}) {
         CAPTURE(s.path);
         const Json& packed = manifest["assets"][s.path]["packed"];
         REQUIRE(packed.is_object());
@@ -253,8 +261,8 @@ TEST_CASE("export textures: atlas groups are packed with padding, the originals 
             }
         }
         for (const auto& other : rects)  // no two padded rectangles overlap
-            CHECK((rect[0] - 2 >= other[0] + other[2] + 2 || other[0] - 2 >= rect[0] + rect[2] + 2 || rect[1] - 2 >= other[1] + other[3] + 2 ||
-                   other[1] - 2 >= rect[1] + rect[3] + 2));
+            CHECK((rect[0] - 2 >= other[0] + other[2] + 2 || other[0] - 2 >= rect[0] + rect[2] + 2 ||
+                   rect[1] - 2 >= other[1] + other[3] + 2 || other[1] - 2 >= rect[1] + rect[3] + 2));
         rects.push_back(rect);
     }
     // The import settings stay in the shipped manifest.
@@ -311,7 +319,8 @@ TEST_CASE("export textures: a group that does not fit one atlas uses more pages,
     CHECK(stdfs::exists(game / "assets/big/huge.png"));
     CHECK(has_warning(*r, "assets/big/huge.png"));
     const Json manifest = f.shipped_manifest("android");
-    CHECK(manifest["assets"]["assets/big/a.png"]["packed"]["atlas"] != manifest["assets"]["assets/big/b.png"]["packed"]["atlas"]);
+    CHECK(manifest["assets"]["assets/big/a.png"]["packed"]["atlas"] !=
+          manifest["assets"]["assets/big/b.png"]["packed"]["atlas"]);
     CHECK_FALSE(manifest["assets"]["assets/big/huge.png"].contains("packed"));
 }
 

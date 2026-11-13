@@ -12,10 +12,9 @@ namespace fa {
 
 namespace {
 
-constexpr float kSlop = 5.0f;     // pixels the pointer may wander and still count as resting
-constexpr float kMargin = 4.0f;   // pixels kept free at the screen edges
+constexpr float kSlop = 5.0f;    // pixels the pointer may wander and still count as resting
+constexpr float kMargin = 4.0f;  // pixels kept free at the screen edges
 constexpr u64 kWorldTarget = ~u64(0);
-
 
 // One text of the content: a locale key when the language table has it, else the text as written.
 std::string resolve_text(const std::string& s, const I18n* i18n, const Json& args) {
@@ -40,15 +39,19 @@ std::optional<UiTooltipText> ui_tooltip_text(const Json& content, const I18n* i1
         return out;
     }
     if (!content.is_object())
-        return fail("a tooltip is a string (a locale key or the text) or an object {title, lines}, got " + content.dump() +
-                    ". Write \"Gold: 120\" or {\"title\": \"Gold\", \"lines\": [\"120 coins\", {\"text\": \"low\", \"color\": \"#ff6\"}]}.");
+        return fail("a tooltip is a string (a locale key or the text) or an object {title, lines}, got " +
+                    content.dump() +
+                    ". Write \"Gold: 120\" or {\"title\": \"Gold\", \"lines\": [\"120 coins\", {\"text\": \"low\", "
+                    "\"color\": \"#ff6\"}]}.");
     const Json args = content.contains("args") ? content["args"] : Json(nullptr);
     if (auto it = content.find("title"); it != content.end() && !it->is_null()) {
-        if (!it->is_string()) return fail("tooltip title must be a string (a locale key or the text), got " + it->dump() + ".");
+        if (!it->is_string())
+            return fail("tooltip title must be a string (a locale key or the text), got " + it->dump() + ".");
         out.title = resolve_text(it->get<std::string>(), i18n, args);
     }
     if (auto it = content.find("lines"); it != content.end() && !it->is_null()) {
-        if (!it->is_array()) return fail("tooltip lines must be an array of strings or {text, color}, got " + it->dump() + ".");
+        if (!it->is_array())
+            return fail("tooltip lines must be an array of strings or {text, color}, got " + it->dump() + ".");
         for (const Json& l : *it) {
             UiTooltipText::Line line;
             if (l.is_string()) {
@@ -64,7 +67,9 @@ std::optional<UiTooltipText> ui_tooltip_text(const Json& content, const I18n* i1
             } else {
                 return fail("a tooltip line is a string or {text, color}, got " + l.dump() + ".");
             }
-            if (!line.text.empty()) out.lines.push_back(std::move(line));  // an empty line is skipped: a function can return "" for "no row"
+            if (!line.text.empty())
+                out.lines.push_back(
+                    std::move(line));  // an empty line is skipped: a function can return "" for "no row"
         }
     }
     return out;
@@ -97,7 +102,8 @@ Vec2 ui_tooltip_size(const UiTooltipText& text, const UiTooltipStyle& st, const 
 
 Vec2 ui_tooltip_place(Vec2 pointer, Vec2 size, Vec2 screen, float gap) {
     float x = pointer.x + gap;
-    float y = pointer.y + gap + 6.0f;  // a little lower than it is wide: the cursor's tip is at the top-left of its image
+    float y =
+        pointer.y + gap + 6.0f;  // a little lower than it is wide: the cursor's tip is at the top-left of its image
     if (x + size.x > screen.x - kMargin) x = pointer.x - gap - size.x;
     if (y + size.y > screen.y - kMargin) y = pointer.y - gap - size.y;
     x = std::max(kMargin, std::min(x, screen.x - size.x - kMargin));
@@ -105,8 +111,8 @@ Vec2 ui_tooltip_place(Vec2 pointer, Vec2 size, Vec2 screen, float gap) {
     return {x, y};
 }
 
-UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle& st, const VisualMeasure& m, Vec2 pointer,
-                                Vec2 screenPx, float k) {
+UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle& st, const VisualMeasure& m,
+                                Vec2 pointer, Vec2 screenPx, float k) {
     UiTooltipView v;
     if (text.empty()) return v;
     const Vec2 size = ui_tooltip_size(text, st, m);
@@ -130,8 +136,10 @@ UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle&
 }
 
 void UiSystem::set_script_tooltip(Entity e, bool on) {
-    if (on) scriptTooltips_.insert(e.bits());
-    else scriptTooltips_.erase(e.bits());
+    if (on)
+        scriptTooltips_.insert(e.bits());
+    else
+        scriptTooltips_.erase(e.bits());
 }
 
 Result<void> UiSystem::show_tooltip(World& w, const Json& content, Vec2 at, Vec2 design, const VisualMeasure& measure) {
@@ -142,7 +150,8 @@ Result<void> UiSystem::show_tooltip(World& w, const Json& content, Vec2 at, Vec2
     tooltipManualContent_ = content;
     manualAt_ = at;
     tooltipAnchor_ = lastPointer_;
-    UiTooltipView v = ui_tooltip_layout(*text, w.ui_tooltip_settings().style, measure, at, design, ui_scale_clamped(w.ui_scale()));
+    UiTooltipView v =
+        ui_tooltip_layout(*text, w.ui_tooltip_settings().style, measure, at, design, ui_scale_clamped(w.ui_scale()));
     v.source = "manual";
     w.ui_tooltip() = std::move(v);
     return {};
@@ -156,8 +165,8 @@ void UiSystem::hide_tooltip(World& w) {
     w.ui_tooltip() = UiTooltipView{};
 }
 
-void UiSystem::update_tooltip(World& w, const Input& in, Vec2 design, float dt, const VisualMeasure& measure, Vec2 mouse,
-                              bool pointerDown) {
+void UiSystem::update_tooltip(World& w, const Input& in, Vec2 design, float dt, const VisualMeasure& measure,
+                              Vec2 mouse, bool pointerDown) {
     const UiTooltipSettings& cfg = w.ui_tooltip_settings();
     tooltipDelay_ = cfg.delay;
     const float k = ui_scale_clamped(w.ui_scale());

@@ -56,7 +56,8 @@ TEST_CASE("session timeline: gaps are labelled by what ended them, totals add up
         R"({"kind":"start","t":"2026-10-30T10:00:00.000Z"}
 {"kind":"assistant","t":"2026-10-30T10:00:20.000Z","ms":20000}
 {"kind":"tool_results","t":"2026-10-30T10:00:50.000Z","results":[{"tool":"scene_spawn","ms":30000}]}
-)", 25);
+)",
+        25);
     REQUIRE(chat["gaps"].size() == 1);
     CHECK(chat["gaps"][0]["activity"] == "tool");
     CHECK(chat["totals"]["model"]["seconds"] == 20);
@@ -72,7 +73,8 @@ TEST_CASE("session timeline: an old log without times says so, and the command f
     auto sessions = dir.path / ".factoria" / "ai" / "sessions";
     std::filesystem::create_directories(sessions);
     std::ofstream(sessions / "20261030-100000-orchestrator.jsonl")
-        << "{\"kind\":\"start\",\"t\":\"2026-10-30T10:00:00.000Z\"}\n{\"kind\":\"end\",\"t\":\"2026-10-30T10:01:00.000Z\"}\n";
+        << "{\"kind\":\"start\",\"t\":\"2026-10-30T10:00:00.000Z\"}\n{\"kind\":\"end\",\"t\":\"2026-10-30T10:01:00."
+           "000Z\"}\n";
     CommandRegistry registry = make_registry();
     AiCommandOptions opt;
     opt.loadConfig = [] { return Result<AiConfig>(default_config()); };

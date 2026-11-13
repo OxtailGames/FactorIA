@@ -298,7 +298,8 @@ TEST_CASE("analog bindings: radial deadzone, rescaling, the down threshold, any 
         "left": ["A", "GamepadLeftStickLeft"], "right": ["D", "GamepadLeftStickRight"],
         "down": ["S", "GamepadLeftStickDown"], "up": ["W", "GamepadLeftStickUp"],
         "aim_right": ["GamepadRightStickRight"], "fire": ["GamepadRightTrigger"], "brake": ["GamepadLeftTrigger"]
-    })")).empty());
+    })"))
+              .empty());
     CHECK(in.gamepad_deadzone() == doctest::Approx(0.2f));
     in.begin_frame();
 
@@ -371,7 +372,7 @@ TEST_CASE("analog bindings: radial deadzone, rescaling, the down threshold, any 
     in.set_gamepad_deadzone(0.5f);
     CHECK(in.gamepad_deadzone() == 0.5f);
     CHECK(in.action_value("aim_right") == 0.0f);  // 0.4 is inside a 0.5 deadzone
-    in.set_gamepad_deadzone(7.0f);  // clamped below 1: no division by zero
+    in.set_gamepad_deadzone(7.0f);                // clamped below 1: no division by zero
     CHECK(in.gamepad_deadzone() < 1.0f);
     in.set_gamepad_deadzone(0.0f);
     CHECK(in.action_value("aim_right") == doctest::Approx(0.4f));
@@ -386,7 +387,7 @@ TEST_CASE("analog bindings produce pressed and released edges") {
     CHECK_FALSE(in.action_released("right"));
     in.begin_frame();
     CHECK(in.action_down("right"));
-    CHECK_FALSE(in.action_pressed("right"));  // held across the frame boundary: not a new press
+    CHECK_FALSE(in.action_pressed("right"));          // held across the frame boundary: not a new press
     in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.1f);  // back into the deadzone
     CHECK_FALSE(in.action_down("right"));
     CHECK(in.action_released("right"));
@@ -450,7 +451,8 @@ TEST_CASE("snapshot lists connected gamepads only") {
 // ======================================================================================================================
 namespace {
 Json jump_and_move() {
-    return Json::parse(R"({"jump": ["Space", "GamepadA"], "left": ["A", "GamepadLeftStickLeft"], "fire": ["MouseLeft", "GamepadRightTrigger"]})");
+    return Json::parse(
+        R"({"jump": ["Space", "GamepadA"], "left": ["A", "GamepadLeftStickLeft"], "fire": ["MouseLeft", "GamepadRightTrigger"]})");
 }
 }  // namespace
 
@@ -511,9 +513,11 @@ TEST_CASE("reset_bindings goes back to what set_actions was given") {
 
 TEST_CASE("bindings are reported by their canonical names, including half axes and mouse") {
     Input in;
-    in.set_actions(Json::parse(R"({"all": ["touch", "mouseright", "gamepadleftstickup", "GamepadRightStickDown", "gamepadlefttrigger", "gamepadstart", "esc"]})"));
-    CHECK(in.bindings("all") == std::vector<std::string>{"Touch", "MouseRight", "GamepadLeftStickUp", "GamepadRightStickDown",
-                                                          "GamepadLeftTrigger", "GamepadStart", "Escape"});
+    in.set_actions(Json::parse(
+        R"({"all": ["touch", "mouseright", "gamepadleftstickup", "GamepadRightStickDown", "gamepadlefttrigger", "gamepadstart", "esc"]})"));
+    CHECK(in.bindings("all") == std::vector<std::string>{"Touch", "MouseRight", "GamepadLeftStickUp",
+                                                         "GamepadRightStickDown", "GamepadLeftTrigger", "GamepadStart",
+                                                         "Escape"});
 }
 
 TEST_CASE("last_pressed names the binding that went down this frame") {
@@ -609,7 +613,7 @@ TEST_CASE("pad families come from vendor ids first, names second") {
     CHECK(gamepad_type_from_ids(0, "DualSense Wireless Controller") == GamepadType::PlayStation);
     CHECK(gamepad_type_from_ids(0, "DualShock 4") == GamepadType::PlayStation);
     CHECK(gamepad_type_from_ids(0, "Nintendo Switch Pro Controller") == GamepadType::Nintendo);
-    CHECK(gamepad_type_from_ids(0x046d, "Xbox clone") == GamepadType::Xbox);  // a third party that says so
+    CHECK(gamepad_type_from_ids(0x046d, "Xbox clone") == GamepadType::Xbox);   // a third party that says so
     CHECK(gamepad_type_from_ids(0x054c, "xbox") == GamepadType::PlayStation);  // the vendor decides
     CHECK(gamepad_type_from_ids(0, "") == GamepadType::Generic);
     GamepadType t{};
@@ -634,30 +638,50 @@ TEST_CASE("a pad's type is kept for connected pads and starts generic") {
 }
 
 TEST_CASE("button names per pad family") {
-    struct Row { GamepadType type; const char* binding; const char* label; };
+    struct Row {
+        GamepadType type;
+        const char* binding;
+        const char* label;
+    };
     const Row rows[] = {
-        {GamepadType::Xbox, "GamepadA", "A"}, {GamepadType::Xbox, "GamepadLeftShoulder", "LB"},
-        {GamepadType::Xbox, "GamepadRightTrigger", "RT"}, {GamepadType::Xbox, "GamepadBack", "View"},
+        {GamepadType::Xbox, "GamepadA", "A"},
+        {GamepadType::Xbox, "GamepadLeftShoulder", "LB"},
+        {GamepadType::Xbox, "GamepadRightTrigger", "RT"},
+        {GamepadType::Xbox, "GamepadBack", "View"},
         {GamepadType::Xbox, "GamepadStart", "Menu"},
-        {GamepadType::PlayStation, "GamepadA", "Cross"}, {GamepadType::PlayStation, "GamepadB", "Circle"},
-        {GamepadType::PlayStation, "GamepadX", "Square"}, {GamepadType::PlayStation, "GamepadY", "Triangle"},
-        {GamepadType::PlayStation, "GamepadLeftShoulder", "L1"}, {GamepadType::PlayStation, "GamepadLeftTrigger", "L2"},
-        {GamepadType::PlayStation, "GamepadBack", "Create"}, {GamepadType::PlayStation, "GamepadStart", "Options"},
+        {GamepadType::PlayStation, "GamepadA", "Cross"},
+        {GamepadType::PlayStation, "GamepadB", "Circle"},
+        {GamepadType::PlayStation, "GamepadX", "Square"},
+        {GamepadType::PlayStation, "GamepadY", "Triangle"},
+        {GamepadType::PlayStation, "GamepadLeftShoulder", "L1"},
+        {GamepadType::PlayStation, "GamepadLeftTrigger", "L2"},
+        {GamepadType::PlayStation, "GamepadBack", "Create"},
+        {GamepadType::PlayStation, "GamepadStart", "Options"},
         {GamepadType::PlayStation, "GamepadLeftThumb", "L3"},
-        {GamepadType::Nintendo, "GamepadA", "B"}, {GamepadType::Nintendo, "GamepadB", "A"},  // by position: bottom = Nintendo B
-        {GamepadType::Nintendo, "GamepadX", "Y"}, {GamepadType::Nintendo, "GamepadY", "X"},
-        {GamepadType::Nintendo, "GamepadLeftShoulder", "L"}, {GamepadType::Nintendo, "GamepadRightTrigger", "ZR"},
-        {GamepadType::Nintendo, "GamepadStart", "+"}, {GamepadType::Nintendo, "GamepadBack", "-"},
-        {GamepadType::SteamDeck, "GamepadA", "A"}, {GamepadType::SteamDeck, "GamepadRightShoulder", "R1"},
-        {GamepadType::SteamDeck, "GamepadRightTrigger", "R2"}, {GamepadType::SteamDeck, "GamepadStart", "Menu"},
+        {GamepadType::Nintendo, "GamepadA", "B"},
+        {GamepadType::Nintendo, "GamepadB", "A"},  // by position: bottom = Nintendo B
+        {GamepadType::Nintendo, "GamepadX", "Y"},
+        {GamepadType::Nintendo, "GamepadY", "X"},
+        {GamepadType::Nintendo, "GamepadLeftShoulder", "L"},
+        {GamepadType::Nintendo, "GamepadRightTrigger", "ZR"},
+        {GamepadType::Nintendo, "GamepadStart", "+"},
+        {GamepadType::Nintendo, "GamepadBack", "-"},
+        {GamepadType::SteamDeck, "GamepadA", "A"},
+        {GamepadType::SteamDeck, "GamepadRightShoulder", "R1"},
+        {GamepadType::SteamDeck, "GamepadRightTrigger", "R2"},
+        {GamepadType::SteamDeck, "GamepadStart", "Menu"},
         {GamepadType::SteamDeck, "GamepadBack", "View"},
-        {GamepadType::Generic, "GamepadA", "A"}, {GamepadType::Generic, "GamepadRightShoulder", "RB"},  // the Xbox names
+        {GamepadType::Generic, "GamepadA", "A"},
+        {GamepadType::Generic, "GamepadRightShoulder", "RB"},  // the Xbox names
         {GamepadType::Generic, "GamepadLeftTrigger", "LT"},
-        {GamepadType::Xbox, "GamepadDpadUp", "D-Pad Up"}, {GamepadType::PlayStation, "GamepadLeftStickLeft", "Left Stick Left"},
+        {GamepadType::Xbox, "GamepadDpadUp", "D-Pad Up"},
+        {GamepadType::PlayStation, "GamepadLeftStickLeft", "Left Stick Left"},
         {GamepadType::Nintendo, "GamepadRightStickUp", "Right Stick Up"},
         // keys, the mouse and touch do not depend on the pad
-        {GamepadType::PlayStation, "space", "Space"}, {GamepadType::PlayStation, "W", "W"},
-        {GamepadType::Nintendo, "MouseLeft", "Left Click"}, {GamepadType::Xbox, "mousemiddle", "Middle Click"},
+        {GamepadType::PlayStation, "space", "Space"},
+        {GamepadType::PlayStation, "W", "W"},
+        {GamepadType::Nintendo, "MouseLeft", "Left Click"},
+        {GamepadType::Xbox, "mousemiddle", "Middle Click"},
         {GamepadType::Xbox, "Touch", "Touch"},
     };
     for (const Row& r : rows) {
@@ -671,7 +695,8 @@ TEST_CASE("button names per pad family") {
 
 TEST_CASE("every binding has a label for every family") {
     for (const std::string& name : Input::binding_names())
-        for (GamepadType t : {GamepadType::Generic, GamepadType::Xbox, GamepadType::PlayStation, GamepadType::Nintendo, GamepadType::SteamDeck}) {
+        for (GamepadType t : {GamepadType::Generic, GamepadType::Xbox, GamepadType::PlayStation, GamepadType::Nintendo,
+                              GamepadType::SteamDeck}) {
             CAPTURE(name);
             CHECK_FALSE(Input::binding_label(name, t).empty());
         }
@@ -684,7 +709,7 @@ TEST_CASE("button_name of an action follows the last device and the pad's family
     in.set_gamepad_type(0, GamepadType::PlayStation);
     in.on_key(Key::Space, true);  // the last device is the keyboard
     CHECK(in.button_name("jump") == "Space");
-    CHECK(in.button_name("fire") == "Left Click");  // the first keyboard or mouse binding
+    CHECK(in.button_name("fire") == "Left Click");    // the first keyboard or mouse binding
     in.on_gamepad_button(0, GamepadButton::Y, true);  // now the pad
     CHECK(in.button_name("jump") == "Cross");
     CHECK(in.button_name("fire") == "R2");
@@ -833,12 +858,12 @@ TEST_CASE("a pad that comes back gets its old slot when it is free") {
     CHECK(in.choose_gamepad_slot("blue", occupied) == 1);
     CHECK(in.choose_gamepad_slot("red", occupied) == 0);
     CHECK(in.choose_gamepad_slot("green", occupied) == 0);  // a stranger takes the first free one
-    occupied[1] = true;                                      // someone sits in blue's old slot
+    occupied[1] = true;                                     // someone sits in blue's old slot
     CHECK(in.choose_gamepad_slot("blue", occupied) == 0);
     occupied[0] = occupied[2] = occupied[3] = true;
-    CHECK(in.choose_gamepad_slot("blue", occupied) == -1);  // full
+    CHECK(in.choose_gamepad_slot("blue", occupied) == -1);                // full
     CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 1);  // nothing occupied
-    in.reset_options();  // a new test forgets the pads
+    in.reset_options();                                                   // a new test forgets the pads
     CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 0);
 }
 
@@ -850,7 +875,8 @@ TEST_CASE("a pad nobody described gets an id from its slot; reset_options starts
     CHECK(events[0].info.id.find("slot 3") != std::string::npos);
     CHECK(events[0].info.name == "Gamepad");
     in.reset_options();
-    in.on_gamepad_button(3, GamepadButton::B, true);  // still plugged in the test's eyes, but a new test: announced again
+    in.on_gamepad_button(3, GamepadButton::B,
+                         true);  // still plugged in the test's eyes, but a new test: announced again
     CHECK(in.take_gamepad_events().size() == 1);
 }
 
@@ -963,7 +989,8 @@ TEST_CASE("rebinding player 2 leaves player 1 alone, and the global bindings too
     const auto before0 = in.player_bindings(0, "jump");
     REQUIRE(in.player_rebind(1, "jump", {"Backspace"}).empty());
     CHECK(in.player_bindings(1, "jump", "keys") == std::vector<std::string>{"Backspace"});
-    CHECK(in.player_bindings(1, "jump", "pad") == std::vector<std::string>{"GamepadA"});  // the other family is untouched
+    CHECK(in.player_bindings(1, "jump", "pad") ==
+          std::vector<std::string>{"GamepadA"});  // the other family is untouched
     REQUIRE(in.player_rebind(1, "jump", {"GamepadX"}).empty());
     CHECK(in.player_bindings(1, "jump") == (std::vector<std::string>{"Backspace", "GamepadX"}));
     CHECK(in.player_bindings(0, "jump") == before0);
@@ -1101,7 +1128,8 @@ TEST_CASE("player bindings export and import: only what differs, bad entries ski
     CHECK(in.player_export(0) == Json::object());
     CHECK(in.player_import(0, saved).empty());
     CHECK(in.player_bindings(0, "jump") == (std::vector<std::string>{"X", "GamepadY"}));
-    auto p = in.player_import(0, Json::parse(R"({"keys": {"jump": ["Q"], "gone": ["A"], "left": ["Nope"]}, "pad": {"jump": ["Q"]}})"));
+    auto p = in.player_import(
+        0, Json::parse(R"({"keys": {"jump": ["Q"], "gone": ["A"], "left": ["Nope"]}, "pad": {"jump": ["Q"]}})"));
     CHECK(p.size() == 3);
     CHECK(in.player_bindings(0, "jump", "keys") == std::vector<std::string>{"Q"});
     CHECK(in.player_bindings(0, "jump", "pad") == std::vector<std::string>{"GamepadA"});  // defaults again
@@ -1130,7 +1158,8 @@ TEST_CASE("reset_options forgets players; snapshot lists players with a device")
 // ---------------------------------------------------------------------------
 TEST_CASE("chords: names parse and print back in the canonical order") {
     Input in;
-    in.set_actions(Json::parse(R"({"undo": ["Ctrl+Z"], "multi": ["shift + mouseleft"], "all": ["Shift+Ctrl+alt+S"], "mod": ["Shift"]})"));
+    in.set_actions(Json::parse(
+        R"({"undo": ["Ctrl+Z"], "multi": ["shift + mouseleft"], "all": ["Shift+Ctrl+alt+S"], "mod": ["Shift"]})"));
     CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z"});
     CHECK(in.bindings("multi") == std::vector<std::string>{"Shift+MouseLeft"});
     CHECK(in.bindings("all") == std::vector<std::string>{"Ctrl+Alt+Shift+S"});
@@ -1151,7 +1180,11 @@ TEST_CASE("chords: bad ones are reported where they are, with what to write inst
     auto problems = in.set_actions(Json::parse(
         R"({"a": ["Cntrl+Z"], "b": ["Ctrl+Zz"], "c": ["Ctrl+"], "d": ["Ctrl+GamepadA"], "e": ["LeftShift+Z"], "f": ["Ctrl+Ctrl+Z"]})"));
     REQUIRE(problems.size() == 6);
-    auto all = [&] { std::string t; for (auto& p : problems) t += p + "\n"; return t; }();
+    auto all = [&] {
+        std::string t;
+        for (auto& p : problems) t += p + "\n";
+        return t;
+    }();
     CHECK(all.find("input.actions.a: unknown binding 'Cntrl+Z'") != std::string::npos);
     CHECK(all.find("'Cntrl' is not a modifier. Did you mean 'Ctrl'?") != std::string::npos);
     CHECK(all.find("Write it as \"Ctrl+Z\"") != std::string::npos);
@@ -1208,7 +1241,8 @@ TEST_CASE("chords: an action fires only with its modifiers held, and Z does not 
 
 TEST_CASE("chords: a longer chord shadows a shorter one, and a plain binding with no chord elsewhere is unchanged") {
     Input in;
-    in.set_actions(Json::parse(R"({"save": ["Ctrl+S"], "saveAs": ["Ctrl+Shift+S"], "s": ["S"], "other": ["Shift+S"]})"));
+    in.set_actions(
+        Json::parse(R"({"save": ["Ctrl+S"], "saveAs": ["Ctrl+Shift+S"], "s": ["S"], "other": ["Shift+S"]})"));
     in.begin_frame();
     in.on_key(Key::LeftControl, true);
     in.on_key(Key::LeftShift, true);
@@ -1343,7 +1377,8 @@ TEST_CASE("chords: per-player bindings follow the player's scheme and keep the s
 
 TEST_CASE("consume_action takes the press from the action and from every action on the same key, for the frame") {
     Input in;
-    in.set_actions(Json::parse(R"({"pause":["P","Escape","GamepadStart"],"ui_cancel":["Escape","GamepadB"],"other":["Q"]})"));
+    in.set_actions(
+        Json::parse(R"({"pause":["P","Escape","GamepadStart"],"ui_cancel":["Escape","GamepadB"],"other":["Q"]})"));
     in.begin_frame();
     in.on_key(Key::Escape, true);
     in.on_key(Key::Q, true);
@@ -1352,8 +1387,8 @@ TEST_CASE("consume_action takes the press from the action and from every action 
     in.consume_action("ui_cancel");
     CHECK_FALSE(in.action_pressed("ui_cancel"));
     CHECK_FALSE(in.action_pressed("pause"));  // Escape is bound to it too
-    CHECK(in.action_pressed("other"));          // an unrelated key is untouched
-    CHECK(in.action_down("pause"));             // only the press is taken
+    CHECK(in.action_pressed("other"));        // an unrelated key is untouched
+    CHECK(in.action_down("pause"));           // only the press is taken
     in.begin_frame();
     in.on_key(Key::Escape, false);
     in.begin_frame();
