@@ -95,8 +95,8 @@ bool legacy_run_file(const std::string& name) {
         rest = rest.substr(0, k - 1);
         return true;
     };
-    return take_number() && take_number() &&
-           !rest.empty();  // NOLINT(misc-redundant-expression): two calls, each takes one number
+    const bool first = take_number();  // two calls, each takes one number
+    return first && take_number() && !rest.empty();
 }
 
 // True when something inside the folder `dir` was written within the stale age: a run still using its folder (it writes its

@@ -35,6 +35,12 @@ The whole C++ code base is formatted with `.clang-format` (the commit is listed 
   parameters that hid a member or an outer variable (MSVC C4456-C4459), narrowing conversions, an unhandled `Tileset` case
   in the image panel's layer badge, `''` in the web HTTP script (Emscripten) and a 32-bit shift of the texture seed
   (`>> 32` of a 32-bit `long` on Windows, now taken from a 64-bit value).
+- First strict CI run (M93): the formatting commit had split `===`, `!==` and `=>` in the JavaScript of the `EM_JS` blocks of
+  the web player (`== =`, `= >`), which broke the web build at link time; those blocks are back as they were, between
+  `// clang-format off` and `// clang-format on`. Also fixed: GCC's false `maybe-uninitialized` in the vendored stb_vorbis
+  (silenced around its `#include` only), a missing `<algorithm>` in a core test, `if constexpr` for the build-time
+  constants the MSVC compiler reports as constant conditions, and Apple's linker warning about the repeated libraries of
+  `fa_bench` and `fa_test_tooling`.
 - Formatting and lint (M93.3): `.clang-format`, `.clang-format-ignore` and `.editorconfig` describe the code style; `scripts/format.sh [--check] [--changed <base>]` formats or checks first-party C and C++ with a pinned clang-format (a pip wheel in `build/lint-venv`), and `.clang-tidy` with `scripts/tidy-changed.sh <base>` runs a few bug-finding checks over the changed sources. A new `lint` CI job runs both on what a change touches. docs/BUILDING.md, "Formatting and lint".
 - **Sanitizer builds.** `FA_SANITIZE` (`address;undefined` or `thread`) builds the engine, the tools, the tests and `external/` with
   AddressSanitizer + UndefinedBehaviorSanitizer or ThreadSanitizer; the presets `linux-asan`, `linux-tsan` and `macos-asan` set it,

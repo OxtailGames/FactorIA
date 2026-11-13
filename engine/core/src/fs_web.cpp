@@ -12,10 +12,11 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_mount, (const char* path), {
     const dir = UTF8ToString(path);
-    const state = Module.faSave = {dir : dir, timer : 0, running : false, again : false, ok : false, dirty : false};
-    const done = () = > Module._fa_web_save_restored();
+    const state = Module.faSave = { dir: dir, timer: 0, running: false, again: false, ok: false, dirty: false };
+    const done = () => Module._fa_web_save_restored();
     try {
         FS.mkdirTree(dir);
         FS.mount(IDBFS, {}, dir);
@@ -27,55 +28,36 @@ EM_JS(void, fa_web_idbfs_mount, (const char* path), {
     const flush = () => {
         state.timer = 0;
         state.dirty = false;
-        if (state.running) {
-            state.again = true;
-            return;
-        }
+        if (state.running) { state.again = true; return; }
         state.running = true;
-        FS.syncfs(
-            false, (err) = > {
-                state.running = false;
-                if (err) console.warn('factoria: could not store the save in the browser: ' + err);
-                if (state.again) {
-                    state.again = false;
-                    if (state.urgent) {
-                        state.urgent = false;
-                        flush();
-                    } else
-                        state.timer = setTimeout(flush, 500);
-                }
-            });
+        FS.syncfs(false, (err) => {
+            state.running = false;
+            if (err) console.warn('factoria: could not store the save in the browser: ' + err);
+            if (state.again) { state.again = false; if (state.urgent) { state.urgent = false; flush(); } else state.timer = setTimeout(flush, 500); }
+        });
     };
     state.flush = flush;
-    state.schedule = () => {
-        state.dirty = true;
-        if (state.ok && !state.timer) state.timer = setTimeout(flush, 500);
-    };
-    state.now = () => {
-        if (state.ok && state.dirty) {
-            if (state.timer) clearTimeout(state.timer);
-            state.urgent = state.running;
-            flush();
-        }
-    };
-    FS.syncfs(
-        true, (err) = > {
-            if (err)
-                console.warn('factoria: could not load the saved game from the browser: ' + err +
-                             ' (starting without it)');
-            else
-                state.ok = true;
-            done();
-        });
+    state.schedule = () => { state.dirty = true; if (state.ok && !state.timer) state.timer = setTimeout(flush, 500); };
+    state.now = () => { if (state.ok && state.dirty) { if (state.timer) clearTimeout(state.timer); state.urgent = state.running; flush(); } };
+    FS.syncfs(true, (err) => {
+        if (err) console.warn('factoria: could not load the saved game from the browser: ' + err + ' (starting without it)');
+        else state.ok = true;
+        done();
+    });
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_changed, (), {
     if (Module.faSave) Module.faSave.schedule();
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, fa_web_idbfs_flush_now, (), {
     if (Module.faSave) Module.faSave.now();
 });
+// clang-format on
 
 namespace {
 void (*g_done)() = nullptr;

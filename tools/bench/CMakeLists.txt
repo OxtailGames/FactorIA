@@ -8,6 +8,7 @@ file(GLOB bench_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/benches/*
 add_executable(fa_bench ${bench_srcs} src/main.cpp)
 target_include_directories(fa_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/benches)
 target_link_libraries(fa_bench PRIVATE fa_bench_core fa_render fa_physics fa_audio fa_script fa_warnings)
+fa_allow_duplicate_libraries(fa_bench)
 
 if(FA_BUILD_TESTS)
     file(GLOB bench_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)

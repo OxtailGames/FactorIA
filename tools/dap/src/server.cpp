@@ -39,7 +39,7 @@ std::string normalised(const std::string& path) {
 
 // `rel` as it is spelled on disk: on case-insensitive systems a client may send "Scripts/Player.js" for scripts/player.js.
 std::string disk_spelling(const std::string& root, const std::string& rel) {
-    if (!kCaseInsensitivePaths) return rel;
+    if constexpr (!kCaseInsensitivePaths) return rel;
     std::error_code ec;
     fsys::path dir(root);
     std::string out;
