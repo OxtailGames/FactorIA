@@ -124,6 +124,38 @@ function(fa_embed_files target ns header_name)
     target_include_directories(${target} PRIVATE ${out_dir})
 endfunction()
 
+# fa_test_timeout_factor(<out var>): what the TIMEOUT of every test is multiplied by in this tree: the product of the factors of
+# the options that slow the run down (FA_COVERAGE_TIMEOUT_SCALE, 3, with FA_COVERAGE; FA_SANITIZE_TIMEOUT_FACTOR, 3 for ASan +
+# UBSan and 5 for TSan, with FA_SANITIZE), 1 when none is on. Read when add_test() is called and again when the scaling runs.
+function(fa_test_timeout_factor out_var)
+    set(factor 1)
+    if(FA_COVERAGE)
+        math(EXPR factor "${factor} * ${FA_COVERAGE_TIMEOUT_SCALE}")
+    endif()
+    if(FA_SANITIZE)
+        math(EXPR factor "${factor} * ${FA_SANITIZE_TIMEOUT_FACTOR}")
+    endif()
+    set(${out_var} ${factor} PARENT_SCOPE)
+endfunction()
+
+# Multiplies the TIMEOUT of one test by fa_test_timeout_factor, once (add_test() below defers one call per test). A test that sets
+# no TIMEOUT gets ctest's own default of 1500 s times the factor. The TIMEOUT of a test is set after its add_test(), so the call
+# runs at the end of the directory that created the test (cmake_language(DEFER), CMake 3.19; get_test_property and
+# set_tests_properties work on the current directory's tests, so this needs neither the DIRECTORY option of set_property(TEST),
+# which is CMake 3.28, nor a walk over the directories).
+function(fa_scale_test_timeout name)
+    fa_test_timeout_factor(factor)
+    if(factor EQUAL 1)
+        return()
+    endif()
+    get_test_property(${name} TIMEOUT timeout)
+    if(NOT timeout OR NOT timeout MATCHES "^[0-9]+$")
+        set(timeout 1500)
+    endif()
+    math(EXPR timeout "${timeout} * ${factor}")
+    set_tests_properties(${name} PROPERTIES TIMEOUT ${timeout})
+endfunction()
+
 # add_test() that also gives every test the Windows file rules emulation of fa::fs (FA_TEST_WINDOWS_FILE_RULES, top-level
 # CMakeLists.txt; engine/core/include/fa/core/fs.h). FA_FS_WINDOWS_RULES_DEFAULT is only a default: the variable
 # FA_FS_WINDOWS_RULES in the environment of the ctest run wins, so `FA_FS_WINDOWS_RULES=0 ctest` turns it off for one run.
@@ -149,8 +181,10 @@ function(add_test)
     if(FA_SANITIZE AND "${ARGV0}" STREQUAL "NAME")
         fa_sanitizer_test_environment(_fa_san_env)
         set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT ${_fa_san_env})
-        # Its TIMEOUT times FA_SANITIZE_TIMEOUT_FACTOR, once the directory has set it (fa_sanitizer_scale_test_timeout).
-        # (EVAL: the name has to be in the deferred call itself; a ${} in it would be read when the call runs, after this function)
-        cmake_language(EVAL CODE "cmake_language(DEFER CALL fa_sanitizer_scale_test_timeout ${ARGV1})")
+    endif()
+    # Its TIMEOUT times the factor of FA_COVERAGE and FA_SANITIZE (fa_scale_test_timeout), once the directory has set it.
+    # (EVAL: the name has to be in the deferred call itself; a ${} in it would be read when the call runs, after this function)
+    if((FA_COVERAGE OR FA_SANITIZE) AND "${ARGV0}" STREQUAL "NAME")
+        cmake_language(EVAL CODE "cmake_language(DEFER CALL fa_scale_test_timeout ${ARGV1})")
     endif()
 endfunction()

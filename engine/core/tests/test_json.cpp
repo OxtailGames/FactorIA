@@ -38,10 +38,18 @@ TEST_CASE("json: a number outside the range of a double is an error, not an exce
             continue;
         }
         REQUIRE(!r.ok());
-        CHECK(r.error().message.find("x.json: invalid JSON") == 0);
+        CHECK(r.error().message.find("x.json:1:") == 0);  // the position of the number
+        CHECK(r.error().message.find("invalid JSON") != std::string::npos);
         CHECK(r.error().message.find("number overflow") != std::string::npos);
         CHECK(r.error().hint.find("1e999") != std::string::npos);
     }
+}
+
+TEST_CASE("json: the position of a number outside the range of a double: line and column, after strings that look like numbers") {
+    auto r = parse_json("{\n  \"s\": \"1e999\",\n  \"n\": [1, 2e999]\n}", "x.json");
+    REQUIRE(!r.ok());
+    CHECK(r.error().message.find("x.json:3:") == 0);
+    CHECK(r.error().message.find(":12: invalid JSON") != std::string::npos);
 }
 
 TEST_CASE("json: nesting deeper than kMaxJsonDepth is an error with its position; the limit itself is fine (found by the fuzz target)") {

@@ -128,6 +128,13 @@ TEST_CASE("assets.check_mix: a loop seam is found only for sounds played looping
     CHECK((*jump)["hint"].get<std::string>().find("assets.generate_loop") != std::string::npos);
     CHECK((*find(f, "assets/bend.wav", "loop_seam_jump"))["verdict"] == "ok");
     CHECK((*find(f, "assets/bend.wav", "loop_seam_slope"))["verdict"] == "fail");
+    // The slope finding of a loop whose jump is fine has its own hint; when the jump fails too, it repeats the jump's hint
+    // (the hint is copied before the jump finding is moved into the list).
+    const std::string bendHint = (*find(f, "assets/bend.wav", "loop_seam_slope"))["hint"].get<std::string>();
+    CHECK(bendHint.find("goes the same way at both ends") != std::string::npos);
+    CHECK(bendHint.find("assets.generate_loop") != std::string::npos);
+    if (const Json* seamSlope = find(f, "assets/seam.wav", "loop_seam_slope"); seamSlope && (*seamSlope)["verdict"] != "ok")
+        CHECK((*seamSlope)["hint"] == (*jump)["hint"]);
     REQUIRE(find(f, "assets/seamless.wav", "loop_seam_jump"));
     CHECK((*find(f, "assets/seamless.wav", "loop_seam_jump"))["verdict"] == "ok");
     CHECK((*find(f, "assets/seamless.wav", "loop_seam_slope"))["verdict"] == "ok");

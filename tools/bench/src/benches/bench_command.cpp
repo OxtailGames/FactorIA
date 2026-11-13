@@ -1,6 +1,7 @@
 // Command dispatch benchmark: CommandRegistry::call with a registry the size of the engine's (about 300 commands).
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "benches.h"
 #include "fa/core/command.h"

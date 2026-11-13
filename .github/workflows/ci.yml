@@ -596,6 +596,24 @@ jobs:
           key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
 
+      - name: Install ccache (windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      - name: Restore ccache (windows)
+        if: matrix.os == 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\AppData\Local\ccache
+          key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-windows-
+
       - name: Configure and build fa_bench (${{ matrix.preset }})
         shell: bash
         run: |

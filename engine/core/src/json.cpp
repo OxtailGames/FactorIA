@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -112,6 +114,29 @@ int hex_digit(char c) {
     return -1;
 }
 
+// The offset of the first number outside the strings that does not fit in a double (strtod gives infinity), -1 if none.
+std::ptrdiff_t first_number_overflow(std::string_view text) {
+    bool inString = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (inString) {
+            if (c == '\\') ++i;
+            else if (c == '"') inString = false;
+        } else if (c == '"') {
+            inString = true;
+        } else if (c == '-' || (c >= '0' && c <= '9')) {
+            std::size_t end = i + 1;
+            while (end < text.size() && (std::isdigit(static_cast<unsigned char>(text[end])) || text[end] == '.' || text[end] == 'e' ||
+                                         text[end] == 'E' || text[end] == '+' || text[end] == '-'))
+                ++end;
+            const std::string token(text.substr(i, end - i));
+            if (std::isinf(std::strtod(token.c_str(), nullptr))) return std::ptrdiff_t(i);
+            i = end - 1;
+        }
+    }
+    return -1;
+}
+
 }  // namespace
 
 std::string describe_json_value(const Json& j) {
@@ -184,8 +209,30 @@ Result<Json> parse_json(std::string_view text, std::string_view sourceName) {
         std::string what = e.what();
         if (what.rfind("[json.exception.", 0) == 0)
             if (const std::size_t close = what.find("] "); close != std::string::npos) what = what.substr(close + 2);
-        return make_error(std::string(sourceName) + ": invalid JSON: " + what,
-                          "Write numbers inside the range of a double (about -1.8e308 to 1.8e308); a number such as 1e999 cannot be read.");
+        // Where: the library does not say. A number it cannot hold is the first token outside the strings that strtod
+        // turns into infinity (the same text fails the same way, so the first one is the one that threw).
+        std::string where(sourceName);
+        if (e.id == 406) {
+            if (const std::ptrdiff_t at = first_number_overflow(text); at >= 0) {
+                auto [line, col] = line_col(text, std::size_t(at));
+                where += ":" + std::to_string(line) + ":" + std::to_string(col);
+            }
+        }
+        std::string hint;
+        switch (e.id) {
+            case 406:
+                hint = "Write numbers inside the range of a double (about -1.8e308 to 1.8e308); a number such as 1e999 cannot be read.";
+                break;
+            case 407:
+                hint = "An integer is too large for the library to hold; write it as a decimal number inside the range of a double "
+                       "(or as a string if it is an id).";
+                break;
+            default:
+                hint = "The JSON reader refused a value that is valid syntax (error " + std::to_string(e.id) +
+                       "). Check the numbers and strings of the file; if they look right, report the file as an engine bug.";
+                break;
+        }
+        return make_error(where + ": invalid JSON: " + what, std::move(hint));
     }
 }
 

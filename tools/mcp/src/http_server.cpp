@@ -211,8 +211,12 @@ struct McpHttpServer::Impl {
             if (active > options.maxConnections) close_oldest_idle_locked();
             threads.emplace(id, std::thread([this, c, id] {
                 std::string buf;
-                bool answered = false;
-                while (serve_one(c, id, answered, buf)) answered = true;
+                bool answered = false, lingering = false;
+                while (serve_one(c, id, answered, buf, lingering)) answered = true;
+                // The server ends the connection after an answer: stop sending (the client reads the answer to its end),
+                // then read what the client still sends. Closing a socket with unread input makes Windows and macOS send an
+                // RST, which can wipe the answer from the client's receive queue (the client then reads 0 bytes, a reset).
+                if (lingering) net::linger_close(c);
                 {
                     std::lock_guard<std::mutex> lock(mu);
                     connections.erase(id);  // stop() must not touch its socket any more
@@ -230,37 +234,45 @@ struct McpHttpServer::Impl {
 
     // Reads and answers one request (HTTP/1.1, keep-alive); false when the connection is done. `answered`: the connection
     // answered a request before, so while it waits for the next one it is idle (close_oldest_idle_locked may close it).
-    bool serve_one(Socket c, std::uint64_t id, bool answered, std::string& buf) {
+    // `lingering`: set when it is done because the server sent an answer that ends the connection (the caller closes it
+    // with net::linger_close, so no RST wipes the answer); left alone when the client went away or the connection was evicted.
+    bool serve_one(Socket c, std::uint64_t id, bool answered, std::string& buf, bool& lingering) {
+        // An answer after which the connection ends.
+        auto final_reply = [&](int status, const char* reason, const std::string& body, const char* extra = "") {
+            reply(c, status, reason, body, false, extra);
+            lingering = true;
+            return false;
+        };
         bool idle = answered && buf.empty();
         if (idle && !set_idle(id, true)) return false;
         std::size_t headEnd;
         while ((headEnd = buf.find("\r\n\r\n")) == std::string::npos) {
-            if (buf.size() > kMaxHeader) return reply(c, 431, "Request Header Fields Too Large", "", false);
+            if (buf.size() > kMaxHeader) return final_reply(431, "Request Header Fields Too Large", "");
             const Received got = receive(c, buf);
             if (idle) {
                 idle = false;
                 if (!set_idle(id, false)) return false;  // evicted while it waited: the request is not run
             }
-            if (got == Received::Failed && !buf.empty()) return reply(c, 408, "Request Timeout", "", false);  // half a request
+            if (got == Received::Failed && !buf.empty()) return final_reply(408, "Request Timeout", "");  // half a request
             if (got != Received::Data) return false;
         }
         const std::vector<std::string> lines = split(std::string_view(buf).substr(0, headEnd), '\n');
         const std::vector<std::string> request = lines.empty() ? std::vector<std::string>{} : split(trim(lines[0]), ' ');
-        if (request.size() != 3) return reply(c, 400, "Bad Request", "", false);
+        if (request.size() != 3) return final_reply(400, "Bad Request", "");
         std::map<std::string, std::string> headers;  // lowercase names
         for (std::size_t i = 1; i < lines.size(); ++i) {
             if (const auto colon = lines[i].find(':'); colon != std::string::npos)
                 headers[to_lower(lines[i].substr(0, colon))] = std::string(trim(std::string_view(lines[i]).substr(colon + 1)));
         }
         const std::string& method = request[0];
-        if (request[1] != path) return reply(c, 404, "Not Found", "", false);
-        if (method != "POST") return reply(c, 405, "Method Not Allowed", "", false, "Allow: POST\r\n");  // no SSE stream, no session
+        if (request[1] != path) return final_reply(404, "Not Found", "");
+        if (method != "POST") return final_reply(405, "Method Not Allowed", "", "Allow: POST\r\n");  // no SSE stream, no session
         const auto len = headers.find("content-length");
-        if (len == headers.end()) return reply(c, 411, "Length Required", "", false);
+        if (len == headers.end()) return final_reply(411, "Length Required", "");
         const unsigned long long declared = std::strtoull(len->second.c_str(), nullptr, 10);
         if (declared > options.maxBody) {
             // Teaches what to do instead, as a JSON-RPC error the client shows its model. The body is not read: the
-            // connection ends after the answer (linger_close keeps the unread body from resetting it away).
+            // connection ends after the answer (the lingering close keeps the unread body from resetting it away).
             const Json error = Json::object(
                 {{"jsonrpc", "2.0"},
                  {"id", nullptr},
@@ -271,16 +283,14 @@ struct McpHttpServer::Impl {
                                 {"data", Json::object({{"hint", "Do not send a big file's bytes through a tool call (fs.write with "
                                                                 "base64): put the file into the project folder another way (a CLI "
                                                                 "agent copies it with its shell), or send it in smaller parts."}})}})}});
-            reply(c, 413, "Content Too Large", error.dump(), false);
-            net::linger_close(c);
-            return false;
+            return final_reply(413, "Content Too Large", error.dump());
         }
         const std::size_t size = static_cast<std::size_t>(declared);
         if (iequals(headers["expect"], "100-continue") && !send_all(c, "HTTP/1.1 100 Continue\r\n\r\n")) return false;
         const std::size_t bodyAt = headEnd + 4;
         while (buf.size() < bodyAt + size) {
             const Received got = receive(c, buf);
-            if (got == Received::Failed) return reply(c, 408, "Request Timeout", "", false);
+            if (got == Received::Failed) return final_reply(408, "Request Timeout", "");
             if (got != Received::Data) return false;
         }
         const std::string body = buf.substr(bodyAt, size);
@@ -352,24 +362,31 @@ struct McpHttpServer::Impl {
                 lock.unlock();
                 pending.get();  // stop() needs the handler done anyway
                 if (open && call->response) send_all(c, "event: message\ndata: " + std::string(trim(*call->response)) + "\n\n");
-                return false;  // the stream ends with the connection
+                lingering = open;  // a client that is gone has nothing to lose to a reset
+                return false;      // the stream ends with the connection
             }
         }
         lock.unlock();
         pending.get();
         const char* extra = keepAlive ? keepAliveHeader.c_str() : "";
+        // The answer to the request; the connection stays open for the next one only when the client allows it.
+        auto answer = [&](int status, const char* reason, const std::string& text) {
+            if (!keepAlive) lingering = true;
+            return reply(c, status, reason, text, keepAlive, extra);
+        };
         if (!call->response) {
             // No reply: 202 for notifications and responses only. A request that has none was cancelled
             // (notifications/cancelled) and never gets one: a client that takes event streams gets an empty one, which
             // ends with the connection (MCP Streamable HTTP lets the server close a stream before the response); one that
             // does not gets 204.
-            if (!carries_request(body)) return reply(c, 202, "Accepted", "", keepAlive, extra);
-            if (!canStream) return reply(c, 204, "No Content", "", keepAlive, extra);
+            if (!carries_request(body)) return answer(202, "Accepted", "");
+            if (!canStream) return answer(204, "No Content", "");
             send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
                         "Connection: close\r\n\r\n");
+            lingering = true;
             return false;
         }
-        return reply(c, 200, "OK", *call->response, keepAlive, extra);
+        return answer(200, "OK", *call->response);
     }
 };
 

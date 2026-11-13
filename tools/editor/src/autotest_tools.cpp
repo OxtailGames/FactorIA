@@ -10,35 +10,24 @@
 // This file builds the script: the tools every section writes its steps with (AtScript), the setup that starts every section from the
 // same state, and the call of each section in the order of a full run. The sections are Editor::at_section_<id> in autotest_<group>.cpp
 // (autotest_common.h has what they share); the window capture, the step runner and the section report are here too.
-#include "fa/core/engine_version.h"
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
-#include <mutex>
-#include <atomic>
-#include <thread>
 
 #include "ai_project_edit.h"
 #include "auto_play_job.h"
 #include "autotest_common.h"
 #include "autotest_sections.h"
 #include "editor_internal.h"
-#include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/savers.h"
-#include "fa/core/date.h"
 #include "fa/core/jobs.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/net.h"
-#include "fa/tooling/play_auto.h"
 #include "fa/tooling/qr.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
