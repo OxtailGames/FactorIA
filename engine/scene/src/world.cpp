@@ -362,6 +362,10 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
     return p ? p->entities() : std::vector<Entity>{};
 }
 
+void World::walk_owners(const TypeInfo& type, void* ctx, void (*visit)(void*, Entity, void*)) {
+    if (ComponentPool* p = type.id < impl_->pools.size() ? impl_->pools[type.id].get() : nullptr) p->walk(visit, ctx);
+}
+
 std::size_t World::count(const TypeInfo* type) const {
     if (!type) return 0;
     const ComponentPool* p = impl_->find_pool(*type);
