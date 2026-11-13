@@ -11,6 +11,7 @@ namespace fa::bench {
 void add_ecs_benches(std::vector<Bench>& out);        // World::each, entities_with, spawn and destroy
 void add_hierarchy_benches(std::vector<Bench>& out);  // World::world_matrix over a deep and a wide tree
 void add_physics_benches(std::vector<Bench>& out);    // Physics::step in 2D and in 3D
+void add_nav_benches(std::vector<Bench>& out);        // NavGrid::search: failed searches with and without the labels
 void add_render_benches(std::vector<Bench>& out);     // a frame of the headless renderer: 2D sprites and 3D meshes
 void release_render_env();                            // main() calls it before it ends: the GPU context closes in order
 void add_command_benches(std::vector<Bench>& out);    // CommandRegistry::call
