@@ -319,7 +319,7 @@ void Impl::load_storage() {
     const bool hooked = storageTextHook.has_value();
     if (storageMode == StorageMode::Memory && !hooked) return;
     if (hooked) {  // a test: the text stands for an old storage.json; nothing is on disk to read or keep
-        Json j = Json::parse(*storageTextHook, nullptr, false);
+        Json j = parse_json_lenient(*storageTextHook);
         if (j.is_object()) {
             storage = std::move(j);
             return;
@@ -357,7 +357,7 @@ void Impl::load_storage() {
     bool ok = false;
     const std::string text = read_whole_file(legacy, ok);
     if (!ok) return;
-    Json j = Json::parse(text, nullptr, false);
+    Json j = parse_json_lenient(text);
     if (!j.is_object()) {
         storageCorrupt = true;
         keep_damaged(legacy, text, "storage.json");

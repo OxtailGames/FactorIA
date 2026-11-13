@@ -14,6 +14,7 @@ namespace fa::audio_detail {
 
 using Bytes = std::vector<std::uint8_t>;
 
+inline constexpr int kMaxChannels = 32;  // the most channels a clip may have (a clip plays its first two)
 inline constexpr int kMixRate = 44100;  // the rate and layout (stereo float) the mixer works in
 
 // .wav .ogg .mp3 .qoa

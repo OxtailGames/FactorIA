@@ -86,7 +86,7 @@ Json extras_json(const cgltf_data* data, const cgltf_extras& extras) {
     if (cgltf_copy_extras_json(data, &extras, nullptr, &size) != cgltf_result_success || size == 0) return Json();
     std::string text(size, '\0');
     if (cgltf_copy_extras_json(data, &extras, text.data(), &size) != cgltf_result_success) return Json();
-    Json out = Json::parse(text.c_str(), nullptr, false);
+    Json out = parse_json_lenient(text.c_str());
     return out.is_discarded() ? Json() : out;
 }
 
@@ -117,6 +117,21 @@ std::string skin_rig_template(const cgltf_data* data, const cgltf_skin& sk) {
 void gltf_use_fs(cgltf_options& opts) {
     opts.file.read = &file_read;
     opts.file.release = &file_release;
+}
+
+Result<void> gltf_check(cgltf_data* data, std::string_view path) {
+    const cgltf_result r = cgltf_validate(data);
+    if (r == cgltf_result_success) return {};
+    const char* what = "a value is out of range";
+    switch (r) {
+        case cgltf_result_data_too_short: what = "an accessor, buffer view or image reaches past the end of its buffer"; break;
+        case cgltf_result_invalid_json: what = "the JSON does not follow the glTF 2.0 rules"; break;
+        case cgltf_result_invalid_gltf: what = "an index, count or reference does not follow the glTF 2.0 rules"; break;
+        default: break;
+    }
+    return make_error(std::format("'{}' is not a consistent glTF file: {} (cgltf_validate error {})", path, what, int(r)),
+                      "Export the model again from the tool that made it, or open and re-save it in a glTF viewer that validates files "
+                      "(e.g. the Khronos glTF Validator).");
 }
 
 int SkeletonAsset::find_clip(std::string_view name) const {
@@ -154,6 +169,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
                           "External .bin files must sit next to the .gltf and be inside the project.");
+    if (auto sound = gltf_check(data, path); !sound) return sound.error();
 
     SkeletonAsset out;
     out.path = path;

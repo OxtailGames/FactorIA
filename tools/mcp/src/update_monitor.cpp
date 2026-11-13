@@ -31,13 +31,11 @@ std::string McpResume::to_string() const {
 }
 
 Result<McpResume> McpResume::parse(std::string_view text) {
-    Json j;
-    try {
-        j = Json::parse(text.begin(), text.end());
-    } catch (const std::exception& e) {
-        return make_error(std::string("--resume-session is not JSON: ") + e.what(),
+    auto parsed = parse_json(text, "--resume-session");
+    if (!parsed)
+        return make_error("--resume-session is not JSON: " + parsed.error().message,
                           "this option is the hidden hand-over of a server that restarted itself; do not pass it by hand");
-    }
+    const Json& j = parsed.value();
     if (!j.is_object()) return make_error("--resume-session must be a JSON object");
     McpResume r;
     r.session = j.value("session", Json(nullptr));

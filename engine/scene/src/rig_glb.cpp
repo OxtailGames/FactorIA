@@ -25,7 +25,7 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
     const std::uint8_t* jsonStart = in.data() + 20;
     const std::uint32_t binLen = read32(jsonStart + jsonLen);
     const std::uint8_t* binStart = jsonStart + jsonLen + 8;
-    Json root = Json::parse(std::string(reinterpret_cast<const char*>(jsonStart), jsonLen), nullptr, false);
+    Json root = parse_json_lenient(std::string_view(reinterpret_cast<const char*>(jsonStart), jsonLen));
     if (root.is_discarded()) return make_error("internal: the .glb mesh_to_glb wrote has unreadable JSON", "Report this as an engine bug.");
     std::vector<std::uint8_t> bin(binStart, binStart + binLen);
 

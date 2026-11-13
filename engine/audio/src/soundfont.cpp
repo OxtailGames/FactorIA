@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
+#include <cstring>
 #include <format>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -19,6 +22,75 @@ struct Soundfont::Impl {
 };
 
 namespace {
+
+// TinySoundFont trusts the index fields of a SoundFont's "hydra" (preset headers, bags, generators, instruments, sample headers):
+// a bag that points past the generator list, indices that go backwards or an instrument number that is the terminal record make
+// it read outside its arrays while loading. This walks the file's RIFF structure the way TinySoundFont does (no padding bytes) and
+// checks every index the loader follows, with the file's length in hand. Returns what is wrong, or "" (also when the file is not a
+// SoundFont or lacks a table: TinySoundFont refuses those itself).
+std::string sf2_problem(const std::vector<std::uint8_t>& file) {
+    const std::uint8_t* d = file.data();
+    const std::uint64_t n = file.size();
+    auto u16 = [&](std::uint64_t at) { return std::uint32_t(d[at]) | std::uint32_t(d[at + 1]) << 8; };
+    auto u32 = [&](std::uint64_t at) { return u16(at) | u16(at + 2) << 16; };
+    auto id_at = [&](std::uint64_t at, const char* four) { return std::memcmp(d + at, four, 4) == 0; };
+    auto plausible_id = [&](std::uint64_t at) { return d[at] > ' ' && d[at] < 'z'; };
+
+    if (n < 12 || !id_at(0, "RIFF") || !id_at(8, "sfbk")) return {};
+    const std::uint64_t end = std::min<std::uint64_t>(n, 8 + std::uint64_t(u32(4)));
+    static const char* const names[9] = {"phdr", "pbag", "pmod", "pgen", "inst", "ibag", "imod", "igen", "shdr"};
+    static const std::uint32_t sizes[9] = {38, 4, 10, 4, 22, 4, 10, 4, 46};
+    std::uint64_t at[9] = {};      // where each table's records start
+    std::uint64_t count[9] = {};   // and how many it has
+    bool seen[9] = {};
+    for (std::uint64_t pos = 12; pos + 8 <= end;) {
+        if (!plausible_id(pos)) break;
+        const std::uint64_t size = u32(pos + 4), next = pos + 8 + size;
+        if (next > end) return "a chunk of the file runs past its end";
+        if (id_at(pos, "RIFF")) break;
+        if (id_at(pos, "LIST") && size >= 4 && id_at(pos + 8, "pdta")) {
+            for (std::uint64_t p = pos + 12; p < next;) {
+                if (p + 8 > next || !plausible_id(p)) return "the 'pdta' list of the file is cut short";
+                const std::uint64_t inner = u32(p + 4), innerNext = p + 8 + inner;
+                if (innerNext > next) return "a table of the 'pdta' list runs past the end of the list";
+                for (int t = 0; t < 9; ++t)
+                    if (id_at(p, names[t]) && inner % sizes[t] == 0) {
+                        at[t] = p + 8;
+                        count[t] = inner / sizes[t];
+                        seen[t] = true;
+                    }
+                p = innerNext;
+            }
+        } else if (!id_at(pos, "LIST") && (id_at(pos, "pdta") || id_at(pos, "sdta"))) {
+            return "a 'pdta' or 'sdta' chunk is not a list";
+        }
+        pos = next;
+    }
+    for (bool s : seen)
+        if (!s) return {};
+    if (count[0] < 1 || count[1] < 1 || count[4] < 1 || count[5] < 1)
+        return "its 'phdr', 'pbag', 'inst' or 'ibag' table has no terminal record";
+
+    // Field readers: record `i` of table `t`, the u16 at byte `off`.
+    auto field = [&](int t, std::uint64_t i, std::uint32_t off) { return u16(at[t] + i * sizes[t] + off); };
+    // A table of "start index" records: indices never go backwards and the last real one stays inside the table it points into.
+    auto chain = [&](int t, std::uint32_t off, std::uint64_t limit, const char* what) -> std::string {
+        for (std::uint64_t i = 0; i + 1 < count[t]; ++i) {
+            const std::uint32_t a = field(t, i, off), b = field(t, i + 1, off);
+            if (a > b || b > limit) return what;
+        }
+        return {};
+    };
+    if (auto why = chain(0, 24, count[1] - 1, "a preset header points at preset zones that do not exist or run backwards"); !why.empty()) return why;
+    if (auto why = chain(1, 0, count[3], "a preset zone points at generators that do not exist or run backwards"); !why.empty()) return why;
+    if (auto why = chain(4, 20, count[5] - 1, "an instrument points at instrument zones that do not exist or run backwards"); !why.empty()) return why;
+    if (auto why = chain(5, 0, count[7], "an instrument zone points at generators that do not exist or run backwards"); !why.empty()) return why;
+    for (std::uint64_t i = 0; i < count[3]; ++i)  // preset generators: the instrument must be a real one, not the terminal record
+        if (field(3, i, 0) == 41 && field(3, i, 2) < count[4] && field(3, i, 2) + 1 >= count[4]) return "a preset zone uses the terminal instrument record";
+    for (std::uint64_t i = 0; i < count[7]; ++i)  // instrument generators: the sample header must exist
+        if (field(7, i, 0) == 53 && field(7, i, 2) >= count[8]) return "an instrument zone names a sample header that does not exist";
+    return {};
+}
 
 std::string lower(std::string_view s) {
     std::string out(s);
@@ -49,6 +121,9 @@ Result<Soundfont> Soundfont::load(std::string_view path) {
 Result<Soundfont> Soundfont::from_memory(const std::vector<std::uint8_t>& bytes, std::string_view label) {
     if (bytes.empty() || bytes.size() > 0x7fffffffu)
         return make_error(std::string(label) + ": the SoundFont is " + (bytes.empty() ? "empty" : "too large"), "A SoundFont is a .sf2 file of a few hundred kilobytes to a few hundred megabytes.");
+    if (const std::string why = sf2_problem(bytes); !why.empty())
+        return make_error(std::string(label) + ": the SoundFont is damaged: " + why,
+                          "Download the .sf2 file again or export it again from the SoundFont editor.");
     tsf* font = tsf_load_memory(bytes.data(), int(bytes.size()));
     if (!font)
         return make_error(std::string(label) + ": not a SoundFont 2 file, or it is damaged",

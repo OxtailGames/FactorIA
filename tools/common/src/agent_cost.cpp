@@ -143,7 +143,7 @@ Json agent_cost_read_play_auto(const std::string& text) {
     const std::size_t a = text.find('{');
     const std::size_t b = text.rfind('}');
     Json j;
-    if (a != std::string::npos && b != std::string::npos && b > a) j = Json::parse(text.begin() + static_cast<std::ptrdiff_t>(a), text.begin() + static_cast<std::ptrdiff_t>(b) + 1, nullptr, false);
+    if (a != std::string::npos && b != std::string::npos && b > a) j = parse_json_lenient(std::string_view(text).substr(a, b + 1 - a));
     std::set<std::string> phaseSet, levelSet;
     if (j.is_object() && j.contains("phases") && j["phases"].is_array()) {
         out["parsed"] = true;
@@ -192,7 +192,7 @@ Json agent_cost_report(const AgentCostInput& in) {
             std::size_t eol = in.transcript.find('\n', pos);
             if (eol == std::string::npos) eol = in.transcript.size();
             const bool tooLong = eol - pos > kEfficiencyMaxLine;
-            const Json j = tooLong ? Json() : Json::parse(in.transcript.begin() + static_cast<std::ptrdiff_t>(pos), in.transcript.begin() + static_cast<std::ptrdiff_t>(eol), nullptr, false);
+            const Json j = tooLong ? Json() : parse_json_lenient(std::string_view(in.transcript).substr(pos, eol - pos));
             pos = eol + 1;
             if (!j.is_object()) continue;
             const std::string type = j.value("type", std::string());
@@ -375,7 +375,7 @@ void register_agent_cost_commands(CommandRegistry& registry) {
         if (!fpath.empty()) {
             if (auto f = tooling_detail::read_file(fs::path_from_utf8(fpath))) {
                 const std::size_t a = f->find('{'), b = f->rfind('}');
-                if (a != std::string::npos && b != std::string::npos && b > a) in.finalPlay = Json::parse(f->begin() + static_cast<std::ptrdiff_t>(a), f->begin() + static_cast<std::ptrdiff_t>(b) + 1, nullptr, false);
+                if (a != std::string::npos && b != std::string::npos && b > a) in.finalPlay = parse_json_lenient(std::string_view(*f).substr(a, b + 1 - a));
             }
         }
         in.cli = args.value("cli", std::string("claude"));
