@@ -931,7 +931,7 @@ PathForm classify_path(const std::string& g) {
     if (g.compare(0, 4, "//?/") == 0) return PathForm::LongPath;
     if (g.compare(0, 4, "//./") == 0) return PathForm::DevicePath;
 #ifdef _WIN32
-    if (g.compare(0, 4, "/??/") == 0) return PathForm::DevicePath;  // \??\C:\x, the NT object path: not a file location either
+    if (g.compare(0, 4, "/?\?/") == 0) return PathForm::DevicePath;  // \??\C:\x, the NT object path: not a file location either
 #endif
     if (g.compare(0, 2, "//") == 0) return PathForm::Unc;
     if (g[0] == '/') return PathForm::Rooted;

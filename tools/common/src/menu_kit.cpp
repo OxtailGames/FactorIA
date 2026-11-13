@@ -56,7 +56,7 @@ Result<std::vector<Part>> load_parts() {
             part.files = strings_of(p, "files");
             part.localeKeys = strings_of(p, "localeKeys");
             if (auto pr = p.find("prunes"); pr != p.end() && pr->is_object())
-                for (auto it = pr->begin(); it != pr->end(); ++it) part.prunes[it.key()] = strings_of(*pr, it.key().c_str());
+                for (auto pi = pr->begin(); pi != pr->end(); ++pi) part.prunes[pi.key()] = strings_of(*pr, pi.key().c_str());
             parts.push_back(std::move(part));
         }
     }
@@ -274,7 +274,7 @@ Result<Json> add_menu_kit(const MenuKitOptions& o) {
             settings.push_back("factoria.json: \"localization\" added with the languages " + join(languages, ", ") + " (the kit's texts need a string table).");
         }
         std::map<std::string, Json> kitTables;
-        for (const std::string& tag : {"en", "es", "ar"}) {
+        for (const std::string tag : {"en", "es", "ar"}) {  // a copy: the braces make temporaries
             auto text = bundled_read(std::string(kKitRoot) + "locales/" + tag + ".json");
             if (!text) continue;
             auto doc = parse_json(*text, "templates/menus/locales/" + tag + ".json");

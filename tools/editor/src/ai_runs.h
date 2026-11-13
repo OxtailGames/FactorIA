@@ -115,7 +115,7 @@ public:
     void delegate_event(const ai::AiRunInfo& info, const ai::AgentEvent& ev, long long nowMs);  // shown one level in
     void delegate_process(const ai::AiRunInfo& info, long long pid);
     void delegate_ended(const ai::AiRunInfo& info, bool ok, const std::string& report, const std::string& error, long long nowMs);
-    void process_started(long long pid, const std::string& role);  // the orchestrator's own CLI process
+    void process_started(long long pid, const std::string& procRole);  // the orchestrator's own CLI process
     // The agent thread's session returned `r`. A delegate that still runs is an orphan: its ai_run call will never return its
     // result to anyone, so the run stays active (`detached`) until that worker ends. `detached` is set before `running`
     // drops, so active() never flickers.

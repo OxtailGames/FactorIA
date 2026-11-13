@@ -168,7 +168,7 @@ TEST_CASE("selections: rectangle, add, invert, grow, wand, deselect; each one is
     auto r = p.model->select_rect(4, 4, 8, 8, SelectOp::Replace);
     REQUIRE(r.ok);
     CHECK(r.step > 0);
-    int x, y, w, h;
+    int x = 0, y = 0, w = 0, h = 0;
     REQUIRE(p.model->selection_bounds(x, y, w, h));
     CHECK(std::array<int, 4>{x, y, w, h} == std::array<int, 4>{4, 4, 8, 8});
     CHECK_FALSE(p.model->selection_edges().empty());

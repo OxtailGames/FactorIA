@@ -630,7 +630,6 @@ private:
     GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
 
     struct Impl;
-    Gpu& gpu_;
     std::unique_ptr<Impl> impl_;
     TextureAsset atlasTex_;
 };

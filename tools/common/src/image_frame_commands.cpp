@@ -102,10 +102,16 @@ Json animation_json(const Json& doc) {
 
 // ---- argument helpers -------------------------------------------------------------------------------------------------------------
 
-const Json& need(const Json& a, const char* cmd, const char* key, const char* what, const std::string& example) {
+const Json& need(const Json& a, const char* cmd, const char* key, const char* what, const char* example) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) arg_error(cmd, std::string("/") + key, std::string("`") + key + "` is required: " + what + ".", example);
     return *it;
+}
+
+// For an example built at run time. The `const char*` overload above is the one `const Json& x = need(...)` uses with a literal: a
+// temporary std::string bound to a reference parameter makes GCC's -Wdangling-reference warn there.
+const Json& need(const Json& a, const char* cmd, const char* key, const char* what, const std::string& example) {
+    return need(a, cmd, key, what, example.c_str());
 }
 
 int whole_arg(const Json& a, const char* cmd, const char* key, int lo, int hi, int def) {

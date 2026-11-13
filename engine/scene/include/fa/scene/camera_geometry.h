@@ -47,7 +47,7 @@ struct CameraGeometry {
     // `target` is the size of the target in pixels (CameraTarget::width/height).
     Vec2 world_to_screen(Vec3 p, Vec2 target) const;
     void screen_ray(Vec2 screen, Vec2 target, Vec3& origin, Vec3& dir) const;
-    Vec3 screen_to_world(Vec2 screen, Vec2 target, float depth) const;
+    Vec3 screen_to_world(Vec2 screen, Vec2 target, float planeDepth) const;
 };
 
 // The viewport a camera is drawn with: a valid Camera.viewport as it is, an invalid one (a script can set any value live; the scene

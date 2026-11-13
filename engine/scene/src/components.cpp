@@ -824,7 +824,7 @@ void register_builtin_components(TypeRegistry& r) {
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")
         .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs "
                "are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space "
-               "text is in design pixels (use 1 or more). docs/TEXT.md, \"Text in a 3D scene\".").range(0.001, 4096)
+               "text is in design pixels (use 1 or more). docs/TEXT.md, \"Text in a 3D scene\".").range(0.001f, 4096)
         .field("lit", &Text::lit,
                "World space only: true = the text is shaded by the scene's 3D lights (Light entities and "
                "SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. "
@@ -847,7 +847,7 @@ void register_builtin_components(TypeRegistry& r) {
                "maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is "
                "clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).").range(0, 100000)
         .field("autoShrink", &Text::autoShrink, kAutoShrinkDoc)
-        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(0.001, 4096)
+        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(0.001f, 4096)
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
         .field("markup", &Text::markup, kMarkupDoc)
         .field("bold", &Text::bold, kBoldDoc)

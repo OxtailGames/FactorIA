@@ -677,8 +677,8 @@ Json animate(const std::string& projectDir, const Json& a) {
         ProjectRootGuard root(projectDir);
         const Json entry = assets::entry(stale);
         const auto member = [](const Json& obj, const char* key) { return obj.is_object() && obj.contains(key) ? obj[key] : Json(); };
-        const Json recipe = member(member(entry, "provenance"), "recipe");
-        if (member(recipe, "command") != Json(kCommand) || member(member(recipe, "args"), "path") != Json(rel)) continue;
+        const Json oldRecipe = member(member(entry, "provenance"), "recipe");
+        if (member(oldRecipe, "command") != Json(kCommand) || member(member(oldRecipe, "args"), "path") != Json(rel)) continue;
         std::error_code rm;
         const std::filesystem::path file = project_write_file(projectDir, stale);
         if (stdfs::exists(file, rm) && !fs::remove_file(file, rm)) {

@@ -416,8 +416,8 @@ struct Renderer {
         return {};
     }
 
-    void add_refs(const Node& n, const Walk& w, Walk& next) {
-        next = w;
+    void add_refs(const Node& n, const Walk& parentWalk, Walk& next) {
+        next = parentWalk;
         const std::string cp = prop_of(n, "clip-path");
         if (!cp.empty() && cp != "none") {
             const std::string id = url_id(cp);
@@ -443,15 +443,15 @@ struct Renderer {
         }
     }
 
-    void walk(const Node& parent, const Walk& w) {
+    void walk(const Node& parent, const Walk& outer) {
         for (const auto& k : parent.kids) {
             const Node& n = *k;
             if (n.name.empty() || is_inert(n.name)) continue;
             Walk next;
-            next.path = w.path;
+            next.path = outer.path;
             next.path.push_back(&n);
-            next.clips = w.clips;
-            next.masks = w.masks;
+            next.clips = outer.clips;
+            next.masks = outer.masks;
             Walk withRefs;
             withRefs.path = next.path;
             add_refs(n, next, withRefs);

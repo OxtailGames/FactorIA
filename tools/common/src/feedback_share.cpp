@@ -75,7 +75,7 @@ std::string date_utc(std::int64_t t) {
     const std::int64_t mp = (5 * doy + 2) / 153;
     const std::int64_t d = doy - (153 * mp + 2) / 5 + 1;
     const std::int64_t m = mp < 10 ? mp + 3 : mp - 9;
-    char buf[16];
+    char buf[64];  // the year and the month and the day are 64-bit as far as the compiler knows: room for every digit
     std::snprintf(buf, sizeof buf, "%04lld-%02lld-%02lld", static_cast<long long>(y + (m <= 2)), static_cast<long long>(m),
                   static_cast<long long>(d));
     return buf;

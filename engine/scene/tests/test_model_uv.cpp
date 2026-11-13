@@ -163,7 +163,7 @@ TEST_CASE("box projection: world scale, upright, one chart per connected face") 
     p.size = {2, 1, 0.5f};
     const ModelMesh box = model_box(p);
     ModelUvSettings s = with_method(ModelUvMethod::Box, "tile");
-    s.texelsPerUnit = 100;
+    s.texelsPerUnit = 100.0f;
     s.textureSize = 1024;  // one metre is 100/1024 of the uv range
     const ModelUvResult r = apply_ok(box, s);
     check_same_geometry(box, r.mesh);
@@ -202,7 +202,7 @@ TEST_CASE("cylinder projection: u is the arc length around the axis, v the heigh
     cp.segments = 32;
     const ModelMesh cyl = model_cylinder(cp);
     ModelUvSettings s = with_method(ModelUvMethod::Cylinder, "tile");
-    s.texelsPerUnit = 128;
+    s.texelsPerUnit = 128.0f;
     s.textureSize = 1024;
     const ModelUvResult r = apply_ok(cyl, s);
     check_same_geometry(cyl, r.mesh);
@@ -280,12 +280,12 @@ TEST_CASE("per-part methods and density: each part gets its own projection and i
     const ModelMesh mesh = three_parts(names);
     ModelUvSettings s;
     s.method = ModelUvMethod::Box;
-    s.texelsPerUnit = 64;
+    s.texelsPerUnit = 64.0f;
     ModelUvPartSettings cyl;
     cyl.method = ModelUvMethod::Cylinder;
     ModelUvPartSettings sph;
     sph.method = ModelUvMethod::Sphere;
-    sph.texelsPerUnit = 256;
+    sph.texelsPerUnit = 256.0f;
     s.parts.emplace_back("cylinder", cyl);
     s.parts.emplace_back("sphere", sph);
     const ModelUvResult r = apply_ok(mesh, s, names);
@@ -323,7 +323,7 @@ TEST_CASE("packing: pieces stay apart by the padding and inside the texture") {
     ModelUvSettings s = with_method(ModelUvMethod::Box);
     s.padding = 4;
     s.textureSize = 512;
-    s.texelsPerUnit = 64;
+    s.texelsPerUnit = 64.0f;
     const ModelUvResult r = apply_ok(mesh, s, names);
     CHECK(r.report.textureSize == 512);
     CHECK(r.report.overlap == 0);
@@ -353,9 +353,9 @@ TEST_CASE("packing: pieces stay apart by the padding and inside the texture") {
 TEST_CASE("packing: the texture size is the smallest power of two the pieces fit in, and a bigger density needs a bigger one") {
     const ModelMesh sphere = model_sphere({});
     ModelUvSettings s = with_method(ModelUvMethod::Unwrap);
-    s.texelsPerUnit = 32;
+    s.texelsPerUnit = 32.0f;
     const ModelUvResult small = apply_ok(sphere, s);
-    s.texelsPerUnit = 512;
+    s.texelsPerUnit = 512.0f;
     const ModelUvResult big = apply_ok(sphere, s);
     CHECK(small.report.textureSize < big.report.textureSize);
     CHECK((big.report.textureSize & (big.report.textureSize - 1)) == 0);
@@ -372,14 +372,14 @@ TEST_CASE("density: the style's density is the default, the document's wins, a t
     const ModelUvResult fromStyle = apply_ok(sphere, s, {"a"}, style);
     CHECK(fromStyle.report.texelsPerUnit == doctest::Approx(256));
     CHECK(fromStyle.report.texelsPerMeter == doctest::Approx(256).epsilon(0.1));
-    s.texelsPerUnit = 64;
+    s.texelsPerUnit = 64.0f;
     const ModelUvResult own = apply_ok(sphere, s, {"a"}, style);
     CHECK(own.report.texelsPerUnit == doctest::Approx(64));
     const ModelUvResult none = apply_ok(sphere, with_method(ModelUvMethod::Unwrap));
     CHECK(none.report.texelsPerUnit == doctest::Approx(kModelUvDefaultTexelsPerMeter));
 
     ModelUvSettings tight = with_method(ModelUvMethod::Unwrap);
-    tight.texelsPerUnit = 1024;
+    tight.texelsPerUnit = 1024.0f;
     tight.textureSize = 128;
     const ModelUvResult shrunk = apply_ok(sphere, tight);
     CHECK(shrunk.report.textureSize == 128);
@@ -605,7 +605,7 @@ TEST_CASE("model_uv_settings_json round-trips through the reader") {
     s.layout = "tile";
     s.method = ModelUvMethod::Cylinder;
     s.axis = 'z';
-    s.texelsPerUnit = 90;
+    s.texelsPerUnit = 90.0f;
     s.textureSize = 512;
     s.padding = 3;
     s.seams = "many";
@@ -613,7 +613,7 @@ TEST_CASE("model_uv_settings_json round-trips through the reader") {
     ModelUvPartSettings p;
     p.method = ModelUvMethod::Sphere;
     p.axis = 'x';
-    p.texelsPerUnit = 40;
+    p.texelsPerUnit = 40.0f;
     s.parts.emplace_back("ball", p);
     std::vector<ModelIssue> issues;
     auto back = parse_model_uv(model_uv_settings_json(s), issues);

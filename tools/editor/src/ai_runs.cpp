@@ -84,9 +84,9 @@ void AiRun::delegate_ended(const ai::AiRunInfo& info, bool ok, const std::string
     lastActivityMs = nowMs;
 }
 
-void AiRun::process_started(long long pid, const std::string& role) {
+void AiRun::process_started(long long pid, const std::string& procRole) {
     std::lock_guard<std::mutex> lock(mu);
-    procs.push_back(AiProc{pid, std::string(), role});
+    procs.push_back(AiProc{pid, std::string(), procRole});
 }
 
 void AiRun::turn_ended(ai::SessionResult r) {

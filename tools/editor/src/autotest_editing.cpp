@@ -449,7 +449,7 @@ void Editor::at_section_L(AtScript& at) {
 
         // 5. Reparent by drag and drop.
         step(2, [this] { toasts_.clear(); });
-        step(2, [this, he, position_of] {
+        step(2, [this, he] {
             he->undo = undo_depth();
             he->coinWorld = world().world_position(world().find_by_id("coin_3"));
         });
