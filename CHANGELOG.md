@@ -41,7 +41,7 @@ The whole C++ code base is formatted with `.clang-format` (the commit is listed 
   (silenced around its `#include` only), a missing `<algorithm>` in a core test, `if constexpr` for the build-time
   constants the MSVC compiler reports as constant conditions, and Apple's linker warning about the repeated libraries of
   `fa_bench` and `fa_test_tooling`.
-- Second strict CI run (M93): MSVC's false `C4701` in the vendored dr_wav and qoa (silenced around their `#include`
+- Second strict CI run (M93): MSVC's false `C4701` in the vendored dr_wav, qoa and stb_vorbis (silenced around their `#include`
   only) and a truncating cast in a font test; the fuzz targets' stale-folder cleanup kept a reference into a temporary
   file name (GCC `-Wdangling-reference`, a real bug); the audio tests' allocation counter, which replaces the global
   `operator new`, is off in sanitizer builds, whose runtimes define it too (the TSan link failed); and

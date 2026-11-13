@@ -13,6 +13,7 @@ namespace {
 thread_local bool g_counting = false;
 thread_local std::size_t g_count = 0;
 
+#if !defined(FA_ALLOC_COUNTER_OFF)  // the replacement operators below are the only users
 inline void note() {
     if (g_counting) ++g_count;
 }
@@ -45,6 +46,7 @@ void release_aligned(void* p) {
 #endif
 }
 
+#endif  // !FA_ALLOC_COUNTER_OFF
 }  // namespace
 
 namespace audio_test {
