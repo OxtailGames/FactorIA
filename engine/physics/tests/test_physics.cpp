@@ -2411,7 +2411,58 @@ TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity,
         if (how == 1) {  // the written rotation is the new orientation of the sleeping box
             CHECK(s.world.get<Transform>(boxes[2])->rotation.y == doctest::Approx(20.0f).epsilon(0.02));
         }
-        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.003f);  // and it moves (the pile's friction stops it within 1 cm)
+        // The bottom box leaves at 0.5 m/s and the weight of the two boxes above (friction 0.4 on the floor and on each
+        // other) stops it: it slides 4.9 mm measured; a value far below 4 mm would mean the write was lost.
+        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.004f);
+    }
+}
+
+TEST_CASE("3d sleep: a static collider teleported or created into a sleeping pile wakes it; so does removing its floor") {
+    for (int how = 0; how < 4; ++how) {
+        Sim s;
+        const auto boxes = add_stack(s, 3);
+        Entity wall = add_box3(s.world, "wall", {10, 1.5f, 0}, {1, 1, 1}, BodyType::Static, false);
+        REQUIRE(run_until_asleep(s, "b2", 900));
+        REQUIRE(all_awake(s, 3, false));
+        INFO("action " << how);
+        switch (how) {  // the pile is asleep, so no body of it moves a step: only the sync can notice
+            case 0: s.world.get<Transform>(wall)->position = {0.9f, 1.5f, 0}; break;                   // teleport
+            case 1: add_box3(s.world, "new", {0.9f, 1.5f, 0}, {1, 1, 1}, BodyType::Static, false); break;  // create
+            case 2: s.world.destroy(s.world.find("floor")); break;
+            default: s.world.get<EntityInfo>(s.world.find("floor"))->active = false; break;
+        }
+        s.run(2);
+        CHECK(all_awake(s, 3, true));
+        if (how >= 2) {  // the floor is gone: the whole pile falls
+            s.run(60);
+            CHECK(pos_of(s.world, boxes[0]).y < -3.0f);
+        }
+    }
+}
+
+TEST_CASE("3d settling: a slow body alone on the ground keeps its motion (a puck, a ball rolling down a gentle slope)") {
+    {  // a frictionless box pushed at 0.3 m/s slides on at 0.3 m/s
+        Sim s;
+        Entity floor = add_box3(s.world, "floor", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
+        s.world.get<Collider3D>(floor)->friction = 0.0f;
+        Entity puck = add_box3(s.world, "puck", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        s.world.get<Collider3D>(puck)->friction = 0.0f;
+        s.run(30);
+        s.world.get<RigidBody3D>(puck)->velocity = {0.3f, 0, 0};
+        s.run(120);  // 2 s
+        CHECK(s.world.get<RigidBody3D>(puck)->velocity.x == doctest::Approx(0.3f).epsilon(0.01));
+        CHECK(pos_of(s.world, puck).x == doctest::Approx(0.6f).epsilon(0.05));
+    }
+    {  // a ball on a 3 degree slope accelerates past the 0.5 m/s of the rest damping
+        Sim s;
+        Entity ramp = add_box3(s.world, "ramp", {0, -0.5f, 0}, {80, 1, 20}, BodyType::Static, false);
+        s.world.get<Transform>(ramp)->rotation.z = 3.0f;
+        Entity ball = add_sphere3(s.world, "ball", {0, 0.35f, 0}, 0.3f);
+        s.world.get<RigidBody3D>(ball)->rollWithMotion = false;
+        s.run(240);  // 4 s
+        const Vec3 v = s.world.get<RigidBody3D>(ball)->velocity;
+        INFO("speed " << length(v));
+        CHECK(length(v) > 0.8f);
     }
 }
 

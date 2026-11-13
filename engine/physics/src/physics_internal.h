@@ -321,7 +321,7 @@ private:
         // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
         // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
         bool asleep = false;
-        bool moved = false;  // gameplay teleported this body since the last step: it wakes whatever it now touches
+        bool moved = false;  // gameplay teleported or created this body since the last step: it wakes whatever it now touches
         float sleepTime = 0.0f;
         std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;

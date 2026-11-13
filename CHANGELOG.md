@@ -61,12 +61,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   manifold's coupling), so the result no longer leans a stack toward the first corner of its manifolds. A soft contact sags
   under load by weight / stiffness (about 1.5 cm per joint at the bottom of a column of 100 boxes, 0.8% of its height). A
   column of 100 boxes (spacing 1.02) stands and sleeps after 240 steps, one of 50 after 140 (neither leans: drift 0.000),
-  and a walled pit of 1000 spheres, capsules and boxes is asleep after about 800 steps (the scale tests no longer
-  `may_fail`). Three more changes made the pit sleep: a loaded body that is slow and rotating loses speed (`kRestDamping`),
-  so a capsule rolling on a pile stops; a pile of N bodies may fall asleep with up to N / 64 of them still creeping slower
+  and a walled pit of 1000 spheres, capsules and boxes is asleep after about 1600 steps (the scale tests no longer
+  `may_fail`). Three more changes made the pit sleep: a slow rotating body pressed against another dynamic body loses
+  speed (`kRestDamping`), so a capsule rolling on a pile stops (a body alone on the ground keeps its motion); a pile of N bodies may fall asleep with up to N / 64 of them still creeping slower
   than 0.3 m/s (a pile of a thousand never stops completely); and a capsule no longer wakes itself every step (the
   signature that detects an edited collider compared its length exactly, and it wobbles in the last bits while the capsule
-  turns a hair, which reset its sleep timer). A world with nothing awake skips the sub-steps and the broad phase: a step of
+  turns a hair, which reset its sleep timer). A world with nothing awake skips the sub-steps and the broad phase (unless gameplay created or teleported a static or
+  kinematic body in that step, which wakes the pile it lands in): a step of
   the sleeping pit costs 0.4 ms (it cost 16 ms). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
   `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads); the
   examples' graphics hashes and perf budgets did not. Measured (Release, macOS, medians in ms, before / after):
